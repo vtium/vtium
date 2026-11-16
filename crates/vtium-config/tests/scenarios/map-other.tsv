@@ -1684,46 +1684,18 @@ other settings(value) +unsaved +pending	i	other settings(value) +pending	save, p
 other settings(value) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other settings(value) +unsaved +pending	s	other settings(value) +pending	save
 other settings.section.typing	Ctrl-C	other left	exit 130
-other settings.section.typing	Ctrl-D	other settings(value)	
-other settings.section.typing	End	other settings(value)	
 other settings.section.typing	Enter	other settings(value) +unsaved	check
 other settings.section.typing	Esc	other settings(value)	
-other settings.section.typing	Home	other settings(value)	
-other settings.section.typing	Left	other settings(value)	
-other settings.section.typing	PgDn	other settings(value)	
-other settings.section.typing	PgUp	other settings(value)	
-other settings.section.typing	Right	other settings(value)	
 other settings.section.typing	Shrink	other any.too-small	
 other settings.section.typing +pending	Ctrl-C	other left	exit 130
-other settings.section.typing +pending	Ctrl-D	other settings(value) +pending	
-other settings.section.typing +pending	End	other settings(value) +pending	
 other settings.section.typing +pending	Enter	other settings(value) +unsaved +pending	check
 other settings.section.typing +pending	Esc	other settings(value) +pending	
-other settings.section.typing +pending	Home	other settings(value) +pending	
-other settings.section.typing +pending	Left	other settings(value) +pending	
-other settings.section.typing +pending	PgDn	other settings(value) +pending	
-other settings.section.typing +pending	PgUp	other settings(value) +pending	
-other settings.section.typing +pending	Right	other settings(value) +pending	
 other settings.section.typing +pending	Shrink	other any.too-small +pending	
 other settings.section.typing +unsaved	Ctrl-C	other left	save, exit 130
-other settings.section.typing +unsaved	Ctrl-D	other settings(value) +unsaved	
-other settings.section.typing +unsaved	End	other settings(value) +unsaved	
 other settings.section.typing +unsaved	Enter	other settings(value) +unsaved	check
 other settings.section.typing +unsaved	Esc	other settings(value) +unsaved	
-other settings.section.typing +unsaved	Home	other settings(value) +unsaved	
-other settings.section.typing +unsaved	Left	other settings(value) +unsaved	
-other settings.section.typing +unsaved	PgDn	other settings(value) +unsaved	
-other settings.section.typing +unsaved	PgUp	other settings(value) +unsaved	
-other settings.section.typing +unsaved	Right	other settings(value) +unsaved	
 other settings.section.typing +unsaved	Shrink	other any.too-small +unsaved	
 other settings.section.typing +unsaved +pending	Ctrl-C	other left	save, exit 130
-other settings.section.typing +unsaved +pending	Ctrl-D	other settings(value) +unsaved +pending	
-other settings.section.typing +unsaved +pending	End	other settings(value) +unsaved +pending	
 other settings.section.typing +unsaved +pending	Enter	other settings(value) +unsaved +pending	check
 other settings.section.typing +unsaved +pending	Esc	other settings(value) +unsaved +pending	
-other settings.section.typing +unsaved +pending	Home	other settings(value) +unsaved +pending	
-other settings.section.typing +unsaved +pending	Left	other settings(value) +unsaved +pending	
-other settings.section.typing +unsaved +pending	PgDn	other settings(value) +unsaved +pending	
-other settings.section.typing +unsaved +pending	PgUp	other settings(value) +unsaved +pending	
-other settings.section.typing +unsaved +pending	Right	other settings(value) +unsaved +pending	
 other settings.section.typing +unsaved +pending	Shrink	other any.too-small +unsaved +pending	

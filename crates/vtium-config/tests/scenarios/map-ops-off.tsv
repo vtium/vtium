@@ -1719,46 +1719,18 @@ ops-off settings(value) +unsaved +pending	o	ops-off settings(value) +unsaved +pe
 ops-off settings(value) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off settings(value) +unsaved +pending	s	ops-off settings(value) +pending	save
 ops-off settings.section.typing	Ctrl-C	ops-off left	exit 130
-ops-off settings.section.typing	Ctrl-D	ops-off settings(value)	
-ops-off settings.section.typing	End	ops-off settings(value)	
 ops-off settings.section.typing	Enter	ops-off settings(value) +unsaved	check
 ops-off settings.section.typing	Esc	ops-off settings(value)	
-ops-off settings.section.typing	Home	ops-off settings(value)	
-ops-off settings.section.typing	Left	ops-off settings(value)	
-ops-off settings.section.typing	PgDn	ops-off settings(value)	
-ops-off settings.section.typing	PgUp	ops-off settings(value)	
-ops-off settings.section.typing	Right	ops-off settings(value)	
 ops-off settings.section.typing	Shrink	ops-off any.too-small	
 ops-off settings.section.typing +pending	Ctrl-C	ops-off left	exit 130
-ops-off settings.section.typing +pending	Ctrl-D	ops-off settings(value) +pending	
-ops-off settings.section.typing +pending	End	ops-off settings(value) +pending	
 ops-off settings.section.typing +pending	Enter	ops-off settings(value) +unsaved +pending	check
 ops-off settings.section.typing +pending	Esc	ops-off settings(value) +pending	
-ops-off settings.section.typing +pending	Home	ops-off settings(value) +pending	
-ops-off settings.section.typing +pending	Left	ops-off settings(value) +pending	
-ops-off settings.section.typing +pending	PgDn	ops-off settings(value) +pending	
-ops-off settings.section.typing +pending	PgUp	ops-off settings(value) +pending	
-ops-off settings.section.typing +pending	Right	ops-off settings(value) +pending	
 ops-off settings.section.typing +pending	Shrink	ops-off any.too-small +pending	
 ops-off settings.section.typing +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off settings.section.typing +unsaved	Ctrl-D	ops-off settings(value) +unsaved	
-ops-off settings.section.typing +unsaved	End	ops-off settings(value) +unsaved	
 ops-off settings.section.typing +unsaved	Enter	ops-off settings(value) +unsaved	check
 ops-off settings.section.typing +unsaved	Esc	ops-off settings(value) +unsaved	
-ops-off settings.section.typing +unsaved	Home	ops-off settings(value) +unsaved	
-ops-off settings.section.typing +unsaved	Left	ops-off settings(value) +unsaved	
-ops-off settings.section.typing +unsaved	PgDn	ops-off settings(value) +unsaved	
-ops-off settings.section.typing +unsaved	PgUp	ops-off settings(value) +unsaved	
-ops-off settings.section.typing +unsaved	Right	ops-off settings(value) +unsaved	
 ops-off settings.section.typing +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off settings.section.typing +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off settings.section.typing +unsaved +pending	Ctrl-D	ops-off settings(value) +unsaved +pending	
-ops-off settings.section.typing +unsaved +pending	End	ops-off settings(value) +unsaved +pending	
 ops-off settings.section.typing +unsaved +pending	Enter	ops-off settings(value) +unsaved +pending	check
 ops-off settings.section.typing +unsaved +pending	Esc	ops-off settings(value) +unsaved +pending	
-ops-off settings.section.typing +unsaved +pending	Home	ops-off settings(value) +unsaved +pending	
-ops-off settings.section.typing +unsaved +pending	Left	ops-off settings(value) +unsaved +pending	
-ops-off settings.section.typing +unsaved +pending	PgDn	ops-off settings(value) +unsaved +pending	
-ops-off settings.section.typing +unsaved +pending	PgUp	ops-off settings(value) +unsaved +pending	
-ops-off settings.section.typing +unsaved +pending	Right	ops-off settings(value) +unsaved +pending	
 ops-off settings.section.typing +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	

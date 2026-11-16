@@ -148,10 +148,12 @@ vtium any.too-small +unsaved +pending	q	vtium any.question.leave below 80×25 +u
 vtium any.trial	Backspace	vtium fonts(frit)	switch
 vtium any.trial	Ctrl-C	vtium left	switch, exit 130
 vtium any.trial	Ctrl-D	vtium fonts(frit)	switch
+vtium any.trial	Ctrl-U	vtium fonts(frit)	switch
 vtium any.trial	Down	vtium fonts(frit)	switch
 vtium any.trial	End	vtium fonts(frit)	switch
 vtium any.trial	Enter	vtium fonts(frit)	switch
 vtium any.trial	Esc	vtium fonts(frit)	switch
+vtium any.trial	G	vtium fonts(frit)	switch
 vtium any.trial	Home	vtium fonts(frit)	switch
 vtium any.trial	Left	vtium fonts(frit)	switch
 vtium any.trial	PgDn	vtium fonts(frit)	switch
@@ -165,7 +167,10 @@ vtium any.trial	Up	vtium fonts(frit)	switch
 vtium any.trial	a	vtium fonts(frit)	switch
 vtium any.trial	d	vtium fonts(frit)	switch
 vtium any.trial	e	vtium fonts(frit)	switch
+vtium any.trial	g	vtium fonts(frit)	switch
+vtium any.trial	h	vtium fonts(frit)	switch
 vtium any.trial	i	vtium fonts(frit)	switch
+vtium any.trial	j	vtium fonts(frit)	switch
 vtium any.trial	k	vtium fonts(frit)	
 vtium any.trial	l	vtium fonts(frit)	switch
 vtium any.trial	n	vtium fonts(frit)	switch
@@ -184,10 +189,12 @@ vtium any.trial	z	vtium fonts(frit)	switch
 vtium any.trial +pending	Backspace	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Ctrl-C	vtium left	switch, exit 130
 vtium any.trial +pending	Ctrl-D	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Ctrl-U	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Down	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	End	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Enter	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Esc	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	G	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Home	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Left	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	PgDn	vtium fonts(marked) +pending	switch
@@ -201,7 +208,10 @@ vtium any.trial +pending	Up	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	a	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	d	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	e	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	g	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	h	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	i	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	j	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	k	vtium fonts(marked) +pending	
 vtium any.trial +pending	l	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	n	vtium fonts(marked) +pending	switch
@@ -220,10 +230,12 @@ vtium any.trial +pending	z	vtium fonts(marked) +pending	switch
 vtium any.trial +unsaved	Backspace	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Ctrl-C	vtium left	save, switch, exit 130
 vtium any.trial +unsaved	Ctrl-D	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Ctrl-U	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Down	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	End	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Enter	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Esc	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	G	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Home	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Left	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	PgDn	vtium fonts(frit) +unsaved	switch
@@ -237,7 +249,10 @@ vtium any.trial +unsaved	Up	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	a	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	d	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	e	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	g	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	h	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	i	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	j	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	k	vtium fonts(frit) +unsaved	
 vtium any.trial +unsaved	l	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	n	vtium fonts(frit) +unsaved	switch
@@ -256,10 +271,12 @@ vtium any.trial +unsaved	z	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved +pending	Backspace	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Ctrl-C	vtium left	save, switch, exit 130
 vtium any.trial +unsaved +pending	Ctrl-D	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Ctrl-U	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Down	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	End	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Enter	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Esc	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	G	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Home	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Left	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	PgDn	vtium fonts(marked) +unsaved +pending	switch
@@ -273,7 +290,10 @@ vtium any.trial +unsaved +pending	Up	vtium fonts(marked) +unsaved +pending	switc
 vtium any.trial +unsaved +pending	a	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	d	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	e	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	g	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	h	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	i	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	j	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	k	vtium fonts(marked) +unsaved +pending	
 vtium any.trial +unsaved +pending	l	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	n	vtium fonts(marked) +unsaved +pending	switch
@@ -292,10 +312,12 @@ vtium any.trial +unsaved +pending	z	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial below 80×25	Backspace	vtium any.too-small	switch
 vtium any.trial below 80×25	Ctrl-C	vtium left	switch, exit 130
 vtium any.trial below 80×25	Ctrl-D	vtium any.too-small	switch
+vtium any.trial below 80×25	Ctrl-U	vtium any.too-small	switch
 vtium any.trial below 80×25	Down	vtium any.too-small	switch
 vtium any.trial below 80×25	End	vtium any.too-small	switch
 vtium any.trial below 80×25	Enter	vtium any.too-small	switch
 vtium any.trial below 80×25	Esc	vtium any.too-small	switch
+vtium any.trial below 80×25	G	vtium any.too-small	switch
 vtium any.trial below 80×25	Grow	vtium any.trial	
 vtium any.trial below 80×25	Home	vtium any.too-small	switch
 vtium any.trial below 80×25	Left	vtium any.too-small	switch
@@ -309,7 +331,10 @@ vtium any.trial below 80×25	Up	vtium any.too-small	switch
 vtium any.trial below 80×25	a	vtium any.too-small	switch
 vtium any.trial below 80×25	d	vtium any.too-small	switch
 vtium any.trial below 80×25	e	vtium any.too-small	switch
+vtium any.trial below 80×25	g	vtium any.too-small	switch
+vtium any.trial below 80×25	h	vtium any.too-small	switch
 vtium any.trial below 80×25	i	vtium any.too-small	switch
+vtium any.trial below 80×25	j	vtium any.too-small	switch
 vtium any.trial below 80×25	k	vtium any.too-small	
 vtium any.trial below 80×25	l	vtium any.too-small	switch
 vtium any.trial below 80×25	n	vtium any.too-small	switch
@@ -328,10 +353,12 @@ vtium any.trial below 80×25	z	vtium any.too-small	switch
 vtium any.trial below 80×25 +pending	Backspace	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Ctrl-C	vtium left	switch, exit 130
 vtium any.trial below 80×25 +pending	Ctrl-D	vtium any.too-small +pending	switch
+vtium any.trial below 80×25 +pending	Ctrl-U	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Down	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	End	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Enter	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Esc	vtium any.too-small +pending	switch
+vtium any.trial below 80×25 +pending	G	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Grow	vtium any.trial +pending	
 vtium any.trial below 80×25 +pending	Home	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Left	vtium any.too-small +pending	switch
@@ -345,7 +372,10 @@ vtium any.trial below 80×25 +pending	Up	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	a	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	d	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	e	vtium any.too-small +pending	switch
+vtium any.trial below 80×25 +pending	g	vtium any.too-small +pending	switch
+vtium any.trial below 80×25 +pending	h	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	i	vtium any.too-small +pending	switch
+vtium any.trial below 80×25 +pending	j	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	k	vtium any.too-small +pending	
 vtium any.trial below 80×25 +pending	l	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	n	vtium any.too-small +pending	switch
@@ -364,10 +394,12 @@ vtium any.trial below 80×25 +pending	z	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +unsaved	Backspace	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Ctrl-C	vtium left	save, switch, exit 130
 vtium any.trial below 80×25 +unsaved	Ctrl-D	vtium any.too-small +unsaved	switch
+vtium any.trial below 80×25 +unsaved	Ctrl-U	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Down	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	End	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Enter	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Esc	vtium any.too-small +unsaved	switch
+vtium any.trial below 80×25 +unsaved	G	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Grow	vtium any.trial +unsaved	
 vtium any.trial below 80×25 +unsaved	Home	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Left	vtium any.too-small +unsaved	switch
@@ -381,7 +413,10 @@ vtium any.trial below 80×25 +unsaved	Up	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	a	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	d	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	e	vtium any.too-small +unsaved	switch
+vtium any.trial below 80×25 +unsaved	g	vtium any.too-small +unsaved	switch
+vtium any.trial below 80×25 +unsaved	h	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	i	vtium any.too-small +unsaved	switch
+vtium any.trial below 80×25 +unsaved	j	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	k	vtium any.too-small +unsaved	
 vtium any.trial below 80×25 +unsaved	l	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	n	vtium any.too-small +unsaved	switch
@@ -400,10 +435,12 @@ vtium any.trial below 80×25 +unsaved	z	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved +pending	Backspace	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Ctrl-C	vtium left	save, switch, exit 130
 vtium any.trial below 80×25 +unsaved +pending	Ctrl-D	vtium any.too-small +unsaved +pending	switch
+vtium any.trial below 80×25 +unsaved +pending	Ctrl-U	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Down	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	End	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Enter	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Esc	vtium any.too-small +unsaved +pending	switch
+vtium any.trial below 80×25 +unsaved +pending	G	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Grow	vtium any.trial +unsaved +pending	
 vtium any.trial below 80×25 +unsaved +pending	Home	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Left	vtium any.too-small +unsaved +pending	switch
@@ -417,7 +454,10 @@ vtium any.trial below 80×25 +unsaved +pending	Up	vtium any.too-small +unsaved +
 vtium any.trial below 80×25 +unsaved +pending	a	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	d	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	e	vtium any.too-small +unsaved +pending	switch
+vtium any.trial below 80×25 +unsaved +pending	g	vtium any.too-small +unsaved +pending	switch
+vtium any.trial below 80×25 +unsaved +pending	h	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	i	vtium any.too-small +unsaved +pending	switch
+vtium any.trial below 80×25 +unsaved +pending	j	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	k	vtium any.too-small +unsaved +pending	
 vtium any.trial below 80×25 +unsaved +pending	l	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	n	vtium any.too-small +unsaved +pending	switch
@@ -1978,46 +2018,18 @@ vtium settings(value) +unsaved +pending	i	vtium settings(value) +pending	save, p
 vtium settings(value) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium settings(value) +unsaved +pending	s	vtium settings(value) +pending	save
 vtium settings.section.typing	Ctrl-C	vtium left	exit 130
-vtium settings.section.typing	Ctrl-D	vtium settings(value)	
-vtium settings.section.typing	End	vtium settings(value)	
 vtium settings.section.typing	Enter	vtium settings(value) +unsaved	check
 vtium settings.section.typing	Esc	vtium settings(value)	
-vtium settings.section.typing	Home	vtium settings(value)	
-vtium settings.section.typing	Left	vtium settings(value)	
-vtium settings.section.typing	PgDn	vtium settings(value)	
-vtium settings.section.typing	PgUp	vtium settings(value)	
-vtium settings.section.typing	Right	vtium settings(value)	
 vtium settings.section.typing	Shrink	vtium any.too-small	
 vtium settings.section.typing +pending	Ctrl-C	vtium left	exit 130
-vtium settings.section.typing +pending	Ctrl-D	vtium settings(value) +pending	
-vtium settings.section.typing +pending	End	vtium settings(value) +pending	
 vtium settings.section.typing +pending	Enter	vtium settings(value) +unsaved +pending	check
 vtium settings.section.typing +pending	Esc	vtium settings(value) +pending	
-vtium settings.section.typing +pending	Home	vtium settings(value) +pending	
-vtium settings.section.typing +pending	Left	vtium settings(value) +pending	
-vtium settings.section.typing +pending	PgDn	vtium settings(value) +pending	
-vtium settings.section.typing +pending	PgUp	vtium settings(value) +pending	
-vtium settings.section.typing +pending	Right	vtium settings(value) +pending	
 vtium settings.section.typing +pending	Shrink	vtium any.too-small +pending	
 vtium settings.section.typing +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium settings.section.typing +unsaved	Ctrl-D	vtium settings(value) +unsaved	
-vtium settings.section.typing +unsaved	End	vtium settings(value) +unsaved	
 vtium settings.section.typing +unsaved	Enter	vtium settings(value) +unsaved	check
 vtium settings.section.typing +unsaved	Esc	vtium settings(value) +unsaved	
-vtium settings.section.typing +unsaved	Home	vtium settings(value) +unsaved	
-vtium settings.section.typing +unsaved	Left	vtium settings(value) +unsaved	
-vtium settings.section.typing +unsaved	PgDn	vtium settings(value) +unsaved	
-vtium settings.section.typing +unsaved	PgUp	vtium settings(value) +unsaved	
-vtium settings.section.typing +unsaved	Right	vtium settings(value) +unsaved	
 vtium settings.section.typing +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium settings.section.typing +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium settings.section.typing +unsaved +pending	Ctrl-D	vtium settings(value) +unsaved +pending	
-vtium settings.section.typing +unsaved +pending	End	vtium settings(value) +unsaved +pending	
 vtium settings.section.typing +unsaved +pending	Enter	vtium settings(value) +unsaved +pending	check
 vtium settings.section.typing +unsaved +pending	Esc	vtium settings(value) +unsaved +pending	
-vtium settings.section.typing +unsaved +pending	Home	vtium settings(value) +unsaved +pending	
-vtium settings.section.typing +unsaved +pending	Left	vtium settings(value) +unsaved +pending	
-vtium settings.section.typing +unsaved +pending	PgDn	vtium settings(value) +unsaved +pending	
-vtium settings.section.typing +unsaved +pending	PgUp	vtium settings(value) +unsaved +pending	
-vtium settings.section.typing +unsaved +pending	Right	vtium settings(value) +unsaved +pending	
 vtium settings.section.typing +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
