@@ -321,7 +321,9 @@ Behind a bitmap text font, the icons of an outline symbols font draw 1-bit, so t
 
 ### D5: a font set is built from a text font and layers
 
-A **layer** is a file that adds sources for one role. It lives in the `layers/` folder of the frits' directory as `NAME.vtlayer`. Its first key, `role=`, names its role: `script`, `symbols`, `emoji` or `fallback`. Its other lines are `source=` lines and the keys that describe a source: `cover=`, `fit=`, `render=`, `style=`, and the five keys of D7.
+A **layer** is a file that adds sources for one role. It lives in the `layers/` folder of the frits' directory as `NAME.vtlayer`. Its first key, `role=`, names its role: `script`, `symbols`, `emoji` or `fallback`. Its other lines are `source=` lines and the keys that describe a source: `cover=`, `fit=`, `render=`, `style=`, `strike=`, and the four keys of D7.
+
+> Edited 2026-11-16: D7 names four keys, `version=`, `check=`, `sha256=` and `url=`, so this sentence says four where it said five. `strike=` joins the list, because a layer's outline source takes it as a set's does. The five new keys that the Summary and the Consequences count are D7's four and D2's `strike=`.
 
 A font set adds a layer with a `layer=NAME` line. vtium reads the set's lines in order and puts the layer's sources in place of that line. A layer holds sources alone. The set's own keys, such as `cell=`, `size=` and `line-spacing=`, apply to every source, the layers' included.
 
