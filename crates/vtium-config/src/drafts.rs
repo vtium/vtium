@@ -160,8 +160,15 @@ impl Checked {
     /// References:
     /// - ADR-1204 D7: check-config names each missing font.
     pub fn clears(&self) -> bool {
-        self.passed || blocking(&self.problems).next().is_none()
+        self.passed || only_missing_fonts(&self.problems)
     }
+}
+
+/// Whether the problems `lines` that a failed check printed are all
+/// warnings on missing fonts, and there is at least one. A check that
+/// failed and printed nothing it counts is no pass.
+pub fn only_missing_fonts<S: AsRef<str>>(lines: &[S]) -> bool {
+    counted(lines).next().is_some() && blocking(lines).next().is_none()
 }
 
 /// The problem lines that stop an install: those [`counted`] counts, but

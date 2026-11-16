@@ -797,11 +797,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             Ok(()) => {}
             // a missing font is a warning that never stops an install: it
             // is shown, and the draft installs
-            Err(said)
-                if crate::drafts::blocking(&said.lines().collect::<Vec<_>>())
-                    .next()
-                    .is_none() =>
-            {
+            Err(said) if crate::drafts::only_missing_fonts(&said.lines().collect::<Vec<_>>()) => {
                 for line in said.lines() {
                     let _ = writeln!(out, "{line}");
                 }
