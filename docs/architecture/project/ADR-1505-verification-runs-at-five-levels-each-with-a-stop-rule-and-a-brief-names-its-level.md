@@ -56,6 +56,9 @@ considered:
   - operator: aaronsb
     said: "scoped at merge, full after"
     via: the steering session's question on 2026-11-16, 'Where do the two reviews sit?'
+  - operator: aaronsb
+    said: "the reason I remind of that flow is that it consumes an unusual amount of time and tokens to perform full reviews otherwise."
+    via: the steering session, 2026-11-16, after the amendment on how a wave's code is reviewed
 ---
 
 # ADR-1505: Verification runs at five levels, each with a stop rule, and a brief names its level
@@ -86,7 +89,7 @@ Terms used below. A level is a place in the work where a defined set of checks r
 
 On 2026-11-14 the maintainer decided how a wave's cards are verified (the sixth `considered` entry). A card does not run a full verification of its own. Each card proves only the capability it adds. The steering session assembles the wave's cards, verifies them together, then integrates and stages them. The maintainer judges each new capability by eye, and the automated scenario tests keep checking it. With those verdicts set, fresh agents check each capability's code paths, its implementation, its safety and security, and its performance. The maintainer said "I can be a path to judge the capability": the maintainer's verdict comes first, and the code review follows it.
 
-On 2026-11-16 the maintainer corrected how the record had read those words. The seventh `considered` entry, the steering session's paraphrase of the maintainer's answers, gave every card a full code review of its own after the verdict, and AGENTS.md followed it. The maintainer's own words of 2026-11-14 ask for something else: the steering session verifies the capabilities the cards add while it assembles them, and after the verdict the agents verify the code. The maintainer said that a full review of each branch is not always needed: each card gets a scoped review, the cards are integrated, and one full review then runs on the integrated code, and its findings are fixed. The scoped review runs at the merge into the candidate, and the full review after the verdict.
+On 2026-11-16 the maintainer corrected how the record had read those words. The seventh `considered` entry, the steering session's paraphrase of the maintainer's answers, gave every card a full code review of its own after the verdict, and AGENTS.md followed it. The maintainer's own words of 2026-11-14 ask for something else: the steering session verifies the capabilities the cards add while it assembles them, and after the verdict the agents verify the code. The maintainer said that a full review of each branch is not always needed: each card gets a scoped review, the cards are integrated, and one full review then runs on the integrated code, and its findings are fixed. The scoped review runs at the merge into the candidate, and the full review after the verdict. The maintainer's reason is cost: a full review of every card takes an unusual amount of time and tokens (the tenth `considered` entry).
 
 ## Decision
 
