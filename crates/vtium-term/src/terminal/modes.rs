@@ -258,7 +258,7 @@ pub(crate) static MODES: &[Row] = &[
     row!(DEC, 7, "DECAWM", Supported, SET, Soft, Nothing, "", "ctlseqs; VT510; DECSTR sets it, where the VT510 manual's DECSTR table gives no autowrap: xterm's terminfo entries send DECSTR in is2 and rs2 and declare `am`, so following the table would leave the terminal without autowrap after `tput init` or `tput reset` while its entry says it wraps", &["modes.rs::decawm_wraps_at_the_last_column", "modes.rs::decstr_leaves_autowrap_on"], Some(Mode::Decawm)),
     row!(DEC, 8, "DECARM", Supported, SET, Soft, Input, "", "ctlseqs; VT510; the host repeats a held key, and stops while it is reset", &["modes.rs::decarm_tells_the_host_to_repeat_keys"], Some(Mode::Decarm)),
     row!(DEC, 9, "X10MOUSE", Supported, RESET, Soft, Input, "", "ctlseqs, X10 mouse; DECSTR resets it, where xterm resets it on RIS only", MOUSE, Some(Mode::X10Mouse)),
-    row!(DEC, 12, "CURBLINK", Supported, Initial::Host("the host's cursor blink"), Soft, Nothing, "", "ctlseqs, AT&T 610 cursor blink; held in a DECSCUSR style, while the default style blinks as the host's setting says", &["modes.rs::mode_12_blinks_a_chosen_cursor_style"], Some(Mode::CursorBlink)),
+    row!(DEC, 12, "CURBLINK", Supported, Initial::Host("the host's cursor blink"), Soft, Nothing, "", "ctlseqs, AT&T 610 cursor blink; held in a DECSCUSR style, and on the starting block, which blinks as the host's setting says, set or reset makes a block that blinks or stays steady", &["modes.rs::mode_12_blinks_a_chosen_cursor_style", "modes.rs::mode_12_acts_on_the_starting_cursor"], Some(Mode::CursorBlink)),
     row!(DEC, 18, "DECPFF", Ignored, RESET, Never, Nothing, "", "ctlseqs; VT510; a console has no printer", FIXED, None),
     row!(DEC, 19, "DECPEX", Ignored, RESET, Never, Nothing, "", "ctlseqs; VT510; a console has no printer", FIXED, None),
     row!(DEC, 25, "DECTCEM", Supported, SET, Soft, Nothing, "civis cnorm", "ctlseqs; VT510", &["modes.rs::dectcem_shows_and_hides_the_cursor"], Some(Mode::Dectcem)),
@@ -586,10 +586,8 @@ impl State {
             Mode::NormalMouse => self.track(MouseTracking::Normal, on),
             Mode::ButtonMouse => self.track(MouseTracking::Button, on),
             Mode::AnyMouse => self.track(MouseTracking::Any, on),
-            // Under the default style SM and RM leave the cursor as the
-            // host blinks it.
             Mode::CursorBlink => {
-                let style = self.cursor_style.with_blink(on);
+                let style = self.cursor_style.with_blink(on, self.host.cursor_blink);
                 self.set_cursor_style(style);
             }
             Mode::Dectcem => self.screen.set_cursor_visible(on),
@@ -987,17 +985,21 @@ impl CursorStyle {
         )
     }
 
-    /// The style in the same shape, blinking or steady; the default style
-    /// stays as it is.
-    fn with_blink(self, on: bool) -> Self {
+    /// The style in the same shape, blinking when `on` and steady when
+    /// not. The default style is a block that blinks as the host says
+    /// (`host`), so it stays when `on` matches the host, and otherwise
+    /// becomes a block that blinks or stays steady as `on` says.
+    fn with_blink(self, on: bool, host: bool) -> Self {
         match (self, on) {
+            (Self::Default, _) if on == host => Self::Default,
+            (Self::Default, true) => Self::BlockBlink,
+            (Self::Default, false) => Self::BlockSteady,
             (Self::BlockBlink | Self::BlockSteady, true) => Self::BlockBlink,
             (Self::BlockBlink | Self::BlockSteady, false) => Self::BlockSteady,
             (Self::UnderlineBlink | Self::UnderlineSteady, true) => Self::UnderlineBlink,
             (Self::UnderlineBlink | Self::UnderlineSteady, false) => Self::UnderlineSteady,
             (Self::BarBlink | Self::BarSteady, true) => Self::BarBlink,
             (Self::BarBlink | Self::BarSteady, false) => Self::BarSteady,
-            (Self::Default, _) => Self::Default,
         }
     }
 }
