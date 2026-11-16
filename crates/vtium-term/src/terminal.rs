@@ -50,6 +50,7 @@ use crate::style::{Attrs, Style};
 use crate::termcap::Termcap;
 
 pub use blank::{BlankRequest, BlankTimeout};
+pub use clipboard::clipboard_len;
 pub use display::DisplayRequest;
 pub use input::{Key, KeyEvent, Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;

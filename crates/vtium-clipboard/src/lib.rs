@@ -129,24 +129,12 @@ pub fn read_text(input: impl Read) -> io::Result<Text> {
     })
 }
 
-/// The length of `text` as vtium keeps it in its clipboard. vtium reads
-/// the copy as UTF-8 and puts the replacement character U+FFFD, which
-/// takes 3 bytes in UTF-8, in place of each maximal subpart that is not
-/// valid UTF-8, as Unicode's "U+FFFD Substitution of Maximal Subparts"
-/// says. It drops a copy whose text then passes [`CLIPBOARD_MAX`]. Valid
-/// UTF-8 keeps its length, and a byte that is not valid UTF-8 can become 3
-/// bytes, so text that fits as it is may not fit once replaced.
-///
-/// `str::Utf8Chunks` splits the bytes at the same maximal subparts that
-/// vtium-term replaces, and a test feeds the bytes at the bound to
-/// vtium-term to check that the two agree.
-pub fn kept_len(text: &[u8]) -> usize {
-    text.utf8_chunks().fold(0, |len, chunk| {
-        let replaced = if chunk.invalid().is_empty() { 0 } else { 3 };
-        len.saturating_add(chunk.valid().len())
-            .saturating_add(replaced)
-    })
-}
+/// The length of a text as vtium keeps it in its clipboard, once vtium has
+/// replaced each part that is not valid UTF-8 with U+FFFD. Text that fits
+/// [`CLIPBOARD_MAX`] as it is may not fit once replaced. The program counts
+/// the length with vtium-term's own function, so it refuses exactly the
+/// texts that vtium would drop.
+pub use vtium_term::clipboard_len as kept_len;
 
 /// What the terminal's replies say, as far as they have come.
 #[derive(Debug, PartialEq, Eq)]
