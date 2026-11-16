@@ -78,6 +78,9 @@ considered:
   - operator: aaronsb
     said: "Screen column (Recommended)"
     via: "the steering session's question tool on 2026-11-14: which column a mouse report names on a double-width line"
+  - operator: aaronsb
+    said: "Scaled with the text"
+    via: the steering session's question tool on 2026-11-16, after the code review of the work that builds OSC 66 found a run's decorations drawn at the normal size on every row of its block
 status: accepted
 date: 2026-11-14
 deciders:
@@ -247,6 +250,9 @@ A ligature is a shape that a font draws in place of several characters. vtium dr
 - **A bitmap font doubles its pixels.** A bitmap source draws at s times its own size by whole factors, every pixel fully on or off, as the DEC terminals drew double-size text. A fraction draws the 1-bit glyph at n/d of that size, by ADR-1202's scaling of a bitmap glyph to a smaller size. A built-in font draws the same way in the console, while the helper has not answered and where no helper runs.
 - **A color glyph** is scaled smoothly to the block, as a color glyph is scaled elsewhere.
 - **Text wider than its block.** Where the text's advance at that size is wider than the block, the helper draws the text smaller, keeping its shape, until it fits, as the protocol allows. It stands on the block's baseline. With d = 0, text narrower than the block is centred across it.
+- **Decorations scale with the text.** An underline, a strike-through and an overline on a sized run draw at the run's scale s, as the cursor does (D6). The underline lies under the block's bottom row, the strike-through runs through the block's middle, and the overline lies over its top row, each s times as thick as on a cell of the normal size. Each cell of the run draws its own piece of the scaled line, so a curly, dotted or dashed underline keeps its shape at the larger size. A run on a line of double size draws its decorations at the line's size, as the line's other cells do (D7).
+
+> Edited 2026-11-16: the code review of the work that builds OSC 66 found that a run's decorations drew at the normal size on every row of its block, so an underline at s = 2 crossed the middle of the letters as well as lying under them. The record said nothing about a run's decorations. The maintainer chose "Scaled with the text" (`considered`), and the bullet on decorations is new.
 
 ### D10: the records this amends
 

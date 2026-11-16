@@ -182,7 +182,7 @@ pub(crate) fn receiving(q: &Quad, cell: Size) -> Option<ReceivingJob> {
     let width = u32::try_from(q.dst[2]).unwrap_or(0);
     Some(ReceivingJob {
         col: n(q.src[2]),
-        row: n(q.src[3]),
+        row: n(q.src[3] & ROW),
         cells: n(if cell.width > 0 {
             width.div_ceil(cell.width)
         } else {
@@ -1865,8 +1865,10 @@ impl<G: Gl> Back for GpuBack<'_, G> {
 impl<G: Gl> GpuBack<'_, G> {
     /// Pushes the quads of the jobs of grid row `row`.
     fn push_row<F: Face>(&mut self, compose: &Composer, font: &Font<F>, row: usize) {
-        // a line of double size draws the doubled sprites
-        if compose.jobs.iter().any(|j| !j.piece.is_whole())
+        // a cell of a line of double size, a run's cell among them, draws
+        // from the doubled sprites; a run on a line of the normal size
+        // draws from the normal ones
+        if compose.jobs.iter().any(|j| j.piece.sprite_set() != 0)
             && let Err(e) = self.glyphs.double_sprites(self.gl)
         {
             self.error = Some(e);
@@ -1976,9 +1978,41 @@ fn bar_quad(r: Area, color: Rgb, cell: (usize, usize)) -> Quad {
     }
 }
 
+/// The bits of a quad's `src[3]` that hold the row of its first cell. The
+/// bits above them name the piece of a sized run's decorations the quad
+/// draws ([`run_bits`]).
+pub(crate) const ROW: u32 = 0xffff;
+
+/// The piece of its decorations that a cell of a sized run of scale 2 or
+/// more on a line of the normal size draws, as the bits above [`ROW`] in a
+/// quad's `src[3]`: the scale in bits 16 to 18, the cell's row in the
+/// run's block in bits 19 to 21, and its column within one scaled cell in
+/// bits 22 to 24. The cell shader reads the normal sprite at the pixel
+/// that scaling it by the scale puts under each pixel of the cell, as
+/// `crate::deco::scaled` cuts the CPU path's piece. 0 for every other
+/// cell.
+///
+/// References:
+/// - ADR-1308 D9, "Decorations scale with the text".
+fn run_bits(job: &Job) -> u32 {
+    let Some(run) = job.piece.run() else {
+        return 0;
+    };
+    let scale = run.size.scale;
+    if run.line != vtium_term::LineSize::Single || scale < 2 {
+        return 0;
+    }
+    let row = run.row.min(scale.saturating_sub(1));
+    let column = run.column.checked_rem(scale).unwrap_or(0);
+    let bits = u32::from(scale & 7) | u32::from(row & 7) << 3 | u32::from(column & 7) << 6;
+    bits << 16
+}
+
 /// A cell job of grid row `row` as the cell shader's quad: where it
 /// draws, `r` in the upright frame; the glyph's texel under its top left,
-/// the glyph lying at `g`, and the column and row of the job's first cell;
+/// the glyph lying at `g`, and the column and row of the job's first cell,
+/// with a sized run's piece of its decorations above the row
+/// ([`run_bits`]);
 /// and its colors, each with a kind in its top byte: the glyph's (none, a
 /// mask, a color glyph), `flags` with the background, the underline's
 /// sprite and the sprite of the lines over the glyph (the strike, the
@@ -1994,7 +2028,7 @@ pub(crate) fn cell_quad(
     let u = |v: i64| u32::try_from(v.max(0)).unwrap_or(u32::MAX);
     let (col, row) = (
         u32::try_from(job.posx).unwrap_or(u32::MAX),
-        u32::try_from(row).unwrap_or(u32::MAX),
+        u32::try_from(row).unwrap_or(ROW).min(ROW) | run_bits(job),
     );
     let (src, kind) = match place {
         Some(p) => (
@@ -2004,7 +2038,11 @@ pub(crate) fn cell_quad(
                 col,
                 row,
             ],
-            if p.color { 2 } else { 1 },
+            match (p.mixed, p.color) {
+                (true, _) => 3,
+                (false, true) => 2,
+                (false, false) => 1,
+            },
         ),
         None => ([0, 0, col, row], 0),
     };

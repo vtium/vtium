@@ -1112,7 +1112,8 @@ fn a_picture_that_is_not_opaque_blends_through_the_cpu_paths_tables() {
 // cell whose own background is not the default hides it. Such a cell draws
 // as it does with no picture there, through the cell program alone: its
 // pixels match the CPU path's, partly covered text pixels included, and
-// the frame draws no picture and no text layer over a copy.
+// the frame draws no picture and no text layer over a copy. A selection
+// over such a cell draws as over any selected cell, with no tint.
 #[test]
 fn a_cell_whose_background_hides_the_picture_draws_as_with_no_picture() {
     use common::{Shade, style};
@@ -1131,47 +1132,61 @@ fn a_cell_whose_background_hides_the_picture_draws_as_with_no_picture() {
         ..DrawState::default()
     };
     let size = (DISPLAY.width, DISPLAY.height);
-    let mut cpu = Renderer::new(Font::new(Shade), size.0, size.1, Config::default());
-    let mut canvas = Canvas::new(size.0, size.1, 0);
-    cpu.draw(&s.frame(Age::NEVER), &mut canvas, 0, &state);
-    let hidden = Pic {
-        z: i32::MIN,
-        ..pic(1, (24, 16), (0, 1), (3, 1))
-    };
-    let mut gl = StandIn::new();
-    let mut pipeline = Pipeline::new(&mut gl, DISPLAY, GpuConfig::default()).unwrap();
-    let buffer = gl.import_buffer(&DISPLAY).unwrap();
-    let mut gpu = Renderer::new(Font::new(Shade), size.0, size.1, Config::default());
-    let frame = s.frame(Age::NEVER).with_placements(placements(&[hidden]));
-    gpu.draw_gpu(&mut gl, &mut pipeline, &frame, &buffer, 0, &state, &[])
-        .unwrap();
-    let drawn_with = |inputs: &[&str]| {
-        gl.calls()
+    for selection in [Vec::new(), vec![0..0, 0..3]] {
+        let mut cpu = Renderer::new(Font::new(Shade), size.0, size.1, Config::default());
+        let mut canvas = Canvas::new(size.0, size.1, 0);
+        let plain = s.frame(Age::NEVER).with_selection(selection.clone());
+        cpu.draw(&plain, &mut canvas, 0, &state);
+        let hidden = Pic {
+            z: i32::MIN,
+            ..pic(1, (24, 16), (0, 1), (3, 1))
+        };
+        let mut gl = StandIn::new();
+        let mut pipeline = Pipeline::new(&mut gl, DISPLAY, GpuConfig::default()).unwrap();
+        let buffer = gl.import_buffer(&DISPLAY).unwrap();
+        let mut gpu = Renderer::new(Font::new(Shade), size.0, size.1, Config::default());
+        let frame = s
+            .frame(Age::NEVER)
+            .with_placements(placements(&[hidden]))
+            .with_selection(selection.clone());
+        gpu.draw_gpu(&mut gl, &mut pipeline, &frame, &buffer, 0, &state, &[])
+            .unwrap();
+        let drawn_with = |inputs: &[&str]| {
+            gl.calls()
+                .iter()
+                .filter(|c| matches!(c, Call::Draw { inputs: i, .. } if i == inputs))
+                .count()
+        };
+        assert_eq!(
+            drawn_with(&PICTURE_INPUTS),
+            0,
+            "a picture draw {selection:?}"
+        );
+        assert_eq!(
+            drawn_with(&LAYER_INPUTS),
+            0,
+            "a text layer over a copy {selection:?}"
+        );
+        let upright = gl
+            .frame_names()
             .iter()
-            .filter(|c| matches!(c, Call::Draw { inputs: i, .. } if i == inputs))
-            .count()
-    };
-    assert_eq!(drawn_with(&PICTURE_INPUTS), 0, "a picture draw");
-    assert_eq!(drawn_with(&LAYER_INPUTS), 0, "a text layer over a copy");
-    let upright = gl
-        .frame_names()
-        .iter()
-        .rev()
-        .find_map(|&n| gl.frame_pixels(n).filter(|(f, _)| *f == DISPLAY))
-        .unwrap()
-        .1;
-    let differ: Vec<(u32, u32, u32, u32)> = (0..size.1)
-        .flat_map(|y| (0..size.0).map(move |x| (x, y)))
-        .filter_map(|(x, y)| {
-            let c = canvas.pixel(x, y)?;
-            let p = upright[(y * size.0 + x) as usize];
-            (c != p).then_some((x, y, c, p))
-        })
-        .collect();
-    assert!(
-        differ.is_empty(),
-        "{} pixels differ from the CPU path's, the first (x, y, cpu, gpu) {:x?}",
-        differ.len(),
-        differ.first()
-    );
+            .rev()
+            .find_map(|&n| gl.frame_pixels(n).filter(|(f, _)| *f == DISPLAY))
+            .unwrap()
+            .1;
+        let differ: Vec<(u32, u32, u32, u32)> = (0..size.1)
+            .flat_map(|y| (0..size.0).map(move |x| (x, y)))
+            .filter_map(|(x, y)| {
+                let c = canvas.pixel(x, y)?;
+                let p = upright[(y * size.0 + x) as usize];
+                (c != p).then_some((x, y, c, p))
+            })
+            .collect();
+        assert!(
+            differ.is_empty(),
+            "{selection:?}: {} pixels differ from the CPU path's, the first (x, y, cpu, gpu) {:x?}",
+            differ.len(),
+            differ.first()
+        );
+    }
 }

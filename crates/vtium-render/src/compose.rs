@@ -371,7 +371,9 @@ impl Composer {
                 }
                 match glyph {
                     // the common cell, a bitmap glyph on its background
-                    Some(g) if !job.layered() && !received && g.is_bits() => {
+                    Some(g)
+                        if !job.layered() && !received && g.is_bits() && g.layer().is_none() =>
+                    {
                         let gx = job.r.x.saturating_sub(job.g.x);
                         let rows = Rows {
                             out,
@@ -555,7 +557,7 @@ fn cell_line(
     let prem = lines.prem.get_mut(..w).unwrap_or_default();
     let src = lines.src.get_mut(..w).unwrap_or_default();
     let (gx, gy) = (x0.saturating_sub(job.g.x), y.saturating_sub(job.g.y));
-    if !job.layered() && ink.is_none() {
+    if !job.layered() && ink.is_none() && glyph.is_none_or(|g| g.layer().is_none()) {
         match glyph {
             None => out.fill(pixel(job.bg)),
             Some(g) if g.is_bits() => {
@@ -607,6 +609,7 @@ fn cell_line(
             for (p, &a) in prem.iter_mut().zip(cov.iter()) {
                 *p = tint_over(*p, a, job.fg);
             }
+            color_layer_over(job, g, (gx, gy), (prem, src));
         }
         None => {}
     }
@@ -615,6 +618,26 @@ fn cell_line(
     }
     for (o, &p) in out.iter_mut().zip(prem.iter()) {
         *o = over_bg(job.bg, p);
+    }
+}
+
+/// The color layer of the glyph `g`, if it has one, over the premultiplied
+/// line `prem`, its line at `gx`, `gy` read through `src`: the color glyphs
+/// of a sized run that mixes them with text, in their own colors over the
+/// text.
+fn color_layer_over(
+    job: &Job,
+    g: &Stored,
+    (gx, gy): (i64, i64),
+    (prem, src): (&mut [u32], &mut [u32]),
+) {
+    let Some(layer) = g.layer() else {
+        return;
+    };
+    layer.argb_line(gx, gy, src);
+    silhouette(job, src);
+    for (p, &s) in prem.iter_mut().zip(src.iter()) {
+        *p = argb_over(*p, s);
     }
 }
 
@@ -820,6 +843,7 @@ fn glyph_over(job: &Job, g: &Stored, y: i64, lines: (&mut [u32], &mut [u8], &mut
         for (p, &a) in prem.iter_mut().zip(cov.iter()) {
             *p = tint_over(*p, a, job.fg);
         }
+        color_layer_over(job, g, (gx, gy), (prem, src));
     }
 }
 

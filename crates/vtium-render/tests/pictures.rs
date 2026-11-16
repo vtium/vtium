@@ -1369,7 +1369,8 @@ fn a_run_of_covered_cells_stops_at_another_picture() {
 // A picture below backgrounds lies under each cell's background, and a
 // cell whose own background is not the default hides it. Such a cell's
 // text then draws exactly as it does with no picture there, partly covered
-// pixels included.
+// pixels included, and a selection over it draws as over any selected cell,
+// with no tint. The hidden picture is never scaled, selected or not.
 // covers: image.compositor
 #[test]
 fn a_cell_whose_background_hides_the_picture_draws_as_with_no_picture() {
@@ -1382,23 +1383,38 @@ fn a_cell_whose_background_hides_the_picture_draws_as_with_no_picture() {
         .set_underline(vtium_term::UnderlineStyle::Single);
     s.text(2, 1, "c", under);
     let size = (80, 64);
-    let font = || Font::new(Shade);
-    let (plain, _) = draw_with(font(), &s, Vec::new(), size, Config::default());
     let mut con = Console::new(10, 4, 0);
-    let img = con.image(Protocol::KITTY, 1, (24, 16), ramp);
+    // a picture scaled to its three cells, so a picture the path made
+    // ready would count a scaling
+    let img = con.image(Protocol::KITTY, 1, (48, 32), ramp);
     con.place(
         img,
         Place {
             col: 0,
             row: 1,
+            cols: 3,
+            rows: 1,
             z: i32::MIN,
             ..Place::default()
         },
     );
-    let (c, _) = draw_with(font(), &s, con.frame(0), size, Config::default());
-    for y in 0..64 {
-        for x in 0..80 {
-            assert_eq!(c.pixel(x, y), plain.pixel(x, y), "{x},{y}");
+    for selection in [Vec::new(), vec![0..0, 0..3]] {
+        let draw = |placements| {
+            let mut r = Renderer::new(Font::new(Shade), size.0, size.1, Config::default());
+            let mut c = Canvas::new(size.0, size.1, 0);
+            let frame = s
+                .frame(Age::NEVER)
+                .with_placements(placements)
+                .with_selection(selection.clone());
+            r.draw(&frame, &mut c, 0, &state(&s));
+            (c, r.picture_counts().scaled)
+        };
+        let ((plain, _), (c, scaled)) = (draw(Vec::new()), draw(con.frame(0)));
+        assert_eq!(scaled, 0, "the hidden picture is scaled {selection:?}");
+        for y in 0..64 {
+            for x in 0..80 {
+                assert_eq!(c.pixel(x, y), plain.pixel(x, y), "{x},{y} {selection:?}");
+            }
         }
     }
 }
