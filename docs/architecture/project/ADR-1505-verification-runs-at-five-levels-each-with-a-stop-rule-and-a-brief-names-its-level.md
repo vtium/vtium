@@ -62,6 +62,9 @@ considered:
   - operator: aaronsb
     said: "the cost has several dimensions. one is attention, from me: if a review flow iterates several times, it is difficult for me to continue to be focused on that item throughout a whole day, when I'm managing other concerns … the next is verification time: the same work is verified in slightly different ways that has significant statistical overlap and costs time. the last is token budget use: running and responding to nearly identical scenarios that get discarded on merge because they already verify correctly has a cost, but that cost is necessary because otherwise context doesn't happen. (the cost of getting it done)"
     via: the steering session, 2026-11-16, on the reason for one full review per wave
+  - operator: aaronsb
+    said: "1505 looks fine"
+    via: the steering session, 2026-11-16, after the maintainer read the amendment's three commits with git log -p
 ---
 
 # ADR-1505: Verification runs at five levels, each with a stop rule, and a brief names its level
