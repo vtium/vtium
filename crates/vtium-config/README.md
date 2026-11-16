@@ -339,7 +339,7 @@ script-source=kbd:ter-112n
 
 ### Layers
 
-A layer is a part that several frits share, such as the icons of a symbol font or color emoji. It is a file `NAME.vtlayer` in the `layers/` folder of the frits' directory, so `/etc/vtium/fonts/layers/` by default. Its first key, `role=`, says what it brings: `script`, `symbols`, `emoji` or `fallback`. Its other lines are `source=` lines, each followed by the keys that describe a source: `cover=`, `fit=`, `render=`, `style=` and `strike=`, and the four that say which font it needs, `version=`, `check=`, `sha256=` and `url=`. A layer holds sources alone, so a frit's own keys, such as `cell=`, `size=` and `line-spacing=`, refuse it, and so does a `layer=` line.
+A layer is a part that several frits share, such as the icons of a symbol font or color emoji. It is a file `NAME.vtlayer` in the `layers/` folder of the frits' directory, so `/etc/vtium/fonts/layers/` by default. Its first key, `role=`, says what it brings: `script`, `symbols`, `emoji` or `fallback`. Its other lines are `source=` lines, each followed by the keys that describe a source: `cover=`, `fit=`, `render=`, `style=` and `strike=`. A source can also say which font it needs, with `version=`, `check=`, `sha256=` and `url=`. A layer holds sources alone, so a frit's own keys, such as `cell=`, `size=` and `line-spacing=`, refuse it, and so does a `layer=` line.
 
 ```ini
 # /etc/vtium/fonts/layers/nerd-symbols.vtlayer
