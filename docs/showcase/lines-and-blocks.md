@@ -6,5 +6,5 @@ These screens are part of [vtium's showcase](README.md), which says how they are
 
 ![A console dashboard of five framed panels with rounded and double borders: a bar chart of block elements, a sine wave plotted in Braille dots, disk gauges, a table of services with colored status marks, and a filled area chart drawn in sextants.](boxes.png)
 
-vtium draws box drawing, block elements, Braille and sextants itself, edge to edge in every cell, so lines join and bars stack without gaps whatever the font: here a dashboard a script draws.
+vtium draws box drawing, block elements, Braille and sextants itself, edge to edge in every cell. So lines join and bars stack without gaps, whatever the font. Here a script draws a dashboard with them.
 
