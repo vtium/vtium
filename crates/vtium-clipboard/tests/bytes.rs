@@ -133,6 +133,30 @@ fn text_past_the_bound_once_replaced_is_refused() {
     assert_eq!(vtium_keeps(&past), None);
 }
 
+// The program and vtium-term count a text's length with one function, so
+// for the same bytes that are not valid UTF-8 the program's count is the
+// length vtium keeps. The inputs cover each way UTF-8 can be ill-formed:
+// a byte that never starts UTF-8, a lone continuation byte, a sequence cut
+// off by another character or by the end, an overlong form, a surrogate,
+// and a code point past U+10FFFF.
+#[test]
+fn the_program_counts_the_length_vtium_keeps() {
+    for text in [
+        &b"\xff"[..],
+        b"a\x80b",
+        b"\xe4\xb8x\xe4\xb8",
+        b"\xf0\x9f\x98 \xf0\x9f",
+        b"\xc0\x80\xc1\xbf",
+        b"\xed\xa0\x80\xed\xbf\xbf",
+        b"\xf4\x90\x80\x80\xf5\xff",
+        b"caf\xc3\xa9 \xe9\x80\xc3",
+    ] {
+        let kept = vtium_keeps(text).expect("vtium keeps the text");
+        assert_eq!(kept_len(text), kept.len(), "{text:?}");
+        assert_eq!(read_text(text).unwrap(), Text::Fits(text.to_vec()));
+    }
+}
+
 /// The `send "..."` lines of the scenario, unquoted: `\e` is ESC and `\\`
 /// a backslash, as the scenario language reads them, and the program's
 /// bytes hold no other escape.

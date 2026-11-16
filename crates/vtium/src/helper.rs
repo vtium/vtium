@@ -2541,8 +2541,17 @@ mod tests {
         dir: PathBuf,
     }
 
-    /// Reads the request, then answers with the fixture and waits.
-    const ANSWERS: &str = "cat >/dev/null & cat \"$1\"; wait";
+    /// Answers with the fixture, then reads every request until the client
+    /// closes its input, as the real helper runs until then. cat runs in
+    /// the shell's own place: a shell gives a command it runs in the
+    /// background /dev/null for its standard input, so a background cat
+    /// would read none of the requests.
+    const ANSWERS: &str = "cat \"$1\"; exec cat >/dev/null";
+
+    /// As [`ANSWERS`], but the fixture waits until the test creates the
+    /// file `$1.go`, so the answers come late.
+    const HELD: &str =
+        "while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; exec cat >/dev/null";
 
     impl StandIn {
         fn new(name: &str, script: &str, fixture: &[u8]) -> StandIn {
@@ -2599,6 +2608,17 @@ mod tests {
                 let _ = self.woke.recv_timeout(Duration::from_secs(10));
             }
             out
+        }
+
+        /// Polls as the loop does, each time the reader wakes it, until
+        /// `done` holds for the helper or the reader stays quiet for 10 s.
+        fn until(&mut self, now: Instant, done: impl Fn(&Helper) -> bool) {
+            loop {
+                let _ = self.helper.poll(now);
+                if done(&self.helper) || self.woke.recv_timeout(Duration::from_secs(10)).is_err() {
+                    break;
+                }
+            }
         }
 
         /// Polls until the helper's process is gone.
@@ -4539,7 +4559,7 @@ mod tests {
         // a fill's frame keeps the answer due, but not the ask's end
         let mut s = StandIn::new(
             "deadline",
-            "cat >/dev/null & cat \"$1\"; exec sleep 30",
+            ANSWERS,
             &frame_bytes(FRAME_FILL, &set(CELL, &['B'])),
         );
         let now = t0();
@@ -4655,9 +4675,7 @@ mod tests {
         assert_eq!(s.helper.failed(), None);
         let mut two = cell_frame(FRAME_OUTLINE_CELL, 9, 16);
         two.extend(cell_frame(FRAME_OUTLINE_CELL, 12, 22));
-        let held =
-            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
-        let mut s = StandIn::new("cell-late-then-now", held, &two);
+        let mut s = StandIn::new("cell-late-then-now", HELD, &two);
         assert!(
             s.helper
                 .own_cell(16, Duration::from_millis(20), &t0)
@@ -4673,7 +4691,7 @@ mod tests {
         );
         assert_eq!(s.helper.late_cells(), [(16, Ok(OwnCell::Outline(nine)))]);
         assert_eq!(s.helper.late_cells(), [], "each is handed on once");
-        s.until_gone(t0());
+        let _ = s.helper.poll(t0());
         assert_eq!(s.helper.failed(), None);
     }
 
@@ -4686,9 +4704,7 @@ mod tests {
     fn a_query_asked_again_keeps_its_own_answer_and_the_earlier_one_late() {
         let mut two = frame_bytes(FRAME_NO_OWN_CELL, b"the first query's answer");
         two.extend(own_cell_frame(8, 16));
-        let held =
-            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
-        let mut s = StandIn::new("cell-asked-again", held, &two);
+        let mut s = StandIn::new("cell-asked-again", HELD, &two);
         assert!(
             s.helper
                 .own_cell(16, Duration::from_millis(20), &t0)
@@ -4705,7 +4721,7 @@ mod tests {
             late: false,
         };
         assert_eq!(s.helper.late_cells(), [(16, Err(first))]);
-        s.until_gone(t0());
+        let _ = s.helper.poll(t0());
         assert_eq!(s.helper.failed(), None);
     }
 
@@ -4718,15 +4734,13 @@ mod tests {
     fn each_late_cell_answer_is_kept_with_its_height() {
         let mut two = cell_frame(FRAME_OUTLINE_CELL, 9, 16);
         two.extend(cell_frame(FRAME_OUTLINE_CELL, 12, 22));
-        let held =
-            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
-        let mut s = StandIn::new("cell-late-twice", held, &two);
+        let mut s = StandIn::new("cell-late-twice", HELD, &two);
         let short = Duration::from_millis(20);
         assert!(s.helper.own_cell(16, short, &t0).unwrap_err().late);
         assert!(s.helper.own_cell(22, short, &t0).unwrap_err().late);
         assert_eq!(s.helper.late_cells(), [], "nothing came yet");
         std::fs::write(s.dir.join("answer.go"), b"").unwrap();
-        s.until_gone(t0());
+        s.until(t0(), |h| h.kept.len() == 2);
         assert_eq!(s.helper.failed(), None);
         let twelve = Cell {
             width: 12,
@@ -4744,10 +4758,10 @@ mod tests {
             ]
         );
         let taller = cell_frame(FRAME_OUTLINE_CELL, 12, 22);
-        let mut s = StandIn::new("cell-late-taller", held, &taller);
+        let mut s = StandIn::new("cell-late-taller", HELD, &taller);
         assert!(s.helper.own_cell(16, short, &t0).unwrap_err().late);
         std::fs::write(s.dir.join("answer.go"), b"").unwrap();
-        s.until_gone(t0());
+        s.until(t0(), |h| h.failed().is_some());
         assert!(
             s.helper
                 .failed()
@@ -4774,12 +4788,10 @@ mod tests {
         let mut s = StandIn::new("own-cell-refused", ANSWERS, &refusal);
         let why = s.helper.own_cell(16, wait, &t0).unwrap_err().to_string();
         assert!(why.contains("is an outline font"), "{why}");
-        s.until_gone(t0());
+        let _ = s.helper.poll(t0());
         assert_eq!(s.helper.failed(), None);
         // the answer comes after the wait, and is kept
-        let held =
-            "cat >/dev/null & while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; wait";
-        let mut s = StandIn::new("own-cell-late", held, &own_cell_frame(8, 16));
+        let mut s = StandIn::new("own-cell-late", HELD, &own_cell_frame(8, 16));
         let why = s
             .helper
             .own_cell(16, Duration::from_millis(50), &t0)
@@ -4787,10 +4799,10 @@ mod tests {
             .to_string();
         assert_eq!(why, "the helper gave no answer in 50 ms");
         std::fs::write(s.dir.join("answer.go"), b"").unwrap();
-        s.until_gone(t0());
+        s.until(t0(), |h| !h.kept.is_empty());
         assert_eq!(s.helper.failed(), None);
         assert_eq!(s.helper.late_cells(), [(16, Ok(OwnCell::Bitmap(CELL)))]);
-        let mut s = StandIn::new("own-cell-late-refused", held, &refusal);
+        let mut s = StandIn::new("own-cell-late-refused", HELD, &refusal);
         assert!(
             s.helper
                 .own_cell(16, Duration::from_millis(50), &t0)
@@ -4798,7 +4810,7 @@ mod tests {
                 .late
         );
         std::fs::write(s.dir.join("answer.go"), b"").unwrap();
-        s.until_gone(t0());
+        s.until(t0(), |h| !h.kept.is_empty());
         assert_eq!(s.helper.failed(), None);
         let why = "source=outline:/f.ttf is an outline font".to_owned();
         assert_eq!(
