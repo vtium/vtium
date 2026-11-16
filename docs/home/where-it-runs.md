@@ -2,6 +2,10 @@
 
 vtium runs on Linux PCs and laptops and on small ARM boards. Every build can render on the CPU, so a GPU is optional.
 
+![vtium on a 320×240 display: a ruler of 40 columns, a colored directory listing, the 16 background colors, six color names, bold, faint, underlined, reversed and struck words, a box of sprite lines around cpu, mem and load figures, a line of Latin-1, four underline styles, a progress bar at 50%, and a prompt](../showcase/small/small-console.png)
+
+*[The showcase](../showcase/small-machines.md) has more screens like this one.*
+
 The processors are x86_64, aarch64, and armv7. Rendering goes through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) into dumb buffers, plain memory buffers that the kernel's graphics driver displays. On a machine without DRM, fbdev takes its place, the kernel's older framebuffer interface.
 
 ## The GPU path

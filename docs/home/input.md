@@ -2,6 +2,10 @@
 
 Your keyboard types with the layout your system already uses for the console, and programs get the mouse and the full keyboard. You don't set anything up for that.
 
+![A console screen in a smooth monospaced font: a heading, a list of four web addresses, and a line that names the ten pointer shapes vtium draws. The mouse pointer, a white hand with a raised finger and a dark outline, points at the second address, which has a dashed underline while the pointer is over it.](../showcase/pointer.png)
+
+*[The showcase](../showcase/input-and-pointer.md) has more screens like this one.*
+
 Keyboards and mice are read from the kernel's input devices (evdev), and libxkbcommon turns keys into characters. A change to the console's layout takes effect too. The rules in vtium.conf send each device to a head, vtium's name for a terminal on one or more displays. A rule can also make a keyboard roam, so that it types into whichever head is active.
 
 ## What programs get
