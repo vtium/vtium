@@ -930,10 +930,11 @@ impl App {
         if self.leaving.is_some() || self.installing {
             return Vec::new();
         }
-        // Ctrl-C saves and leaves from every state, a question, the live
-        // trial, a value being typed and the screen below the minimum
-        // size included
-        if key == Key::Interrupt {
+        // Ctrl-C saves and leaves from every state, the live trial, a
+        // value being typed and the screen below the minimum size
+        // included. A question in a view takes it as no, as it takes
+        // every key but `y`.
+        if key == Key::Interrupt && (self.confirm.is_none() || super::view::too_small(self)) {
             return self.save_and_leave(130);
         }
         if self.trial.is_some() {
