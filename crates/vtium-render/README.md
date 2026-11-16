@@ -287,7 +287,7 @@ An outline font's run draws from its glyphs at the normal size, scaled up, so it
 
 The cursor on any cell of a run covers the whole block. A block cursor reverses every cell of it, and a bar stands along the block's left edge on all its rows, `s` times as thick. An underline cursor lies under the block's bottom row, at the normal thickness. A run's cells keep their glyphs' ink in their cells, so a run sends no ink to its neighbours. When a font's glyphs for the run's text arrive, every cell of the run draws again.
 
-A run on a line of double size, which ADR-1308 D7 makes one row high, draws its text in its first cell, as a character of that line draws.
+A run on a line of double size is one row high and takes only its width, in the line's columns (ADR-1308 D7). The line draws the run's block at the line's size, so its text is twice as wide. On a double-height pair the text is twice as tall too, its upper half on the top line and its lower half on the bottom line. Each display cell draws its piece of that block, and the decorations follow the line's size as its other cells' do.
 
 Tests: `tests/sized_runs.rs`, `tests/gpu_sized_runs.rs` and the unit tests in `src/renderer/sized.rs`. Tier 2's `runs-scale` and `runs-fraction` screens draw runs at four scales and at fractions, in unifont and in the outline test font set.
 
