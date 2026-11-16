@@ -105,7 +105,7 @@ ops-off flow layer:restore +unsaved +pending	Enter	ops-off flow question:restore
 ops-off flow layer:restore +unsaved +pending	Esc	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow layer:restore +unsaved +pending	q	ops-off flow question:leave +unsaved +pending	
 ops-off flow question:install +pending	Backspace	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow question:install +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:install +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:install +pending	Down	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:install +pending	End	ops-off flow(doc display) view:flow +pending	
@@ -138,7 +138,7 @@ ops-off flow question:install +pending	x	ops-off flow(doc display) view:flow +pe
 ops-off flow question:install +pending	y	ops-off flow(doc display) view:flow	install
 ops-off flow question:install +pending	z	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:leave +pending	Backspace	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow question:leave +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:leave +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:leave +pending	Down	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:leave +pending	End	ops-off flow(doc display) view:flow +pending	
@@ -171,7 +171,7 @@ ops-off flow question:leave +pending	x	ops-off flow(doc display) view:flow +pend
 ops-off flow question:leave +pending	y	ops-off left	mouse off, exit 0
 ops-off flow question:leave +pending	z	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:leave +unsaved +pending	Backspace	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow question:leave +unsaved +pending	Ctrl-C	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:leave +unsaved +pending	Ctrl-D	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:leave +unsaved +pending	Down	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:leave +unsaved +pending	End	ops-off flow(doc display) view:flow +unsaved +pending	
@@ -204,7 +204,7 @@ ops-off flow question:leave +unsaved +pending	x	ops-off flow(doc display) view:f
 ops-off flow question:leave +unsaved +pending	y	ops-off left	save, mouse off, exit 0
 ops-off flow question:leave +unsaved +pending	z	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:new	Backspace	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow question:new	Ctrl-C	ops-off flow(doc display) view:flow	
 ops-off flow question:new	Ctrl-D	ops-off flow(doc display) view:flow	
 ops-off flow question:new	Down	ops-off flow(doc display) view:flow	
 ops-off flow question:new	End	ops-off flow(doc display) view:flow	
@@ -237,7 +237,7 @@ ops-off flow question:new	x	ops-off flow(doc display) view:flow
 ops-off flow question:new	y	ops-off flow(new empty) view:flow	new
 ops-off flow question:new	z	ops-off flow(doc display) view:flow	
 ops-off flow question:new +pending	Backspace	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow question:new +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:new +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:new +pending	Down	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:new +pending	End	ops-off flow(doc display) view:flow +pending	
@@ -270,7 +270,7 @@ ops-off flow question:new +pending	x	ops-off flow(doc display) view:flow +pendin
 ops-off flow question:new +pending	y	ops-off flow(new empty) view:flow +pending	new
 ops-off flow question:new +pending	z	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:new +unsaved	Backspace	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow question:new +unsaved	Ctrl-C	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:new +unsaved	Ctrl-D	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:new +unsaved	Down	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:new +unsaved	End	ops-off flow(doc display) view:flow +unsaved	
@@ -303,7 +303,7 @@ ops-off flow question:new +unsaved	x	ops-off flow(doc display) view:flow +unsave
 ops-off flow question:new +unsaved	y	ops-off flow(new empty) view:flow	new
 ops-off flow question:new +unsaved	z	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:new +unsaved +pending	Backspace	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow question:new +unsaved +pending	Ctrl-C	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:new +unsaved +pending	Ctrl-D	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:new +unsaved +pending	Down	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:new +unsaved +pending	End	ops-off flow(doc display) view:flow +unsaved +pending	
@@ -336,7 +336,7 @@ ops-off flow question:new +unsaved +pending	x	ops-off flow(doc display) view:flo
 ops-off flow question:new +unsaved +pending	y	ops-off flow(new empty) view:flow +pending	new
 ops-off flow question:new +unsaved +pending	z	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:quit +unsaved	Backspace	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow question:quit +unsaved	Ctrl-C	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:quit +unsaved	Ctrl-D	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:quit +unsaved	Down	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:quit +unsaved	End	ops-off flow(doc display) view:flow +unsaved	
@@ -369,7 +369,7 @@ ops-off flow question:quit +unsaved	x	ops-off flow(doc display) view:flow +unsav
 ops-off flow question:quit +unsaved	y	ops-off left	save, mouse off, exit 0
 ops-off flow question:quit +unsaved	z	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:restore	Backspace	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow question:restore	Ctrl-C	ops-off flow(doc display) view:flow	
 ops-off flow question:restore	Ctrl-D	ops-off flow(doc display) view:flow	
 ops-off flow question:restore	Down	ops-off flow(doc display) view:flow	
 ops-off flow question:restore	End	ops-off flow(doc display) view:flow	
@@ -402,7 +402,7 @@ ops-off flow question:restore	x	ops-off flow(doc display) view:flow
 ops-off flow question:restore	y	ops-off flow(doc display) view:flow	restore
 ops-off flow question:restore	z	ops-off flow(doc display) view:flow	
 ops-off flow question:restore +pending	Backspace	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow question:restore +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:restore +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:restore +pending	Down	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:restore +pending	End	ops-off flow(doc display) view:flow +pending	
@@ -435,7 +435,7 @@ ops-off flow question:restore +pending	x	ops-off flow(doc display) view:flow +pe
 ops-off flow question:restore +pending	y	ops-off flow(doc display) view:flow +pending	restore
 ops-off flow question:restore +pending	z	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:restore +unsaved	Backspace	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow question:restore +unsaved	Ctrl-C	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:restore +unsaved	Ctrl-D	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:restore +unsaved	Down	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:restore +unsaved	End	ops-off flow(doc display) view:flow +unsaved	
@@ -468,7 +468,7 @@ ops-off flow question:restore +unsaved	x	ops-off flow(doc display) view:flow +un
 ops-off flow question:restore +unsaved	y	ops-off flow(doc display) view:flow	restore
 ops-off flow question:restore +unsaved	z	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:restore +unsaved +pending	Backspace	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow question:restore +unsaved +pending	Ctrl-C	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:restore +unsaved +pending	Ctrl-D	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:restore +unsaved +pending	Down	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:restore +unsaved +pending	End	ops-off flow(doc display) view:flow +unsaved +pending	
@@ -501,7 +501,7 @@ ops-off flow question:restore +unsaved +pending	x	ops-off flow(doc display) view
 ops-off flow question:restore +unsaved +pending	y	ops-off flow(doc display) view:flow +pending	restore
 ops-off flow question:restore +unsaved +pending	z	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:revert	Backspace	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow question:revert	Ctrl-C	ops-off flow(doc display) view:flow	
 ops-off flow question:revert	Ctrl-D	ops-off flow(doc display) view:flow	
 ops-off flow question:revert	Down	ops-off flow(doc display) view:flow	
 ops-off flow question:revert	End	ops-off flow(doc display) view:flow	
@@ -534,7 +534,7 @@ ops-off flow question:revert	x	ops-off flow(doc display) view:flow
 ops-off flow question:revert	y	ops-off flow(doc display) view:flow	revert
 ops-off flow question:revert	z	ops-off flow(doc display) view:flow	
 ops-off flow question:revert +pending	Backspace	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow question:revert +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:revert +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:revert +pending	Down	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:revert +pending	End	ops-off flow(doc display) view:flow +pending	
@@ -567,7 +567,7 @@ ops-off flow question:revert +pending	x	ops-off flow(doc display) view:flow +pen
 ops-off flow question:revert +pending	y	ops-off flow(doc display) view:flow +pending	revert
 ops-off flow question:revert +pending	z	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:revert +unsaved	Backspace	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow question:revert +unsaved	Ctrl-C	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:revert +unsaved	Ctrl-D	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:revert +unsaved	Down	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:revert +unsaved	End	ops-off flow(doc display) view:flow +unsaved	
@@ -600,7 +600,7 @@ ops-off flow question:revert +unsaved	x	ops-off flow(doc display) view:flow +uns
 ops-off flow question:revert +unsaved	y	ops-off flow(doc display) view:flow	revert
 ops-off flow question:revert +unsaved	z	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:revert +unsaved +pending	Backspace	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow question:revert +unsaved +pending	Ctrl-C	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:revert +unsaved +pending	Ctrl-D	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:revert +unsaved +pending	Down	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:revert +unsaved +pending	End	ops-off flow(doc display) view:flow +unsaved +pending	
@@ -1345,7 +1345,7 @@ ops-off flow(parts template) view:flow +unsaved +pending	r	ops-off flow question
 ops-off flow(parts template) view:flow +unsaved +pending	s	ops-off flow(parts template) view:flow +pending	save
 ops-off flow(parts template) view:flow +unsaved +pending	v	ops-off flow layer:file-view +unsaved +pending	
 ops-off fonts question:install	Backspace	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Ctrl-C	ops-off left	exit 130
+ops-off fonts question:install	Ctrl-C	ops-off fonts(frit) view:fonts	
 ops-off fonts question:install	Ctrl-D	ops-off fonts(frit) view:fonts	
 ops-off fonts question:install	Down	ops-off fonts(frit) view:fonts	
 ops-off fonts question:install	End	ops-off fonts(frit) view:fonts	
@@ -1378,7 +1378,7 @@ ops-off fonts question:install	x	ops-off fonts(frit) view:fonts
 ops-off fonts question:install	y	ops-off fonts(frit) view:fonts	install
 ops-off fonts question:install	z	ops-off fonts(frit) view:fonts	
 ops-off fonts question:install +pending	Backspace	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Ctrl-C	ops-off left	exit 130
+ops-off fonts question:install +pending	Ctrl-C	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:install +pending	Ctrl-D	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:install +pending	Down	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:install +pending	End	ops-off fonts(marked) view:fonts +pending	
@@ -1411,7 +1411,7 @@ ops-off fonts question:install +pending	x	ops-off fonts(marked) view:fonts +pend
 ops-off fonts question:install +pending	y	ops-off fonts(builtin) view:fonts	install
 ops-off fonts question:install +pending	z	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:leave +pending	Backspace	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Ctrl-C	ops-off left	exit 130
+ops-off fonts question:leave +pending	Ctrl-C	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:leave +pending	Ctrl-D	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:leave +pending	Down	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:leave +pending	End	ops-off fonts(marked) view:fonts +pending	
@@ -1444,7 +1444,7 @@ ops-off fonts question:leave +pending	x	ops-off fonts(marked) view:fonts +pendin
 ops-off fonts question:leave +pending	y	ops-off left	exit 0
 ops-off fonts question:leave +pending	z	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:leave +unsaved +pending	Backspace	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off fonts question:leave +unsaved +pending	Ctrl-C	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off fonts question:leave +unsaved +pending	Ctrl-D	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off fonts question:leave +unsaved +pending	Down	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off fonts question:leave +unsaved +pending	End	ops-off fonts(marked) view:fonts +unsaved +pending	
@@ -1477,7 +1477,7 @@ ops-off fonts question:leave +unsaved +pending	x	ops-off fonts(marked) view:font
 ops-off fonts question:leave +unsaved +pending	y	ops-off left	save, exit 0
 ops-off fonts question:leave +unsaved +pending	z	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off fonts question:quit +unsaved	Backspace	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off fonts question:quit +unsaved	Ctrl-C	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts question:quit +unsaved	Ctrl-D	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts question:quit +unsaved	Down	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts question:quit +unsaved	End	ops-off fonts(builtin) view:fonts +unsaved	
@@ -1671,7 +1671,7 @@ ops-off fonts(refused) view:fonts +unsaved +pending	o	ops-off fonts(refused) vie
 ops-off fonts(refused) view:fonts +unsaved +pending	q	ops-off fonts question:leave +unsaved +pending	
 ops-off fonts(refused) view:fonts +unsaved +pending	r	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off help question:leave +pending	Backspace	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Ctrl-C	ops-off left	exit 130
+ops-off help question:leave +pending	Ctrl-C	ops-off help(help) view:help +pending	
 ops-off help question:leave +pending	Ctrl-D	ops-off help(help) view:help +pending	
 ops-off help question:leave +pending	Down	ops-off help(help) view:help +pending	
 ops-off help question:leave +pending	End	ops-off help(help) view:help +pending	
@@ -1704,7 +1704,7 @@ ops-off help question:leave +pending	x	ops-off help(help) view:help +pending
 ops-off help question:leave +pending	y	ops-off left	exit 0
 ops-off help question:leave +pending	z	ops-off help(help) view:help +pending	
 ops-off help question:leave +unsaved +pending	Backspace	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off help question:leave +unsaved +pending	Ctrl-C	ops-off help(help) view:help +unsaved +pending	
 ops-off help question:leave +unsaved +pending	Ctrl-D	ops-off help(help) view:help +unsaved +pending	
 ops-off help question:leave +unsaved +pending	Down	ops-off help(help) view:help +unsaved +pending	
 ops-off help question:leave +unsaved +pending	End	ops-off help(help) view:help +unsaved +pending	
@@ -1737,7 +1737,7 @@ ops-off help question:leave +unsaved +pending	x	ops-off help(help) view:help +un
 ops-off help question:leave +unsaved +pending	y	ops-off left	save, exit 0
 ops-off help question:leave +unsaved +pending	z	ops-off help(help) view:help +unsaved +pending	
 ops-off help question:quit +unsaved	Backspace	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off help question:quit +unsaved	Ctrl-C	ops-off help(help) view:help +unsaved	
 ops-off help question:quit +unsaved	Ctrl-D	ops-off help(help) view:help +unsaved	
 ops-off help question:quit +unsaved	Down	ops-off help(help) view:help +unsaved	
 ops-off help question:quit +unsaved	End	ops-off help(help) view:help +unsaved	
@@ -1826,7 +1826,7 @@ ops-off help(help) view:help +unsaved +pending	Tab	ops-off flow(doc display) vie
 ops-off help(help) view:help +unsaved +pending	o	ops-off help(help) view:help +unsaved +pending	check
 ops-off help(help) view:help +unsaved +pending	q	ops-off help question:leave +unsaved +pending	
 ops-off looks question:install +pending	Backspace	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks question:install +pending	Ctrl-C	ops-off looks view:looks +pending	
 ops-off looks question:install +pending	Ctrl-D	ops-off looks view:looks +pending	
 ops-off looks question:install +pending	Down	ops-off looks view:looks +pending	
 ops-off looks question:install +pending	End	ops-off looks view:looks +pending	
@@ -1859,7 +1859,7 @@ ops-off looks question:install +pending	x	ops-off looks view:looks +pending
 ops-off looks question:install +pending	y	ops-off looks view:looks	install
 ops-off looks question:install +pending	z	ops-off looks view:looks +pending	
 ops-off looks question:leave +pending	Backspace	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks question:leave +pending	Ctrl-C	ops-off looks view:looks +pending	
 ops-off looks question:leave +pending	Ctrl-D	ops-off looks view:looks +pending	
 ops-off looks question:leave +pending	Down	ops-off looks view:looks +pending	
 ops-off looks question:leave +pending	End	ops-off looks view:looks +pending	
@@ -1892,7 +1892,7 @@ ops-off looks question:leave +pending	x	ops-off looks view:looks +pending
 ops-off looks question:leave +pending	y	ops-off left	exit 0
 ops-off looks question:leave +pending	z	ops-off looks view:looks +pending	
 ops-off looks question:leave +unsaved +pending	Backspace	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks question:leave +unsaved +pending	Ctrl-C	ops-off looks view:looks +unsaved +pending	
 ops-off looks question:leave +unsaved +pending	Ctrl-D	ops-off looks view:looks +unsaved +pending	
 ops-off looks question:leave +unsaved +pending	Down	ops-off looks view:looks +unsaved +pending	
 ops-off looks question:leave +unsaved +pending	End	ops-off looks view:looks +unsaved +pending	
@@ -1925,7 +1925,7 @@ ops-off looks question:leave +unsaved +pending	x	ops-off looks view:looks +unsav
 ops-off looks question:leave +unsaved +pending	y	ops-off left	save, exit 0
 ops-off looks question:leave +unsaved +pending	z	ops-off looks view:looks +unsaved +pending	
 ops-off looks question:quit +unsaved	Backspace	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks question:quit +unsaved	Ctrl-C	ops-off looks view:looks +unsaved	
 ops-off looks question:quit +unsaved	Ctrl-D	ops-off looks view:looks +unsaved	
 ops-off looks question:quit +unsaved	Down	ops-off looks view:looks +unsaved	
 ops-off looks question:quit +unsaved	End	ops-off looks view:looks +unsaved	
@@ -2016,7 +2016,7 @@ ops-off new-frit layer:new-frit +unsaved +pending	i	ops-off new-frit layer:new-f
 ops-off new-frit layer:new-frit +unsaved +pending	o	ops-off new-frit layer:new-frit +unsaved +pending	check
 ops-off new-frit layer:new-frit +unsaved +pending	q	ops-off new-frit question:leave +unsaved +pending	
 ops-off new-frit question:install +pending	Backspace	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Ctrl-C	ops-off left	exit 130
+ops-off new-frit question:install +pending	Ctrl-C	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:install +pending	Ctrl-D	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:install +pending	Down	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:install +pending	End	ops-off new-frit layer:new-frit +pending	
@@ -2049,7 +2049,7 @@ ops-off new-frit question:install +pending	x	ops-off new-frit layer:new-frit +pe
 ops-off new-frit question:install +pending	y	ops-off new-frit layer:new-frit	install
 ops-off new-frit question:install +pending	z	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:leave +pending	Backspace	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Ctrl-C	ops-off left	exit 130
+ops-off new-frit question:leave +pending	Ctrl-C	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:leave +pending	Ctrl-D	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:leave +pending	Down	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:leave +pending	End	ops-off new-frit layer:new-frit +pending	
@@ -2082,7 +2082,7 @@ ops-off new-frit question:leave +pending	x	ops-off new-frit layer:new-frit +pend
 ops-off new-frit question:leave +pending	y	ops-off left	exit 0
 ops-off new-frit question:leave +pending	z	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:leave +unsaved +pending	Backspace	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off new-frit question:leave +unsaved +pending	Ctrl-C	ops-off new-frit layer:new-frit +unsaved +pending	
 ops-off new-frit question:leave +unsaved +pending	Ctrl-D	ops-off new-frit layer:new-frit +unsaved +pending	
 ops-off new-frit question:leave +unsaved +pending	Down	ops-off new-frit layer:new-frit +unsaved +pending	
 ops-off new-frit question:leave +unsaved +pending	End	ops-off new-frit layer:new-frit +unsaved +pending	
@@ -2115,7 +2115,7 @@ ops-off new-frit question:leave +unsaved +pending	x	ops-off new-frit layer:new-f
 ops-off new-frit question:leave +unsaved +pending	y	ops-off left	save, exit 0
 ops-off new-frit question:leave +unsaved +pending	z	ops-off new-frit layer:new-frit +unsaved +pending	
 ops-off new-frit question:quit +unsaved	Backspace	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off new-frit question:quit +unsaved	Ctrl-C	ops-off new-frit layer:new-frit +unsaved	
 ops-off new-frit question:quit +unsaved	Ctrl-D	ops-off new-frit layer:new-frit +unsaved	
 ops-off new-frit question:quit +unsaved	Down	ops-off new-frit layer:new-frit +unsaved	
 ops-off new-frit question:quit +unsaved	End	ops-off new-frit layer:new-frit +unsaved	
@@ -2164,7 +2164,7 @@ ops-off new-frit typing:new-frit +unsaved +pending	End	ops-off new-frit layer:ne
 ops-off new-frit typing:new-frit +unsaved +pending	Esc	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off new-frit typing:new-frit +unsaved +pending	PgDn	ops-off new-frit layer:new-frit +unsaved +pending	
 ops-off settings question:install +pending	Backspace	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Ctrl-C	ops-off left	exit 130
+ops-off settings question:install +pending	Ctrl-C	ops-off settings(value) view:settings +pending	
 ops-off settings question:install +pending	Ctrl-D	ops-off settings(value) view:settings +pending	
 ops-off settings question:install +pending	Down	ops-off settings(value) view:settings +pending	
 ops-off settings question:install +pending	End	ops-off settings(value) view:settings +pending	
@@ -2197,7 +2197,7 @@ ops-off settings question:install +pending	x	ops-off settings(value) view:settin
 ops-off settings question:install +pending	y	ops-off settings(value) view:settings	install
 ops-off settings question:install +pending	z	ops-off settings(value) view:settings +pending	
 ops-off settings question:leave +pending	Backspace	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Ctrl-C	ops-off left	exit 130
+ops-off settings question:leave +pending	Ctrl-C	ops-off settings(value) view:settings +pending	
 ops-off settings question:leave +pending	Ctrl-D	ops-off settings(value) view:settings +pending	
 ops-off settings question:leave +pending	Down	ops-off settings(value) view:settings +pending	
 ops-off settings question:leave +pending	End	ops-off settings(value) view:settings +pending	
@@ -2230,7 +2230,7 @@ ops-off settings question:leave +pending	x	ops-off settings(value) view:settings
 ops-off settings question:leave +pending	y	ops-off left	exit 0
 ops-off settings question:leave +pending	z	ops-off settings(value) view:settings +pending	
 ops-off settings question:leave +unsaved +pending	Backspace	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off settings question:leave +unsaved +pending	Ctrl-C	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings question:leave +unsaved +pending	Ctrl-D	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings question:leave +unsaved +pending	Down	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings question:leave +unsaved +pending	End	ops-off settings(value) view:settings +unsaved +pending	
@@ -2263,7 +2263,7 @@ ops-off settings question:leave +unsaved +pending	x	ops-off settings(value) view
 ops-off settings question:leave +unsaved +pending	y	ops-off left	save, exit 0
 ops-off settings question:leave +unsaved +pending	z	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings question:quit +unsaved	Backspace	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off settings question:quit +unsaved	Ctrl-C	ops-off settings(value) view:settings +unsaved	
 ops-off settings question:quit +unsaved	Ctrl-D	ops-off settings(value) view:settings +unsaved	
 ops-off settings question:quit +unsaved	Down	ops-off settings(value) view:settings +unsaved	
 ops-off settings question:quit +unsaved	End	ops-off settings(value) view:settings +unsaved	
