@@ -632,16 +632,22 @@ fn view_keys(app: &App) -> &'static str {
     }
 }
 
-/// The view's keys in rows of at most the screen's width less its margin,
-/// each key and what it does kept whole on one row.
-fn key_rows(app: &App) -> Vec<String> {
-    // a question's keys on every view, since it takes the next key
-    let keys = match &app.confirm {
+/// Every key the key line lists for the state `app` is in, each key and
+/// what it does two spaces apart: a question's keys on every view, since
+/// the question takes the next key, else the view's.
+pub fn key_line(app: &App) -> &'static str {
+    match &app.confirm {
         Some(c) if matches!(c.then, Then::Leave(_)) => words::KEYS_LEAVE,
         Some(c) if matches!(c.then, Then::Quit(_)) => words::KEYS_QUIT,
         Some(_) => words::KEYS_CONFIRM,
         None => view_keys(app),
-    };
+    }
+}
+
+/// The view's keys in rows of at most the screen's width less its margin,
+/// each key and what it does kept whole on one row.
+fn key_rows(app: &App) -> Vec<String> {
+    let keys = key_line(app);
     let width = app.cols.saturating_sub(2).max(1);
     // the Flow view's key line shows the keys that fit on one row, and
     // always its last, the key that leaves

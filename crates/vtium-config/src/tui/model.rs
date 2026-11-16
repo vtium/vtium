@@ -367,7 +367,7 @@ struct Answers {
 }
 
 /// The TUI's state.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct App {
     pub inputs: Inputs,
     pub cols: usize,
