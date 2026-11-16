@@ -637,7 +637,6 @@ fn view_keys(app: &App) -> &'static str {
 /// the question takes the next key, else the view's.
 pub fn key_line(app: &App) -> &'static str {
     match &app.confirm {
-        Some(c) if matches!(c.then, Then::Leave(_)) && app.unsaved > 0 => words::KEYS_LEAVE_SAVE,
         Some(c) if matches!(c.then, Then::Leave(_)) => words::KEYS_LEAVE,
         Some(c) if matches!(c.then, Then::Quit(_)) => words::KEYS_QUIT,
         Some(_) => words::KEYS_CONFIRM,
@@ -750,8 +749,11 @@ fn small(canvas: &mut Canvas, app: &App) {
     // a question asked here takes the first row, with its keys, so it
     // shows however few the rows
     if let Some(c) = &app.confirm {
-        let ask = words::small_question(app.unsaved, matches!(c.then, Then::Leave(_)));
-        lines.insert(0, format!("{ask}  {}", key_line(app)));
+        let row = match c.then {
+            Then::Quit(_) => format!("{}  {}", words::small_question(app.unsaved), key_line(app)),
+            _ => key_line(app).to_owned(),
+        };
+        lines.insert(0, row);
     }
     // the keys stay on the screen however few its rows
     let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);

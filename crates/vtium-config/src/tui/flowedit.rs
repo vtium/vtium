@@ -26,7 +26,8 @@ impl App {
 
     /// A key while a question is asked. `y` does what the question asks.
     /// The quit question also takes `n`, which quits without the unsaved
-    /// changes. Esc and Ctrl-C cancel the question and change nothing.
+    /// changes, and the leave question takes `n`, which quits without
+    /// installing. Esc and Ctrl-C cancel the question and change nothing.
     /// Every other key does nothing, and the question stays, so a stray
     /// key cannot answer it.
     ///
@@ -38,10 +39,9 @@ impl App {
             self.confirm.as_ref().map(|c| &c.then),
             Some(Then::Quit(_) | Then::Leave(_))
         );
-        let quit = matches!(self.confirm.as_ref().map(|c| &c.then), Some(Then::Quit(_)));
         match key {
             Key::Char('y') => {}
-            Key::Char('n') if quit => {}
+            Key::Char('n') if leaves => {}
             Key::Escape | Key::Interrupt => {
                 self.confirm = None;
                 return self.say(if leaves {
@@ -58,7 +58,13 @@ impl App {
         self.message = None;
         match confirm.then {
             Then::Quit(status) if key == Key::Char('n') => self.leave(status),
-            Then::Quit(status) | Then::Leave(status) => self.save_and_leave(status),
+            Then::Quit(status) => self.save_and_leave(status),
+            Then::Leave(status) if key == Key::Char('n') => self.save_and_leave(status),
+            // Install saves first, and the TUI leaves once it ends well
+            Then::Leave(status) => {
+                self.quit_after_install = Some(status);
+                self.action('i')
+            }
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
             Then::Install(plan) => {
@@ -206,6 +212,7 @@ impl App {
             Ok(done) => done,
             Err(why) => {
                 self.select_after = None;
+                self.quit_after_install = None;
                 return self.say(&why);
             }
         };
@@ -253,7 +260,10 @@ impl App {
                 // is not there yet (ADR-1403 D8)
                 let frits = match self.frit_plan() {
                     Ok(frits) => frits,
-                    Err(why) => return self.say(&why),
+                    Err(why) => {
+                        self.quit_after_install = None;
+                        return self.say(&why);
+                    }
                 };
                 let n = frits.files.len().saturating_add(frits.removals.len());
                 let mut files = frits.files;
@@ -261,7 +271,16 @@ impl App {
                 plan.files = files;
                 plan.removals = frits.removals;
                 if plan.is_empty() {
-                    return self.say(words::NOTHING_TO_INSTALL);
+                    return match self.quit_after_install.take() {
+                        Some(status) => self.leave(status),
+                        None => self.say(words::NOTHING_TO_INSTALL),
+                    };
+                }
+                // `y` at the leave question already said to install
+                if self.quit_after_install.is_some() {
+                    self.installing = true;
+                    self.message = Some(words::INSTALLING.to_owned());
+                    return vec![Effect::Install(plan)];
                 }
                 let (added, removed) = match plan.files.last() {
                     Some(f) if self.draft.as_ref().is_some_and(|d| d.text == f.new) => self
@@ -281,6 +300,7 @@ impl App {
                 self.ask(question, Then::Install(plan));
             }
             Done::Refused(why, problems) => {
+                self.quit_after_install = None;
                 let mut lines = vec![why];
                 lines.extend(problems);
                 // the views beside the flow show one paragraph
@@ -309,7 +329,10 @@ impl App {
             Ok(Done::Draft(opened, _)) => (opened, None),
             Ok(Done::Installed(opened, outcome)) => (opened, Some(outcome)),
             Ok(_) => return Vec::new(),
-            Err(why) => return self.say(&words::install_failed(&why)),
+            Err(why) => {
+                self.quit_after_install = None;
+                return self.say(&words::install_failed(&why));
+            }
         };
         let message = match &outcome {
             Some(outcome) => crate::vts::message(&opened.name, outcome),
@@ -318,6 +341,10 @@ impl App {
         self.draft = Some(opened);
         self.frits_installed();
         self.rebuild(None);
+        if let Some(status) = self.quit_after_install.take() {
+            self.message = Some(message);
+            return self.leave(status);
+        }
         self.say(&message)
     }
 

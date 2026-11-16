@@ -558,7 +558,6 @@ fn key_line(canvas: &mut Canvas, app: &App, keys: &str) {
     // a question takes the next key, so its keys show in place of the view's
     let keys = match app.confirm.as_ref().map(|c| &c.then) {
         Some(super::model::Then::Quit(_)) => words::KEYS_QUIT,
-        Some(super::model::Then::Leave(_)) if app.unsaved > 0 => words::KEYS_LEAVE_SAVE,
         Some(super::model::Then::Leave(_)) => words::KEYS_LEAVE,
         Some(_) => words::KEYS_CONFIRM,
         None => keys,

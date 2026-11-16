@@ -460,6 +460,9 @@ pub struct App {
     /// What the message line says once the draft holds the font the
     /// console shows, which `s` in a vtium console's Fonts view wrote.
     pub(crate) saving_tried: Option<String>,
+    /// The TUI leaves with this status once the install that `y` at the
+    /// leave question started ends well.
+    pub(crate) quit_after_install: Option<u8>,
     /// The changes made since the draft was last read or saved, which
     /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
     /// "Changes wait for Save").
@@ -479,8 +482,9 @@ pub enum Then {
     Change(DraftChange),
     Desk(Op),
     Install(Plan),
-    /// Leaves with this status, the pending frits lost: `y` saves the
-    /// unsaved changes first.
+    /// Leaves with this status while new or removed frits wait for an
+    /// install: `y` installs them first, and `n` leaves them uninstalled.
+    /// Both save the unsaved changes.
     Leave(u8),
     /// Leaves with this status: `y` saves the unsaved changes first, `n`
     /// leaves without them.
@@ -555,6 +559,7 @@ impl App {
             flow_view: super::flowview::State::default(),
             live_said: false,
             saving_tried: None,
+            quit_after_install: None,
             unsaved: 0,
         };
         // the Flow view's highlight on its first box from the first frame,
@@ -970,9 +975,10 @@ impl App {
             return self.flow_key(key);
         }
         match key {
-            // Install acts where the tab bar shows it, and Help's shows
-            // no action
-            Key::Char('i') if !self.typing() && self.view != View::Help => {
+            // Install acts where the tab bar shows it: not in Help, whose
+            // tab bar shows no action, nor in the new-frit form, which is
+            // open over the Fonts view
+            Key::Char('i') if !self.typing() && !matches!(self.view, View::Help | View::New) => {
                 return self.action('i');
             }
             // Save in the views whose own keys leave `s` free (ADR-1403 D7)
@@ -981,7 +987,7 @@ impl App {
             {
                 return self.save();
             }
-            Key::Char('o') if self.live == Live::OpsOff => {
+            Key::Char('o') if self.live == Live::OpsOff && self.view != View::New => {
                 return self.top("allow-font-ops", Some("on"));
             }
             _ => {}
@@ -1201,9 +1207,14 @@ impl App {
     /// key of a fixed set of words to its next word, and starts typing any
     /// other key's value, which a second Enter writes into the draft; an
     /// empty value goes back to the default, but a key binding's binds no
-    /// key and the word `default` returns it to its default. Moving away
-    /// drops what is typed.
+    /// key and the word `default` returns it to its default. Esc drops
+    /// what is typed.
     fn settings_key(&mut self, key: Key) -> Vec<Effect> {
+        // Up and Down do nothing while a value is typed: Enter keeps the
+        // value, and Esc drops it
+        if self.editing.is_some() && matches!(key, Key::Up | Key::Down) {
+            return Vec::new();
+        }
         let all = setting_keys();
         if let Some(typed) = self.editing.take() {
             return match all.get(self.setting_at) {

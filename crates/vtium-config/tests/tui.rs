@@ -1216,17 +1216,20 @@ fn new_opens_the_tui_at_its_new_frit_view() {
 }
 
 /// Leaving while a frit's removal waits for an install asks first and
-/// names it; `y` leaves without it, a stray key such as `l` leaves the
-/// question open, and the top row counts it.
+/// names it; `y` installs the removal and leaves, `n` leaves without
+/// installing, a stray key such as `l` leaves the question open, and the
+/// top row counts the font set waiting.
 #[test]
-fn leaving_with_a_frit_waiting_asks_and_y_leaves_without_it() {
+fn leaving_with_a_frit_waiting_asks_and_y_installs_it() {
     let mut c = console().keys(&[UP, b"r", b"q"]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        text.contains("Quit without installing? You will lose the removal of tiny5."),
+        text.contains(
+            "Install before you quit? Quitting without installing loses the removal of tiny5."
+        ),
         "{screen}"
     );
     // the status line says the font set waiting; the next test checks
@@ -1236,13 +1239,18 @@ fn leaving_with_a_frit_waiting_asks_and_y_leaves_without_it() {
     let mut c = console().keys(&[UP, b"r", b"q", b"y"]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
+    let plan = d.plans.first().expect("an install");
+    assert_eq!(plan.removals.len(), 1, "{plan:?}");
+    let mut c = console().keys(&[UP, b"r", b"q", b"n"]);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0);
     assert!(d.plans.is_empty());
     let mut c = console().keys(&[UP, b"r", b"q", b"l"]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(text.contains("Quit without installing?"), "{screen}");
+    assert!(text.contains("Install before you quit?"), "{screen}");
 }
 
 /// The status line with a font set waiting to be installed, on a screen
