@@ -1865,8 +1865,10 @@ impl<G: Gl> Back for GpuBack<'_, G> {
 impl<G: Gl> GpuBack<'_, G> {
     /// Pushes the quads of the jobs of grid row `row`.
     fn push_row<F: Face>(&mut self, compose: &Composer, font: &Font<F>, row: usize) {
-        // a line of double size draws the doubled sprites
-        if compose.jobs.iter().any(|j| !j.piece.is_whole())
+        // a cell of a line of double size, a run's cell among them, draws
+        // from the doubled sprites; a run on a line of the normal size
+        // draws from the normal ones
+        if compose.jobs.iter().any(|j| j.piece.sprite_set() != 0)
             && let Err(e) = self.glyphs.double_sprites(self.gl)
         {
             self.error = Some(e);

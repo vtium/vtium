@@ -194,3 +194,43 @@ fn every_gpu_frame_of_runs_on_double_size_lines_matches_a_whole_draw() {
         }
     }
 }
+
+// A run on a line of the normal size draws its decorations from the
+// normal sprites, so the frame that first draws it makes no texture of
+// the doubled sprites; the frame that first draws a double-width line
+// does
+// covers: text.kitty-sizing
+#[test]
+fn a_run_on_a_normal_line_uploads_no_doubled_sprites() {
+    let size = display(Orientation::Normal);
+    let mut t = Terminal::new(COLS, ROWS, 0);
+    t.input(b"\x1b[?25lA");
+    let mut gl = StandIn::new();
+    let mut pipeline = Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
+    let buffer: DrawTarget = gl.import_buffer(&size).unwrap();
+    let mut r = Renderer::new(unifont(), size.width, size.height, Config::default());
+    let mut since = Age::NEVER;
+    let mut made = Vec::new();
+    for bytes in [
+        &b""[..],
+        b"\x1b[2;1H\x1b[4m\x1b]66;s=2;A\x07",
+        b"\x1b[5;1H\x1b#6\x1b[4mA",
+    ] {
+        t.input(bytes);
+        let before = gl.calls().len();
+        let frame = t.screen().frame(t.palette(), since);
+        r.draw_gpu(&mut gl, &mut pipeline, &frame, &buffer, 1, &state(&t), &[])
+            .unwrap();
+        since = t.screen_mut().checkpoint();
+        let textures = gl.calls()[before..]
+            .iter()
+            .filter(|c| matches!(c, vtium_render::gpu::Call::CreateTexture(..)))
+            .count();
+        made.push(textures);
+    }
+    assert_eq!(made[1], 0, "the run's frame makes no texture");
+    assert_ne!(
+        made[2], 0,
+        "the double-width line's frame makes the doubled sprites"
+    );
+}
