@@ -26,6 +26,7 @@ use vtium_font::set::{Set, SetFace, builtin, builtin_name};
 use vtium_font::{Cell, Face, Format, Script, Style, Variant, Width};
 
 use crate::made::Made;
+use crate::needs::Differs;
 use crate::serve::{
     ASK, ASK_MADE, FRAME_BYTES_MAX, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED, FRAME_GLYPHS,
     FRAME_MADE, FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SANDBOX,
@@ -385,6 +386,21 @@ pub enum Sources {
 /// warning is skipped, and a frame of any other kind is the helper's
 /// failure too.
 pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
+    found_of(helper, frits)
+        .into_iter()
+        .map(|(sources, _)| sources)
+        .collect()
+}
+
+/// What the helper said of each of `frits`, as [`sources_of`] asks it, with
+/// the fonts that differ from what their sources need: a font that lacks a
+/// character its `check=` names, which is also among the sources left out,
+/// a font of a lower version than its `version=`, and a file whose SHA-256
+/// is not its `sha256=`.
+///
+/// References:
+/// - ADR-1204 D7: what vtium-config reports of each font a set needs.
+pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<(Sources, Vec<Differs>)> {
     let count = frits.len();
     let mut answers = Vec::with_capacity(count);
     let session = start(helper).map(|(child, mut stdin, mut stdout)| {
@@ -410,12 +426,16 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                 let found = loop {
                     match frame(&mut stdout) {
                         Ok((FRAME_SOURCES, payload)) => {
-                            break Ok(Sources::LeftOut(
-                                text(&payload).lines().filter_map(LeftOut::parse).collect(),
+                            let answer = text(&payload);
+                            break Ok((
+                                Sources::LeftOut(
+                                    answer.lines().filter_map(LeftOut::parse).collect(),
+                                ),
+                                answer.lines().filter_map(Differs::parse).collect(),
                             ));
                         }
                         Ok((FRAME_DRAWS_NOTHING, payload)) => {
-                            break Ok(Sources::DrawsNothing(text(&payload)));
+                            break Ok((Sources::DrawsNothing(text(&payload)), Vec::new()));
                         }
                         Ok((FRAME_FAILED, payload)) => {
                             break Err(format!("the font helper failed: {}", text(&payload)));
@@ -464,7 +484,7 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
         Err(why) => why,
     };
     while answers.len() < count {
-        answers.push(Sources::Unknown(why.clone()));
+        answers.push((Sources::Unknown(why.clone()), Vec::new()));
     }
     answers
 }

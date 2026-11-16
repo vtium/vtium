@@ -1121,6 +1121,77 @@ impl fmt::Display for crate::write::SectionEdit {
     }
 }
 
+/// The report that `vtium config fonts` prints after its list, on the
+/// fonts each font set needs: a font that is not installed, an installed
+/// font of that name that is a different font, an older version, and a
+/// font file with a different SHA-256. Each names the font set and the
+/// font, and the last line points to the help page on installing fonts.
+/// vtium-config gives no command to install a font, because a list of
+/// commands for each distribution is hard to keep current.
+///
+/// References:
+/// - ADR-1204 D7: what vtium-config reports, and the help page each report
+///   points to.
+pub mod fonts {
+    /// The help page on installing fonts, which each report points to.
+    pub const INSTALL_PAGE: &str = "https://vtium.github.io/vtium/fonts/#install-a-missing-font";
+
+    /// A font the font set `set` needs and that is not installed.
+    pub fn missing(set: &str, font: &str) -> String {
+        format!("Font set {set} needs the font {font}, and no font of that name is installed.")
+    }
+
+    /// A font of version `version` or later that the font set `set` needs,
+    /// and that is not installed.
+    pub fn missing_version(set: &str, font: &str, version: &str) -> String {
+        format!(
+            "Font set {set} needs the font {font}, version {version} or later, and no font of that name is installed."
+        )
+    }
+
+    /// A font that the font set `set` needs, where the installed font of
+    /// that name lacks the character `character`, which tells the right
+    /// font from another of a similar name.
+    pub fn lacks(set: &str, font: &str, character: &str) -> String {
+        format!(
+            "Font set {set} needs the font {font}. The installed font of that name lacks the character {character}, so it is a different font, and vtium does not use it."
+        )
+    }
+
+    /// As [`lacks`], for a font of version `version` or later.
+    pub fn lacks_version(set: &str, font: &str, version: &str, character: &str) -> String {
+        format!(
+            "Font set {set} needs the font {font}, version {version} or later. The installed font of that name lacks the character {character}, so it is a different font, and vtium does not use it."
+        )
+    }
+
+    /// An installed font of version `found`, older than the `version` the
+    /// font set `set` asks for.
+    pub fn older(set: &str, font: &str, version: &str, found: &str) -> String {
+        format!(
+            "Font set {set} asks for the font {font}, version {version} or later, and the installed font is version {found}. vtium still uses it."
+        )
+    }
+
+    /// A font file `path` that the font set `set` names, whose SHA-256 is
+    /// not the one the font set gives.
+    pub fn other_file(set: &str, path: &str) -> String {
+        format!(
+            "The font file {path} that font set {set} names has a different SHA-256 from the one the font set gives, so it may be another version of the font. vtium still uses it."
+        )
+    }
+
+    /// The font's upstream page, `url`, after a report on the font.
+    pub fn page(url: &str) -> String {
+        format!("You can get the font from {url}.")
+    }
+
+    /// The last line of the report, which points to the help page.
+    pub fn how_to_install() -> String {
+        format!("To install a font that a font set needs, see {INSTALL_PAGE}.")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;

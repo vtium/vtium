@@ -15,10 +15,11 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use vtium_settings::keys::{self, Default as KeyDefault, Kind, Scope};
-use vtium_settings::{Edit, setting, switch};
+use vtium_settings::{Edit, fonts_report, setting, switch};
 
 use crate::draft::{FileEdit, Plan, Removal};
 use crate::frit::{FRIT_BYTES_MAX, Frit, RESERVED, valid_name};
+use crate::needs::{Differ, Differs};
 use crate::specimen::Sources;
 use crate::tui::{Paths, model::FontState};
 use vtium_font::set::layer;
@@ -46,7 +47,15 @@ fn conf(paths: &Paths) -> Result<(PathBuf, Option<String>), String> {
 /// `fonts`: each frit and built-in font, one line each, tab-separated: its
 /// name, its state, and the sources this machine lacks or refuses, which
 /// the glyph helper finds under its own sandbox, so this process parses
-/// no font (ADR-1201 D3).
+/// no font (ADR-1201 D3). After the list, a report in sentences names each
+/// font a set needs and this machine lacks, each installed font of a lower
+/// version than the set asks for, and each font file whose SHA-256
+/// differs, with the font's upstream page where the set gives one. A last
+/// line points to the help page on installing fonts. A line of the report
+/// holds no tab, so it never reads as a font's line.
+///
+/// References:
+/// - ADR-1204 D7: what the report names, and the page it points to.
 pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     if !words.is_empty() {
         return usage(err, "fonts takes no argument");
@@ -56,31 +65,142 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
         Err(why) => return failed(err, why),
     };
     let fonts = crate::tui::fonts(frits);
-    let reading: Vec<String> = fonts
+    // each frit that reads, with its layers in place, as the helper is
+    // handed it; the parsed frit names what each source needs
+    let read: Vec<(String, Result<Frit, String>)> = fonts
         .iter()
         .filter(|f| f.state == FontState::Reads)
-        .map(|f| f.name.clone())
+        .map(|f| {
+            let path = frits.join(format!("{}.vtfrit", f.name));
+            (f.name.clone(), Frit::load(&path).map_err(|e| e.to_string()))
+        })
+        .collect();
+    let texts: Vec<crate::serve::FritText> = read
+        .iter()
+        .filter_map(|(name, frit)| {
+            frit.as_ref().ok().map(|f| crate::serve::FritText {
+                name: name.clone(),
+                text: f.text.clone(),
+            })
+        })
         .collect();
     // one helper answers for every frit, under one wait
-    let mut found = crate::tui::find_sources(frits, &paths.helper, &reading).into_iter();
+    let mut answers = crate::specimen::found_of(&paths.helper, texts).into_iter();
+    let mut found = read.into_iter().map(|(name, frit)| match frit {
+        Ok(frit) => {
+            let (sources, differs) = answers.next().unwrap_or_else(|| {
+                (
+                    Sources::Unknown("the font helper did not answer".to_owned()),
+                    Vec::new(),
+                )
+            });
+            (name, Some(frit), sources, differs)
+        }
+        Err(why) => (name, None, Sources::DrawsNothing(why), Vec::new()),
+    });
+    let mut report = Vec::new();
     for font in fonts {
         let (state, left_out) = match &font.state {
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
             FontState::Refused(why) => (format!("cannot be read: {why}"), String::new()),
-            FontState::Reads => match found.next().map(|(_, f)| f) {
-                Some(Sources::LeftOut(left)) => ("reads".to_owned(), left_out_text(&left)),
-                Some(Sources::DrawsNothing(why)) => {
-                    (format!("no font file found: {why}"), String::new())
+            FontState::Reads => match found.next() {
+                Some((name, frit, sources, differs)) => {
+                    if let (Some(frit), Sources::LeftOut(left)) = (&frit, &sources) {
+                        report.extend(needs_report(&name, frit, left, &differs));
+                    }
+                    match sources {
+                        Sources::LeftOut(left) => ("reads".to_owned(), left_out_text(&left)),
+                        Sources::DrawsNothing(why) => {
+                            (format!("no font file found: {why}"), String::new())
+                        }
+                        // no answer came: nothing is known of its sources,
+                        // and it is not said to draw nothing
+                        Sources::Unknown(why) => ("reads".to_owned(), format!("unknown: {why}")),
+                    }
                 }
-                // no answer came: nothing is known of its sources, and it
-                // is not said to draw nothing
-                Some(Sources::Unknown(why)) => ("reads".to_owned(), format!("unknown: {why}")),
                 None => ("reads".to_owned(), String::new()),
             },
         };
         let _ = writeln!(out, "{}\t{state}\t{left_out}", font.name);
     }
+    if !report.is_empty() {
+        report.push(fonts_report::how_to_install());
+    }
+    for line in report {
+        let _ = writeln!(out, "{line}");
+    }
     0
+}
+
+/// The report's lines for the frit `set`: one for each font the helper
+/// left out as missing, and for each font that differs from what its
+/// source needs, each followed by the font's upstream page where the
+/// source gives one. `left` and `differs` are the helper's answer, and
+/// `frit` the frit with its layers in place, which says what each source
+/// needs. A source the helper refused is not a font to install, so it is
+/// not reported here.
+fn needs_report(
+    set: &str,
+    frit: &Frit,
+    left: &[crate::serve::LeftOut],
+    differs: &[Differs],
+) -> Vec<String> {
+    // the source a line of the answer names: its line in the frit's own
+    // text, where a layer's source names its layer= line, and its spelling
+    let source_of = |line: usize, spelling: &str| {
+        frit.sources
+            .iter()
+            .find(|s| frit.place(s.line).own == line && s.spelling == spelling)
+    };
+    let mut out = Vec::new();
+    let mut with_page = |text: String, source: &crate::frit::Source| {
+        out.push(text);
+        if let Some(url) = &source.needs.url {
+            out.push(fonts_report::page(url));
+        }
+    };
+    for l in left.iter().filter(|l| l.missing) {
+        let Some(source) = source_of(l.line, &l.spelling) else {
+            continue;
+        };
+        let Some(font) = source.font_name() else {
+            continue;
+        };
+        let version = source.needs.version.as_ref().map(|v| v.spelling.as_str());
+        let lacks = differs.iter().find_map(|d| match d.what {
+            Differ::Lacks(c) if d.line == l.line && d.spelling == l.spelling => {
+                Some(format!("U+{c:04X}"))
+            }
+            _ => None,
+        });
+        let text = match (version, lacks) {
+            (None, None) => fonts_report::missing(set, &font),
+            (Some(v), None) => fonts_report::missing_version(set, &font, v),
+            (None, Some(c)) => fonts_report::lacks(set, &font, &c),
+            (Some(v), Some(c)) => fonts_report::lacks_version(set, &font, v, &c),
+        };
+        with_page(text, source);
+    }
+    for d in differs {
+        let Some(source) = source_of(d.line, &d.spelling) else {
+            continue;
+        };
+        let Some(font) = source.font_name() else {
+            continue;
+        };
+        let text = match &d.what {
+            Differ::Lacks(_) => continue,
+            Differ::Older(found) => {
+                let Some(version) = &source.needs.version else {
+                    continue;
+                };
+                fonts_report::older(set, &font, &version.spelling, found)
+            }
+            Differ::OtherHash(_) => fonts_report::other_file(set, &font),
+        };
+        with_page(text, source);
+    }
+    out
 }
 
 /// The sources left out, as `fonts` lists them: each source's spelling, a

@@ -346,6 +346,19 @@ fn utf16(s: &str) -> Vec<u8> {
 impl Font {
     /// The font's bytes.
     pub fn build(&self) -> Vec<u8> {
+        self.build_named(None)
+    }
+
+    /// The font's bytes, with `version` as its name table's version string
+    /// (name ID 5), such as `Version 2.304`, which a font set's `version=`
+    /// is compared with.
+    pub fn build_with_version(&self, version: &str) -> Vec<u8> {
+        self.build_named(Some(version))
+    }
+
+    /// The font's bytes, with a version string in its name table when
+    /// `version` gives one.
+    fn build_named(&self, version: Option<&str>) -> Vec<u8> {
         let n = self.glyphs.len() as u16;
         let mut tables: Vec<([u8; 4], Vec<u8>)> = Vec::new();
 
@@ -434,11 +447,10 @@ impl Font {
         cmap.extend(sub);
         tables.push((*b"cmap", cmap));
 
-        let strings = [
-            (1u16, utf16(&self.family)),
-            (2, utf16("Regular")),
-            (13, utf16("Free for testing,\n  no warranty.")),
-        ];
+        // the name records go in order of their name ID
+        let mut strings = vec![(1u16, utf16(&self.family)), (2, utf16("Regular"))];
+        strings.extend(version.map(|v| (5, utf16(v))));
+        strings.push((13, utf16("Free for testing,\n  no warranty.")));
         let mut name = Vec::new();
         p16(&mut name, 0);
         p16(&mut name, strings.len() as u16);

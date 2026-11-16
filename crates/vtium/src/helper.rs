@@ -221,6 +221,7 @@ const ASK: u32 = 6;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
 const OWN_CELL: u32 = 4;
+const SOURCES: u32 = 5;
 const COVERAGE: u32 = 8;
 const FRAME_GLYPHS: u32 = 1;
 const FRAME_DONE: u32 = 2;
@@ -232,6 +233,7 @@ const FRAME_NO_OWN_CELL: u32 = 7;
 const FRAME_STOPPED: u32 = 8;
 const FRAME_WARNING: u32 = 9;
 const FRAME_OUTLINE_CELL: u32 = 10;
+const FRAME_SOURCES: u32 = 11;
 const FRAME_DRAWS_NOTHING: u32 = 12;
 const FRAME_SANDBOX: u32 = 14;
 const FRAME_COVERAGE: u32 = 15;
@@ -753,7 +755,10 @@ pub(crate) enum Event {
     /// and an installed font that covers the most of the rest, empty when
     /// none does.
     Coverage(Vec<u32>, String),
-    /// The frit draws nothing, a coverage query's answer: why.
+    /// A sources query's answer: one line for each source the helper left
+    /// out and for each font that differs from what its source needs.
+    Sources(String),
+    /// The frit draws nothing, a coverage or sources query's answer: why.
     DrawsNothing(String),
     /// A frame that answers a pointer ask: its kind, a picture or a shape
     /// drawn nothing for, and its payload, which
@@ -863,7 +868,7 @@ pub(crate) fn frame(r: &mut impl Read) -> Option<Event> {
         FRAME_FILLED | FRAME_STOPPED => 16,
         FRAME_OWN_CELL | FRAME_OUTLINE_CELL => 8,
         FRAME_SANDBOX => 4,
-        FRAME_COVERAGE => FRAME_BYTES_MAX,
+        FRAME_COVERAGE | FRAME_SOURCES => FRAME_BYTES_MAX,
         FRAME_POINTER => crate::pointer_file::PICTURE_BYTES_MAX,
         FRAME_NO_POINTER => REASON_BYTES_MAX.saturating_add(8),
         FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING | FRAME_DRAWS_NOTHING => REASON_BYTES_MAX,
@@ -955,6 +960,7 @@ pub(crate) fn frame(r: &mut impl Read) -> Option<Event> {
             _ => Event::Malformed("a sandbox report without its parts".to_owned()),
         },
         FRAME_COVERAGE => coverage_answer(&payload),
+        FRAME_SOURCES => Event::Sources(String::from_utf8_lossy(&payload).into_owned()),
         FRAME_DRAWS_NOTHING => Event::DrawsNothing(String::from_utf8_lossy(&payload).into_owned()),
         FRAME_POINTER | FRAME_NO_POINTER => Event::Pointer(kind, payload),
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
@@ -1667,6 +1673,78 @@ impl Helper {
         }
     }
 
+    /// The helper's answer to a sources query on the frit: one line for
+    /// each source it left out, `missing` or `refused`, and one for each
+    /// font that differs from what its source needs, `lacks`, `older` or
+    /// `sha256`, each with the source's line, its spelling and a value,
+    /// tab-separated. The console parses no font, so the helper finds the
+    /// fonts. The error is why there is no answer, as for
+    /// [`Helper::coverage`]: the helper cannot start, draws nothing from
+    /// the frit, ends first, or gives no answer in `wait`. `vtium
+    /// check-config` asks it, with no other request in flight.
+    ///
+    /// References:
+    /// - ADR-1204 D7: `vtium check-config` names each missing font.
+    pub fn sources(
+        &mut self,
+        wait: Duration,
+        clock: &dyn Fn() -> Instant,
+    ) -> Result<String, String> {
+        let now = clock();
+        let query = Cell {
+            width: 0,
+            height: 0,
+        };
+        if self.failed.is_none() {
+            self.send(
+                (
+                    SOURCES,
+                    SpacedCell::plain(query),
+                    (Variant::default(), None),
+                    ClusterWidth::Double,
+                ),
+                (&[], &[]),
+                &[],
+                now,
+            );
+        }
+        if let Some(why) = &self.failed {
+            return Err(why.clone());
+        }
+        let end = after(now, wait);
+        loop {
+            let left = end.saturating_duration_since(clock());
+            let event = self
+                .running
+                .as_ref()
+                .ok_or_else(|| "the helper is not running".to_owned())?
+                .events
+                .recv_timeout(left);
+            return match event {
+                Ok(Event::Sources(lines)) => Ok(lines),
+                Ok(Event::DrawsNothing(why)) => Err(why.trim().to_owned()),
+                Ok(Event::Warning(why)) => {
+                    self.warn(why.trim());
+                    continue;
+                }
+                Ok(Event::Sandbox(parts)) => {
+                    self.sandboxed(parts);
+                    continue;
+                }
+                Ok(Event::Failed(why)) => Err(failure(&why)),
+                Ok(Event::Malformed(why)) => Err(format!("the helper's answer was refused: {why}")),
+                Ok(other) => {
+                    self.early.push_back(other);
+                    continue;
+                }
+                Err(_) => Err(format!(
+                    "the helper gave no answer in {} ms",
+                    wait.as_millis()
+                )),
+            };
+        }
+    }
+
     /// The answers to cell queries that came after their wait, since the
     /// last call, each with the height its query asked at, in the order
     /// they came (ADR-1200 D17, the maintainer, 2026-11-03).
@@ -1979,8 +2057,8 @@ impl Helper {
                     self.sandboxed(parts);
                     continue;
                 }
-                Event::Coverage(..) | Event::DrawsNothing(_) => {
-                    Err("the helper answered a coverage query not made".to_owned())
+                Event::Coverage(..) | Event::Sources(_) | Event::DrawsNothing(_) => {
+                    Err("the helper answered a coverage or sources query not made".to_owned())
                 }
                 Event::Pointer(kind, payload) => match &mut self.pointer {
                     Some((reply, _)) => reply.frame(kind, &payload),
@@ -3389,6 +3467,32 @@ mod tests {
             true,
         );
         assert!(why.contains("fill carries a cluster"), "{why}");
+    }
+
+    // A sources query's answer is the helper's lines as they came, after
+    // the frit's warnings, which are logged as any frit's are. A frit the
+    // helper draws nothing from is an error that says why.
+    //
+    // References:
+    // - ADR-1204 D7: check-config names each missing font.
+    #[test]
+    fn a_sources_query_answers_with_the_helpers_lines() {
+        let lines = "missing\t1\tfont:Gone\tno font of family Gone\nolder\t2\tfont:Old\t2.242";
+        let mut fixture = frame_bytes(FRAME_WARNING, b"t needs the font Gone");
+        fixture.extend(frame_bytes(FRAME_SOURCES, lines.as_bytes()));
+        let mut s = StandIn::new("sources", ANSWERS, &fixture);
+        let clock = t0;
+        assert_eq!(
+            s.helper.sources(Duration::from_secs(5), &clock).as_deref(),
+            Ok(lines)
+        );
+        assert!(s.helper.warned.contains("t needs the font Gone"));
+        let fixture = frame_bytes(FRAME_DRAWS_NOTHING, b"no source is on this machine");
+        let mut s = StandIn::new("sources-nothing", ANSWERS, &fixture);
+        assert_eq!(
+            s.helper.sources(Duration::from_secs(5), &clock),
+            Err("no source is on this machine".to_owned())
+        );
     }
 
     // the frit's warnings are logged once each, at most WARNINGS_MAX a

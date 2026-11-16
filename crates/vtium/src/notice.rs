@@ -289,6 +289,15 @@ pub fn link_copied(uri: &str) -> String {
 pub mod check_config {
     use std::fmt::Display;
 
+    /// The sentences on a font that a font set needs and that is missing
+    /// or differs. vtium-config's `fonts` report says the same, so both
+    /// take them from vtium-settings' catalog.
+    ///
+    /// References:
+    /// - ADR-1204 D7: `vtium check-config` prints the same lines as
+    ///   `vtium config fonts`.
+    pub use vtium_settings::fonts_report as font_needs;
+
     /// The subcommand's help.
     pub const HELP: &str = "Usage: vtium check-config [OPTION]... [--no-devices] [FILE]\n\n\
 Checks vtium's configuration without applying it. It reads\n\
