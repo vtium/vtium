@@ -44,6 +44,9 @@ impl App {
             Key::Char('n') if leaves => {}
             Key::Escape | Key::Interrupt => {
                 self.confirm = None;
+                // going back from the install the leave question started
+                // leaves no install waiting
+                self.quit_after_install = None;
                 return self.say(if leaves {
                     words::NOT_LEFT
                 } else {
@@ -276,8 +279,9 @@ impl App {
                         None => self.say(words::NOTHING_TO_INSTALL),
                     };
                 }
-                // `y` at the leave question already said to install
-                if self.quit_after_install.is_some() {
+                // `y` at the leave question already said to install; a draft
+                // with no complete route still asks its own question first
+                if self.quit_after_install.is_some() && !plan.no_route {
                     self.installing = true;
                     self.message = Some(words::INSTALLING.to_owned());
                     return vec![Effect::Install(plan)];

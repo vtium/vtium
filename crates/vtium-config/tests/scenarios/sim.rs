@@ -50,6 +50,9 @@ pub struct Desk {
     /// How many times the draft was written, by Save, by a signal or by
     /// an install's save.
     pub writes: usize,
+    /// The check finds that the draft wires no complete route, so a
+    /// prepared install needs the person's yes.
+    pub no_route: bool,
 }
 
 impl Desk {
@@ -77,7 +80,10 @@ impl Desk {
                 self.draft()
             }
             Op::Check(text) => Done::Draft(self.opened(text), None),
-            Op::Prepare if self.draft == self.installed => Done::Plan(Plan::default()),
+            Op::Prepare if self.draft == self.installed => Done::Plan(Plan {
+                no_route: self.no_route,
+                ..Plan::default()
+            }),
             Op::Prepare => Done::Plan(Plan {
                 files: vec![FileEdit {
                     path: "/etc/vtium/vtium.conf".into(),
@@ -85,7 +91,7 @@ impl Desk {
                     new: self.draft.clone(),
                 }],
                 removals: Vec::new(),
-                no_route: false,
+                no_route: self.no_route,
             }),
             Op::Revert | Op::Delete => {
                 self.draft.clone_from(&self.installed);
@@ -202,6 +208,7 @@ impl Sim {
                 draft: conf.clone(),
                 history: vec![format!("{conf}# an older file\n")],
                 writes: 0,
+                no_route: false,
             },
             console_font: START_FONT.to_owned(),
             mouse: false,

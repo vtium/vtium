@@ -388,3 +388,36 @@ fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
     press(&mut sim, &["Esc"]);
     assert_eq!(sim.app.view, vtium_config::tui::model::View::Fonts);
 }
+
+/// The leave question's `y` installs a draft that wires no complete route
+/// only after the person answers the question that says so, and quits
+/// once that install ends well. Esc at that question keeps the TUI, and a
+/// later `i` asks before it installs.
+///
+/// References:
+/// - ADR-1403 D7: a draft with no complete route installs only on yes.
+#[test]
+fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
+    let mut sim = Sim::start(Term::Vtium, 80, 25);
+    sim.desk.no_route = true;
+    press(&mut sim, &["Up", "r", "q"]);
+    let did = sim.press(press_of("y"));
+    assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
+    assert_eq!(sim.exited, None);
+    let question = sim
+        .app
+        .confirm
+        .clone()
+        .expect("the no-route question")
+        .question;
+    assert!(question.contains("complete"), "{question}");
+    let mut back = sim.clone();
+    back.press(press_of("Esc"));
+    let did = back.press(press_of("i"));
+    assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
+    assert!(back.app.confirm.is_some(), "i installed without asking");
+    let did = sim.press(press_of("y"));
+    assert!(did.effects.iter().any(|e| e == "install"), "{did:?}");
+    assert_eq!(sim.exited, Some(0));
+}
+
