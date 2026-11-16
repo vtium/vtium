@@ -1,3 +1,7 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+runs-scale	sized runs (OSC 66), drawn on 2026-11-16 by tier2 render from feat/runs-draw at 489ea52a; the outline set draws each glyph at the normal size scaled up, since the font helper does not yet draw a run at true size
+runs-scale-unifont	sized runs (OSC 66), drawn on 2026-11-16 by tier2 render from feat/runs-draw at 489ea52a; unifont's pixels multiply by whole factors
+runs-fraction	sized runs (OSC 66), drawn on 2026-11-16 by tier2 render from feat/runs-draw at 489ea52a; the outline set draws each glyph at the normal size scaled up, since the font helper does not yet draw a run at true size
+runs-fraction-unifont	sized runs (OSC 66), drawn on 2026-11-16 by tier2 render from feat/runs-draw at 489ea52a; unifont's pixels multiply by whole factors
