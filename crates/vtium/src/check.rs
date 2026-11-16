@@ -453,7 +453,10 @@ pub struct Outcome {
     pub stderr: Vec<String>,
     /// What the status does not count.
     pub stdout: Vec<String>,
-    /// 1 when standard error holds any line.
+    /// 0 when standard error holds no line,
+    /// [`vtium_settings::CHECK_MISSING_FONTS`] when every line it holds
+    /// is a warning on a font that a font set needs and this machine
+    /// lacks, and 1 otherwise.
     pub status: u8,
 }
 
@@ -560,13 +563,19 @@ fn outcome_with(
     let needs = named_frit(&loaded.config, settings.frits)
         .map(|(name, file)| font_needs(&name, &file, &settings))
         .unwrap_or_default();
+    let missing_fonts = needs.warnings.len().saturating_add(heads.missing_fonts);
     let stderr: Vec<String> = stderr
         .into_iter()
         .chain(refused)
         .chain(layers)
         .chain(needs.warnings)
         .collect();
-    let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
+    let problems = stderr.len().saturating_add(heads.counted.len());
+    let status = match problems {
+        0 => 0,
+        _ if problems == missing_fonts => vtium_settings::CHECK_MISSING_FONTS,
+        _ => 1,
+    };
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
         stdout: renamed
@@ -664,6 +673,11 @@ impl Helpers<'_> {
 pub struct HeadCheck {
     /// The file's own errors and warnings, which make the status 1.
     pub counted: Vec<String>,
+    /// How many of `counted` are warnings on a font that a look's font
+    /// set needs and this machine lacks. When they are all of `counted`
+    /// and the top level has no problem, the status is
+    /// [`vtium_settings::CHECK_MISSING_FONTS`].
+    pub missing_fonts: usize,
     /// What the status does not count.
     pub notes: Vec<String>,
     /// The installed file fails the ownership check, so a start reads
@@ -918,6 +932,7 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
             out.notes
                 .extend(said.map(|said| at(path, line, said).to_string()));
             let needs = font_needs(&named.value, &file, settings);
+            out.missing_fonts = out.missing_fonts.saturating_add(needs.warnings.len());
             for said in needs.warnings {
                 out.counted.push(at(path, line, said).to_string());
             }
@@ -941,8 +956,9 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
     }
 }
 
-/// What [`font_needs`] says of a font set's fonts: the warnings, which
-/// count against the file, and the notes, which do not.
+/// What [`font_needs`] says of a font set's fonts: the warnings on fonts
+/// this machine lacks, which count against the file with a status of
+/// their own, and the notes, which do not count.
 #[derive(Debug, Default)]
 struct Needs {
     warnings: Vec<String>,
@@ -3202,6 +3218,7 @@ mod tests {
                     "{shown}: There is no vtium.conf here, so vtium starts with its built-in configuration and shows no notice."
                 )],
                 refused: false,
+                missing_fonts: 0,
             }
         );
         assert_eq!(
@@ -3210,6 +3227,7 @@ mod tests {
                 counted: vec![format!("{shown}: does not exist")],
                 notes: Vec::new(),
                 refused: false,
+                missing_fonts: 0,
             }
         );
     }
@@ -3331,6 +3349,7 @@ mod tests {
             )],
             notes: Vec::new(),
             refused: false,
+            missing_fonts: 0,
         };
         assert_eq!(
             conf_file(&file, false, &trust, &machine(true), &caps(4)),
@@ -3711,7 +3730,8 @@ mod tests {
     }
 
     // A font that font-name's set needs and this machine lacks is a
-    // warning: check-config prints it on standard error and exits 1. An
+    // warning: check-config prints it on standard error and exits with
+    // vtium_settings::CHECK_MISSING_FONTS. An
     // older version of a font is a note, which leaves the status alone.
     //
     // References:
@@ -3751,7 +3771,7 @@ mod tests {
         };
         let page = "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font.";
         let missing = check("missing\t1\tfont:Gone Mono\tno font of family Gone Mono");
-        assert_eq!(missing.status, 1);
+        assert_eq!(missing.status, vtium_settings::CHECK_MISSING_FONTS);
         assert_eq!(
             missing.stderr,
             [format!(
@@ -3786,6 +3806,76 @@ mod tests {
             "{:#?}",
             older.stdout
         );
+    }
+
+    // When every problem check-config finds is a font that a font set
+    // needs and this machine lacks, it exits with a status of its own, so
+    // vtium-config can install the file without reading the warnings'
+    // words. The warnings may come from font-name's set or from a look's.
+    // Any other problem beside them makes the status 1, and notes alone
+    // leave it 0.
+    //
+    // References:
+    // - ADR-1204 D7: check-config names each missing font.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn only_missing_fonts_exit_with_their_own_status() {
+        let look = "version = 1\n[look big]\nfont-name = desk\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n";
+        let status = |name: &str, text: &str, answer: &'static str| {
+            let (_dir, file, _) = heads_fixture(name, text, 0o644);
+            let frits = file.with_file_name("frits");
+            std::fs::create_dir_all(&frits).unwrap();
+            std::fs::write(
+                frits.join("desk.vtfrit"),
+                "source=font:Gone Mono\nsource=font:Old Mono\nversion=3.1\nsource=builtin:unscii-8\n",
+            )
+            .unwrap();
+            let host = Host {
+                conf_file: file.with_file_name("absent.conf"),
+                udev_control: file.clone(),
+                roots: nowhere(),
+                frits: frits.clone(),
+                frit_trust: font::trust().below(file.parent().unwrap()),
+                systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            };
+            let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
+                .iter()
+                .map(OsString::from)
+                .collect();
+            let ask = move |_: &helper::FritText| Ok(answer.to_owned());
+            let out = outcome_with(
+                &config::load(&args, &mut config::read_bytes),
+                &host,
+                None,
+                Some(FontSources { ask: &ask }),
+            );
+            (out.status, out.stderr.len())
+        };
+        let missing = "missing\t1\tfont:Gone Mono\tno font of family Gone Mono";
+        let only = vtium_settings::CHECK_MISSING_FONTS;
+        // font-name's set, at the top level
+        let top = "font-name=desk\nversion = 1\n[head a]\n[rules]\ndisplay * -> a\n";
+        assert_eq!(status("only-top", top, missing), (only, 1));
+        // a look's set, among the sections, and both at once
+        assert_eq!(status("only-look", look, missing), (only, 1));
+        let both = format!("font-name=desk\n{look}");
+        assert_eq!(status("only-both", &both, missing), (only, 2));
+        // a font that lacks a character its check= names counts the same
+        let lacks = "missing\t1\tfont:Gone Mono\tit lacks U+E0B0\nlacks\t1\tfont:Gone Mono\tU+E0B0";
+        assert_eq!(status("only-lacks", look, lacks), (only, 1));
+        // a missing font beside a top-level warning, or an error in a
+        // section, is 1
+        let unknown = format!("no-such-key=1\n{both}");
+        assert_eq!(status("and-top", &unknown, missing).0, 1);
+        let broken = look.replace("look = big\n", "look = big\nno-such-key = 1\n");
+        assert_eq!(status("and-section", &broken, missing).0, 1);
+        // notes alone: an older font, and a font the helper cannot read
+        assert_eq!(
+            status("notes", &both, "older\t2\tfont:Old Mono\t3.000"),
+            (0, 0)
+        );
+        let refused = "refused\t1\tfont:Gone Mono\tthe file is not a font";
+        assert_eq!(status("refused", &both, refused), (0, 0));
     }
 
     // heads.md: each file docs/heads holds checks with exit status 0, the
