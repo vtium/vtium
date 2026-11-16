@@ -78,13 +78,9 @@ nav = [
       { "Architecture" = "architecture.md" },
       { "The VT review" = "vt-review.md" },
       { "The Linux console's unverified rows" = "vt-review-linux.md" },
-      { "The crates' interfaces" = [
-          "api/index.md",
-          { "Getting started" = "api/getting-started.md" },
-          { "Conventions" = "api/conventions.md" },
-      ] },
       { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
       { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },
+      { "The crates' interfaces" = ["api/index.md"] },
       { "The crates" = "https://github.com/vtium/vtium/tree/main/crates" },
   ] },
 ]
@@ -108,6 +104,11 @@ exclude_docs = """
 # line for each of t3_showcase.CATEGORIES as ShowcaseTest checks, and the
 # tutorial Your first frit, which joins the menu once it is written.
 # The release pages, other than their index, are reached from the index.
+# The crates' interfaces: Getting started and Conventions are reached from
+# the index under api/, which the menu lists. The index sits in a
+# sub-section of its own because the theme's navigation.indexes makes an
+# index.md listed straight in a section that section's landing page, and
+# For contributors opens on Architecture.
 not_in_nav = """
 /tutorial-first-frit.md
 /architecture/*/ADR-*.md
@@ -124,6 +125,8 @@ not_in_nav = """
 /showcase/displays-and-vts.md
 /showcase/small-machines.md
 /releases/*.md
+/api/getting-started.md
+/api/conventions.md
 """
 
 [project.theme]

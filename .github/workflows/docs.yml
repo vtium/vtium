@@ -38,11 +38,14 @@ jobs:
           target/site-venv/bin/python docs/scripts/adr index -y
           git diff --exit-code -- docs/architecture/INDEX.md
       - run: target/site-venv/bin/zensical build --strict --clean
-      # The crates' interfaces under /api/ (ADR-1508 D1): rustdoc for each
-      # crate with a library, with every rustdoc warning an error, so a
-      # broken intra-doc link fails the job. cargo doc runs the build
-      # scripts, which find libudev and libxkbcommon, and with every feature
-      # libsystemd and libseat, through pkg-config.
+      # The next steps build rustdoc for each crate that has a library and
+      # copy it into the site under /api/. Every rustdoc warning is an
+      # error, so a broken intra-doc link fails the job. cargo doc runs the
+      # crates' build scripts, which find libudev and libxkbcommon through
+      # pkg-config, and with every feature also libsystemd and libseat.
+      #
+      # References:
+      # - ADR-1508 D1: the crates' interfaces under /api/, which these steps build.
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
