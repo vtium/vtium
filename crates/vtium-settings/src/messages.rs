@@ -1136,33 +1136,70 @@ pub mod fonts {
     /// The help page on installing fonts, which each report points to.
     pub const INSTALL_PAGE: &str = "https://vtium.github.io/vtium/fonts/#install-a-missing-font";
 
-    /// A font the font set `set` needs and that is not installed.
-    pub fn missing(set: &str, font: &str) -> String {
-        format!("Font set {set} needs the font {font}, and no font of that name is installed.")
+    /// How the font set names a font: by a name that vtium looks up among
+    /// the installed fonts, or by the path of its file. The report says
+    /// "no font of that name is installed" of the one and "there is no
+    /// file at that path" of the other.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Named {
+        /// A family's or a kbd font's name.
+        ByName,
+        /// A file's path: a `file:`, `bdf:` or `outline:` source.
+        ByPath,
+    }
+
+    /// A font the font set `set` needs and that this machine lacks.
+    pub fn missing(set: &str, font: &str, named: Named) -> String {
+        let absent = absent(named);
+        format!("Font set {set} needs the font {font}, and {absent}.")
     }
 
     /// A font of version `version` or later that the font set `set` needs,
-    /// and that is not installed.
-    pub fn missing_version(set: &str, font: &str, version: &str) -> String {
-        format!(
-            "Font set {set} needs the font {font}, version {version} or later, and no font of that name is installed."
-        )
+    /// and that this machine lacks.
+    pub fn missing_version(set: &str, font: &str, version: &str, named: Named) -> String {
+        let absent = absent(named);
+        format!("Font set {set} needs the font {font}, version {version} or later, and {absent}.")
     }
 
     /// A font that the font set `set` needs, where the installed font of
-    /// that name lacks the character `character`, which tells the right
-    /// font from another of a similar name.
-    pub fn lacks(set: &str, font: &str, character: &str) -> String {
+    /// that name, or the file at that path, lacks the character
+    /// `character`, which tells the right font from another of a similar
+    /// name.
+    pub fn lacks(set: &str, font: &str, character: &str, named: Named) -> String {
+        let found = found(named);
         format!(
-            "Font set {set} needs the font {font}. The installed font of that name lacks the character {character}, so it is a different font, and vtium does not use it."
+            "Font set {set} needs the font {font}. {found} lacks the character {character}, so it is a different font, and vtium does not use it."
         )
     }
 
     /// As [`lacks`], for a font of version `version` or later.
-    pub fn lacks_version(set: &str, font: &str, version: &str, character: &str) -> String {
+    pub fn lacks_version(
+        set: &str,
+        font: &str,
+        version: &str,
+        character: &str,
+        named: Named,
+    ) -> String {
+        let found = found(named);
         format!(
-            "Font set {set} needs the font {font}, version {version} or later. The installed font of that name lacks the character {character}, so it is a different font, and vtium does not use it."
+            "Font set {set} needs the font {font}, version {version} or later. {found} lacks the character {character}, so it is a different font, and vtium does not use it."
         )
+    }
+
+    /// What this machine lacks of a font named `named`.
+    fn absent(named: Named) -> &'static str {
+        match named {
+            Named::ByName => "no font of that name is installed",
+            Named::ByPath => "there is no file at that path",
+        }
+    }
+
+    /// The font this machine has in place of a font named `named`.
+    fn found(named: Named) -> &'static str {
+        match named {
+            Named::ByName => "The installed font of that name",
+            Named::ByPath => "The font file at that path",
+        }
     }
 
     /// An installed font of version `found`, older than the `version` the

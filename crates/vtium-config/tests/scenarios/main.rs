@@ -450,7 +450,7 @@ fn below_the_minimum_size_the_leave_question_says_what_it_does() {
         .cloned()
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(top.contains("Font sets wait to install"), "{top}");
+    assert!(top.contains("Font sets wait to be installed"), "{top}");
     assert!(top.contains("1 change"), "{top}");
     assert!(top.contains("y install and quit"), "{top}");
 }

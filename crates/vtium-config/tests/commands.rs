@@ -750,6 +750,8 @@ fn fonts_names_each_missing_or_different_font_and_its_page() {
              check=U+0041\n\
              check=U+E0B0\n\
              source=builtin:unifont\n\
+             source=bdf:/nonexistent/vtium-gone.bdf\n\
+             version=1.0\n\
              layer=gone\n",
             older.display(),
             "0".repeat(64),
@@ -776,9 +778,11 @@ fn fonts_names_each_missing_or_different_font_and_its_page() {
             "Font set want needs the font No Such Family Anywhere, version 2.304 or later, and no font of that name is installed.".to_owned(),
             "You can get the font from https://example.org/nsfa.".to_owned(),
             format!(
-                "Font set want needs the font {}. The installed font of that name lacks the character U+E0B0, so it is a different font, and vtium does not use it.",
+                "Font set want needs the font {}. The font file at that path lacks the character U+E0B0, so it is a different font, and vtium does not use it.",
                 plain.display()
             ),
+            // a font named by its path is a file, not an installed font
+            "Font set want needs the font /nonexistent/vtium-gone.bdf, version 1.0 or later, and there is no file at that path.".to_owned(),
             "Font set want needs the font Gone Layer Nowhere, version 1.5 or later, and no font of that name is installed.".to_owned(),
             "You can get the font from https://example.org/layer.".to_owned(),
             format!(
@@ -798,7 +802,7 @@ fn fonts_names_each_missing_or_different_font_and_its_page() {
     assert!(
         ran.out.lines().any(|l| l
             == format!(
-                "want\treads\tfont:No Such Family Anywhere, bdf:{}, font:Gone Layer Nowhere",
+                "want\treads\tfont:No Such Family Anywhere, bdf:{}, bdf:/nonexistent/vtium-gone.bdf, font:Gone Layer Nowhere",
                 plain.display()
             )),
         "{}",

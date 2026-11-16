@@ -14,11 +14,12 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use vtium_settings::fonts_report::Named;
 use vtium_settings::keys::{self, Default as KeyDefault, Kind, Scope};
 use vtium_settings::{Edit, fonts_report, setting, switch};
 
 use crate::draft::{FileEdit, Plan, Removal};
-use crate::frit::{FRIT_BYTES_MAX, Frit, RESERVED, valid_name};
+use crate::frit::{FRIT_BYTES_MAX, Frit, Origin, RESERVED, valid_name};
 use crate::needs::{Differ, Differs};
 use crate::specimen::{Found, Sources};
 use crate::tui::{Paths, model::FontState};
@@ -184,11 +185,17 @@ fn needs_report(
             }
             _ => None,
         });
+        // a font named by its path is a file this machine lacks, not a font
+        // it has not installed
+        let named = match source.origin {
+            Origin::File(_) | Origin::Bdf(_) | Origin::Outline(_) => Named::ByPath,
+            _ => Named::ByName,
+        };
         let text = match (version, lacks) {
-            (None, None) => fonts_report::missing(set, &font),
-            (Some(v), None) => fonts_report::missing_version(set, &font, v),
-            (None, Some(c)) => fonts_report::lacks(set, &font, &c),
-            (Some(v), Some(c)) => fonts_report::lacks_version(set, &font, v, &c),
+            (None, None) => fonts_report::missing(set, &font, named),
+            (Some(v), None) => fonts_report::missing_version(set, &font, v, named),
+            (None, Some(c)) => fonts_report::lacks(set, &font, &c, named),
+            (Some(v), Some(c)) => fonts_report::lacks_version(set, &font, v, &c, named),
         };
         with_page(text, source);
     }

@@ -998,7 +998,7 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
         let Ok(line) = line.parse::<usize>() else {
             continue;
         };
-        let Some(font) = font_of(spelling) else {
+        let Some((font, named)) = font_of(spelling) else {
             continue;
         };
         let (version, url) = needs_of(&frit.text, line, spelling);
@@ -1009,10 +1009,10 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
                     (k == "lacks" && l.parse() == Ok(line) && s == spelling).then_some(v)
                 });
                 let said = match (version, lacks) {
-                    (None, None) => font_needs::missing(name, font),
-                    (Some(v), None) => font_needs::missing_version(name, font, v),
-                    (None, Some(c)) => font_needs::lacks(name, font, c),
-                    (Some(v), Some(c)) => font_needs::lacks_version(name, font, v, c),
+                    (None, None) => font_needs::missing(name, font, named),
+                    (Some(v), None) => font_needs::missing_version(name, font, v, named),
+                    (None, Some(c)) => font_needs::lacks(name, font, c, named),
+                    (Some(v), Some(c)) => font_needs::lacks_version(name, font, v, c, named),
                 };
                 (said, true)
             }
@@ -1039,11 +1039,16 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
 }
 
 /// The font a source's `spelling` names, as a person knows it: a family's
-/// or a kbd font's name, or a file's path. `None` for `vconsole`,
-/// `console:` and `builtin:`, which name no font a person installs.
-fn font_of(spelling: &str) -> Option<&str> {
+/// or a kbd font's name, or a file's path, and which of the two it is.
+/// `None` for `vconsole`, `console:` and `builtin:`, which name no font a
+/// person installs.
+fn font_of(spelling: &str) -> Option<(&str, check_config::font_needs::Named)> {
     let (kind, rest) = spelling.split_once(':')?;
-    matches!(kind, "font" | "kbd" | "file" | "bdf" | "outline").then_some(rest)
+    match kind {
+        "font" | "kbd" => Some((rest, check_config::font_needs::Named::ByName)),
+        "file" | "bdf" | "outline" => Some((rest, check_config::font_needs::Named::ByPath)),
+        _ => None,
+    }
 }
 
 /// The `version=` and `url=` lines under the source `spelling` on the font
@@ -3744,6 +3749,14 @@ mod tests {
             missing.stderr,
             [format!(
                 "Font set desk needs the font Gone Mono, and no font of that name is installed. {page}"
+            )]
+        );
+        // a font named by its path is a file this machine lacks
+        let file = check("missing\t4\tbdf:/nonexistent/gone.bdf\tnot on this machine");
+        assert_eq!(
+            file.stderr,
+            [format!(
+                "Font set desk needs the font /nonexistent/gone.bdf, and there is no file at that path. {page}"
             )]
         );
         let older = check("older\t2\tfont:Old Mono\t3.000");
