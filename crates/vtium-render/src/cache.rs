@@ -266,8 +266,11 @@ struct LastDoubled {
 }
 
 /// The block a sized run last drew, for its text, variant and size, which
-/// each cell's piece of the run is cut from. A run's cells draw one after
-/// the other, so the block is drawn once for them, not once for each cell.
+/// each cell's piece of the run is cut from. A run's cells on one row draw
+/// one after the other, so the block is drawn once for each row of the run
+/// whose pieces are not yet cached, not once for each cell. Runs side by
+/// side take turns on each row, so each of them draws its block again on
+/// each of its rows.
 #[derive(Debug)]
 struct LastSized {
     text: Text,
