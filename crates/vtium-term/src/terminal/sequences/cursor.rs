@@ -1,6 +1,6 @@
 //! The entries of the `cursor` rows: the cursor's style and color.
 
-use super::{Departure, Entry, Form, Other, Param, TARGET_SET};
+use super::{Entry, Form, Other, Param, TARGET_SET};
 
 pub(super) const ENTRIES: &[Entry] = &[
     Entry {
@@ -11,18 +11,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         }],
         params: &[Param {
             name: "Ps",
-            meaning: "The style: 0 vtium's default style, 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar and 6 a steady bar.",
+            meaning: "The style: 0 and 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar and 6 a steady bar.",
             default: Some("0"),
         }],
         does: &[
-            "vtium draws the cursor in the style DECSCUSR sets. The default style is a block that blinks while the `blink` key is on. vtium ignores a value past 6 and keeps the style it has.",
+            "A session starts with the cursor style that vtium's configuration gives: a block that blinks while the `blink` key is on. DECSCUSR changes the style as the VT510 manual decides, so `CSI 0 SP q` and `CSI SP q` select a blinking block. vtium ignores a value past 6 and keeps the style it has.",
+            "DECSTR and RIS return the cursor to the configured style.",
             "DECSC does not save the cursor style, so DECRC leaves it as it is. DECRQSS reports the style that DECSCUSR set.",
         ],
-        departure: Some(Departure {
-            says: "`CSI 0 SP q` and `CSI SP q` select vtium's default style, a block that blinks only while the `blink` key is on. The VT510 manual and xterm's control sequences make both a blinking block.",
-            readme: "crates/vtium-term/README.md",
-            section: "Replies and the cursor",
-        }),
+        departure: None,
         record: TARGET_SET,
     },
     Entry {

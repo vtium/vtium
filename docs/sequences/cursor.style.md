@@ -8,19 +8,19 @@
 
 ## Parameters
 
-- `Ps`: The style: 0 vtium's default style, 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar and 6 a steady bar. The default is 0.
+- `Ps`: The style: 0 and 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar and 6 a steady bar. The default is 0.
 
 ## What vtium does
 
-vtium draws the cursor in the style DECSCUSR sets. The default style is a block that blinks while the `blink` key is on. vtium ignores a value past 6 and keeps the style it has.
+A session starts with the cursor style that vtium's configuration gives: a block that blinks while the `blink` key is on. DECSCUSR changes the style as the VT510 manual decides, so `CSI 0 SP q` and `CSI SP q` select a blinking block. vtium ignores a value past 6 and keeps the style it has.
+
+DECSTR and RIS return the cursor to the configured style.
 
 DECSC does not save the cursor style, so DECRC leaves it as it is. DECRQSS reports the style that DECSCUSR set.
 
-`CSI 0 SP q` and `CSI SP q` select vtium's default style, a block that blinks only while the `blink` key is on. The VT510 manual and xterm's control sequences make both a blinking block. See [Replies and the cursor in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#replies-and-the-cursor).
-
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
+- **Status:** supported. vtium implements this as the specifications below define it.
 - **Why:** editors such as vim show a bar in insert mode and a block in normal mode.
 - **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html); [the VT510 reference manual](https://vt100.net/docs/vt510-rm/contents.html)
 

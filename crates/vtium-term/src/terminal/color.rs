@@ -354,11 +354,12 @@ impl State {
         }
     }
 
-    /// XTREPORTCOLORS, `CSI # R`: `CSI ? Pc ; Ps # Q`, the current entry
-    /// and the entries stored.
+    /// XTREPORTCOLORS, `CSI # R`: `CSI Pc ; Ps # Q`, the current entry
+    /// and the entries stored. ctlseqs gives the reply "the same form as
+    /// XTPOPCOLORS", `CSI Pm # Q`, so it carries no `?`.
     pub(super) fn reply_color_stack(&mut self) {
         let stack = &self.color_stack;
-        let reply = format!("\x1b[?{};{}#Q", stack.current, stack.stored());
+        let reply = format!("\x1b[{};{}#Q", stack.current, stack.stored());
         self.reply(Query::ColorStack, reply.as_bytes());
     }
 

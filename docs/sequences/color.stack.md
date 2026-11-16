@@ -18,7 +18,7 @@
 
 A push stores every color in a stack entry: the 256 palette colors, the defaults, and the cursor's, pointer's and selection's colors. A pop restores them, and text on the screen changes with them. OSC 30001 and 30101 push and pop the same stack as XTPUSHCOLORS and XTPOPCOLORS.
 
-The stack holds 10 entries. A push with the stack full, and a pop of an empty stack, do nothing. XTREPORTCOLORS answers `CSI ? Pc ; Ps # Q`, with the current entry and the number of entries stored.
+The stack holds 10 entries. A push with the stack full, and a pop of an empty stack, do nothing. XTREPORTCOLORS answers `CSI Pc ; Ps # Q`, with the current entry and the number of entries stored, in the form of XTPOPCOLORS.
 
 ## Status
 
