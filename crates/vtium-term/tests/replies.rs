@@ -541,9 +541,10 @@ fn xtmodkeys_sets_and_reports_the_level() {
 }
 
 // ctlseqs and VT510, DECSCUSR: 0, 1 and an omitted parameter a blinking
-// block, 2 to 6 a shape that blinks or stays steady; a value past 6 is
-// ignored, as xterm ignores it. A session starts with the host's style,
-// which DECSCUSR replaces. DECSC does not save the style.
+// block, 2 to 6 a shape that blinks or stays steady, and 7 the style the
+// host configured, which a session starts with (ctlseqs: "Ps = 7 ⇒
+// initial resources"). A value past 7 changes nothing. DECSC does not
+// save the style.
 // covers: cursor.style
 #[test]
 fn decscusr_sets_the_cursor_style() {
@@ -562,6 +563,8 @@ fn decscusr_sets_the_cursor_style() {
         assert_eq!(t.cursor_style(), style, "DECSCUSR {ps}");
     }
     t.input(b"\x1b[4 q\x1b[7 q");
+    assert_eq!(t.cursor_style(), CursorStyle::Default);
+    t.input(b"\x1b[4 q\x1b[8 q\x1b[99 q");
     assert_eq!(t.cursor_style(), CursorStyle::UnderlineSteady);
     t.input(b"\x1b[ q");
     assert_eq!(t.cursor_style(), CursorStyle::BlockBlink);

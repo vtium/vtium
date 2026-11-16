@@ -74,9 +74,8 @@ pub use images::{ImageNote, ImageString};
 /// shape that DECSCUSR chooses, which blinks or stays steady.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorStyle {
-    /// The host's style, which a session starts with and RIS and DECSTR
-    /// return to: a block, blinking as the host says. DECSCUSR never
-    /// selects it.
+    /// The host's style, which a session starts with and RIS, DECSTR and
+    /// DECSCUSR 7 return to: a block, blinking as the host says.
     #[default]
     Default,
     BlockBlink,
@@ -88,11 +87,14 @@ pub enum CursorStyle {
 }
 
 impl CursorStyle {
-    /// DECSCUSR's style for `Ps`: 0 to 6, and none for a value past 6,
-    /// which xterm ignores. The VT510 manual and ctlseqs make 0, like 1, a
-    /// blinking block.
+    /// DECSCUSR's style for `Ps`. The VT510 manual and ctlseqs make 0,
+    /// like 1, a blinking block, and 2 to 6 the other shapes. 7 is the
+    /// style the host configured, which ctlseqs gives as "Ps = 7 ⇒ initial
+    /// resources". A value past 7 names no style, and the cursor keeps the
+    /// one it has.
     fn from_param(ps: u32) -> Option<Self> {
         Some(match ps {
+            7 => Self::Default,
             0 | 1 => Self::BlockBlink,
             2 => Self::BlockSteady,
             3 => Self::UnderlineBlink,
