@@ -427,6 +427,9 @@ pub struct App {
     /// The pointer file while it loads, with the font helper that draws
     /// its pictures.
     pointer_file: Option<(crate::pointer_file::Loader, Helper)>,
+    /// The pointer file's pictures and the heights its displays ask for,
+    /// which the loader shares with every display's view.
+    pointer_store: crate::pointer_file::Store,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
     /// The kernel's font, read from the VT at start for a frit's
@@ -621,6 +624,7 @@ impl App {
                 .map(|l| l.with_locale(&locale(&inherited))),
             pointer_file_started: false,
             pointer_file: None,
+            pointer_store: crate::pointer_file::Store::default(),
             frits: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
@@ -1609,6 +1613,7 @@ impl App {
                 ..head.render_config(&self.config)
             },
             self.measure(),
+            self.pointer_store.clone(),
         );
         if self.config.switch(&keys::SOFT_CURSOR) {
             view.pointer = crate::pointer::Pointer::software();
@@ -1983,15 +1988,19 @@ impl App {
                 .and_then(|n| u32::try_from(n).ok());
             if let Some(path) = self.config.text(&crate::config::keys::POINTER_THEME) {
                 let path = PathBuf::from(path);
-                if let Some(loader) = crate::pointer_file::Loader::start(&path, size, font::trust())
-                {
+                if let Some(loader) = crate::pointer_file::Loader::start(
+                    &path,
+                    size,
+                    font::trust(),
+                    &self.pointer_store,
+                ) {
                     match self
                         .launcher
                         .clone()
                         .and_then(|l| self.helper_wake().map(|w| (l, w)))
                     {
                         Ok((launcher, wake)) => {
-                            crate::pointer_file::set_wake(std::sync::Arc::clone(&wake));
+                            self.pointer_store.set_wake(std::sync::Arc::clone(&wake));
                             let helper = Helper::for_pointers(launcher, wake, self.epoch);
                             self.pointer_file = Some((loader, helper));
                         }
@@ -5863,6 +5872,21 @@ mod tests {
     pub(super) fn shown_at(app: &mut App, t: Instant) {
         app.vt.activate().unwrap();
         app.turn(t);
+    }
+
+    // Each display's view asks for its pointer's cell height through the
+    // console's own pointer file store, the store the loader of an SVG
+    // pointer file reads, so the file is drawn at that height.
+    #[test]
+    fn a_display_asks_the_consoles_pointer_file_store_for_its_height() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.pointer_store.take_heights();
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        assert_eq!(app.pointer_store.asked(), [16]);
     }
 
     // ADR-1401 D9 and vtium-settings's Identity: a display's order is its

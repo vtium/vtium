@@ -1,35 +1,7 @@
 use super::*;
 use crate::scratch::Scratch;
 use std::os::unix::fs::PermissionsExt;
-use std::sync::Mutex;
 use std::time::Duration;
-
-/// Holds the tests that load a pointer file one at a time, since every
-/// loader shares the one table and the one queue of heights. A test that
-/// calls [`crate::pointer::Pointer::follow`] holds it too, because each
-/// call asks for the renderer's cell height, which would join the queue of
-/// an SVG file another test is loading.
-static LOADING: Mutex<()> = Mutex::new(());
-
-/// Takes [`LOADING`] and empties the table and the queue of heights.
-pub(crate) fn loading() -> std::sync::MutexGuard<'static, ()> {
-    let held = LOADING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    reset();
-    held
-}
-
-/// Empties the table and the queue of heights, as a console starts.
-fn reset() {
-    let mut s = store();
-    s.pictures = None;
-    s.svg = false;
-    s.asked.clear();
-    s.waiting.clear();
-    s.forget.clear();
-    s.wake = None;
-}
 
 /// Reads `bytes`, the helper's answer to `ask`, as the console reads it:
 /// each frame through the helper client's frame reader, then [`Reply`].
@@ -366,7 +338,7 @@ fn the_console_bounds_the_pictures_of_one_answer() {
 // once the last shape is answered, and the loader then ends.
 #[test]
 fn a_theme_takes_each_shapes_first_drawable_file_in_order() {
-    let _held = loading();
+    let store = Store::default();
     let (dir, trust) = scratch("theme");
     let cursors = dir.join("cursors");
     std::fs::create_dir_all(&cursors).unwrap();
@@ -392,7 +364,7 @@ fn a_theme_takes_each_shapes_first_drawable_file_in_order() {
     ] {
         write(&cursors.join(name), &cursor(&[24]), 0o644);
     }
-    let mut loader = Loader::start(&dir, None, trust.clone()).unwrap();
+    let mut loader = Loader::start(&dir, None, trust.clone(), &store).unwrap();
     let log = load(&mut loader);
     assert!(loader.ended());
     let table = loader.table();
@@ -423,11 +395,11 @@ fn a_theme_takes_each_shapes_first_drawable_file_in_order() {
         table.pick(PointerShape::Default, 31).map(Arrow::width),
         Some(32)
     );
-    assert!(current().is_none());
+    assert!(store.current().is_none());
     assert!(loader.publish());
     assert!(!loader.publish());
-    assert_eq!(current().unwrap().sizes_of(PointerShape::Wait), [48]);
-    let mut sized = Loader::start(&dir, Some(24), trust).unwrap();
+    assert_eq!(store.current().unwrap().sizes_of(PointerShape::Wait), [48]);
+    let mut sized = Loader::start(&dir, Some(24), trust, &store).unwrap();
     load(&mut sized);
     assert_eq!(sized.table().sizes_of(PointerShape::Default), [24]);
 }
@@ -437,37 +409,38 @@ fn a_theme_takes_each_shapes_first_drawable_file_in_order() {
 // helper cannot draw is logged once and not asked for again.
 #[test]
 fn an_svg_file_draws_at_each_height_asked_and_logs_once() {
-    let _held = loading();
+    let store = Store::default();
     let (dir, trust) = scratch("svg");
     let shipped =
         std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/install/pointers.svg")).unwrap();
     let path = dir.join("pointers.svg");
     write(&path, &shipped, 0o644);
-    let mut svg = Loader::start(&path, None, trust.clone()).unwrap();
+    let mut svg = Loader::start(&path, None, trust.clone(), &store).unwrap();
     // nothing is asked until a display wants a height
     assert_eq!(svg.next_ask(), None);
-    want(16);
-    want(16);
+    store.want(16);
+    store.want(16);
     assert_eq!(load(&mut svg), Log::default());
     assert!(
         PointerShape::ALL
             .iter()
             .all(|&s| svg.table().sizes_of(s) == [16])
     );
-    want(20);
+    store.want(20);
     load(&mut svg);
     assert_eq!(svg.table().sizes_of(PointerShape::Wait), [16, 20]);
     assert!(!svg.ended());
-    // a file with the default shape alone, and a wait symbol with no hotspot
-    reset();
+    // a file with the default shape alone, and a wait symbol with no hotspot,
+    // loaded by a console of its own
+    let store = Store::default();
     let small = dir.join("small.svg");
     write(
         &small,
         b"<svg xmlns=\"http://www.w3.org/2000/svg\"><symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><rect width=\"8\" height=\"16\" fill=\"#fff\"/></symbol><symbol id=\"wait\" viewBox=\"0 0 8 16\"/></svg>",
         0o644,
     );
-    let mut s = Loader::start(&small, None, trust).unwrap();
-    want(16);
+    let mut s = Loader::start(&small, None, trust, &store).unwrap();
+    store.want(16);
     let log = load(&mut s);
     assert_eq!(
         log.warnings,
@@ -483,7 +456,7 @@ fn an_svg_file_draws_at_each_height_asked_and_logs_once() {
             small.display()
         )]
     );
-    want(20);
+    store.want(20);
     assert_eq!(load(&mut s), Log::default());
     assert_eq!(s.table().sizes_of(PointerShape::Default), [16, 20]);
 }
@@ -494,7 +467,7 @@ fn an_svg_file_draws_at_each_height_asked_and_logs_once() {
 // again.
 #[test]
 fn every_height_wanted_is_drawn_and_the_oldest_makes_room() {
-    let _held = loading();
+    let store = Store::default();
     let (dir, trust) = scratch("heights");
     let path = dir.join("one.svg");
     write(
@@ -502,19 +475,19 @@ fn every_height_wanted_is_drawn_and_the_oldest_makes_room() {
         b"<svg xmlns=\"http://www.w3.org/2000/svg\"><symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><rect width=\"8\" height=\"16\" fill=\"#fff\"/></symbol></svg>",
         0o644,
     );
-    let mut svg = Loader::start(&path, None, trust).unwrap();
+    let mut svg = Loader::start(&path, None, trust, &store).unwrap();
     let heights: Vec<u32> = (8..).take(SVG_HEIGHTS_KEPT).collect();
     for &h in &heights {
-        want(h);
+        store.want(h);
     }
     load(&mut svg);
     assert_eq!(svg.table().sizes_of(PointerShape::Default), heights);
-    want(40);
+    store.want(40);
     load(&mut svg);
     let kept = svg.table().sizes_of(PointerShape::Default);
     assert_eq!(kept.len(), SVG_HEIGHTS_KEPT);
     assert!(!kept.contains(&8) && kept.contains(&40), "{kept:?}");
-    want(8);
+    store.want(8);
     load(&mut svg);
     let kept = svg.table().sizes_of(PointerShape::Default);
     assert!(kept.contains(&8) && !kept.contains(&9), "{kept:?}");
@@ -525,23 +498,23 @@ fn every_height_wanted_is_drawn_and_the_oldest_makes_room() {
 // height starts no helper.
 #[test]
 fn a_failed_helper_gives_the_file_up() {
-    let _held = loading();
+    let store = Store::default();
     let (dir, trust) = scratch("failed");
     let shipped =
         std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/install/pointers.svg")).unwrap();
     let path = dir.join("pointers.svg");
     write(&path, &shipped, 0o644);
-    let mut svg = Loader::start(&path, None, trust).unwrap();
-    want(16);
+    let mut svg = Loader::start(&path, None, trust, &store).unwrap();
+    store.want(16);
     let first = svg.next_ask().unwrap();
     svg.take(helper_answer(&first));
     assert!(svg.next_ask().is_some());
     svg.take(Err("the font helper gave no answer for 10 s".to_owned()));
     assert!(svg.ended());
     assert_eq!(svg.next_ask(), None);
-    want(20);
+    store.want(20);
     assert_eq!(svg.next_ask(), None);
-    assert!(store().waiting.is_empty());
+    assert!(store.lock().waiting.is_empty());
     assert_eq!(svg.table().sizes_of(PointerShape::Default), [16]);
     assert_eq!(
         svg.take_log().warnings,
@@ -550,4 +523,41 @@ fn a_failed_helper_gives_the_file_up() {
             path.display()
         )]
     );
+}
+
+// A display of another console, drawn at the same time on another thread
+// as the drawing code's tests draw theirs, asks nothing of this console's
+// loader, because each console's displays ask through its own store. A
+// store every console shared once let such a display add its cell height
+// to the asks of an SVG file another test was loading.
+#[test]
+fn a_display_of_another_console_asks_this_loader_nothing() {
+    let store = Store::default();
+    let (dir, trust) = scratch("another");
+    let shipped =
+        std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/install/pointers.svg")).unwrap();
+    let path = dir.join("pointers.svg");
+    write(&path, &shipped, 0o644);
+    let mut svg = Loader::start(&path, None, trust, &store).unwrap();
+    std::thread::spawn(|| {
+        let font = vtium_font::Font::new(vtium_font::Unifont::new(16));
+        let mut r = vtium_render::Renderer::new(font, 36, 34, vtium_render::Config::default());
+        let mut arrow = r.arrow().clone();
+        let other = Store::default();
+        crate::pointer::Pointer::default().follow(
+            &mut r,
+            &mut arrow,
+            PointerShape::Default,
+            &other,
+        );
+    })
+    .join()
+    .unwrap();
+    assert_eq!(svg.next_ask(), None);
+    // the display of this console asks through its store
+    let font = vtium_font::Font::new(vtium_font::Unifont::new(16));
+    let mut r = vtium_render::Renderer::new(font, 36, 34, vtium_render::Config::default());
+    let mut arrow = r.arrow().clone();
+    crate::pointer::Pointer::default().follow(&mut r, &mut arrow, PointerShape::Default, &store);
+    assert_eq!(svg.next_ask().map(|ask| ask.heights), Some(vec![16]));
 }

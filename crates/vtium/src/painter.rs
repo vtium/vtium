@@ -893,6 +893,7 @@ mod tests {
                     None,
                     Config::default(),
                     false,
+                    crate::pointer_file::Store::default(),
                 );
                 let key = (PathBuf::from("/dev/test"), DisplayId(i));
                 let state = DrawState::default();
@@ -937,7 +938,15 @@ mod tests {
                     Blink::new(false),
                     Rc::new(Instant::now),
                 ),
-                view: View::new(id, Font::new(face), size, None, Config::default(), false),
+                view: View::new(
+                    id,
+                    Font::new(face),
+                    size,
+                    None,
+                    Config::default(),
+                    false,
+                    crate::pointer_file::Store::default(),
+                ),
                 video: Small(Arc::new(Mutex::new(vec![0; bytes])), size, 0),
                 key: (PathBuf::from("/dev/test"), id),
             }
