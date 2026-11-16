@@ -35,6 +35,25 @@ struct Char {
     rows: Vec<u8>,
 }
 
+/// The version a BDF font's `FONT_VERSION` property states, its quotes
+/// dropped, read from its properties alone; `None` when the font states
+/// none, or does not read as far as its properties.
+pub fn version(bytes: &[u8]) -> Option<String> {
+    let (plain, _) = crate::decode::decompress(bytes).ok()?;
+    for line in plain.split(|&b| b == b'\n') {
+        let line = std::str::from_utf8(line).ok()?.trim();
+        match word(line, 0) {
+            Some("ENDPROPERTIES" | "CHARS" | "STARTCHAR") => return None,
+            Some("FONT_VERSION") => {
+                let value = line.get("FONT_VERSION".len()..)?.trim().trim_matches('"');
+                return Some(value.to_owned());
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// A BDF font's bytes as its glyphs at its own cell: decompressed, every
 /// glyph whose advance is the cell's width or twice it, and whose
 /// encoding is a Unicode scalar value, placed on the baseline at its own

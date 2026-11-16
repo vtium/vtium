@@ -274,6 +274,20 @@ pub struct SetFit {
 }
 
 impl Source {
+    /// The font the source names, as a person knows it: a family's name,
+    /// a kbd font's name or a file's path. `None` for `vconsole` and
+    /// `console:`, which name the system's font rather than one of their
+    /// own.
+    pub fn font_name(&self) -> Option<String> {
+        match &self.origin {
+            Origin::Kbd(name) | Origin::Font(name) | Origin::Builtin(name) => Some(name.clone()),
+            Origin::File(path) | Origin::Bdf(path) | Origin::Outline(path) => {
+                Some(path.display().to_string())
+            }
+            Origin::Vconsole | Origin::Console(_) => None,
+        }
+    }
+
     /// Whether `cover=` lets the source give `c`.
     pub fn covers(&self, c: u32) -> bool {
         if self.cover.is_empty() {
