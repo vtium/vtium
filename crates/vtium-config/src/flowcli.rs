@@ -816,7 +816,8 @@ impl Command<'_, '_> {
             self.say(&format!("wrote {}", path.display()));
             let checked = self.session.check(&draft, &path)?;
             self.print_check(&checked);
-            if checked.passed {
+            // a missing font is shown, and never asks for another edit
+            if checked.clears() {
                 break;
             }
             let _ = write!(self.out, "The check found problems. Edit again? [y/N] ");

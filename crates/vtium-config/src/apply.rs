@@ -795,6 +795,17 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         drop(scratch);
         match checked {
             Ok(()) => {}
+            // a missing font is a warning that never stops an install: it
+            // is shown, and the draft installs
+            Err(said)
+                if crate::drafts::blocking(&said.lines().collect::<Vec<_>>())
+                    .next()
+                    .is_none() =>
+            {
+                for line in said.lines() {
+                    let _ = writeln!(out, "{line}");
+                }
+            }
             // the one problem the person may accept, and only that one
             // (ADR-1403 D8)
             Err(said)

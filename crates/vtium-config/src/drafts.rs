@@ -150,6 +150,24 @@ impl Checked {
     pub fn no_route_only(&self, shown: &str) -> bool {
         !self.passed && only_no_route(&self.problems, shown)
     }
+
+    /// Whether the check passed, or failed only on fonts that a font set
+    /// needs and this machine lacks. check-config counts a missing font,
+    /// for scripts and CI, but vtium-config installs and saves such a
+    /// draft, and shows the warnings, since vtium draws the set without
+    /// the font.
+    ///
+    /// References:
+    /// - ADR-1204 D7: check-config names each missing font.
+    pub fn clears(&self) -> bool {
+        self.passed || blocking(&self.problems).next().is_none()
+    }
+}
+
+/// The problem lines that stop an install: those [`counted`] counts, but
+/// a warning on a missing font, which never stops one.
+pub fn blocking<S: AsRef<str>>(lines: &[S]) -> impl Iterator<Item = &str> {
+    counted(lines).filter(|l| !vtium_settings::fonts_report::says_missing(l))
 }
 
 /// The problem lines the status line counts: every line but those that say
@@ -167,7 +185,7 @@ fn counted<S: AsRef<str>>(lines: &[S]) -> impl Iterator<Item = &str> {
 /// line names the file and no line of it (ADR-1403 D3). Any other problem,
 /// or a second one, makes this false.
 pub fn only_no_route<S: AsRef<str>>(lines: &[S], shown: &str) -> bool {
-    let mut problems = counted(lines);
+    let mut problems = blocking(lines);
     let (Some(line), None) = (problems.next(), problems.next()) else {
         return false;
     };
@@ -384,7 +402,7 @@ impl Session<'_> {
             let _ = writeln!(out, "{line}");
         }
         let no_route = checked.no_route_only(&shown.to_string_lossy());
-        if !checked.passed && !no_route {
+        if !checked.clears() && !no_route {
             return Err(Fail::Check(format!(
                 "nothing installed: the check found problems in draft {name}. The draft keeps your changes."
             )));

@@ -815,3 +815,57 @@ fn a_full_installed_file_keeps_every_line_but_the_one_a_change_sets() {
     kept.remove(at);
     assert_eq!(kept, example.lines().collect::<Vec<_>>());
 }
+
+/// The stand-in console of [`CHECKER`], which also warns, for each line of
+/// the file that holds `GONEFONT`, that the font set desk needs a font this
+/// machine lacks, in vtium-settings' own words, and exits 1.
+fn missing_font_checker(f: &Fixture) {
+    use vtium_settings::fonts_report::{self, Named};
+    let message = format!(
+        "{} {}",
+        fonts_report::missing("desk", "Gone Mono", Named::ByName),
+        fonts_report::how_to_install()
+    )
+    .replace('\'', r"'\''");
+    let script = CHECKER.replace(
+        "if [ -n \"$bad\" ]; then",
+        &format!(
+            "for n in $(grep -n GONEFONT \"$file\" | cut -d: -f1); do\n  printf '%s\\n' \"$file:$n: \"'{message}' >&2\n  gone=1\ndone\nif [ -n \"$gone\" ] && [ -z \"$bad\" ]; then exit 1; fi\nif [ -n \"$bad\" ]; then"
+        ),
+    );
+    script::executable(&f.path("vtium"), &script);
+}
+
+/// A missing font is a warning that check-config counts, for scripts and
+/// CI, but it does not stop an install: a draft whose only problems are
+/// missing fonts installs and shows each warning. A draft with any other
+/// problem is still refused.
+///
+/// References:
+/// - ADR-1204 D7: check-config names each missing font.
+#[test]
+fn install_shows_a_missing_font_and_installs_anyway_but_no_other_problem() {
+    let f = fixture("missing-font");
+    missing_font_checker(&f);
+    f.desk();
+    assert_eq!(f.run(&["set", "font-name", "GONEFONT"]).status, 0);
+    let ran = f.run(&["install"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    let shown = format!("{}{}", ran.out, ran.err);
+    assert!(
+        shown.contains(
+            "Font set desk needs the font Gone Mono, and no font of that name is installed."
+        ),
+        "{shown}"
+    );
+    assert!(
+        f.installed().contains("font-name=GONEFONT"),
+        "{}",
+        f.installed()
+    );
+    // another problem beside the missing font still refuses the draft
+    assert_eq!(f.run(&["set", "login", "BAD"]).status, 0);
+    let refused = f.run(&["install"]);
+    assert_eq!(refused.status, 1, "{}{}", refused.out, refused.err);
+    assert!(!f.installed().contains("BAD"), "{}", f.installed());
+}
