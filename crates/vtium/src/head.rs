@@ -1691,13 +1691,13 @@ impl Head {
         let screen = self.console.term.terminal.screen_mut();
         let links = screen.view_links();
         if links.is_empty() {
-            screen.set_overlay_note(Some(crate::hints::NO_LINKS.to_owned()));
+            screen.set_overlay_note(Some(crate::notice::NO_LINKS.to_owned()));
             self.note_shows = true;
             return;
         }
         let labels = crate::hints::labels(links.len());
         screen.set_link_hints(links.into_iter().zip(labels).collect());
-        screen.set_overlay_note(Some(crate::hints::PROMPT.to_owned()));
+        screen.set_overlay_note(Some(crate::notice::LINK_HINTS.to_owned()));
         self.note_shows = false;
         self.hints = Some(crate::hints::Hints::default());
     }
@@ -1739,7 +1739,7 @@ impl Head {
                 if let Some(uri) = uri {
                     let screen = self.console.term.terminal.screen_mut();
                     screen.clear_selection();
-                    let note = format!("{}{uri}", crate::hints::COPIED);
+                    let note = crate::notice::link_copied(&uri);
                     screen.set_overlay_note(Some(note));
                     self.note_shows = true;
                     *selection = Some(uri.into_bytes());
@@ -3049,7 +3049,10 @@ mod tests {
         head.link_hints_key();
         assert!(head.hints.is_some());
         assert_eq!(labels(&head), [("a".into(), true), ("s".into(), true)]);
-        assert_eq!(head.link_overlay().as_deref(), Some(crate::hints::PROMPT));
+        assert_eq!(
+            head.link_overlay().as_deref(),
+            Some(crate::notice::LINK_HINTS)
+        );
         assert!(
             head.hint_key(&sym('m'), false, &mut selection),
             "taken, ignored"
@@ -3078,7 +3081,10 @@ mod tests {
         head.console.term.terminal.input(b"\x1b[2J");
         head.link_hints_key();
         assert!(head.hints.is_none());
-        assert_eq!(head.link_overlay().as_deref(), Some(crate::hints::NO_LINKS));
+        assert_eq!(
+            head.link_overlay().as_deref(),
+            Some(crate::notice::NO_LINKS)
+        );
         head.pointer_event(
             PointerEvent::Moved {
                 x: 1,

@@ -261,6 +261,26 @@ pub fn osd_line(active: bool, head: &str, console: usize, of: usize) -> String {
     format!("{dot} {head} \u{b7} console {console} of {of}")
 }
 
+/// The overlay row's line while link hints are on: the link hints key,
+/// Ctrl+Shift+O by default, has put a label of letters on each link on the
+/// screen, and typing a label copies that link's address. Escape is the key
+/// that ends hints, whatever vtium.conf binds.
+///
+/// References:
+/// - ADR-1002, section 7: the hint line, the keys read while hints are on,
+///   and how hints end.
+pub const LINK_HINTS: &str = "Type a link's label to copy its address. Press Escape to stop.";
+
+/// The overlay row's line when the link hints key finds no link on the
+/// screen to label, so hints do not start.
+pub const NO_LINKS: &str = "No links are on the screen.";
+
+/// The overlay row's line after typing a link's label copied the link's
+/// address `uri`.
+pub fn link_copied(uri: &str) -> String {
+    format!("Copied: {uri}")
+}
+
 /// What `vtium check-config` prints (ADR-1401 D7, D12; ADR-1403 D3): its
 /// help, and the lines of its report that it writes itself. The errors of
 /// vtium.conf's sections come from vtium-settings's catalog, and the

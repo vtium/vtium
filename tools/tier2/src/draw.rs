@@ -1216,7 +1216,7 @@ pub(crate) fn prepare<F: Face>(
         let labels = vtium::hints::labels(links.len());
         s.set_link_hints(links.into_iter().zip(labels).collect());
         s.show_link_hints(|label| label.starts_with(hints.typed));
-        s.set_overlay_note(Some(vtium::hints::PROMPT.to_owned()));
+        s.set_overlay_note(Some(vtium::notice::LINK_HINTS.to_owned()));
     }
     if matches!(screen.font, FontKind::Sprites { .. }) {
         check_sprites(font, &term)?;
