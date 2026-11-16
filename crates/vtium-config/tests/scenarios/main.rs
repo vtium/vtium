@@ -421,3 +421,18 @@ fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
     assert_eq!(sim.exited, Some(0));
 }
 
+/// With no draft, `y` at the leave question installs nothing and stays,
+/// and once a draft opens, `i` asks before it installs, as it always does.
+#[test]
+fn the_leave_question_without_a_draft_leaves_no_install_waiting() {
+    let mut sim = Sim::start(Term::Vtium, 80, 25);
+    let draft = sim.app.draft.take();
+    press(&mut sim, &["Up", "r", "q", "y"]);
+    assert_eq!(sim.exited, None);
+    sim.app.draft = draft;
+    let did = sim.press(press_of("i"));
+    assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
+    assert_eq!(sim.exited, None);
+    assert!(sim.app.confirm.is_some(), "i installed without asking");
+}
+

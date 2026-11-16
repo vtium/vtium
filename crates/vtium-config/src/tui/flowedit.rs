@@ -63,9 +63,12 @@ impl App {
             Then::Quit(status) if key == Key::Char('n') => self.leave(status),
             Then::Quit(status) => self.save_and_leave(status),
             Then::Leave(status) if key == Key::Char('n') => self.save_and_leave(status),
-            // Install saves first, and the TUI leaves once it ends well
+            // Install saves first, and the TUI leaves once it ends well;
+            // with no draft there is nothing to install, and nothing waits
             Then::Leave(status) => {
-                self.quit_after_install = Some(status);
+                if self.draft.is_some() {
+                    self.quit_after_install = Some(status);
+                }
                 self.action('i')
             }
             Then::Change(change) => self.make(vec![change], None),
