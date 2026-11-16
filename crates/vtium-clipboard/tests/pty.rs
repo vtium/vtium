@@ -18,6 +18,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
+use std::sync::mpsc::Sender;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -61,7 +62,9 @@ enum Other {
     /// A terminal that never answers.
     Silent,
     /// A terminal that answers the questions with more bytes than the
-    /// program keeps, and no DA1 reply.
+    /// program keeps, and no DA1 reply. It stops the program while it
+    /// writes them, so that all of them wait in the terminal's input when
+    /// the program reads its first reply byte.
     Flood,
     /// A terminal that never answers, while the person presses Ctrl+C once
     /// the questions have come.
@@ -69,9 +72,11 @@ enum Other {
 }
 
 /// Plays `other` on `master` until the slave's last holder closes it, and
-/// returns every byte the program wrote.
-fn play(mut master: File, other: Other) -> JoinHandle<Vec<u8>> {
-    std::thread::spawn(move || {
+/// returns every byte the program wrote. The sender takes the program's
+/// process ID, which the flood needs to stop and continue the program.
+fn play(mut master: File, other: Other) -> (JoinHandle<Vec<u8>>, Sender<Pid>) {
+    let (program, pid) = std::sync::mpsc::channel();
+    let player = std::thread::spawn(move || {
         let mut t = Terminal::new(80, 24, 0);
         if let Other::Tmux = other {
             t.set_version("tmux 3.5a").expect("printable");
@@ -92,14 +97,41 @@ fn play(mut master: File, other: Other) -> JoinHandle<Vec<u8>> {
                 }
                 Other::Silent => {}
                 Other::Flood if asked => {
+                    // The kernel passes a write to the program in pieces, so
+                    // a program that runs meanwhile could read REPLIES_MAX
+                    // bytes, discard what has come, and end before the rest
+                    // arrives. Stopped, the program reads nothing until the
+                    // whole flood waits in the terminal's input.
+                    let pid = pid.recv().expect("the program's process ID");
+                    kill_process(pid, Signal::STOP).expect("SIGSTOP");
+                    assert!(stopped(pid), "the program stops");
                     let flood = vec![b'x'; REPLIES_MAX + 1000];
                     master.write_all(&flood).expect("the flood");
+                    kill_process(pid, Signal::CONT).expect("SIGCONT");
                 }
                 Other::CtrlC if asked => master.write_all(b"\x03").expect("Ctrl+C"),
                 Other::Flood | Other::CtrlC => {}
             }
         }
         got
+    });
+    (player, program)
+}
+
+/// Whether the process `pid` has stopped, waiting until it has. The bound on
+/// the turns only keeps a test from hanging.
+fn stopped(pid: Pid) -> bool {
+    let stat = format!("/proc/{}/stat", pid.as_raw_nonzero());
+    (0..1_000_000).any(|_| {
+        let state = std::fs::read_to_string(&stat).ok().and_then(|s| {
+            let (_, after) = s.rsplit_once(") ")?;
+            after.chars().next()
+        });
+        let stopped = state == Some('T');
+        if !stopped {
+            std::thread::yield_now();
+        }
+        stopped
     })
 }
 
@@ -136,6 +168,15 @@ fn unread(mut slave: &File) -> Vec<u8> {
     left
 }
 
+/// The command that starts the program with SIGINT at its default action,
+/// which ends a process. A process inherits an ignored signal across exec,
+/// and a shell without job control ignores SIGINT in the commands it starts
+/// in the background, as `cargo test &` in a script does. Ignored, the
+/// SIGINT that Ctrl+C sends ends nothing, and the tests of Ctrl+C would fail
+/// or pass for the wrong reason. GNU env's `--default-signal` resets it
+/// before env runs the program.
+const SIGINT_DEFAULT: [&str; 2] = ["env", "--default-signal=INT"];
+
 /// What a run on the pty left behind.
 struct Run {
     /// The program's exit status and its standard output and error.
@@ -149,19 +190,26 @@ struct Run {
 }
 
 /// Runs `program ARGS` with the pty as its controlling terminal and as its
-/// standard input, while `other` plays the terminal.
+/// standard input, while `other` plays the terminal. The program starts with
+/// SIGINT at its default action; see [`SIGINT_DEFAULT`].
 fn on_pty(program: &str, args: &[&str], other: Other) -> Run {
     let (master, slave) = pair();
-    let player = play(master, other);
-    let out = Command::new("setsid")
+    let (player, program_pid) = play(master, other);
+    let child = Command::new("setsid")
         .arg("--ctty")
+        .args(SIGINT_DEFAULT)
         .arg(program)
         .args(args)
         .stdin(Stdio::from(
             slave.as_fd().try_clone_to_owned().expect("dup"),
         ))
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .expect("setsid runs");
+    // setsid runs the program in its own process.
+    let _ = program_pid.send(Pid::from_child(&child));
+    let out = child.wait_with_output().expect("the program's output");
     let back = mode_back(&slave);
     let left = unread(&slave);
     drop(slave);
@@ -176,10 +224,12 @@ fn on_pty(program: &str, args: &[&str], other: Other) -> Run {
 
 /// Starts `BIN ARGS` with the pty's slave as its controlling terminal,
 /// while nobody reads the pty's master, so the terminal stops taking what
-/// the program writes once the pty's buffer is full.
+/// the program writes once the pty's buffer is full. The program starts
+/// with SIGINT at its default action; see [`SIGINT_DEFAULT`].
 fn start_unread(slave: &File, args: &[&str]) -> Child {
     Command::new("setsid")
         .arg("--ctty")
+        .args(SIGINT_DEFAULT)
         .arg(BIN)
         .args(args)
         .stdin(Stdio::from(
@@ -264,7 +314,7 @@ fn a_copy_that_another_terminal_or_nobody_answers_exits_3() {
 fn copy_reads_standard_input_and_notes_text_that_is_not_utf_8() {
     let file = text_file("stdin.txt", b"h\xffi");
     let (master, slave) = pair();
-    let player = play(master, Other::Vtium);
+    let (player, _) = play(master, Other::Vtium);
     let out = Command::new("setsid")
         .args(["--ctty", "sh", "-c", "exec \"$0\" copy < \"$1\"", BIN])
         .arg(&file)
@@ -446,7 +496,7 @@ fn a_flood_of_replies_leaves_nothing_for_the_shell() {
 fn a_copy_in_a_background_job_writes_the_copy_and_exits_3() {
     let file = text_file("background.txt", b"hello");
     let (master, slave) = pair();
-    let player = play(master, Other::Vtium);
+    let (player, _) = play(master, Other::Vtium);
     // The shell kills the program if a stop leaves it behind, so that the
     // test ends either way. The program's standard error goes to the pipe
     // through descriptor 3, and the shell's own goes to /dev/null: with job
