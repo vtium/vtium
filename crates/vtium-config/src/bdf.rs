@@ -41,6 +41,11 @@ struct Char {
 /// UTF-8 is passed over.
 pub fn version(bytes: &[u8]) -> Option<String> {
     let (plain, _) = crate::decode::decompress(bytes).ok()?;
+    version_in(&plain)
+}
+
+/// [`version`], of a font's bytes already decompressed.
+fn version_in(plain: &[u8]) -> Option<String> {
     for line in plain.split(|&b| b == b'\n') {
         // a property may hold Latin-1 text, such as a copyright sign, so a
         // line that is not UTF-8 is passed over, never the end of the search
@@ -70,7 +75,24 @@ pub fn version(bytes: &[u8]) -> Option<String> {
 /// has no place in the font's character set, is left out and is not
 /// counted against `CHARS`.
 pub fn font(bytes: &[u8]) -> Result<Font, String> {
+    read(bytes, false).map(|(font, _)| font)
+}
+
+/// A BDF font's bytes as [`font`] reads them and, with `with_version`, the
+/// version [`version`] reads, from one decompression of the bytes. The
+/// helper reads a font this way when the source asks for a version, so a
+/// compressed font is not decompressed twice.
+///
+/// References:
+/// - ADR-1204 D7: the helper matches a font against its `version=`.
+pub fn read(bytes: &[u8], with_version: bool) -> Result<(Font, Option<String>), String> {
     let (plain, compression) = crate::decode::decompress(bytes)?;
+    let version = with_version.then(|| version_in(&plain)).flatten();
+    Ok((glyphs_in(&plain, compression)?, version))
+}
+
+/// [`font`], of a font's bytes already decompressed with `compression`.
+fn glyphs_in(plain: &[u8], compression: crate::decode::Compression) -> Result<Font, String> {
     let mut lines = plain
         .split(|&b| b == b'\n')
         .zip(1usize..)
@@ -534,6 +556,34 @@ pub(crate) mod tests {
         assert!(std::str::from_utf8(&bytes).is_err());
         assert_eq!(version(&bytes).as_deref(), Some("3.000"));
         assert_eq!(version(bdf("").as_bytes()), None);
+    }
+
+    // A font whose set asks for a version is read once: `read` gives the
+    // glyphs `font` gives and the version `version` gives, from one
+    // decompression, compressed or not.
+    //
+    // References:
+    // - ADR-1204 D7: the helper reads a BDF font's version from
+    //   FONT_VERSION.
+    #[test]
+    fn read_gives_the_font_and_its_version_from_one_pass() {
+        let text = bdf("").replace(
+            "STARTPROPERTIES 3\n",
+            "STARTPROPERTIES 4\nFONT_VERSION \"2.304\"\n",
+        );
+        let gz = crate::decode::tests::gzip(text.as_bytes());
+        for bytes in [text.as_bytes(), gz.as_slice()] {
+            let (read_font, read_version) = read(bytes, true).expect("the font reads");
+            let alone = font(bytes).expect("the font reads");
+            assert_eq!(read_font.map, alone.map);
+            assert_eq!(read_font.glyphs, alone.glyphs);
+            assert_eq!(read_version.as_deref(), Some("2.304"));
+            assert_eq!(
+                read(bytes, false).expect("the font reads").1,
+                None,
+                "no version asked for"
+            );
+        }
     }
 
     fn rows(font: &Font, c: char) -> Vec<String> {

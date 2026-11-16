@@ -1918,12 +1918,18 @@ impl Engine {
             // for one
             let mut version = None;
             let loaded = resolve(source, &host).and_then(|input| {
-                if source.needs.version.is_some() {
+                let wants = source.needs.version.is_some();
+                // a BDF font gives its version as it is read, from one
+                // decompression of its bytes
+                if wants && !matches!(input, Input::Bdf(_)) {
                     version = crate::needs::version_of(&input);
                 }
                 match input {
                     Input::Bitmap(font) => Ok(Loaded::Bitmap(font)),
-                    Input::Bdf(bytes) => crate::bdf::font(&bytes).map(Loaded::Bitmap),
+                    Input::Bdf(bytes) => crate::bdf::read(&bytes, wants).map(|(font, stated)| {
+                        version = stated;
+                        Loaded::Bitmap(font)
+                    }),
                     Input::Font(req) => crate::decode::font(
                         &req.font,
                         req.unimap.as_deref(),
