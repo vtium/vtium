@@ -1282,12 +1282,18 @@ impl App {
         )
     }
 
-    /// A key in the new-frit view: Up and Down move between the fields,
-    /// Enter moves to the next, and Enter on the last row adds the frit to
-    /// the save, once the frit reader takes it, and shows the save.
+    /// A key in the new-frit view: on a field, Enter moves to the next
+    /// and every other key but Esc does nothing; on the last row, Up and
+    /// Down move back onto the fields, and Enter adds the frit to the
+    /// save, once the frit reader takes it, and shows the save.
     fn new_key(&mut self, key: Key) {
         let rows = NEW_FIELDS.saturating_add(1);
         let at = self.new_frit.at;
+        // while a field is typed, only Enter (keep, next field) and Esc
+        // act, as while a Settings value is typed
+        if at < NEW_FIELDS && key != Key::Enter {
+            return;
+        }
         self.new_frit.at = match key {
             Key::Enter if at < NEW_FIELDS => at.saturating_add(1),
             _ => step(at, rows, key),

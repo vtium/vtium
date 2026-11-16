@@ -358,3 +358,33 @@ fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
     sim.press(press_of("y"));
     assert_eq!((sim.exited, sim.desk.writes), (Some(0), 1));
 }
+
+/// While a field of the new-frit form is typed, only Enter and Esc act:
+/// the moving keys leave the field as it is, Enter keeps it and moves to
+/// the next field, and Esc closes the form.
+///
+/// References:
+/// - ADR-1403 D7, "The same keys in every view": a value being typed takes
+///   Enter and Esc, as in the Settings view, and the moving keys do
+///   nothing.
+#[test]
+fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
+    let mut sim = Sim::start(Term::Vtium, 80, 25);
+    press(&mut sim, &["n", "x"]);
+    assert_eq!(sim.app.view, vtium_config::tui::model::View::New);
+    assert_eq!(
+        sim.app.new_frit.fields.first().map(String::as_str),
+        Some("x")
+    );
+    for moving in ["Up", "Down", "Home", "End", "PgUp", "PgDn", "Left", "Right"] {
+        let mut typed = sim.clone();
+        let did = typed.press(press_of(moving));
+        assert_eq!(typed.app.new_frit, sim.app.new_frit, "{moving} moved");
+        assert!(did.effects.is_empty(), "{moving}: {did:?}");
+    }
+    let mut kept = sim.clone();
+    press(&mut kept, &["Enter"]);
+    assert_eq!(kept.app.new_frit.at, 1);
+    press(&mut sim, &["Esc"]);
+    assert_eq!(sim.app.view, vtium_config::tui::model::View::Fonts);
+}
