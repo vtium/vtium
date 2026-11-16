@@ -21,13 +21,27 @@ The renderer draws each run at its scale, fraction and alignment across its bloc
 
 - **Status:** partial. vtium implements part of this. The note says what is missing.
 - **Why:** large text, such as a heading or a banner at the login prompt, on a grid whose font size serves every program.
-- **Note:** ADR-1308 decides it: vtium takes the keys s, w, n, d, v and h; vtium-term interprets OSC 66 and stores the block one sequence writes as one character, and an edit that would move, clear or overwrite only part of it erases it whole; the renderer does not draw a run at its size yet.
+- **Note:** ADR-1308 decides it: vtium takes the keys s, w, n, d, v and h; vtium-term interprets OSC 66 and stores the block one sequence writes as one character, and an edit that would move, clear or overwrite only part of it erases it whole; the renderer draws each run at its scale, fraction and alignment across its block, from the font's glyphs at the normal size scaled up, and a cursor on a run covers the whole block; left: an outline font's run drawn at true size by the font helper, an underline cursor s times as thick, and a run on a double-size line drawn at the line's width.
 - **Specifications:** kitty text-sizing-protocol
 
 ## Tests
 
 These tests check what vtium does with the sequences on this page.
 
+- `a_run_places_its_text_by_its_scale_fraction_and_alignment` in [crates/vtium-render/src/renderer/sized.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/renderer/sized.rs)
+- `text_narrower_than_its_block_is_centred` in [crates/vtium-render/src/renderer/sized.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/renderer/sized.rs)
+- `text_wider_than_its_block_draws_smaller_on_its_baseline` in [crates/vtium-render/src/renderer/sized.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/renderer/sized.rs)
+- `every_gpu_frame_of_sized_runs_matches_a_whole_draw` in [crates/vtium-render/tests/gpu_sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/gpu_sized_runs.rs)
+- `a_block_cursor_on_a_run_covers_the_whole_block` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `a_fraction_draws_the_text_smaller_where_v_and_h_place_it` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `a_later_frame_draws_each_cell_of_a_run_as_a_whole_drawing_does` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `a_line_cursor_on_a_run_marks_the_blocks_edge` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `a_run_of_scale_2_draws_each_pixel_of_a_bitmap_letter_twice_as_large` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `a_run_of_scale_3_multiplies_each_pixel_by_3` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `a_run_with_a_width_draws_its_whole_text_in_one_block` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `half_size_text_fits_two_letters_in_one_cell` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `runs_of_one_letter_at_two_scales_each_draw_at_their_own` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `text_wider_than_its_block_draws_smaller_until_it_fits` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `a_run_whose_rows_scroll_off_with_no_scrollback_goes_whole` in [crates/vtium-term/src/terminal/text_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/text_size.rs)
 - `a_run_whose_top_row_scrolled_into_the_scrollback_keeps_it_there` in [crates/vtium-term/src/terminal/text_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/text_size.rs)
 - `a_scroll_inside_the_margins_moves_a_run_inside_them_and_erases_one_a_margin_cuts` in [crates/vtium-term/src/terminal/text_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/src/terminal/text_size.rs)

@@ -26,10 +26,10 @@ An ESC sequence is ESC followed by a few bytes, the last of which says what the 
 
 | Sequence | What it does | Status | Page |
 |---|---|---|---|
-| `ESC # 3` | DECDHL: top half of a double-height line | partial | [text.line-size](text.line-size.md) |
-| `ESC # 4` | DECDHL: bottom half of a double-height line | partial | [text.line-size](text.line-size.md) |
-| `ESC # 5` | DECSWL: single-width line | partial | [text.line-size](text.line-size.md) |
-| `ESC # 6` | DECDWL: double-width line | partial | [text.line-size](text.line-size.md) |
+| `ESC # 3` | DECDHL: top half of a double-height line | supported | [text.line-size](text.line-size.md) |
+| `ESC # 4` | DECDHL: bottom half of a double-height line | supported | [text.line-size](text.line-size.md) |
+| `ESC # 5` | DECSWL: single-width line | supported | [text.line-size](text.line-size.md) |
+| `ESC # 6` | DECDWL: double-width line | supported | [text.line-size](text.line-size.md) |
 | `ESC 6` | DECBI: back index | supported | [ctl.decic](ctl.decic.md) |
 | `ESC 7` | DECSC: save the cursor | supported | [ctl.decsc](ctl.decsc.md) |
 | `ESC # 8` | DECALN: fill the screen with E | supported | [ctl.decaln](ctl.decaln.md) |

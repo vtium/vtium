@@ -17,9 +17,9 @@ ED returns each line it erases whole to single size, and IL, DL and the scrolls 
 
 ## Status
 
-- **Status:** partial. vtium implements part of this. The note says what is missing.
+- **Status:** supported. vtium implements this as the specifications below define it.
 - **Why:** double-size banner lines, as DEC consoles drew them, and the vttest screens that check them.
-- **Note:** vtium-term sets the cursor's line's size from ESC # 3 to 6; a double-size line holds half the columns, and printing, autowrap, the cursor, tabs, CPR, ICH, DCH, ED, EL, IL, DL, the scrolls, DECALN, DECLRMM and a resize follow the VT100 User Guide and the VT510 manual; vtium-render draws such a line at double size, outline glyphs by doubling their pixels until the font helper draws them at double size; the pointer's columns on such a line come with the rest of its issue; OSC 66 on a double-size line takes only its width, and a size change erases the sized runs on the line (ADR-1308 D7).
+- **Note:** vtium-term sets the cursor's line's size from ESC # 3 to 6; a double-size line holds half the columns, and printing, autowrap, the cursor, tabs, CPR, ICH, DCH, ED, EL, IL, DL, the scrolls, DECALN, DECLRMM and a resize follow the VT100 User Guide and the VT510 manual; vtium-render draws such a line at double size, and the font helper draws its outline glyphs at true double size; selection, the pointer and reverse wrap map onto the doubled columns; OSC 66 on a double-size line takes only its width, and a size change erases the sized runs on the line (ADR-1308 D7).
 - **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html); [the VT510 reference manual](https://vt100.net/docs/vt510-rm/contents.html)
 
 ## Tests
