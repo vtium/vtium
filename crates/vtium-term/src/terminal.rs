@@ -36,6 +36,8 @@ mod modes;
 mod pointer;
 mod rect;
 mod reply;
+#[cfg(test)]
+mod sequences;
 mod sgr;
 mod text_size;
 mod window;
