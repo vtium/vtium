@@ -164,7 +164,7 @@ home.layer.new-frit	Home	layer:new-frit	Goes to the first row.	supported		ADR-12
 end.layer.new-frit	End	layer:new-frit	Goes to the last row.	supported		ADR-1201 D3		last
 pgup.layer.new-frit	PgUp	layer:new-frit	Moves up by a page.	supported		ADR-1201 D3		page up
 pgdn.layer.new-frit	PgDn	layer:new-frit	Moves down by a page.	supported		ADR-1201 D3		page down
-move.typing.new-frit	Up, Down, Home, End, PgUp, PgDn	typing:new-frit	Do nothing while you type. Enter keeps the value and goes to the next field, and Esc closes the form.	planned	today these keys move to another field and keep what you typed	ADR-1403 D7; ADR-1201 D3	#412	-
+move.typing.new-frit	Up, Down, Home, End, PgUp, PgDn	typing:new-frit	Do nothing while you type. Enter keeps the value and goes to the next field, and Esc closes the form.	supported		ADR-1403 D7; ADR-1201 D3	#412	-
 list.system-fonts	Enter	layer:new-frit	On a font field, shows the fonts and font sets found on this system as a list to pick from. You can still type a font that the list lacks.	planned	today each font field takes typed text only	ADR-1201 D3	#375	choose
 up.layer.flow-choices	Up	layer:flow-choices	Moves to the choice above, and from the first choice back to the label line.	supported		ADR-1403 D7		move
 down.layer.flow-choices	Down	layer:flow-choices	Moves to the choice below.	supported		ADR-1403 D7		move
@@ -182,8 +182,8 @@ wheel-up.layer	Wheel up	layer	Acts as Up does in what is open.	supported		ADR-14
 wheel-down.layer	Wheel down	layer	Acts as Down does in what is open.	supported		ADR-1403 D7		-
 click.typing	Click	typing	Does nothing while you type.	supported		ADR-1403 D7		-
 wheel.typing	Wheel up, Wheel down	typing	Do nothing while you type.	supported	the wheel reaches typing as Up and Down, which do nothing there	ADR-1403 D7		-
-click.question	Click	question	Does nothing. The question stays until you answer it or cancel it.	planned	today a click on a box moves the highlight under the question, and the question stays	ADR-1403 D7	#412	-
-wheel.question	Wheel up, Wheel down	question	Do nothing. The question stays until you answer it or cancel it.	planned	today the wheel reaches a question as Up or Down, which answer no	ADR-1403 D7	#412	-
+click.question	Click	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-
+wheel.question	Wheel up, Wheel down	question	Do nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-
 mouse.trial	Click or wheel	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-
 key-line.any	key line	any	Shows every key it lists, and wraps onto a second row before it drops one.	supported		ADR-1403 D7		-
 key-line.view.flow	key line	view:flow	Shows every key it lists, and wraps onto a second row before it drops one.	planned	at 80×25 it ends with v view file and q quit, and leaves out Esc clear, i install, o restore and n new	ADR-1403 D7	#412	-
