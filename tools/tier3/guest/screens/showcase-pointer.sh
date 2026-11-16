@@ -21,7 +21,7 @@
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/showcase.inc"
 switch_font showcase-iosevka
 d=$(fg 150 150 150) h=$(fg 255 196 87) o=$(off)
-link() { printf '    %s]8;;%s%s\\%s%s]8;;%s\\%s\n' "$esc" "$1" "$esc" "$(fg 97 175 239)" "$1" "$esc" "$o"; }
+link() { printf '    %s]8;;%s%s\\%s%s%s]8;;%s\\%s\n' "$esc" "$1" "$esc" "$(fg 97 175 239)" "$1" "$esc" "$esc" "$o"; }
 printf '\n  %sLinks a program prints%s\n\n' "$h" "$o"
 link https://vtium.github.io/vtium/
 link https://sw.kovidgoyal.net/kitty/pointer-shapes/
