@@ -566,3 +566,64 @@ fn the_real_helper_answers_a_coverage_query() {
         .expect_err("a font set that draws nothing has no coverage");
     assert!(why.contains("/nonexistent/vtium.psf"), "{why}");
 }
+
+// ADR-1204 D7: check-config asks the glyph helper which fonts a font set
+// lacks. Here the console's Helper::sources asks vtium-config's real serve
+// mode. For a font set with a font left, the answer names each missing font
+// by its line and spelling. For a font set with no font left, the answer
+// says first that it draws nothing, then names each missing font, so
+// check-config still reports them.
+#[test]
+fn the_real_helper_answers_a_sources_query() {
+    let d = Scratch::new("sources-real-helper");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the query's clock stands at the real time, so its wait is the whole wait"
+    )]
+    let at = std::time::Instant::now();
+    let ask = |name: &str, text: &str| {
+        let command = stand_in::real_helper(&d.join(format!("{name}.kinds")), None);
+        let launcher = vtium::helper::Launcher::open(command).expect("the helper's program");
+        let mut helper = vtium::helper::Helper::new(
+            launcher,
+            std::sync::Arc::new(|| {}),
+            at,
+            vtium::helper::FritText {
+                name: name.to_owned(),
+                text: text.to_owned(),
+            },
+            None,
+            vtium::deferred::Shared::default(),
+            0,
+        );
+        helper.quiet();
+        helper.sources(std::time::Duration::from_secs(30), &|| at)
+    };
+    let half = ask(
+        "half",
+        "source=font:Gone Nowhere Mono\nversion=2.304\nsource=builtin:unscii-8\n",
+    )
+    .expect("an answer");
+    let lines: Vec<&str> = half.lines().collect();
+    assert_eq!(lines.len(), 1, "{half}");
+    assert!(
+        lines[0].starts_with("missing\t1\tfont:Gone Nowhere Mono\t"),
+        "{half}"
+    );
+    let none = ask(
+        "none",
+        "source=font:Gone Nowhere Mono\nsource=bdf:/nonexistent/vtium.bdf\n",
+    )
+    .expect("an answer for a set with no font left");
+    let lines: Vec<&str> = none.lines().collect();
+    assert_eq!(lines.len(), 3, "{none}");
+    assert!(lines[0].starts_with("nothing\t0\t\t"), "{none}");
+    assert!(
+        lines[1].starts_with("missing\t1\tfont:Gone Nowhere Mono\t"),
+        "{none}"
+    );
+    assert!(
+        lines[2].starts_with("missing\t2\tbdf:/nonexistent/vtium.bdf\t"),
+        "{none}"
+    );
+}

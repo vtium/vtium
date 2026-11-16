@@ -749,13 +749,24 @@ fn fonts_names_each_missing_or_different_font_and_its_page() {
              source=bdf:{}\n\
              check=U+0041\n\
              check=U+E0B0\n\
-             source=builtin:unifont\n",
+             source=builtin:unifont\n\
+             layer=gone\n",
             older.display(),
             "0".repeat(64),
             plain.display()
         ),
     )
     .expect("a frit");
+    // a layer's font is named with the version and page its layer gives
+    std::fs::create_dir_all(fonts.join("layers")).expect("the layers' folder");
+    std::fs::write(
+        fonts.join("layers/gone.vtlayer"),
+        "role=symbols\n\
+         source=font:Gone Layer Nowhere\n\
+         version=1.5\n\
+         url=https://example.org/layer\n",
+    )
+    .expect("a layer");
     let ran = f.run(&["--font-dir", "/nonexistent", "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
     let report: Vec<&str> = ran.out.lines().filter(|l| !l.contains('\t')).collect();
@@ -768,6 +779,8 @@ fn fonts_names_each_missing_or_different_font_and_its_page() {
                 "Font set want needs the font {}. The installed font of that name lacks the character U+E0B0, so it is a different font, and vtium does not use it.",
                 plain.display()
             ),
+            "Font set want needs the font Gone Layer Nowhere, version 1.5 or later, and no font of that name is installed.".to_owned(),
+            "You can get the font from https://example.org/layer.".to_owned(),
             format!(
                 "Font set want asks for the font {}, version 3.1 or later, and the installed font is version 3.000. vtium still uses it.",
                 older.display()
@@ -785,7 +798,7 @@ fn fonts_names_each_missing_or_different_font_and_its_page() {
     assert!(
         ran.out.lines().any(|l| l
             == format!(
-                "want\treads\tfont:No Such Family Anywhere, bdf:{}",
+                "want\treads\tfont:No Such Family Anywhere, bdf:{}, font:Gone Layer Nowhere",
                 plain.display()
             )),
         "{}",
