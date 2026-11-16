@@ -447,7 +447,8 @@ impl<'f> Pass<'_, 'f> {
 
     /// The rows and columns of the sized run whose cell `at` is, as the
     /// screen shows them: the cursor that stands on any cell of a run
-    /// covers the whole block. `None` off a run.
+    /// covers the whole block. Rows of the run that have scrolled above
+    /// the screen are left out. `None` off a run.
     ///
     /// References:
     /// - ADR-1308 D6, "The cursor's drawing": the cursor covers every cell
@@ -458,8 +459,10 @@ impl<'f> Pass<'_, 'f> {
     ) -> Option<(core::ops::Range<usize>, core::ops::Range<usize>)> {
         let (col, row) = at?;
         let run = self.run_at(row, col)?;
-        let top = row.checked_sub(run.row())?;
-        let bottom = top.saturating_add(run.rows()).min(self.g.rows);
+        // the run's rows below this one; its top may lie above the screen
+        let below = run.rows().saturating_sub(run.row());
+        let top = row.saturating_sub(run.row());
+        let bottom = row.saturating_add(below).min(self.g.rows);
         Some((top..bottom, run.span()))
     }
 

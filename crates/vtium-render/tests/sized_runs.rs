@@ -306,3 +306,37 @@ fn runs_of_one_letter_at_two_scales_each_draw_at_their_own() {
     assert_eq!(area(&c, (0, 0), (2 * CW, 2 * CH)), magnified(&a, 2));
     assert_eq!(area(&c, (2 * CW, 0), (3 * CW, 3 * CH)), magnified(&a, 3));
 }
+
+// A block cursor on the part of a run that stays on the screen, after
+// the run's top row has scrolled into the scrollback, still covers every
+// cell of the run the screen shows
+// covers: text.kitty-sizing
+#[test]
+fn a_cursor_on_a_run_whose_top_row_scrolled_off_covers_what_shows() {
+    let (w, h) = (W, 3 * CH);
+    let screen = |cursor: bool| {
+        let mut t = Terminal::new(COLS, 3, 100);
+        t.screen_mut().set_scrollback_max(100);
+        t.input(b"\x1b[?25l\x1b[2 q\x1b]66;s=2:w=2;AB\x07\x1b[3;1H\n\x1b[1;2H");
+        if cursor {
+            t.input(b"\x1b[?25h");
+        }
+        let mut r = Renderer::new(unifont(), w, h, Config::default());
+        let mut c = Canvas::new(w, h, 0);
+        r.draw(
+            &t.screen().frame(t.palette(), Age::NEVER),
+            &mut c,
+            0,
+            &state(&t),
+        );
+        area(&c, (0, 0), (4 * CW, CH))
+    };
+    let (plain, got) = (screen(false), screen(true));
+    let bg = background();
+    let fg = plain.iter().flatten().copied().find(|&p| p != bg).unwrap();
+    let reversed: Vec<Vec<u32>> = plain
+        .iter()
+        .map(|row| row.iter().map(|&p| if p == bg { fg } else { bg }).collect())
+        .collect();
+    assert_eq!(got, reversed);
+}
