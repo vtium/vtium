@@ -1,0 +1,51 @@
+# The userland of CI's ubuntu-latest runner, for `make ci-local`. README.md in
+# this directory says why the base image is pinned and how to move the pin.
+FROM docker.io/library/ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8
+
+# The first line is the libraries the check jobs of .github/workflows/ci.yml
+# install. The second is the part of the runner image's own packages that
+# the tests and build scripts reach: a C toolchain for linking, pkg-config,
+# python3, curl, zip, X11's Compose tables that xkbcommon reads, the Noto
+# Color Emoji font and a few more. The runner image installs these before any
+# job runs. Its awk is gawk, where Ubuntu's container image has mawk: the
+# key tests' shell scripts read a terminal with awk, and mawk holds back
+# what it reads until more input comes, so those tests fail under mawk.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1 \
+      build-essential pkg-config ca-certificates curl git python3 python-is-python3 zip unzip xz-utils file libx11-data fonts-noto-color-emoji gawk \
+ && rm -rf /var/lib/apt/lists/*
+
+# CI's jobs run as a user named runner, with bash running each step. Here the
+# user takes the uid and gid of whoever runs make ci-local, so that the
+# cached registry and target directory stay theirs. Ubuntu's image comes with
+# a user named ubuntu at uid 1000, which is removed first.
+ARG UID=1000
+ARG GID=1000
+RUN userdel -r ubuntu 2>/dev/null; \
+    (getent group "$GID" >/dev/null || groupadd -g "$GID" runner) \
+ && useradd -m -u "$UID" -g "$GID" -s /bin/bash runner
+USER runner
+WORKDIR /home/runner
+
+# rustup, pinned to a release and checked against its SHA-256, installs the
+# toolchain that rust-toolchain.toml pins, with the components and targets
+# that file names. With all of them present, rustup never needs to install
+# anything while the tests run.
+ARG RUSTUP_VERSION=1.29.3
+ARG RUSTUP_SHA256=b1c8cb14e30889e7e2999e6b69e62d9e9b9ffc0f4df8180564d306d9680e6c55
+ARG TOOLCHAIN
+RUN curl -fsSL -o /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/x86_64-unknown-linux-gnu/rustup-init" \
+ && echo "${RUSTUP_SHA256}  /tmp/rustup-init" | sha256sum -c - \
+ && chmod +x /tmp/rustup-init \
+ && /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain "${TOOLCHAIN}" \
+      --component rustfmt,clippy --target aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf \
+ && rm /tmp/rustup-init \
+ && mkdir -p /home/runner/.cargo/registry /home/runner/.cargo/git /home/runner/work/vtium/vtium/target
+
+ENV PATH=/home/runner/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    CARGO_HOME=/home/runner/.cargo \
+    CARGO_INCREMENTAL=0 \
+    CARGO_TERM_COLOR=always \
+    LANG=C.UTF-8 \
+    CI=true

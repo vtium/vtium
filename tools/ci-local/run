@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# run - run the workspace's tests in a container that matches CI's runner
+#
+# Usage:
+#
+#     make ci-local [BUILDS='all-features default'] [TEST_ARGS='-p CRATE ...']
+#     tools/ci-local/run [--builds 'all-features default'] [CARGO TEST ARGS...]
+#
+# CI's check jobs run on GitHub's ubuntu-latest runner, Ubuntu 24.04, where
+# /bin/sh is dash and bash, coreutils and the other tools are older than this
+# machine's. A test can pass here and fail there. This script runs
+# `cargo test --workspace --no-fail-fast`, with --all-features and without,
+# inside a container built from Ubuntu 24.04 with the packages and the Rust
+# toolchain CI installs (Containerfile, beside this script).
+#
+# It uses podman when installed, docker otherwise, and stops when neither is.
+# The image, cargo's registry and a target directory for each worktree are
+# cached under $XDG_CACHE_HOME/vtium/ci-local. The worktree is mounted
+# read-only, and its files, those git tracks plus untracked ones it does not
+# ignore, are copied into the container before each build, so the run never
+# changes the worktree. Each build's output goes to a log in the cache.
+#
+# The last line printed says whether every build passed, or names the tests
+# that failed in each build. The script exits 0 when every build passed, 1
+# when one failed, and 2 when it could not run.
+
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+root=$(cd "$here/../.." && pwd)
+builds='all-features default'
+if [[ ${1-} == --builds ]]; then
+    builds=$2
+    shift 2
+fi
+for b in $builds; do
+    case $b in
+        all-features | default) ;;
+        *) echo "ci-local: $b is not a build. The builds are all-features and default." >&2; exit 2 ;;
+    esac
+done
+
+if command -v podman >/dev/null; then
+    rt=podman
+    # Rootless podman maps the user to root in the container unless told to
+    # keep the user's own uid there.
+    rt_user=(--userns=keep-id)
+elif command -v docker >/dev/null; then
+    rt=docker
+    rt_user=()
+else
+    echo "ci-local: neither podman nor docker is installed, so the tests cannot run in a container." >&2
+    exit 2
+fi
+
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/vtium/ci-local
+toolchain=$(sed -n 's/^channel = "\(.*\)"$/\1/p' "$root/rust-toolchain.toml")
+uid=$(id -u)
+gid=$(id -g)
+# The tag changes with the Containerfile, the toolchain and the user, so a
+# change to any of them builds a new image.
+recipe=$(sha256sum "$here/Containerfile" | cut -c1-12)
+image=localhost/vtium-ci-local:$toolchain-$recipe-$uid
+# One target directory for each worktree: cargo decides what to rebuild from
+# file times, so two worktrees whose sources differ must never share one.
+tree=$(printf '%s' "$root" | sha256sum | cut -c1-16)
+target=$cache/target/$tree
+logs=$cache/logs/$tree
+mkdir -p "$cache/registry" "$cache/git" "$target" "$logs"
+
+if ! $rt image inspect "$image" >/dev/null 2>&1; then
+    echo "ci-local: building the image $image with $rt"
+    $rt build -t "$image" -f "$here/Containerfile" \
+        --build-arg UID="$uid" --build-arg GID="$gid" --build-arg TOOLCHAIN="$toolchain" \
+        "$here" || { echo "ci-local: the image did not build." >&2; exit 2; }
+fi
+
+# The files a checkout of this tree would hold: the tracked ones that exist,
+# and the untracked ones git does not ignore. Directories, which a submodule
+# leaves in the list, are left out; CI's checkout leaves submodules empty.
+list=$logs/files
+(cd "$root" && git ls-files -z --cached --others --exclude-standard | sort -zu |
+    while IFS= read -r -d '' f; do
+        if [[ -L $f || -f $f ]]; then printf '%s\0' "$f"; fi
+    done) >"$list"
+
+src=/home/runner/work/vtium/vtium
+# CI's runner is a virtual machine, so it has the VT devices /dev/tty0 to
+# /dev/tty63, and some tests stat one to read its VT number. The container
+# starts as root only to make those device nodes; the container's device
+# rules refuse every open of them, so no test can reach this machine's VTs.
+# Rootless podman cannot make device nodes, and those tests then fail. The
+# step then drops to the runner user, copies the files into the container's
+# own layer, keeping their times so that cargo reuses what it built before,
+# and runs cargo test there as CI's step does, with bash -e.
+step='tar -C /src --null -T /home/runner/files -cf - | tar -C "$PWD" -xf - && cargo test --workspace --no-fail-fast "$@"'
+entry='for n in $(seq 0 63); do mknod -m 620 /dev/tty$n c 4 $n 2>/dev/null || true; done
+exec setpriv --reuid="$1" --regid="$2" --init-groups --inh-caps=-all --bounding-set=-all bash -e -c "$3" "${@:4}"'
+
+failed=()
+start=$SECONDS
+for b in $builds; do
+    flags=()
+    [[ $b == all-features ]] && flags=(--all-features)
+    log=$logs/$b.log
+    echo "ci-local: cargo test --workspace ${flags[*]} --no-fail-fast $* (Ubuntu 24.04, Rust $toolchain, $rt)"
+    t0=$SECONDS
+    set +e
+    # Docker and podman add a seccomp filter of their own to each process,
+    # and CI's runner adds none; one test counts a process's filters, so the
+    # container runs without that outer filter.
+    $rt run --rm --init "${rt_user[@]}" --user 0 --security-opt seccomp=unconfined --shm-size=2g \
+        -e HOME=/home/runner -e USER=runner \
+        -v "$root:/src:ro" -v "$list:/home/runner/files:ro" \
+        -v "$cache/registry:/home/runner/.cargo/registry" -v "$cache/git:/home/runner/.cargo/git" \
+        -v "$target:$src/target" -w "$src" "$image" \
+        bash -c "$entry" entry "$uid" "$gid" "$step" bash "${flags[@]}" "$@" 2>&1 | tee "$log"
+    status=${PIPESTATUS[0]}
+    set -e
+    echo "ci-local: $b took $(((SECONDS - t0) / 60))m$(((SECONDS - t0) % 60))s and exited $status; its log is $log"
+    if ((status != 0)); then
+        # The names of the failed tests, each after the test binary that
+        # holds it. When cargo failed before it ran a test, as when a crate
+        # does not compile, the summary names what cargo said instead.
+        names=$(sed 's/\x1b\[[0-9;]*m//g' "$log" | awk '
+            /^ *Running / { bin = $NF; sub(/^\(/, "", bin); sub(/\)$/, "", bin); n = split(bin, p, "/"); bin = p[n]; sub(/-[0-9a-f]+$/, "", bin) }
+            /^ *Doc-tests / { bin = $2 " doc" }
+            /^test .* \.\.\. FAILED$/ { t = $0; sub(/^test /, "", t); sub(/ \.\.\. FAILED$/, "", t); k = bin "::" t; if (!(k in seen)) { seen[k] = 1; out = out (out == "" ? "" : ", ") k } }
+            /^error: could not compile / { k = $0; sub(/^error: /, "", k); if (!(k in seen)) { seen[k] = 1; out = out (out == "" ? "" : ", ") k } }
+            END { print out }')
+        failed+=("$b: ${names:-cargo test exited $status}")
+    fi
+done
+
+took="$(((SECONDS - start) / 60))m$(((SECONDS - start) % 60))s"
+if ((${#failed[@]} == 0)); then
+    echo "ci-local: passed ($builds) in $took"
+else
+    summary=$(printf '%s; ' "${failed[@]}")
+    echo "ci-local: FAILED in $took: ${summary%; }"
+    exit 1
+fi
