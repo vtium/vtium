@@ -392,7 +392,7 @@ Four keys under a `source=` line say which font the source needs. The helper mat
 - `sha256=` is the SHA-256 of the file that a `file:`, `bdf:` or `outline:` source names, as 64 hexadecimal digits, in either case. The hash is of the file as it is stored, compressed or not. A file with another hash still draws, and `vtium-config fonts` reports it. Under a source that names no file, `sha256=` refuses the frit.
 - `url=` is the font's upstream page, with the version, as an address that starts with `https://` or `http://`. `vtium-config fonts` names it beside the font. A `#` starts a comment in a frit, so the address cannot hold one.
 
-Each key but `check=` comes once for each source. A malformed value, a second line of a key, and a key above the first `source=` line each refuse the frit, naming the line.
+Each key but `check=` comes once for each source. A malformed value, a second line of a key, and a key above the first `source=` line each refuse the frit, naming the line. `version=` and `check=` under a `builtin:`, `vconsole` or `console:` source refuse it too, because such a source names no font you install.
 
 ```ini
 source=font:JetBrainsMono Nerd Font Mono
