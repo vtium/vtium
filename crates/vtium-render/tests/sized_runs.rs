@@ -270,7 +270,8 @@ fn a_block_cursor_on_a_run_covers_the_whole_block() {
 
 // A bar cursor on a run stands along the block's left edge on both its
 // rows, twice as thick at scale 2, and an underline cursor lies under the
-// block's bottom row alone
+// block's bottom row alone, twice as thick: the underline cursor on a
+// printed letter, each pixel a square of 2 by 2
 // covers: text.kitty-sizing
 #[test]
 fn a_line_cursor_on_a_run_marks_the_blocks_edge() {
@@ -288,11 +289,10 @@ fn a_line_cursor_on_a_run_marks_the_blocks_edge() {
         &plain[..CH as usize],
         "the top row keeps its look"
     );
-    assert_ne!(
-        &under[CH as usize..],
-        &plain[CH as usize..],
-        "the bottom row draws the underline"
-    );
+    let mut printed = term(b"A");
+    printed.input(b"\x1b[4 q\x1b[1;1H\x1b[?25h");
+    let cell = area(&draw(&printed), (0, 0), (CW, CH));
+    assert_eq!(under, magnified(&cell, 2), "the underline twice as thick");
 }
 
 // Two runs of the same letter at different scales each draw at their own
@@ -474,4 +474,63 @@ fn a_runs_decorations_scale_with_its_text() {
             );
         }
     }
+}
+
+/// A face of empty 8x16 cells whose underline lies high in the cell, on
+/// rows 10 and 11, as an outline font's underline can.
+struct HighUnderline;
+
+impl vtium_font::Face for HighUnderline {
+    fn cell(&self) -> vtium_font::Cell {
+        vtium_font::Cell {
+            width: CW,
+            height: CH,
+        }
+    }
+    fn size_step(&self) -> u32 {
+        CH
+    }
+    fn has_glyph(&self, _: char) -> bool {
+        true
+    }
+    fn draw(&self, _: &[char], _: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        vtium_font::Glyph::from_pixels(CW, CH, vtium_font::Format::Mask, vec![0; 128])
+    }
+    fn decorations(&self) -> vtium_font::Decorations {
+        vtium_font::Decorations {
+            underline: 10,
+            underline_thickness: 2,
+            ..vtium_font::Decorations::for_height(CH)
+        }
+    }
+}
+
+// An underline cursor on a run draws the whole scaled underline, in
+// whichever of the block's rows it falls: at s=4 a font's underline on
+// rows 10 and 11 lies on rows 40 to 47 of the block, in its third row, and
+// the cursor draws there as the run's own underline does
+// covers: text.kitty-sizing
+#[test]
+fn an_underline_cursor_on_a_run_draws_the_whole_scaled_line() {
+    let draw = |bytes: &[u8]| {
+        let t = term(bytes);
+        let mut r = Renderer::new(
+            vtium_font::Font::new(HighUnderline),
+            W,
+            H,
+            Config::default(),
+        );
+        let mut c = Canvas::new(W, H, 0);
+        r.draw(
+            &t.screen().frame(t.palette(), Age::NEVER),
+            &mut c,
+            0,
+            &state(&t),
+        );
+        inked_rows(&area(&c, (0, 0), (4 * CW, 4 * CH)))
+    };
+    let underlined = draw(b"\x1b[4m\x1b]66;s=4;A\x07\x1b[m");
+    assert_eq!(underlined, (40..48).collect::<Vec<_>>());
+    let cursor = draw(b"\x1b]66;s=4;A\x07\x1b[4 q\x1b[1;1H\x1b[?25h");
+    assert_eq!(cursor, underlined);
 }

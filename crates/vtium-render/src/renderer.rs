@@ -1950,13 +1950,15 @@ impl<F: Face> Renderer<F> {
         }
         let lit = self.one_bit_lit(p, own, row, col);
         let jobs = self.compose.jobs.len();
-        // on a run, a block cursor covers every cell, a bar stands along the
-        // block's left edge and an underline lies under its bottom row
+        // on a run, a block cursor covers every cell and a bar stands along
+        // the block's left edge. An underline cursor is the cell's
+        // underline, which scales with the run, so every cell of the run
+        // draws its piece of it, and the scaled line lies under the block's
+        // bottom row whichever of the block's rows its pixels fall in.
         let draws_cursor = is_cursor
             && run.is_none_or(|(piece, _)| match p.cursor.shape {
-                CursorShape::Block => true,
+                CursorShape::Block | CursorShape::Underline => true,
                 CursorShape::Bar => piece.column == 0,
-                CursorShape::Underline => piece.row.saturating_add(1) == piece.size.scale,
             });
         self.push_jobs(
             &p.g,

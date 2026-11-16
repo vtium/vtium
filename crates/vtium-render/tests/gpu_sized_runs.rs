@@ -88,11 +88,11 @@ fn gpu_pixel(gl: &StandIn, o: Orientation, size: Size) -> impl Fn(u32, u32) -> u
 // path as the CPU path draws it whole: runs of scale 2 and 3, text in one
 // block with w, a fraction at each alignment, a block cursor on a run, an
 // overwrite that erases a run, and a run scrolled up, at every turn of the
-// display, and decorated runs of scale 2 and 3
+// display, and decorated runs of scale 2 and 3 under an underline cursor
 // covers: text.kitty-sizing
 #[test]
 fn every_gpu_frame_of_sized_runs_matches_a_whole_draw() {
-    let steps: [(&str, &[u8]); 8] = [
+    let steps: [(&str, &[u8]); 9] = [
         ("runs of scale 2 and 3", b"\x1b]66;s=2;A\x07\x1b]66;s=3;g\x07"),
         ("text in one block", b"\x1b[4;1H\x1b]66;s=2:w=2;AB\x07"),
         (
@@ -107,6 +107,7 @@ fn every_gpu_frame_of_sized_runs_matches_a_whole_draw() {
             "decorated runs",
             b"\x1b[1;1H\x1b[4:3;9m\x1b]66;s=2;A\x07\x1b[m\x1b[4:4;53m\x1b]66;s=3;g\x07\x1b[m\x1b[4:5;58:5:1m\x1b]66;s=2:w=2;Hi\x07\x1b[m",
         ),
+        ("an underline cursor on a run", b"\x1b[4 q\x1b[2;2H\x1b[?25h"),
     ];
     for o in [
         Orientation::Normal,

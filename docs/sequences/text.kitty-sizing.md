@@ -21,7 +21,7 @@ The renderer draws each run at its scale, fraction and alignment across its bloc
 
 - **Status:** partial. vtium implements part of this. The note says what is missing.
 - **Why:** large text, such as a heading or a banner at the login prompt, on a grid whose font size serves every program.
-- **Note:** ADR-1308 decides it: vtium takes the keys s, w, n, d, v and h; vtium-term interprets OSC 66 and stores the block one sequence writes as one character, and an edit that would move, clear or overwrite only part of it erases it whole; the renderer draws each run at its scale, fraction and alignment across its block, from the font's glyphs at the normal size scaled up, a run on a double-size line at the line's size, a run's underline, strike-through and overline scaled with its text, and a cursor on a run covers the whole block; left: an outline font's run drawn at true size by the font helper, and an underline cursor s times as thick.
+- **Note:** ADR-1308 decides it: vtium takes the keys s, w, n, d, v and h; vtium-term interprets OSC 66 and stores the block one sequence writes as one character, and an edit that would move, clear or overwrite only part of it erases it whole; the renderer draws each run at its scale, fraction and alignment across its block, from the font's glyphs at the normal size scaled up, a run on a double-size line at the line's size, a run's underline, strike-through and overline scaled with its text, and a cursor on a run covers the whole block, an underline cursor s times as thick; left: an outline font's run drawn at true size by the font helper.
 - **Specifications:** kitty text-sizing-protocol
 
 ## Tests
@@ -46,6 +46,7 @@ These tests check what vtium does with the sequences on this page.
 - `a_run_with_a_width_draws_its_whole_text_in_one_block` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `a_runs_decorations_on_a_line_of_double_size_match_printed_cells` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `a_runs_decorations_scale_with_its_text` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `an_underline_cursor_on_a_run_draws_the_whole_scaled_line` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `half_size_text_fits_two_letters_in_one_cell` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `runs_of_one_letter_at_two_scales_each_draw_at_their_own` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `text_drawn_smaller_stands_on_the_blocks_baseline` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
