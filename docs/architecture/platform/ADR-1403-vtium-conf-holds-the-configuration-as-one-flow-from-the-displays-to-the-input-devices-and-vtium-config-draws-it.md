@@ -428,6 +428,61 @@ considered:
     said: "(3) `q` always quits or asks, and Esc always goes back; the file view and Restore's list keep Esc alone. (4) Every question takes `y` for yes, and Esc or any other key for no; the leave question names its unsaved changes and saves them on `y`, like the quit question. (5) The action keys act only in the views whose tab bar shows them. (6) Every key line shows every key it lists, and wraps onto a second row before it drops a key."
     via: the maintainer's answers of 2026-11-16 to the decisions that the work on scripted scenarios for vtium-config's TUI put to the maintainer, recorded in that work's issue; the maintainer took each lean as proposed, and the wording is the steering session's
     paraphrase: true
+  - operator: aaronsb
+    said: "o keeps one meaning, Restore, in the Flow view; the notice about font operations names allow-font-ops in the Settings view."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The quit question's n quits without saving, and the question says so in words."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Ctrl-C at a question cancels the question, like Esc; everywhere else Ctrl-C saves and leaves."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "q on the screen below 80×25 asks the quit question on one row."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The action keys do nothing while a card, detail, part maker, picker or form is open."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Up and Down do nothing while a Settings value is typed; Enter commits, and Esc cancels."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The answer rule for questions: y answers yes; n answers no where the question offers it; Esc and Ctrl-C cancel; every other key does nothing, and the question stays."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The rule that every key line wraps rather than drop a key stands."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "if there's any unsaved changes q at least gets an 'there are unsaved changes'. tools that are passive tui tools (like btop, for example) don't need to offer that friction"
+    via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "The leave question offers n as the quit question does: y installs and leaves, n leaves without installing and the question says the pending changes stay uninstalled, and Esc and Ctrl-C go back."
+    via: the maintainer's answer of 2026-11-16 to the points the second amendment left open, relayed by the steering session; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Wherever vtium-config shows a set of items or asks the person to pick one, it uses one shared list component, a list box inside a card or a pop-up list over the view, never a comma-joined list that wraps across rows: Settings values, the Flow cards' lists of displays, devices and VTs, the filter picker's device lists, font set choices, font sizes, font set file choices, and the defined terminals."
+    via: the maintainer's answer of 2026-11-16 to the points the second amendment left open, relayed by the steering session; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "for certain elements we need to stop providing long serialized lists that end up taking a whole row or two, and offer a consistent list box or pop up list dialog"
+    via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "before we begin building, I'd like to make sure we have keypresses mapped to the application interface tree. I think this is the thing we earlier said would be derived from walking the code, but I also think that 'hand building' this allows the walk and the hand build to meet in the middle and compromise"
+    via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "the result of this compromise is the contract that we can then use moving forward. altering the contract allows us to 'break' the code, allowing us to update the code to again be conforming of the contract"
+    via: relayed by the steering session, 2026-11-16, with the interface tree of vtium-config's TUI
+  - operator: aaronsb
+    said: "this also makes it possible to offer a help interface that is honest"
+    via: relayed by the steering session, 2026-11-16, with the interface tree of vtium-config's TUI
 status: accepted
 date: 2026-11-04
 deciders:
@@ -811,14 +866,39 @@ The mouse selects a box with a click and opens it with a second click, and a cli
 
 > Edited 2026-11-16: the maintainer set four rules for the keys of every view (`considered`, 2026-11-16), in answer to the work that drives vtium-config's TUI by script and checks how it responds after each key. That work found the same key doing different things in different places: `q` quit from a card but went back from the file view, and the three questions took three sets of answer keys. This subsection and the key table were added. The key line's paragraph above ended "and `PgUp PgDn scroll` where there is room.", the bullet on `q` read "**`q`** quits.", and the file view's paragraph read "and `q` or Esc go back to the configuration with the same box highlighted."
 
+> Edited 2026-11-16: the maintainer answered the questions that the first amendment of this subsection left open, after research into the keys of other terminal programs and of the desktop guidelines (`considered`, 2026-11-16). The answer rule for questions changed: Esc and Ctrl-C cancel a question, and a key a question does not offer does nothing, where every key but `y` answered no. `q` never quits without asking while changes are not saved, the screen below the minimum size included. The action keys do nothing while something is open over a view, `o` means only Restore, and Up and Down do nothing while a Settings value is typed. The second rule read: "- **Every question takes `y` for yes, and Esc or any other key for no.** No closes the question and changes nothing. The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does. The font set changes it names are then lost. `i` and `l` no longer answer it. The quit question also offers `n`, which quits without saving. Whether `n` keeps that meaning, or answers no as every other key does, is open, and the maintainer settles it." The paragraph on Ctrl-C began "Ctrl-C and the signals keep the meaning that **What carries over** gives them in every state", and ended "where only `q`, `u` and Ctrl-C act (ADR-1201 D3)."
+
 These rules hold in every view of the TUI (the maintainer, 2026-11-16):
 
-- **`q` always quits or asks, and Esc always goes back.** `q` quits from a view and from anything open over it: a card, a detail, a part maker, a picker, the new-frit form, the file view and Restore's list. Where changes are not saved, it asks the quit question first. While new or removed font sets wait in memory for an install, it asks the leave question instead. The TUI asks that question until it keeps font set changes in the draft's folder, as D8 decides. Esc closes what is open and goes back to what is under it. The file view and Restore's list go back on Esc alone, where `q` closed them before. A value being typed takes `q` as a letter, as it takes every letter.
-- **Every question takes `y` for yes, and Esc or any other key for no.** No closes the question and changes nothing. The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does. The font set changes it names are then lost. `i` and `l` no longer answer it. The quit question also offers `n`, which quits without saving. Whether `n` keeps that meaning, or answers no as every other key does, is open, and the maintainer settles it.
-- **The action keys act only in the views whose tab bar shows them.** `s` saves only where the tab bar shows Save, and `i` installs only where it shows Install. Help's tab bar shows no action, so neither key acts there. The file view saves and installs as the Flow view does (below). Restore, on `o`, belongs to the Flow view, whose key line names it beside the tab bar's actions. A view's own key on the same letter is that view's, as `r` marks a font set for removal in the Looks view, and the view's key line names it.
-- **Every key line shows every key it lists.** When the keys do not fit on one row, the key line wraps onto a second row before it drops a key. This holds at the minimum size of 80×25 too.
+- **`q` always quits or asks, and Esc always goes back.** `q` quits from a view and from anything open over it: a card, a detail, a part maker, a picker, the new-frit form, the file view and Restore's list. Where changes are not saved, it asks the quit question first. While new or removed font sets wait in memory for an install, it asks the leave question instead. The TUI asks that question until it keeps font set changes in the draft's folder, as D8 decides. Esc closes what is open and goes back to what is under it. The file view and Restore's list go back on Esc alone, where `q` closed them before. A value being typed takes `q` as a letter, as it takes every letter. `q` never quits without asking while changes are not saved, in any state, and with nothing unsaved it quits at once, without a question. The maintainer: "if there's any unsaved changes q at least gets an 'there are unsaved changes'. tools that are passive tui tools (like btop, for example) don't need to offer that friction".
+- **At a question, `y` answers yes, and `n` answers no where the question offers it.** Esc and Ctrl-C cancel the question: it closes, and nothing changes. Every other key does nothing, and the question stays until it is answered or cancelled. The quit question offers `n`, which quits without saving, and the question says so in words. The leave question offers `n` as the quit question does. Its `y` installs the draft, which saves the changes that are not saved first, and then leaves. Its `n` saves the changes that are not saved into the draft and leaves without installing. Until a draft keeps its font set changes (D8), the question says in words that the new and removed font sets are lost. Once a draft keeps them, they stay in the draft, uninstalled. Esc and Ctrl-C go back. `i` and `l` no longer answer it.
 
-Ctrl-C and the signals keep the meaning that **What carries over** gives them in every state: they save the changes that are not saved and leave, without a question. The live trial's countdown keeps its own keys, which ADR-1201 D4 decides: `k` keeps the font, and any other key puts it back. So does the screen below the minimum size, where only `q`, `u` and Ctrl-C act (ADR-1201 D3).
+  > Edited 2026-11-16: the steering session decided what the leave question's `n` does with the changes that are not saved, and what the question says while font set changes live only in memory. The sentence read: "Its `n` leaves without installing, and the question says that the font set changes stay uninstalled."
+
+  > Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). The leave question's sentences read: "The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does, and the font set changes it names are then lost. `i` and `l` no longer answer it."
+- **The action keys act only in the views whose tab bar shows them.** `s` saves only where the tab bar shows Save, and `i` installs only where it shows Install. Help's tab bar shows no action, so neither key acts there. The file view saves and installs as the Flow view does (below). Restore, on `o`, belongs to the Flow view, whose key line names it beside the tab bar's actions. A view's own key on the same letter is that view's, as `r` marks a font set for removal in the Looks view, and the view's key line names it. `o` has the one meaning, Restore, and does nothing in the other views. While a card, a detail, a part maker, a picker or a form is open, the action keys do nothing. The file view is the one exception, where `s` and `i` act.
+- **Every key line shows every key it lists.** When the keys do not fit on one row, the key line wraps onto a second row before it drops a key. This holds at the minimum size of 80×25 too.
+- **While a Settings value is typed,** Enter keeps the value and Esc drops it. Up and Down do nothing.
+
+Ctrl-C and the signals keep the meaning that **What carries over** gives them: they save the changes that are not saved and leave, without a question. At a question, Ctrl-C cancels the question instead, as Esc does. The live trial's countdown keeps its own keys, which ADR-1201 D4 decides: `k` keeps the font, and any other key puts it back. So does the screen below the minimum size, where only `q`, `u` and Ctrl-C act (ADR-1201 D3). There `q` asks the quit question on one row while changes are not saved, and `u` puts back both the start font and the start grid.
+
+#### One list for every set of items
+
+> Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). This subsection was added.
+
+The maintainer asked on 2026-11-16 for one kind of list wherever the TUI shows a set of items. The maintainer's words: "for certain elements we need to stop providing long serialized lists that end up taking a whole row or two, and offer a consistent list box or pop up list dialog". This decision holds the rule because D7 already decides what opens over a view, the picker among them, and the key table that says what each key does there.
+
+- **One shared list.** Wherever vtium-config shows a set of items or asks the person to pick one, it uses one list component. The list is either a list box inside a card or a pop-up list over the view. vtium-config never shows such a set as items joined with commas that wrap across rows.
+- **Its keys** are the keys of the Flow view's picker today. Up and Down move the highlight by one item, Home and End go to the first and the last item, and PgUp and PgDn move by a page. Enter picks the highlighted item and closes the list. Esc closes the list without picking. Where a list also takes a typed value, its last item is `Other…`, and Enter on it opens the value for typing. The rules above hold in a list as in every layer: `q` quits or asks, Tab does nothing, and the action keys do nothing.
+- **Where it is used.** The maintainer named these sets, and the key table has a row for each:
+  - a key's allowed values in the Settings view;
+  - the lists in the Flow view's cards, such as a terminal's or a display's displays, devices and VTs;
+  - the device lists in the filter picker;
+  - the font set choices and the font sizes in the Looks tab;
+  - the font set files to choose from;
+  - the defined terminals.
+
+The list's look is the picker's, and this decision designs no other.
 
 #### The key table
 
@@ -834,11 +914,12 @@ The key table, `ADR-1403-keys.tsv` beside this record, says what each key means 
 | `note` | what vtium-config does today where that differs, or why the row is an exception |
 | `decided` | the decisions that set the meaning |
 | `issue` | the issue that carries a planned or weighed row |
+| `label` | the short word or two a key line shows for the key, empty where the key does nothing and the key line leaves it out |
 
 The kinds of state:
 
 - `view`: a view with nothing open over it.
-- `layer`: something open over a view that Esc closes, such as a card, a picker, the new-frit form, the file view or Restore's list.
+- `layer`: something open over a view that Esc closes, such as a card, a picker, a list, the new-frit form, the file view or Restore's list. `layer:list` is the shared list of **One list for every set of items**.
 - `typing`: a value being typed.
 - `question`: a question that waits for an answer.
 - `trial`: the live trial's countdown (ADR-1201 D4).
@@ -848,6 +929,78 @@ The kinds of state:
 A name after a colon narrows a state to one view, layer or question, as in `view:flow`, `layer:file-view` or `question:leave`. Where several rows match, the row with the narrowest state decides.
 
 A change to what a key means edits this record and the table in one commit. The scenarios that drive the TUI by script read the table and check every key against it. They check a planned row in reverse: they expect what vtium-config does today, so the check fails once the work lands and the row still says `planned`.
+
+#### The interface tree
+
+> Edited 2026-11-16: the maintainer asked for the TUI's keys to be mapped to its interface tree before the build starts (`considered`, 2026-11-16), and this subsection and the tree were added.
+
+The maintainer asked for the tree to be built by hand as well as walked from the code (2026-11-16): "before we begin building, I'd like to make sure we have keypresses mapped to the application interface tree. I think this is the thing we earlier said would be derived from walking the code, but I also think that 'hand building' this allows the walk and the hand build to meet in the middle and compromise".
+
+The interface tree, `ADR-1403-tree.tsv` beside this record, lists every place the person can be in the TUI as decided: the views, what opens over them, the typing fields, the questions, the live trial and the screen below the minimum size. Each row is one node:
+
+| Column | What it holds |
+|---|---|
+| `id` | the node's id, dotted by its parent, such as `flow.card.list`. The views use the views table's ids, and an id does not change once it is committed. |
+| `parent` | the node it opens from |
+| `node` | what the node is, in plain words |
+| `reach` | the keys that open it from its parent |
+| `leave` | the keys that leave it, and where each one goes |
+| `keys` | the ids of the key table's rows that apply there |
+| `status` | `supported` where the code has the node now, and `planned` where it will |
+| `issue` | the issue that carries a planned node |
+| `now` | on a planned node, what the code does today |
+
+Every row of the key table applies to at least one node, and every key a node names is a row of the key table. A script checks both directions.
+
+The diagram shows the tree's top levels, with the Flow, Looks and Settings views opened one level or more:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> flow
+    flow --> looks: Tab
+    looks --> settings: Tab
+    settings --> help: Tab
+    help --> flow: Tab
+    state flow {
+        [*] --> overview
+        overview --> detail: Enter on a box
+        detail --> detail_typing: Enter on the label
+        overview --> card: Enter on a terminal
+        card --> card_list: Enter on a set
+        card --> card_typing: Enter on the name
+        overview --> maker: Enter on a template
+        maker --> picker: Enter on a filter
+        picker --> picker_typing: Enter on Other…
+        overview --> others: Enter on other inputs
+        overview --> file: v
+        overview --> restore: o
+    }
+    state looks {
+        [*] --> looks_view
+        looks_view --> looks_list: Enter on font set or size
+        looks_view --> new_frit: n
+    }
+    state settings {
+        [*] --> sections
+        sections --> section: Enter
+        section --> section_typing: Enter on a key
+        section --> section_list: Enter on a key with fixed values
+    }
+    state any {
+        question
+        trial
+        too_small
+    }
+```
+
+The tree is the hand-built half of the map. The scenarios that drive the TUI by script explore the code from its start states and name each state they reach with a tree id. A test checks both directions. Every state the explorer reaches is a node of the tree. Every supported node is reached by the keys its `reach` column gives. A planned node is checked in reverse, against its `now` column. A difference is either a defect in the code or a change to the tree, and the maintainer decides which.
+
+**The contract.** Once the maintainer has decided the differences between the walk and the hand-built tree, the tree, the key table and the views table are the TUI's contract, and the scenario test enforces it. The maintainer: "the result of this compromise is the contract that we can then use moving forward. altering the contract allows us to 'break' the code, allowing us to update the code to again be conforming of the contract". So a change to the TUI starts as a change to the contract. The work's first commit moves the rows it delivers to `supported`, or edits a supported row, and the scenario test turns red. The code then changes until the test passes again. A planned row records what the code does today and is checked in reverse, so the contract can describe future work while the test stays green, until a change claims the row.
+
+**Help that matches the code.** The Help tab and every view's key line are generated from the contract. The maintainer: "this also makes it possible to offer a help interface that is honest". For the node the person is on, the tree and the key table give the keys that act there and what each does. So help says only what the contract says, and the scenario test proves that the code does the same. The key table's `means` column is therefore the help text a person reads: whole short sentences that follow the rules for strings on screen. Its `label` column is the shorter name a key line shows. The hand-written help and key lines in vtium-config's word catalog go once the generated ones are built, which the key table's row `help.generated` tracks.
+
+> Edited 2026-11-16: the maintainer made the tree and the two tables the TUI's contract, and had help and the key lines generated from it (`considered`, 2026-11-16). The two paragraphs above were added, and the key table gained its `label` column. Its `means` column was rewritten as text a person reads on screen, with the same meaning in each row.
 
 #### `v` views the file
 
@@ -878,7 +1031,7 @@ On a configuration with no terminal and no rule, the first path's inputs roam, a
   - **Save**, on `s`, runs `vtium check-config` on the draft with the unsaved changes applied, and writes the result into the draft, and the font set changes into the draft's font set folder (D8). It writes whatever the check finds, since a draft may be unfinished, and asks nothing (the maintainer, 2026-11-09: "Accept all").
   - **Moving to another view** keeps the unsaved changes.
   - **Quitting with `q`** while changes are unsaved asks `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.` (the maintainer, 2026-11-09: "As proposed").
-  - **When the TUI stops for another reason,** by Ctrl-C, by SIGINT, SIGTERM, SIGQUIT or SIGHUP, or because its terminal closed, it saves the unsaved changes into the draft before it leaves (the maintainer, 2026-11-09: "As proposed"). A panic and SIGKILL lose them.
+  - **When the TUI stops for another reason,** by Ctrl-C, by SIGINT, SIGTERM, SIGQUIT or SIGHUP, or because its terminal closed, it saves the unsaved changes into the draft before it leaves (the maintainer, 2026-11-09: "As proposed"). A panic and SIGKILL lose them. At a question, Ctrl-C cancels the question instead, as **The same keys in every view** says.
   - **Revert, Restore and New** throw the unsaved changes away with what they replace, and their questions count the unsaved changes among what is lost.
 - **Each view shows its own controls** (the maintainer, 2026-11-09: "this sounds like contextual controls (by tab) and I think it makes more sense to declutter"). Beside the views' names, the tab bar shows only the actions of the view in front, each with its key. In the Flow view they are View file (`v`), Save (`s`), Install (`i`), Revert (`r`) and New (`n`), and Restore is on `o`. In the Looks and Settings views they are Save and Install, and Help shows none (the maintainer, 2026-11-09: "Accept all"; the Fonts view went into the Looks view on 2026-11-11, ADR-1201 D3). The view has no Delete draft: `vtium config draft rm` deletes a draft (D8). Each action but View file and Save asks before it acts:
   - **Install** saves first, then installs the draft, as `vtium config install` does (D8). When the check finds a problem other than a missing complete route, Install refuses and lists what fails. When the only problem is that no complete route exists (D3), it asks `This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. After the install, nobody at this machine may be able to type into vtium. Install it anyway? 3 lines added, 1 removed.` and installs only on yes (the maintainer, 2026-11-09: "Ask, then allow it"). When the check passes, it asks `Install the draft? 3 lines added, 1 removed.` and installs only on yes.
