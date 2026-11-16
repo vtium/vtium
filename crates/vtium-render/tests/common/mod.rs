@@ -33,6 +33,31 @@ pub fn psf(w: u32, h: u32) -> Font<Psf> {
     Font::new(Psf::parse(&b).expect("a well-formed font"))
 }
 
+/// A face whose every glyph is one 8x16 mask of graded coverage: pixel
+/// `i`, counted row by row, has coverage `2i + 1`, so the glyph holds every
+/// odd level from 1 to 255, as the edges of an antialiased letter hold
+/// partial ones.
+pub struct Shade;
+
+impl vtium_font::Face for Shade {
+    fn cell(&self) -> vtium_font::Cell {
+        vtium_font::Cell {
+            width: 8,
+            height: 16,
+        }
+    }
+    fn size_step(&self) -> u32 {
+        16
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        c != ' '
+    }
+    fn draw(&self, _: &[char], _: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        let px = (0..128u32).map(|i| (2 * i + 1) as u8).collect();
+        vtium_font::Glyph::from_pixels(8, 16, vtium_font::Format::Mask, px)
+    }
+}
+
 pub fn rgb(hex: &str) -> Rgb {
     let v = u32::from_str_radix(hex, 16).unwrap_or_else(|_| panic!("not a color: {hex}"));
     Rgb::new((v >> 16) as u8, (v >> 8) as u8, v as u8)
