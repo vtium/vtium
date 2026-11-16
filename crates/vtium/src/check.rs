@@ -557,6 +557,9 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
             crate::deferred::Shared::default(),
             0,
         );
+        // check-config names each missing font itself, so the helper logs
+        // none of the frit's warnings on standard error
+        helper.quiet();
         let wait = std::time::Duration::from_millis(helper::REQUEST_MS);
         helper.coverage(letters, wait, clock)
     };
@@ -575,6 +578,9 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
             crate::deferred::Shared::default(),
             0,
         );
+        // check-config names each missing font itself, so the helper logs
+        // none of the frit's warnings on standard error
+        helper.quiet();
         let wait = std::time::Duration::from_millis(helper::REQUEST_MS);
         helper.sources(wait, clock)
     };

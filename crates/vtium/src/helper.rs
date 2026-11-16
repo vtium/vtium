@@ -1231,6 +1231,9 @@ pub struct Helper {
     full: bool,
     /// The frit's warnings logged this boot, at most [`WARNINGS_MAX`].
     warned: BTreeSet<String>,
+    /// Whether the frit's warnings are logged: true but for a helper that
+    /// `vtium check-config` starts ([`Helper::quiet`]).
+    logs_warnings: bool,
     /// The line logged this boot about a sandbox the helper runs without,
     /// once one has been ([`sandbox_notice`]).
     sandbox_noted: Option<String>,
@@ -1283,6 +1286,7 @@ impl Helper {
             restarts: 0,
             full: false,
             warned: BTreeSet::new(),
+            logs_warnings: true,
             sandbox_noted: None,
             failed: None,
             pointer: None,
@@ -2298,11 +2302,25 @@ impl Helper {
         Ok(Some(Answer { at, face, chars }))
     }
 
+    /// Makes this helper log none of the frit's warnings. `vtium
+    /// check-config` starts its helpers so: it names each font a set lacks
+    /// in its own words, from the sources query's answer, and the lines the
+    /// console logs would only repeat that on standard error.
+    ///
+    /// References:
+    /// - ADR-1204 D7: check-config names each missing font.
+    pub fn quiet(&mut self) {
+        self.logs_warnings = false;
+    }
+
     /// Logs the frit's warning `why`, once a boot and at most
     /// [`WARNINGS_MAX`] of them: a helper started again reads the frit
     /// again and sends its warnings again. Its control characters are
     /// escaped ([`escaped`]).
     fn warn(&mut self, why: &str) {
+        if !self.logs_warnings {
+            return;
+        }
         let why = escaped(why);
         if self.warned.len() < WARNINGS_MAX && self.warned.insert(why.clone()) {
             log::warn!("the frit {why}");
@@ -3493,6 +3511,26 @@ mod tests {
             s.helper.sources(Duration::from_secs(5), &clock),
             Err("no source is on this machine".to_owned())
         );
+    }
+
+    // `vtium check-config` names each missing font itself, from the sources
+    // query's answer, so a helper it starts logs none of the frit's
+    // warnings, which the console would log, and the answer still comes.
+    //
+    // References:
+    // - ADR-1204 D7: check-config names each missing font.
+    #[test]
+    fn a_quiet_helper_logs_no_warning_and_still_answers() {
+        let lines = "missing\t1\tfont:Gone\tno font of family Gone";
+        let mut fixture = frame_bytes(FRAME_WARNING, b"t needs the font Gone");
+        fixture.extend(frame_bytes(FRAME_SOURCES, lines.as_bytes()));
+        let mut s = StandIn::new("sources-quiet", ANSWERS, &fixture);
+        s.helper.quiet();
+        assert_eq!(
+            s.helper.sources(Duration::from_secs(5), &t0).as_deref(),
+            Ok(lines)
+        );
+        assert!(s.helper.warned.is_empty(), "{:?}", s.helper.warned);
     }
 
     // the frit's warnings are logged once each, at most WARNINGS_MAX a
