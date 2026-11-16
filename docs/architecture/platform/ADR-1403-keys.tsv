@@ -1,12 +1,12 @@
 id	key	state	means	status	note	decided	issue	label
 q.view	q	view	Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them.	supported		ADR-1403 D7		quit
 q.layer	q	layer	Quits vtium-config, and asks first if changes are not saved.	supported	a card, detail, part maker or picker of the Flow view, and the new-frit form's last row	ADR-1403 D7		quit
-q.layer.file-view	q	layer:file-view	Quits vtium-config, and asks first if changes are not saved. Esc goes back to the configuration.	planned	today q goes back to the configuration	ADR-1403 D7	#412	quit
-q.layer.restore	q	layer:restore	Quits vtium-config, and asks first if changes are not saved. Esc closes the list.	planned	today q closes the list	ADR-1403 D7	#412	quit
+q.layer.file-view	q	layer:file-view	Quits vtium-config, and asks first if changes are not saved. Esc goes back to the configuration.	supported		ADR-1403 D7	#412	quit
+q.layer.restore	q	layer:restore	Quits vtium-config, and asks first if changes are not saved. Esc closes the list.	supported		ADR-1403 D7	#412	quit
 q.typing	q	typing	Types the letter q.	supported	a value being typed takes every letter	ADR-1403 D7		-
-q.question	q	question	Does nothing. The question stays until you answer it or cancel it.	planned	today q answers no and the question closes	ADR-1403 D7	#412	-
+q.question	q	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-
 q.trial	q	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-
-q.too-small	q	too-small	Quits vtium-config. If changes are not saved, it asks first, on one row.	planned	today q quits at once, and the changes that are not saved are lost	ADR-1201 D3	#412	quit
+q.too-small	q	too-small	Quits vtium-config. If changes are not saved, it asks first, on one row.	supported		ADR-1201 D3	#412	quit
 esc.view	Esc	view	Does nothing here.	supported		ADR-1403 D7		-
 esc.view.flow	Esc	view:flow	Clears NEW PATH. If you were revising a path, the path leaves the configuration.	supported	the one view where Esc acts with nothing open	ADR-1403 D7		clear
 esc.layer	Esc	layer	Goes back, with the same item highlighted.	supported	the file view and Restore's list included	ADR-1403 D7		back
@@ -17,36 +17,36 @@ esc.too-small	Esc	too-small	Does nothing here.	supported		ADR-1201 D3		-
 tab.view	Tab	view	Moves to the next view.	supported		ADR-1403 D7		next view
 tab.layer	Tab	layer	Does nothing until you close what is open with Esc.	supported		ADR-1403 D7		-
 tab.typing	Tab	typing	Does nothing while you type.	supported		ADR-1403 D7		-
-tab.question	Tab	question	Does nothing. The question stays until you answer it or cancel it.	planned	today Tab answers no and the question closes	ADR-1403 D7	#412	-
+tab.question	Tab	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-
 tab.trial	Tab	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-
 tab.too-small	Tab	too-small	Does nothing here.	supported		ADR-1201 D3		-
 shift-tab.view	Shift-Tab	view	Moves to the view before.	supported		ADR-1403 D7		view before
 shift-tab.layer	Shift-Tab	layer	Does nothing until you close what is open with Esc.	supported		ADR-1403 D7		-
 shift-tab.typing	Shift-Tab	typing	Does nothing while you type.	supported		ADR-1403 D7		-
-shift-tab.question	Shift-Tab	question	Does nothing. The question stays until you answer it or cancel it.	planned	today Shift-Tab answers no and the question closes	ADR-1403 D7	#412	-
+shift-tab.question	Shift-Tab	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-
 shift-tab.trial	Shift-Tab	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-
 shift-tab.too-small	Shift-Tab	too-small	Does nothing here.	supported		ADR-1201 D3		-
 ctrl-c.any	Ctrl-C	any	Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking.	supported		ADR-1403 D7; ADR-1201 D4		save and quit
 ctrl-c.question	Ctrl-C	question	Cancels the question, as Esc does. Nothing changes.	supported	the one state where Ctrl-C does not save and quit	ADR-1403 D7		cancel
-ctrl-c.trial	Ctrl-C	trial	Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking.	planned	today Ctrl-C quits without saving the changes that are not saved	ADR-1403 D7; ADR-1201 D4	#412	save and quit
-ctrl-c.too-small	Ctrl-C	too-small	Saves the changes that are not saved into the draft, puts back the console's font and size, and quits without asking.	planned	today Ctrl-C quits without saving the changes that are not saved	ADR-1403 D7; ADR-1201 D3	#412	save and quit
+ctrl-c.trial	Ctrl-C	trial	Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking.	supported		ADR-1403 D7; ADR-1201 D4	#412	save and quit
+ctrl-c.too-small	Ctrl-C	too-small	Saves the changes that are not saved into the draft, puts back the console's font and size, and quits without asking.	supported		ADR-1403 D7; ADR-1201 D3	#412	save and quit
 y.question	y	question	Answers yes, and vtium-config does what the question asks.	supported		ADR-1403 D7		yes
 y.question.quit	y	question:quit	Saves the changes that are not saved into the draft, then quits.	supported		ADR-1403 D7		save and quit
-y.question.leave	y	question:leave	Installs the draft, then quits. Install saves the changes that are not saved first.	planned	today y goes back; i installs and l quits without saving	ADR-1403 D7	#411	install and quit
-n.question.leave	n	question:leave	Saves the changes that are not saved into the draft, then quits without installing. The new and removed font sets that wait for an install are lost.	planned	today n goes back. Until a draft keeps its font set changes, the question says in words that they are lost; once it does, they stay in the draft, uninstalled	ADR-1403 D7	#411	quit without installing
+y.question.leave	y	question:leave	Installs the draft, then quits. Install saves the changes that are not saved first.	supported		ADR-1403 D7	#411	install and quit
+n.question.leave	n	question:leave	Saves the changes that are not saved into the draft, then quits without installing. The new and removed font sets that wait for an install are lost.	supported		ADR-1403 D7	#411	quit without installing
 n.question.quit	n	question:quit	Quits without saving the changes that are not saved.	supported		ADR-1403 D7		quit without saving
-n.question	n	question	Answers no. Nothing changes. Where the question offers no n, n does nothing.	planned	today n answers no in every question, and quits without saving at the quit question	ADR-1403 D7	#412	no
-i.question.leave	i	question:leave	Does nothing. The question stays until you answer it or cancel it.	planned	today i installs; y installs now	ADR-1403 D7	#411	-
-l.question.leave	l	question:leave	Does nothing. The question stays until you answer it or cancel it.	planned	today l quits, and the changes that are not saved are lost	ADR-1403 D7	#411	-
-other.question	any other key	question	Does nothing. The question stays until you answer it or cancel it.	planned	today any key but y answers no and the question closes	ADR-1403 D7	#412	-
+n.question	n	question	Answers no. Nothing changes. Where the question offers no n, n does nothing.	supported		ADR-1403 D7	#412	no
+i.question.leave	i	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-
+l.question.leave	l	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-
+other.question	any other key	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-
 s.view	s	view	Saves the changes that are not saved into the draft.	supported	it acts in Flow, Looks and Settings, whose tab bars show Save	ADR-1403 D7		save
 s.view.fonts	s	view:fonts	Saves the changes that are not saved into the draft, in the Looks tab that the Fonts view goes into.	planned	today the Fonts view's tab bar shows Save, but outside a vtium console s switches the preview between the specimen and the picture of the console	ADR-1201 D3; ADR-1403 D7	#379	save
 s.view.help	s	view:help	Does nothing here.	supported	Help's tab bar shows no action	ADR-1403 D7		-
 s.layer.file-view	s	layer:file-view	Saves the changes that are not saved into the draft. The file view stays open and shows the file as it now stands.	supported		ADR-1403 D7		save
 i.view	i	view	Saves, then asks whether to install the draft.	supported	it acts in Flow, Looks and Settings, whose tab bars show Install	ADR-1403 D7		install
-i.view.help	i	view:help	Does nothing here.	planned	today i saves and asks to install	ADR-1403 D7	#412	-
+i.view.help	i	view:help	Does nothing here.	supported		ADR-1403 D7	#412	-
 i.layer.file-view	i	layer:file-view	Saves, then asks whether to install the draft. The file view stays open.	supported		ADR-1403 D7		install
-action.layer	s i r n v o	layer	Do nothing until you close what is open with Esc.	planned	the file view is the exception, where s and i act; today i saves and asks to install from the last row of the new-frit form	ADR-1403 D7	#412	-
+action.layer	s i r n v o	layer	Do nothing until you close what is open with Esc.	supported	the file view is the exception, where s and i act	ADR-1403 D7	#412	-
 r.view.flow	r	view:flow	Asks whether to throw away the draft's changes and copy the installed file back.	supported		ADR-1403 D7		revert
 n.view.flow	n	view:flow	Asks whether to start a new configuration.	supported		ADR-1403 D7		new
 v.view.flow	v	view:flow	Shows the draft's vtium.conf as text.	supported		ADR-1403 D7		view file
@@ -82,7 +82,7 @@ k.trial	k	trial	Keeps the font or size you are trying.	supported		ADR-1201 D4		k
 other.trial	any other key	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		put back
 u.too-small	u	too-small	Puts back the font and size the console had when vtium-config started.	planned	today u puts back the start font; the start grid comes with the live size control	ADR-1201 D3	#379	undo
 other.too-small	any other key	too-small	Does nothing here.	supported		ADR-1201 D3		-
-updown.typing.settings	Up, Down	typing:settings	Do nothing while you type.	planned	today they drop the value with no message	ADR-1201 D3	#412	-
+updown.typing.settings	Up, Down	typing:settings	Do nothing while you type.	supported		ADR-1201 D3	#412	-
 enter.typing.settings	Enter	typing:settings	Keeps the value you typed.	supported		ADR-1403 D7; ADR-1201 D3		keep
 up.view.flow	Up	view:flow	Moves to the box above.	supported		ADR-1403 D7		move
 down.view.flow	Down	view:flow	Moves to the box below.	supported		ADR-1403 D7		move
@@ -164,7 +164,7 @@ home.layer.new-frit	Home	layer:new-frit	Goes to the first row.	supported		ADR-12
 end.layer.new-frit	End	layer:new-frit	Goes to the last row.	supported		ADR-1201 D3		last
 pgup.layer.new-frit	PgUp	layer:new-frit	Moves up by a page.	supported		ADR-1201 D3		page up
 pgdn.layer.new-frit	PgDn	layer:new-frit	Moves down by a page.	supported		ADR-1201 D3		page down
-move.typing.new-frit	Up, Down, Home, End, PgUp, PgDn	typing:new-frit	Do nothing while you type. Enter keeps the value and goes to the next field, and Esc closes the form.	planned	today these keys move to another field and keep what you typed	ADR-1403 D7; ADR-1201 D3	#412	-
+move.typing.new-frit	Up, Down, Home, End, PgUp, PgDn	typing:new-frit	Do nothing while you type. Enter keeps the value and goes to the next field, and Esc closes the form.	supported		ADR-1403 D7; ADR-1201 D3	#412	-
 list.system-fonts	Enter	layer:new-frit	On a font field, shows the fonts and font sets found on this system as a list to pick from. You can still type a font that the list lacks.	planned	today each font field takes typed text only	ADR-1201 D3	#375	choose
 up.layer.flow-choices	Up	layer:flow-choices	Moves to the choice above, and from the first choice back to the label line.	supported		ADR-1403 D7		move
 down.layer.flow-choices	Down	layer:flow-choices	Moves to the choice below.	supported		ADR-1403 D7		move
@@ -182,8 +182,8 @@ wheel-up.layer	Wheel up	layer	Acts as Up does in what is open.	supported		ADR-14
 wheel-down.layer	Wheel down	layer	Acts as Down does in what is open.	supported		ADR-1403 D7		-
 click.typing	Click	typing	Does nothing while you type.	supported		ADR-1403 D7		-
 wheel.typing	Wheel up, Wheel down	typing	Do nothing while you type.	supported	the wheel reaches typing as Up and Down, which do nothing there	ADR-1403 D7		-
-click.question	Click	question	Does nothing. The question stays until you answer it or cancel it.	planned	today a click on a box moves the highlight under the question, and the question stays	ADR-1403 D7	#412	-
-wheel.question	Wheel up, Wheel down	question	Do nothing. The question stays until you answer it or cancel it.	planned	today the wheel reaches a question as Up or Down, which answer no	ADR-1403 D7	#412	-
+click.question	Click	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-
+wheel.question	Wheel up, Wheel down	question	Do nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-
 mouse.trial	Click or wheel	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-
 key-line.any	key line	any	Shows every key it lists, and wraps onto a second row before it drops one.	supported		ADR-1403 D7		-
 key-line.view.flow	key line	view:flow	Shows every key it lists, and wraps onto a second row before it drops one.	planned	at 80×25 it ends with v view file and q quit, and leaves out Esc clear, i install, o restore and n new	ADR-1403 D7	#412	-
