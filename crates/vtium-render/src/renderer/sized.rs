@@ -221,16 +221,17 @@ pub(crate) fn place(size: RunSize, cell: Cell, natural: u32, baseline: u32) -> O
     let nw = natural.saturating_mul(cell.width);
     let mut w = ratio(nw, num, den);
     let mut h = ratio(cell.height, num, den);
+    if w == 0 || h == 0 {
+        return None;
+    }
+    // text drawn smaller to fit keeps at least one pixel on each side
     if w > bw {
-        h = ratio(h, bw, w);
+        h = ratio(h, bw, w).max(1);
         w = bw;
     }
     if h > bh {
-        w = ratio(w, bh, h);
+        w = ratio(w, bh, h).max(1);
         h = bh;
-    }
-    if w == 0 || h == 0 {
-        return None;
     }
     let (spare_w, spare_h) = (bw.saturating_sub(w), bh.saturating_sub(h));
     let x = match (size.fraction(), size.horizontal) {
@@ -632,6 +633,38 @@ mod tests {
             place(size(2, 4, (0, 0), (0, 0)), CELL, 1, 15),
             Some(area(8, 0, 16, 32))
         );
+    }
+
+    // Every size a program can ask for places its text inside its block,
+    // for text from one column to far wider than any block
+    #[test]
+    fn every_size_places_its_text_inside_its_block() {
+        for scale in 1..=7u8 {
+            for cols in [1u8, 2, 7, 49] {
+                for (n, d) in (0..=15u8).flat_map(|d| (0..=15u8).map(move |n| (n, d))) {
+                    if d != 0 && n >= d {
+                        continue;
+                    }
+                    for (v, h) in [(0, 0), (1, 1), (2, 2), (2, 0)] {
+                        let size = size(scale, cols, (n, d), (v, h));
+                        for natural in [1, 2, 49, 4096] {
+                            let Some(a) = place(size, CELL, natural, 15) else {
+                                assert_eq!((n, d != 0), (0, true), "{size:?} draws at no size");
+                                continue;
+                            };
+                            assert!(
+                                a.x + a.w <= u32::from(cols) * 8,
+                                "{size:?} {natural}: {a:?}"
+                            );
+                            assert!(
+                                a.y + a.h <= u32::from(scale) * 16,
+                                "{size:?} {natural}: {a:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // A combining mark and a joined emoji sequence stay with the
