@@ -689,3 +689,25 @@ fn a_run_that_ink_from_the_row_below_reaches_draws_its_pieces_again() {
     assert_eq!(above_accent(&with_v), want, "a whole drawing with the V");
     assert_eq!(area(&c, (0, 0), (W, H)), area(&with_v, (0, 0), (W, H)));
 }
+
+// A run between two underlined cells that change draws its pieces: the
+// renderer composes every cell between the first and the last cell of
+// several layers on a row together, the run's unchanged cells among them,
+// and the frame equals a whole drawing
+// covers: text.kitty-sizing
+#[test]
+fn a_run_between_two_changed_underlined_cells_draws_its_pieces() {
+    let mut t = term(b"\x1b[4mx\x1b[m\x1b]66;w=2;Ab\x07\x1b[4mx\x1b[m");
+    let mut r = Renderer::new(unifont(), W, H, Config::default());
+    let mut c = Canvas::new(W, H, 0);
+    r.draw(
+        &t.screen().frame(t.palette(), Age::NEVER),
+        &mut c,
+        0,
+        &state(&t),
+    );
+    let since = t.screen_mut().checkpoint();
+    t.input(b"\x1b[1;1H\x1b[4my\x1b[1;4Hy\x1b[m");
+    r.draw(&t.screen().frame(t.palette(), since), &mut c, 1, &state(&t));
+    assert_eq!(area(&c, (0, 0), (W, H)), area(&draw(&t), (0, 0), (W, H)));
+}

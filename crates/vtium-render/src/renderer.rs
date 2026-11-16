@@ -2619,6 +2619,10 @@ impl<F: Face> Renderer<F> {
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);
+            // each cell of a sized run draws its own piece of the run, as
+            // the row's scan draws it
+            let in_run = self.row_runs && p.run_at(row, here).is_some();
+            let ncells = if in_run { 1 } else { ncells };
             if ncells == 0 {
                 continue;
             }
@@ -2628,6 +2632,11 @@ impl<F: Face> Renderer<F> {
                 .iter()
                 .any(|j| here >= j.posx && here < j.posx.saturating_add(j.ncells));
             if covered {
+                continue;
+            }
+            if in_run {
+                self.cells.mark_drawn(here, row, 1);
+                self.push_cell_jobs(p, (here, row), &fc, 1);
                 continue;
             }
             let is_cursor = p.shows_cursor(here, row);
