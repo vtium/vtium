@@ -328,6 +328,9 @@ pub(crate) fn terminal(
         terminal.screen_mut().set_scrollback_memory_from_grid(bytes);
     }
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
+    // `blink` sets the cursor a session starts with: a block that blinks or
+    // stays steady. A style a program chooses later blinks as it says.
+    terminal.set_cursor_blink(config.switch(&keys::BLINK));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
     terminal.set_window_ops(config.switch(&keys::ALLOW_WINDOW_OPS));
@@ -3004,6 +3007,42 @@ mod tests {
         assert!(head.console.term.blink.fired(Timer::Cursor, true));
         head.console.term.terminal.input(b"\x1b[1 q");
         assert!(head.draw_state().cursor_on);
+    }
+
+    // The `blink` key sets the cursor a session starts with: a block that
+    // blinks while the key is on and stays steady while it is off. DECRQM
+    // reports mode 12 as the console shows it, and DECRQSS reports the
+    // starting cursor as the DECSCUSR style it is.
+    // covers: DEC-12
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn the_blink_key_sets_the_starting_cursor() {
+        for (args, blinks, decrqm, decrqss) in [
+            (
+                &[][..],
+                true,
+                &b"\x1b[?12;1$y"[..],
+                &b"\x1bP1$r1 q\x1b\\"[..],
+            ),
+            (
+                &["--no-blink"][..],
+                false,
+                b"\x1b[?12;2$y",
+                b"\x1bP1$r2 q\x1b\\",
+            ),
+        ] {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            let config = crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config;
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let mut term = terminal(&config, (0, 0), 0, clock);
+            let t = &mut term.terminal;
+            assert_eq!(t.cursor_blinks(), blinks, "{args:?}");
+            t.take_replies();
+            t.input(b"\x1b[?12$p");
+            assert_eq!(t.take_replies(), decrqm, "{args:?}");
+            t.input(b"\x1bP$q q\x1b\\");
+            assert_eq!(t.take_replies(), decrqss, "{args:?}");
+        }
     }
 
     /// A head whose shown console prints three links, `x:a`, `x:b` and

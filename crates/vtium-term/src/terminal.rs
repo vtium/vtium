@@ -103,10 +103,14 @@ impl CursorStyle {
         })
     }
 
-    /// DECSCUSR's `Ps` for the style.
-    fn param(self) -> u8 {
+    /// DECSCUSR's `Ps` for the style the console shows. The default style
+    /// is a block that blinks as the host says (`host_blink`), so it reads
+    /// as 1, a blinking block, or 2, a steady one. A program that sends the
+    /// answer back to DECSCUSR then gets the cursor it saw.
+    fn param(self, host_blink: bool) -> u8 {
         match self {
-            Self::Default => 0,
+            Self::Default if host_blink => 1,
+            Self::Default => 2,
             Self::BlockBlink => 1,
             Self::BlockSteady => 2,
             Self::UnderlineBlink => 3,

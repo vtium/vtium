@@ -290,6 +290,29 @@ fn decrqss_reports_settings_and_refuses_with_no_echo() {
     assert_eq!(reply(&mut t, b"\x1bP$qm\x18"), b"");
 }
 
+// ctlseqs, DECRQSS for DECSCUSR: the cursor a session starts with is a
+// block that blinks as the host says, so DECRQSS reports it as the style
+// the console shows, 1 for a blinking block and 2 for a steady one. A
+// program that sends the answer back gets the cursor it saw.
+// covers: query.decrqss
+#[test]
+fn decrqss_reports_the_starting_cursor_as_the_style_it_shows() {
+    for (host, want) in [
+        (true, &b"\x1bP1$r1 q\x1b\\"[..]),
+        (false, b"\x1bP1$r2 q\x1b\\"),
+    ] {
+        let mut t = term(8, 2, b"");
+        t.set_cursor_blink(host);
+        assert_eq!(reply(&mut t, b"\x1bP$q q\x1b\\"), want, "host {host}");
+        t.input(b"\x1b[4 q\x1b[!p");
+        assert_eq!(
+            reply(&mut t, b"\x1bP$q q\x1b\\"),
+            want,
+            "host {host}, DECSTR"
+        );
+    }
+}
+
 // ctlseqs and xterm, DECRQSS: DECSCA reports 1 while the pen protects and 0
 // otherwise; DECSACE reports 2 for the rectangle and 0 for the stream.
 // covers: query.decrqss
