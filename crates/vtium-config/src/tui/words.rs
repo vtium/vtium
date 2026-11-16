@@ -610,11 +610,14 @@ pub fn came_went(came: &[String], went: &[String]) -> String {
 }
 pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc cancel";
 pub const KEYS_CONFIRM: &str = "y yes  any other key no";
-pub const KEYS_LEAVE: &str = "i install  l quit anyway  any other key back";
+pub const KEYS_LEAVE: &str = "y quit  any other key back";
+pub const KEYS_LEAVE_SAVE: &str = "y save and quit  any other key back";
 pub const KEYS_PAGER: &str =
     "s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back";
 pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  q back";
-pub fn leave_question(added: &[String], removed: &[String]) -> String {
+/// The question `q` asks while font sets wait for an install: what
+/// leaving loses, and the `unsaved` changes that `y` saves first.
+pub fn leave_question(added: &[String], removed: &[String], unsaved: usize) -> String {
     let mut lost = Vec::new();
     if !added.is_empty() {
         lost.push(format!("the new font sets {}", list(added.iter().cloned())));
@@ -622,10 +625,18 @@ pub fn leave_question(added: &[String], removed: &[String]) -> String {
     if !removed.is_empty() {
         lost.push(format!("the removal of {}", list(removed.iter().cloned())));
     }
-    format!(
-        "Quit without installing? You will lose {}. Press i to install, l to quit anyway, or any other key to go back.",
-        list(lost.into_iter())
-    )
+    let lost = list(lost.into_iter());
+    match unsaved {
+        0 => format!(
+            "Quit without installing? You will lose {lost}. Press y to quit, or any other key to go back."
+        ),
+        1 => format!(
+            "Quit without installing? You will lose {lost}. 1 change is not saved: y saves it and quits, and any other key goes back."
+        ),
+        n => format!(
+            "Quit without installing? You will lose {lost}. {n} changes are not saved: y saves them and quits, and any other key goes back."
+        ),
+    }
 }
 pub const NOT_LEFT: &str = "Nothing is lost.";
 /// The short form of [`frits_waiting`], for a status line too narrow for

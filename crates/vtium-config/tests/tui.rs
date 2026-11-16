@@ -1216,9 +1216,10 @@ fn new_opens_the_tui_at_its_new_frit_view() {
 }
 
 /// Leaving while a frit's removal waits for an install asks first and
-/// names it; `l` leaves without it, and the top row counts it.
+/// names it; `y` leaves without it, `l` answers no as every other key
+/// does, and the top row counts it.
 #[test]
-fn leaving_with_a_frit_waiting_asks_and_l_leaves_without_it() {
+fn leaving_with_a_frit_waiting_asks_and_y_leaves_without_it() {
     let mut c = console().keys(&[UP, b"r", b"q"]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
@@ -1232,10 +1233,15 @@ fn leaving_with_a_frit_waiting_asks_and_l_leaves_without_it() {
     // its words at each width
     let status = screen.lines().nth(1).unwrap_or_default();
     assert!(status.contains("· 1 to install"), "{screen}");
-    let mut c = console().keys(&[UP, b"r", b"q", b"l"]);
+    let mut c = console().keys(&[UP, b"r", b"q", b"y"]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert!(d.plans.is_empty());
+    let mut c = console().keys(&[UP, b"r", b"q", b"l"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(screen.contains(words::NOT_LEFT), "{screen}");
 }
 
 /// The status line with a font set waiting to be installed, on a screen
@@ -1280,11 +1286,11 @@ fn the_status_line_shortens_its_left_side_then_its_right_side() {
     }
 }
 
-/// Any other key goes back with the frit still waiting, and `i` at the
-/// question installs it.
+/// Any key but `y` goes back with the frit still waiting, `i` at the
+/// question among them, and `i` in the view then installs it.
 #[test]
 fn leaving_with_a_frit_waiting_goes_back_or_installs() {
-    let mut c = console().keys(&[UP, b"r", b"q", b"x", b"q", b"i", b"y", b"q"]);
+    let mut c = console().keys(&[UP, b"r", b"q", b"x", b"q", b"i", b"i", b"y", b"q"]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     let plan = d.plans.first().expect("an install");

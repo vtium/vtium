@@ -24,24 +24,22 @@ impl App {
         Vec::new()
     }
 
-    /// A key while a question is asked: `y` acts, any other key does not.
+    /// A key while a question is asked: `y` acts, and any other key
+    /// answers no and changes nothing. The quit question also takes `n`,
+    /// which quits without the unsaved changes.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The same keys in every view": every question takes
+    ///   `y` for yes, and Esc or any other key for no.
     pub(crate) fn confirm_key(&mut self, key: Key) -> Vec<Effect> {
         let Some(confirm) = self.confirm.take() else {
             return Vec::new();
         };
-        if let Then::Quit(status) = confirm.then {
+        if let Then::Quit(status) | Then::Leave(status) = confirm.then {
             self.message = None;
             return match key {
                 Key::Char('y') => self.save_and_leave(status),
-                Key::Char('n') => self.leave(status),
-                _ => self.say(words::NOT_LEFT),
-            };
-        }
-        if let Then::Leave(status) = confirm.then {
-            self.message = None;
-            return match key {
-                Key::Char('l') => self.leave(status),
-                Key::Char('i') => self.action('i'),
+                Key::Char('n') if matches!(confirm.then, Then::Quit(_)) => self.leave(status),
                 _ => self.say(words::NOT_LEFT),
             };
         }
@@ -61,9 +59,16 @@ impl App {
         }
     }
 
-    /// `q` or Ctrl-C: leaves, or, while new frits or frit removals wait
-    /// for an install, asks first, since leaving loses them (ADR-1403
-    /// D7): `i` installs, `l` leaves anyway, any other key goes back.
+    /// `q`: leaves, or asks first. While changes wait for Save, it asks
+    /// the quit question. While new frits or frit removals wait for an
+    /// install, it asks the leave question instead, since leaving loses
+    /// them. The leave question also names the changes that wait for
+    /// Save, and its `y` saves them before the TUI leaves, as the quit
+    /// question's does.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The same keys in every view": what `q` asks, and
+    ///   that the leave question names and saves the unsaved changes.
     pub(crate) fn quit(&mut self, status: u8) -> Vec<Effect> {
         if self.pending.is_empty() && self.unsaved > 0 {
             self.ask(words::quit_question(self.unsaved), Then::Quit(status));
@@ -73,14 +78,17 @@ impl App {
             return self.leave(status);
         }
         let added: Vec<String> = self.pending.frits.iter().map(|(n, _)| n.clone()).collect();
-        let question = words::leave_question(&added, &self.pending.removals);
+        let question = words::leave_question(&added, &self.pending.removals, self.unsaved);
         self.ask(question, Then::Leave(status));
         Vec::new()
     }
 
     /// Leaves with `status`, writing the unsaved changes into the draft
-    /// first: Ctrl-C, a signal, and `y` to the question `q` asks (ADR-1403
-    /// D7).
+    /// first: Ctrl-C, a signal, and `y` to the question `q` asks.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "What carries over": a signal saves the unsaved
+    ///   changes before the TUI leaves.
     pub(crate) fn save_and_leave(&mut self, status: u8) -> Vec<Effect> {
         // a TUI already leaving has answered for its changes
         if self.leaving.is_some() {

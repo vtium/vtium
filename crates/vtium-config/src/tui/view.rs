@@ -637,6 +637,7 @@ fn view_keys(app: &App) -> &'static str {
 /// the question takes the next key, else the view's.
 pub fn key_line(app: &App) -> &'static str {
     match &app.confirm {
+        Some(c) if matches!(c.then, Then::Leave(_)) && app.unsaved > 0 => words::KEYS_LEAVE_SAVE,
         Some(c) if matches!(c.then, Then::Leave(_)) => words::KEYS_LEAVE,
         Some(c) if matches!(c.then, Then::Quit(_)) => words::KEYS_QUIT,
         Some(_) => words::KEYS_CONFIRM,

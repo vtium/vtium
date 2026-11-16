@@ -479,8 +479,8 @@ pub enum Then {
     Change(DraftChange),
     Desk(Op),
     Install(Plan),
-    /// Leaves with this status, the pending frits lost; `i` installs
-    /// them instead.
+    /// Leaves with this status, the pending frits lost: `y` saves the
+    /// unsaved changes first.
     Leave(u8),
     /// Leaves with this status: `y` saves the unsaved changes first, `n`
     /// leaves without them.
