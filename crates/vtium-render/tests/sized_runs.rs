@@ -403,3 +403,24 @@ fn a_run_on_a_double_height_pair_draws_its_text_once_across_both_lines() {
         placed(&magnified(&normal("A", 1), 2), (4 * CW, 2 * CH), (CW, 0))
     );
 }
+
+// A run of blanks given w=3 on a line of double size draws each of its
+// cells' decorations as three blanks printed there do: a curly, dotted or
+// dashed underline keeps its doubled shape under every display cell, the
+// cells from the fourth display column on included, on a double-width
+// line and on both lines of a double-height pair
+// covers: text.kitty-sizing
+#[test]
+fn a_runs_decorations_on_a_line_of_double_size_match_printed_cells() {
+    for style in ["4:3", "4:4", "4:5"] {
+        for size in ["\x1b#6", "\x1b#3", "\x1b#4"] {
+            let run = term(format!("{size}\x1b[{style}m\x1b]66;w=3; \x07\x1b[m").as_bytes());
+            let printed = term(format!("{size}\x1b[{style}m   \x1b[m").as_bytes());
+            assert_eq!(
+                area(&draw(&run), (0, 0), (6 * CW, CH)),
+                area(&draw(&printed), (0, 0), (6 * CW, CH)),
+                "SGR {style} after {size:?}"
+            );
+        }
+    }
+}

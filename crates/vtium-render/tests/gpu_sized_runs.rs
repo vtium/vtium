@@ -142,12 +142,13 @@ fn every_gpu_frame_of_sized_runs_matches_a_whole_draw() {
 }
 
 // Runs on double-size lines draw on the GPU path as on the CPU path: a
-// run on a double-width line, a run too wide for its cells there, and a
-// run on each line of a double-height pair, at every turn of the display
+// run on a double-width line, a run too wide for its cells there, a run
+// on each line of a double-height pair, and a run with a curly underline
+// across three cells of a double-width line, at every turn of the display
 // covers: text.kitty-sizing
 #[test]
 fn every_gpu_frame_of_runs_on_double_size_lines_matches_a_whole_draw() {
-    let steps: [(&str, &[u8]); 3] = [
+    let steps: [(&str, &[u8]); 4] = [
         ("a run on a double-width line", b"\x1b#6\x1b]66;w=2;A\x07"),
         (
             "a run too wide for its cells",
@@ -156,6 +157,10 @@ fn every_gpu_frame_of_runs_on_double_size_lines_matches_a_whole_draw() {
         (
             "a run on each line of a pair",
             b"\x1b[3;1H\x1b#3\x1b]66;w=2;A\x07\r\n\x1b#4\x1b]66;w=2;A\x07",
+        ),
+        (
+            "a decorated run on a double-width line",
+            b"\x1b[5;1H\x1b#6\x1b[4:3;9;53m\x1b]66;w=3;abc\x07\x1b[m",
         ),
     ];
     for o in [
