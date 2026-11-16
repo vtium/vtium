@@ -454,3 +454,67 @@ fn below_the_minimum_size_the_leave_question_says_what_it_does() {
     assert!(top.contains("1 change"), "{top}");
     assert!(top.contains("y install and quit"), "{top}");
 }
+
+/// The screen's rows joined with single spaces, so a line that wraps
+/// reads as one.
+fn joined(screen: &[String]) -> String {
+    screen
+        .iter()
+        .flat_map(|row| row.split_whitespace())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Below the minimum size, a question shows whole however narrow or short
+/// the screen: what it says and every key it takes wrap to the width and
+/// come first, and while it is open the screen shows the question's keys,
+/// never the screen's own "Press q to quit", since q does nothing under a
+/// question.
+///
+/// References:
+/// - ADR-1201 D3: below the minimum size only `q`, `u` and Ctrl-C act.
+/// - ADR-1403 D7, "The same keys in every view": the answer keys of every
+///   question.
+#[test]
+fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
+    let quit = [
+        "1 change is not saved.",
+        "y save and quit",
+        "n quit without saving",
+        "Esc back",
+    ];
+    let leave = [
+        "Font sets wait to be installed; y and n save 1 change first.",
+        "y install and quit",
+        "n quit without installing",
+        "Esc back",
+    ];
+    for (name, keys, said) in [
+        ("quit", &["Up", "Enter"][..], quit),
+        ("leave", &["Up", "Up", "Enter", "Down", "r"][..], leave),
+    ] {
+        for (cols, rows) in [(60, 30), (50, 25), (40, 12), (80, 3), (80, 2)] {
+            let mut sim = Sim::start(Term::Vtium, 80, 25);
+            press(&mut sim, keys);
+            sim.press(sim::Press::Resize(cols, rows));
+            press(&mut sim, &["q"]);
+            assert!(sim.app.confirm.is_some(), "{name} at {cols}x{rows}");
+            let screen = sim.screen();
+            let text = joined(&screen);
+            for part in said {
+                assert!(
+                    text.contains(part),
+                    "{name} at {cols}x{rows}: {part:?} in {screen:#?}"
+                );
+            }
+            assert!(
+                !text.contains("Press q to quit"),
+                "{name} at {cols}x{rows}: {screen:#?}"
+            );
+            assert!(
+                screen.iter().all(|r| r.trim_end().chars().count() <= cols),
+                "{screen:#?}"
+            );
+        }
+    }
+}
