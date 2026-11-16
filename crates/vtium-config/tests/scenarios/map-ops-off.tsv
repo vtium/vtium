@@ -1,649 +1,293 @@
 # The transitions of vtium-config's TUI that tests/scenarios/main.rs explores: from-state, key, to-state, and what the key caused. A key that leaves the state as it was and causes nothing is left out.
 from	key	to	effects
+ops-off  question:install	Ctrl-C	ops-off  too-small	
+ops-off  question:install	Esc	ops-off  too-small	
+ops-off  question:install	Grow	ops-off fonts question:install	
+ops-off  question:install	y	ops-off  too-small	install
+ops-off  question:install +pending	Ctrl-C	ops-off  too-small +pending	
+ops-off  question:install +pending	Esc	ops-off  too-small +pending	
+ops-off  question:install +pending	Grow	ops-off fonts question:install +pending	
+ops-off  question:install +pending	y	ops-off  too-small	install
+ops-off  question:leave +pending	Ctrl-C	ops-off  too-small +pending	
+ops-off  question:leave +pending	Esc	ops-off  too-small +pending	
+ops-off  question:leave +pending	Grow	ops-off fonts question:leave +pending	
+ops-off  question:leave +pending	y	ops-off left	exit 0
+ops-off  question:leave +unsaved +pending	Ctrl-C	ops-off  too-small +unsaved +pending	
+ops-off  question:leave +unsaved +pending	Esc	ops-off  too-small +unsaved +pending	
+ops-off  question:leave +unsaved +pending	Grow	ops-off fonts question:leave +unsaved +pending	
+ops-off  question:leave +unsaved +pending	y	ops-off left	save, exit 0
+ops-off  question:new	Ctrl-C	ops-off  too-small	
+ops-off  question:new	Esc	ops-off  too-small	
+ops-off  question:new	Grow	ops-off flow question:new	
+ops-off  question:new	y	ops-off  too-small	new
+ops-off  question:new +pending	Ctrl-C	ops-off  too-small +pending	
+ops-off  question:new +pending	Esc	ops-off  too-small +pending	
+ops-off  question:new +pending	Grow	ops-off flow question:new +pending	
+ops-off  question:new +pending	y	ops-off  too-small +pending	new
+ops-off  question:new +unsaved	Ctrl-C	ops-off  too-small +unsaved	
+ops-off  question:new +unsaved	Esc	ops-off  too-small +unsaved	
+ops-off  question:new +unsaved	Grow	ops-off flow question:new +unsaved	
+ops-off  question:new +unsaved	y	ops-off  too-small	new
+ops-off  question:new +unsaved +pending	Ctrl-C	ops-off  too-small +unsaved +pending	
+ops-off  question:new +unsaved +pending	Esc	ops-off  too-small +unsaved +pending	
+ops-off  question:new +unsaved +pending	Grow	ops-off flow question:new +unsaved +pending	
+ops-off  question:new +unsaved +pending	y	ops-off  too-small +pending	new
+ops-off  question:quit +unsaved	Ctrl-C	ops-off  too-small +unsaved	
+ops-off  question:quit +unsaved	Esc	ops-off  too-small +unsaved	
+ops-off  question:quit +unsaved	Grow	ops-off fonts question:quit +unsaved	
+ops-off  question:quit +unsaved	n	ops-off left	exit 0
+ops-off  question:quit +unsaved	y	ops-off left	save, exit 0
+ops-off  question:restore	Ctrl-C	ops-off  too-small	
+ops-off  question:restore	Esc	ops-off  too-small	
+ops-off  question:restore	Grow	ops-off flow question:restore	
+ops-off  question:restore	y	ops-off  too-small	restore
+ops-off  question:restore +pending	Ctrl-C	ops-off  too-small +pending	
+ops-off  question:restore +pending	Esc	ops-off  too-small +pending	
+ops-off  question:restore +pending	Grow	ops-off flow question:restore +pending	
+ops-off  question:restore +pending	y	ops-off  too-small +pending	restore
+ops-off  question:restore +unsaved	Ctrl-C	ops-off  too-small +unsaved	
+ops-off  question:restore +unsaved	Esc	ops-off  too-small +unsaved	
+ops-off  question:restore +unsaved	Grow	ops-off flow question:restore +unsaved	
+ops-off  question:restore +unsaved	y	ops-off  too-small	restore
+ops-off  question:restore +unsaved +pending	Ctrl-C	ops-off  too-small +unsaved +pending	
+ops-off  question:restore +unsaved +pending	Esc	ops-off  too-small +unsaved +pending	
+ops-off  question:restore +unsaved +pending	Grow	ops-off flow question:restore +unsaved +pending	
+ops-off  question:restore +unsaved +pending	y	ops-off  too-small +pending	restore
+ops-off  question:revert	Ctrl-C	ops-off  too-small	
+ops-off  question:revert	Esc	ops-off  too-small	
+ops-off  question:revert	Grow	ops-off flow question:revert	
+ops-off  question:revert	y	ops-off  too-small	revert
+ops-off  question:revert +pending	Ctrl-C	ops-off  too-small +pending	
+ops-off  question:revert +pending	Esc	ops-off  too-small +pending	
+ops-off  question:revert +pending	Grow	ops-off flow question:revert +pending	
+ops-off  question:revert +pending	y	ops-off  too-small +pending	revert
+ops-off  question:revert +unsaved	Ctrl-C	ops-off  too-small +unsaved	
+ops-off  question:revert +unsaved	Esc	ops-off  too-small +unsaved	
+ops-off  question:revert +unsaved	Grow	ops-off flow question:revert +unsaved	
+ops-off  question:revert +unsaved	y	ops-off  too-small	revert
+ops-off  question:revert +unsaved +pending	Ctrl-C	ops-off  too-small +unsaved +pending	
+ops-off  question:revert +unsaved +pending	Esc	ops-off  too-small +unsaved +pending	
+ops-off  question:revert +unsaved +pending	Grow	ops-off flow question:revert +unsaved +pending	
+ops-off  question:revert +unsaved +pending	y	ops-off  too-small +pending	revert
 ops-off  too-small	Ctrl-C	ops-off left	exit 130
+ops-off  too-small	Grow	ops-off fonts(builtin) view:fonts	
 ops-off  too-small	q	ops-off left	exit 0
+ops-off  too-small +pending	Ctrl-C	ops-off left	exit 130
+ops-off  too-small +pending	Grow	ops-off fonts(marked) view:fonts +pending	
+ops-off  too-small +pending	q	ops-off  question:leave +pending	
+ops-off  too-small +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off  too-small +unsaved	Grow	ops-off fonts(builtin) view:fonts +unsaved	
+ops-off  too-small +unsaved	q	ops-off  question:quit +unsaved	
+ops-off  too-small +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off  too-small +unsaved +pending	Grow	ops-off fonts(marked) view:fonts +unsaved +pending	
+ops-off  too-small +unsaved +pending	q	ops-off  question:leave +unsaved +pending	
 ops-off flow layer:file-view	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:file-view	Esc	ops-off flow(doc display) view:flow	
+ops-off flow layer:file-view	Shrink	ops-off  too-small	
 ops-off flow layer:file-view	i	ops-off flow layer:file-view	prepare
 ops-off flow layer:file-view	q	ops-off left	mouse off, exit 0
 ops-off flow layer:file-view +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:file-view +pending	Esc	ops-off flow(doc display) view:flow +pending	
+ops-off flow layer:file-view +pending	Shrink	ops-off  too-small +pending	
 ops-off flow layer:file-view +pending	i	ops-off flow question:install +pending	prepare
 ops-off flow layer:file-view +pending	q	ops-off flow question:leave +pending	
 ops-off flow layer:file-view +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:file-view +unsaved	Esc	ops-off flow(doc display) view:flow +unsaved	
+ops-off flow layer:file-view +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow layer:file-view +unsaved	i	ops-off flow layer:file-view	save, prepare
 ops-off flow layer:file-view +unsaved	q	ops-off flow question:quit +unsaved	
 ops-off flow layer:file-view +unsaved	s	ops-off flow layer:file-view	save
 ops-off flow layer:file-view +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:file-view +unsaved +pending	Esc	ops-off flow(doc display) view:flow +unsaved +pending	
+ops-off flow layer:file-view +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow layer:file-view +unsaved +pending	i	ops-off flow layer:file-view +pending	save, prepare
 ops-off flow layer:file-view +unsaved +pending	q	ops-off flow question:leave +unsaved +pending	
 ops-off flow layer:file-view +unsaved +pending	s	ops-off flow layer:file-view +pending	save
 ops-off flow layer:flow-card	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:flow-card	Enter	ops-off flow typing:flow-name	
 ops-off flow layer:flow-card	Esc	ops-off flow(doc terminal) view:flow	
+ops-off flow layer:flow-card	Shrink	ops-off  too-small	
 ops-off flow layer:flow-card	e	ops-off flow(new terminal) view:flow	
 ops-off flow layer:flow-card	q	ops-off left	mouse off, exit 0
 ops-off flow layer:flow-card +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:flow-card +pending	Enter	ops-off flow typing:flow-name +pending	
 ops-off flow layer:flow-card +pending	Esc	ops-off flow(doc terminal) view:flow +pending	
+ops-off flow layer:flow-card +pending	Shrink	ops-off  too-small +pending	
 ops-off flow layer:flow-card +pending	e	ops-off flow(new terminal) view:flow +pending	
 ops-off flow layer:flow-card +pending	q	ops-off flow question:leave +pending	
 ops-off flow layer:flow-card +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:flow-card +unsaved	Enter	ops-off flow typing:flow-name +unsaved	
 ops-off flow layer:flow-card +unsaved	Esc	ops-off flow(doc terminal) view:flow +unsaved	
+ops-off flow layer:flow-card +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow layer:flow-card +unsaved	e	ops-off flow(new terminal) view:flow +unsaved	
 ops-off flow layer:flow-card +unsaved	q	ops-off flow question:quit +unsaved	
 ops-off flow layer:flow-card +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:flow-card +unsaved +pending	Enter	ops-off flow typing:flow-name +unsaved +pending	
 ops-off flow layer:flow-card +unsaved +pending	Esc	ops-off flow(doc terminal) view:flow +unsaved +pending	
+ops-off flow layer:flow-card +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow layer:flow-card +unsaved +pending	e	ops-off flow(new terminal) view:flow +unsaved +pending	
 ops-off flow layer:flow-card +unsaved +pending	q	ops-off flow question:leave +unsaved +pending	
 ops-off flow layer:flow-choice	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:flow-choice	Enter	ops-off flow typing:flow-name	
 ops-off flow layer:flow-choice	Esc	ops-off flow(parts display) view:flow	
+ops-off flow layer:flow-choice	Shrink	ops-off  too-small	
 ops-off flow layer:flow-choice	q	ops-off left	mouse off, exit 0
 ops-off flow layer:flow-choice +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:flow-choice +pending	Enter	ops-off flow typing:flow-name +pending	
 ops-off flow layer:flow-choice +pending	Esc	ops-off flow(parts display) view:flow +pending	
+ops-off flow layer:flow-choice +pending	Shrink	ops-off  too-small +pending	
 ops-off flow layer:flow-choice +pending	q	ops-off flow question:leave +pending	
 ops-off flow layer:flow-choice +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:flow-choice +unsaved	Enter	ops-off flow typing:flow-name +unsaved	
 ops-off flow layer:flow-choice +unsaved	Esc	ops-off flow(parts display) view:flow +unsaved	
+ops-off flow layer:flow-choice +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow layer:flow-choice +unsaved	q	ops-off flow question:quit +unsaved	
 ops-off flow layer:flow-choice +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:flow-choice +unsaved +pending	Enter	ops-off flow typing:flow-name +unsaved +pending	
 ops-off flow layer:flow-choice +unsaved +pending	Esc	ops-off flow(parts display) view:flow +unsaved +pending	
+ops-off flow layer:flow-choice +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow layer:flow-choice +unsaved +pending	q	ops-off flow question:leave +unsaved +pending	
 ops-off flow layer:flow-detail	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:flow-detail	Esc	ops-off flow(doc display) view:flow	
+ops-off flow layer:flow-detail	Shrink	ops-off  too-small	
 ops-off flow layer:flow-detail	e	ops-off flow(new terminal) view:flow	
 ops-off flow layer:flow-detail	q	ops-off left	mouse off, exit 0
 ops-off flow layer:flow-detail +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:flow-detail +pending	Esc	ops-off flow(doc display) view:flow +pending	
+ops-off flow layer:flow-detail +pending	Shrink	ops-off  too-small +pending	
 ops-off flow layer:flow-detail +pending	e	ops-off flow(new terminal) view:flow +pending	
 ops-off flow layer:flow-detail +pending	q	ops-off flow question:leave +pending	
 ops-off flow layer:flow-detail +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:flow-detail +unsaved	Esc	ops-off flow(doc display) view:flow +unsaved	
+ops-off flow layer:flow-detail +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow layer:flow-detail +unsaved	e	ops-off flow(new terminal) view:flow +unsaved	
 ops-off flow layer:flow-detail +unsaved	q	ops-off flow question:quit +unsaved	
 ops-off flow layer:flow-detail +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:flow-detail +unsaved +pending	Esc	ops-off flow(doc display) view:flow +unsaved +pending	
+ops-off flow layer:flow-detail +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow layer:flow-detail +unsaved +pending	e	ops-off flow(new terminal) view:flow +unsaved +pending	
 ops-off flow layer:flow-detail +unsaved +pending	q	ops-off flow question:leave +unsaved +pending	
 ops-off flow layer:flow-maker	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:flow-maker	Enter	ops-off flow(parts display) view:flow	
 ops-off flow layer:flow-maker	Esc	ops-off flow(parts template) view:flow	
+ops-off flow layer:flow-maker	Shrink	ops-off  too-small	
 ops-off flow layer:flow-maker	q	ops-off left	mouse off, exit 0
 ops-off flow layer:flow-maker +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:flow-maker +pending	Enter	ops-off flow(parts display) view:flow +pending	
 ops-off flow layer:flow-maker +pending	Esc	ops-off flow(parts template) view:flow +pending	
+ops-off flow layer:flow-maker +pending	Shrink	ops-off  too-small +pending	
 ops-off flow layer:flow-maker +pending	q	ops-off flow question:leave +pending	
 ops-off flow layer:flow-maker +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:flow-maker +unsaved	Enter	ops-off flow(parts display) view:flow +unsaved	
 ops-off flow layer:flow-maker +unsaved	Esc	ops-off flow(parts template) view:flow +unsaved	
+ops-off flow layer:flow-maker +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow layer:flow-maker +unsaved	q	ops-off flow question:quit +unsaved	
 ops-off flow layer:flow-maker +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:flow-maker +unsaved +pending	Enter	ops-off flow(parts display) view:flow +unsaved +pending	
 ops-off flow layer:flow-maker +unsaved +pending	Esc	ops-off flow(parts template) view:flow +unsaved +pending	
+ops-off flow layer:flow-maker +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow layer:flow-maker +unsaved +pending	q	ops-off flow question:leave +unsaved +pending	
 ops-off flow layer:restore	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:restore	Enter	ops-off flow question:restore	
 ops-off flow layer:restore	Esc	ops-off flow(doc display) view:flow	
+ops-off flow layer:restore	Shrink	ops-off  too-small	
 ops-off flow layer:restore	q	ops-off left	mouse off, exit 0
 ops-off flow layer:restore +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow layer:restore +pending	Enter	ops-off flow question:restore +pending	
 ops-off flow layer:restore +pending	Esc	ops-off flow(doc display) view:flow +pending	
+ops-off flow layer:restore +pending	Shrink	ops-off  too-small +pending	
 ops-off flow layer:restore +pending	q	ops-off flow question:leave +pending	
 ops-off flow layer:restore +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:restore +unsaved	Enter	ops-off flow question:restore +unsaved	
 ops-off flow layer:restore +unsaved	Esc	ops-off flow(doc display) view:flow +unsaved	
+ops-off flow layer:restore +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow layer:restore +unsaved	q	ops-off flow question:quit +unsaved	
 ops-off flow layer:restore +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow layer:restore +unsaved +pending	Enter	ops-off flow question:restore +unsaved +pending	
 ops-off flow layer:restore +unsaved +pending	Esc	ops-off flow(doc display) view:flow +unsaved +pending	
+ops-off flow layer:restore +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow layer:restore +unsaved +pending	q	ops-off flow question:leave +unsaved +pending	
-ops-off flow question:install +pending	Backspace	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:install +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Down	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	End	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Enter	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:install +pending	Esc	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Home	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Left	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	PgDn	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Right	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Shift-Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Space	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	Up	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	a	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	d	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	e	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	i	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	k	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	l	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	n	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	o	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	p	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	q	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	r	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	s	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	t	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	u	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	v	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:install +pending	x	ops-off flow(doc display) view:flow +pending	
+ops-off flow question:install +pending	Shrink	ops-off  question:install +pending	
 ops-off flow question:install +pending	y	ops-off flow(doc display) view:flow	install
-ops-off flow question:install +pending	z	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Backspace	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:leave +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Down	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	End	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Enter	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:leave +pending	Esc	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Home	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Left	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	PgDn	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Right	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Shift-Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Space	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	Up	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	a	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	d	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	e	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	i	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	k	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	l	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	n	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	o	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	p	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	q	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	r	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	s	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	t	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	u	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	v	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +pending	x	ops-off flow(doc display) view:flow +pending	
+ops-off flow question:leave +pending	Shrink	ops-off  question:leave +pending	
 ops-off flow question:leave +pending	y	ops-off left	mouse off, exit 0
-ops-off flow question:leave +pending	z	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:leave +unsaved +pending	Backspace	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:leave +unsaved +pending	Ctrl-C	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Ctrl-D	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Down	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	End	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Enter	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:leave +unsaved +pending	Esc	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Home	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Left	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	PgDn	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Right	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Shift-Tab	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Space	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Tab	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	Up	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	a	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	d	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	e	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	i	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	k	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	l	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	n	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	o	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	p	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	q	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	r	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	s	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	t	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	u	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	v	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:leave +unsaved +pending	x	ops-off flow(doc display) view:flow +unsaved +pending	
+ops-off flow question:leave +unsaved +pending	Shrink	ops-off  question:leave +unsaved +pending	
 ops-off flow question:leave +unsaved +pending	y	ops-off left	save, mouse off, exit 0
-ops-off flow question:leave +unsaved +pending	z	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new	Backspace	ops-off flow(doc display) view:flow	
 ops-off flow question:new	Ctrl-C	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Ctrl-D	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Down	ops-off flow(doc display) view:flow	
-ops-off flow question:new	End	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Enter	ops-off flow(doc display) view:flow	
 ops-off flow question:new	Esc	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Home	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Left	ops-off flow(doc display) view:flow	
-ops-off flow question:new	PgDn	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Right	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Shift-Tab	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Space	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Tab	ops-off flow(doc display) view:flow	
-ops-off flow question:new	Up	ops-off flow(doc display) view:flow	
-ops-off flow question:new	a	ops-off flow(doc display) view:flow	
-ops-off flow question:new	d	ops-off flow(doc display) view:flow	
-ops-off flow question:new	e	ops-off flow(doc display) view:flow	
-ops-off flow question:new	i	ops-off flow(doc display) view:flow	
-ops-off flow question:new	k	ops-off flow(doc display) view:flow	
-ops-off flow question:new	l	ops-off flow(doc display) view:flow	
-ops-off flow question:new	n	ops-off flow(doc display) view:flow	
-ops-off flow question:new	o	ops-off flow(doc display) view:flow	
-ops-off flow question:new	p	ops-off flow(doc display) view:flow	
-ops-off flow question:new	q	ops-off flow(doc display) view:flow	
-ops-off flow question:new	r	ops-off flow(doc display) view:flow	
-ops-off flow question:new	s	ops-off flow(doc display) view:flow	
-ops-off flow question:new	t	ops-off flow(doc display) view:flow	
-ops-off flow question:new	u	ops-off flow(doc display) view:flow	
-ops-off flow question:new	v	ops-off flow(doc display) view:flow	
-ops-off flow question:new	x	ops-off flow(doc display) view:flow	
+ops-off flow question:new	Shrink	ops-off  question:new	
 ops-off flow question:new	y	ops-off flow(new empty) view:flow	new
-ops-off flow question:new	z	ops-off flow(doc display) view:flow	
-ops-off flow question:new +pending	Backspace	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:new +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Down	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	End	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Enter	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:new +pending	Esc	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Home	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Left	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	PgDn	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Right	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Shift-Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Space	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	Up	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	a	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	d	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	e	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	i	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	k	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	l	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	n	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	o	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	p	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	q	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	r	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	s	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	t	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	u	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	v	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +pending	x	ops-off flow(doc display) view:flow +pending	
+ops-off flow question:new +pending	Shrink	ops-off  question:new +pending	
 ops-off flow question:new +pending	y	ops-off flow(new empty) view:flow +pending	new
-ops-off flow question:new +pending	z	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:new +unsaved	Backspace	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:new +unsaved	Ctrl-C	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Ctrl-D	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Down	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	End	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Enter	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:new +unsaved	Esc	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Home	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Left	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	PgDn	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Right	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Shift-Tab	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Space	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Tab	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	Up	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	a	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	d	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	e	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	i	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	k	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	l	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	n	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	o	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	p	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	q	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	r	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	s	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	t	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	u	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	v	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved	x	ops-off flow(doc display) view:flow +unsaved	
+ops-off flow question:new +unsaved	Shrink	ops-off  question:new +unsaved	
 ops-off flow question:new +unsaved	y	ops-off flow(new empty) view:flow	new
-ops-off flow question:new +unsaved	z	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:new +unsaved +pending	Backspace	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:new +unsaved +pending	Ctrl-C	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Ctrl-D	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Down	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	End	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Enter	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:new +unsaved +pending	Esc	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Home	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Left	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	PgDn	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Right	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Shift-Tab	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Space	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Tab	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	Up	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	a	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	d	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	e	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	i	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	k	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	l	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	n	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	o	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	p	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	q	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	r	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	s	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	t	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	u	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	v	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:new +unsaved +pending	x	ops-off flow(doc display) view:flow +unsaved +pending	
+ops-off flow question:new +unsaved +pending	Shrink	ops-off  question:new +unsaved +pending	
 ops-off flow question:new +unsaved +pending	y	ops-off flow(new empty) view:flow +pending	new
-ops-off flow question:new +unsaved +pending	z	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:quit +unsaved	Backspace	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:quit +unsaved	Ctrl-C	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Ctrl-D	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Down	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	End	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Enter	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:quit +unsaved	Esc	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Home	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Left	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	PgDn	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Right	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Shift-Tab	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Space	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Tab	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	Up	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	a	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	d	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	e	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	i	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	k	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	l	ops-off flow(doc display) view:flow +unsaved	
+ops-off flow question:quit +unsaved	Shrink	ops-off  question:quit +unsaved	
 ops-off flow question:quit +unsaved	n	ops-off left	mouse off, exit 0
-ops-off flow question:quit +unsaved	o	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	p	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	q	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	r	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	s	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	t	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	u	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	v	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:quit +unsaved	x	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:quit +unsaved	y	ops-off left	save, mouse off, exit 0
-ops-off flow question:quit +unsaved	z	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore	Backspace	ops-off flow(doc display) view:flow	
 ops-off flow question:restore	Ctrl-C	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Ctrl-D	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Down	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	End	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Enter	ops-off flow(doc display) view:flow	
 ops-off flow question:restore	Esc	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Home	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Left	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	PgDn	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Right	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Shift-Tab	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Space	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Tab	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	Up	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	a	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	d	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	e	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	i	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	k	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	l	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	n	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	o	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	p	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	q	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	r	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	s	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	t	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	u	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	v	ops-off flow(doc display) view:flow	
-ops-off flow question:restore	x	ops-off flow(doc display) view:flow	
+ops-off flow question:restore	Shrink	ops-off  question:restore	
 ops-off flow question:restore	y	ops-off flow(doc display) view:flow	restore
-ops-off flow question:restore	z	ops-off flow(doc display) view:flow	
-ops-off flow question:restore +pending	Backspace	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:restore +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Down	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	End	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Enter	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:restore +pending	Esc	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Home	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Left	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	PgDn	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Right	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Shift-Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Space	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	Up	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	a	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	d	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	e	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	i	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	k	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	l	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	n	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	o	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	p	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	q	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	r	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	s	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	t	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	u	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	v	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +pending	x	ops-off flow(doc display) view:flow +pending	
+ops-off flow question:restore +pending	Shrink	ops-off  question:restore +pending	
 ops-off flow question:restore +pending	y	ops-off flow(doc display) view:flow +pending	restore
-ops-off flow question:restore +pending	z	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:restore +unsaved	Backspace	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:restore +unsaved	Ctrl-C	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Ctrl-D	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Down	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	End	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Enter	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:restore +unsaved	Esc	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Home	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Left	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	PgDn	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Right	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Shift-Tab	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Space	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Tab	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	Up	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	a	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	d	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	e	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	i	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	k	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	l	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	n	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	o	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	p	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	q	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	r	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	s	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	t	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	u	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	v	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved	x	ops-off flow(doc display) view:flow +unsaved	
+ops-off flow question:restore +unsaved	Shrink	ops-off  question:restore +unsaved	
 ops-off flow question:restore +unsaved	y	ops-off flow(doc display) view:flow	restore
-ops-off flow question:restore +unsaved	z	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:restore +unsaved +pending	Backspace	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:restore +unsaved +pending	Ctrl-C	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Ctrl-D	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Down	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	End	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Enter	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:restore +unsaved +pending	Esc	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Home	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Left	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	PgDn	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Right	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Shift-Tab	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Space	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Tab	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	Up	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	a	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	d	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	e	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	i	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	k	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	l	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	n	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	o	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	p	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	q	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	r	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	s	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	t	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	u	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	v	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:restore +unsaved +pending	x	ops-off flow(doc display) view:flow +unsaved +pending	
+ops-off flow question:restore +unsaved +pending	Shrink	ops-off  question:restore +unsaved +pending	
 ops-off flow question:restore +unsaved +pending	y	ops-off flow(doc display) view:flow +pending	restore
-ops-off flow question:restore +unsaved +pending	z	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert	Backspace	ops-off flow(doc display) view:flow	
 ops-off flow question:revert	Ctrl-C	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Ctrl-D	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Down	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	End	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Enter	ops-off flow(doc display) view:flow	
 ops-off flow question:revert	Esc	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Home	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Left	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	PgDn	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Right	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Shift-Tab	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Space	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Tab	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	Up	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	a	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	d	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	e	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	i	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	k	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	l	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	n	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	o	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	p	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	q	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	r	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	s	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	t	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	u	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	v	ops-off flow(doc display) view:flow	
-ops-off flow question:revert	x	ops-off flow(doc display) view:flow	
+ops-off flow question:revert	Shrink	ops-off  question:revert	
 ops-off flow question:revert	y	ops-off flow(doc display) view:flow	revert
-ops-off flow question:revert	z	ops-off flow(doc display) view:flow	
-ops-off flow question:revert +pending	Backspace	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:revert +pending	Ctrl-C	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Ctrl-D	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Down	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	End	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Enter	ops-off flow(doc display) view:flow +pending	
 ops-off flow question:revert +pending	Esc	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Home	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Left	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	PgDn	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Right	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Shift-Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Space	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Tab	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	Up	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	a	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	d	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	e	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	i	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	k	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	l	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	n	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	o	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	p	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	q	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	r	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	s	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	t	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	u	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	v	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +pending	x	ops-off flow(doc display) view:flow +pending	
+ops-off flow question:revert +pending	Shrink	ops-off  question:revert +pending	
 ops-off flow question:revert +pending	y	ops-off flow(doc display) view:flow +pending	revert
-ops-off flow question:revert +pending	z	ops-off flow(doc display) view:flow +pending	
-ops-off flow question:revert +unsaved	Backspace	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:revert +unsaved	Ctrl-C	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Ctrl-D	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Down	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	End	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Enter	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow question:revert +unsaved	Esc	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Home	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Left	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	PgDn	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Right	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Shift-Tab	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Space	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Tab	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	Up	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	a	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	d	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	e	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	i	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	k	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	l	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	n	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	o	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	p	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	q	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	r	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	s	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	t	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	u	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	v	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved	x	ops-off flow(doc display) view:flow +unsaved	
+ops-off flow question:revert +unsaved	Shrink	ops-off  question:revert +unsaved	
 ops-off flow question:revert +unsaved	y	ops-off flow(doc display) view:flow	revert
-ops-off flow question:revert +unsaved	z	ops-off flow(doc display) view:flow +unsaved	
-ops-off flow question:revert +unsaved +pending	Backspace	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:revert +unsaved +pending	Ctrl-C	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Ctrl-D	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Down	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	End	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Enter	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow question:revert +unsaved +pending	Esc	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Home	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Left	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	PgDn	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Right	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Shift-Tab	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Space	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Tab	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	Up	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	a	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	d	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	e	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	i	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	k	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	l	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	n	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	o	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	p	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	q	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	r	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	s	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	t	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	u	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	v	ops-off flow(doc display) view:flow +unsaved +pending	
-ops-off flow question:revert +unsaved +pending	x	ops-off flow(doc display) view:flow +unsaved +pending	
+ops-off flow question:revert +unsaved +pending	Shrink	ops-off  question:revert +unsaved +pending	
 ops-off flow question:revert +unsaved +pending	y	ops-off flow(doc display) view:flow +pending	revert
-ops-off flow question:revert +unsaved +pending	z	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow typing:flow-name	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow typing:flow-name	Enter	ops-off flow layer:flow-card	
 ops-off flow typing:flow-name	Esc	ops-off flow layer:flow-card	
+ops-off flow typing:flow-name	Shrink	ops-off  too-small	
 ops-off flow typing:flow-name +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow typing:flow-name +pending	Enter	ops-off flow layer:flow-card +pending	
 ops-off flow typing:flow-name +pending	Esc	ops-off flow layer:flow-card +pending	
+ops-off flow typing:flow-name +pending	Shrink	ops-off  too-small +pending	
 ops-off flow typing:flow-name +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow typing:flow-name +unsaved	Enter	ops-off flow layer:flow-card +unsaved	
 ops-off flow typing:flow-name +unsaved	Esc	ops-off flow layer:flow-card +unsaved	
+ops-off flow typing:flow-name +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow typing:flow-name +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow typing:flow-name +unsaved +pending	Enter	ops-off flow layer:flow-card +unsaved +pending	
 ops-off flow typing:flow-name +unsaved +pending	Esc	ops-off flow layer:flow-card +unsaved +pending	
+ops-off flow typing:flow-name +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(doc display) view:flow	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc display) view:flow	Down	ops-off flow(doc terminal) view:flow	
 ops-off flow(doc display) view:flow	End	ops-off flow(parts font) view:flow	
@@ -651,6 +295,7 @@ ops-off flow(doc display) view:flow	Enter	ops-off flow layer:flow-detail
 ops-off flow(doc display) view:flow	PgDn	ops-off flow(parts template) view:flow	
 ops-off flow(doc display) view:flow	Right	ops-off flow(doc terminal) view:flow	
 ops-off flow(doc display) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(doc display) view:flow	Shrink	ops-off  too-small	
 ops-off flow(doc display) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(doc display) view:flow	d	ops-off flow(doc display) view:flow	devices
 ops-off flow(doc display) view:flow	e	ops-off flow(new terminal) view:flow	
@@ -667,6 +312,7 @@ ops-off flow(doc display) view:flow +pending	Enter	ops-off flow layer:flow-detai
 ops-off flow(doc display) view:flow +pending	PgDn	ops-off flow(parts template) view:flow +pending	
 ops-off flow(doc display) view:flow +pending	Right	ops-off flow(doc terminal) view:flow +pending	
 ops-off flow(doc display) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(doc display) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(doc display) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(doc display) view:flow +pending	d	ops-off flow(doc display) view:flow +pending	devices
 ops-off flow(doc display) view:flow +pending	e	ops-off flow(new terminal) view:flow +pending	
@@ -683,6 +329,7 @@ ops-off flow(doc display) view:flow +unsaved	Enter	ops-off flow layer:flow-detai
 ops-off flow(doc display) view:flow +unsaved	PgDn	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(doc display) view:flow +unsaved	Right	ops-off flow(doc terminal) view:flow +unsaved	
 ops-off flow(doc display) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(doc display) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(doc display) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(doc display) view:flow +unsaved	d	ops-off flow(doc display) view:flow +unsaved	devices
 ops-off flow(doc display) view:flow +unsaved	e	ops-off flow(new terminal) view:flow +unsaved	
@@ -700,6 +347,7 @@ ops-off flow(doc display) view:flow +unsaved +pending	Enter	ops-off flow layer:f
 ops-off flow(doc display) view:flow +unsaved +pending	PgDn	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(doc display) view:flow +unsaved +pending	Right	ops-off flow(doc terminal) view:flow +unsaved +pending	
 ops-off flow(doc display) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(doc display) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(doc display) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(doc display) view:flow +unsaved +pending	d	ops-off flow(doc display) view:flow +unsaved +pending	devices
 ops-off flow(doc display) view:flow +unsaved +pending	e	ops-off flow(new terminal) view:flow +unsaved +pending	
@@ -718,6 +366,7 @@ ops-off flow(doc terminal) view:flow	Home	ops-off flow(doc display) view:flow
 ops-off flow(doc terminal) view:flow	PgDn	ops-off flow(parts template) view:flow	
 ops-off flow(doc terminal) view:flow	Right	ops-off flow(new empty) view:flow	
 ops-off flow(doc terminal) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(doc terminal) view:flow	Shrink	ops-off  too-small	
 ops-off flow(doc terminal) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(doc terminal) view:flow	d	ops-off flow(doc terminal) view:flow	devices
 ops-off flow(doc terminal) view:flow	e	ops-off flow(new terminal) view:flow	
@@ -735,6 +384,7 @@ ops-off flow(doc terminal) view:flow +pending	Home	ops-off flow(doc display) vie
 ops-off flow(doc terminal) view:flow +pending	PgDn	ops-off flow(parts template) view:flow +pending	
 ops-off flow(doc terminal) view:flow +pending	Right	ops-off flow(new empty) view:flow +pending	
 ops-off flow(doc terminal) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(doc terminal) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(doc terminal) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(doc terminal) view:flow +pending	d	ops-off flow(doc terminal) view:flow +pending	devices
 ops-off flow(doc terminal) view:flow +pending	e	ops-off flow(new terminal) view:flow +pending	
@@ -752,6 +402,7 @@ ops-off flow(doc terminal) view:flow +unsaved	Home	ops-off flow(doc display) vie
 ops-off flow(doc terminal) view:flow +unsaved	PgDn	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(doc terminal) view:flow +unsaved	Right	ops-off flow(new empty) view:flow +unsaved	
 ops-off flow(doc terminal) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(doc terminal) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(doc terminal) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(doc terminal) view:flow +unsaved	d	ops-off flow(doc terminal) view:flow +unsaved	devices
 ops-off flow(doc terminal) view:flow +unsaved	e	ops-off flow(new terminal) view:flow +unsaved	
@@ -770,6 +421,7 @@ ops-off flow(doc terminal) view:flow +unsaved +pending	Home	ops-off flow(doc dis
 ops-off flow(doc terminal) view:flow +unsaved +pending	PgDn	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(doc terminal) view:flow +unsaved +pending	Right	ops-off flow(new empty) view:flow +unsaved +pending	
 ops-off flow(doc terminal) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(doc terminal) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(doc terminal) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(doc terminal) view:flow +unsaved +pending	d	ops-off flow(doc terminal) view:flow +unsaved +pending	devices
 ops-off flow(doc terminal) view:flow +unsaved +pending	e	ops-off flow(new terminal) view:flow +unsaved +pending	
@@ -790,6 +442,7 @@ ops-off flow(new display) view:flow	Left	ops-off flow(doc terminal) view:flow
 ops-off flow(new display) view:flow	PgDn	ops-off flow(parts special) view:flow	
 ops-off flow(new display) view:flow	Right	ops-off flow(new terminal) view:flow	
 ops-off flow(new display) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(new display) view:flow	Shrink	ops-off  too-small	
 ops-off flow(new display) view:flow	Space	ops-off flow(new empty) view:flow	
 ops-off flow(new display) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(new display) view:flow	Up	ops-off flow(doc terminal) view:flow	
@@ -811,6 +464,7 @@ ops-off flow(new display) view:flow +pending	Left	ops-off flow(doc terminal) vie
 ops-off flow(new display) view:flow +pending	PgDn	ops-off flow(parts special) view:flow +pending	
 ops-off flow(new display) view:flow +pending	Right	ops-off flow(new terminal) view:flow +pending	
 ops-off flow(new display) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(new display) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(new display) view:flow +pending	Space	ops-off flow(new empty) view:flow +pending	
 ops-off flow(new display) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(new display) view:flow +pending	Up	ops-off flow(doc terminal) view:flow +pending	
@@ -832,6 +486,7 @@ ops-off flow(new display) view:flow +unsaved	Left	ops-off flow(doc terminal) vie
 ops-off flow(new display) view:flow +unsaved	PgDn	ops-off flow(parts special) view:flow +unsaved	
 ops-off flow(new display) view:flow +unsaved	Right	ops-off flow(new terminal) view:flow +unsaved	
 ops-off flow(new display) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(new display) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(new display) view:flow +unsaved	Space	ops-off flow(new empty) view:flow +unsaved	
 ops-off flow(new display) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(new display) view:flow +unsaved	Up	ops-off flow(doc terminal) view:flow +unsaved	
@@ -854,6 +509,7 @@ ops-off flow(new display) view:flow +unsaved +pending	Left	ops-off flow(doc term
 ops-off flow(new display) view:flow +unsaved +pending	PgDn	ops-off flow(parts special) view:flow +unsaved +pending	
 ops-off flow(new display) view:flow +unsaved +pending	Right	ops-off flow(new terminal) view:flow +unsaved +pending	
 ops-off flow(new display) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(new display) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(new display) view:flow +unsaved +pending	Space	ops-off flow(new empty) view:flow +unsaved +pending	
 ops-off flow(new display) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(new display) view:flow +unsaved +pending	Up	ops-off flow(doc terminal) view:flow +unsaved +pending	
@@ -873,6 +529,7 @@ ops-off flow(new empty) view:flow	Enter	ops-off flow layer:flow-maker
 ops-off flow(new empty) view:flow	Home	ops-off flow(doc display) view:flow	
 ops-off flow(new empty) view:flow	PgDn	ops-off flow(parts template) view:flow	
 ops-off flow(new empty) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(new empty) view:flow	Shrink	ops-off  too-small	
 ops-off flow(new empty) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(new empty) view:flow	Up	ops-off flow(doc terminal) view:flow	
 ops-off flow(new empty) view:flow	d	ops-off flow(new empty) view:flow	devices
@@ -889,6 +546,7 @@ ops-off flow(new empty) view:flow +pending	Enter	ops-off flow layer:flow-maker +
 ops-off flow(new empty) view:flow +pending	Home	ops-off flow(doc display) view:flow +pending	
 ops-off flow(new empty) view:flow +pending	PgDn	ops-off flow(parts template) view:flow +pending	
 ops-off flow(new empty) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(new empty) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(new empty) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(new empty) view:flow +pending	Up	ops-off flow(doc terminal) view:flow +pending	
 ops-off flow(new empty) view:flow +pending	d	ops-off flow(new empty) view:flow +pending	devices
@@ -905,6 +563,7 @@ ops-off flow(new empty) view:flow +unsaved	Enter	ops-off flow layer:flow-maker +
 ops-off flow(new empty) view:flow +unsaved	Home	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow(new empty) view:flow +unsaved	PgDn	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(new empty) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(new empty) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(new empty) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(new empty) view:flow +unsaved	Up	ops-off flow(doc terminal) view:flow +unsaved	
 ops-off flow(new empty) view:flow +unsaved	d	ops-off flow(new empty) view:flow +unsaved	devices
@@ -922,6 +581,7 @@ ops-off flow(new empty) view:flow +unsaved +pending	Enter	ops-off flow layer:flo
 ops-off flow(new empty) view:flow +unsaved +pending	Home	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow(new empty) view:flow +unsaved +pending	PgDn	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(new empty) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(new empty) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(new empty) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(new empty) view:flow +unsaved +pending	Up	ops-off flow(doc terminal) view:flow +unsaved +pending	
 ops-off flow(new empty) view:flow +unsaved +pending	d	ops-off flow(new empty) view:flow +unsaved +pending	devices
@@ -942,6 +602,7 @@ ops-off flow(new terminal) view:flow	Left	ops-off flow(new display) view:flow
 ops-off flow(new terminal) view:flow	PgDn	ops-off flow(parts template) view:flow	
 ops-off flow(new terminal) view:flow	Right	ops-off flow(new empty) view:flow	
 ops-off flow(new terminal) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(new terminal) view:flow	Shrink	ops-off  too-small	
 ops-off flow(new terminal) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(new terminal) view:flow	Up	ops-off flow(doc terminal) view:flow	
 ops-off flow(new terminal) view:flow	a	ops-off flow(doc terminal) view:flow	
@@ -962,6 +623,7 @@ ops-off flow(new terminal) view:flow +pending	Left	ops-off flow(new display) vie
 ops-off flow(new terminal) view:flow +pending	PgDn	ops-off flow(parts template) view:flow +pending	
 ops-off flow(new terminal) view:flow +pending	Right	ops-off flow(new empty) view:flow +pending	
 ops-off flow(new terminal) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(new terminal) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(new terminal) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(new terminal) view:flow +pending	Up	ops-off flow(doc terminal) view:flow +pending	
 ops-off flow(new terminal) view:flow +pending	a	ops-off flow(doc terminal) view:flow +pending	
@@ -982,6 +644,7 @@ ops-off flow(new terminal) view:flow +unsaved	Left	ops-off flow(new display) vie
 ops-off flow(new terminal) view:flow +unsaved	PgDn	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(new terminal) view:flow +unsaved	Right	ops-off flow(new empty) view:flow +unsaved	
 ops-off flow(new terminal) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(new terminal) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(new terminal) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(new terminal) view:flow +unsaved	Up	ops-off flow(doc terminal) view:flow +unsaved	
 ops-off flow(new terminal) view:flow +unsaved	a	ops-off flow(doc terminal) view:flow +unsaved	
@@ -1003,6 +666,7 @@ ops-off flow(new terminal) view:flow +unsaved +pending	Left	ops-off flow(new dis
 ops-off flow(new terminal) view:flow +unsaved +pending	PgDn	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(new terminal) view:flow +unsaved +pending	Right	ops-off flow(new empty) view:flow +unsaved +pending	
 ops-off flow(new terminal) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(new terminal) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(new terminal) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(new terminal) view:flow +unsaved +pending	Up	ops-off flow(doc terminal) view:flow +unsaved +pending	
 ops-off flow(new terminal) view:flow +unsaved +pending	a	ops-off flow(doc terminal) view:flow +unsaved +pending	
@@ -1022,6 +686,7 @@ ops-off flow(parts display) view:flow	Home	ops-off flow(doc display) view:flow
 ops-off flow(parts display) view:flow	PgDn	ops-off flow(parts template) view:flow	
 ops-off flow(parts display) view:flow	Right	ops-off flow(parts template) view:flow	
 ops-off flow(parts display) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(parts display) view:flow	Shrink	ops-off  too-small	
 ops-off flow(parts display) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(parts display) view:flow	Up	ops-off flow(parts template) view:flow	
 ops-off flow(parts display) view:flow	d	ops-off flow(parts display) view:flow	devices
@@ -1039,6 +704,7 @@ ops-off flow(parts display) view:flow +pending	Home	ops-off flow(doc display) vi
 ops-off flow(parts display) view:flow +pending	PgDn	ops-off flow(parts template) view:flow +pending	
 ops-off flow(parts display) view:flow +pending	Right	ops-off flow(parts template) view:flow +pending	
 ops-off flow(parts display) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(parts display) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(parts display) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(parts display) view:flow +pending	Up	ops-off flow(parts template) view:flow +pending	
 ops-off flow(parts display) view:flow +pending	d	ops-off flow(parts display) view:flow +pending	devices
@@ -1056,6 +722,7 @@ ops-off flow(parts display) view:flow +unsaved	Home	ops-off flow(doc display) vi
 ops-off flow(parts display) view:flow +unsaved	PgDn	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(parts display) view:flow +unsaved	Right	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(parts display) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(parts display) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(parts display) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(parts display) view:flow +unsaved	Up	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(parts display) view:flow +unsaved	d	ops-off flow(parts display) view:flow +unsaved	devices
@@ -1074,6 +741,7 @@ ops-off flow(parts display) view:flow +unsaved +pending	Home	ops-off flow(doc di
 ops-off flow(parts display) view:flow +unsaved +pending	PgDn	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(parts display) view:flow +unsaved +pending	Right	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(parts display) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(parts display) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(parts display) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(parts display) view:flow +unsaved +pending	Up	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(parts display) view:flow +unsaved +pending	d	ops-off flow(parts display) view:flow +unsaved +pending	devices
@@ -1087,6 +755,7 @@ ops-off flow(parts display) view:flow +unsaved +pending	v	ops-off flow layer:fil
 ops-off flow(parts font) view:flow	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts font) view:flow	Home	ops-off flow(doc display) view:flow	
 ops-off flow(parts font) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(parts font) view:flow	Shrink	ops-off  too-small	
 ops-off flow(parts font) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(parts font) view:flow	d	ops-off flow(parts font) view:flow	devices
 ops-off flow(parts font) view:flow	i	ops-off flow(parts font) view:flow	prepare
@@ -1098,6 +767,7 @@ ops-off flow(parts font) view:flow	v	ops-off flow layer:file-view
 ops-off flow(parts font) view:flow +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts font) view:flow +pending	Home	ops-off flow(doc display) view:flow +pending	
 ops-off flow(parts font) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(parts font) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(parts font) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(parts font) view:flow +pending	d	ops-off flow(parts font) view:flow +pending	devices
 ops-off flow(parts font) view:flow +pending	i	ops-off flow question:install +pending	prepare
@@ -1109,6 +779,7 @@ ops-off flow(parts font) view:flow +pending	v	ops-off flow layer:file-view +pend
 ops-off flow(parts font) view:flow +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts font) view:flow +unsaved	Home	ops-off flow(doc display) view:flow +unsaved	
 ops-off flow(parts font) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(parts font) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(parts font) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(parts font) view:flow +unsaved	d	ops-off flow(parts font) view:flow +unsaved	devices
 ops-off flow(parts font) view:flow +unsaved	i	ops-off flow(parts font) view:flow	save, prepare
@@ -1121,6 +792,7 @@ ops-off flow(parts font) view:flow +unsaved	v	ops-off flow layer:file-view +unsa
 ops-off flow(parts font) view:flow +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts font) view:flow +unsaved +pending	Home	ops-off flow(doc display) view:flow +unsaved +pending	
 ops-off flow(parts font) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(parts font) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(parts font) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(parts font) view:flow +unsaved +pending	d	ops-off flow(parts font) view:flow +unsaved +pending	devices
 ops-off flow(parts font) view:flow +unsaved +pending	i	ops-off flow(parts font) view:flow +pending	save, prepare
@@ -1137,6 +809,7 @@ ops-off flow(parts input) view:flow	Esc	ops-off flow(parts input) view:flow +uns
 ops-off flow(parts input) view:flow	Home	ops-off flow(doc terminal) view:flow	
 ops-off flow(parts input) view:flow	Left	ops-off flow(parts template) view:flow	
 ops-off flow(parts input) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(parts input) view:flow	Shrink	ops-off  too-small	
 ops-off flow(parts input) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(parts input) view:flow	Up	ops-off flow(parts special) view:flow	
 ops-off flow(parts input) view:flow	a	ops-off flow(doc terminal) view:flow	
@@ -1154,6 +827,7 @@ ops-off flow(parts input) view:flow +pending	Esc	ops-off flow(parts input) view:
 ops-off flow(parts input) view:flow +pending	Home	ops-off flow(doc terminal) view:flow +pending	
 ops-off flow(parts input) view:flow +pending	Left	ops-off flow(parts template) view:flow +pending	
 ops-off flow(parts input) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(parts input) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(parts input) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(parts input) view:flow +pending	Up	ops-off flow(parts special) view:flow +pending	
 ops-off flow(parts input) view:flow +pending	a	ops-off flow(doc terminal) view:flow +pending	
@@ -1171,6 +845,7 @@ ops-off flow(parts input) view:flow +unsaved	Esc	ops-off flow(parts input) view:
 ops-off flow(parts input) view:flow +unsaved	Home	ops-off flow(doc terminal) view:flow +unsaved	
 ops-off flow(parts input) view:flow +unsaved	Left	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(parts input) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(parts input) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(parts input) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(parts input) view:flow +unsaved	Up	ops-off flow(parts special) view:flow +unsaved	
 ops-off flow(parts input) view:flow +unsaved	a	ops-off flow(doc terminal) view:flow +unsaved	
@@ -1189,6 +864,7 @@ ops-off flow(parts input) view:flow +unsaved +pending	Esc	ops-off flow(parts inp
 ops-off flow(parts input) view:flow +unsaved +pending	Home	ops-off flow(doc terminal) view:flow +unsaved +pending	
 ops-off flow(parts input) view:flow +unsaved +pending	Left	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(parts input) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(parts input) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(parts input) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(parts input) view:flow +unsaved +pending	Up	ops-off flow(parts special) view:flow +unsaved +pending	
 ops-off flow(parts input) view:flow +unsaved +pending	a	ops-off flow(doc terminal) view:flow +unsaved +pending	
@@ -1208,6 +884,7 @@ ops-off flow(parts special) view:flow	Home	ops-off flow(doc terminal) view:flow
 ops-off flow(parts special) view:flow	PgDn	ops-off flow(parts input) view:flow	
 ops-off flow(parts special) view:flow	Right	ops-off flow(parts template) view:flow	
 ops-off flow(parts special) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(parts special) view:flow	Shrink	ops-off  too-small	
 ops-off flow(parts special) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(parts special) view:flow	Up	ops-off flow(parts template) view:flow	
 ops-off flow(parts special) view:flow	a	ops-off flow(doc terminal) view:flow	
@@ -1226,6 +903,7 @@ ops-off flow(parts special) view:flow +pending	Home	ops-off flow(doc terminal) v
 ops-off flow(parts special) view:flow +pending	PgDn	ops-off flow(parts input) view:flow +pending	
 ops-off flow(parts special) view:flow +pending	Right	ops-off flow(parts template) view:flow +pending	
 ops-off flow(parts special) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(parts special) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(parts special) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(parts special) view:flow +pending	Up	ops-off flow(parts template) view:flow +pending	
 ops-off flow(parts special) view:flow +pending	a	ops-off flow(doc terminal) view:flow +pending	
@@ -1244,6 +922,7 @@ ops-off flow(parts special) view:flow +unsaved	Home	ops-off flow(doc terminal) v
 ops-off flow(parts special) view:flow +unsaved	PgDn	ops-off flow(parts input) view:flow +unsaved	
 ops-off flow(parts special) view:flow +unsaved	Right	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(parts special) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(parts special) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(parts special) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(parts special) view:flow +unsaved	Up	ops-off flow(parts template) view:flow +unsaved	
 ops-off flow(parts special) view:flow +unsaved	a	ops-off flow(doc terminal) view:flow +unsaved	
@@ -1263,6 +942,7 @@ ops-off flow(parts special) view:flow +unsaved +pending	Home	ops-off flow(doc te
 ops-off flow(parts special) view:flow +unsaved +pending	PgDn	ops-off flow(parts input) view:flow +unsaved +pending	
 ops-off flow(parts special) view:flow +unsaved +pending	Right	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(parts special) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(parts special) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(parts special) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(parts special) view:flow +unsaved +pending	Up	ops-off flow(parts template) view:flow +unsaved +pending	
 ops-off flow(parts special) view:flow +unsaved +pending	a	ops-off flow(doc terminal) view:flow +unsaved +pending	
@@ -1282,6 +962,7 @@ ops-off flow(parts template) view:flow	Home	ops-off flow(doc display) view:flow
 ops-off flow(parts template) view:flow	Left	ops-off flow(new empty) view:flow	
 ops-off flow(parts template) view:flow	Right	ops-off flow(parts display) view:flow	
 ops-off flow(parts template) view:flow	Shift-Tab	ops-off help(help) view:help	mouse off
+ops-off flow(parts template) view:flow	Shrink	ops-off  too-small	
 ops-off flow(parts template) view:flow	Tab	ops-off looks view:looks	mouse off
 ops-off flow(parts template) view:flow	Up	ops-off flow(new empty) view:flow	
 ops-off flow(parts template) view:flow	d	ops-off flow(parts template) view:flow	devices
@@ -1299,6 +980,7 @@ ops-off flow(parts template) view:flow +pending	Home	ops-off flow(doc display) v
 ops-off flow(parts template) view:flow +pending	Left	ops-off flow(new empty) view:flow +pending	
 ops-off flow(parts template) view:flow +pending	Right	ops-off flow(parts display) view:flow +pending	
 ops-off flow(parts template) view:flow +pending	Shift-Tab	ops-off help(help) view:help +pending	mouse off
+ops-off flow(parts template) view:flow +pending	Shrink	ops-off  too-small +pending	
 ops-off flow(parts template) view:flow +pending	Tab	ops-off looks view:looks +pending	mouse off
 ops-off flow(parts template) view:flow +pending	Up	ops-off flow(new empty) view:flow +pending	
 ops-off flow(parts template) view:flow +pending	d	ops-off flow(parts template) view:flow +pending	devices
@@ -1316,6 +998,7 @@ ops-off flow(parts template) view:flow +unsaved	Home	ops-off flow(doc display) v
 ops-off flow(parts template) view:flow +unsaved	Left	ops-off flow(new empty) view:flow +unsaved	
 ops-off flow(parts template) view:flow +unsaved	Right	ops-off flow(parts display) view:flow +unsaved	
 ops-off flow(parts template) view:flow +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	mouse off
+ops-off flow(parts template) view:flow +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off flow(parts template) view:flow +unsaved	Tab	ops-off looks view:looks +unsaved	mouse off
 ops-off flow(parts template) view:flow +unsaved	Up	ops-off flow(new empty) view:flow +unsaved	
 ops-off flow(parts template) view:flow +unsaved	d	ops-off flow(parts template) view:flow +unsaved	devices
@@ -1334,6 +1017,7 @@ ops-off flow(parts template) view:flow +unsaved +pending	Home	ops-off flow(doc d
 ops-off flow(parts template) view:flow +unsaved +pending	Left	ops-off flow(new empty) view:flow +unsaved +pending	
 ops-off flow(parts template) view:flow +unsaved +pending	Right	ops-off flow(parts display) view:flow +unsaved +pending	
 ops-off flow(parts template) view:flow +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	mouse off
+ops-off flow(parts template) view:flow +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off flow(parts template) view:flow +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	mouse off
 ops-off flow(parts template) view:flow +unsaved +pending	Up	ops-off flow(new empty) view:flow +unsaved +pending	
 ops-off flow(parts template) view:flow +unsaved +pending	d	ops-off flow(parts template) view:flow +unsaved +pending	devices
@@ -1344,175 +1028,32 @@ ops-off flow(parts template) view:flow +unsaved +pending	q	ops-off flow question
 ops-off flow(parts template) view:flow +unsaved +pending	r	ops-off flow question:revert +unsaved +pending	
 ops-off flow(parts template) view:flow +unsaved +pending	s	ops-off flow(parts template) view:flow +pending	save
 ops-off flow(parts template) view:flow +unsaved +pending	v	ops-off flow layer:file-view +unsaved +pending	
-ops-off fonts question:install	Backspace	ops-off fonts(frit) view:fonts	
 ops-off fonts question:install	Ctrl-C	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Ctrl-D	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Down	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	End	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Enter	ops-off fonts(frit) view:fonts	
 ops-off fonts question:install	Esc	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Home	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Left	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	PgDn	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Right	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Shift-Tab	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Space	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Tab	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	Up	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	a	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	d	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	e	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	i	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	k	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	l	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	n	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	o	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	p	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	q	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	r	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	s	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	t	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	u	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	v	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install	x	ops-off fonts(frit) view:fonts	
+ops-off fonts question:install	Shrink	ops-off  question:install	
 ops-off fonts question:install	y	ops-off fonts(frit) view:fonts	install
-ops-off fonts question:install	z	ops-off fonts(frit) view:fonts	
-ops-off fonts question:install +pending	Backspace	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:install +pending	Ctrl-C	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Ctrl-D	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Down	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	End	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Enter	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:install +pending	Esc	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Home	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Left	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	PgDn	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Right	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Shift-Tab	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Space	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Tab	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	Up	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	a	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	d	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	e	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	i	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	k	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	l	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	n	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	o	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	p	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	q	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	r	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	s	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	t	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	u	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	v	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:install +pending	x	ops-off fonts(marked) view:fonts +pending	
+ops-off fonts question:install +pending	Shrink	ops-off  question:install +pending	
 ops-off fonts question:install +pending	y	ops-off fonts(builtin) view:fonts	install
-ops-off fonts question:install +pending	z	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Backspace	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:leave +pending	Ctrl-C	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Ctrl-D	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Down	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	End	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Enter	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts question:leave +pending	Esc	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Home	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Left	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	PgDn	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Right	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Shift-Tab	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Space	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Tab	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	Up	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	a	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	d	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	e	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	i	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	k	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	l	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	n	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	o	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	p	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	q	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	r	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	s	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	t	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	u	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	v	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +pending	x	ops-off fonts(marked) view:fonts +pending	
+ops-off fonts question:leave +pending	Shrink	ops-off  question:leave +pending	
 ops-off fonts question:leave +pending	y	ops-off left	exit 0
-ops-off fonts question:leave +pending	z	ops-off fonts(marked) view:fonts +pending	
-ops-off fonts question:leave +unsaved +pending	Backspace	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off fonts question:leave +unsaved +pending	Ctrl-C	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Ctrl-D	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Down	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	End	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Enter	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off fonts question:leave +unsaved +pending	Esc	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Home	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Left	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	PgDn	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Right	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Shift-Tab	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Space	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Tab	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	Up	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	a	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	d	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	e	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	i	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	k	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	l	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	n	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	o	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	p	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	q	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	r	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	s	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	t	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	u	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	v	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:leave +unsaved +pending	x	ops-off fonts(marked) view:fonts +unsaved +pending	
+ops-off fonts question:leave +unsaved +pending	Shrink	ops-off  question:leave +unsaved +pending	
 ops-off fonts question:leave +unsaved +pending	y	ops-off left	save, exit 0
-ops-off fonts question:leave +unsaved +pending	z	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off fonts question:quit +unsaved	Backspace	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts question:quit +unsaved	Ctrl-C	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Ctrl-D	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Down	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	End	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Enter	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts question:quit +unsaved	Esc	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Home	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Left	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	PgDn	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Right	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Shift-Tab	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Space	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Tab	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	Up	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	a	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	d	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	e	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	i	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	k	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	l	ops-off fonts(builtin) view:fonts +unsaved	
+ops-off fonts question:quit +unsaved	Shrink	ops-off  question:quit +unsaved	
 ops-off fonts question:quit +unsaved	n	ops-off left	exit 0
-ops-off fonts question:quit +unsaved	o	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	p	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	q	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	r	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	s	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	t	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	u	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	v	ops-off fonts(builtin) view:fonts +unsaved	
-ops-off fonts question:quit +unsaved	x	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts question:quit +unsaved	y	ops-off left	save, exit 0
-ops-off fonts question:quit +unsaved	z	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts(builtin) view:fonts	Ctrl-C	ops-off left	exit 130
 ops-off fonts(builtin) view:fonts	Enter	ops-off fonts(builtin) view:fonts +unsaved	check
 ops-off fonts(builtin) view:fonts	Home	ops-off fonts(refused) view:fonts	
 ops-off fonts(builtin) view:fonts	Shift-Tab	ops-off looks view:looks	
+ops-off fonts(builtin) view:fonts	Shrink	ops-off  too-small	
 ops-off fonts(builtin) view:fonts	Tab	ops-off settings(value) view:settings	
 ops-off fonts(builtin) view:fonts	Up	ops-off fonts(frit) view:fonts	
 ops-off fonts(builtin) view:fonts	i	ops-off fonts(builtin) view:fonts	prepare
@@ -1523,6 +1064,7 @@ ops-off fonts(builtin) view:fonts +pending	Ctrl-C	ops-off left	exit 130
 ops-off fonts(builtin) view:fonts +pending	Enter	ops-off fonts(builtin) view:fonts +unsaved +pending	check
 ops-off fonts(builtin) view:fonts +pending	Home	ops-off fonts(refused) view:fonts +pending	
 ops-off fonts(builtin) view:fonts +pending	Shift-Tab	ops-off looks view:looks +pending	
+ops-off fonts(builtin) view:fonts +pending	Shrink	ops-off  too-small +pending	
 ops-off fonts(builtin) view:fonts +pending	Tab	ops-off settings(value) view:settings +pending	
 ops-off fonts(builtin) view:fonts +pending	Up	ops-off fonts(marked) view:fonts +pending	
 ops-off fonts(builtin) view:fonts +pending	i	ops-off fonts question:install +pending	prepare
@@ -1533,6 +1075,7 @@ ops-off fonts(builtin) view:fonts +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off fonts(builtin) view:fonts +unsaved	Enter	ops-off fonts(builtin) view:fonts +unsaved	check
 ops-off fonts(builtin) view:fonts +unsaved	Home	ops-off fonts(refused) view:fonts +unsaved	
 ops-off fonts(builtin) view:fonts +unsaved	Shift-Tab	ops-off looks view:looks +unsaved	
+ops-off fonts(builtin) view:fonts +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off fonts(builtin) view:fonts +unsaved	Tab	ops-off settings(value) view:settings +unsaved	
 ops-off fonts(builtin) view:fonts +unsaved	Up	ops-off fonts(frit) view:fonts +unsaved	
 ops-off fonts(builtin) view:fonts +unsaved	i	ops-off fonts(builtin) view:fonts	save, prepare
@@ -1543,6 +1086,7 @@ ops-off fonts(builtin) view:fonts +unsaved +pending	Ctrl-C	ops-off left	save, ex
 ops-off fonts(builtin) view:fonts +unsaved +pending	Enter	ops-off fonts(builtin) view:fonts +unsaved +pending	check
 ops-off fonts(builtin) view:fonts +unsaved +pending	Home	ops-off fonts(refused) view:fonts +unsaved +pending	
 ops-off fonts(builtin) view:fonts +unsaved +pending	Shift-Tab	ops-off looks view:looks +unsaved +pending	
+ops-off fonts(builtin) view:fonts +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off fonts(builtin) view:fonts +unsaved +pending	Tab	ops-off settings(value) view:settings +unsaved +pending	
 ops-off fonts(builtin) view:fonts +unsaved +pending	Up	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off fonts(builtin) view:fonts +unsaved +pending	i	ops-off fonts question:install +pending	save, prepare
@@ -1556,6 +1100,7 @@ ops-off fonts(frit) view:fonts	Enter	ops-off fonts(frit) view:fonts +unsaved	che
 ops-off fonts(frit) view:fonts	Home	ops-off fonts(refused) view:fonts	
 ops-off fonts(frit) view:fonts	PgDn	ops-off fonts(builtin) view:fonts	
 ops-off fonts(frit) view:fonts	Shift-Tab	ops-off looks view:looks	
+ops-off fonts(frit) view:fonts	Shrink	ops-off  too-small	
 ops-off fonts(frit) view:fonts	Tab	ops-off settings(value) view:settings	
 ops-off fonts(frit) view:fonts	i	ops-off fonts(frit) view:fonts	prepare
 ops-off fonts(frit) view:fonts	n	ops-off new-frit typing:new-frit	
@@ -1569,6 +1114,7 @@ ops-off fonts(frit) view:fonts +pending	Enter	ops-off fonts(frit) view:fonts +un
 ops-off fonts(frit) view:fonts +pending	Home	ops-off fonts(refused) view:fonts +pending	
 ops-off fonts(frit) view:fonts +pending	PgDn	ops-off fonts(builtin) view:fonts +pending	
 ops-off fonts(frit) view:fonts +pending	Shift-Tab	ops-off looks view:looks +pending	
+ops-off fonts(frit) view:fonts +pending	Shrink	ops-off  too-small +pending	
 ops-off fonts(frit) view:fonts +pending	Tab	ops-off settings(value) view:settings +pending	
 ops-off fonts(frit) view:fonts +pending	i	ops-off fonts question:install +pending	prepare
 ops-off fonts(frit) view:fonts +pending	n	ops-off new-frit typing:new-frit +pending	
@@ -1581,6 +1127,7 @@ ops-off fonts(frit) view:fonts +unsaved	Enter	ops-off fonts(frit) view:fonts +un
 ops-off fonts(frit) view:fonts +unsaved	Home	ops-off fonts(refused) view:fonts +unsaved	
 ops-off fonts(frit) view:fonts +unsaved	PgDn	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts(frit) view:fonts +unsaved	Shift-Tab	ops-off looks view:looks +unsaved	
+ops-off fonts(frit) view:fonts +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off fonts(frit) view:fonts +unsaved	Tab	ops-off settings(value) view:settings +unsaved	
 ops-off fonts(frit) view:fonts +unsaved	i	ops-off fonts question:install	save, prepare
 ops-off fonts(frit) view:fonts +unsaved	n	ops-off new-frit typing:new-frit +unsaved	
@@ -1593,6 +1140,7 @@ ops-off fonts(frit) view:fonts +unsaved +pending	Enter	ops-off fonts(frit) view:
 ops-off fonts(frit) view:fonts +unsaved +pending	Home	ops-off fonts(refused) view:fonts +unsaved +pending	
 ops-off fonts(frit) view:fonts +unsaved +pending	PgDn	ops-off fonts(builtin) view:fonts +unsaved +pending	
 ops-off fonts(frit) view:fonts +unsaved +pending	Shift-Tab	ops-off looks view:looks +unsaved +pending	
+ops-off fonts(frit) view:fonts +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off fonts(frit) view:fonts +unsaved +pending	Tab	ops-off settings(value) view:settings +unsaved +pending	
 ops-off fonts(frit) view:fonts +unsaved +pending	i	ops-off fonts question:install +pending	save, prepare
 ops-off fonts(frit) view:fonts +unsaved +pending	n	ops-off new-frit typing:new-frit +unsaved +pending	
@@ -1605,6 +1153,7 @@ ops-off fonts(marked) view:fonts +pending	Enter	ops-off fonts(marked) view:fonts
 ops-off fonts(marked) view:fonts +pending	Home	ops-off fonts(refused) view:fonts +pending	
 ops-off fonts(marked) view:fonts +pending	PgDn	ops-off fonts(builtin) view:fonts +pending	
 ops-off fonts(marked) view:fonts +pending	Shift-Tab	ops-off looks view:looks +pending	
+ops-off fonts(marked) view:fonts +pending	Shrink	ops-off  too-small +pending	
 ops-off fonts(marked) view:fonts +pending	Tab	ops-off settings(value) view:settings +pending	
 ops-off fonts(marked) view:fonts +pending	Up	ops-off fonts(frit) view:fonts +pending	
 ops-off fonts(marked) view:fonts +pending	i	ops-off fonts question:install +pending	prepare
@@ -1619,6 +1168,7 @@ ops-off fonts(marked) view:fonts +unsaved +pending	Enter	ops-off fonts(marked) v
 ops-off fonts(marked) view:fonts +unsaved +pending	Home	ops-off fonts(refused) view:fonts +unsaved +pending	
 ops-off fonts(marked) view:fonts +unsaved +pending	PgDn	ops-off fonts(builtin) view:fonts +unsaved +pending	
 ops-off fonts(marked) view:fonts +unsaved +pending	Shift-Tab	ops-off looks view:looks +unsaved +pending	
+ops-off fonts(marked) view:fonts +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off fonts(marked) view:fonts +unsaved +pending	Tab	ops-off settings(value) view:settings +unsaved +pending	
 ops-off fonts(marked) view:fonts +unsaved +pending	Up	ops-off fonts(frit) view:fonts +unsaved +pending	
 ops-off fonts(marked) view:fonts +unsaved +pending	i	ops-off fonts(marked) view:fonts +pending	save, prepare
@@ -1631,6 +1181,7 @@ ops-off fonts(refused) view:fonts	Down	ops-off fonts(frit) view:fonts
 ops-off fonts(refused) view:fonts	End	ops-off fonts(builtin) view:fonts	
 ops-off fonts(refused) view:fonts	PgDn	ops-off fonts(builtin) view:fonts	
 ops-off fonts(refused) view:fonts	Shift-Tab	ops-off looks view:looks	
+ops-off fonts(refused) view:fonts	Shrink	ops-off  too-small	
 ops-off fonts(refused) view:fonts	Tab	ops-off settings(value) view:settings	
 ops-off fonts(refused) view:fonts	i	ops-off fonts(refused) view:fonts	prepare
 ops-off fonts(refused) view:fonts	n	ops-off new-frit typing:new-frit	
@@ -1642,6 +1193,7 @@ ops-off fonts(refused) view:fonts +pending	Down	ops-off fonts(frit) view:fonts +
 ops-off fonts(refused) view:fonts +pending	End	ops-off fonts(builtin) view:fonts +pending	
 ops-off fonts(refused) view:fonts +pending	PgDn	ops-off fonts(builtin) view:fonts +pending	
 ops-off fonts(refused) view:fonts +pending	Shift-Tab	ops-off looks view:looks +pending	
+ops-off fonts(refused) view:fonts +pending	Shrink	ops-off  too-small +pending	
 ops-off fonts(refused) view:fonts +pending	Tab	ops-off settings(value) view:settings +pending	
 ops-off fonts(refused) view:fonts +pending	i	ops-off fonts question:install +pending	prepare
 ops-off fonts(refused) view:fonts +pending	n	ops-off new-frit typing:new-frit +pending	
@@ -1653,6 +1205,7 @@ ops-off fonts(refused) view:fonts +unsaved	Down	ops-off fonts(frit) view:fonts +
 ops-off fonts(refused) view:fonts +unsaved	End	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts(refused) view:fonts +unsaved	PgDn	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off fonts(refused) view:fonts +unsaved	Shift-Tab	ops-off looks view:looks +unsaved	
+ops-off fonts(refused) view:fonts +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off fonts(refused) view:fonts +unsaved	Tab	ops-off settings(value) view:settings +unsaved	
 ops-off fonts(refused) view:fonts +unsaved	i	ops-off fonts question:install	save, prepare
 ops-off fonts(refused) view:fonts +unsaved	n	ops-off new-frit typing:new-frit +unsaved	
@@ -1664,115 +1217,31 @@ ops-off fonts(refused) view:fonts +unsaved +pending	Down	ops-off fonts(frit) vie
 ops-off fonts(refused) view:fonts +unsaved +pending	End	ops-off fonts(builtin) view:fonts +unsaved +pending	
 ops-off fonts(refused) view:fonts +unsaved +pending	PgDn	ops-off fonts(builtin) view:fonts +unsaved +pending	
 ops-off fonts(refused) view:fonts +unsaved +pending	Shift-Tab	ops-off looks view:looks +unsaved +pending	
+ops-off fonts(refused) view:fonts +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off fonts(refused) view:fonts +unsaved +pending	Tab	ops-off settings(value) view:settings +unsaved +pending	
 ops-off fonts(refused) view:fonts +unsaved +pending	i	ops-off fonts question:install +pending	save, prepare
 ops-off fonts(refused) view:fonts +unsaved +pending	n	ops-off new-frit typing:new-frit +unsaved +pending	
 ops-off fonts(refused) view:fonts +unsaved +pending	o	ops-off fonts(refused) view:fonts +unsaved +pending	check
 ops-off fonts(refused) view:fonts +unsaved +pending	q	ops-off fonts question:leave +unsaved +pending	
 ops-off fonts(refused) view:fonts +unsaved +pending	r	ops-off fonts(marked) view:fonts +unsaved +pending	
-ops-off help question:leave +pending	Backspace	ops-off help(help) view:help +pending	
 ops-off help question:leave +pending	Ctrl-C	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Ctrl-D	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Down	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	End	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Enter	ops-off help(help) view:help +pending	
 ops-off help question:leave +pending	Esc	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Home	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Left	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	PgDn	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Right	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Shift-Tab	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Space	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Tab	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	Up	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	a	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	d	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	e	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	i	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	k	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	l	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	n	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	o	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	p	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	q	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	r	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	s	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	t	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	u	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	v	ops-off help(help) view:help +pending	
-ops-off help question:leave +pending	x	ops-off help(help) view:help +pending	
+ops-off help question:leave +pending	Shrink	ops-off  question:leave +pending	
 ops-off help question:leave +pending	y	ops-off left	exit 0
-ops-off help question:leave +pending	z	ops-off help(help) view:help +pending	
-ops-off help question:leave +unsaved +pending	Backspace	ops-off help(help) view:help +unsaved +pending	
 ops-off help question:leave +unsaved +pending	Ctrl-C	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Ctrl-D	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Down	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	End	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Enter	ops-off help(help) view:help +unsaved +pending	
 ops-off help question:leave +unsaved +pending	Esc	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Home	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Left	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	PgDn	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Right	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Shift-Tab	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Space	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Tab	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	Up	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	a	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	d	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	e	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	i	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	k	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	l	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	n	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	o	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	p	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	q	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	r	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	s	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	t	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	u	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	v	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:leave +unsaved +pending	x	ops-off help(help) view:help +unsaved +pending	
+ops-off help question:leave +unsaved +pending	Shrink	ops-off  question:leave +unsaved +pending	
 ops-off help question:leave +unsaved +pending	y	ops-off left	save, exit 0
-ops-off help question:leave +unsaved +pending	z	ops-off help(help) view:help +unsaved +pending	
-ops-off help question:quit +unsaved	Backspace	ops-off help(help) view:help +unsaved	
 ops-off help question:quit +unsaved	Ctrl-C	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Ctrl-D	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Down	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	End	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Enter	ops-off help(help) view:help +unsaved	
 ops-off help question:quit +unsaved	Esc	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Home	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Left	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	PgDn	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Right	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Shift-Tab	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Space	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Tab	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	Up	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	a	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	d	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	e	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	i	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	k	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	l	ops-off help(help) view:help +unsaved	
+ops-off help question:quit +unsaved	Shrink	ops-off  question:quit +unsaved	
 ops-off help question:quit +unsaved	n	ops-off left	exit 0
-ops-off help question:quit +unsaved	o	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	p	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	q	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	r	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	s	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	t	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	u	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	v	ops-off help(help) view:help +unsaved	
-ops-off help question:quit +unsaved	x	ops-off help(help) view:help +unsaved	
 ops-off help question:quit +unsaved	y	ops-off left	save, exit 0
-ops-off help question:quit +unsaved	z	ops-off help(help) view:help +unsaved	
 ops-off help(about) view:help	Ctrl-C	ops-off left	exit 130
 ops-off help(about) view:help	Left	ops-off help(help) view:help	
 ops-off help(about) view:help	Right	ops-off help(help) view:help	
 ops-off help(about) view:help	Shift-Tab	ops-off settings(value) view:settings	
+ops-off help(about) view:help	Shrink	ops-off  too-small	
 ops-off help(about) view:help	Tab	ops-off flow(doc display) view:flow	mouse on
 ops-off help(about) view:help	o	ops-off help(about) view:help +unsaved	check
 ops-off help(about) view:help	q	ops-off left	exit 0
@@ -1780,6 +1249,7 @@ ops-off help(about) view:help +pending	Ctrl-C	ops-off left	exit 130
 ops-off help(about) view:help +pending	Left	ops-off help(help) view:help +pending	
 ops-off help(about) view:help +pending	Right	ops-off help(help) view:help +pending	
 ops-off help(about) view:help +pending	Shift-Tab	ops-off settings(value) view:settings +pending	
+ops-off help(about) view:help +pending	Shrink	ops-off  too-small +pending	
 ops-off help(about) view:help +pending	Tab	ops-off flow(doc display) view:flow +pending	mouse on
 ops-off help(about) view:help +pending	o	ops-off help(about) view:help +unsaved +pending	check
 ops-off help(about) view:help +pending	q	ops-off help question:leave +pending	
@@ -1787,6 +1257,7 @@ ops-off help(about) view:help +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off help(about) view:help +unsaved	Left	ops-off help(help) view:help +unsaved	
 ops-off help(about) view:help +unsaved	Right	ops-off help(help) view:help +unsaved	
 ops-off help(about) view:help +unsaved	Shift-Tab	ops-off settings(value) view:settings +unsaved	
+ops-off help(about) view:help +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off help(about) view:help +unsaved	Tab	ops-off flow(doc display) view:flow +unsaved	mouse on
 ops-off help(about) view:help +unsaved	o	ops-off help(about) view:help +unsaved	check
 ops-off help(about) view:help +unsaved	q	ops-off help question:quit +unsaved	
@@ -1794,6 +1265,7 @@ ops-off help(about) view:help +unsaved +pending	Ctrl-C	ops-off left	save, exit 1
 ops-off help(about) view:help +unsaved +pending	Left	ops-off help(help) view:help +unsaved +pending	
 ops-off help(about) view:help +unsaved +pending	Right	ops-off help(help) view:help +unsaved +pending	
 ops-off help(about) view:help +unsaved +pending	Shift-Tab	ops-off settings(value) view:settings +unsaved +pending	
+ops-off help(about) view:help +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off help(about) view:help +unsaved +pending	Tab	ops-off flow(doc display) view:flow +unsaved +pending	mouse on
 ops-off help(about) view:help +unsaved +pending	o	ops-off help(about) view:help +unsaved +pending	check
 ops-off help(about) view:help +unsaved +pending	q	ops-off help question:leave +unsaved +pending	
@@ -1801,6 +1273,7 @@ ops-off help(help) view:help	Ctrl-C	ops-off left	exit 130
 ops-off help(help) view:help	Left	ops-off help(about) view:help	
 ops-off help(help) view:help	Right	ops-off help(about) view:help	
 ops-off help(help) view:help	Shift-Tab	ops-off settings(value) view:settings	
+ops-off help(help) view:help	Shrink	ops-off  too-small	
 ops-off help(help) view:help	Tab	ops-off flow(doc display) view:flow	mouse on
 ops-off help(help) view:help	o	ops-off help(help) view:help +unsaved	check
 ops-off help(help) view:help	q	ops-off left	exit 0
@@ -1808,6 +1281,7 @@ ops-off help(help) view:help +pending	Ctrl-C	ops-off left	exit 130
 ops-off help(help) view:help +pending	Left	ops-off help(about) view:help +pending	
 ops-off help(help) view:help +pending	Right	ops-off help(about) view:help +pending	
 ops-off help(help) view:help +pending	Shift-Tab	ops-off settings(value) view:settings +pending	
+ops-off help(help) view:help +pending	Shrink	ops-off  too-small +pending	
 ops-off help(help) view:help +pending	Tab	ops-off flow(doc display) view:flow +pending	mouse on
 ops-off help(help) view:help +pending	o	ops-off help(help) view:help +unsaved +pending	check
 ops-off help(help) view:help +pending	q	ops-off help question:leave +pending	
@@ -1815,6 +1289,7 @@ ops-off help(help) view:help +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off help(help) view:help +unsaved	Left	ops-off help(about) view:help +unsaved	
 ops-off help(help) view:help +unsaved	Right	ops-off help(about) view:help +unsaved	
 ops-off help(help) view:help +unsaved	Shift-Tab	ops-off settings(value) view:settings +unsaved	
+ops-off help(help) view:help +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off help(help) view:help +unsaved	Tab	ops-off flow(doc display) view:flow +unsaved	mouse on
 ops-off help(help) view:help +unsaved	o	ops-off help(help) view:help +unsaved	check
 ops-off help(help) view:help +unsaved	q	ops-off help question:quit +unsaved	
@@ -1822,144 +1297,31 @@ ops-off help(help) view:help +unsaved +pending	Ctrl-C	ops-off left	save, exit 13
 ops-off help(help) view:help +unsaved +pending	Left	ops-off help(about) view:help +unsaved +pending	
 ops-off help(help) view:help +unsaved +pending	Right	ops-off help(about) view:help +unsaved +pending	
 ops-off help(help) view:help +unsaved +pending	Shift-Tab	ops-off settings(value) view:settings +unsaved +pending	
+ops-off help(help) view:help +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off help(help) view:help +unsaved +pending	Tab	ops-off flow(doc display) view:flow +unsaved +pending	mouse on
 ops-off help(help) view:help +unsaved +pending	o	ops-off help(help) view:help +unsaved +pending	check
 ops-off help(help) view:help +unsaved +pending	q	ops-off help question:leave +unsaved +pending	
-ops-off looks question:install +pending	Backspace	ops-off looks view:looks +pending	
 ops-off looks question:install +pending	Ctrl-C	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Ctrl-D	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Down	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	End	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Enter	ops-off looks view:looks +pending	
 ops-off looks question:install +pending	Esc	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Home	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Left	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	PgDn	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Right	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Shift-Tab	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Space	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Tab	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	Up	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	a	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	d	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	e	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	i	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	k	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	l	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	n	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	o	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	p	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	q	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	r	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	s	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	t	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	u	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	v	ops-off looks view:looks +pending	
-ops-off looks question:install +pending	x	ops-off looks view:looks +pending	
+ops-off looks question:install +pending	Shrink	ops-off  question:install +pending	
 ops-off looks question:install +pending	y	ops-off looks view:looks	install
-ops-off looks question:install +pending	z	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Backspace	ops-off looks view:looks +pending	
 ops-off looks question:leave +pending	Ctrl-C	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Ctrl-D	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Down	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	End	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Enter	ops-off looks view:looks +pending	
 ops-off looks question:leave +pending	Esc	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Home	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Left	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	PgDn	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Right	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Shift-Tab	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Space	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Tab	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	Up	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	a	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	d	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	e	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	i	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	k	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	l	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	n	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	o	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	p	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	q	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	r	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	s	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	t	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	u	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	v	ops-off looks view:looks +pending	
-ops-off looks question:leave +pending	x	ops-off looks view:looks +pending	
+ops-off looks question:leave +pending	Shrink	ops-off  question:leave +pending	
 ops-off looks question:leave +pending	y	ops-off left	exit 0
-ops-off looks question:leave +pending	z	ops-off looks view:looks +pending	
-ops-off looks question:leave +unsaved +pending	Backspace	ops-off looks view:looks +unsaved +pending	
 ops-off looks question:leave +unsaved +pending	Ctrl-C	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Ctrl-D	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Down	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	End	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Enter	ops-off looks view:looks +unsaved +pending	
 ops-off looks question:leave +unsaved +pending	Esc	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Home	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Left	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	PgDn	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Right	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Shift-Tab	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Space	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Tab	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	Up	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	a	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	d	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	e	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	i	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	k	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	l	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	n	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	o	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	p	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	q	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	r	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	s	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	t	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	u	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	v	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:leave +unsaved +pending	x	ops-off looks view:looks +unsaved +pending	
+ops-off looks question:leave +unsaved +pending	Shrink	ops-off  question:leave +unsaved +pending	
 ops-off looks question:leave +unsaved +pending	y	ops-off left	save, exit 0
-ops-off looks question:leave +unsaved +pending	z	ops-off looks view:looks +unsaved +pending	
-ops-off looks question:quit +unsaved	Backspace	ops-off looks view:looks +unsaved	
 ops-off looks question:quit +unsaved	Ctrl-C	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Ctrl-D	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Down	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	End	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Enter	ops-off looks view:looks +unsaved	
 ops-off looks question:quit +unsaved	Esc	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Home	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Left	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	PgDn	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Right	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Shift-Tab	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Space	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Tab	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	Up	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	a	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	d	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	e	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	i	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	k	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	l	ops-off looks view:looks +unsaved	
+ops-off looks question:quit +unsaved	Shrink	ops-off  question:quit +unsaved	
 ops-off looks question:quit +unsaved	n	ops-off left	exit 0
-ops-off looks question:quit +unsaved	o	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	p	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	q	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	r	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	s	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	t	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	u	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	v	ops-off looks view:looks +unsaved	
-ops-off looks question:quit +unsaved	x	ops-off looks view:looks +unsaved	
 ops-off looks question:quit +unsaved	y	ops-off left	save, exit 0
-ops-off looks question:quit +unsaved	z	ops-off looks view:looks +unsaved	
 ops-off looks view:looks	Ctrl-C	ops-off left	exit 130
 ops-off looks view:looks	Enter	ops-off looks view:looks +unsaved	check
 ops-off looks view:looks	Shift-Tab	ops-off flow(doc display) view:flow	mouse on
+ops-off looks view:looks	Shrink	ops-off  too-small	
 ops-off looks view:looks	Tab	ops-off fonts(builtin) view:fonts	
 ops-off looks view:looks	i	ops-off looks view:looks	prepare
 ops-off looks view:looks	o	ops-off looks view:looks +unsaved	check
@@ -1967,6 +1329,7 @@ ops-off looks view:looks	q	ops-off left	exit 0
 ops-off looks view:looks +pending	Ctrl-C	ops-off left	exit 130
 ops-off looks view:looks +pending	Enter	ops-off looks view:looks +unsaved +pending	check
 ops-off looks view:looks +pending	Shift-Tab	ops-off flow(doc display) view:flow +pending	mouse on
+ops-off looks view:looks +pending	Shrink	ops-off  too-small +pending	
 ops-off looks view:looks +pending	Tab	ops-off fonts(marked) view:fonts +pending	
 ops-off looks view:looks +pending	i	ops-off looks question:install +pending	prepare
 ops-off looks view:looks +pending	o	ops-off looks view:looks +unsaved +pending	check
@@ -1974,6 +1337,7 @@ ops-off looks view:looks +pending	q	ops-off looks question:leave +pending
 ops-off looks view:looks +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off looks view:looks +unsaved	Enter	ops-off looks view:looks +unsaved	check
 ops-off looks view:looks +unsaved	Shift-Tab	ops-off flow(doc display) view:flow +unsaved	mouse on
+ops-off looks view:looks +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off looks view:looks +unsaved	Tab	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off looks view:looks +unsaved	i	ops-off looks view:looks	save, prepare
 ops-off looks view:looks +unsaved	o	ops-off looks view:looks +unsaved	check
@@ -1982,6 +1346,7 @@ ops-off looks view:looks +unsaved	s	ops-off looks view:looks	save
 ops-off looks view:looks +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off looks view:looks +unsaved +pending	Enter	ops-off looks view:looks +unsaved +pending	check
 ops-off looks view:looks +unsaved +pending	Shift-Tab	ops-off flow(doc display) view:flow +unsaved +pending	mouse on
+ops-off looks view:looks +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off looks view:looks +unsaved +pending	Tab	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off looks view:looks +unsaved +pending	i	ops-off looks view:looks +pending	save, prepare
 ops-off looks view:looks +unsaved +pending	o	ops-off looks view:looks +unsaved +pending	check
@@ -1990,6 +1355,7 @@ ops-off looks view:looks +unsaved +pending	s	ops-off looks view:looks +pending	s
 ops-off new-frit layer:new-frit	Ctrl-C	ops-off left	exit 130
 ops-off new-frit layer:new-frit	Esc	ops-off fonts(builtin) view:fonts	
 ops-off new-frit layer:new-frit	Home	ops-off new-frit typing:new-frit	
+ops-off new-frit layer:new-frit	Shrink	ops-off  too-small	
 ops-off new-frit layer:new-frit	Up	ops-off new-frit typing:new-frit	
 ops-off new-frit layer:new-frit	i	ops-off new-frit layer:new-frit	prepare
 ops-off new-frit layer:new-frit	o	ops-off new-frit layer:new-frit +unsaved	check
@@ -1997,6 +1363,7 @@ ops-off new-frit layer:new-frit	q	ops-off left	exit 0
 ops-off new-frit layer:new-frit +pending	Ctrl-C	ops-off left	exit 130
 ops-off new-frit layer:new-frit +pending	Esc	ops-off fonts(marked) view:fonts +pending	
 ops-off new-frit layer:new-frit +pending	Home	ops-off new-frit typing:new-frit +pending	
+ops-off new-frit layer:new-frit +pending	Shrink	ops-off  too-small +pending	
 ops-off new-frit layer:new-frit +pending	Up	ops-off new-frit typing:new-frit +pending	
 ops-off new-frit layer:new-frit +pending	i	ops-off new-frit question:install +pending	prepare
 ops-off new-frit layer:new-frit +pending	o	ops-off new-frit layer:new-frit +unsaved +pending	check
@@ -2004,6 +1371,7 @@ ops-off new-frit layer:new-frit +pending	q	ops-off new-frit question:leave +pend
 ops-off new-frit layer:new-frit +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off new-frit layer:new-frit +unsaved	Esc	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off new-frit layer:new-frit +unsaved	Home	ops-off new-frit typing:new-frit +unsaved	
+ops-off new-frit layer:new-frit +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off new-frit layer:new-frit +unsaved	Up	ops-off new-frit typing:new-frit +unsaved	
 ops-off new-frit layer:new-frit +unsaved	i	ops-off new-frit layer:new-frit	save, prepare
 ops-off new-frit layer:new-frit +unsaved	o	ops-off new-frit layer:new-frit +unsaved	check
@@ -2011,290 +1379,65 @@ ops-off new-frit layer:new-frit +unsaved	q	ops-off new-frit question:quit +unsav
 ops-off new-frit layer:new-frit +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off new-frit layer:new-frit +unsaved +pending	Esc	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off new-frit layer:new-frit +unsaved +pending	Home	ops-off new-frit typing:new-frit +unsaved +pending	
+ops-off new-frit layer:new-frit +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off new-frit layer:new-frit +unsaved +pending	Up	ops-off new-frit typing:new-frit +unsaved +pending	
 ops-off new-frit layer:new-frit +unsaved +pending	i	ops-off new-frit layer:new-frit +pending	save, prepare
 ops-off new-frit layer:new-frit +unsaved +pending	o	ops-off new-frit layer:new-frit +unsaved +pending	check
 ops-off new-frit layer:new-frit +unsaved +pending	q	ops-off new-frit question:leave +unsaved +pending	
-ops-off new-frit question:install +pending	Backspace	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:install +pending	Ctrl-C	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Ctrl-D	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Down	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	End	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Enter	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:install +pending	Esc	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Home	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Left	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	PgDn	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Right	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Shift-Tab	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Space	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Tab	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	Up	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	a	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	d	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	e	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	i	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	k	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	l	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	n	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	o	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	p	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	q	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	r	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	s	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	t	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	u	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	v	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:install +pending	x	ops-off new-frit layer:new-frit +pending	
+ops-off new-frit question:install +pending	Shrink	ops-off  question:install +pending	
 ops-off new-frit question:install +pending	y	ops-off new-frit layer:new-frit	install
-ops-off new-frit question:install +pending	z	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Backspace	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:leave +pending	Ctrl-C	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Ctrl-D	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Down	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	End	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Enter	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit question:leave +pending	Esc	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Home	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Left	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	PgDn	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Right	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Shift-Tab	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Space	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Tab	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	Up	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	a	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	d	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	e	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	i	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	k	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	l	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	n	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	o	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	p	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	q	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	r	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	s	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	t	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	u	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	v	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +pending	x	ops-off new-frit layer:new-frit +pending	
+ops-off new-frit question:leave +pending	Shrink	ops-off  question:leave +pending	
 ops-off new-frit question:leave +pending	y	ops-off left	exit 0
-ops-off new-frit question:leave +pending	z	ops-off new-frit layer:new-frit +pending	
-ops-off new-frit question:leave +unsaved +pending	Backspace	ops-off new-frit layer:new-frit +unsaved +pending	
 ops-off new-frit question:leave +unsaved +pending	Ctrl-C	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Ctrl-D	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Down	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	End	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Enter	ops-off new-frit layer:new-frit +unsaved +pending	
 ops-off new-frit question:leave +unsaved +pending	Esc	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Home	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Left	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	PgDn	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Right	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Shift-Tab	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Space	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Tab	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	Up	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	a	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	d	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	e	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	i	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	k	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	l	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	n	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	o	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	p	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	q	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	r	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	s	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	t	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	u	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	v	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:leave +unsaved +pending	x	ops-off new-frit layer:new-frit +unsaved +pending	
+ops-off new-frit question:leave +unsaved +pending	Shrink	ops-off  question:leave +unsaved +pending	
 ops-off new-frit question:leave +unsaved +pending	y	ops-off left	save, exit 0
-ops-off new-frit question:leave +unsaved +pending	z	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off new-frit question:quit +unsaved	Backspace	ops-off new-frit layer:new-frit +unsaved	
 ops-off new-frit question:quit +unsaved	Ctrl-C	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Ctrl-D	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Down	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	End	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Enter	ops-off new-frit layer:new-frit +unsaved	
 ops-off new-frit question:quit +unsaved	Esc	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Home	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Left	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	PgDn	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Right	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Shift-Tab	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Space	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Tab	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	Up	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	a	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	d	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	e	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	i	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	k	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	l	ops-off new-frit layer:new-frit +unsaved	
+ops-off new-frit question:quit +unsaved	Shrink	ops-off  question:quit +unsaved	
 ops-off new-frit question:quit +unsaved	n	ops-off left	exit 0
-ops-off new-frit question:quit +unsaved	o	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	p	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	q	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	r	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	s	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	t	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	u	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	v	ops-off new-frit layer:new-frit +unsaved	
-ops-off new-frit question:quit +unsaved	x	ops-off new-frit layer:new-frit +unsaved	
 ops-off new-frit question:quit +unsaved	y	ops-off left	save, exit 0
-ops-off new-frit question:quit +unsaved	z	ops-off new-frit layer:new-frit +unsaved	
 ops-off new-frit typing:new-frit	Ctrl-C	ops-off left	exit 130
 ops-off new-frit typing:new-frit	End	ops-off new-frit layer:new-frit	
 ops-off new-frit typing:new-frit	Esc	ops-off fonts(builtin) view:fonts	
 ops-off new-frit typing:new-frit	PgDn	ops-off new-frit layer:new-frit	
+ops-off new-frit typing:new-frit	Shrink	ops-off  too-small	
 ops-off new-frit typing:new-frit +pending	Ctrl-C	ops-off left	exit 130
 ops-off new-frit typing:new-frit +pending	End	ops-off new-frit layer:new-frit +pending	
 ops-off new-frit typing:new-frit +pending	Esc	ops-off fonts(marked) view:fonts +pending	
 ops-off new-frit typing:new-frit +pending	PgDn	ops-off new-frit layer:new-frit +pending	
+ops-off new-frit typing:new-frit +pending	Shrink	ops-off  too-small +pending	
 ops-off new-frit typing:new-frit +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off new-frit typing:new-frit +unsaved	End	ops-off new-frit layer:new-frit +unsaved	
 ops-off new-frit typing:new-frit +unsaved	Esc	ops-off fonts(builtin) view:fonts +unsaved	
 ops-off new-frit typing:new-frit +unsaved	PgDn	ops-off new-frit layer:new-frit +unsaved	
+ops-off new-frit typing:new-frit +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off new-frit typing:new-frit +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off new-frit typing:new-frit +unsaved +pending	End	ops-off new-frit layer:new-frit +unsaved +pending	
 ops-off new-frit typing:new-frit +unsaved +pending	Esc	ops-off fonts(marked) view:fonts +unsaved +pending	
 ops-off new-frit typing:new-frit +unsaved +pending	PgDn	ops-off new-frit layer:new-frit +unsaved +pending	
-ops-off settings question:install +pending	Backspace	ops-off settings(value) view:settings +pending	
+ops-off new-frit typing:new-frit +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off settings question:install +pending	Ctrl-C	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Ctrl-D	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Down	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	End	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Enter	ops-off settings(value) view:settings +pending	
 ops-off settings question:install +pending	Esc	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Home	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Left	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	PgDn	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Right	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Shift-Tab	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Space	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Tab	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	Up	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	a	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	d	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	e	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	i	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	k	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	l	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	n	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	o	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	p	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	q	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	r	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	s	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	t	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	u	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	v	ops-off settings(value) view:settings +pending	
-ops-off settings question:install +pending	x	ops-off settings(value) view:settings +pending	
+ops-off settings question:install +pending	Shrink	ops-off  question:install +pending	
 ops-off settings question:install +pending	y	ops-off settings(value) view:settings	install
-ops-off settings question:install +pending	z	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Backspace	ops-off settings(value) view:settings +pending	
 ops-off settings question:leave +pending	Ctrl-C	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Ctrl-D	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Down	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	End	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Enter	ops-off settings(value) view:settings +pending	
 ops-off settings question:leave +pending	Esc	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Home	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Left	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	PgDn	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Right	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Shift-Tab	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Space	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Tab	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	Up	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	a	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	d	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	e	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	i	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	k	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	l	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	n	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	o	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	p	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	q	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	r	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	s	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	t	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	u	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	v	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +pending	x	ops-off settings(value) view:settings +pending	
+ops-off settings question:leave +pending	Shrink	ops-off  question:leave +pending	
 ops-off settings question:leave +pending	y	ops-off left	exit 0
-ops-off settings question:leave +pending	z	ops-off settings(value) view:settings +pending	
-ops-off settings question:leave +unsaved +pending	Backspace	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings question:leave +unsaved +pending	Ctrl-C	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Ctrl-D	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Down	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	End	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Enter	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings question:leave +unsaved +pending	Esc	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Home	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Left	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	PgDn	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Right	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Shift-Tab	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Space	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Tab	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	Up	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	a	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	d	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	e	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	i	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	k	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	l	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	n	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	o	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	p	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	q	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	r	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	s	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	t	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	u	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	v	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:leave +unsaved +pending	x	ops-off settings(value) view:settings +unsaved +pending	
+ops-off settings question:leave +unsaved +pending	Shrink	ops-off  question:leave +unsaved +pending	
 ops-off settings question:leave +unsaved +pending	y	ops-off left	save, exit 0
-ops-off settings question:leave +unsaved +pending	z	ops-off settings(value) view:settings +unsaved +pending	
-ops-off settings question:quit +unsaved	Backspace	ops-off settings(value) view:settings +unsaved	
 ops-off settings question:quit +unsaved	Ctrl-C	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Ctrl-D	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Down	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	End	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Enter	ops-off settings(value) view:settings +unsaved	
 ops-off settings question:quit +unsaved	Esc	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Home	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Left	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	PgDn	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Right	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Shift-Tab	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Space	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Tab	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	Up	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	a	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	d	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	e	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	i	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	k	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	l	ops-off settings(value) view:settings +unsaved	
+ops-off settings question:quit +unsaved	Shrink	ops-off  question:quit +unsaved	
 ops-off settings question:quit +unsaved	n	ops-off left	exit 0
-ops-off settings question:quit +unsaved	o	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	p	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	q	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	r	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	s	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	t	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	u	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	v	ops-off settings(value) view:settings +unsaved	
-ops-off settings question:quit +unsaved	x	ops-off settings(value) view:settings +unsaved	
 ops-off settings question:quit +unsaved	y	ops-off left	save, exit 0
-ops-off settings question:quit +unsaved	z	ops-off settings(value) view:settings +unsaved	
 ops-off settings typing:settings	Ctrl-C	ops-off left	exit 130
 ops-off settings typing:settings	Ctrl-D	ops-off settings(value) view:settings	
 ops-off settings typing:settings	Down	ops-off settings(value) view:settings	
@@ -2305,6 +1448,7 @@ ops-off settings typing:settings	Home	ops-off settings(value) view:settings
 ops-off settings typing:settings	Left	ops-off settings(value) view:settings	
 ops-off settings typing:settings	PgDn	ops-off settings(value) view:settings	
 ops-off settings typing:settings	Right	ops-off settings(value) view:settings	
+ops-off settings typing:settings	Shrink	ops-off  too-small	
 ops-off settings typing:settings	Up	ops-off settings(value) view:settings	
 ops-off settings typing:settings +pending	Ctrl-C	ops-off left	exit 130
 ops-off settings typing:settings +pending	Ctrl-D	ops-off settings(value) view:settings +pending	
@@ -2316,6 +1460,7 @@ ops-off settings typing:settings +pending	Home	ops-off settings(value) view:sett
 ops-off settings typing:settings +pending	Left	ops-off settings(value) view:settings +pending	
 ops-off settings typing:settings +pending	PgDn	ops-off settings(value) view:settings +pending	
 ops-off settings typing:settings +pending	Right	ops-off settings(value) view:settings +pending	
+ops-off settings typing:settings +pending	Shrink	ops-off  too-small +pending	
 ops-off settings typing:settings +pending	Up	ops-off settings(value) view:settings +pending	
 ops-off settings typing:settings +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off settings typing:settings +unsaved	Ctrl-D	ops-off settings(value) view:settings +unsaved	
@@ -2327,6 +1472,7 @@ ops-off settings typing:settings +unsaved	Home	ops-off settings(value) view:sett
 ops-off settings typing:settings +unsaved	Left	ops-off settings(value) view:settings +unsaved	
 ops-off settings typing:settings +unsaved	PgDn	ops-off settings(value) view:settings +unsaved	
 ops-off settings typing:settings +unsaved	Right	ops-off settings(value) view:settings +unsaved	
+ops-off settings typing:settings +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off settings typing:settings +unsaved	Up	ops-off settings(value) view:settings +unsaved	
 ops-off settings typing:settings +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off settings typing:settings +unsaved +pending	Ctrl-D	ops-off settings(value) view:settings +unsaved +pending	
@@ -2338,6 +1484,7 @@ ops-off settings typing:settings +unsaved +pending	Home	ops-off settings(value) 
 ops-off settings typing:settings +unsaved +pending	Left	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings typing:settings +unsaved +pending	PgDn	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings typing:settings +unsaved +pending	Right	ops-off settings(value) view:settings +unsaved +pending	
+ops-off settings typing:settings +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off settings typing:settings +unsaved +pending	Up	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings(choice) view:settings	Ctrl-C	ops-off left	exit 130
 ops-off settings(choice) view:settings	End	ops-off settings(value) view:settings	
@@ -2345,6 +1492,7 @@ ops-off settings(choice) view:settings	Enter	ops-off settings(choice) view:setti
 ops-off settings(choice) view:settings	Home	ops-off settings(value) view:settings	
 ops-off settings(choice) view:settings	PgDn	ops-off settings(value) view:settings	
 ops-off settings(choice) view:settings	Shift-Tab	ops-off fonts(builtin) view:fonts	
+ops-off settings(choice) view:settings	Shrink	ops-off  too-small	
 ops-off settings(choice) view:settings	Tab	ops-off help(help) view:help	
 ops-off settings(choice) view:settings	i	ops-off settings(choice) view:settings	prepare
 ops-off settings(choice) view:settings	o	ops-off settings(choice) view:settings +unsaved	check
@@ -2355,6 +1503,7 @@ ops-off settings(choice) view:settings +pending	Enter	ops-off settings(choice) v
 ops-off settings(choice) view:settings +pending	Home	ops-off settings(value) view:settings +pending	
 ops-off settings(choice) view:settings +pending	PgDn	ops-off settings(value) view:settings +pending	
 ops-off settings(choice) view:settings +pending	Shift-Tab	ops-off fonts(marked) view:fonts +pending	
+ops-off settings(choice) view:settings +pending	Shrink	ops-off  too-small +pending	
 ops-off settings(choice) view:settings +pending	Tab	ops-off help(help) view:help +pending	
 ops-off settings(choice) view:settings +pending	i	ops-off settings question:install +pending	prepare
 ops-off settings(choice) view:settings +pending	o	ops-off settings(choice) view:settings +unsaved +pending	check
@@ -2365,6 +1514,7 @@ ops-off settings(choice) view:settings +unsaved	Enter	ops-off settings(choice) v
 ops-off settings(choice) view:settings +unsaved	Home	ops-off settings(value) view:settings +unsaved	
 ops-off settings(choice) view:settings +unsaved	PgDn	ops-off settings(value) view:settings +unsaved	
 ops-off settings(choice) view:settings +unsaved	Shift-Tab	ops-off fonts(builtin) view:fonts +unsaved	
+ops-off settings(choice) view:settings +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off settings(choice) view:settings +unsaved	Tab	ops-off help(help) view:help +unsaved	
 ops-off settings(choice) view:settings +unsaved	i	ops-off settings(choice) view:settings	save, prepare
 ops-off settings(choice) view:settings +unsaved	o	ops-off settings(choice) view:settings +unsaved	check
@@ -2376,6 +1526,7 @@ ops-off settings(choice) view:settings +unsaved +pending	Enter	ops-off settings(
 ops-off settings(choice) view:settings +unsaved +pending	Home	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings(choice) view:settings +unsaved +pending	PgDn	ops-off settings(value) view:settings +unsaved +pending	
 ops-off settings(choice) view:settings +unsaved +pending	Shift-Tab	ops-off fonts(marked) view:fonts +unsaved +pending	
+ops-off settings(choice) view:settings +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off settings(choice) view:settings +unsaved +pending	Tab	ops-off help(help) view:help +unsaved +pending	
 ops-off settings(choice) view:settings +unsaved +pending	i	ops-off settings(choice) view:settings +pending	save, prepare
 ops-off settings(choice) view:settings +unsaved +pending	o	ops-off settings(choice) view:settings +unsaved +pending	check
@@ -2385,6 +1536,7 @@ ops-off settings(value) view:settings	Ctrl-C	ops-off left	exit 130
 ops-off settings(value) view:settings	Enter	ops-off settings typing:settings	
 ops-off settings(value) view:settings	PgDn	ops-off settings(choice) view:settings	
 ops-off settings(value) view:settings	Shift-Tab	ops-off fonts(builtin) view:fonts	
+ops-off settings(value) view:settings	Shrink	ops-off  too-small	
 ops-off settings(value) view:settings	Tab	ops-off help(help) view:help	
 ops-off settings(value) view:settings	i	ops-off settings(value) view:settings	prepare
 ops-off settings(value) view:settings	o	ops-off settings(value) view:settings +unsaved	check
@@ -2393,6 +1545,7 @@ ops-off settings(value) view:settings +pending	Ctrl-C	ops-off left	exit 130
 ops-off settings(value) view:settings +pending	Enter	ops-off settings typing:settings +pending	
 ops-off settings(value) view:settings +pending	PgDn	ops-off settings(choice) view:settings +pending	
 ops-off settings(value) view:settings +pending	Shift-Tab	ops-off fonts(marked) view:fonts +pending	
+ops-off settings(value) view:settings +pending	Shrink	ops-off  too-small +pending	
 ops-off settings(value) view:settings +pending	Tab	ops-off help(help) view:help +pending	
 ops-off settings(value) view:settings +pending	i	ops-off settings question:install +pending	prepare
 ops-off settings(value) view:settings +pending	o	ops-off settings(value) view:settings +unsaved +pending	check
@@ -2401,6 +1554,7 @@ ops-off settings(value) view:settings +unsaved	Ctrl-C	ops-off left	save, exit 13
 ops-off settings(value) view:settings +unsaved	Enter	ops-off settings typing:settings +unsaved	
 ops-off settings(value) view:settings +unsaved	PgDn	ops-off settings(choice) view:settings +unsaved	
 ops-off settings(value) view:settings +unsaved	Shift-Tab	ops-off fonts(builtin) view:fonts +unsaved	
+ops-off settings(value) view:settings +unsaved	Shrink	ops-off  too-small +unsaved	
 ops-off settings(value) view:settings +unsaved	Tab	ops-off help(help) view:help +unsaved	
 ops-off settings(value) view:settings +unsaved	i	ops-off settings(value) view:settings	save, prepare
 ops-off settings(value) view:settings +unsaved	o	ops-off settings(value) view:settings +unsaved	check
@@ -2410,6 +1564,7 @@ ops-off settings(value) view:settings +unsaved +pending	Ctrl-C	ops-off left	save
 ops-off settings(value) view:settings +unsaved +pending	Enter	ops-off settings typing:settings +unsaved +pending	
 ops-off settings(value) view:settings +unsaved +pending	PgDn	ops-off settings(choice) view:settings +unsaved +pending	
 ops-off settings(value) view:settings +unsaved +pending	Shift-Tab	ops-off fonts(marked) view:fonts +unsaved +pending	
+ops-off settings(value) view:settings +unsaved +pending	Shrink	ops-off  too-small +unsaved +pending	
 ops-off settings(value) view:settings +unsaved +pending	Tab	ops-off help(help) view:help +unsaved +pending	
 ops-off settings(value) view:settings +unsaved +pending	i	ops-off settings(value) view:settings +pending	save, prepare
 ops-off settings(value) view:settings +unsaved +pending	o	ops-off settings(value) view:settings +unsaved +pending	check
