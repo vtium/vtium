@@ -137,7 +137,8 @@ impl RunPiece {
     /// at the line's size: its block twice as wide and twice as tall, with
     /// its text twice its size, of which a double-height line shows its
     /// half. A double-width line shows every other pixel row of the
-    /// block, so its text is twice as wide and as tall as the line's text.
+    /// block, so its text is twice as wide as the line's text and as tall
+    /// as it.
     /// A line of the normal size keeps the piece as it is.
     ///
     /// References:

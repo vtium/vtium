@@ -84,9 +84,8 @@ impl Piece {
         Piece(kind << 2 | column)
     }
 
-    /// The piece of a sized run that the cell at row `row` and column
-    /// `column` of the run's block draws, both counted from 0 at the
-    /// block's top left.
+    /// The piece `run` of a sized run: the cell of the run's block that
+    /// `run` names by its row and column, on the line size it names.
     pub(crate) fn of_run(run: RunPiece) -> Piece {
         Piece(RUN_BIT | u64::from(run.bits()))
     }
