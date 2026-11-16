@@ -35,6 +35,30 @@ struct Char {
     rows: Vec<u8>,
 }
 
+/// The version a BDF font's `FONT_VERSION` property states, its quotes
+/// dropped, read from its properties alone; `None` when the font states
+/// none, or does not read as far as its properties. A line that is not
+/// UTF-8 is passed over.
+pub fn version(bytes: &[u8]) -> Option<String> {
+    let (plain, _) = crate::decode::decompress(bytes).ok()?;
+    for line in plain.split(|&b| b == b'\n') {
+        // a property may hold Latin-1 text, such as a copyright sign, so a
+        // line that is not UTF-8 is passed over, never the end of the search
+        let Ok(line) = std::str::from_utf8(line).map(str::trim) else {
+            continue;
+        };
+        match word(line, 0) {
+            Some("ENDPROPERTIES" | "CHARS" | "STARTCHAR") => return None,
+            Some("FONT_VERSION") => {
+                let value = line.get("FONT_VERSION".len()..)?.trim().trim_matches('"');
+                return Some(value.to_owned());
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// A BDF font's bytes as its glyphs at its own cell: decompressed, every
 /// glyph whose advance is the cell's width or twice it, and whose
 /// encoding is a Unicode scalar value, placed on the baseline at its own
@@ -492,6 +516,24 @@ pub(crate) mod tests {
              {glyphs}\
              ENDFONT\n"
         )
+    }
+
+    // A BDF property may hold Latin-1 text, such as a copyright sign,
+    // which is not UTF-8. The version after such a line still reads.
+    #[test]
+    fn a_version_after_a_latin_1_property_reads() {
+        let font = bdf("").replace(
+            "STARTPROPERTIES 3\n",
+            "STARTPROPERTIES 5\nCOPYRIGHT \"@ 1999\"\nFONT_VERSION \"3.000\"\n",
+        );
+        // the copyright sign in Latin-1, one byte that UTF-8 refuses
+        let bytes: Vec<u8> = font
+            .bytes()
+            .map(|b| if b == b'@' { 0xa9 } else { b })
+            .collect();
+        assert!(std::str::from_utf8(&bytes).is_err());
+        assert_eq!(version(&bytes).as_deref(), Some("3.000"));
+        assert_eq!(version(bdf("").as_bytes()), None);
     }
 
     fn rows(font: &Font, c: char) -> Vec<String> {

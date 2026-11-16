@@ -28,7 +28,7 @@ cursor 4,4
 flags AUTO_WRAP
 palette legacy fg=#e5e5e5 bg=#000000
 changed 0
-frame-cursor 4,4 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+frame-cursor 4,4 block-blink visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |x|
 row 1 ||
 row 2 ||
@@ -46,7 +46,7 @@ cursor 1,1
 flags REL_ORIGIN
 palette legacy fg=#e5e5e5 bg=#000000
 changed 1
-frame-cursor 1,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+frame-cursor 1,1 block-blink visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
 row 0 |x|
 row 1 |─|
 cells 1 0-0 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5 underline=single

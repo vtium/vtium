@@ -1,12 +1,13 @@
 # The shaping path's, the BDF reader's, the helper's request parser's, the
-# name-table reader's, the cursor file reader's and the SVG pointer
-# drawing's fuzz targets, run with cargo-fuzz on nightly:
+# name-table reader's, the cursor file reader's, the SVG pointer drawing's
+# and the frit reader's fuzz targets, run with cargo-fuzz on nightly:
 #   cargo +nightly fuzz run shape
 #   cargo +nightly fuzz run bdf
 #   cargo +nightly fuzz run serve
 #   cargo +nightly fuzz run names
 #   cargo +nightly fuzz run xcursor
 #   cargo +nightly fuzz run pointer_svg
+#   cargo +nightly fuzz run frit
 # Its own workspace, so the main workspace and CI do not build it.
 [package]
 name = "vtium-config-fuzz"
@@ -64,6 +65,13 @@ bench = false
 [[bin]]
 name = "pointer_svg"
 path = "fuzz_targets/pointer_svg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "frit"
+path = "fuzz_targets/frit.rs"
 test = false
 doc = false
 bench = false

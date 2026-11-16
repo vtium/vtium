@@ -39,6 +39,23 @@ use counting::CountingVt;
 use scratch::Scratch;
 use stand_in::real_helper;
 
+/// Shell text that defines `read_to_q`, which copies what the terminal
+/// sends to its output until a read brings a `q`, and then returns. The
+/// key and pointer tests' sessions pipe it into awk, which then reads to
+/// the end of its input instead of from the terminal. mawk, the awk of
+/// Ubuntu's container image, holds back the bytes it reads until more input
+/// comes, so an awk that reads the terminal itself never sees the `q`
+/// that the test types last. Each `dd` with `count=1` does one read, which
+/// a terminal in raw mode answers with the bytes it has, and the `.` keeps
+/// a newline at the end of those bytes from being dropped by the command
+/// substitution.
+macro_rules! read_to_q {
+    () => {
+        "read_to_q() { while c=$(dd bs=4096 count=1 2>/dev/null; echo .); c=${c%.}; [ -n \"$c\" ]; do \
+         printf '%s' \"$c\"; case $c in *q*) return;; esac; done; }; "
+    };
+}
+
 const W: u32 = 320;
 const H: u32 = 160;
 const ID: DisplayId = DisplayId(7);
@@ -2065,8 +2082,11 @@ fn button_reports_are_queued_whole_while_the_child_does_not_read() {
         "--",
         "/bin/sh",
         "-c",
-        "stty raw -echo; printf '\\033[?1003h\\033[?1006hready'; sleep 2; \
-         awk 'BEGIN{RS=\"q\"}{p=gsub(/<0;[0-9]+;[0-9]+M/,\"\");r=gsub(/<0;[0-9]+;[0-9]+m/,\"\");printf \"press=%d release=%d\\r\\n\",p,r;exit}'; read x",
+        concat!(
+            read_to_q!(),
+            "stty raw -echo; printf '\\033[?1003h\\033[?1006hready'; sleep 2; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{p=gsub(/<0;[0-9]+;[0-9]+M/,\"\");r=gsub(/<0;[0-9]+;[0-9]+m/,\"\");printf \"press=%d release=%d\\r\\n\",p,r;exit}'; read x"
+        ),
     ]);
     assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
     let queued = |h: &Harness| h.app.pty().map_or(0, |p| p.queued());
@@ -2122,9 +2142,12 @@ fn a_wheel_event_is_one_report_or_three_lines() {
         "--",
         "/bin/sh",
         "-c",
-        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
+        concat!(
+            read_to_q!(),
+            "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
          stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
-         awk 'BEGIN{RS=\"q\"}{n=gsub(/<64;/,\"\");printf \"wheel=%d\\r\\n\",n;exit}'; read x",
+         read_to_q | awk 'BEGIN{RS=\"q\"}{n=gsub(/<64;/,\"\");printf \"wheel=%d\\r\\n\",n;exit}'; read x"
+        ),
     ]);
     assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.ends_with("ready"))
@@ -2386,8 +2409,11 @@ fn shift_selects_and_pastes_while_the_program_tracks_the_pointer() {
         "--",
         "/bin/sh",
         "-c",
-        "stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[?2004hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+        concat!(
+            read_to_q!(),
+            "stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[?2004hready'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x"
+        ),
     ]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.point(
@@ -2426,9 +2452,12 @@ fn shift_and_the_wheel_scroll_back_while_the_program_tracks_the_pointer() {
         "--",
         "/bin/sh",
         "-c",
-        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
+        concat!(
+            read_to_q!(),
+            "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
          stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
-         awk 'BEGIN{RS=\"q\"}{n=gsub(/</,\"\");printf \"reports=%d\\r\\n\",n;exit}'; read x",
+         read_to_q | awk 'BEGIN{RS=\"q\"}{n=gsub(/</,\"\");printf \"reports=%d\\r\\n\",n;exit}'; read x"
+        ),
     ]);
     assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.ends_with("ready"))
@@ -2468,8 +2497,11 @@ fn shift_pressed_during_a_reported_drag_changes_nothing() {
         "--",
         "/bin/sh",
         "-c",
-        "stty raw -echo; printf '\\033[?1002h\\033[?1006hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+        concat!(
+            read_to_q!(),
+            "stty raw -echo; printf '\\033[?1002h\\033[?1006hready'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x"
+        ),
     ]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.point(
@@ -2661,8 +2693,9 @@ fn ctrl_shift_click_copies_a_link_while_the_program_tracks_the_pointer() {
         "/bin/sh",
         "-c",
         &format!(
-            "{LINKED}; stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
-             awk 'BEGIN{{RS=\"q\"}}{{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}}'; read x"
+            "{}{LINKED}; stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+             read_to_q | awk 'BEGIN{{RS=\"q\"}}{{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}}'; read x",
+            read_to_q!()
         ),
     ]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
@@ -2696,8 +2729,9 @@ fn the_wheel_sends_cursor_keys_on_the_alternate_screen_under_mode_1007() {
             "/bin/sh",
             "-c",
             &format!(
-                "stty raw -echo; printf '{reset}\\033[?1049hready'; \
-                 awk 'BEGIN{{RS=\"q\"}}{{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}}'; read x"
+                "{}stty raw -echo; printf '{reset}\\033[?1049hready'; \
+                 read_to_q | awk 'BEGIN{{RS=\"q\"}}{{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}}'; read x",
+                read_to_q!()
             ),
         ]);
         assert!(h.until(BOUND, |a| shows(a, "ready")));
@@ -2758,8 +2792,11 @@ fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
         "--",
         "/bin/sh",
         "-c",
-        "stty raw -echo; printf '\\033[?1049hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
+        concat!(
+            read_to_q!(),
+            "stty raw -echo; printf '\\033[?1049hready'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x"
+        ),
     ]);
     h.app.set_natural_scrolling(true);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
@@ -2776,8 +2813,11 @@ fn natural_scrolling_reverses_the_wheel_but_not_its_zoom() {
         "--",
         "/bin/sh",
         "-c",
-        "stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
+        concat!(
+            read_to_q!(),
+            "stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x"
+        ),
     ]);
     h.app.set_natural_scrolling(true);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
@@ -2800,9 +2840,12 @@ fn a_program_that_asks_for_shift_gets_it_in_its_reports() {
         "--",
         "/bin/sh",
         "-c",
-        "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
+        concat!(
+            read_to_q!(),
+            "i=0; while [ $i -lt 40 ]; do echo line$i; i=$((i+1)); done; \
          stty raw -echo; printf 'pick me\\r\\n\\033[?1000h\\033[?1006h\\033[>1sready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x"
+        ),
     ]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
     let row = 8;
@@ -2958,9 +3001,12 @@ fn ctrl_shift_right_click_copies_a_commands_output_while_the_program_tracks() {
         "--",
         "/bin/sh",
         "-c",
-        "printf '\\033]133;A\\007$ \\033]133;B\\007ls\\n\\033]133;C\\007one\\ntwo\\n\\033]133;A\\007$ '; \
+        concat!(
+            read_to_q!(),
+            "printf '\\033]133;A\\007$ \\033]133;B\\007ls\\n\\033]133;C\\007one\\ntwo\\n\\033]133;A\\007$ '; \
          stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x",
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x"
+        ),
     ]);
     assert!(h.until(BOUND, |a| shows(a, "$ ready")));
     let click = [
@@ -3043,12 +3089,15 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
         "--",
         "/bin/sh",
         "-c",
-        "stty raw -echo; i=0; while [ $i -lt 3 ]; do printf '\\033]133;A\\007$ p%d\\r\\n' $i; j=0; \
+        concat!(
+            read_to_q!(),
+            "stty raw -echo; i=0; while [ $i -lt 3 ]; do printf '\\033]133;A\\007$ p%d\\r\\n' $i; j=0; \
          while [ $j -lt 12 ]; do printf 'out%d.%d\\r\\n' $i $j; j=$((j+1)); done; i=$((i+1)); done; \
          printf '\\033]133;A\\007$ last'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nmain:[%s]\\r\\n\",$0;exit}'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nmain:[%s]\\r\\n\",$0;exit}'; \
          head -c 1 >/dev/null; printf '\\033[?1049halt'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read y",
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read y"
+        ),
     ]);
     assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "$ last")));
     let back = |h: &Harness| {
@@ -3105,8 +3154,11 @@ fn ctrl_shift_up_and_down_jump_between_the_marked_prompts() {
 // covers: clipboard.paste
 #[test]
 fn key_paste_binds_the_paste() {
-    let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x";
+    let script = concat!(
+        read_to_q!(),
+        "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x"
+    );
     let shift_insert = key(Mods::SHIFT, 0xff63);
     let alt_p = InputEvent::Key(KeyEvent {
         keycode: 0,
@@ -3203,8 +3255,11 @@ fn typing_hides_the_pointer_under_pointer_hide_while_typing() {
 /// `<Ctrl><Shift>v` never fires.
 #[test]
 fn a_shift_chord_names_the_shifted_keysym() {
-    let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x";
+    let script = concat!(
+        read_to_q!(),
+        "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x"
+    );
     let ctrl_shift_v = InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: u32::from('v'),
@@ -3235,11 +3290,14 @@ fn a_shift_chord_names_the_shifted_keysym() {
 /// until `q` and prints them as `main:[...]`, then reads one byte, enters
 /// the alternate screen, shows `alt`, and reads keys until `q` again,
 /// printing them as `alt:[...]`. Each escape is printed as `E`.
-const MAIN_THEN_ALT: &str = "stty raw -echo; i=0; while [ $i -lt 40 ]; do printf 'line%d\\r\\n' $i; i=$((i+1)); done; \
+const MAIN_THEN_ALT: &str = concat!(
+    read_to_q!(),
+    "stty raw -echo; i=0; while [ $i -lt 40 ]; do printf 'line%d\\r\\n' $i; i=$((i+1)); done; \
      printf 'ready'; \
-     awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nmain:[%s]\\r\\n\",$0;exit}'; \
+     read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nmain:[%s]\\r\\n\",$0;exit}'; \
      head -c 1 >/dev/null; printf '\\033[?1049halt'; \
-     awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nalt:[%s]\\r\\n\",$0;exit}'; read y";
+     read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\nalt:[%s]\\r\\n\",$0;exit}'; read y"
+);
 
 /// How many lines the view of the shown console is scrolled back.
 fn scrolled_back(h: &Harness) -> usize {
@@ -3358,8 +3416,11 @@ fn an_emptied_key_reaches_the_program() {
 /// comes before the scroll keys, and the scroll keys before the zoom.
 #[test]
 fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
-    let script = "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x";
+    let script = concat!(
+        read_to_q!(),
+        "stty raw -echo; printf '\\033]52;c;cGFzdGVk\\a\\033[?2004hready'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x"
+    );
     let mut h = Harness::reporting(
         &[
             "--key-paste=<Shift>Up",
@@ -3408,9 +3469,12 @@ fn a_combination_bound_twice_goes_to_the_first_key_in_the_key_order() {
 /// reaches the program.
 #[test]
 fn the_reset_key_resets_the_console_and_its_keyboard_modes() {
-    let script = "stty raw -echo; i=0; while [ $i -lt 40 ]; do printf 'line%d\\r\\n' $i; i=$((i+1)); done; \
+    let script = concat!(
+        read_to_q!(),
+        "stty raw -echo; i=0; while [ $i -lt 40 ]; do printf 'line%d\\r\\n' $i; i=$((i+1)); done; \
          printf '\\033[>1u\\033[?1hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x";
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\n[%s]\\r\\n\",$0;exit}'; read x"
+    );
     let mut h = Harness::new(&["--login", "--", "/bin/sh", "-c", script]);
     assert!(h.until(BOUND, |a| shows(a, "ready")));
     h.app.input_event(key(Mods::SHIFT, 0xff52), h.at());
@@ -3577,8 +3641,11 @@ fn a_released_fake_vt_reports_no_pointer_action_to_the_program() {
         "--",
         "/bin/sh",
         "-c",
-        "stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
-         awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\ngot:%s.\\r\\n\",$0;exit}'; read x",
+        concat!(
+            read_to_q!(),
+            "stty raw -echo; printf '\\033[?1000h\\033[?1006hready'; \
+         read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");printf \"\\r\\ngot:%s.\\r\\n\",$0;exit}'; read x"
+        ),
     ]);
     assert!(h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.ends_with("ready"))
@@ -3692,10 +3759,13 @@ fn a_hostile_selection_is_pasted_filtered_once_a_press() {
             "--",
             "/bin/sh",
             "-c",
-            "stty raw -echo; \
+            concat!(
+                read_to_q!(),
+                "stty raw -echo; \
              printf '\\033]52;c;%s\\a' \"$(printf 'a\\033[201~b\\003c\\nd' | base64)\"; \
              printf '\\033[?2004hready'; \
-             awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");gsub(/\\r/,\"R\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x",
+             read_to_q | awk 'BEGIN{RS=\"q\"}{gsub(/\\033/,\"E\");gsub(/\\r/,\"R\");printf \"\\r\\n%s\\r\\n\",$0;exit}'; read x"
+            ),
         ],
         FakeVt::new(),
         Box::new(Memory::sized(640, 160)),
@@ -5550,9 +5620,14 @@ fn logged() -> Vec<String> {
     LINES.with(|l| std::mem::take(&mut *l.borrow_mut()))
 }
 
-/// A frit `t` in a directory of its own, and a stand-in helper that
-/// answers each request with `answer` once `go` exists, then exits as at
-/// its idle interval; the directory, the sources and the go file.
+/// A frit `t` in a directory of its own, and a stand-in helper that runs
+/// `script` with the file that holds `answer` as `$1` and the go file as
+/// `$2`; the directory, the sources and the go file. A script that answers
+/// ends with `exec cat >/dev/null`, so the stand-in reads every request
+/// and runs until vtium closes its input, as the real helper does. cat
+/// runs in the shell's own place because a shell gives a command it runs
+/// in the background /dev/null for its standard input, so a background
+/// cat would read none of the requests.
 fn frit_fonts(name: &str, answer: &[u8], script: &str) -> (Scratch, Sources, PathBuf) {
     frit_fonts_of(name, "source=builtin:unifont\n", answer, script)
 }
@@ -5634,7 +5709,7 @@ fn a_frits_warning_from_the_helper_is_logged_once() {
     let mut answer = warning.clone();
     answer.extend(&warning);
     answer.extend(solid_ascii(cell));
-    let (_dir, fonts, _go) = frit_fonts("warning", &answer, "cat >/dev/null & cat \"$1\"; wait");
+    let (_dir, fonts, _go) = frit_fonts("warning", &answer, "cat \"$1\"; exec cat >/dev/null");
     logged();
     let mut h = with_fonts(&["--font-name=t"], fonts.clone());
     let line = "the frit t:2: compress= has nothing to act on, and is ignored";
@@ -5679,7 +5754,7 @@ fn a_frit_draws_the_built_in_font_first_and_the_helpers_glyphs_after() {
     let (_dir, fonts, go) = frit_fonts(
         "swap",
         &solid_ascii(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     let mut h = with_fonts(&["--font-name=t"], fonts.clone());
     assert_eq!(h.app.font_name(), "t");
@@ -5717,7 +5792,7 @@ fn a_glyph_that_arrives_off_screen_draws_when_shown_again() {
     let (_dir, fonts, go) = frit_fonts(
         "offscreen",
         &solid_ascii(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     // A at the top left; then, at each Enter, the screen cleared with B
     // beside where A was, and A drawn there again
@@ -5780,7 +5855,7 @@ fn a_set_that_brings_u25a1_redraws_a_missing_character_at_once() {
     let (_dir, fonts, go) = frit_fonts(
         "missing",
         &solid_white_square(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     // U+10FFFD, which neither the frit nor the built-in unifont holds
     let session = "stty -echo; printf '\\364\\217\\277\\275'; read x";
@@ -5880,7 +5955,7 @@ fn a_frits_stated_cell_is_the_grids_and_the_glyphs_never_move_it() {
         "cell",
         "source=builtin:unifont\ncell=10x20\n",
         &solid_ascii(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
     assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
@@ -5947,7 +6022,7 @@ fn a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
         "own",
         "source=kbd:x\n",
         &own_cell(8, 16),
-        "cat >/dev/null & cat \"$1\"; wait",
+        "cat \"$1\"; exec cat >/dev/null",
     );
     logged();
     let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
@@ -5973,7 +6048,7 @@ fn osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
         "own-osc50",
         "source=kbd:x\n",
         &own_cell(8, 16),
-        "cat >/dev/null & cat \"$1\"; wait",
+        "cat \"$1\"; exec cat >/dev/null",
     );
     let h = osc50(&["--font-size=0"], "\\033]50;t\\007", fonts.clone());
     assert_eq!(h.app.font_name(), "t");
@@ -6017,7 +6092,7 @@ fn a_bitmap_frits_own_cell_that_comes_late_is_taken_from_the_next_frame() {
         "own-late",
         "source=kbd:x\n",
         &own_cell(8, 16),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     logged();
     let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
@@ -6265,7 +6340,7 @@ fn frit_session(name: &str, script: &str) -> (Scratch, Harness, PathBuf) {
     let (scratch, fonts, go) = frit_fonts(
         name,
         &solid_ascii(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     let h = Harness::fonts(
         &[
@@ -6347,7 +6422,7 @@ fn glyphs_no_buffer_shows_start_no_draw() {
     h.drawn_now();
     let (frames, passes) = (h.memory().frames, h.memory().ages.len());
     std::fs::write(&go, b"").expect("the go file");
-    // the helper answers and exits; the screen shows none of its glyphs
+    // the helper answers; the screen shows none of its glyphs
     h.until(Duration::from_millis(1000), |_| false);
     assert_eq!((h.memory().frames, h.memory().ages.len()), (frames, passes));
 }
@@ -7260,7 +7335,7 @@ fn osc_50_switches_back_to_vconsoles_font_by_the_name_its_query_reported() {
         "osc50-vconsole",
         "source=kbd:x\n",
         &own_cell(12, 24),
-        "cat >/dev/null & cat \"$1\"; wait",
+        "cat \"$1\"; exec cat >/dev/null",
     );
     fonts.vconsole_conf = fonts.frits.join("vconsole.conf");
     std::fs::write(&fonts.vconsole_conf, "FONT=ter-124n\n").expect("vconsole.conf");

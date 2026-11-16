@@ -141,7 +141,9 @@ fn a_rectangle_in_origin_mode_keeps_to_the_margins() {
 
 // ctlseqs, DECFRA: the character, in the pen, through the character set
 // in GL; a character that is not one printable cell does nothing, and
-// neither does the sequence with no parameter.
+// neither does the sequence with no parameter. VT510, DECFRA: a Pch
+// outside 32 to 126 and 160 to 255 makes the terminal ignore DECFRA, so 0
+// and an omitted Pch fill nothing.
 // covers: ctl.rect
 #[test]
 fn decfra_fills_a_rectangle_with_a_character() {
@@ -169,6 +171,8 @@ fn decfra_fills_a_rectangle_with_a_character() {
     t.input(b"\x1b[$x");
     assert_eq!(text(&t), ["abcdef", "gxxxkl", "mxxxqr", "stuvyy"]);
     t.input(b"\x1b[;1;1;1;2$x\x1b[0;2;1;2;2$x");
+    assert_eq!(text(&t), ["abcdef", "gxxxkl", "mxxxqr", "stuvyy"]);
+    t.input(b"\x1b[32;1;1;1;2$x\x1b[32;2;1;2;2$x");
     assert_eq!(text(&t), ["  cdef", "  xxkl", "mxxxqr", "stuvyy"]);
     t.input(b"\x1b(0\x1b[113;3;1;3;3$x\x1b(B\x1b[233;4;1;4;1$x");
     assert_eq!(
@@ -328,8 +332,7 @@ fn deccara_sets_attributes_in_a_rectangle_or_a_stream() {
 
 // kitty's DECCARA extension: every SGR parameter, colors and underline
 // styles in both forms included, as SGR applies it to the pen; SGR 0 keeps
-// DECSCA's protection. The rectangle's own parameters are not attributes,
-// and with no attribute nothing changes.
+// DECSCA's protection. The rectangle's own parameters are not attributes.
 // covers: ctl.rect
 #[test]
 fn deccara_takes_every_sgr_attribute() {
@@ -344,8 +347,6 @@ fn deccara_takes_every_sgr_attribute() {
     assert_eq!(s.fg, Color::Rgb(Rgb::new(1, 2, 3)));
     assert_eq!(s.underline_color, Color::Indexed(9));
     assert_eq!(style(&t, 0, 2), Style::DEFAULT);
-    t.input(b"\x1b[1;1;2;2$r");
-    assert_eq!(style(&t, 1, 1), s);
     // An empty attribute is SGR's 0.
     t.input(b"\x1b[1;1;1;1;$r");
     assert_eq!(style(&t, 0, 0), Style::DEFAULT);
@@ -366,6 +367,28 @@ fn deccara_takes_every_sgr_attribute() {
         assert!(attrs(&t, 0, col).contains(Attrs::INVERSE), "{col}");
     }
     assert!(!attrs(&t, 0, 0).contains(Attrs::INVERSE));
+}
+
+// VT510, DECCARA and DECRARA: with no attribute parameter at all, each
+// takes its default, 0. DECCARA's 0 turns the attributes off, here as SGR
+// 0 does, and DECRARA's 0 reverses bold, underline, blink and inverse.
+// covers: ctl.rect
+#[test]
+fn deccara_and_decrara_with_no_attribute_take_0() {
+    let mut t = term(6, 1, b"\x1b[1;4;5;7;44mab\x1b[mcd");
+    t.input(b"\x1b[2*x\x1b[1;1;1;1$r");
+    assert_eq!(style(&t, 0, 0), Style::DEFAULT);
+    assert!(attrs(&t, 0, 1).contains(Attrs::BOLD));
+    t.input(b"\x1b[1;3;1;3$t");
+    let c = attrs(&t, 0, 2);
+    assert!(c.contains(Attrs::BOLD) && c.contains(Attrs::BLINK) && c.contains(Attrs::INVERSE));
+    assert_eq!(c.underline(), UnderlineStyle::Single);
+    assert!(!c.contains(Attrs::CONCEAL));
+    assert_eq!(style(&t, 0, 3), Style::DEFAULT);
+    // With no parameter at all, the rectangle is the whole screen.
+    t.input(b"\x1b[$t");
+    assert!(!attrs(&t, 0, 2).contains(Attrs::BOLD));
+    assert!(attrs(&t, 0, 3).contains(Attrs::BOLD));
 }
 
 // ctlseqs, DECRARA: 1, 4, 5, 7 and 8 reverse bold, underline, blink,

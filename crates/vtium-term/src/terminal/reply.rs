@@ -889,7 +889,7 @@ mod tests {
                 Query::TextArea => (b"\x1b[?2048h", b"\x1b[48;5;10;80;80t"),
                 Query::Visibility => (b"\x1b[?998n", b"\x1b[?999;1n"),
                 Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),
-                Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[?3;3#Q"),
+                Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[3;3#Q"),
                 Query::Font => (b"\x1b]50;?\x07", b"\x1b]50;unifont\x07"),
                 Query::PointerShape => (
                     b"\x1b]22;>hand2\x1b\\\x1b]22;?__current__,text,cell\x07",

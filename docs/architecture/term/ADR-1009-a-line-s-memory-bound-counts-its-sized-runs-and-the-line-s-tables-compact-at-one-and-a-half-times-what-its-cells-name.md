@@ -178,6 +178,8 @@ The maintainer refused to pay memory for runs on lines that hold none, and the s
 - **Where the build stands** (amended 2026-11-15). The line-repack build moves each run check into a cold function behind an inline guard, and a screen that never held a run skips them all. That recovers most of the sized-run work's 10 to 15% loss. Plain text with no runs stays 1.5 to 3% slower than integration on `scroll`, `clusters` and `cat`. Of that, 0.3 to 2.2 points is D3's compaction cost, and the rest is spread across the remaining guards. The maintainer chose to merge the build and carry the remainder to the performance work that follows. That work brings plain text with no runs to integration's speed or faster, and D9 holds once it does.
 - **The test.** `make bench` gives `tui`, `scroll`, `clusters` and `cat` within their spread of the figures for integration in D8. A build that misses that bound fails the memory build card.
 
+> Edited 2026-11-16: the performance work on plain text makes plain text with no runs faster than integration, so D9 holds. The figures come from vtium-term's write benchmarks, run on that work at dbca1717 against integration at d244da97. `scroll` drops from 43.24 to 20.65 ms a MiB, and `cat` from 52.09 to 22.38 ms a MiB. `tui` drops from 0.526 to 0.292 ms a frame, and the instruction counts agree.
+
 ## Verification
 
 - vtium-term, `tests/memory.rs`: the worst screen row gains rows of one-column runs, each cell with its own style, its own link and a cluster, and reaches `Line::bytes_max` exactly at 170, 80 and 40 columns. The worst scrollback row gains a run in every cell. The tests pin the figures of D6 for both builds and both targets.

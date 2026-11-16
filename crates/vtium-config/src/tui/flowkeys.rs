@@ -62,7 +62,7 @@ impl App {
                 _ => {}
             }
         }
-        if self.confirm.is_some() || self.pager.is_some() || self.restore.is_some() {
+        if self.pager.is_some() || self.restore.is_some() {
             return self.flow_open_key(key);
         }
         match &state.layer {

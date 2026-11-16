@@ -107,7 +107,7 @@ pub(super) fn apply_from(pen: &mut Style, params: &Params, first: usize) {
 
 /// SGR 0: everything SGR sets returns to its default; DECSCA's protection
 /// is not SGR's and stays.
-fn reset(pen: &mut Style) {
+pub(super) fn reset(pen: &mut Style) {
     let protected = pen.attrs.contains(Attrs::PROTECTED);
     *pen = Style::DEFAULT;
     if protected {

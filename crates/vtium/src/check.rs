@@ -458,12 +458,18 @@ pub struct Outcome {
 
 /// The subcommand on `loaded` and the machine `host`.
 pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
-    outcome_with(loaded, host, None)
+    outcome_with(loaded, host, None, None)
 }
 
 /// [`outcome`], asking the glyph helper through `squeeze` which letters of
-/// the locale's everyday letters each look's font set covers (ADR-1401 D7).
-fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> Outcome {
+/// the locale's everyday letters each look's font set covers (ADR-1401 D7),
+/// and through `sources` which fonts each font set lacks (ADR-1204 D7).
+fn outcome_with(
+    loaded: &Loaded,
+    host: &Host,
+    squeeze: Option<Squeeze<'_>>,
+    sources: Option<FontSources<'_>>,
+) -> Outcome {
     let (stderr, _) = run(loaded);
     if loaded.config.switch(&keys::HELP) {
         return Outcome {
@@ -488,6 +494,7 @@ fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> O
     };
     let settings = Settings {
         squeeze,
+        sources,
         ..Settings::of(&loaded.config, &host.frits, host.frit_trust.clone())
     };
     // a candidate that is the installed file is checked as the start
@@ -515,12 +522,17 @@ fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> O
         .map(|(name, file)| frit_layers(&name, &file, settings.frits, &settings.trust))
         .unwrap_or_default();
     let stderr: Vec<String> = stderr.into_iter().chain(refused).chain(layers).collect();
+    // the fonts the font-name frit needs and this machine lacks
+    let needs = named_frit(&loaded.config, settings.frits)
+        .map(|(name, file)| font_needs_notes(&name, &file, &settings))
+        .unwrap_or_default();
     let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
         stdout: renamed
             .chain(notes(&loaded.config))
             .chain(root_refuses)
+            .chain(needs)
             .chain(heads.notes)
             .collect(),
         status,
@@ -530,7 +542,7 @@ fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> O
 /// The subcommand as the binary runs it on the machine's own files: it
 /// prints [`outcome`] and returns the exit status. It asks the glyph
 /// helper which of the locale's everyday letters each look's font set
-/// covers, waiting by `clock`.
+/// covers, and which fonts each font set lacks, waiting by `clock`.
 pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
     let env: Vec<_> = std::env::vars_os().collect();
     let locale = crate::app::locale(&env);
@@ -552,7 +564,27 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
         locale: &locale,
         ask: &ask,
     };
-    let out = outcome_with(loaded, &Host::system(&loaded.config), Some(squeeze));
+    let ask_sources = |frit: &helper::FritText| {
+        let launcher = helper::Launcher::configured(&loaded.config)?.with_locale(&locale);
+        let mut helper = helper::Helper::new(
+            launcher,
+            std::sync::Arc::new(|| {}),
+            clock(),
+            frit.clone(),
+            None,
+            crate::deferred::Shared::default(),
+            0,
+        );
+        let wait = std::time::Duration::from_millis(helper::REQUEST_MS);
+        helper.sources(wait, clock)
+    };
+    let sources = FontSources { ask: &ask_sources };
+    let out = outcome_with(
+        loaded,
+        &Host::system(&loaded.config),
+        Some(squeeze),
+        Some(sources),
+    );
     for line in &out.stderr {
         eprintln!("{line}");
     }
@@ -601,6 +633,22 @@ pub struct Settings<'a> {
     /// script a look's font set covers, for the warning on a font set
     /// that leaves them to the squeeze (ADR-1401 D7); `None` asks nothing.
     pub squeeze: Option<Squeeze<'a>>,
+    /// How the check asks the glyph helper which fonts a font set lacks,
+    /// for the notes on each missing font; `None` asks nothing.
+    pub sources: Option<FontSources<'a>>,
+}
+
+/// How the check asks the glyph helper of a font set for the lines of its
+/// answer to a sources query ([`helper::Helper::sources`]).
+#[derive(Clone, Copy)]
+pub struct FontSources<'a> {
+    pub ask: &'a dyn Fn(&helper::FritText) -> Result<String, String>,
+}
+
+impl std::fmt::Debug for FontSources<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FontSources").finish_non_exhaustive()
+    }
 }
 
 /// The question the check asks the glyph helper of a font set: which of
@@ -643,6 +691,7 @@ impl Settings<'_> {
             frits,
             trust,
             squeeze: None,
+            sources: None,
         }
     }
 }
@@ -803,6 +852,9 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
                 .and_then(|sq| squeeze_note(&look.name, &named.value, &file, settings, sq));
             out.notes
                 .extend(said.map(|said| at(path, line, said).to_string()));
+            for said in font_needs_notes(&named.value, &file, settings) {
+                out.notes.push(at(path, line, said).to_string());
+            }
         }
         match judged {
             Judged::Read => {}
@@ -818,6 +870,117 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
             }
         }
     }
+}
+
+/// The notes on the fonts that the font set `name` at `file` needs and
+/// that this machine lacks or has in another form, as the glyph helper
+/// answers a sources query: a font that is not installed, an installed
+/// font of that name that lacks a character its `check=` names, an older
+/// version than `version=` asks for, and a file whose SHA-256 is not its
+/// `sha256=`. Each note names the font set, the font and the version the
+/// set asks for, then the font's page where the set gives `url=`, then the
+/// help page on installing fonts. A source the helper refused, and one
+/// that names the system's font rather than a font of its own, gets no
+/// note. None when the check asks the helper nothing, or the helper
+/// cannot answer.
+///
+/// References:
+/// - ADR-1204 D7: `vtium check-config` names each missing font with its
+///   version and page, as `vtium config fonts` does.
+fn font_needs_notes(name: &str, file: &Path, settings: &Settings) -> Vec<String> {
+    use check_config::font_needs;
+    let Some(ask) = settings.sources else {
+        return Vec::new();
+    };
+    // the layers' sentences are frit_layers' to report, so none is logged
+    let Ok((frit, _)) = helper::FritText::read_noting(file, settings.frits, &settings.trust) else {
+        return Vec::new();
+    };
+    let Ok(answer) = (ask.ask)(&frit) else {
+        return Vec::new();
+    };
+    let lines: Vec<[&str; 4]> = answer
+        .lines()
+        .filter_map(|l| {
+            let mut f = l.splitn(4, '\t');
+            Some([f.next()?, f.next()?, f.next()?, f.next()?])
+        })
+        .collect();
+    let mut out = Vec::new();
+    for &[kind, line, spelling, value] in &lines {
+        let Ok(line) = line.parse::<usize>() else {
+            continue;
+        };
+        let Some(font) = font_of(spelling) else {
+            continue;
+        };
+        let (version, url) = needs_of(&frit.text, line, spelling);
+        let version = version.as_deref();
+        let said = match kind {
+            "missing" => {
+                let lacks = lines.iter().find_map(|&[k, l, s, v]| {
+                    (k == "lacks" && l.parse() == Ok(line) && s == spelling).then_some(v)
+                });
+                match (version, lacks) {
+                    (None, None) => font_needs::missing(name, font),
+                    (Some(v), None) => font_needs::missing_version(name, font, v),
+                    (None, Some(c)) => font_needs::lacks(name, font, c),
+                    (Some(v), Some(c)) => font_needs::lacks_version(name, font, v, c),
+                }
+            }
+            "older" => match version {
+                Some(v) => font_needs::older(name, font, v, value),
+                None => continue,
+            },
+            "sha256" => font_needs::other_file(name, font),
+            _ => continue,
+        };
+        let page = url.as_deref().map(font_needs::page);
+        let mut note = said;
+        for more in page.into_iter().chain([font_needs::how_to_install()]) {
+            note.push(' ');
+            note.push_str(&more);
+        }
+        out.push(note);
+    }
+    out
+}
+
+/// The font a source's `spelling` names, as a person knows it: a family's
+/// or a kbd font's name, or a file's path. `None` for `vconsole`,
+/// `console:` and `builtin:`, which name no font a person installs.
+fn font_of(spelling: &str) -> Option<&str> {
+    let (kind, rest) = spelling.split_once(':')?;
+    matches!(kind, "font" | "kbd" | "file" | "bdf" | "outline").then_some(rest)
+}
+
+/// The `version=` and `url=` lines under the source `spelling` on the font
+/// set's own line `line`, in `text`, the font set with its layers in place.
+/// A layer's source names the font set's `layer=` line, as the helper's
+/// answer does, so its spelling tells it from the layer's other sources.
+fn needs_of(text: &str, line: usize, spelling: &str) -> (Option<String>, Option<String>) {
+    let own = vtium_font::set::layer::lines(text);
+    let mut found = (None, None);
+    let mut inside = false;
+    for (body, at) in text.split('\n').zip(own) {
+        let at = match at {
+            vtium_font::set::layer::Line::Set(n) => n,
+            vtium_font::set::layer::Line::Layer { at, .. } => at,
+        };
+        let body = body.split('#').next().unwrap_or_default();
+        let Some((key, value)) = body.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        match key {
+            "source" | "layer" if inside => break,
+            "source" => inside = at == line && value == spelling,
+            "version" if inside => found.0 = Some(value.to_owned()),
+            "url" if inside => found.1 = Some(value.to_owned()),
+            _ => {}
+        }
+    }
+    found
 }
 
 /// The note on a look, `look`, whose font set `name` at `file` leaves
@@ -1784,6 +1947,7 @@ mod tests {
             frits: Path::new("/nonexistent/vtium/frits"),
             trust: font::trust(),
             squeeze: None,
+            sources: None,
         }
     }
 
@@ -2154,6 +2318,82 @@ mod tests {
         )
         .unwrap();
         assert!(!squeezed(&check("hi_IN.UTF-8")));
+    }
+
+    // A look's font set that needs a font this machine lacks, or has in an
+    // older version, is noted with the font, the version the set asks for,
+    // the font's page and the help page on installing fonts, as the glyph
+    // helper answers. The notes do not count against the file, because
+    // the set still draws. A source that names the system's font gets no
+    // note, and a helper that cannot answer gives none.
+    //
+    // References:
+    // - ADR-1204 D7: check-config names each missing font as vtium config
+    //   fonts does.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_font_a_looks_font_set_lacks_is_noted_with_its_page() {
+        let text = "version = 1\n[look big]\nfont-name = desk\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n";
+        let (_dir, file, trust) = heads_fixture("font-needs", text, 0o644);
+        let f = file.display().to_string();
+        let frits = file.parent().unwrap().join("frits");
+        std::fs::create_dir_all(frits.join("layers")).unwrap();
+        std::fs::write(
+            frits.join("desk.vtfrit"),
+            "source=font:Gone Mono\nversion=2.304\nurl=https://example.org/gone\nsource=font:Old Mono\nversion=3.1\nlayer=nerd\nsource=vconsole\n",
+        )
+        .unwrap();
+        std::fs::write(
+            frits.join("layers/nerd.vtlayer"),
+            "role=symbols\nsource=font:Plain\nsource=font:Nerd\ncheck=U+E0B0\n",
+        )
+        .unwrap();
+        let answer = "missing\t1\tfont:Gone Mono\tno font of family Gone Mono\n\
+                      missing\t6\tfont:Nerd\tit lacks U+E0B0\n\
+                      missing\t7\tvconsole\tno FONT=\n\
+                      older\t4\tfont:Old Mono\t3.000\n\
+                      lacks\t6\tfont:Nerd\tU+E0B0";
+        let ask = |frit: &helper::FritText| {
+            if frit.name == "desk" && frit.text.contains("source=font:Nerd") {
+                Ok(answer.to_owned())
+            } else {
+                Err("the layer is not in place".to_owned())
+            }
+        };
+        let check = |sources: Option<FontSources<'_>>| {
+            let settings = Settings {
+                frits: &frits,
+                trust: font::trust().below(file.parent().unwrap()),
+                sources,
+                ..caps(4)
+            };
+            conf_file(&file, false, &trust, &machine(true), &settings)
+        };
+        let out = check(Some(FontSources { ask: &ask }));
+        assert!(out.counted.is_empty(), "{:?}", out.counted);
+        let page = "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font.";
+        let want = [
+            format!(
+                "{f}:3: Font set desk needs the font Gone Mono, version 2.304 or later, and no font of that name is installed. You can get the font from https://example.org/gone. {page}"
+            ),
+            format!(
+                "{f}:3: Font set desk needs the font Nerd. The installed font of that name lacks the character U+E0B0, so it is a different font, and vtium does not use it. {page}"
+            ),
+            format!(
+                "{f}:3: Font set desk asks for the font Old Mono, version 3.1 or later, and the installed font is version 3.000. vtium still uses it. {page}"
+            ),
+        ];
+        let noted: Vec<&String> = out
+            .notes
+            .iter()
+            .filter(|n| n.contains("Font set desk"))
+            .collect();
+        assert_eq!(noted, want.iter().collect::<Vec<_>>(), "{:#?}", out.notes);
+        let none = check(None);
+        assert!(!none.notes.iter().any(|n| n.contains("Font set desk")));
+        let failing = |_: &helper::FritText| Err("the helper did not start".to_owned());
+        let failed = check(Some(FontSources { ask: &failing }));
+        assert!(!failed.notes.iter().any(|n| n.contains("Font set desk")));
     }
 
     // ADR-1401 D7, ADR-1403 D5: a look whose font-name names a frit not

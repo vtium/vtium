@@ -36,6 +36,8 @@ mod modes;
 mod pointer;
 mod rect;
 mod reply;
+#[cfg(test)]
+mod sequences;
 mod sgr;
 mod text_size;
 mod window;
@@ -50,6 +52,7 @@ use crate::style::{Attrs, Style};
 use crate::termcap::Termcap;
 
 pub use blank::{BlankRequest, BlankTimeout};
+pub use clipboard::clipboard_len;
 pub use display::DisplayRequest;
 pub use input::{Key, KeyEvent, Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;
@@ -67,11 +70,13 @@ pub use bidi::TextDirection;
 #[cfg(feature = "images")]
 pub use images::{ImageNote, ImageString};
 
-/// DECSCUSR's cursor styles: the host's default, or a shape that blinks or
-/// stays steady.
+/// The cursor's styles: the host's style, which a session starts with, or a
+/// shape that DECSCUSR chooses, which blinks or stays steady.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorStyle {
-    /// DECSCUSR 0: the host's style, blinking as the host says.
+    /// The host's style, which a session starts with and RIS and DECSTR
+    /// return to: a block, blinking as the host says. DECSCUSR never
+    /// selects it.
     #[default]
     Default,
     BlockBlink,
@@ -84,11 +89,11 @@ pub enum CursorStyle {
 
 impl CursorStyle {
     /// DECSCUSR's style for `Ps`: 0 to 6, and none for a value past 6,
-    /// which xterm ignores.
+    /// which xterm ignores. The VT510 manual and ctlseqs make 0, like 1, a
+    /// blinking block.
     fn from_param(ps: u32) -> Option<Self> {
         Some(match ps {
-            0 => Self::Default,
-            1 => Self::BlockBlink,
+            0 | 1 => Self::BlockBlink,
             2 => Self::BlockSteady,
             3 => Self::UnderlineBlink,
             4 => Self::UnderlineSteady,

@@ -144,6 +144,44 @@ A bitmap font with no smaller size shows its superscripts and subscripts scaled 
 
 `vtium-config preview FONT` ends its preview with a line of superscripts and subscripts, and so does the font view of `vtium-config`. That line shows x2 + y2 = z2 and H2O with the digits small. Both also say how the font makes them. See [the superscript and subscript issue](https://github.com/vtium/vtium/issues/37).
 
+## Install a missing font
+
+A frit can say which font each source needs, so that vtium-config can name the font when it is missing. Four lines can follow a `source=` line:
+
+- `version=` gives the lowest version of the font that the frit was written for, such as `3.4.0`.
+- `check=` names a character that only the right font holds, such as `U+E0B0`. A Nerd Fonts build holds that character, and the plain font of a similar name does not.
+- `sha256=` gives the SHA-256 of a font file that the frit names by its path.
+- `url=` gives the font's page on the web, where you can get it.
+
+For example, this frit names the Nerd Fonts build of Fira Code precisely:
+
+```
+name=fira-code-nerd
+source=font:FiraCode Nerd Font Mono
+version=3.4.0
+check=U+E0B0
+url=https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0
+```
+
+When a font is missing, vtium renders its characters from the next font in the frit that has them. A font that lacks the `check=` character counts as missing too. vtium logs one line for each missing font, once a boot. An older version of a font, or a font file with another SHA-256, still renders.
+
+To see which fonts your frits need, run:
+
+```
+$ vtium config fonts
+```
+
+After the list of frits, the command names each missing font, with the version the frit asks for and the font's page. It also names each installed font that is older than the frit asks for, and each font file whose SHA-256 differs.
+
+To install a missing font, use one of these two ways:
+
+- Search your distribution's packages for the font's name, and install the package that provides it. Many distributions package common fonts, such as JetBrains Mono, Noto Color Emoji and the Nerd Fonts builds.
+- Download the font from its page, and copy its files into `/usr/local/share/fonts`. The font helper looks for fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. See [An outline font](#an-outline-font) for details.
+
+vtium uses the font from its next start. You don't need to change the frit. Run `vtium config fonts` again to check that the font is found.
+
+[crates/vtium-config/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md#what-a-source-needs) describes each of the four lines in full.
+
 ## Size
 
 The `font-size` key in `vtium.conf` sets the size in points. A point is 1/72 of an inch. vtium converts points to pixels at the display's density. A frit for an outline font may set its own starting size with a `size=` line. vtium chooses the size like this:
