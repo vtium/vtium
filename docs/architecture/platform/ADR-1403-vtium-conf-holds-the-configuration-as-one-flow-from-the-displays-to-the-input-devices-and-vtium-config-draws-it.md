@@ -477,6 +477,12 @@ considered:
   - operator: aaronsb
     said: "before we begin building, I'd like to make sure we have keypresses mapped to the application interface tree. I think this is the thing we earlier said would be derived from walking the code, but I also think that 'hand building' this allows the walk and the hand build to meet in the middle and compromise"
     via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "the result of this compromise is the contract that we can then use moving forward. altering the contract allows us to 'break' the code, allowing us to update the code to again be conforming of the contract"
+    via: relayed by the steering session, 2026-11-16, with the interface tree of vtium-config's TUI
+  - operator: aaronsb
+    said: "this also makes it possible to offer a help interface that is honest"
+    via: relayed by the steering session, 2026-11-16, with the interface tree of vtium-config's TUI
 status: accepted
 date: 2026-11-04
 deciders:
@@ -865,7 +871,9 @@ The mouse selects a box with a click and opens it with a second click, and a cli
 These rules hold in every view of the TUI (the maintainer, 2026-11-16):
 
 - **`q` always quits or asks, and Esc always goes back.** `q` quits from a view and from anything open over it: a card, a detail, a part maker, a picker, the new-frit form, the file view and Restore's list. Where changes are not saved, it asks the quit question first. While new or removed font sets wait in memory for an install, it asks the leave question instead. The TUI asks that question until it keeps font set changes in the draft's folder, as D8 decides. Esc closes what is open and goes back to what is under it. The file view and Restore's list go back on Esc alone, where `q` closed them before. A value being typed takes `q` as a letter, as it takes every letter. `q` never quits without asking while changes are not saved, in any state, and with nothing unsaved it quits at once, without a question. The maintainer: "if there's any unsaved changes q at least gets an 'there are unsaved changes'. tools that are passive tui tools (like btop, for example) don't need to offer that friction".
-- **At a question, `y` answers yes, and `n` answers no where the question offers it.** Esc and Ctrl-C cancel the question: it closes, and nothing changes. Every other key does nothing, and the question stays until it is answered or cancelled. The quit question offers `n`, which quits without saving, and the question says so in words. The leave question offers `n` as the quit question does. Its `y` installs the draft, which saves the changes that are not saved first, and then leaves. Its `n` leaves without installing, and the question says that the font set changes stay uninstalled. Esc and Ctrl-C go back. `i` and `l` no longer answer it.
+- **At a question, `y` answers yes, and `n` answers no where the question offers it.** Esc and Ctrl-C cancel the question: it closes, and nothing changes. Every other key does nothing, and the question stays until it is answered or cancelled. The quit question offers `n`, which quits without saving, and the question says so in words. The leave question offers `n` as the quit question does. Its `y` installs the draft, which saves the changes that are not saved first, and then leaves. Its `n` saves the changes that are not saved into the draft and leaves without installing. Until a draft keeps its font set changes (D8), the question says in words that the new and removed font sets are lost. Once a draft keeps them, they stay in the draft, uninstalled. Esc and Ctrl-C go back. `i` and `l` no longer answer it.
+
+  > Edited 2026-11-16: the steering session decided what the leave question's `n` does with the changes that are not saved, and what the question says while font set changes live only in memory. The sentence read: "Its `n` leaves without installing, and the question says that the font set changes stay uninstalled."
 
   > Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). The leave question's sentences read: "The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does, and the font set changes it names are then lost. `i` and `l` no longer answer it."
 - **The action keys act only in the views whose tab bar shows them.** `s` saves only where the tab bar shows Save, and `i` installs only where it shows Install. Help's tab bar shows no action, so neither key acts there. The file view saves and installs as the Flow view does (below). Restore, on `o`, belongs to the Flow view, whose key line names it beside the tab bar's actions. A view's own key on the same letter is that view's, as `r` marks a font set for removal in the Looks view, and the view's key line names it. `o` has the one meaning, Restore, and does nothing in the other views. While a card, a detail, a part maker, a picker or a form is open, the action keys do nothing. The file view is the one exception, where `s` and `i` act.
@@ -906,6 +914,7 @@ The key table, `ADR-1403-keys.tsv` beside this record, says what each key means 
 | `note` | what vtium-config does today where that differs, or why the row is an exception |
 | `decided` | the decisions that set the meaning |
 | `issue` | the issue that carries a planned or weighed row |
+| `label` | the short word or two a key line shows for the key, empty where the key does nothing and the key line leaves it out |
 
 The kinds of state:
 
@@ -986,6 +995,12 @@ stateDiagram-v2
 ```
 
 The tree is the hand-built half of the map. The scenarios that drive the TUI by script explore the code from its start states and name each state they reach with a tree id. A test checks both directions. Every state the explorer reaches is a node of the tree. Every supported node is reached by the keys its `reach` column gives. A planned node is checked in reverse, against its `now` column. A difference is either a defect in the code or a change to the tree, and the maintainer decides which.
+
+**The contract.** Once the maintainer has decided the differences between the walk and the hand-built tree, the tree, the key table and the views table are the TUI's contract, and the scenario test enforces it. The maintainer: "the result of this compromise is the contract that we can then use moving forward. altering the contract allows us to 'break' the code, allowing us to update the code to again be conforming of the contract". So a change to the TUI starts as a change to the contract. The work's first commit moves the rows it delivers to `supported`, or edits a supported row, and the scenario test turns red. The code then changes until the test passes again. A planned row records what the code does today and is checked in reverse, so the contract can describe future work while the test stays green, until a change claims the row.
+
+**Help that matches the code.** The Help tab and every view's key line are generated from the contract. The maintainer: "this also makes it possible to offer a help interface that is honest". For the node the person is on, the tree and the key table give the keys that act there and what each does. So help says only what the contract says, and the scenario test proves that the code does the same. The key table's `means` column is therefore the help text a person reads: whole short sentences that follow the rules for strings on screen. Its `label` column is the shorter name a key line shows. The hand-written help and key lines in vtium-config's word catalog go once the generated ones are built, which the key table's row `help.generated` tracks.
+
+> Edited 2026-11-16: the maintainer made the tree and the two tables the TUI's contract, and had help and the key lines generated from it (`considered`, 2026-11-16). The two paragraphs above were added, and the key table gained its `label` column. Its `means` column was rewritten as text a person reads on screen, with the same meaning in each row.
 
 #### `v` views the file
 
