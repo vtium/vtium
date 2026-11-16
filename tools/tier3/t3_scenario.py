@@ -17,6 +17,7 @@ import t3_images
 import t3_pointer
 import t3_pictures
 import t3_power
+import t3_qemu
 import t3_seat
 import t3_showcase
 import t3img
@@ -490,7 +491,10 @@ IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody", "images-login-640x4
 # switches the console to each of the other frits with OSC 50. Its cases
 # carry the status capture ("verdict"): each passes once it is captured and
 # judges nothing, and no golden judges it. It switches no VT, and runs only
-# when named, by tools/tier3/showcase.sh.
+# when named, by tools/tier3/showcase.sh. A scene that asks for the mouse
+# pointer (t3_pointer.pointed) gets it moved onto the cell it names, and its
+# capture shows the pointer as the cursor plane does: the agent reads where
+# the plane is ("agent"), and QEMU's VNC server gives its image ("cursor").
 VARIANTS["showcase-1920x1080"] = {
     "device": "virtio-vga,xres=1920,yres=1080,edid=on",
     "display": "none",
@@ -506,6 +510,8 @@ VARIANTS["showcase-1920x1080"] = {
     "showcase": True,
     "verdict": "capture",
     "vt_switch": False,
+    "agent": True,
+    "cursor": True,
 }
 
 # The head file (ADR-1401) on the guest's real KMS device and systemd
@@ -1201,7 +1207,7 @@ def run_variant(variant, timing, impl, log):
               extra=v.get("qemu", ()),
               heads=t3_devices.heads(v.get("outputs", []) + ([v["second"]] if "second" in v
                                                               else [])),
-              agent=v.get("agent", False))
+              agent=v.get("agent", False), cursor=v.get("cursor", False))
     caps, errors, notes, error, installed = {}, {}, {}, None, None
     try:
         line = wait_install(vm)
@@ -1347,7 +1353,11 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
         vm.wait_event("T3-DONE %s" % name,
                       timeout=BENCH_TIMEOUT if name in BENCHMARKS else SCREEN_TIMEOUT)
         path = os.path.join(work, name + ".ppm")
-        last, why = capture_screen(vm, name, path, last)
+        aimed = v.get("showcase") and t3_pointer.pointed(read_events(vm), name)
+        if aimed:
+            last, why = capture_pointed(variant, vm, name, path, last, aimed, log)
+        else:
+            last, why = capture_screen(vm, name, path, last)
         caps[name] = path
         if why:
             errors[name] = why
@@ -1420,6 +1430,78 @@ def capture_screen(vm, name, path, last):
             raise
         img = t3img.read(path)
         return img, not_shown(name, img) or str(e)
+
+
+def display_size(variant):
+    """The (width, height) of the display that `variant`'s device sets."""
+    m = re.search(r"xres=(\d+),yres=(\d+)", VARIANTS[variant]["device"])
+    return int(m.group(1)), int(m.group(2))
+
+
+def cursor_plane(vm, display, timeout=30):
+    """The guest's cursor plane, {"id", "name", "crtc", "fb", "pos"}, from
+    the DRM state the agent prints (t3_pointer.cursor_plane), once it shows
+    the pointer: the pointer shows after the console has taken the mouse's
+    motion and committed a frame. Raises when it does not show within
+    `timeout` seconds."""
+    deadline = time.time() + timeout
+    while True:
+        answer = vm.ask("planes")
+        state = "\n".join(answer)
+        at = t3_pointer.cursor_plane(state, display)
+        if at is not None:
+            return at
+        if time.time() > deadline:
+            raise RuntimeError("no cursor plane showed the pointer within %d s: %s"
+                               % (timeout, answer[0] if len(answer) == 1 else
+                                  "the guest's DRM state shows only the primary plane"))
+        time.sleep(0.2)
+
+
+def capture_pointed(variant, vm, name, path, last, aimed, log):
+    """Capture showcase screen `name` into `path` with the mouse pointer on
+    the cell it asked for, `aimed` (t3_pointer.pointed). The pointer moves
+    there with QMP. Once QEMU has the cursor's image and the guest's cursor
+    plane shows the pointer, the screen is captured as capture_screen
+    captures it. QEMU's screendump leaves the cursor plane out, so the
+    image is laid over the capture where the guest's DRM state says the
+    plane is, the same framebuffer at the same place before and after the
+    capture. QEMU's VNC server sends the image when the guest defines the
+    cursor, which it does as the pointer shows from hidden, so the
+    connection opens before the move. Returns the capture without the
+    pointer, which the next screen must differ from, and why the case fails,
+    or None. A case that fails before its capture is captured as the screen
+    shows."""
+    target, cell = aimed
+    display = display_size(variant)
+    img = last
+    try:
+        with t3_qemu.VncCursor(vm.vnc_path) as vnc:
+            vm.cmd("input-send-event",
+                   events=t3_pointer.move_events(*t3_pointer.aim(target, display, cell)))
+            cursor = vnc.read()
+            before = cursor_plane(vm, display)
+            img, why = capture_screen(vm, name, path, last)
+            if why:
+                return img, why
+            after = cursor_plane(vm, display)
+    except RuntimeError as e:
+        # The case keeps a capture of what the screen shows, so the report
+        # has a picture beside the reason.
+        if not os.path.exists(path):
+            img = vm.screendump(path)
+        return img, str(e)
+    if after != before:
+        return img, ("the cursor plane changed from %s to %s while the screen was captured"
+                     % (before, after))
+    w, h, x, y = before["pos"]
+    if (w, h) != cursor[:2]:
+        return img, ("the cursor plane is %dx%d, and the cursor QEMU's VNC server sent "
+                     "is %dx%d" % (w, h, cursor[0], cursor[1]))
+    t3_qemu.write_ppm(path, t3_pointer.compose(img, cursor, (x, y)))
+    log("%s: the pointer on cell %s, the cursor plane's %dx%d image at %d,%d"
+        % (name, target, w, h, x, y))
+    return img, None
 
 
 def switch_vts(variant, vm, work, last, caps, errors, phase):
@@ -1761,8 +1843,7 @@ def check_pointer(variant, vm, work, caps, errors, log):
     last reading printed, is kept only when every reading passed; `errors`
     gets the first reason otherwise."""
     case = t3_pointer.CASE
-    m = re.search(r"xres=(\d+),yres=(\d+)", VARIANTS[variant]["device"])
-    display = (int(m.group(1)), int(m.group(2)))
+    display = display_size(variant)
     cell = console_cell(vm.serial)
     path = os.path.join(work, case + ".ppm")
     try:
