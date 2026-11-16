@@ -17,13 +17,21 @@
 //
 // A quad is one cell job: dst where it draws; src.xy the glyph's texel
 // under its top left and src.zw the column and row of the job's first
-// cell in the grid; and params its colors, 0xRRGGBB, each with a kind in
+// cell in the grid, the row in the low 16 bits of src.w; and params its
+// colors, 0xRRGGBB, each with a kind in
 // its top byte: x the foreground and the glyph's kind (0 none, 1 a mask
 // from masks, 2 a premultiplied color glyph from colors), y the
 // background and the job's flags (RECEIVES, MARKED and DOWN below), z the
 // underline's color and its sprite, w the color and sprite of the lines
 // over the glyph (the strike, the overline or both),
 // a sprite being its place in sprites plus one, or 0 for none.
+//
+// A cell of a sized run of scale s from 2 on draws its decorations scaled
+// with the run's text (ADR-1308 D9): src.w holds s in bits 16 to 18, the
+// cell's row in the run's block in bits 19 to 21 and its column within
+// one scaled cell in bits 22 to 24. Each pixel reads the normal sprite at
+// its place in the scaled cell divided by s, which repeats each sprite
+// pixel s times across and down, as the CPU path's deco.rs scaled does.
 //
 // With INK, a job that RECEIVES ink from its neighbours' glyphs (ADR-1306
 // D4, D9) first reads the bit the ink grid holds for the display line
@@ -265,7 +273,7 @@ void main() {
 #ifdef INK
     uint flags = params.y >> 24u;
     if ((flags & RECEIVES) != 0u) {
-        Job job = Job(int(src.z), int(src.w), dst.z / max(cell.x, 1), (flags & MARKED) != 0u, fg);
+        Job job = Job(int(src.z), int(src.w & 0xffffu), dst.z / max(cell.x, 1), (flags & MARKED) != 0u, fg);
         ivec2 pixel = ivec2(job.col * cell.x, job.row * cell.y) + local;
         if (line_inked(job, pixel, (flags & DOWN) != 0u)) {
             recv = received(job, pixel);
@@ -294,6 +302,12 @@ void main() {
         // the bottom, then over its background
         vec4 p = vec4(0.0);
         ivec2 pos = ivec2(local.x % cell.x, local.y);
+        uint run = src.w >> 16u;
+        if (run != 0u) {
+            int s = int(run & 7u);
+            ivec2 at_run = ivec2(int((run >> 6u) & 7u), int((run >> 3u) & 7u));
+            pos = (at_run * cell.xy + pos) / s;
+        }
         if (ul != 0u) {
             p = tint_over(p, sprite(ul, pos), rgb(params.z));
         }

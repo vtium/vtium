@@ -452,3 +452,26 @@ fn text_drawn_smaller_stands_on_the_blocks_baseline() {
         4 * baseline
     );
 }
+
+// A run's decorations scale with its text: an underlined, struck or
+// overlined letter at s=2 and s=3 draws as the same letter printed with
+// the same decoration, each pixel a square of the scale's side. So the
+// underline lies under the block's bottom row, the strike runs through its
+// middle and the overline over its top row, each s times as thick, and a
+// curly, dotted or dashed underline keeps its shape
+// covers: text.kitty-sizing
+#[test]
+fn a_runs_decorations_scale_with_its_text() {
+    for sgr in ["4", "4:2", "4:3", "4:4", "4:5", "9", "53", "4;9;53"] {
+        let printed = term(format!("\x1b[{sgr}mA\x1b[m").as_bytes());
+        let cell = area(&draw(&printed), (0, 0), (CW, CH));
+        for s in [2u32, 3] {
+            let run = term(format!("\x1b[{sgr}m\x1b]66;s={s};A\x07\x1b[m").as_bytes());
+            assert_eq!(
+                area(&draw(&run), (0, 0), (s * CW, s * CH)),
+                magnified(&cell, s as usize),
+                "SGR {sgr} at s={s}"
+            );
+        }
+    }
+}

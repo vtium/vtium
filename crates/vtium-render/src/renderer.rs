@@ -1972,6 +1972,10 @@ impl<F: Face> Renderer<F> {
             let scale = i64::from(piece.size.scale);
             for job in self.compose.jobs.get_mut(jobs..).unwrap_or_default() {
                 job.piece = double::Piece::of_run(piece);
+                // the decorations scale with the run's text
+                for (line, _) in job.underline.into_iter().chain(job.over) {
+                    self.compose.sprites.prepare(line, job.piece);
+                }
                 // the bar scales with the run's glyph
                 job.bar = job.bar.map(|b| {
                     let w = b.w.saturating_mul(scale);
