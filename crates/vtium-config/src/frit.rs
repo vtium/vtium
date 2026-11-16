@@ -197,7 +197,32 @@ impl Version {
     /// `3.000` from a BDF font's `FONT_VERSION`: the first run of digits
     /// and dots that starts with a digit, without a dot at its end.
     /// `None` when the string holds no such run.
+    ///
+    /// A Nerd Fonts build states its base font's version first and the
+    /// Nerd Fonts release after the words `Nerd Fonts`, as in `Version
+    /// 001.000;Nerd Fonts 3.5.1`. A font set names such a build by its Nerd
+    /// Fonts release, so the run after those words is the version, where
+    /// one follows them.
+    ///
+    /// References:
+    /// - ADR-1204 D8: the Nerd Fonts builds are named by their Nerd Fonts
+    ///   release, such as Symbols Nerd Font Mono 3.4.0.
     pub fn in_string(text: &str) -> Option<Version> {
+        const NERD_FONTS: &str = "Nerd Fonts";
+        if let Some(at) = text.find(NERD_FONTS)
+            && let Some(release) = text
+                .get(at.saturating_add(NERD_FONTS.len())..)
+                .filter(|rest| rest.trim_start().starts_with(|c: char| c.is_ascii_digit()))
+                .and_then(Version::first_run)
+        {
+            return Some(release);
+        }
+        Version::first_run(text)
+    }
+
+    /// The first run of digits and dots in `text` that starts with a digit,
+    /// as a version.
+    fn first_run(text: &str) -> Option<Version> {
         let start = text.find(|c: char| c.is_ascii_digit())?;
         let rest = text.get(start..)?;
         let end = rest
@@ -2373,5 +2398,34 @@ mod tests {
             found("1.2.3.4.5.6.7.8.9.10").as_deref(),
             Some("1.2.3.4.5.6.7.8")
         );
+    }
+
+    // A Nerd Fonts build states its base font's version first and the
+    // Nerd Fonts release after "Nerd Fonts". A set names a Nerd Fonts build
+    // by that release, so the release is the version vtium compares.
+    //
+    // References:
+    // - ADR-1204 D8: the Nerd Fonts builds are named by their Nerd Fonts
+    //   release, such as Symbols Nerd Font Mono 3.4.0.
+    #[test]
+    fn a_nerd_fonts_build_gives_its_nerd_fonts_release() {
+        let found = |s: &str| Version::in_string(s).map(|v| v.spelling);
+        assert_eq!(
+            found("Version 001.000;Nerd Fonts 3.5.1").as_deref(),
+            Some("3.5.1")
+        );
+        assert_eq!(
+            found("Version 2111.001;GOOG;CascadiaCode-Regular;Nerd Fonts 3.3.0").as_deref(),
+            Some("3.3.0")
+        );
+        assert_eq!(
+            found("Version 2.304; ttfautohint (v1.8.4.7-5d5b);Nerd Fonts 3.4.0").as_deref(),
+            Some("3.4.0")
+        );
+        let wanted = Version::parse("3.4.0");
+        assert!(Version::in_string("Version 001.000;Nerd Fonts 3.5.1") > wanted);
+        assert!(Version::in_string("Version 2111.001;Nerd Fonts 3.3.0") < wanted);
+        // "Nerd Fonts" with no version after it leaves the first version
+        assert_eq!(found("Version 1.5; Nerd Fonts").as_deref(), Some("1.5"));
     }
 }
