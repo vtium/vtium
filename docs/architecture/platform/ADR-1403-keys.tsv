@@ -32,10 +32,11 @@ ctrl-c.trial	Ctrl-C	trial	Saves, gives the start font back and quits, as in ever
 ctrl-c.too-small	Ctrl-C	too-small	Saves, gives the start font back and quits, as in every other state.	planned	today Ctrl-C quits without saving the changes that are not saved	ADR-1403 D7; ADR-1201 D3	#412
 y.question	y	question	Answers yes: the TUI does what the question asks.	supported		ADR-1403 D7	
 y.question.quit	y	question:quit	Saves the changes that are not saved into the draft and quits.	supported		ADR-1403 D7	
-y.question.leave	y	question:leave	Saves the changes that are not saved into the draft and quits. The font set changes that the question names are lost.	planned	today y goes back; i installs and l quits without saving	ADR-1403 D7	#411
+y.question.leave	y	question:leave	Installs the draft, which saves the changes that are not saved first, then leaves.	planned	today y goes back; i installs and l quits without saving	ADR-1403 D7	#411
+n.question.leave	n	question:leave	Leaves without installing. The question says that the font set changes stay uninstalled.	planned	today n goes back	ADR-1403 D7	#411
 n.question.quit	n	question:quit	Quits without saving the changes that are not saved. The question says so in words.	supported		ADR-1403 D7	
 n.question	n	question	Answers no where the question offers n: the question closes, and nothing changes. Where it does not offer n, n does nothing, as other keys do.	planned	today n answers no in every question, and quits without saving at the quit question	ADR-1403 D7	#412
-i.question.leave	i	question:leave	Does nothing, and the question stays until it is answered or cancelled.	planned	today i installs	ADR-1403 D7	#411
+i.question.leave	i	question:leave	Does nothing, and the question stays until it is answered or cancelled.	planned	today i installs; y installs now	ADR-1403 D7	#411
 l.question.leave	l	question:leave	Does nothing, and the question stays until it is answered or cancelled.	planned	today l quits, and the changes that are not saved are lost	ADR-1403 D7	#411
 other.question	any other key	question	Does nothing, and the question stays until it is answered or cancelled.	planned	today any key but y answers no and the question closes	ADR-1403 D7	#412
 s.view	s	view	Saves the changes that are not saved into the draft. It acts in Flow, Looks and Settings, whose tab bars show Save.	supported		ADR-1403 D7	
@@ -55,13 +56,28 @@ n.view.looks	n	view:looks	Opens the form for a new font set. It is the view's ow
 t.view.looks	t	view:looks	Tries the highlighted font set on the live console, with the countdown.	planned	today in the Fonts view	ADR-1201 D4	#379
 enter.view.looks	Enter	view:looks	On a font set, chooses it for the look. On a size, applies it to the console as a timed trial: the live trial's countdown runs, k keeps the size, and any other key or the end of the countdown puts the grid back.	planned	today Enter on a size writes the top-level font-size	ADR-1201 D4	#379
 p.view.looks	p	view:looks	Outside a vtium console, switches the preview between the specimen and the picture of the console. The key line labels p with the preview it switches to.	planned	today s does this in the Fonts view	ADR-1201 D4	#379
-window-ops.view.looks	the key the notice names	view:looks	While a vtium console has allow-window-ops off, asks whether to let programs resize the grid, and writes allow-window-ops = on into the draft only on y.	planned	which key it is is open	ADR-1201 D4	#379
+window-ops.view.looks	w	view:looks	While a vtium console has allow-window-ops off, asks "Let programs resize the grid?". y writes allow-window-ops = on into the draft; n, Esc and Ctrl-C write nothing.	planned	the notice line shows w	ADR-1201 D4	#379
 t.layer.flow-card	t	layer:flow-card	Tries the font set on a look card's font set field on the live console, with the countdown.	supported		ADR-1201 D4	
 o.view.looks	o	view:looks	Does nothing. The notice that the live trial is off names allow-font-ops in the Settings view.	planned	today o turns on allow-font-ops in every view but Flow, and the notice names the Fonts view	ADR-1201 D4; ADR-1403 D7	#412
 o.view	o	view	Does nothing outside the Flow view, where it opens Restore's list.	planned	today o turns on allow-font-ops in Help and Settings too	ADR-1403 D7	#412
+up.layer.list	Up	layer:list	Moves the highlight to the item above.	supported	the Flow view's picker does this today	ADR-1403 D7	
+down.layer.list	Down	layer:list	Moves the highlight to the item below.	supported	the Flow view's picker does this today	ADR-1403 D7	
+home.layer.list	Home	layer:list	Goes to the first item.	supported	the Flow view's picker does this today	ADR-1403 D7	
+end.layer.list	End	layer:list	Goes to the last item.	supported	the Flow view's picker does this today	ADR-1403 D7	
+pgup.layer.list	PgUp	layer:list	Moves the highlight up by a page.	supported	the Flow view's picker does this today	ADR-1403 D7	
+pgdn.layer.list	PgDn	layer:list	Moves the highlight down by a page.	supported	the Flow view's picker does this today	ADR-1403 D7	
+enter.layer.list	Enter	layer:list	Picks the highlighted item and closes the list. On Other…, opens the value for typing.	supported	the Flow view's picker does this today	ADR-1403 D7	
+esc.layer.list	Esc	layer:list	Closes the list without picking.	supported	the Flow view's picker does this today	ADR-1403 D7	
+list.settings-values	Enter	view:settings	Opens a key's allowed values in the shared list.	planned	today the Settings view shows the allowed values as one joined line	ADR-1403 D7	#412
+list.flow-card	Enter	layer:flow-card	Opens a card's set of items, such as a terminal's or a display's displays, devices and VTs, in the shared list, as a list box inside the card.	planned	today a card joins them with commas across rows	ADR-1403 D7	#412
+list.filter-picker	Enter	layer:picker	Shows the devices each value matches in the shared list.	planned	today the filter picker joins each value's devices with commas	ADR-1403 D7	#412
+list.font-set-files	Enter	layer:flow-card	Opens the font set files to choose from in the shared list.	planned		ADR-1403 D7	#412
+list.terminals	Enter	layer:flow-card	Opens the defined terminals in the shared list.	planned		ADR-1403 D7	#412
+list.font-sets	Enter	view:looks	Opens the font sets to choose from in the shared list.	planned		ADR-1403 D7	#379
+list.font-sizes	Enter	view:looks	Opens the font sizes in the shared list.	planned		ADR-1403 D7	#379
 k.trial	k	trial	Keeps the tried font or size.	supported		ADR-1201 D4	
 other.trial	any other key	trial	Puts back the console's font or size and does nothing else.	supported		ADR-1201 D4	
-u.too-small	u	too-small	Puts back the font the console had when the TUI started.	supported		ADR-1201 D3	
+u.too-small	u	too-small	Puts back both the font and the grid the console had when the TUI started.	planned	today u puts back the start font; the start grid comes with the live size control	ADR-1201 D3	#379
 other.too-small	any other key	too-small	Does nothing.	supported		ADR-1201 D3	
 updown.typing.settings	Up, Down	typing:settings	Do nothing.	planned	today they drop the value with no message	ADR-1201 D3	#412
 enter.typing.settings	Enter	typing:settings	Keeps the typed value.	supported		ADR-1403 D7; ADR-1201 D3	

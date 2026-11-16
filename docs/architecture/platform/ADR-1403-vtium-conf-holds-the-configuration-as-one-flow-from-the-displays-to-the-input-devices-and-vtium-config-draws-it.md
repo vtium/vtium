@@ -463,6 +463,17 @@ considered:
   - operator: aaronsb
     said: "if there's any unsaved changes q at least gets an 'there are unsaved changes'. tools that are passive tui tools (like btop, for example) don't need to offer that friction"
     via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "The leave question offers n as the quit question does: y installs and leaves, n leaves without installing and the question says the pending changes stay uninstalled, and Esc and Ctrl-C go back."
+    via: the maintainer's answer of 2026-11-16 to the points the second amendment left open, relayed by the steering session; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Wherever vtium-config shows a set of items or asks the person to pick one, it uses one shared list component, a list box inside a card or a pop-up list over the view, never a comma-joined list that wraps across rows: Settings values, the Flow cards' lists of displays, devices and VTs, the filter picker's device lists, font set choices, font sizes, font set file choices, and the defined terminals."
+    via: the maintainer's answer of 2026-11-16 to the points the second amendment left open, relayed by the steering session; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "for certain elements we need to stop providing long serialized lists that end up taking a whole row or two, and offer a consistent list box or pop up list dialog"
+    via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
 status: accepted
 date: 2026-11-04
 deciders:
@@ -851,12 +862,32 @@ The mouse selects a box with a click and opens it with a second click, and a cli
 These rules hold in every view of the TUI (the maintainer, 2026-11-16):
 
 - **`q` always quits or asks, and Esc always goes back.** `q` quits from a view and from anything open over it: a card, a detail, a part maker, a picker, the new-frit form, the file view and Restore's list. Where changes are not saved, it asks the quit question first. While new or removed font sets wait in memory for an install, it asks the leave question instead. The TUI asks that question until it keeps font set changes in the draft's folder, as D8 decides. Esc closes what is open and goes back to what is under it. The file view and Restore's list go back on Esc alone, where `q` closed them before. A value being typed takes `q` as a letter, as it takes every letter. `q` never quits without asking while changes are not saved, in any state, and with nothing unsaved it quits at once, without a question. The maintainer: "if there's any unsaved changes q at least gets an 'there are unsaved changes'. tools that are passive tui tools (like btop, for example) don't need to offer that friction".
-- **At a question, `y` answers yes, and `n` answers no where the question offers it.** Esc and Ctrl-C cancel the question: it closes, and nothing changes. Every other key does nothing, and the question stays until it is answered or cancelled. The quit question offers `n`, which quits without saving, and the question says so in words. The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does, and the font set changes it names are then lost. `i` and `l` no longer answer it.
+- **At a question, `y` answers yes, and `n` answers no where the question offers it.** Esc and Ctrl-C cancel the question: it closes, and nothing changes. Every other key does nothing, and the question stays until it is answered or cancelled. The quit question offers `n`, which quits without saving, and the question says so in words. The leave question offers `n` as the quit question does. Its `y` installs the draft, which saves the changes that are not saved first, and then leaves. Its `n` leaves without installing, and the question says that the font set changes stay uninstalled. Esc and Ctrl-C go back. `i` and `l` no longer answer it.
+
+  > Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). The leave question's sentences read: "The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does, and the font set changes it names are then lost. `i` and `l` no longer answer it."
 - **The action keys act only in the views whose tab bar shows them.** `s` saves only where the tab bar shows Save, and `i` installs only where it shows Install. Help's tab bar shows no action, so neither key acts there. The file view saves and installs as the Flow view does (below). Restore, on `o`, belongs to the Flow view, whose key line names it beside the tab bar's actions. A view's own key on the same letter is that view's, as `r` marks a font set for removal in the Looks view, and the view's key line names it. `o` has the one meaning, Restore, and does nothing in the other views. While a card, a detail, a part maker, a picker or a form is open, the action keys do nothing. The file view is the one exception, where `s` and `i` act.
 - **Every key line shows every key it lists.** When the keys do not fit on one row, the key line wraps onto a second row before it drops a key. This holds at the minimum size of 80×25 too.
 - **While a Settings value is typed,** Enter keeps the value and Esc drops it. Up and Down do nothing.
 
-Ctrl-C and the signals keep the meaning that **What carries over** gives them: they save the changes that are not saved and leave, without a question. At a question, Ctrl-C cancels the question instead, as Esc does. The live trial's countdown keeps its own keys, which ADR-1201 D4 decides: `k` keeps the font, and any other key puts it back. So does the screen below the minimum size, where only `q`, `u` and Ctrl-C act (ADR-1201 D3). There `q` asks the quit question on one row while changes are not saved.
+Ctrl-C and the signals keep the meaning that **What carries over** gives them: they save the changes that are not saved and leave, without a question. At a question, Ctrl-C cancels the question instead, as Esc does. The live trial's countdown keeps its own keys, which ADR-1201 D4 decides: `k` keeps the font, and any other key puts it back. So does the screen below the minimum size, where only `q`, `u` and Ctrl-C act (ADR-1201 D3). There `q` asks the quit question on one row while changes are not saved, and `u` puts back both the start font and the start grid.
+
+#### One list for every set of items
+
+> Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). This subsection was added.
+
+The maintainer asked on 2026-11-16 for one kind of list wherever the TUI shows a set of items. The maintainer's words: "for certain elements we need to stop providing long serialized lists that end up taking a whole row or two, and offer a consistent list box or pop up list dialog". This decision holds the rule because D7 already decides what opens over a view, the picker among them, and the key table that says what each key does there.
+
+- **One shared list.** Wherever vtium-config shows a set of items or asks the person to pick one, it uses one list component. The list is either a list box inside a card or a pop-up list over the view. vtium-config never shows such a set as items joined with commas that wrap across rows.
+- **Its keys** are the keys of the Flow view's picker today. Up and Down move the highlight by one item, Home and End go to the first and the last item, and PgUp and PgDn move by a page. Enter picks the highlighted item and closes the list. Esc closes the list without picking. Where a list also takes a typed value, its last item is `Other…`, and Enter on it opens the value for typing. The rules above hold in a list as in every layer: `q` quits or asks, Tab does nothing, and the action keys do nothing.
+- **Where it is used.** The maintainer named these sets, and the key table has a row for each:
+  - a key's allowed values in the Settings view;
+  - the lists in the Flow view's cards, such as a terminal's or a display's displays, devices and VTs;
+  - the device lists in the filter picker;
+  - the font set choices and the font sizes in the Looks tab;
+  - the font set files to choose from;
+  - the defined terminals.
+
+The list's look is the picker's, and this decision designs no other.
 
 #### The key table
 
@@ -876,7 +907,7 @@ The key table, `ADR-1403-keys.tsv` beside this record, says what each key means 
 The kinds of state:
 
 - `view`: a view with nothing open over it.
-- `layer`: something open over a view that Esc closes, such as a card, a picker, the new-frit form, the file view or Restore's list.
+- `layer`: something open over a view that Esc closes, such as a card, a picker, a list, the new-frit form, the file view or Restore's list. `layer:list` is the shared list of **One list for every set of items**.
 - `typing`: a value being typed.
 - `question`: a question that waits for an answer.
 - `trial`: the live trial's countdown (ADR-1201 D4).
