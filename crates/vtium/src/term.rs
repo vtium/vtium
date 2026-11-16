@@ -34,6 +34,7 @@ use crate::config::keys::{OVERLAY_COLORS, Scheme};
 use crate::font::DisplayFace;
 use crate::head::DrawHook;
 use crate::pointer::Pointer;
+use crate::pointer_file::Store as PointerFile;
 use crate::sync::{Action, Coalesce, Draw, Sync, Wait};
 use crate::video::Video;
 
@@ -825,6 +826,9 @@ pub struct View {
     pub orientation: vtium_render::Orientation,
     /// Who draws the pointer: the display's cursor plane or the renderer.
     pub pointer: Pointer,
+    /// The console's pointer file store: the pictures the pointer draws in
+    /// place of vtium's own, and where it asks for its cell height.
+    pointer_file: PointerFile,
     /// The drawing's font cell, the rows line spacing adds to it, arrow,
     /// depth and font policy, read while the render thread holds it.
     cell: vtium_font::Cell,
@@ -854,6 +858,7 @@ impl View {
         refresh_mhz: Option<u32>,
         config: RenderConfig,
         measure: bool,
+        pointer_file: PointerFile,
     ) -> View {
         let renderer = Renderer::new(font, size.0, size.1, config);
         let mut view = View {
@@ -880,6 +885,7 @@ impl View {
             size,
             refresh: refresh(refresh_mhz),
             pointer: Pointer::default(),
+            pointer_file,
             forgotten: Vec::new(),
             arrived: Vec::new(),
             overlaid: Vec::new(),
@@ -1173,8 +1179,12 @@ impl View {
         let tip = state.pointer;
         if let Some(drawing) = self.drawing.as_mut() {
             let shape = term.terminal.pointer_shape();
-            self.pointer
-                .follow(&mut drawing.renderer, &mut self.arrow, shape);
+            self.pointer.follow(
+                &mut drawing.renderer,
+                &mut self.arrow,
+                shape,
+                &self.pointer_file,
+            );
         }
         let state = DrawState {
             pointer: self.pointer.before_draw(video, self.id, &self.arrow, tip),
@@ -1736,15 +1746,12 @@ mod tests {
             None,
             RenderConfig::default(),
             false,
+            PointerFile::default(),
         );
         (term, view)
     }
 
     fn draw(term: &mut Term, view: &mut View, video: &mut dyn Video, pointer: Option<(u32, u32)>) {
-        // a frame with the pointer asks the pointer file for its height and
-        // takes its pictures, which the pointer file's tests fill: hold
-        // them off, and start from an empty table
-        let _held = crate::pointer_file::tests::loading();
         let state = DrawState {
             pointer,
             ..DrawState::default()
@@ -2043,6 +2050,7 @@ mod tests {
             None,
             RenderConfig::default(),
             false,
+            PointerFile::default(),
         );
         let clock: Clock = Rc::new(Instant::now);
         let mut term = Term::new(
@@ -2183,6 +2191,7 @@ mod tests {
             None,
             RenderConfig::default(),
             false,
+            PointerFile::default(),
         );
         let cell = new.cell();
         let shown = new.present(
@@ -2358,7 +2367,15 @@ mod tests {
             depth: vtium_render::Depth::One,
             ..RenderConfig::default()
         };
-        let mut view = View::new(ID, Font::new(face), SIZE, None, one, false);
+        let mut view = View::new(
+            ID,
+            Font::new(face),
+            SIZE,
+            None,
+            one,
+            false,
+            PointerFile::default(),
+        );
         let face: DisplayFace = Box::new(Unifont::new(16));
         view.rebuild(Font::new(face), 32, RenderConfig::default());
         assert_eq!(view.depth(), vtium_render::Depth::One);

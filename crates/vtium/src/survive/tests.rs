@@ -472,21 +472,20 @@ fn the_holder_keeps_masters_from_one_vtium_for_the_next() {
 // the redirection to the file it writes never touches the outputs it reads:
 // a shell such as dash runs the script's last command in place of itself,
 // and the redirection would then apply to the shell's own descriptor 1.
+// A process of its own writes the stand-in, so that no child another test
+// thread forks meanwhile holds it open for writing when the test runs it.
 #[test]
 fn the_holder_holds_none_of_vtiums_output() {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Scratch::new("survive-hold-output");
     let seen = dir.join("seen");
     let exe = dir.join("holder");
-    std::fs::write(
+    vtium_testscript::executable(
         &exe,
-        format!(
+        &format!(
             "#!/bin/sh\nlinks=$(readlink /proc/$$/fd/1 /proc/$$/fd/2)\nprintf '%s\\n' \"$links\" >'{}'\n",
             seen.display()
         ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
     let listener = socket_with(
         AddressFamily::UNIX,
         SocketType::SEQPACKET,

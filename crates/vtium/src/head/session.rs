@@ -696,7 +696,15 @@ mod tests {
             depth,
             ..RenderConfig::default()
         };
-        let view = View::new(DisplayId(n), Font::new(face), (36, 34), None, config, false);
+        let view = View::new(
+            DisplayId(n),
+            Font::new(face),
+            (36, 34),
+            None,
+            config,
+            false,
+            crate::pointer_file::Store::default(),
+        );
         head.views.insert(key(n), view);
     }
 

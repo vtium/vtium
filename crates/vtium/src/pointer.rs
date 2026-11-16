@@ -113,19 +113,20 @@ impl Pointer {
     /// renderer's image that the cursor plane takes, the same. A new shape
     /// goes to the plane at this draw, through [`Pointer::reset`].
     ///
-    /// It also hands the renderer the pointer file's pictures when they
-    /// changed since ([`crate::pointer_file::current`]), so that a picture
-    /// the font helper drew replaces vtium's own from this draw on, and
-    /// asks for an SVG pointer file to be drawn at the renderer's cell
-    /// height.
+    /// It also hands the renderer the pointer file's pictures in `file`,
+    /// the console's store, when they changed since, so that a picture the
+    /// font helper drew replaces vtium's own from this draw on. And it asks
+    /// through `file` for an SVG pointer file to be drawn at the renderer's
+    /// cell height.
     pub fn follow<F: Face>(
         &mut self,
         renderer: &mut Renderer<F>,
         arrow: &mut Arrow,
         shape: PointerShape,
+        file: &crate::pointer_file::Store,
     ) {
-        crate::pointer_file::want(renderer.pointer_cell_height());
-        let pictures = crate::pointer_file::current();
+        file.want(renderer.pointer_cell_height());
+        let pictures = file.current();
         let same = match (renderer.pointer_pictures(), &pictures) {
             (None, None) => true,
             (Some(held), Some(new)) => std::sync::Arc::ptr_eq(held, new),
@@ -297,6 +298,7 @@ pub(crate) fn said() -> Vec<(log::Level, String)> {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+    use crate::pointer_file::Store;
     use vtium_font::{Font, Unifont};
     use vtium_render::{Canvas, Config, DrawState, Orientation, Renderer};
     use vtium_term::{Age, Cursor, Damage, Frame, Line, LineId, Palette, Rgb};
@@ -647,24 +649,23 @@ mod tests {
     // covers: window.pointer-shape
     #[test]
     fn a_new_shape_goes_to_the_renderer_and_the_plane() {
-        let _held = crate::pointer_file::tests::loading();
         let mut r = renderer(Orientation::Normal);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
         let mut arrow = r.arrow().clone();
         p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
         assert_eq!(plane.arrow, Some(Arrow::new(16, Orientation::Normal)));
-        p.follow(&mut r, &mut arrow, PointerShape::Pointer);
+        p.follow(&mut r, &mut arrow, PointerShape::Pointer, &Store::default());
         let hand = Arrow::shape(PointerShape::Pointer, 16, Orientation::Normal);
         assert_eq!((r.pointer_shape(), &arrow), (PointerShape::Pointer, &hand));
         assert_eq!(p.route(), Route::Unset);
         assert_eq!(p.before_draw(&mut plane, ID, &arrow, Some((5, 6))), None);
         assert_eq!((plane.arrow.as_ref(), plane.set_ups), (Some(&hand), 2));
-        p.follow(&mut r, &mut arrow, PointerShape::Pointer);
+        p.follow(&mut r, &mut arrow, PointerShape::Pointer, &Store::default());
         assert_eq!(p.route(), Route::Hardware);
         p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
         assert_eq!(plane.set_ups, 2);
         // back to the default shape, the arrow
-        p.follow(&mut r, &mut arrow, PointerShape::Default);
+        p.follow(&mut r, &mut arrow, PointerShape::Default, &Store::default());
         assert_eq!(arrow, Arrow::new(16, Orientation::Normal));
         assert_eq!(p.route(), Route::Unset);
     }
@@ -674,14 +675,13 @@ mod tests {
     // earlier shape's picture instead of leaving it frozen on screen.
     #[test]
     fn a_new_shape_the_plane_refuses_hides_the_plane() {
-        let _held = crate::pointer_file::tests::loading();
         let mut r = renderer(Orientation::Normal);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
         let mut arrow = r.arrow().clone();
         p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
         after(&mut p, &mut plane, &r, Some((5, 6)));
         assert!(plane.shown.is_some());
-        p.follow(&mut r, &mut arrow, PointerShape::Wait);
+        p.follow(&mut r, &mut arrow, PointerShape::Wait, &Store::default());
         plane.refuse.push(io::ErrorKind::Unsupported.into());
         assert_eq!(
             p.before_draw(&mut plane, ID, &arrow, Some((5, 6))),
@@ -697,10 +697,9 @@ mod tests {
     // covers: window.pointer-shape
     #[test]
     fn a_new_shape_on_a_turned_display_is_turned() {
-        let _held = crate::pointer_file::tests::loading();
         let mut r = renderer(Orientation::Right);
         let (mut p, mut arrow) = (Pointer::default(), r.arrow().clone());
-        p.follow(&mut r, &mut arrow, PointerShape::Text);
+        p.follow(&mut r, &mut arrow, PointerShape::Text, &Store::default());
         assert_eq!(
             arrow,
             Arrow::shape(PointerShape::Text, 16, Orientation::Right)

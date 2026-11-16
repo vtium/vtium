@@ -3867,14 +3867,20 @@ mod tests {
     }
 
     // A helper that does not answer a pointer ask in time is ended, and the
-    // ask's answer says how long vtium waited.
+    // ask's answer says how long vtium waited. The stand-in reads every
+    // request and answers none, and it keeps running until the client ends
+    // it. It runs cat in its own place rather than in the background,
+    // because a shell gives a background command /dev/null for its
+    // standard input: that cat would end at once and the shell with it,
+    // and the client would then see a helper that exited, not one that
+    // gave no answer.
     #[test]
     fn a_pointer_ask_left_unanswered_gets_why() {
-        let mut s = pointer_stand_in("pointer-silent", "cat >/dev/null & wait", b"");
+        let mut s = pointer_stand_in("pointer-silent", "exec cat >/dev/null", b"");
         let now = t0();
         s.helper.pointer(&text_pointer_ask(), now);
         let _ = s.helper.poll(now);
-        assert!(s.helper.pointer_answer().is_none());
+        assert_eq!(s.helper.pointer_answer(), None);
         let late = now + Duration::from_millis(ANSWER_MS + 1);
         assert_eq!(
             s.helper.deadline(),

@@ -28,9 +28,9 @@
 //! When the helper fails during an ask, the loader gives the file up: it
 //! logs one line, keeps the pictures it has, and asks for nothing more.
 //!
-//! The pictures go into one table that every display's pointer reads
-//! before each draw ([`current`]), and vtium draws its compiled-in pictures
-//! for every shape and height the table lacks.
+//! The pictures go into the console's [`Store`], whose table every
+//! display's pointer reads before each draw, and vtium draws its
+//! compiled-in pictures for every shape and height the table lacks.
 //!
 //! References:
 //! - ADR-1309 D2: what the path names.
@@ -458,6 +458,9 @@ enum File {
 #[derive(Debug)]
 pub struct Loader {
     path: PathBuf,
+    /// The store the console's displays read the table from and ask
+    /// heights through.
+    store: Store,
     trust: Trust,
     file: File,
     table: PointerPictures,
@@ -478,8 +481,10 @@ impl Loader {
     /// A loader for the pointer file at `path`, each of whose files is read
     /// under `trust`, with `pointer-size` `size`; `None`, and the line
     /// logged, when the path names nothing vtium uses. An SVG file is read
-    /// now, and a theme's files as each shape is asked for.
-    pub fn start(path: &Path, size: Option<u32>, trust: Trust) -> Option<Loader> {
+    /// now, and a theme's files as each shape is asked for. The loader
+    /// publishes its table into `store`, and takes the heights the
+    /// console's displays ask through `store`.
+    pub fn start(path: &Path, size: Option<u32>, trust: Trust, store: &Store) -> Option<Loader> {
         let (file, sizes) = match locate(path) {
             Located::Unusable(path) => {
                 log::warn!("{}", unusable_line(&path));
@@ -508,7 +513,7 @@ impl Loader {
                         return None;
                     }
                 };
-                store().svg = true;
+                store.lock().svg = true;
                 (
                     File::Svg {
                         bytes: Arc::new(bytes),
@@ -523,6 +528,7 @@ impl Loader {
         };
         Some(Loader {
             path: path.to_owned(),
+            store: store.clone(),
             trust,
             file,
             table: PointerPictures::new(sizes),
@@ -546,7 +552,7 @@ impl Loader {
     /// The next ask to send, or `None` when there is nothing to ask now.
     /// A theme's next ask reads the next file to try; an SVG file's first
     /// ask of a round takes the heights the displays wait for
-    /// ([`want`]).
+    /// ([`Store::want`]).
     pub fn next_ask(&mut self) -> Option<Ask> {
         if self.ended {
             return None;
@@ -590,7 +596,7 @@ impl Loader {
                 given_up,
                 rounds,
             } => {
-                let mut s = store();
+                let mut s = self.store.lock();
                 for h in std::mem::take(&mut s.forget) {
                     self.table.forget(h);
                     self.changed = true;
@@ -641,7 +647,7 @@ impl Loader {
             Err(why) => {
                 self.log.warnings.push(lost_line(&self.path, &why));
                 self.ended = true;
-                store().svg = false;
+                self.store.lock().svg = false;
                 return;
             }
         };
@@ -694,14 +700,15 @@ impl Loader {
         if !std::mem::take(&mut self.changed) {
             return false;
         }
-        store().pictures = Some(Arc::new(self.table.clone()));
+        self.store.lock().pictures = Some(Arc::new(self.table.clone()));
         true
     }
 }
 
 /// The table every display's pointer reads, and the heights an SVG file
 /// still has to be drawn at.
-struct Store {
+#[derive(Default)]
+struct State {
     pictures: Option<Arc<PointerPictures>>,
     /// Whether an SVG file is loading, and so asks for heights.
     svg: bool,
@@ -716,53 +723,75 @@ struct Store {
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
-static STORE: Mutex<Store> = Mutex::new(Store {
-    pictures: None,
-    svg: false,
-    asked: Vec::new(),
-    waiting: Vec::new(),
-    forget: Vec::new(),
-    wake: None,
-});
+/// What a console's loader shares with the pointer of each of its
+/// displays: the table of pictures the pointers draw, and the heights an
+/// SVG file still has to be drawn at. The console makes one and hands a
+/// copy of the handle to its loader and to each display it draws on, so
+/// each console, and each test, has a store of its own and sees no other
+/// console's heights or pictures.
+#[derive(Clone, Default)]
+pub struct Store(Arc<Mutex<State>>);
 
-fn store() -> std::sync::MutexGuard<'static, Store> {
-    STORE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+impl std::fmt::Debug for Store {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Store").finish_non_exhaustive()
+    }
 }
 
-/// The pointer file's pictures, once the helper has answered; `None`
-/// before, and when no pointer file is set.
-pub fn current() -> Option<Arc<PointerPictures>> {
-    store().pictures.clone()
-}
+impl Store {
+    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
 
-/// Sets what turns the console's loop when a display wants an SVG file
-/// drawn at a new height.
-pub fn set_wake(wake: Arc<dyn Fn() + Send + Sync>) {
-    store().wake = Some(wake);
-}
+    /// The pointer file's pictures, once the helper has answered; `None`
+    /// before, and when no pointer file is set.
+    pub fn current(&self) -> Option<Arc<PointerPictures>> {
+        self.lock().pictures.clone()
+    }
 
-/// A display draws its pointer at cells `cell_height` tall: an SVG file is
-/// drawn at that height when it is not kept, and the height kept longest
-/// is dropped to make room past [`SVG_HEIGHTS_KEPT`].
-pub fn want(cell_height: u32) {
-    let wake = {
-        let mut s = store();
-        if !s.svg || s.asked.contains(&cell_height) {
-            return;
+    /// Sets what turns the console's loop when a display wants an SVG file
+    /// drawn at a new height.
+    pub fn set_wake(&self, wake: Arc<dyn Fn() + Send + Sync>) {
+        self.lock().wake = Some(wake);
+    }
+
+    /// Makes the store take heights as an SVG file's loader does, for a
+    /// test that has no loader.
+    #[cfg(test)]
+    pub(crate) fn take_heights(&self) {
+        self.lock().svg = true;
+    }
+
+    /// The heights the store's displays asked for and the store keeps, the
+    /// oldest first: for a test.
+    #[cfg(test)]
+    pub(crate) fn asked(&self) -> Vec<u32> {
+        self.lock().asked.clone()
+    }
+
+    /// A display draws its pointer at cells `cell_height` tall: an SVG file
+    /// is drawn at that height when it is not kept, and the height kept
+    /// longest is dropped to make room past [`SVG_HEIGHTS_KEPT`].
+    pub fn want(&self, cell_height: u32) {
+        let wake = {
+            let mut s = self.lock();
+            if !s.svg || s.asked.contains(&cell_height) {
+                return;
+            }
+            if s.asked.len() >= SVG_HEIGHTS_KEPT {
+                let old = s.asked.remove(0);
+                s.waiting.retain(|&h| h != old);
+                s.forget.push(old);
+            }
+            s.asked.push(cell_height);
+            s.waiting.push(cell_height);
+            s.wake.clone()
+        };
+        if let Some(wake) = wake {
+            wake();
         }
-        if s.asked.len() >= SVG_HEIGHTS_KEPT {
-            let old = s.asked.remove(0);
-            s.waiting.retain(|&h| h != old);
-            s.forget.push(old);
-        }
-        s.asked.push(cell_height);
-        s.waiting.push(cell_height);
-        s.wake.clone()
-    };
-    if let Some(wake) = wake {
-        wake();
     }
 }
 
