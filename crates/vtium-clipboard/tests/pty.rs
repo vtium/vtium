@@ -168,6 +168,15 @@ fn unread(mut slave: &File) -> Vec<u8> {
     left
 }
 
+/// The command that starts the program with SIGINT at its default action,
+/// which ends a process. A process inherits an ignored signal across exec,
+/// and a shell without job control ignores SIGINT in the commands it starts
+/// in the background, as `cargo test &` in a script does. Ignored, the
+/// SIGINT that Ctrl+C sends ends nothing, and the tests of Ctrl+C would fail
+/// or pass for the wrong reason. GNU env's `--default-signal` resets it
+/// before env runs the program.
+const SIGINT_DEFAULT: [&str; 2] = ["env", "--default-signal=INT"];
+
 /// What a run on the pty left behind.
 struct Run {
     /// The program's exit status and its standard output and error.
@@ -181,12 +190,14 @@ struct Run {
 }
 
 /// Runs `program ARGS` with the pty as its controlling terminal and as its
-/// standard input, while `other` plays the terminal.
+/// standard input, while `other` plays the terminal. The program starts with
+/// SIGINT at its default action; see [`SIGINT_DEFAULT`].
 fn on_pty(program: &str, args: &[&str], other: Other) -> Run {
     let (master, slave) = pair();
     let (player, program_pid) = play(master, other);
     let child = Command::new("setsid")
         .arg("--ctty")
+        .args(SIGINT_DEFAULT)
         .arg(program)
         .args(args)
         .stdin(Stdio::from(
@@ -213,10 +224,12 @@ fn on_pty(program: &str, args: &[&str], other: Other) -> Run {
 
 /// Starts `BIN ARGS` with the pty's slave as its controlling terminal,
 /// while nobody reads the pty's master, so the terminal stops taking what
-/// the program writes once the pty's buffer is full.
+/// the program writes once the pty's buffer is full. The program starts
+/// with SIGINT at its default action; see [`SIGINT_DEFAULT`].
 fn start_unread(slave: &File, args: &[&str]) -> Child {
     Command::new("setsid")
         .arg("--ctty")
+        .args(SIGINT_DEFAULT)
         .arg(BIN)
         .args(args)
         .stdin(Stdio::from(
