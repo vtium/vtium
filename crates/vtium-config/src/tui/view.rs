@@ -749,11 +749,19 @@ fn small(canvas: &mut Canvas, app: &App) {
     // a question asked here takes the first row, with its keys, so it
     // shows however few the rows
     if let Some(c) = &app.confirm {
-        let row = match c.then {
-            Then::Quit(_) => format!("{}  {}", words::small_question(app.unsaved), key_line(app)),
-            _ => key_line(app).to_owned(),
-        };
-        lines.insert(0, row);
+        match c.then {
+            Then::Quit(_) => lines.insert(
+                0,
+                format!("{}  {}", words::small_question(app.unsaved), key_line(app)),
+            ),
+            // the leave question's keys fill a row, so what it says goes
+            // on the row above them
+            Then::Leave(_) => {
+                lines.insert(0, key_line(app).to_owned());
+                lines.insert(0, words::small_leave(app.unsaved));
+            }
+            _ => lines.insert(0, key_line(app).to_owned()),
+        }
     }
     // the keys stay on the screen however few its rows
     let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);

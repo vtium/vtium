@@ -611,6 +611,17 @@ pub fn came_went(came: &[String], went: &[String]) -> String {
 pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc cancel";
 pub const KEYS_CONFIRM: &str = "y yes  Esc no";
 pub const KEYS_LEAVE: &str = "y install and quit  n quit without installing  Esc back";
+/// The leave question below the minimum size, on the row above its keys:
+/// that font sets wait to be installed, and that both answers save the
+/// `unsaved` changes first.
+pub fn small_leave(unsaved: usize) -> String {
+    match unsaved {
+        0 => "Font sets wait to install.".to_owned(),
+        1 => "Font sets wait to install; y and n save 1 change first.".to_owned(),
+        n => format!("Font sets wait to install; y and n save {n} changes first."),
+    }
+}
+
 /// The quit question below the minimum size, on one row before its keys:
 /// the changes quitting loses.
 pub fn small_question(unsaved: usize) -> String {

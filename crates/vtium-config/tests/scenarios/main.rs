@@ -436,3 +436,21 @@ fn the_leave_question_without_a_draft_leaves_no_install_waiting() {
     assert!(sim.app.confirm.is_some(), "i installed without asking");
 }
 
+/// Below the minimum size, the leave question says what quitting loses
+/// and that both answers save the change that is not saved, above its
+/// keys.
+#[test]
+fn below_the_minimum_size_the_leave_question_says_what_it_does() {
+    let mut sim = Sim::start(Term::Vtium, 80, 25);
+    press(&mut sim, &["Up", "Up", "Enter", "Down", "r", "Shrink", "q"]);
+    let screen = sim.screen();
+    let top = screen
+        .iter()
+        .take(2)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(top.contains("Font sets wait to install"), "{top}");
+    assert!(top.contains("1 change"), "{top}");
+    assert!(top.contains("y install and quit"), "{top}");
+}
