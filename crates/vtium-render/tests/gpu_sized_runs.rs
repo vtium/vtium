@@ -140,3 +140,52 @@ fn every_gpu_frame_of_sized_runs_matches_a_whole_draw() {
         }
     }
 }
+
+// Runs on double-size lines draw on the GPU path as on the CPU path: a
+// run on a double-width line, a run too wide for its cells there, and a
+// run on each line of a double-height pair, at every turn of the display
+// covers: text.kitty-sizing
+#[test]
+fn every_gpu_frame_of_runs_on_double_size_lines_matches_a_whole_draw() {
+    let steps: [(&str, &[u8]); 3] = [
+        ("a run on a double-width line", b"\x1b#6\x1b]66;w=2;A\x07"),
+        (
+            "a run too wide for its cells",
+            b"\x1b[2;1H\x1b#6\x1b]66;w=1;ABCD\x07",
+        ),
+        (
+            "a run on each line of a pair",
+            b"\x1b[3;1H\x1b#3\x1b]66;w=2;A\x07\r\n\x1b#4\x1b]66;w=2;A\x07",
+        ),
+    ];
+    for o in [
+        Orientation::Normal,
+        Orientation::UpsideDown,
+        Orientation::Right,
+        Orientation::Left,
+    ] {
+        let size = display(o);
+        let mut t = Terminal::new(COLS, ROWS, 0);
+        t.input(b"\x1b[?25l");
+        let mut gl = StandIn::new();
+        let mut pipeline =
+            Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
+        let buffer: DrawTarget = gl.import_buffer(&size).unwrap();
+        let mut r = Renderer::new(unifont(), size.width, size.height, config(o));
+        let mut since = Age::NEVER;
+        for (what, bytes) in steps {
+            t.input(bytes);
+            let frame = t.screen().frame(t.palette(), since);
+            r.draw_gpu(&mut gl, &mut pipeline, &frame, &buffer, 1, &state(&t), &[])
+                .unwrap();
+            since = t.screen_mut().checkpoint();
+            let cpu = whole(&t, o);
+            let gpu = gpu_pixel(&gl, o, size);
+            let differ = (0..cpu.height())
+                .flat_map(|y| (0..cpu.width()).map(move |x| (x, y)))
+                .filter(|&(x, y)| cpu.pixel(x, y) != Some(gpu(x, y)))
+                .count();
+            assert_eq!(differ, 0, "{what}, {o:?}");
+        }
+    }
+}

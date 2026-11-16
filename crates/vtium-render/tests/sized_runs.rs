@@ -306,3 +306,100 @@ fn runs_of_one_letter_at_two_scales_each_draw_at_their_own() {
     assert_eq!(area(&c, (0, 0), (2 * CW, 2 * CH)), magnified(&a, 2));
     assert_eq!(area(&c, (2 * CW, 0), (3 * CW, 3 * CH)), magnified(&a, 3));
 }
+
+// A block cursor on the part of a run that stays on the screen, after
+// the run's top row has scrolled into the scrollback, still covers every
+// cell of the run the screen shows
+// covers: text.kitty-sizing
+#[test]
+fn a_cursor_on_a_run_whose_top_row_scrolled_off_covers_what_shows() {
+    let (w, h) = (W, 3 * CH);
+    let screen = |cursor: bool| {
+        let mut t = Terminal::new(COLS, 3, 100);
+        t.screen_mut().set_scrollback_max(100);
+        t.input(b"\x1b[?25l\x1b[2 q\x1b]66;s=2:w=2;AB\x07\x1b[3;1H\n\x1b[1;2H");
+        if cursor {
+            t.input(b"\x1b[?25h");
+        }
+        let mut r = Renderer::new(unifont(), w, h, Config::default());
+        let mut c = Canvas::new(w, h, 0);
+        r.draw(
+            &t.screen().frame(t.palette(), Age::NEVER),
+            &mut c,
+            0,
+            &state(&t),
+        );
+        area(&c, (0, 0), (4 * CW, CH))
+    };
+    let (plain, got) = (screen(false), screen(true));
+    let bg = background();
+    let fg = plain.iter().flatten().copied().find(|&p| p != bg).unwrap();
+    let reversed: Vec<Vec<u32>> = plain
+        .iter()
+        .map(|row| row.iter().map(|&p| if p == bg { fg } else { bg }).collect())
+        .collect();
+    assert_eq!(got, reversed);
+}
+
+/// `glyph` drawn twice as wide: each pixel repeated sideways.
+fn widened(glyph: &[Vec<u32>]) -> Vec<Vec<u32>> {
+    glyph
+        .iter()
+        .map(|row| row.iter().flat_map(|&p| [p, p]).collect())
+        .collect()
+}
+
+// A run on a double-width line is one row high and as wide as w gives it
+// in the line's columns, each two cells of the display: w=2 holds one A,
+// drawn twice as wide and centred across the run's four display cells,
+// not an A in each cell
+// covers: text.kitty-sizing
+#[test]
+fn a_run_on_a_double_width_line_draws_its_text_once_across_its_cells() {
+    let t = term(b"\x1b#6\x1b]66;w=2;A\x07");
+    let got = area(&draw(&t), (0, 0), (4 * CW, CH));
+    assert_eq!(
+        got,
+        placed(&widened(&normal("A", 1)), (4 * CW, CH), (CW, 0))
+    );
+}
+
+// Text wider than its run on a double-width line draws smaller until it
+// fits the run's two display cells: "ABCD" a quarter of its doubled size,
+// 4 rows tall and standing on the line's baseline, and nothing past them
+// covers: text.kitty-sizing
+#[test]
+fn text_wider_than_its_run_on_a_double_width_line_fits_its_cells() {
+    let t = term(b"\x1b#6\x1b]66;w=1;ABCD\x07");
+    let c = draw(&t);
+    let bg = background();
+    let run = area(&c, (0, 0), (2 * CW, CH));
+    let rows: Vec<usize> = (0..CH as usize)
+        .filter(|&y| run[y].iter().any(|&p| p != bg))
+        .collect();
+    assert!(!rows.is_empty(), "the text draws");
+    assert!(
+        rows.iter().all(|&y| (11..16).contains(&y)),
+        "4 rows on the baseline: {rows:?}"
+    );
+    assert!(
+        area(&c, (2 * CW, 0), (W - 2 * CW, CH))
+            .iter()
+            .flatten()
+            .all(|&p| p == bg)
+    );
+}
+
+// A run on each line of a double-height pair draws one A, twice as wide
+// and twice as tall, centred across the run's four display cells: its
+// upper half on the top line and its lower half on the bottom line
+// covers: text.kitty-sizing
+#[test]
+fn a_run_on_a_double_height_pair_draws_its_text_once_across_both_lines() {
+    let t = term(b"\x1b#3\x1b]66;w=2;A\x07\r\n\x1b#4\x1b]66;w=2;A\x07");
+    let got = area(&draw(&t), (0, 0), (4 * CW, 2 * CH));
+    assert_eq!(
+        got,
+        placed(&magnified(&normal("A", 1), 2), (4 * CW, 2 * CH), (CW, 0))
+    );
+}

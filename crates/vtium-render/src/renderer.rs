@@ -447,7 +447,8 @@ impl<'f> Pass<'_, 'f> {
 
     /// The rows and columns of the sized run whose cell `at` is, as the
     /// screen shows them: the cursor that stands on any cell of a run
-    /// covers the whole block. `None` off a run.
+    /// covers the whole block. Rows of the run that have scrolled above
+    /// the screen are left out. `None` off a run.
     ///
     /// References:
     /// - ADR-1308 D6, "The cursor's drawing": the cursor covers every cell
@@ -458,8 +459,10 @@ impl<'f> Pass<'_, 'f> {
     ) -> Option<(core::ops::Range<usize>, core::ops::Range<usize>)> {
         let (col, row) = at?;
         let run = self.run_at(row, col)?;
-        let top = row.checked_sub(run.row())?;
-        let bottom = top.saturating_add(run.rows()).min(self.g.rows);
+        // the run's rows below this one; its top may lie above the screen
+        let below = run.rows().saturating_sub(run.row());
+        let top = row.saturating_sub(run.row());
+        let bottom = row.saturating_add(below).min(self.g.rows);
         Some((top..bottom, run.span()))
     }
 
@@ -2058,10 +2061,16 @@ impl<F: Face> Renderer<F> {
         let mut doubled = core::mem::take(&mut self.doubled);
         doubled.clear();
         let mut before = None;
+        let runs = !p.frame.sized_runs(row).is_empty();
         for (here, fc) in p.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
+            // each cell of a sized run draws its own piece of the run
+            let ncells = match runs && p.run_at(row, here).is_some() {
+                true => 1,
+                false => ncells,
+            };
             before = Some(fc.width);
             // the row keeps no reach, so the scan reads none
             if self.scan_cell(p, (here, row), &fc, (ncells, false), back)
@@ -2131,7 +2140,7 @@ impl<F: Face> Renderer<F> {
                     r,
                     g: r,
                     tiles: [r, l.cells_area(g, col.saturating_add(1), row, 1)],
-                    piece: double::Piece::of(size, column),
+                    piece: job.piece.on_line(size, column),
                     bar,
                     ..*job
                 });
