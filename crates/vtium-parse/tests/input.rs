@@ -178,6 +178,26 @@ fn pause_returns_early_and_resumes() {
     assert_eq!(rec.acts[rec.acts.len() - 6], esc("", b'\\'));
 }
 
+// A pause at a print inside a run of printable ASCII stops advance right
+// after that byte, in every input mode, and the rest prints later.
+#[test]
+fn pause_inside_a_run_of_text_returns_early() {
+    for mode in [InputMode::Utf8, InputMode::EightBit, InputMode::SevenBit] {
+        let input = b"abcdef\r\n";
+        let mut parser = Parser::new();
+        let mut rec = Recorder {
+            mode,
+            pause_on: Some(|a| *a == Act::Print(u32::from('c'))),
+            ..Recorder::new()
+        };
+        let n = parser.advance(&mut rec, input);
+        assert_eq!(n, 3, "through the c, {mode:?}");
+        assert_eq!(rec.acts, prints("abc"), "{mode:?}");
+        rec.feed(&mut parser, &input[n..]);
+        assert_eq!(rec.acts, parse(input), "{mode:?}");
+    }
+}
+
 // Without a pause, advance takes the whole input.
 #[test]
 fn advance_takes_everything_unpaused() {
