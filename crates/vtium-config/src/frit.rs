@@ -121,6 +121,130 @@ pub struct Source {
     /// own source. A layer's source never sets the frit's cell and is
     /// never its text font.
     pub layer: Option<String>,
+    /// What the set states about the font the source needs: `version=`,
+    /// `check=`, `sha256=` and `url=` ([`Needs`]).
+    pub needs: Needs,
+}
+
+/// What a set states about the font one of its sources needs, from the
+/// four keys that may follow the `source=` line. The glyph helper matches
+/// the font it finds against them, and vtium-config names the font with
+/// them when the font is missing or differs.
+///
+/// References:
+/// - ADR-1204 D7: the four keys and what vtium does with each.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Needs {
+    /// `version=`: the lowest version of the font that the set was written
+    /// against. A font of a lower version still draws, and vtium-config
+    /// reports it.
+    pub version: Option<Version>,
+    /// `check=`: characters that the right font holds, the union of its
+    /// lines' ranges, sorted and merged. A font that lacks any of them is
+    /// a different font of a similar name, such as the plain font in place
+    /// of its Nerd Fonts build, and counts as missing.
+    pub check: Vec<Cover>,
+    /// `sha256=`: the SHA-256 of the file a path source names, as 64
+    /// lowercase hexadecimal digits. A file with another hash still draws,
+    /// and vtium-config reports it.
+    pub sha256: Option<String>,
+    /// `url=`: the font's upstream page, which vtium-config names beside
+    /// the font.
+    pub url: Option<String>,
+}
+
+impl Needs {
+    /// Whether the set states nothing about the font.
+    pub fn is_empty(&self) -> bool {
+        self == &Needs::default()
+    }
+}
+
+/// A font's version as numbers separated by dots, such as `2.304` or
+/// `17.0.03`, compared number by number, so `2.10` is later than `2.9`. A
+/// missing number counts as 0, so `3.4` and `3.4.0` are the same version.
+#[derive(Clone, Debug)]
+pub struct Version {
+    /// The version as it was written.
+    pub spelling: String,
+    numbers: Vec<u32>,
+}
+
+/// The most numbers a version holds.
+pub const VERSION_NUMBERS_MAX: usize = 8;
+
+impl Version {
+    /// The version a `version=` line states: numbers separated by dots,
+    /// each of decimal digits, at most [`VERSION_NUMBERS_MAX`] of them.
+    pub fn parse(value: &str) -> Option<Version> {
+        let numbers: Vec<u32> = value
+            .split('.')
+            .map(|n| {
+                n.bytes()
+                    .all(|b| b.is_ascii_digit())
+                    .then(|| n.parse::<u32>().ok())
+                    .flatten()
+            })
+            .collect::<Option<_>>()?;
+        (numbers.len() <= VERSION_NUMBERS_MAX).then(|| Version {
+            spelling: value.to_owned(),
+            numbers,
+        })
+    }
+
+    /// The version a font's own version string gives, such as `Version
+    /// 2.304; ttfautohint (v1.8.4)` from an OpenType font's name table or
+    /// `3.000` from a BDF font's `FONT_VERSION`: the first run of digits
+    /// and dots that starts with a digit, without a dot at its end.
+    /// `None` when the string holds no such run.
+    pub fn in_string(text: &str) -> Option<Version> {
+        let start = text.find(|c: char| c.is_ascii_digit())?;
+        let rest = text.get(start..)?;
+        let end = rest
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .unwrap_or(rest.len());
+        let run = rest.get(..end)?.trim_end_matches('.');
+        // a run with two dots together, or more numbers than a version
+        // holds, keeps the numbers before the break
+        let mut kept = Vec::new();
+        for n in run.split('.') {
+            if n.is_empty() || kept.len() >= VERSION_NUMBERS_MAX {
+                break;
+            }
+            kept.push(n);
+        }
+        Version::parse(&kept.join("."))
+    }
+
+    /// The numbers, without the zeros at the end, which change nothing.
+    fn significant(&self) -> &[u32] {
+        let end = self
+            .numbers
+            .iter()
+            .rposition(|&n| n != 0)
+            .map_or(0, |i| i.saturating_add(1));
+        self.numbers.get(..end).unwrap_or_default()
+    }
+}
+
+impl PartialEq for Version {
+    fn eq(&self, other: &Version) -> bool {
+        self.significant() == other.significant()
+    }
+}
+
+impl Eq for Version {}
+
+impl PartialOrd for Version {
+    fn partial_cmp(&self, other: &Version) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Version {
+    fn cmp(&self, other: &Version) -> std::cmp::Ordering {
+        self.significant().cmp(other.significant())
+    }
 }
 
 /// One `script-source=` line: a smaller size of the same font as the
@@ -622,6 +746,7 @@ impl Frit {
                         fits: Vec::new(),
                         line: n,
                         layer: open.clone(),
+                        needs: Needs::default(),
                     });
                     after_layer = false;
                     set = Some((n, None));
@@ -736,6 +861,14 @@ impl Frit {
                         origin,
                         line: n,
                     });
+                }
+                "version" | "check" | "sha256" | "url" => {
+                    let i = current(&mut sources)?;
+                    let source = sources
+                        .get_mut(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
+                    need(&mut source.needs, &source.origin, key, value)
+                        .map_err(|why| err(n, &why))?;
                 }
                 "style" => {
                     let i = current(&mut sources)?;
@@ -1076,6 +1209,17 @@ fn cover(value: &str) -> Result<Vec<Cover>, String> {
     if let Some((_, set)) = crate::cover::SETS.iter().find(|(name, _)| *name == value) {
         return Ok(set.to_vec());
     }
+    code_points(value).map(|range| vec![range]).ok_or_else(|| {
+        format!(
+            "cover={value} is not one of ascii, latin-1, gb2312, gbk, big5, jis-x-0208, ks-x-1001, U+XXXX or U+XXXX-U+YYYY"
+        )
+    })
+}
+
+/// A code point, `U+XXXX`, or a range of them, `U+XXXX-U+YYYY`, with four
+/// to six hexadecimal digits each, as `cover=` and `check=` write them;
+/// `None` for any other value, and for a range that ends before it starts.
+fn code_points(value: &str) -> Option<Cover> {
     let point = |s: &str| {
         let hex = s.strip_prefix("U+")?;
         if !(4..=6).contains(&hex.len()) || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -1086,15 +1230,72 @@ fn cover(value: &str) -> Result<Vec<Cover>, String> {
             .filter(|&c| c <= 0x10_ffff)
     };
     let (a, b) = match value.split_once('-') {
-        Some((a, b)) => (point(a), point(b)),
-        None => (point(value), point(value)),
+        Some((a, b)) => (point(a)?, point(b)?),
+        None => (point(value)?, point(value)?),
     };
-    match (a, b) {
-        (Some(a), Some(b)) if a <= b => Ok(vec![(a, b)]),
-        _ => Err(format!(
-            "cover={value} is not one of ascii, latin-1, gb2312, gbk, big5, jis-x-0208, ks-x-1001, U+XXXX or U+XXXX-U+YYYY"
-        )),
+    (a <= b).then_some((a, b))
+}
+
+/// Reads one of the four keys that say which font a source needs into
+/// `needs`, for a source whose origin is `origin`. `check=` may come
+/// several times, and its ranges join; each other key comes once for a
+/// source. `sha256=` is only for a source that names a file by its path,
+/// because only such a file has one hash.
+///
+/// References:
+/// - ADR-1204 D7: the four keys and their values.
+fn need(needs: &mut Needs, origin: &Origin, key: &str, value: &str) -> Result<(), String> {
+    let twice = || format!("{key}= appears twice for one source");
+    match key {
+        "version" => {
+            if needs.version.is_some() {
+                return Err(twice());
+            }
+            needs.version = Some(Version::parse(value).ok_or_else(|| {
+                format!(
+                    "version={value} is not a version. Write the version as numbers separated by dots, such as 2.304."
+                )
+            })?);
+        }
+        "check" => {
+            let range = code_points(value)
+                .ok_or_else(|| format!("check={value} is not one of U+XXXX or U+XXXX-U+YYYY"))?;
+            needs.check = merged([std::mem::take(&mut needs.check), vec![range]].concat());
+        }
+        "sha256" => {
+            if !matches!(
+                origin,
+                Origin::File(_) | Origin::Bdf(_) | Origin::Outline(_)
+            ) {
+                return Err(
+                    "sha256= is for a source named by its path, file:, bdf: or outline:, and the source above it names no file"
+                        .to_owned(),
+                );
+            }
+            if needs.sha256.is_some() {
+                return Err(twice());
+            }
+            if value.len() != 64 || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err("sha256= takes the file's SHA-256 as 64 hexadecimal digits".to_owned());
+            }
+            needs.sha256 = Some(value.to_ascii_lowercase());
+        }
+        _ => {
+            if needs.url.is_some() {
+                return Err(twice());
+            }
+            let rest = value
+                .strip_prefix("https://")
+                .or_else(|| value.strip_prefix("http://"));
+            if !rest.is_some_and(|r| !r.is_empty() && !r.contains(char::is_whitespace)) {
+                return Err(format!(
+                    "url={value} is not a web address. Give the font's page as an address that starts with https:// or http://."
+                ));
+            }
+            needs.url = Some(value.to_owned());
+        }
     }
+    Ok(())
 }
 
 /// `ranges` sorted, with those that overlap or touch merged.
@@ -1597,7 +1798,7 @@ mod tests {
             (
                 "source=font:x\nsha256=00000000000000000000000000000000000000000000000000000000000000ff\n",
                 2,
-                "unknown key sha256",
+                "the source above it names no file",
             ),
             ("source=kbd:x\nunimap=a/b\n", 2, "absolute path"),
             ("source=builtin:unifont\nunimap=x\n", 2, "its own map"),
@@ -1964,5 +2165,160 @@ mod tests {
     fn the_error_names_the_file_and_line() {
         let e = parse("source=kbd:x\nbogus=1\n").expect_err("refused");
         assert_eq!(e.to_string(), "/r/t.vtfrit:2: unknown key bogus");
+    }
+
+    // The four keys under a source say which font it needs: the lowest
+    // version, characters the right font holds, a path source's SHA-256
+    // and the font's upstream page. A source with none of them needs
+    // nothing beyond its name.
+    //
+    // References:
+    // - ADR-1204 D7: the four keys.
+    #[test]
+    fn the_four_keys_describe_the_font_a_source_needs() {
+        let hash = "D961C1B781627BF417F9B340693D64FC219E0113AD3A3AF1A3424C7AA373EF79";
+        let r = parse(&format!(
+            "source=font:JetBrainsMono Nerd Font Mono\n\
+             version=3.4.0\n\
+             check=U+E0B0\n\
+             check = U+F000-U+F002\n\
+             check=U+E0B1\n\
+             url=https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0\n\
+             source=bdf:/usr/share/vtium/fonts/ter-u16n.bdf.gz\n\
+             sha256={hash}\n\
+             version=4.49.1\n\
+             source=kbd:lat9w-16\n"
+        ))
+        .expect("parses");
+        let nerd = &r.sources[0].needs;
+        assert_eq!(
+            nerd.version.as_ref().map(|v| v.spelling.as_str()),
+            Some("3.4.0")
+        );
+        assert_eq!(nerd.check, [(0xe0b0, 0xe0b1), (0xf000, 0xf002)]);
+        assert_eq!(nerd.sha256, None);
+        assert_eq!(
+            nerd.url.as_deref(),
+            Some("https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0")
+        );
+        let terminus = &r.sources[1].needs;
+        assert_eq!(
+            terminus.sha256.as_deref(),
+            Some(hash.to_lowercase().as_str())
+        );
+        assert_eq!(terminus.version, Version::parse("4.49.1"), "{terminus:?}");
+        assert!(r.sources[2].needs.is_empty());
+    }
+
+    // A malformed value, a key given twice for one source, `sha256=` under
+    // a source that names no file, and a key with no source above it are
+    // each refused, naming the line, as every other key of the frit is.
+    #[test]
+    fn a_malformed_requirement_is_refused_naming_its_line() {
+        let hash = "a".repeat(64);
+        let cases: [(String, &str); 15] = [
+            (
+                "source=kbd:x\nversion=v2\n".into(),
+                "version=v2 is not a version. Write the version as numbers separated by dots, such as 2.304.",
+            ),
+            (
+                "source=kbd:x\nversion=2..3\n".into(),
+                "version=2..3 is not a version. Write the version as numbers separated by dots, such as 2.304.",
+            ),
+            (
+                "source=kbd:x\nversion=1.2.3.4.5.6.7.8.9\n".into(),
+                "version=1.2.3.4.5.6.7.8.9 is not a version. Write the version as numbers separated by dots, such as 2.304.",
+            ),
+            (
+                "source=kbd:x\nversion=1\nversion=2\n".into(),
+                "version= appears twice for one source",
+            ),
+            (
+                "source=kbd:x\ncheck=E0B0\n".into(),
+                "check=E0B0 is not one of U+XXXX or U+XXXX-U+YYYY",
+            ),
+            (
+                "source=kbd:x\ncheck=ascii\n".into(),
+                "check=ascii is not one of U+XXXX or U+XXXX-U+YYYY",
+            ),
+            (
+                "source=kbd:x\ncheck=U+E0B1-U+E0B0\n".into(),
+                "check=U+E0B1-U+E0B0 is not one of U+XXXX or U+XXXX-U+YYYY",
+            ),
+            (
+                format!("source=file:/f.psf\nsha256={}\n", &hash[1..]),
+                "sha256= takes the file's SHA-256 as 64 hexadecimal digits",
+            ),
+            (
+                format!("source=file:/f.psf\nsha256={}g\n", &hash[1..]),
+                "sha256= takes the file's SHA-256 as 64 hexadecimal digits",
+            ),
+            (
+                format!("source=file:/f.psf\nsha256={hash}\nsha256={hash}\n"),
+                "sha256= appears twice for one source",
+            ),
+            (
+                format!("source=font:Fira Code\nsha256={hash}\n"),
+                "sha256= is for a source named by its path, file:, bdf: or outline:, and the source above it names no file",
+            ),
+            (
+                "source=kbd:x\nurl=github.com/x\n".into(),
+                "url=github.com/x is not a web address. Give the font's page as an address that starts with https:// or http://.",
+            ),
+            (
+                "source=kbd:x\nurl=https://\n".into(),
+                "url=https:// is not a web address. Give the font's page as an address that starts with https:// or http://.",
+            ),
+            (
+                "source=kbd:x\nurl=https://a b\n".into(),
+                "url=https://a b is not a web address. Give the font's page as an address that starts with https:// or http://.",
+            ),
+            (
+                "source=kbd:x\nurl=https://a\nurl=https://b\n".into(),
+                "url= appears twice for one source",
+            ),
+        ];
+        for (text, why) in cases {
+            let lines = text.lines().count();
+            assert_eq!(refusal(&text), (lines, why.to_owned()), "{text}");
+        }
+        for key in ["version=1", "check=U+E0B0", "url=https://a"] {
+            assert_eq!(
+                refusal(&format!("{key}\nsource=kbd:x\n")),
+                (
+                    1,
+                    format!(
+                        "{}= comes before any source= line",
+                        key.split('=').next().unwrap_or_default()
+                    )
+                )
+            );
+        }
+    }
+
+    // A version compares number by number, a missing number counting as
+    // 0, and a font's version string gives its first run of numbers.
+    #[test]
+    fn versions_compare_number_by_number() {
+        let v = |s: &str| Version::parse(s).expect("a version");
+        assert!(v("2.10") > v("2.9"));
+        assert!(v("2.304") > v("2.31"));
+        assert!(v("17.0.03") == v("17.0.3"));
+        assert!(v("3.4") == v("3.4.0"));
+        assert!(v("4.49.1") > v("4.49"));
+        assert!(v("4.48") < v("4.49.1"));
+        let found = |s: &str| Version::in_string(s).map(|v| v.spelling);
+        assert_eq!(
+            found("Version 2.304; ttfautohint (v1.8.4.7-5d5b)").as_deref(),
+            Some("2.304")
+        );
+        assert_eq!(found("3.000").as_deref(), Some("3.000"));
+        assert_eq!(found("Version 1.2.").as_deref(), Some("1.2"));
+        assert_eq!(found("Version 1..2").as_deref(), Some("1"));
+        assert_eq!(found("Version one"), None);
+        assert_eq!(
+            found("1.2.3.4.5.6.7.8.9.10").as_deref(),
+            Some("1.2.3.4.5.6.7.8")
+        );
     }
 }

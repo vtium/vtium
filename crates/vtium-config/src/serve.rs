@@ -1752,6 +1752,7 @@ fn strike_fonts(
             fits: Vec::new(),
             layer: source.layer.clone(),
             line: strike.line,
+            needs: crate::frit::Needs::default(),
         };
         let font = resolve(&file, host).and_then(|input| {
             bitmap_of(input, "this is an outline font, not a bitmap strike")

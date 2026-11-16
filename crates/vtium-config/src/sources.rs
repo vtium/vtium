@@ -741,6 +741,7 @@ pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
             fits: Vec::new(),
             layer: source.layer.clone(),
             line: named.line,
+            needs: crate::frit::Needs::default(),
         };
         out.push((
             Some((named.line, named.spelling.clone())),
@@ -961,6 +962,7 @@ mod tests {
             fits: Vec::new(),
             layer: None,
             line: 1,
+            needs: crate::frit::Needs::default(),
         }
     }
 
