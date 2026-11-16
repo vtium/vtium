@@ -31,7 +31,7 @@
 //! - ADR-1308 D2: the keys s, w, n, d, v and h, and what each does.
 
 use vtium_font::{Cell, Face, Font, Format, Glyph, Variant, Width};
-use vtium_term::SizedRun;
+use vtium_term::{LineSize, SizedRun};
 
 use crate::mono::Fallback;
 
@@ -77,19 +77,24 @@ impl RunSize {
     }
 }
 
-/// One cell's piece of a sized run: the run's size, and the cell's row
-/// and column in the run's block, both counted from 0 at its top left.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// One cell's piece of a sized run: the run's size, the cell's row and
+/// column in the run's block, both counted from 0 at its top left, and the
+/// size of the line the cell lies on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RunPiece {
     pub(crate) size: RunSize,
     pub(crate) row: u8,
     pub(crate) column: u8,
+    /// The size of the run's line. On a line of double size the block is
+    /// drawn at the line's size, and the cell is one display cell of it.
+    pub(crate) line: LineSize,
 }
 
 /// The bit each field of a packed [`RunPiece`] starts at, and its width:
 /// the column, the row, then the size's scale, columns, numerator,
-/// denominator, vertical and horizontal alignment. 30 bits in all.
-const FIELDS: [(u32, u32); 8] = [
+/// denominator, vertical and horizontal alignment, then the line's size.
+/// 32 bits in all.
+const FIELDS: [(u32, u32); 9] = [
     (0, 6),
     (6, 3),
     (9, 3),
@@ -98,6 +103,15 @@ const FIELDS: [(u32, u32); 8] = [
     (22, 4),
     (26, 2),
     (28, 2),
+    (30, 2),
+];
+
+/// The line sizes in the order a packed [`RunPiece`] numbers them.
+const LINES: [LineSize; 4] = [
+    LineSize::Single,
+    LineSize::DoubleWidth,
+    LineSize::DoubleHeightTop,
+    LineSize::DoubleHeightBottom,
 ];
 
 impl RunPiece {
@@ -113,12 +127,49 @@ impl RunPiece {
             size: RunSize::of(run),
             row: u8::try_from(run.row().min(6)).unwrap_or(6),
             column: u8::try_from(column.min(48)).unwrap_or(48),
+            line: LineSize::Single,
         })
     }
 
-    /// The piece in 30 bits, each field within its width.
+    /// The piece that display column `half`, 0 or 1, of this piece's cell
+    /// draws on a line of size `size`, where each cell spans two display
+    /// cells. A run on such a line is one row high, and the line draws it
+    /// at the line's size: its block twice as wide and twice as tall, with
+    /// its text twice its size, of which a double-height line shows its
+    /// half. A double-width line shows every other pixel row of the
+    /// block, so its text is twice as wide and as tall as the line's text.
+    /// A line of the normal size keeps the piece as it is.
+    ///
+    /// References:
+    /// - ADR-1308 D7: OSC 66 on a double-size line takes only its width,
+    ///   in the line's columns, and ignores s, n, d, v and h.
+    pub(crate) fn on_line(self, size: LineSize, half: usize) -> RunPiece {
+        if size == LineSize::Single {
+            return self;
+        }
+        RunPiece {
+            size: RunSize {
+                scale: 2,
+                cols: self.size.cols.saturating_mul(2).min(63),
+                numerator: 0,
+                denominator: 0,
+                vertical: 0,
+                horizontal: 0,
+            },
+            row: u8::from(size == LineSize::DoubleHeightBottom),
+            column: self
+                .column
+                .saturating_mul(2)
+                .saturating_add(u8::from(half != 0))
+                .min(63),
+            line: size,
+        }
+    }
+
+    /// The piece in 32 bits, each field within its width.
     pub(crate) fn bits(self) -> u32 {
         let s = self.size;
+        let line = LINES.iter().position(|&l| l == self.line).unwrap_or(0);
         let values = [
             self.column,
             self.row,
@@ -128,6 +179,7 @@ impl RunPiece {
             s.denominator,
             s.vertical,
             s.horizontal,
+            u8::try_from(line).unwrap_or(0),
         ];
         FIELDS
             .into_iter()
@@ -149,6 +201,7 @@ impl RunPiece {
             denominator,
             vertical,
             horizontal,
+            line,
         ] = FIELDS.map(|(shift, width)| {
             let max = (1u32 << width).saturating_sub(1);
             u8::try_from(bits >> shift & max).unwrap_or(0)
@@ -164,6 +217,10 @@ impl RunPiece {
             },
             row,
             column,
+            line: LINES
+                .get(usize::from(line))
+                .copied()
+                .unwrap_or(LineSize::Single),
         }
     }
 }
@@ -490,14 +547,21 @@ impl Block {
         let bpp = usize::try_from(self.format.bytes_per_pixel()).ok()?;
         let x = u32::from(piece.column).checked_mul(cw)?;
         let y = u32::from(piece.row).checked_mul(ch)?;
-        if x.checked_add(cw)? > self.width || y.checked_add(ch)? > self.height {
+        // a double-width line shows every other row of a block drawn twice
+        // as tall as the line
+        let step = match piece.line {
+            LineSize::DoubleWidth => 2,
+            _ => 1,
+        };
+        let rows = ch.checked_mul(step)?;
+        if x.checked_add(cw)? > self.width || y.checked_add(rows)? > self.height {
             return None;
         }
         let row = usize::try_from(self.width).ok()?.checked_mul(bpp)?;
         let out_row = usize::try_from(cw).ok()?.checked_mul(bpp)?;
         let left = usize::try_from(x).ok()?.checked_mul(bpp)?;
         let mut out = Vec::with_capacity(out_row.checked_mul(usize::try_from(ch).ok()?)?);
-        for line in y..y.checked_add(ch)? {
+        for line in (y..y.checked_add(rows)?).step_by(usize::try_from(step).ok()?) {
             let at = usize::try_from(line)
                 .ok()?
                 .checked_mul(row)?
@@ -540,20 +604,22 @@ mod tests {
     // Every field of a piece survives its packing, at the largest value
     // each can take
     #[test]
-    fn a_piece_packs_into_30_bits_and_back() {
+    fn a_piece_packs_into_32_bits_and_back() {
         for piece in [
             RunPiece {
                 size: size(7, 49, (14, 15), (2, 2)),
                 row: 6,
                 column: 48,
+                line: LineSize::DoubleHeightBottom,
             },
             RunPiece {
                 size: size(1, 1, (0, 0), (0, 0)),
                 row: 0,
                 column: 0,
+                line: LineSize::Single,
             },
         ] {
-            assert!(piece.bits() < 1 << 30);
+            assert!(u64::from(piece.bits()) < 1 << 32);
             assert_eq!(RunPiece::from_bits(piece.bits()), piece);
         }
     }
@@ -721,6 +787,7 @@ mod tests {
             size: size(2, 2, (0, 0), (0, 0)),
             row,
             column,
+            line: LineSize::Single,
         };
         let g = block.piece(cell, piece(1, 1)).unwrap();
         assert_eq!(g.pixels(), [10, 11, 14, 15]);

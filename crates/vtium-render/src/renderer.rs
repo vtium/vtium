@@ -2061,10 +2061,16 @@ impl<F: Face> Renderer<F> {
         let mut doubled = core::mem::take(&mut self.doubled);
         doubled.clear();
         let mut before = None;
+        let runs = !p.frame.sized_runs(row).is_empty();
         for (here, fc) in p.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
+            // each cell of a sized run draws its own piece of the run
+            let ncells = match runs && p.run_at(row, here).is_some() {
+                true => 1,
+                false => ncells,
+            };
             before = Some(fc.width);
             // the row keeps no reach, so the scan reads none
             if self.scan_cell(p, (here, row), &fc, (ncells, false), back)
@@ -2134,7 +2140,7 @@ impl<F: Face> Renderer<F> {
                     r,
                     g: r,
                     tiles: [r, l.cells_area(g, col.saturating_add(1), row, 1)],
-                    piece: double::Piece::of(size, column),
+                    piece: job.piece.on_line(size, column),
                     bar,
                     ..*job
                 });

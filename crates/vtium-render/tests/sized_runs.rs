@@ -340,3 +340,66 @@ fn a_cursor_on_a_run_whose_top_row_scrolled_off_covers_what_shows() {
         .collect();
     assert_eq!(got, reversed);
 }
+
+/// `glyph` drawn twice as wide: each pixel repeated sideways.
+fn widened(glyph: &[Vec<u32>]) -> Vec<Vec<u32>> {
+    glyph
+        .iter()
+        .map(|row| row.iter().flat_map(|&p| [p, p]).collect())
+        .collect()
+}
+
+// A run on a double-width line is one row high and as wide as w gives it
+// in the line's columns, each two cells of the display: w=2 holds one A,
+// drawn twice as wide and centred across the run's four display cells,
+// not an A in each cell
+// covers: text.kitty-sizing
+#[test]
+fn a_run_on_a_double_width_line_draws_its_text_once_across_its_cells() {
+    let t = term(b"\x1b#6\x1b]66;w=2;A\x07");
+    let got = area(&draw(&t), (0, 0), (4 * CW, CH));
+    assert_eq!(
+        got,
+        placed(&widened(&normal("A", 1)), (4 * CW, CH), (CW, 0))
+    );
+}
+
+// Text wider than its run on a double-width line draws smaller until it
+// fits the run's two display cells: "ABCD" a quarter of its doubled size,
+// 4 rows tall and standing on the line's baseline, and nothing past them
+// covers: text.kitty-sizing
+#[test]
+fn text_wider_than_its_run_on_a_double_width_line_fits_its_cells() {
+    let t = term(b"\x1b#6\x1b]66;w=1;ABCD\x07");
+    let c = draw(&t);
+    let bg = background();
+    let run = area(&c, (0, 0), (2 * CW, CH));
+    let rows: Vec<usize> = (0..CH as usize)
+        .filter(|&y| run[y].iter().any(|&p| p != bg))
+        .collect();
+    assert!(!rows.is_empty(), "the text draws");
+    assert!(
+        rows.iter().all(|&y| (11..16).contains(&y)),
+        "4 rows on the baseline: {rows:?}"
+    );
+    assert!(
+        area(&c, (2 * CW, 0), (W - 2 * CW, CH))
+            .iter()
+            .flatten()
+            .all(|&p| p == bg)
+    );
+}
+
+// A run on each line of a double-height pair draws one A, twice as wide
+// and twice as tall, centred across the run's four display cells: its
+// upper half on the top line and its lower half on the bottom line
+// covers: text.kitty-sizing
+#[test]
+fn a_run_on_a_double_height_pair_draws_its_text_once_across_both_lines() {
+    let t = term(b"\x1b#3\x1b]66;w=2;A\x07\r\n\x1b#4\x1b]66;w=2;A\x07");
+    let got = area(&draw(&t), (0, 0), (4 * CW, 2 * CH));
+    assert_eq!(
+        got,
+        placed(&magnified(&normal("A", 1), 2), (4 * CW, 2 * CH), (CW, 0))
+    );
+}
