@@ -379,7 +379,10 @@ impl State {
                     right.saturating_add(1)
                 ))
             }
-            Some(b" q") => Some(format!("{} q", self.cursor_style.param())),
+            Some(b" q") => Some(format!(
+                "{} q",
+                self.cursor_style.param(self.host.cursor_blink)
+            )),
             // Pc 1: the replies stay 7-bit whatever DECSCL asked.
             Some(b"\"p") => Some(format!("{};1\"p", self.conformance)),
             // DECSCA 1 or 0, and DECSACE 2 or 0, as xterm reports them.

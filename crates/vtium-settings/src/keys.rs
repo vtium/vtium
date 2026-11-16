@@ -788,8 +788,9 @@ pub const BLINK: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "Blink blinking text (SGR 5) and the cursor, every 500 ms. A program can set another pace for the cursor with the Linux console's `CSI 16 ; n ]`. When off, neither blinks.",
-    cite: "kmscon's `blink` key",
+    what: "Blink blinking text (SGR 5) every 500 ms, and start each session with a blinking block cursor. When off, the text stays steady and the cursor starts as a steady block.\n\n\
+           A program can choose another cursor style with DECSCUSR, and that style blinks or stays steady as it says. A program can also set another pace for the cursor with the Linux console's `CSI 16 ; n ]`.",
+    cite: "kmscon's `blink` key; the maintainer's decision of 2026-11-16",
 };
 
 pub const BLINK_TEXT: Key = Key {

@@ -11,13 +11,13 @@ pub(super) const ENTRIES: &[Entry] = &[
         }],
         params: &[Param {
             name: "Ps",
-            meaning: "The style: 0 and 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar and 6 a steady bar.",
+            meaning: "The style: 0 and 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar, 6 a steady bar, and 7 the style vtium's configuration gives.",
             default: Some("0"),
         }],
         does: &[
-            "A session starts with the cursor style that vtium's configuration gives: a block that blinks while the `blink` key is on. DECSCUSR changes the style as the VT510 manual decides, so `CSI 0 SP q` and `CSI SP q` select a blinking block. vtium ignores a value past 6 and keeps the style it has.",
+            "A session starts with the cursor style that vtium's configuration gives: a block that blinks while the `blink` key is on and stays steady while it is off. A style that DECSCUSR selects blinks or stays steady as its number says, whatever `blink` says. DECSCUSR changes the style as the VT510 manual decides, so `CSI 0 SP q` and `CSI SP q` select a blinking block. `CSI 7 SP q` returns to the configured style, as ctlseqs gives it. vtium ignores a value past 7 and keeps the style it has.",
             "DECSTR and RIS return the cursor to the configured style.",
-            "DECSC does not save the cursor style, so DECRC leaves it as it is. DECRQSS reports the style that DECSCUSR set.",
+            "DECSC does not save the cursor style, so DECRC leaves it as it is. DECRQSS reports the style the console shows. It reports the configured style as `1 q` while it blinks and `2 q` while it is steady.",
         ],
         departure: None,
         record: TARGET_SET,

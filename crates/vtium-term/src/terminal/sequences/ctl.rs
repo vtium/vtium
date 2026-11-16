@@ -324,7 +324,8 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
         params: &[],
         does: &[
-            "DECSTR returns the modes, the pen, the cursor's style, the character sets, the saved cursors, the top and bottom margins, and the 256 palette colors to their initial state. The mouse modes and mode 1004 are among the modes it resets. It keeps the text, the cursor's position, the tab stops, and the left and right margins.",
+            "DECSTR returns the pen, the cursor's style, the character sets, the saved cursors, the top and bottom margins, and the 256 palette colors to their initial state. It resets the modes that a soft reset covers, the mouse modes and mode 1004 among them, and [Modes](../modes.md) lists which those are.",
+            "DECSTR keeps the text, the cursor's position, the tab stops, mode 69 and the left and right margins, and the colors OSC 10 to 19 set. It also keeps what XTSAVE saved, XTSHIFTESCAPE's setting, the SGR and color stacks, and the cursor's blink interval.",
             "RIS does all of that, then erases the screen and the scrollback and moves the cursor home. It also sets a tab stop every 8 columns, returns every color a program set, and empties the SGR and color stacks.",
         ],
         departure: Some(Departure {
@@ -471,7 +472,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             "vtium clips each rectangle to the screen, or in origin mode to the region inside all four margins. It ignores a rectangle whose top is below its bottom or whose left is right of its right.",
             "DECERA and DECSERA erase as ED does, to empty cells in the pen's background color, and DECSERA leaves the cells that DECSCA protects. When a rectangle's edge cuts a wide character, the whole character goes.",
         ],
-        departure: None,
+        departure: Some(Departure {
+            says: "DECCARA applies every SGR code, colors included, as SGR applies it to the pen. The VT510 manual and ctlseqs give DECCARA only the codes for bold, underline, blink, inverse, and their resets.",
+            readme: "crates/vtium-term/README.md",
+            section: "Behaviour",
+        }),
         record: TARGET_SET,
     },
     Entry {
@@ -735,7 +740,7 @@ pub(super) const ENTRIES: &[Entry] = &[
         }],
         does: &[
             "vtium blinks the cursor of the console that receives the sequence with phases of Ps milliseconds. RIS returns the interval to the default, while DECSTR and the alternate screen keep it.",
-            "Blinking text keeps the interval of the `blink` key, and with `blink` off the cursor does not blink.",
+            "Blinking text keeps the `blink` key's 500 ms. The interval applies while the cursor blinks, so a steady cursor stays steady.",
         ],
         departure: None,
         record: TARGET_SET,

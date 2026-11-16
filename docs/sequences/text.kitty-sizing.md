@@ -62,6 +62,8 @@ These tests check what vtium does with the sequences on this page.
 - `a_run_over_clusters_has_their_room_for_its_text` in [crates/vtium-term/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sized_runs.rs)
 - `a_run_that_a_rewrap_pushes_below_the_screen_goes_whole` in [crates/vtium-term/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sized_runs.rs)
 - `a_screen_shorter_than_a_run_erases_it` in [crates/vtium-term/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sized_runs.rs)
+- `a_selection_on_one_row_of_a_run_selects_its_other_rows` in [crates/vtium-term/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sized_runs.rs)
+- `a_selection_over_part_of_a_run_selects_and_copies_it_whole` in [crates/vtium-term/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sized_runs.rs)
 - `a_shorter_alternate_screen_erases_a_run_it_cuts` in [crates/vtium-term/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sized_runs.rs)
 - `a_shorter_main_screen_erases_a_run_it_cuts_and_growing_brings_back_none` in [crates/vtium-term/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sized_runs.rs)
 - `a_shorter_screen_erases_a_run_it_cuts_on_the_screen_not_shown` in [crates/vtium-term/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sized_runs.rs)
