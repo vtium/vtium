@@ -68,9 +68,39 @@ struct Props(u16);
 const UNLISTED: Props =
     Props(data::GCB_OTHER | data::INCB_NONE | data::WIDTH_1 | data::MARK_OTHER | data::ISC_OTHER);
 
+/// The properties of U+0000 to U+007F, one entry per codepoint, built from
+/// the run tables when vtium-term compiles. Most text a terminal prints is
+/// ASCII, and every printed codepoint has its properties looked up up to
+/// three times, so these codepoints skip the binary search over the runs.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the compiler evaluates the table, and an index out of bounds fails the build"
+)]
+const ASCII: [Props; 128] = {
+    let mut table = [UNLISTED; 128];
+    let mut run = 0;
+    let mut cp: u32 = 0;
+    while cp < 128 {
+        while run + 1 < data::RUN_STARTS.len() && data::RUN_STARTS[run + 1] <= cp {
+            run += 1;
+        }
+        table[cp as usize] = Props(data::RUN_PROPS[run]);
+        cp += 1;
+    }
+    table
+};
+
 impl Props {
+    #[inline]
     fn of(c: char) -> Self {
-        let cp = u32::from(c);
+        match ASCII.get(c as usize) {
+            Some(&p) => p,
+            None => Self::search(u32::from(c)),
+        }
+    }
+
+    /// The properties of `cp` by a binary search over the run tables.
+    fn search(cp: u32) -> Self {
         let run = data::RUN_STARTS
             .partition_point(|&start| start <= cp)
             .saturating_sub(1);
@@ -352,6 +382,16 @@ pub(crate) fn width_of(mut chars: impl Iterator<Item = char>, rule: ClusterWidth
 #[expect(clippy::panic, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+
+    // the ASCII table gives each codepoint below U+0080 the property word
+    // the binary search over the runs gives it
+    #[test]
+    fn ascii_table_matches_the_runs() {
+        for cp in 0..128u32 {
+            let c = char::from_u32(cp).unwrap_or_else(|| panic!("U+{cp:04X}"));
+            assert_eq!(Props::of(c).0, Props::search(cp).0, "U+{cp:04X}");
+        }
+    }
 
     // cluster_width gives the width the screen stores for each cluster a
     // terminal prints by the Unicode width method: an ideograph, the heart with
