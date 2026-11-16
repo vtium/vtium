@@ -650,14 +650,14 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
     .expect("a frit");
     std::fs::write(
         fonts.join("none.vtfrit"),
-        "source=font:No Such Family Anywhere\n",
+        "source=font:No Such Family Anywhere\nversion=2.304\nurl=https://example.org/nsfa\n",
     )
     .expect("a frit");
     std::fs::write(fonts.join("broken.vtfrit"), "colour=red\n").expect("a frit");
     let ran = f.run(&["--font-dir", "/nonexistent", "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
     let lines: Vec<&str> = ran.out.lines().collect();
-    assert_eq!(lines.len(), 9, "{}", ran.out);
+    assert_eq!(lines.len(), 11, "{}", ran.out);
     assert!(
         lines[0].starts_with("broken\tcannot be read: "),
         "{}",
@@ -678,8 +678,18 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
         lines[7],
         "Font set half needs the font No Such Family Anywhere, and no font of that name is installed."
     );
+    // a set with no font left names its fonts as a set with some left
+    // does, with the version it asks for and the font's page
     assert_eq!(
         lines[8],
+        "Font set none needs the font No Such Family Anywhere, version 2.304 or later, and no font of that name is installed."
+    );
+    assert_eq!(
+        lines[9],
+        "You can get the font from https://example.org/nsfa."
+    );
+    assert_eq!(
+        lines[10],
         "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font."
     );
 }

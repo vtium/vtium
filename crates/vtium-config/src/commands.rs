@@ -20,7 +20,7 @@ use vtium_settings::{Edit, fonts_report, setting, switch};
 use crate::draft::{FileEdit, Plan, Removal};
 use crate::frit::{FRIT_BYTES_MAX, Frit, RESERVED, valid_name};
 use crate::needs::{Differ, Differs};
-use crate::specimen::Sources;
+use crate::specimen::{Found, Sources};
 use crate::tui::{Paths, model::FontState};
 use vtium_font::set::layer;
 
@@ -88,15 +88,22 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     let mut answers = crate::specimen::found_of(&paths.helper, texts).into_iter();
     let mut found = read.into_iter().map(|(name, frit)| match frit {
         Ok(frit) => {
-            let (sources, differs) = answers.next().unwrap_or_else(|| {
-                (
-                    Sources::Unknown("the font helper did not answer".to_owned()),
-                    Vec::new(),
-                )
+            let found = answers.next().unwrap_or_else(|| Found {
+                sources: Sources::Unknown("the font helper did not answer".to_owned()),
+                left_out: Vec::new(),
+                differs: Vec::new(),
             });
-            (name, Some(frit), sources, differs)
+            (name, Some(frit), found)
         }
-        Err(why) => (name, None, Sources::DrawsNothing(why), Vec::new()),
+        Err(why) => (
+            name,
+            None,
+            Found {
+                sources: Sources::DrawsNothing(why),
+                left_out: Vec::new(),
+                differs: Vec::new(),
+            },
+        ),
     });
     let mut report = Vec::new();
     for font in fonts {
@@ -104,11 +111,13 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
             FontState::Refused(why) => (format!("cannot be read: {why}"), String::new()),
             FontState::Reads => match found.next() {
-                Some((name, frit, sources, differs)) => {
-                    if let (Some(frit), Sources::LeftOut(left)) = (&frit, &sources) {
-                        report.extend(needs_report(&name, frit, left, &differs));
+                Some((name, frit, found)) => {
+                    // a set with no font left names the fonts it lacks
+                    // as a set with some left does
+                    if let Some(frit) = &frit {
+                        report.extend(needs_report(&name, frit, &found.left_out, &found.differs));
                     }
-                    match sources {
+                    match found.sources {
                         Sources::LeftOut(left) => ("reads".to_owned(), left_out_text(&left)),
                         Sources::DrawsNothing(why) => {
                             (format!("no font file found: {why}"), String::new())

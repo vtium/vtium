@@ -281,11 +281,14 @@ pub const FRAME_WARNING: u32 = 9;
 /// answer when the frit's first source is an outline font: its width and
 /// height, the height the one asked for.
 pub const FRAME_OUTLINE_CELL: u32 = 10;
-/// A sources query's answer: each source left out, one a line.
+/// A sources query's answer: each source left out, one a line, and each
+/// font that differs from what its source needs. For a frit that reads and
+/// has no source left, a first line of the kind `nothing` says why
+/// ([`DrawsNothing::line_text`]).
 pub const FRAME_SOURCES: u32 = 11;
-/// A sources query's answer for a frit the helper draws nothing from: the
-/// frit does not read, or none of its sources is on this machine; the
-/// reason, as UTF-8. It is a kind of its own so that [`FRAME_FAILED`],
+/// The answer to a sources query for a frit that does not read, and to a
+/// coverage query for a frit the helper draws nothing from: the reason, as
+/// UTF-8. It is a kind of its own so that [`FRAME_FAILED`],
 /// which the helper also sends when it fails as it starts, is never taken
 /// as a frit's answer.
 pub const FRAME_DRAWS_NOTHING: u32 = 12;
@@ -1287,6 +1290,48 @@ impl LeftOut {
     }
 }
 
+/// Why an engine draws nothing from a frit, and what reading the frit
+/// found.
+pub struct DrawsNothing {
+    /// Why: the frit does not read, it names no source, or no source of it
+    /// is left.
+    pub why: String,
+    /// What reading the frit's sources found, `None` when its text does not
+    /// read.
+    pub read: Option<Found>,
+}
+
+/// What [`Engine::read`] found as it read a frit's sources, which a frit
+/// with no source left keeps for the console and a sources query.
+pub struct Found {
+    /// The warnings the frit's text and its sources gave, as
+    /// [`Engine::warnings`] holds them.
+    pub warnings: Vec<String>,
+    /// The sources left out, as [`Engine::left_out`] holds them.
+    pub left_out: Vec<LeftOut>,
+    /// The fonts that differ from what their sources need, as
+    /// [`Engine::differs`] holds them.
+    pub differs: Vec<crate::needs::Differs>,
+}
+
+impl DrawsNothing {
+    /// The line a sources query answers first for a frit that reads and
+    /// has no source left: the kind `nothing`, line 0, no spelling, and
+    /// why. A reader that knows only the `missing` and `refused` lines
+    /// skips it, as it skips any kind it does not know.
+    pub fn line_text(&self) -> String {
+        format!("nothing\t0\t\t{}", self.why.replace(['\t', '\n'], " "))
+    }
+
+    /// Why the frit draws nothing, from a sources query's answer `text`:
+    /// its `nothing` line's why, `None` when the answer has no such line.
+    pub fn parse(text: &str) -> Option<String> {
+        text.lines()
+            .find_map(|l| l.strip_prefix("nothing\t0\t\t"))
+            .map(str::to_owned)
+    }
+}
+
 /// A frit's sources, ready to draw at any cell.
 pub struct Engine {
     name: String,
@@ -1823,6 +1868,22 @@ impl Engine {
         paths: &Paths,
         console: Option<ConsoleFont>,
     ) -> Result<Engine, String> {
+        Engine::read(frit, paths, console).map_err(|nothing| nothing.why)
+    }
+
+    /// [`Engine::load`], which for a frit it draws nothing from keeps what
+    /// the read found: the warnings, so the console still logs each
+    /// missing font, and the sources left out and the fonts that differ,
+    /// so a sources query still names them.
+    ///
+    /// References:
+    /// - ADR-1204 D7: the console logs each missing font, and vtium-config
+    ///   names each one, whether or not the set has a font left.
+    fn read(
+        frit: &FritText,
+        paths: &Paths,
+        console: Option<ConsoleFont>,
+    ) -> Result<Engine, DrawsNothing> {
         let file = Path::new(&frit.name);
         // the console hands the frit with its layers in place, so each
         // message names the file and line a line came from
@@ -1832,7 +1893,10 @@ impl Engine {
             &frit.name,
             Path::new(vtium_font::set::layer::DIR),
         )
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| DrawsNothing {
+            why: e.to_string(),
+            read: None,
+        })?;
         let mut warnings: Vec<String> = frit.warnings.iter().map(ToString::to_string).collect();
         let handed = Handed(console);
         let host = Host {
@@ -2005,10 +2069,17 @@ impl Engine {
             Some(_) => None,
         };
         if sources.is_empty() {
-            return Err(if why.is_empty() {
-                format!("{}: the frit names no source", file.display())
-            } else {
-                why.join("; ")
+            return Err(DrawsNothing {
+                why: if why.is_empty() {
+                    format!("{}: the frit names no source", file.display())
+                } else {
+                    why.join("; ")
+                },
+                read: Some(Found {
+                    warnings,
+                    left_out,
+                    differs,
+                }),
             });
         }
         // the coverage holds what the frit draws at every height, so an
@@ -4026,7 +4097,7 @@ struct Work<'p> {
     paths: &'p Paths,
     /// Each frit's engine, by its name and text, so a frit whose text
     /// changes is read again.
-    engines: BTreeMap<FritText, Result<Engine, String>>,
+    engines: BTreeMap<FritText, Result<Engine, DrawsNothing>>,
     console: Option<ConsoleFont>,
     asks: VecDeque<Queued>,
     fills: VecDeque<Fill>,
@@ -4041,23 +4112,39 @@ enum Queued {
 }
 
 impl Work<'_> {
-    fn engine(&mut self, frit: &FritText) -> &Result<Engine, String> {
+    /// The engine of `frit`, read the first time it is asked for, or why
+    /// it draws nothing.
+    fn engine(&mut self, frit: &FritText) -> Result<&Engine, &String> {
+        self.read(frit).as_ref().map_err(|nothing| &nothing.why)
+    }
+
+    /// The engine of `frit`, read the first time it is asked for, or why
+    /// it draws nothing and what its read found.
+    fn read(&mut self, frit: &FritText) -> &Result<Engine, DrawsNothing> {
         let (paths, console) = (self.paths, self.console.clone());
         self.engines
             .entry(frit.clone())
-            .or_insert_with(|| Engine::load(frit, paths, console))
+            .or_insert_with(|| Engine::read(frit, paths, console))
     }
 
     /// Reads `frit` when it is not read yet, and sends each warning its
-    /// text gives, so the console logs them.
+    /// text and its sources give, so the console logs them. A frit with no
+    /// source left sends its warnings too, so the console logs each font
+    /// it lacks.
     fn load(&mut self, frit: &FritText, out: &mut dyn Write) -> io::Result<()> {
         if self.engines.contains_key(frit) {
             return Ok(());
         }
-        if let Ok(engine) = self.engine(frit) {
-            for w in engine.warnings.clone() {
-                reason(out, FRAME_WARNING, &w)?;
-            }
+        let warnings = match self.read(frit) {
+            Ok(engine) => engine.warnings.clone(),
+            Err(nothing) => nothing
+                .read
+                .as_ref()
+                .map(|found| found.warnings.clone())
+                .unwrap_or_default(),
+        };
+        for w in warnings {
+            reason(out, FRAME_WARNING, &w)?;
         }
         Ok(())
     }
@@ -4111,7 +4198,22 @@ impl Work<'_> {
                 };
             }
             SOURCES => {
-                return match self.engine(&request.frit) {
+                return match self.read(&request.frit) {
+                    // a frit that reads and has no source left names its
+                    // fonts as a frit with some left does, after the line
+                    // that says it draws nothing
+                    Err(
+                        nothing @ DrawsNothing {
+                            read: Some(found), ..
+                        },
+                    ) => {
+                        let lines: Vec<String> = std::iter::once(nothing.line_text())
+                            .chain(found.left_out.iter().map(LeftOut::line_text))
+                            .chain(found.differs.iter().map(crate::needs::Differs::line_text))
+                            .collect();
+                        write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
+                    }
+                    Err(nothing) => reason(out, FRAME_DRAWS_NOTHING, &nothing.why.clone()),
                     Ok(engine) => {
                         // the notes on its script-source= lines, which only
                         // a sources query answers (ADR-1202 D12)
@@ -4131,7 +4233,6 @@ impl Work<'_> {
                             .collect();
                         write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
                     }
-                    Err(why) => reason(out, FRAME_DRAWS_NOTHING, &why.clone()),
                 };
             }
             _ => {
@@ -4876,10 +4977,10 @@ mod tests {
     }
 
     /// A sources query is answered for every frit: the sources left out of
-    /// one that reads, and for one the helper draws nothing from, because
-    /// no source of it is on this machine or it does not read, a frame of
-    /// its own, never the failed frame the helper sends for its own
-    /// failure.
+    /// one that reads, those of one that reads and has no source on this
+    /// machine after a line that says it draws nothing, and for one that
+    /// does not read a frame of its own, never the failed frame the helper
+    /// sends for its own failure.
     #[test]
     fn a_frit_that_draws_nothing_has_an_answer_of_its_own() {
         let ask = |text: &str| ServeRequest {
@@ -4891,18 +4992,25 @@ mod tests {
             band: Band::NONE,
             ..request(SOURCES, frit(text), &[])
         };
-        let kinds: Vec<u32> = run(&[
+        let frames: Vec<(u32, Vec<u8>)> = run(&[
             ask("source=builtin:unifont\n"),
             ask("source=file:/nonexistent/vtium.psf\n"),
             ask("no-such-key=1\n"),
         ])
-        .iter()
-        .map(|f| f.0)
-        .filter(|&k| k != FRAME_WARNING)
+        .into_iter()
+        .filter(|f| f.0 != FRAME_WARNING)
         .collect();
         assert_eq!(
-            kinds,
-            [FRAME_SOURCES, FRAME_DRAWS_NOTHING, FRAME_DRAWS_NOTHING]
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_SOURCES, FRAME_SOURCES, FRAME_DRAWS_NOTHING]
+        );
+        let nothing = String::from_utf8_lossy(&frames[1].1);
+        assert_eq!(
+            DrawsNothing::parse(&nothing).as_deref(),
+            Some(
+                "source=file:/nonexistent/vtium.psf: /nonexistent/vtium.psf is not on this machine"
+            ),
+            "{nothing}"
         );
     }
 
@@ -5174,6 +5282,63 @@ mod tests {
         assert_eq!(
             lines[1],
             format!("lacks\t1\tbdf:{}\tU+0042", file.display())
+        );
+    }
+
+    // A set whose every font is missing draws nothing, and its read still
+    // finds what a set with one font left finds: the sources query answers
+    // a line that says the set draws nothing and why, then a line for each
+    // missing font, and the console is sent the warning for each missing
+    // font, so it logs them.
+    //
+    // References:
+    // - ADR-1204 D7: the console logs each missing font, and vtium-config
+    //   names each one.
+    #[test]
+    fn a_set_whose_every_font_is_missing_still_names_each_font() {
+        let text =
+            "source=font:No Such Family Anywhere\nversion=2.304\nsource=bdf:/nonesuch/gone.bdf\n";
+        let frames = run(&[sources_query(frit(text))]);
+        let warnings: Vec<String> = frames
+            .iter()
+            .filter(|(k, _)| *k == FRAME_WARNING)
+            .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
+            .collect();
+        assert_eq!(
+            warnings,
+            [
+                "t needs the font No Such Family Anywhere 2.304 or later, which is not on this machine, so vtium draws its characters from the next font that has them",
+                "t needs the font /nonesuch/gone.bdf, which is not on this machine, so vtium draws its characters from the next font that has them",
+            ],
+            "{frames:?}"
+        );
+        let answer = frames
+            .iter()
+            .find(|(k, _)| *k == FRAME_SOURCES)
+            .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
+            .unwrap();
+        let lines: Vec<&str> = answer.lines().collect();
+        assert_eq!(lines.len(), 3, "{answer}");
+        assert!(
+            lines[0].starts_with("nothing\t0\t\tsource=font:No Such Family Anywhere: "),
+            "{answer}"
+        );
+        assert!(
+            lines[1].starts_with("missing\t1\tfont:No Such Family Anywhere\t"),
+            "{answer}"
+        );
+        assert!(
+            lines[2].starts_with("missing\t3\tbdf:/nonesuch/gone.bdf\t"),
+            "{answer}"
+        );
+        assert!(frames.iter().all(|(k, _)| *k != FRAME_DRAWS_NOTHING));
+        // a frit that does not read has no sources to name, and answers
+        // with the frame of its own
+        let frames = run(&[sources_query(frit("source=\n"))]);
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_DRAWS_NOTHING],
+            "{frames:?}"
         );
     }
 
@@ -5537,7 +5702,6 @@ mod tests {
         );
     }
 
-    /// A cell query for `frit`: at no cell, naming nothing.
     /// A sources query for `frit`, as vtium-config asks it.
     fn sources_query(frit: FritText) -> ServeRequest {
         ServeRequest {
@@ -5546,6 +5710,7 @@ mod tests {
         }
     }
 
+    /// A cell query for `frit`: at no cell, naming nothing.
     fn query(frit: FritText) -> ServeRequest {
         ServeRequest {
             cluster_width: Default::default(),
@@ -5606,10 +5771,13 @@ mod tests {
     #[test]
     fn a_frit_whose_sources_do_not_fit_its_first_has_no_own_cell() {
         let (frit, _dir) = psf_frit("own-unfit", &[Ok((8, 8)), Err("builtin:unifont")]);
-        let frames = run(&[
+        let frames: Vec<(u32, Vec<u8>)> = run(&[
             query(frit),
             query(self::frit("source=file:/nonexistent/x.psf\n")),
-        ]);
+        ])
+        .into_iter()
+        .filter(|f| f.0 != FRAME_WARNING)
+        .collect();
         assert_eq!(
             frames.iter().map(|f| f.0).collect::<Vec<_>>(),
             [FRAME_NO_OWN_CELL, FRAME_NO_OWN_CELL]
@@ -6031,9 +6199,11 @@ mod tests {
             band: Band::NONE,
             ..request(ASK, lone, &chars)
         }]);
+        // the warning for the missing font comes first, so the console logs
+        // it, then the failure
         assert_eq!(
             frames.iter().map(|f| f.0).collect::<Vec<_>>(),
-            [FRAME_FAILED],
+            [FRAME_WARNING, FRAME_FAILED],
             "no glyph from a frit with no source here"
         );
         for text in [
@@ -7364,10 +7534,13 @@ mod tests {
     #[test]
     fn a_frit_with_no_source_here_fails_each_request() {
         let frit = frit("source=file:/nonexistent/x.psf\n");
-        let frames = run(&[
+        let frames: Vec<(u32, Vec<u8>)> = run(&[
             request(ASK, frit.clone(), &['A']),
             request(FILL, frit, &['B']),
-        ]);
+        ])
+        .into_iter()
+        .filter(|f| f.0 != FRAME_WARNING)
+        .collect();
         assert_eq!(frames.len(), 2);
         assert!(frames.iter().all(|f| f.0 == FRAME_FAILED));
         assert!(String::from_utf8_lossy(&frames[0].1).contains("not on this machine"));

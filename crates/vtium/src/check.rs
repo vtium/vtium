@@ -2396,6 +2396,115 @@ mod tests {
         assert!(!failed.notes.iter().any(|n| n.contains("Font set desk")));
     }
 
+    /// The glyph helper's answer to a sources query for `frit`:
+    /// vtium-config's serve mode, run in this process on the request the
+    /// console's helper sends, so the lines are the ones the real helper
+    /// sends. A frit the helper draws nothing from, and that does not
+    /// read, is its reason.
+    #[expect(
+        clippy::unwrap_used,
+        clippy::indexing_slicing,
+        reason = "a test fails by panicking"
+    )]
+    fn served_sources(frit: &helper::FritText) -> Result<String, String> {
+        use vtium_config::serve;
+        let request = serve::ServeRequest {
+            kind: serve::SOURCES,
+            frit: serve::FritText {
+                name: frit.name.clone(),
+                text: frit.text.clone(),
+            },
+            cell: vtium_font::Cell {
+                width: 0,
+                height: 0,
+            },
+            band: vtium_font::spacing::Band::NONE,
+            style: vtium_font::Style::default(),
+            script: vtium_font::Script::Baseline,
+            doubled: None,
+            cluster_width: Default::default(),
+            codepoints: Vec::new(),
+            clusters: Vec::new(),
+            held: Vec::new(),
+            console: None,
+        };
+        let mut out = Vec::new();
+        let status = serve::serve(
+            std::io::Cursor::new(request.encode()),
+            &mut out,
+            &serve::Paths::default(),
+            std::time::Duration::from_secs(5),
+        );
+        assert_eq!(status, 0);
+        let mut rest = out.as_slice();
+        while let [k0, k1, k2, k3, l0, l1, l2, l3, tail @ ..] = rest {
+            let kind = u32::from_le_bytes([*k0, *k1, *k2, *k3]);
+            let len = u32::from_le_bytes([*l0, *l1, *l2, *l3]) as usize;
+            let text = String::from_utf8(tail[..len].to_vec()).unwrap();
+            rest = &tail[len..];
+            match kind {
+                serve::FRAME_SOURCES => return Ok(text),
+                serve::FRAME_DRAWS_NOTHING => return Err(text),
+                _ => {}
+            }
+        }
+        Err("the helper sent no answer".to_owned())
+    }
+
+    // A look's font set none of whose fonts this machine has draws nothing,
+    // and check-config still names each font it needs, with the version
+    // and the page the set gives, a layer's font among them. The lines come
+    // from the glyph helper's own answer, so a layer's font is found by the
+    // line the helper names for it, the set's layer= line.
+    //
+    // References:
+    // - ADR-1204 D7: check-config names each missing font as vtium config
+    //   fonts does, whether or not the set has a font left.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_set_with_no_font_left_names_each_font_from_the_helpers_answer() {
+        let text = "version = 1\n[look big]\nfont-name = desk\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n";
+        let (_dir, file, trust) = heads_fixture("font-needs-none-left", text, 0o644);
+        let f = file.display().to_string();
+        let frits = file.parent().unwrap().join("frits");
+        std::fs::create_dir_all(frits.join("layers")).unwrap();
+        std::fs::write(
+            frits.join("desk.vtfrit"),
+            "source=font:Gone Mono Nowhere\nversion=2.304\nurl=https://example.org/gone\nlayer=nerd\n",
+        )
+        .unwrap();
+        std::fs::write(
+            frits.join("layers/nerd.vtlayer"),
+            "role=symbols\nsource=font:Nerd Gone Nowhere\nversion=1.2\nurl=https://example.org/nerd\n",
+        )
+        .unwrap();
+        let settings = Settings {
+            frits: &frits,
+            trust: font::trust().below(file.parent().unwrap()),
+            sources: Some(FontSources {
+                ask: &served_sources,
+            }),
+            ..caps(4)
+        };
+        let out = conf_file(&file, false, &trust, &machine(true), &settings);
+        let page = "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font.";
+        let want = [
+            format!(
+                "{f}:3: Font set desk needs the font Gone Mono Nowhere, version 2.304 or later, and no font of that name is installed. You can get the font from https://example.org/gone. {page}"
+            ),
+            format!(
+                "{f}:3: Font set desk needs the font Nerd Gone Nowhere, version 1.2 or later, and no font of that name is installed. You can get the font from https://example.org/nerd. {page}"
+            ),
+        ];
+        let named: Vec<&String> = out
+            .notes
+            .iter()
+            .chain(&out.counted)
+            .filter(|n| n.contains("Font set desk"))
+            .collect();
+        assert_eq!(named, want.iter().collect::<Vec<_>>(), "{out:#?}");
+    }
+
     // ADR-1401 D7, ADR-1403 D5: a look whose font-name names a frit not
     // installed is a warning about the file, and an installed one is none
     // covers: platform.heads.rules
