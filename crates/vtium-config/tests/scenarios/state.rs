@@ -87,7 +87,8 @@ impl Abs {
             (StateKind::Layer, "flow-card") => n("flow.card"),
             (StateKind::Layer, "flow-maker") => n("flow.maker"),
             (StateKind::Layer, "flow-others") => n("flow.others"),
-            (StateKind::Layer, "flow-detail" | "flow-choice") => n("flow.detail"),
+            (StateKind::Layer, "flow-detail") => n("flow.detail"),
+            (StateKind::Layer, "flow-choice") => n("flow.detail.choices"),
             (StateKind::View, view) => n(view),
             (kind, narrow) => format!("{}:{narrow}", kind.name()),
         }
@@ -112,10 +113,6 @@ impl std::fmt::Display for Abs {
             return write!(f, "{} left", self.term);
         }
         write!(f, "{} {}", self.term, self.node())?;
-        // a part's choices and a part's detail are one node of the tree
-        if self.narrow == "flow-choice" {
-            f.write_str("[choices]")?;
-        }
         if !self.focus.is_empty() {
             write!(f, "({})", self.focus)?;
         }
@@ -184,6 +181,11 @@ pub fn of(sim: &Sim) -> Abs {
     // part, the picker, or the value typed after Other…
     if matches!(abs.narrow.as_str(), "flow-maker" | "picker") {
         abs.focus = format!("line {}", app.flow_view.line);
+    }
+    // the new-frit form's row: Enter steps from field to field, and the
+    // last row adds the font set
+    if abs.narrow == "new-frit" {
+        abs.focus = format!("row {}", app.new_frit.at);
     }
     if abs.kind == StateKind::View {
         abs.focus = focus(app);
@@ -308,7 +310,26 @@ fn focus(app: &App) -> String {
             };
             let slot = match slot {
                 Slot::Display(_) => "display",
-                Slot::Input(_) => "input",
+                // a keyboard and a pointer sit apart in PARTS, and the box
+                // of other inputs comes after them; the slot holds the
+                // selector that names the device
+                Slot::Input(name) => {
+                    let sort = app
+                        .inputs
+                        .flow
+                        .inputs
+                        .iter()
+                        .find(|d| {
+                            d.name == *name || d.keys.iter().any(|k| k.starts_with(name.as_str()))
+                        })
+                        .map(vtium_config::tui::flowview::sort);
+                    match sort {
+                        Some(vtium_config::tui::flowview::Sort::Keyboard) => "keyboard",
+                        Some(vtium_config::tui::flowview::Sort::Pointer) => "pointer",
+                        _ if name == "*" => "any input",
+                        _ => "input",
+                    }
+                }
                 Slot::Terminal => "terminal",
                 Slot::Font(_) => "font",
                 Slot::Special(_) => "special",

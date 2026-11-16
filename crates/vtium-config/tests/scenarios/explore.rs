@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use vtium_config::tui::input::Key;
+use vtium_config::tui::input::{Button, Key};
 
 use super::sim::{Did, Press, Sim, Term};
 use super::state::{self, Abs};
@@ -58,6 +58,12 @@ pub const ALPHABET: &[(&str, Press)] = &[
     ("x", Press::Key(Key::Char('x'))),
     ("y", Press::Key(Key::Char('y'))),
     ("z", Press::Key(Key::Char('z'))),
+    // the mouse, which the Flow view reads: a click on the Looks tab's
+    // name, a click on the first box of CONFIGURATION, and the wheel
+    ("Click tab", Press::Mouse(Button::Press(0), 8, 0)),
+    ("Click box", Press::Mouse(Button::Press(0), 3, 5)),
+    ("Wheel up", Press::Mouse(Button::WheelUp, 3, 5)),
+    ("Wheel down", Press::Mouse(Button::WheelDown, 3, 5)),
     ("Shrink", Press::Resize(79, 24)),
     ("Grow", Press::Resize(80, 25)),
 ];

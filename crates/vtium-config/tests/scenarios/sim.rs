@@ -10,7 +10,7 @@
 use vtium_config::draft::{FileEdit, Plan};
 use vtium_config::flowmodel::Present;
 use vtium_config::tui::desk::{Done, Kept, Op, Opened};
-use vtium_config::tui::input::{Input, Key, Reply};
+use vtium_config::tui::input::{Button, Input, Key, Mouse, Reply};
 use vtium_config::tui::model::{App, Effect, Event};
 use vtium_settings::{Class, Identity};
 
@@ -150,6 +150,9 @@ pub fn present() -> Present {
 #[derive(Clone, Copy, Debug)]
 pub enum Press {
     Key(Key),
+    /// A mouse button or the wheel at a cell, counted from 0 at the top
+    /// left.
+    Mouse(Button, usize, usize),
     Resize(usize, usize),
 }
 
@@ -228,6 +231,9 @@ impl Sim {
         }
         let event = match press {
             Press::Key(key) => Event::Input(Input::Key(key)),
+            Press::Mouse(button, col, row) => {
+                Event::Input(Input::Key(Key::Mouse(Mouse { button, col, row })))
+            }
             Press::Resize(cols, rows) => Event::Resize { cols, rows },
         };
         self.event(event, &mut did);

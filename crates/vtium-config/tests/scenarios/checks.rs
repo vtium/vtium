@@ -917,12 +917,6 @@ fn written(before: &str, after: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// The supported nodes the walk does not reach yet. The stand-in machine
-/// has a power button, which is neither a keyboard nor a pointer, yet the
-/// Flow view shows no box of other inputs for it to the walk, so
-/// `flow.others` stays out of reach until the stand-in's devices show one.
-const WALK_GAPS: &[&str] = &["flow.others"];
-
 /// Whether the walk reaches each planned node of the tree today, by the
 /// node's `now` column. A planned node is checked in reverse, as a planned
 /// key row is: the check expects what vtium-config does today, so it fails
@@ -960,9 +954,6 @@ pub fn walk_against_tree(
     {
         let is = reached.contains_key(&node.id);
         let want = match node.status.as_str() {
-            // a node the walk cannot reach yet is named here, and the
-            // check fails once the walk reaches it, so the name goes
-            "supported" if WALK_GAPS.contains(&node.id.as_str()) => false,
             "supported" => true,
             _ => match reached_today(&node.id) {
                 Some(want) => want,
