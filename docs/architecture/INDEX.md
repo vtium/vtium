@@ -27,7 +27,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1006](./term/ADR-1006-a-grapheme-cluster-with-a-spacing-mark-or-a-virama-conjunct-takes-two-cells-by-python-wcwidth-s-rule.md) | A grapheme cluster with a spacing mark or a virama conjunct takes two cells, by Python wcwidth's rule | accepted |
 | [ADR-1007](./term/ADR-1007-vtium-clipboard-copies-text-to-the-console-s-clipboard-through-osc-52-and-its-short-name-is-vticlip.md) | vtium-clipboard copies text to the console's clipboard through OSC 52, and its short name is vticlip | accepted |
 | [ADR-1008](./term/ADR-1008-which-programs-may-read-the-console-s-clipboard-and-how-vtium-guards-it.md) | Which programs may read the console's clipboard, and how vtium guards it | proposed |
-| [ADR-1009](./term/ADR-1009-a-line-s-memory-bound-counts-its-sized-runs-and-the-line-s-tables-compact-at-one-and-a-half-times-what-its-cells-name.md) | A line's memory bound counts its sized runs, and the line's tables compact at one and a half times what its cells name | proposed |
+| [ADR-1009](./term/ADR-1009-a-line-s-memory-bound-counts-its-sized-runs-and-the-line-s-tables-compact-at-one-and-a-half-times-what-its-cells-name.md) | A line's memory bound counts its sized runs, and the line's tables compact at one and a half times what its cells name | accepted |
 
 ## Image
 _Inline images - sixel and the kitty graphics protocol, storage and placement_
