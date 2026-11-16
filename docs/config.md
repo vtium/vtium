@@ -26,6 +26,8 @@ vtium reads vtium.conf only when root owns it. For a vtium that runs as another 
 - any error or warning about the sections, and
 - a file whose flow wires no complete route.
 
+It exits 6 instead when its only warnings are about missing fonts. A font is missing when a font set that vtium.conf names needs it and it is not installed. It is missing too when the installed font lacks a character that the font set checks for. vtium draws the font set without that font, so vtium-config installs such a file anyway. A script that accepts only 0 still sees a failure.
+
 A complete route is a connected display that its first matching rule sends to a head, together with a connected keyboard that reaches that head. When no display or no keyboard is connected, or with `--no-devices`, `vtium check-config` judges the rules alone, and says so.
 
 `vtium check-config` also prints notes on standard output. A note does not count toward the exit status. One note gives the density at which vtium converts font points to pixels. For the sections, it notes each of these:

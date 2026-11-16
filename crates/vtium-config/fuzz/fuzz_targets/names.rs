@@ -1,17 +1,26 @@
 //! A font file's bytes through the name-table reader that `font:FAMILY`
-//! uses to find an installed outline font by its family (ADR-1500 D8): no
-//! panic, whatever the file, at most `FACES_MAX` faces, each read once at
-//! a rising index under the cap, and every family a face gives is a name,
-//! not an empty string.
+//! uses to find an installed outline font by its family (ADR-1500 D8), and
+//! through the reader of a face's version that `version=` matches against
+//! (ADR-1204 D7): no panic, whatever the file, at most `FACES_MAX` faces,
+//! each read once at a rising index under the cap, and every family a face
+//! gives is a name, not an empty string.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 use vtium_config::names::{FACES_MAX, faces};
+use vtium_config::serve::outline_version;
 
 fuzz_target!(|bytes: &[u8]| {
+    // the first face's version, and each family's below
+    let _ = outline_version(bytes, "");
     let Ok(found) = faces(bytes) else {
         return;
     };
+    for face in &found {
+        for family in &face.families {
+            let _ = outline_version(bytes, family);
+        }
+    }
     assert!(found.len() <= FACES_MAX as usize);
     for face in &found {
         assert!(face.index < FACES_MAX);

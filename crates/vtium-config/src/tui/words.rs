@@ -616,9 +616,9 @@ pub const KEYS_LEAVE: &str = "y install and quit  n quit without installing  Esc
 /// `unsaved` changes first.
 pub fn small_leave(unsaved: usize) -> String {
     match unsaved {
-        0 => "Font sets wait to install.".to_owned(),
-        1 => "Font sets wait to install; y and n save 1 change first.".to_owned(),
-        n => format!("Font sets wait to install; y and n save {n} changes first."),
+        0 => "Font sets wait to be installed.".to_owned(),
+        1 => "Font sets wait to be installed; y and n save 1 change first.".to_owned(),
+        n => format!("Font sets wait to be installed; y and n save {n} changes first."),
     }
 }
 

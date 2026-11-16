@@ -744,27 +744,36 @@ fn small(canvas: &mut Canvas, app: &App) {
         }
         lines.push(format!("  vtium-config {}", c.name()));
     }
-    lines.push(String::new());
-    lines.extend(wrap(words::TOO_SMALL_KEYS, cols, usize::MAX));
-    // a question asked here takes the first row, with its keys, so it
-    // shows however few the rows
-    if let Some(c) = &app.confirm {
-        match c.then {
-            Then::Quit(_) => lines.insert(
-                0,
-                format!("{}  {}", words::small_question(app.unsaved), key_line(app)),
-            ),
-            // the leave question's keys fill a row, so what it says goes
-            // on the row above them
-            Then::Leave(_) => {
-                lines.insert(0, key_line(app).to_owned());
-                lines.insert(0, words::small_leave(app.unsaved));
-            }
-            _ => lines.insert(0, key_line(app).to_owned()),
-        }
-    }
-    // the keys stay on the screen however few its rows
-    let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);
+    // a question asked here comes first, what it says and its keys
+    // wrapped to the width, so it shows whole however narrow the screen;
+    // while it is open the screen's own keys give way to the question's,
+    // since q does nothing under a question
+    let question: Vec<String> = match app.confirm.as_ref().map(|c| &c.then) {
+        None => Vec::new(),
+        Some(Then::Quit(_)) => wrap(
+            &format!("{}  {}", words::small_question(app.unsaved), key_line(app)),
+            cols,
+            usize::MAX,
+        ),
+        // the leave question's keys fill a row, so what it says goes on
+        // the row above them
+        Some(Then::Leave(_)) => wrap(&words::small_leave(app.unsaved), cols, usize::MAX)
+            .into_iter()
+            .chain(wrap(key_line(app), cols, usize::MAX))
+            .collect(),
+        Some(_) => wrap(key_line(app), cols, usize::MAX),
+    };
+    // the keys that stay on the screen however few its rows: the
+    // question's, at the top, or the screen's own, at the bottom
+    let keys = if question.is_empty() {
+        lines.push(String::new());
+        let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);
+        lines.extend(keys.clone());
+        keys
+    } else {
+        Vec::new()
+    };
+    let mut lines: Vec<String> = question.into_iter().chain(lines).collect();
     if lines.len() > app.rows {
         let room = app.rows.saturating_sub(keys.len());
         lines.truncate(room);

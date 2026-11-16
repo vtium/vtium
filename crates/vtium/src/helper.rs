@@ -44,7 +44,8 @@
 //! new fill.
 //!
 //! A warning the frit's text gave as the helper read it, such as a key that
-//! does nothing, is logged once a boot, at most [`WARNINGS_MAX`] of them.
+//! does nothing, is logged once a boot, at most [`WARNINGS_MAX`] of them,
+//! and past that bound one line says that no more are logged.
 //!
 //! Before its first answer, the helper reports which parts of its sandbox
 //! are in force (ADR-1200 D15). A helper that runs without its landlock
@@ -133,9 +134,11 @@ pub const CLUSTERS_WAITING_MAX: usize = CLUSTERS_LACKED_MAX;
 /// a program that writes faster than the helper answers grows no queue.
 // One ask a cell a turn, a few cells at most; 64 is many turns of a busy screen behind.
 pub const ASKS_MAX: usize = 64;
-/// The most warnings from the frit's text logged a boot; a helper that
-/// sends more is not given up, and the rest are not logged.
-// A frit's text gives a warning a line at most, and a frit worth drawing has few lines that do nothing; the bound keeps a helper that sends warnings without end out of the log.
+/// The most warnings about a frit logged a boot: those its text gives,
+/// each source the helper refuses, and each font it needs that is missing.
+/// A helper that sends more is not given up. The console logs once that it
+/// logs no more of them, and the rest are not logged.
+// A frit gives a warning a line at most, and a frit worth drawing has few lines that do nothing and few fonts this machine lacks; the bound keeps a helper that sends warnings without end out of the log, and `vtium check-config` and `vtium config fonts` name every missing font whatever the bound.
 pub const WARNINGS_MAX: usize = 16;
 /// How long the console waits before its first frame for a frit's own
 /// cell.
@@ -1231,6 +1234,12 @@ pub struct Helper {
     full: bool,
     /// The frit's warnings logged this boot, at most [`WARNINGS_MAX`].
     warned: BTreeSet<String>,
+    /// Whether the frit's warnings are logged: true but for a helper that
+    /// `vtium check-config` starts ([`Helper::quiet`]).
+    logs_warnings: bool,
+    /// Whether a warning past [`WARNINGS_MAX`] came, and the console logged
+    /// that it logs no more of them.
+    warnings_dropped: bool,
     /// The line logged this boot about a sandbox the helper runs without,
     /// once one has been ([`sandbox_notice`]).
     sandbox_noted: Option<String>,
@@ -1283,6 +1292,8 @@ impl Helper {
             restarts: 0,
             full: false,
             warned: BTreeSet::new(),
+            logs_warnings: true,
+            warnings_dropped: false,
             sandbox_noted: None,
             failed: None,
             pointer: None,
@@ -2298,14 +2309,40 @@ impl Helper {
         Ok(Some(Answer { at, face, chars }))
     }
 
+    /// Makes this helper log none of the frit's warnings. `vtium
+    /// check-config` starts its helpers so: it names each font a set lacks
+    /// in its own words, from the sources query's answer, and the lines the
+    /// console logs would only repeat that on standard error.
+    ///
+    /// References:
+    /// - ADR-1204 D7: check-config names each missing font.
+    pub fn quiet(&mut self) {
+        self.logs_warnings = false;
+    }
+
     /// Logs the frit's warning `why`, once a boot and at most
     /// [`WARNINGS_MAX`] of them: a helper started again reads the frit
-    /// again and sends its warnings again. Its control characters are
-    /// escaped ([`escaped`]).
+    /// again and sends its warnings again. Past the bound, it logs once
+    /// that it logs no more of them, so a missing font past the bound is
+    /// never dropped in silence. Its control characters are escaped
+    /// ([`escaped`]).
     fn warn(&mut self, why: &str) {
+        if !self.logs_warnings {
+            return;
+        }
         let why = escaped(why);
-        if self.warned.len() < WARNINGS_MAX && self.warned.insert(why.clone()) {
+        if self.warned.contains(&why) {
+            return;
+        }
+        if self.warned.len() < WARNINGS_MAX {
             log::warn!("the frit {why}");
+            self.warned.insert(why);
+        } else if !self.warnings_dropped {
+            self.warnings_dropped = true;
+            log::warn!(
+                "the font helper sent more than {WARNINGS_MAX} warnings about the font set {}, so vtium logs no more of them this boot; run vtium config fonts to see each font the set lacks",
+                escaped(&self.frit.name)
+            );
         }
     }
 
@@ -3495,6 +3532,26 @@ mod tests {
         );
     }
 
+    // `vtium check-config` names each missing font itself, from the sources
+    // query's answer, so a helper it starts logs none of the frit's
+    // warnings, which the console would log, and the answer still comes.
+    //
+    // References:
+    // - ADR-1204 D7: check-config names each missing font.
+    #[test]
+    fn a_quiet_helper_logs_no_warning_and_still_answers() {
+        let lines = "missing\t1\tfont:Gone\tno font of family Gone";
+        let mut fixture = frame_bytes(FRAME_WARNING, b"t needs the font Gone");
+        fixture.extend(frame_bytes(FRAME_SOURCES, lines.as_bytes()));
+        let mut s = StandIn::new("sources-quiet", ANSWERS, &fixture);
+        s.helper.quiet();
+        assert_eq!(
+            s.helper.sources(Duration::from_secs(5), &t0).as_deref(),
+            Ok(lines)
+        );
+        assert!(s.helper.warned.is_empty(), "{:?}", s.helper.warned);
+    }
+
     // the frit's warnings are logged once each, at most WARNINGS_MAX a
     // boot, and none gives the helper up
     #[test]
@@ -3514,6 +3571,8 @@ mod tests {
         let _ = s.run(now);
         assert_eq!(s.helper.failed(), None);
         assert_eq!(s.helper.warned.len(), WARNINGS_MAX);
+        // the log says once that it holds no more of them
+        assert!(s.helper.warnings_dropped);
         assert!(s.helper.warned.contains("t:0: a key that does nothing"));
         assert!(
             !s.helper

@@ -203,7 +203,7 @@ impl Store {
                 let (name, _) = session.current()?;
                 let shown = self.store.draft_path(&name)?;
                 let checked = session.check(text, &shown)?;
-                if !checked.passed && !checked.no_route_only(&shown.to_string_lossy()) {
+                if !checked.clears() && !checked.no_route_only(&shown.to_string_lossy()) {
                     return Ok(Done::Refused(
                         crate::tui::words::TRIED_REFUSED.to_owned(),
                         checked.problems,
