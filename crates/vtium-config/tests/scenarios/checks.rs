@@ -184,9 +184,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             no_today,
         ),
     );
-    m.insert("q.question", (no, no_today));
+    m.insert("q.question", (nothing, no_today));
     m.insert("q.trial", (back, no_today));
-    m.insert("q.too-small", (quit, Some(|s| s.exits(0))));
+    m.insert("q.too-small", (quit, no_today));
     m.insert("esc.view", (nothing, no_today));
     m.insert(
         "esc.view.flow",
@@ -240,13 +240,13 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         m.insert(id, (nothing, no_today));
     }
     for id in ["tab.question", "shift-tab.question"] {
-        m.insert(id, (no, no_today));
+        m.insert(id, (nothing, no_today));
     }
     for id in ["tab.trial", "shift-tab.trial"] {
         m.insert(id, (back, no_today));
     }
     m.insert("ctrl-c.any", (ctrl_c, no_today));
-    m.insert("ctrl-c.question", (ctrl_c, Some(|s| s.answers_no())));
+    m.insert("ctrl-c.question", (no, no_today));
     m.insert("ctrl-c.trial", (ctrl_c, Some(leaves)));
     m.insert("ctrl-c.too-small", (ctrl_c, Some(leaves)));
     m.insert(
@@ -275,45 +275,20 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert(
         "n.question.quit",
         (
-            |_| Ok(()),
-            Some(|s| {
+            |s| {
                 s.exits(0)?;
                 if s.has("save") {
                     Err("n saved".into())
                 } else {
                     Ok(())
                 }
-            }),
+            },
+            no_today,
         ),
     );
-    m.insert(
-        "i.question.leave",
-        (
-            no,
-            Some(|s| {
-                if s.has("prepare") {
-                    Ok(())
-                } else {
-                    Err("expected an install".into())
-                }
-            }),
-        ),
-    );
-    m.insert(
-        "l.question.leave",
-        (
-            no,
-            Some(|s| {
-                s.exits(0)?;
-                if s.has("save") {
-                    Err("l saved".into())
-                } else {
-                    Ok(())
-                }
-            }),
-        ),
-    );
-    m.insert("other.question", (no, no_today));
+    m.insert("i.question.leave", (nothing, no_today));
+    m.insert("l.question.leave", (nothing, no_today));
+    m.insert("other.question", (nothing, no_today));
     m.insert("s.view", (saves, no_today));
     m.insert(
         "s.view.fonts",
@@ -542,7 +517,12 @@ impl Checks {
         if let Err(e) = self.invariants(&seen) {
             self.fail(step, e);
         }
-        if let Some(row) = tables::row_for(&self.rows, &step.from, step.key).cloned() {
+        // a resize is no key, so the key table says nothing about it
+        let resize = matches!(step.key, "Shrink" | "Grow");
+        if let Some(row) = tables::row_for(&self.rows, &step.from, step.key)
+            .filter(|_| !resize)
+            .cloned()
+        {
             self.found.reached.insert(row.id.clone());
             let check = self.checks.get(row.id.as_str()).copied();
             let verdict = match (check, row.status.as_str()) {

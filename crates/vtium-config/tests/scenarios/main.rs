@@ -173,19 +173,19 @@ fn one_switch(term: Term) -> Vec<String> {
         };
         let into = matches!(first.to.kind, StateKind::Question | StateKind::Typing);
         let mut middle = rep.clone();
-        middle.key(key_of(first.key));
+        middle.press(press_of(first.key));
         if middle.exited.is_some() {
             continue;
         }
         let from = state::of(&middle);
         let mut keys = path.clone();
         keys.push(first.key);
-        for (name, key) in explore::ALPHABET {
+        for (name, press) in explore::ALPHABET {
             if !into && !matches!(*name, "q" | "Ctrl-C") {
                 continue;
             }
             let mut after = middle.clone();
-            let did = after.key(*key);
+            let did = after.press(*press);
             let step = explore::Step {
                 from: from.clone(),
                 key: name,
@@ -200,30 +200,31 @@ fn one_switch(term: Term) -> Vec<String> {
     checks.found.failures
 }
 
-fn key_of(name: &str) -> Key {
+fn press_of(name: &str) -> sim::Press {
     explore::ALPHABET
         .iter()
         .find(|(n, _)| *n == name)
-        .map(|(_, k)| *k)
-        .unwrap_or(Key::Char('z'))
+        .map(|(_, p)| *p)
+        .unwrap_or(sim::Press::Key(Key::Char('z')))
 }
 
 /// Presses `keys` in `sim`, by the alphabet's names.
 fn press(sim: &mut Sim, keys: &[&str]) {
     for k in keys {
-        sim.key(key_of(k));
+        sim.press(press_of(k));
     }
 }
 
 /// The leave question of #411: with a font set marked for removal and a
 /// change not saved, `q` asks the leave question. The question names the
-/// change, `l` and every key but `y` answer no, and `y` saves the change
-/// into the draft before the TUI quits.
+/// change, `y` saves the change into the draft before the TUI quits, Esc
+/// and Ctrl-C cancel the question, and every other key, `l` and `i`
+/// among them, leaves it open.
 ///
 /// References:
-/// - ADR-1403 D7, "The same keys in every view": every question takes y
-///   for yes, and the leave question names its unsaved changes and saves
-///   them on y.
+/// - ADR-1403 D7, "The same keys in every view": the answer keys of every
+///   question, and the leave question naming its unsaved changes and
+///   saving them on y.
 #[test]
 fn the_leave_question_names_the_unsaved_change_and_y_saves_it() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
@@ -239,9 +240,17 @@ fn the_leave_question_names_the_unsaved_change_and_y_saves_it() {
         .question;
     assert!(question.contains("the removal of tiny5"), "{question}");
     assert!(question.contains("1 change is not saved"), "{question}");
-    for no in ["l", "i", "Esc", "z"] {
+    // a stray key leaves the question open, and Esc and Ctrl-C cancel it
+    for stray in ["l", "i", "z", "Tab"] {
         let mut asked = sim.clone();
-        asked.key(key_of(no));
+        asked.press(press_of(stray));
+        assert_eq!(asked.exited, None, "{stray} left");
+        assert!(asked.app.confirm.is_some(), "{stray} closed the question");
+        assert_eq!(asked.desk.writes, 0, "{stray} saved");
+    }
+    for no in ["Esc", "Ctrl-C"] {
+        let mut asked = sim.clone();
+        asked.press(press_of(no));
         assert_eq!(asked.exited, None, "{no} left");
         assert!(asked.app.confirm.is_none(), "{no} kept the question open");
         assert_eq!(asked.desk.writes, 0, "{no} saved");
@@ -274,4 +283,33 @@ fn the_leave_question_with_nothing_unsaved_quits_on_y() {
     sim.key(Key::Char('y'));
     assert_eq!(sim.exited, Some(0));
     assert_eq!(sim.desk.writes, 0);
+}
+
+/// Below the minimum size, `q` with a change not saved asks the quit
+/// question on one row: `y` saves and quits, `n` quits without saving,
+/// and Esc goes back.
+///
+/// References:
+/// - ADR-1201 D3: below the minimum size only `q`, `u` and Ctrl-C act.
+/// - ADR-1403 D7, "What carries over": `q` asks before it drops changes
+///   that are not saved.
+#[test]
+fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
+    let mut sim = Sim::start(Term::Vtium, 80, 25);
+    press(&mut sim, &["Up", "Enter", "Shrink", "q"]);
+    assert_eq!(sim.app.unsaved, 1);
+    assert_eq!(sim.exited, None);
+    let first = sim.screen().first().cloned().unwrap_or_default();
+    assert!(
+        first.starts_with("1 change is not saved.  y save and quit"),
+        "{first:?}"
+    );
+    let mut back = sim.clone();
+    back.press(press_of("Esc"));
+    assert_eq!((back.exited, back.app.unsaved), (None, 1));
+    let mut drop = sim.clone();
+    drop.press(press_of("n"));
+    assert_eq!((drop.exited, drop.desk.writes), (Some(0), 0));
+    sim.press(press_of("y"));
+    assert_eq!((sim.exited, sim.desk.writes), (Some(0), 1));
 }

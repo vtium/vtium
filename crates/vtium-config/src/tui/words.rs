@@ -609,9 +609,18 @@ pub fn came_went(came: &[String], went: &[String]) -> String {
     }
 }
 pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc cancel";
-pub const KEYS_CONFIRM: &str = "y yes  any other key no";
-pub const KEYS_LEAVE: &str = "y quit  any other key back";
-pub const KEYS_LEAVE_SAVE: &str = "y save and quit  any other key back";
+pub const KEYS_CONFIRM: &str = "y yes  Esc no";
+pub const KEYS_LEAVE: &str = "y quit  Esc back";
+pub const KEYS_LEAVE_SAVE: &str = "y save and quit  Esc back";
+/// The question below the minimum size, on one row before its keys: what
+/// quitting loses.
+pub fn small_question(unsaved: usize, frits: bool) -> String {
+    match (unsaved, frits) {
+        (_, true) => "Font sets wait to be installed.".to_owned(),
+        (1, false) => "1 change is not saved.".to_owned(),
+        (n, false) => format!("{n} changes are not saved."),
+    }
+}
 pub const KEYS_PAGER: &str = "Esc back  s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q quit";
 pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  Esc back  q quit";
 /// The question `q` asks while font sets wait for an install: what
@@ -627,13 +636,13 @@ pub fn leave_question(added: &[String], removed: &[String], unsaved: usize) -> S
     let lost = list(lost.into_iter());
     match unsaved {
         0 => format!(
-            "Quit without installing? You will lose {lost}. Press y to quit, or any other key to go back."
+            "Quit without installing? You will lose {lost}. Press y to quit, or Esc to go back."
         ),
         1 => format!(
-            "Quit without installing? You will lose {lost}. 1 change is not saved: y saves it and quits, and any other key goes back."
+            "Quit without installing? You will lose {lost}. 1 change is not saved: y saves it and quits, and Esc goes back."
         ),
         n => format!(
-            "Quit without installing? You will lose {lost}. {n} changes are not saved: y saves them and quits, and any other key goes back."
+            "Quit without installing? You will lose {lost}. {n} changes are not saved: y saves them and quits, and Esc goes back."
         ),
     }
 }

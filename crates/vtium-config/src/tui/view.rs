@@ -747,6 +747,12 @@ fn small(canvas: &mut Canvas, app: &App) {
     }
     lines.push(String::new());
     lines.extend(wrap(words::TOO_SMALL_KEYS, cols, usize::MAX));
+    // a question asked here takes the first row, with its keys, so it
+    // shows however few the rows
+    if let Some(c) = &app.confirm {
+        let ask = words::small_question(app.unsaved, matches!(c.then, Then::Leave(_)));
+        lines.insert(0, format!("{ask}  {}", key_line(app)));
+    }
     // the keys stay on the screen however few its rows
     let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);
     if lines.len() > app.rows {

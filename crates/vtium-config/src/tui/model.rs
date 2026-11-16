@@ -930,11 +930,15 @@ impl App {
         if self.leaving.is_some() || self.installing {
             return Vec::new();
         }
-        // Ctrl-C saves and leaves from every state, the live trial, a
-        // value being typed and the screen below the minimum size
-        // included. A question in a view takes it as no, as it takes
-        // every key but `y`.
-        if key == Key::Interrupt && (self.confirm.is_none() || super::view::too_small(self)) {
+        // a question takes the next key wherever it is asked, the screen
+        // below the minimum size included, and Ctrl-C cancels it
+        if self.confirm.is_some() {
+            return self.confirm_key(key);
+        }
+        // Ctrl-C saves and leaves from every other state, the live trial,
+        // a value being typed and the screen below the minimum size
+        // included
+        if key == Key::Interrupt {
             return self.save_and_leave(130);
         }
         if self.trial.is_some() {
@@ -951,9 +955,6 @@ impl App {
             && let Key::Char(_) | Key::Backspace = key
         {
             return self.type_key(key);
-        }
-        if self.confirm.is_some() {
-            return self.confirm_key(key);
         }
         match key {
             // `q` quits or asks from a view and from what is open over
@@ -1021,12 +1022,17 @@ impl App {
     }
 
     /// A key below the TUI's minimum size, where no view is drawn: `q`
-    /// leaves, and `u` puts back the font the console had when the TUI
-    /// started, where a preview changed it (ADR-1201 D3). Ctrl-C saves
-    /// and leaves, as it does everywhere.
+    /// quits, or asks the quit question first while changes are not
+    /// saved, and `u` puts back the font the console had when the TUI
+    /// started, where a preview changed it. Ctrl-C saves and leaves, as
+    /// it does everywhere.
+    ///
+    /// References:
+    /// - ADR-1201 D3: below the minimum size only `q`, `u` and Ctrl-C act.
+    /// - ADR-1403 D7: `q` asks before it drops changes that are not saved.
     fn small_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
-            Key::Char('q') => self.leave(0),
+            Key::Char('q') => self.quit(0),
             Key::Char('u') => {
                 let Some(start) = self.start_font.clone() else {
                     return Vec::new();
@@ -1041,12 +1047,9 @@ impl App {
         }
     }
 
-    /// A key in the Flow view (ADR-1403 D7) while a question, the file
-    /// view or Restore's list is open over it.
+    /// A key in the Flow view (ADR-1403 D7) while the file view or
+    /// Restore's list is open over it.
     pub(crate) fn flow_open_key(&mut self, key: Key) -> Vec<Effect> {
-        if self.confirm.is_some() {
-            return self.confirm_key(key);
-        }
         if self.pager.is_some() {
             self.pager_key(key);
             return Vec::new();

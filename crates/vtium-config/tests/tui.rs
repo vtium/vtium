@@ -1216,8 +1216,8 @@ fn new_opens_the_tui_at_its_new_frit_view() {
 }
 
 /// Leaving while a frit's removal waits for an install asks first and
-/// names it; `y` leaves without it, `l` answers no as every other key
-/// does, and the top row counts it.
+/// names it; `y` leaves without it, a stray key such as `l` leaves the
+/// question open, and the top row counts it.
 #[test]
 fn leaving_with_a_frit_waiting_asks_and_y_leaves_without_it() {
     let mut c = console().keys(&[UP, b"r", b"q"]);
@@ -1241,7 +1241,8 @@ fn leaving_with_a_frit_waiting_asks_and_y_leaves_without_it() {
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains(words::NOT_LEFT), "{screen}");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(text.contains("Quit without installing?"), "{screen}");
 }
 
 /// The status line with a font set waiting to be installed, on a screen
@@ -1286,11 +1287,11 @@ fn the_status_line_shortens_its_left_side_then_its_right_side() {
     }
 }
 
-/// Any key but `y` goes back with the frit still waiting, `i` at the
-/// question among them, and `i` in the view then installs it.
+/// Esc goes back with the frit still waiting, after a stray `x` and `i`
+/// left the question open, and `i` in the view then installs it.
 #[test]
 fn leaving_with_a_frit_waiting_goes_back_or_installs() {
-    let mut c = console().keys(&[UP, b"r", b"q", b"x", b"q", b"i", b"i", b"y", b"q"]);
+    let mut c = console().keys(&[UP, b"r", b"q", b"x", b"i", b"\x1b", b"i", b"y", b"q"]);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     let plan = d.plans.first().expect("an install");
@@ -1497,8 +1498,9 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
     }
 }
 
+/// Tab leaves a question open on any view, and Esc answers it no.
 #[test]
-fn tab_answers_a_question_no_on_any_view_and_stays() {
+fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
     // a size kept on Looks, then i asks to install it
     let ask: [&[u8]; 4] = [BACKTAB, DOWN, b"\r", b"i"];
     let mut c = console().keys(&ask);
@@ -1512,11 +1514,18 @@ fn tab_answers_a_question_no_on_any_view_and_stays() {
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
+    let line = screen.lines().last().unwrap_or_default().trim();
+    assert_eq!(line, words::KEYS_CONFIRM, "{screen}");
+    let mut c = console().keys(&[&ask[..], &[TAB, b"\x1b"]].concat());
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_DONE), "{screen}");
     let line = screen.lines().last().unwrap_or_default().trim();
     assert_eq!(line, words::KEYS_LOOKS, "{screen}");
     assert!(d.plans.is_empty());
-    // the question before leaving with a frit waiting: Tab goes back
+    // the question before leaving with a frit waiting: Tab leaves it
+    // open, and Esc goes back
     let mut c = console().keys(&[UP, b"r", b"q"]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
@@ -1524,6 +1533,12 @@ fn tab_answers_a_question_no_on_any_view_and_stays() {
     let line = screen.lines().last().unwrap_or_default().trim();
     assert_eq!(line, words::KEYS_LEAVE, "{screen}");
     let mut c = console().keys(&[UP, b"r", b"q", TAB]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let line = screen.lines().last().unwrap_or_default().trim();
+    assert_eq!(line, words::KEYS_LEAVE, "{screen}");
+    let mut c = console().keys(&[UP, b"r", b"q", TAB, b"\x1b"]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
@@ -3480,9 +3495,9 @@ mod draft_flow {
             "{}",
             ran.screen()
         );
-        // revert asks, and Tab answers no on the flow
+        // revert asks, Tab leaves the question open, and Esc answers no
         let b = bench("tab-revert");
-        let ran = run(&b, &[&CHANGE[..], &[b"s", b"r", TAB]].concat());
+        let ran = run(&b, &[&CHANGE[..], &[b"s", b"r", TAB, ESC]].concat());
         assert!(ran.said().contains(words::NOT_DONE), "{}", ran.screen());
         assert!(ran.status().contains("4 changes"), "{}", ran.status());
         let line = ran.screen().lines().last().unwrap_or_default().trim();
@@ -3569,7 +3584,7 @@ mod draft_flow {
         let b = bench("revert");
         run(&b, &[&CHANGE[..], &[b"s"]].concat());
         assert_ne!(b.draft(), INSTALLED);
-        let ran = run(&b, &[b"r", b"n"]);
+        let ran = run(&b, &[b"r", b"n", ESC]);
         assert!(ran.screen().contains(words::NOT_DONE), "{}", ran.screen());
         assert_ne!(b.draft(), INSTALLED);
         // the question counts an unsaved change among what is lost

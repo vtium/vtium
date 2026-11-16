@@ -10,46 +10,49 @@ use std::collections::{BTreeMap, VecDeque};
 
 use vtium_config::tui::input::Key;
 
-use super::sim::{Did, Sim, Term};
+use super::sim::{Did, Press, Sim, Term};
 use super::state::{self, Abs};
 
-/// The keys the explorer tries, each with the name the map writes. It
-/// holds every key the TUI's code names, a letter it names nowhere (`z`)
-/// for "any other key", and Ctrl-C.
-pub const ALPHABET: &[(&str, Key)] = &[
-    ("Up", Key::Up),
-    ("Down", Key::Down),
-    ("Left", Key::Left),
-    ("Right", Key::Right),
-    ("PgDn", Key::PageDown),
-    ("Home", Key::Home),
-    ("End", Key::End),
-    ("Enter", Key::Enter),
-    ("Tab", Key::Tab),
-    ("Shift-Tab", Key::BackTab),
-    ("Backspace", Key::Backspace),
-    ("Esc", Key::Escape),
-    ("Ctrl-C", Key::Interrupt),
-    ("Ctrl-D", Key::Ctrl('d')),
-    ("Space", Key::Char(' ')),
-    ("a", Key::Char('a')),
-    ("d", Key::Char('d')),
-    ("e", Key::Char('e')),
-    ("i", Key::Char('i')),
-    ("k", Key::Char('k')),
-    ("l", Key::Char('l')),
-    ("n", Key::Char('n')),
-    ("o", Key::Char('o')),
-    ("p", Key::Char('p')),
-    ("q", Key::Char('q')),
-    ("r", Key::Char('r')),
-    ("s", Key::Char('s')),
-    ("t", Key::Char('t')),
-    ("u", Key::Char('u')),
-    ("v", Key::Char('v')),
-    ("x", Key::Char('x')),
-    ("y", Key::Char('y')),
-    ("z", Key::Char('z')),
+/// What the explorer does in each state, each with the name the map
+/// writes: every key the TUI's code names, a letter it names nowhere
+/// (`z`) for "any other key", Ctrl-C, and the terminal shrinking below the
+/// minimum size and growing back to it.
+pub const ALPHABET: &[(&str, Press)] = &[
+    ("Up", Press::Key(Key::Up)),
+    ("Down", Press::Key(Key::Down)),
+    ("Left", Press::Key(Key::Left)),
+    ("Right", Press::Key(Key::Right)),
+    ("PgDn", Press::Key(Key::PageDown)),
+    ("Home", Press::Key(Key::Home)),
+    ("End", Press::Key(Key::End)),
+    ("Enter", Press::Key(Key::Enter)),
+    ("Tab", Press::Key(Key::Tab)),
+    ("Shift-Tab", Press::Key(Key::BackTab)),
+    ("Backspace", Press::Key(Key::Backspace)),
+    ("Esc", Press::Key(Key::Escape)),
+    ("Ctrl-C", Press::Key(Key::Interrupt)),
+    ("Ctrl-D", Press::Key(Key::Ctrl('d'))),
+    ("Space", Press::Key(Key::Char(' '))),
+    ("a", Press::Key(Key::Char('a'))),
+    ("d", Press::Key(Key::Char('d'))),
+    ("e", Press::Key(Key::Char('e'))),
+    ("i", Press::Key(Key::Char('i'))),
+    ("k", Press::Key(Key::Char('k'))),
+    ("l", Press::Key(Key::Char('l'))),
+    ("n", Press::Key(Key::Char('n'))),
+    ("o", Press::Key(Key::Char('o'))),
+    ("p", Press::Key(Key::Char('p'))),
+    ("q", Press::Key(Key::Char('q'))),
+    ("r", Press::Key(Key::Char('r'))),
+    ("s", Press::Key(Key::Char('s'))),
+    ("t", Press::Key(Key::Char('t'))),
+    ("u", Press::Key(Key::Char('u'))),
+    ("v", Press::Key(Key::Char('v'))),
+    ("x", Press::Key(Key::Char('x'))),
+    ("y", Press::Key(Key::Char('y'))),
+    ("z", Press::Key(Key::Char('z'))),
+    ("Shrink", Press::Resize(79, 24)),
+    ("Grow", Press::Resize(80, 25)),
 ];
 
 /// The grids the explorer starts at: the minimum, and one column and one
@@ -134,9 +137,9 @@ pub fn explore(term: Term, mut visit: impl FnMut(&Step, &Sim, &Sim)) -> Map {
     while let Some((sim, path, start)) = queue.pop_front() {
         let from = state::of(&sim);
         reps.insert(from.clone(), (sim.clone(), path.clone(), start));
-        for (name, key) in ALPHABET {
+        for (name, press) in ALPHABET {
             let mut after = sim.clone();
-            let did = after.key(*key);
+            let did = after.press(*press);
             let to = state::of(&after);
             if seen.insert(to.clone(), ()).is_none() {
                 states.push(to.clone());

@@ -124,10 +124,16 @@ pub fn of(sim: &Sim) -> Abs {
         abs.pending = false;
         return abs;
     }
-    if too_small(app) {
+    // below the minimum size no view shows, and only a question asked
+    // there changes what the keys do
+    let small = too_small(app);
+    if small && app.confirm.is_none() {
         abs.kind = StateKind::TooSmall;
         abs.view = "";
         return abs;
+    }
+    if small {
+        abs.view = "";
     }
     let (kind, narrow) = open(app);
     abs.kind = kind;

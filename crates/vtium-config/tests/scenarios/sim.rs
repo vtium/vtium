@@ -145,6 +145,13 @@ pub fn present() -> Present {
     }
 }
 
+/// One thing the person does: a key, or the terminal resized.
+#[derive(Clone, Copy, Debug)]
+pub enum Press {
+    Key(Key),
+    Resize(usize, usize),
+}
+
 /// What one key did, beyond the state it left.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Did {
@@ -214,11 +221,20 @@ impl Sim {
 
     /// Sends `key` and answers everything it causes.
     pub fn key(&mut self, key: Key) -> Did {
+        self.press(Press::Key(key))
+    }
+
+    /// Does `press` and answers everything it causes.
+    pub fn press(&mut self, press: Press) -> Did {
         let mut did = Did::default();
         if self.exited.is_some() {
             return did;
         }
-        self.event(Event::Input(Input::Key(key)), &mut did);
+        let event = match press {
+            Press::Key(key) => Event::Input(Input::Key(key)),
+            Press::Resize(cols, rows) => Event::Resize { cols, rows },
+        };
+        self.event(event, &mut did);
         // the wait for the console's reply ends once the TUI is leaving
         if self.exited.is_none() && self.app.leaving.is_some() {
             self.event(Event::Timeout, &mut did);

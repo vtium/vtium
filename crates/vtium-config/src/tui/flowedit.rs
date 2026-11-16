@@ -24,33 +24,43 @@ impl App {
         Vec::new()
     }
 
-    /// A key while a question is asked: `y` acts, and any other key
-    /// answers no and changes nothing. The quit question also takes `n`,
-    /// which quits without the unsaved changes.
+    /// A key while a question is asked. `y` does what the question asks.
+    /// The quit question also takes `n`, which quits without the unsaved
+    /// changes. Esc and Ctrl-C cancel the question and change nothing.
+    /// Every other key does nothing, and the question stays, so a stray
+    /// key cannot answer it.
     ///
     /// References:
-    /// - ADR-1403 D7, "The same keys in every view": every question takes
-    ///   `y` for yes, and Esc or any other key for no.
+    /// - ADR-1403 D7, "The same keys in every view": the answer keys of
+    ///   every question, as the maintainer amended them on 2026-11-16.
     pub(crate) fn confirm_key(&mut self, key: Key) -> Vec<Effect> {
+        let leaves = matches!(
+            self.confirm.as_ref().map(|c| &c.then),
+            Some(Then::Quit(_) | Then::Leave(_))
+        );
+        let quit = matches!(self.confirm.as_ref().map(|c| &c.then), Some(Then::Quit(_)));
+        match key {
+            Key::Char('y') => {}
+            Key::Char('n') if quit => {}
+            Key::Escape | Key::Interrupt => {
+                self.confirm = None;
+                return self.say(if leaves {
+                    words::NOT_LEFT
+                } else {
+                    words::NOT_DONE
+                });
+            }
+            _ => return Vec::new(),
+        }
         let Some(confirm) = self.confirm.take() else {
             return Vec::new();
         };
-        if let Then::Quit(status) | Then::Leave(status) = confirm.then {
-            self.message = None;
-            return match key {
-                Key::Char('y') => self.save_and_leave(status),
-                Key::Char('n') if matches!(confirm.then, Then::Quit(_)) => self.leave(status),
-                _ => self.say(words::NOT_LEFT),
-            };
-        }
-        if key != Key::Char('y') {
-            return self.say(words::NOT_DONE);
-        }
         self.message = None;
         match confirm.then {
+            Then::Quit(status) if key == Key::Char('n') => self.leave(status),
+            Then::Quit(status) | Then::Leave(status) => self.save_and_leave(status),
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
-            Then::Leave(_) | Then::Quit(_) => Vec::new(),
             Then::Install(plan) => {
                 self.installing = true;
                 self.message = Some(words::INSTALLING.to_owned());
