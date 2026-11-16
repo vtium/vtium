@@ -33,15 +33,6 @@ pub const ALPHABET: [char; 26] = [
     'z', 'x', 'c', 'v', 'b', 'n', 'm',
 ];
 
-/// The text the overlay row shows while hints are on.
-pub const PROMPT: &str = "Type a link's label to copy its address. Press Escape to stop.";
-
-/// The text the overlay row shows when the key finds no link to label.
-pub const NO_LINKS: &str = "No links are on the screen.";
-
-/// The words the overlay row shows before the address it copied.
-pub const COPIED: &str = "Copied: ";
-
 /// How many letters each label has when `count` links need one: the
 /// fewest letters that give each link its own label, and at least one.
 /// One letter covers 26 links, two cover 676, and so on.
