@@ -5550,9 +5550,14 @@ fn logged() -> Vec<String> {
     LINES.with(|l| std::mem::take(&mut *l.borrow_mut()))
 }
 
-/// A frit `t` in a directory of its own, and a stand-in helper that
-/// answers each request with `answer` once `go` exists, then exits as at
-/// its idle interval; the directory, the sources and the go file.
+/// A frit `t` in a directory of its own, and a stand-in helper that runs
+/// `script` with the file that holds `answer` as `$1` and the go file as
+/// `$2`; the directory, the sources and the go file. A script that answers
+/// ends with `exec cat >/dev/null`, so the stand-in reads every request
+/// and runs until vtium closes its input, as the real helper does. cat
+/// runs in the shell's own place because a shell gives a command it runs
+/// in the background /dev/null for its standard input, so a background
+/// cat would read none of the requests.
 fn frit_fonts(name: &str, answer: &[u8], script: &str) -> (Scratch, Sources, PathBuf) {
     frit_fonts_of(name, "source=builtin:unifont\n", answer, script)
 }
@@ -5634,7 +5639,7 @@ fn a_frits_warning_from_the_helper_is_logged_once() {
     let mut answer = warning.clone();
     answer.extend(&warning);
     answer.extend(solid_ascii(cell));
-    let (_dir, fonts, _go) = frit_fonts("warning", &answer, "cat >/dev/null & cat \"$1\"; wait");
+    let (_dir, fonts, _go) = frit_fonts("warning", &answer, "cat \"$1\"; exec cat >/dev/null");
     logged();
     let mut h = with_fonts(&["--font-name=t"], fonts.clone());
     let line = "the frit t:2: compress= has nothing to act on, and is ignored";
@@ -5679,7 +5684,7 @@ fn a_frit_draws_the_built_in_font_first_and_the_helpers_glyphs_after() {
     let (_dir, fonts, go) = frit_fonts(
         "swap",
         &solid_ascii(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     let mut h = with_fonts(&["--font-name=t"], fonts.clone());
     assert_eq!(h.app.font_name(), "t");
@@ -5717,7 +5722,7 @@ fn a_glyph_that_arrives_off_screen_draws_when_shown_again() {
     let (_dir, fonts, go) = frit_fonts(
         "offscreen",
         &solid_ascii(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     // A at the top left; then, at each Enter, the screen cleared with B
     // beside where A was, and A drawn there again
@@ -5780,7 +5785,7 @@ fn a_set_that_brings_u25a1_redraws_a_missing_character_at_once() {
     let (_dir, fonts, go) = frit_fonts(
         "missing",
         &solid_white_square(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     // U+10FFFD, which neither the frit nor the built-in unifont holds
     let session = "stty -echo; printf '\\364\\217\\277\\275'; read x";
@@ -5880,7 +5885,7 @@ fn a_frits_stated_cell_is_the_grids_and_the_glyphs_never_move_it() {
         "cell",
         "source=builtin:unifont\ncell=10x20\n",
         &solid_ascii(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
     assert_eq!((h.app.cells(), h.app.grid()), (vec![(10, 20)], (32, 8)));
@@ -5947,7 +5952,7 @@ fn a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
         "own",
         "source=kbd:x\n",
         &own_cell(8, 16),
-        "cat >/dev/null & cat \"$1\"; wait",
+        "cat \"$1\"; exec cat >/dev/null",
     );
     logged();
     let h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
@@ -5973,7 +5978,7 @@ fn osc_50_to_a_bitmap_frit_with_no_cell_takes_its_fonts_own_cell() {
         "own-osc50",
         "source=kbd:x\n",
         &own_cell(8, 16),
-        "cat >/dev/null & cat \"$1\"; wait",
+        "cat \"$1\"; exec cat >/dev/null",
     );
     let h = osc50(&["--font-size=0"], "\\033]50;t\\007", fonts.clone());
     assert_eq!(h.app.font_name(), "t");
@@ -6017,7 +6022,7 @@ fn a_bitmap_frits_own_cell_that_comes_late_is_taken_from_the_next_frame() {
         "own-late",
         "source=kbd:x\n",
         &own_cell(8, 16),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     logged();
     let mut h = with_fonts(&["--font-name=t", "--font-size=0"], fonts.clone());
@@ -6265,7 +6270,7 @@ fn frit_session(name: &str, script: &str) -> (Scratch, Harness, PathBuf) {
     let (scratch, fonts, go) = frit_fonts(
         name,
         &solid_ascii(cell),
-        "cat >/dev/null & while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec 1>&-; wait",
+        "while [ ! -e \"$2\" ]; do sleep 0.02; done; cat \"$1\"; exec cat >/dev/null",
     );
     let h = Harness::fonts(
         &[
@@ -6347,7 +6352,7 @@ fn glyphs_no_buffer_shows_start_no_draw() {
     h.drawn_now();
     let (frames, passes) = (h.memory().frames, h.memory().ages.len());
     std::fs::write(&go, b"").expect("the go file");
-    // the helper answers and exits; the screen shows none of its glyphs
+    // the helper answers; the screen shows none of its glyphs
     h.until(Duration::from_millis(1000), |_| false);
     assert_eq!((h.memory().frames, h.memory().ages.len()), (frames, passes));
 }
@@ -7260,7 +7265,7 @@ fn osc_50_switches_back_to_vconsoles_font_by_the_name_its_query_reported() {
         "osc50-vconsole",
         "source=kbd:x\n",
         &own_cell(12, 24),
-        "cat >/dev/null & cat \"$1\"; wait",
+        "cat \"$1\"; exec cat >/dev/null",
     );
     fonts.vconsole_conf = fonts.frits.join("vconsole.conf");
     std::fs::write(&fonts.vconsole_conf, "FONT=ter-124n\n").expect("vconsole.conf");
