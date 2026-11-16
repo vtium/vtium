@@ -5177,6 +5177,44 @@ mod tests {
         );
     }
 
+    // An outline font's version comes from its name table's version
+    // string, and a lower one than version= asks for is reported while the
+    // font still draws. A font whose name table states no version is not
+    // compared.
+    //
+    // References:
+    // - ADR-1204 D7: a font of a lower version still draws, and is
+    //   reported.
+    #[test]
+    fn an_outline_fonts_version_comes_from_its_name_table() {
+        let dir = scratch("outline-version");
+        let font = ttf::test_mono();
+        let differs = |bytes: Vec<u8>| {
+            let file = dir.join("t.ttf");
+            std::fs::write(&file, bytes).unwrap();
+            let text = format!("source=outline:{}\nversion=2.304\n", file.display());
+            let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+            assert_eq!(engine.sources.len(), 1, "the font draws");
+            engine
+                .differs()
+                .iter()
+                .map(|d| d.what.clone())
+                .collect::<Vec<_>>()
+        };
+        let older = font.build_with_version("Version 2.242; ttfautohint (v1.8.4)");
+        assert_eq!(
+            outline_version(&older, "").as_deref(),
+            Some("Version 2.242; ttfautohint (v1.8.4)")
+        );
+        assert_eq!(
+            differs(older),
+            [crate::needs::Differ::Older("2.242".into())]
+        );
+        assert_eq!(differs(font.build_with_version("Version 2.304")), []);
+        assert_eq!(outline_version(&font.build(), ""), None);
+        assert_eq!(differs(font.build()), []);
+    }
+
     // A font of a lower version than version= asks for, and a file whose
     // SHA-256 is not the one sha256= gives, each still draw. The helper
     // reports each in its answer to a sources query, and the console logs
