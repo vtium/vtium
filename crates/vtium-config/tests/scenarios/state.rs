@@ -341,7 +341,11 @@ fn focus(app: &App) -> String {
             };
             format!("{place} {slot}")
         }
-        View::Looks | View::New | View::Settings => String::new(),
+        // on the list of sections, the first section apart from the
+        // rest, so the walk opens a section other than the first
+        View::Settings if app.settings.sections.at == 0 => "first".into(),
+        View::Settings => "later".into(),
+        View::Looks | View::New => String::new(),
     }
 }
 

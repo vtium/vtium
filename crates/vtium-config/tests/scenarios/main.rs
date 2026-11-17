@@ -434,6 +434,54 @@ fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
     assert_eq!(sim.app.view, vtium_config::tui::model::View::Fonts);
 }
 
+/// A Settings key's list of values opens on the value the key has now, and
+/// Enter there writes the highlighted value. Esc from a section goes back
+/// to the sections with that section highlighted.
+///
+/// References:
+/// - ADR-1201 D3, the Settings bullet: Esc goes back to the sections with
+///   the same section highlighted.
+/// - ADR-1403 D7, "One list for every set of items": a key's values open
+///   in the shared list.
+#[test]
+fn a_value_list_opens_on_the_value_now_and_esc_keeps_the_section() {
+    use vtium_config::tui::model::View;
+    let mut sim = Sim::start(Term::Vtium, 80, 25);
+    for _ in 0..View::TABS.len() {
+        if sim.app.view != View::Settings {
+            press(&mut sim, &["Tab"]);
+        }
+    }
+    assert_eq!(sim.app.view, View::Settings);
+    // the first section's last key is cluster-width, which takes double,
+    // its default, or single
+    press(&mut sim, &["Enter", "End"]);
+    assert_eq!(
+        sim.app.settings.key().map(|k| k.name),
+        Some("cluster-width")
+    );
+    press(&mut sim, &["Enter"]);
+    assert_eq!(sim.app.settings.values.map(|l| l.at), Some(0));
+    press(&mut sim, &["Down", "Enter"]);
+    assert_eq!(sim.app.settings.values, None);
+    let draft = sim
+        .app
+        .draft
+        .as_ref()
+        .map(|d| d.text.clone())
+        .unwrap_or_default();
+    assert!(draft.contains("\ncluster-width=single\n"), "{draft}");
+    press(&mut sim, &["Enter"]);
+    assert_eq!(sim.app.settings.values.map(|l| l.at), Some(1));
+    press(&mut sim, &["Esc", "Esc"]);
+    assert_eq!(sim.app.settings.open, None);
+    press(&mut sim, &["Down", "Down", "Enter"]);
+    assert_eq!(sim.app.settings.open.map(|(at, _)| at), Some(2));
+    press(&mut sim, &["Esc"]);
+    assert_eq!(sim.app.settings.open, None);
+    assert_eq!(sim.app.settings.sections.at, 2);
+}
+
 /// The leave question's `y` installs a draft that wires no complete route
 /// only after the person answers the question that says so, and quits
 /// once that install ends well. Esc at that question keeps the TUI, and a
