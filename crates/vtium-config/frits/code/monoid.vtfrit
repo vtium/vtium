@@ -1,0 +1,26 @@
+# monoid: Monoid, a narrow monospaced font for code. The font draws the text
+# and sets the character cell. The set starts at 12 points, 16 pixels at 96
+# DPI.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: Monoid is under MIT or the SIL OFL 1.1, at your choice. The
+# layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the code-friendly fonts category.
+
+name=monoid
+size=12
+license=(MIT OR OFL-1.1) AND OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+source=font:Monoid
+version=0.61
+url=https://github.com/larsenwork/monoid/releases/tag/0.61
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

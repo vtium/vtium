@@ -1,0 +1,33 @@
+# linux-vga-8x16: the Linux kernel's VGA 8x16 console font, which its option
+# FONT_8x16 builds in. vtium ships none of the kernel's fonts, which are
+# under the GPL-2.0, so the set draws the same glyphs from a console font
+# file that holds them. The set uses kbd's cp865-8x16, at its own 8x16 cell.
+#
+# The set was checked glyph by glyph against the kernel's lib/fonts/ on
+# 2026-11-17: 218 of the 222 glyphs from 0x21 to 0xFF, less 0x7F, match, as
+# code page 437 places them. Code page 865 draws its own Å, and it has no ¢,
+# ¥ or », where 437 has them, so the Unifont layer draws those three.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: kbd's console fonts are under the GNU GPL, version 2 or later,
+# with each file's own notice. The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the console fonts category.
+# - ADR-1204 D3, the kernel's own fonts: the file that holds its glyphs.
+
+name=linux-vga-8x16
+license=GPL-2.0-or-later AND OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# kbd 2.10.0's cp865-8x16.
+source=kbd:cp865-8x16
+version=2.10.0
+url=https://github.com/legionus/kbd/tree/v2.10.0/data/consolefonts
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

@@ -1,0 +1,25 @@
+# unifont: GNU Unifont as a BDF file, the fallback that ends every catalog
+# font set. It draws every character that the sources before it lack, in
+# 1 bit, Han, kana and Hangul among them. Its glyphs are 8x16 and 16x16, so
+# a set whose cell is smaller draws those characters in vtium's built-in
+# font instead.
+#
+# The file is unifont-17.0.03.bdf.gz from Unifoundry, which holds the Basic
+# Multilingual Plane. It is a required font: you install it at the path
+# below.
+#
+# License: SIL OFL 1.1, the option vtium takes of Unifont's two licenses,
+# with the copyright line the file's COPYRIGHT property gives: Copyright (C)
+# 1998-2025 Roman Czyborra, Paul Hardy, Qianqian Fang, Andrew Miller,
+# Johnnie Weaver, David Corbett, Ælla Chiana Moskopp, Rebecca Bettencourt,
+# Minseo Lee, Ho-Seok Ee, et al.
+#
+# References:
+# - ADR-1204 D5: the fallback layer.
+# - ADR-1204 D2: where vtium installs the file.
+
+role=fallback
+source=bdf:/usr/share/vtium/fonts/unifont-17.0.03.bdf.gz
+version=17.0.03
+sha256=30d50302daca631e2cf454d9747117d98c9f35c0b18af4f67d2fa5e116992033
+url=https://unifoundry.com/pub/unifont/unifont-17.0.03/

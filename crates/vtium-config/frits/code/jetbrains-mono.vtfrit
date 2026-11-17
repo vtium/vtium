@@ -1,0 +1,42 @@
+# jetbrains-mono: JetBrains Mono, an outline font designed for code, with
+# Nerd Fonts' icons, color emoji, and GNU Unifont for every other
+# character. JetBrains Mono draws the text and sets the character cell.
+# vtium ships this font set, never the fonts. The font helper leaves out a
+# font that the machine lacks, and the next source that holds a character
+# draws it.
+#
+# The specimens draw this set at a 1920x1080 and a 2560x1440 display, from
+# the fonts that `make specimens-fonts` fetches.
+#
+# Licenses, as each font's documentation gives them: JetBrains Mono, Noto
+# Color Emoji and GNU Unifont under the SIL OFL 1.1, and Symbols Nerd Font
+# Mono under MIT for the patcher, with each icon set under its own.
+#
+# Attribution, which CC-BY-4.0 asks of the icon sets that the nerd-symbols
+# layer takes:
+# - Font Awesome by Fonticons, Inc. (https://fontawesome.com), icons under
+#   CC-BY-4.0, through Nerd Fonts (U+ED00-U+F2FF, less U+EE00-U+EE0B).
+# - Codicons by Microsoft Corporation
+#   (https://github.com/microsoft/vscode-codicons), CC-BY-4.0, through Nerd
+#   Fonts (U+EA60-U+EC84).
+# - Material Design Icons by Pictogrammers (https://pictogrammers.com),
+#   Apache-2.0, through Nerd Fonts (U+F0001-U+F1AF0).
+#
+# References:
+# - ADR-1204 D3: the code-friendly fonts category.
+# - ADR-1204 D13: this set takes the place of the sets desktop and proof.
+
+name=jetbrains-mono
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# JetBrains Mono 2.304, fonts/ttf/JetBrainsMono-Regular.ttf.
+source=font:JetBrains Mono
+version=2.304
+url=https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont
+
+# The starting size, in points: 24 pixels at 96 DPI.
+size=18

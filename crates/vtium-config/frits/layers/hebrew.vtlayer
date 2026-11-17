@@ -1,0 +1,20 @@
+# hebrew: the Hebrew script and its marks, from Noto Sans Hebrew. A font
+# set adds this layer after Noto Sans Mono, which holds no Hebrew, and the
+# font draws at Noto Sans Mono's size.
+#
+# Niqqud, the vowel points, sit mostly under the letters, and the
+# cantillation marks of biblical text sit above and below them. The marks
+# may use the rows that the set's line spacing adds. Hebrew is room by
+# default, and the fit= line says so for the reader.
+#
+# License: SIL OFL 1.1.
+#
+# References:
+# - ADR-1204 D5: the script layers.
+# - ADR-1302 D13: line spacing and fit=.
+
+role=script
+source=font:Noto Sans Hebrew
+version=3.001
+url=https://github.com/notofonts/hebrew/releases/tag/NotoSansHebrew-v3.001
+fit=room

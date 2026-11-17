@@ -1,0 +1,34 @@
+# linux-ter-16x32: the Linux kernel's Terminus 16x32 console font, which its
+# option FONT_TER16x32 builds in. vtium ships none of the kernel's fonts,
+# which are under the GPL-2.0, so the set draws the same glyphs from a
+# console font file that holds them. The set uses Terminus's ter-i32b, at
+# its own 16x32 cell. The terminus-font package of most distributions
+# installs it, and kbd does not.
+#
+# The set was checked glyph by glyph against the kernel's lib/fonts/ on
+# 2026-11-17: all 222 glyphs from 0x21 to 0xFF, less 0x7F, match, as code
+# page 437 places them.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: Terminus is under the SIL OFL 1.1, with the Reserved Font Name
+# "Terminus Font". The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the console fonts category.
+# - ADR-1204 D3, the kernel's own fonts: the file that holds its glyphs.
+
+name=linux-ter-16x32
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# Terminus 4.49.1's ter-i32b, as the terminus-font package installs it.
+source=kbd:ter-i32b
+version=4.49.1
+url=https://sourceforge.net/projects/terminus-font/files/terminus-font-4.49/
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

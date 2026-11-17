@@ -1,0 +1,36 @@
+# hack-nerd: the Nerd Fonts build of Hack, its Mono form, whose icons are
+# each one cell wide. The font draws the text, Powerline's separators and
+# Nerd Fonts' icons, the Font Logos included, and it sets the character
+# cell. The set starts at 12 points, 16 pixels at 96 DPI.
+#
+# check=U+E0B0 is the Powerline arrow, which every Nerd Fonts build holds,
+# so it tells the build from a plain font of a similar name.
+#
+# The Nerd Fonts build holds the icons itself, so the set adds only color
+# emoji after it, and GNU Unifont last, which draws every other character.
+# vtium ships this font set, never the fonts. Nerd Fonts lists its Font
+# Logos icons with no license grant, so no vtium package carries a Nerd
+# Fonts file: you install the build yourself. Without it, Unifont draws the
+# text and each icon draws as a hollow box.
+#
+# Licenses: Hack's own work is under MIT, and the glyphs it takes from
+# Bitstream Vera under the Bitstream Vera License. Nerd Fonts' patcher is
+# under MIT, and its icon sets are under their own licenses: CC-BY-4.0 for
+# Font Awesome and Codicons, Apache-2.0 for Material Design Icons, and none
+# for Font Logos. The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the Nerd Fonts category.
+
+name=hack-nerd
+size=12
+license=MIT AND Bitstream-Vera AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0
+
+# Nerd Fonts 3.4.0's Hack Nerd Font Mono.
+source=font:Hack Nerd Font Mono
+version=3.4.0
+check=U+E0B0
+url=https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0
+
+layer=noto-emoji
+layer=unifont

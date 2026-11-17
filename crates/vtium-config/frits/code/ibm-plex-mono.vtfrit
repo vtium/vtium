@@ -1,0 +1,25 @@
+# ibm-plex-mono: IBM Plex Mono, the monospaced member of IBM's Plex family.
+# The font draws the text and sets the character cell. The set starts at 12
+# points, 16 pixels at 96 DPI.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: IBM Plex Mono is under the SIL OFL 1.1. The layers name their
+# own licenses.
+#
+# References:
+# - ADR-1204 D3: the code-friendly fonts category.
+
+name=ibm-plex-mono
+size=12
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+source=font:IBM Plex Mono
+url=https://github.com/IBM/plex/releases/tag/%40ibm%2Fplex-mono%402.5.0
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

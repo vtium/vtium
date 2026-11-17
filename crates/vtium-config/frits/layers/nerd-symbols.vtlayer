@@ -1,0 +1,39 @@
+# nerd-symbols: the icons that shell prompts and file listers draw, from
+# Symbols Nerd Font Mono, Nerd Fonts' font that holds the icons alone, each
+# one cell wide. A font set adds this layer after its text font, and the
+# layer fills only the characters the sources before it lack.
+#
+# The cover= lines keep the font to the ranges that Nerd Fonts documents
+# as its own: the private-use area of the Basic Multilingual Plane, the
+# IEC power symbols, and Material Design's range in plane 15. The private
+# use area includes the Font Logos icons, U+F300 to U+F385, such as the
+# Arch Linux logo at U+F303. vtium ships no Nerd Fonts file, because Nerd
+# Fonts lists Font Logos with no license grant. Once you install your
+# distribution's Symbols Nerd Font Mono, every set that adds this layer
+# draws the logos and the rest of Nerd Fonts' icons from it.
+#
+# check=U+E0B0 is the Powerline arrow, which every build of the font holds.
+# It names no Font Logos character, because a distribution may build the
+# font without them.
+#
+# Licenses, as Nerd Fonts' license audit gives them: MIT for the patcher
+# and the Powerline, Seti-UI, Devicons, Octicons, Pomicons and IEC power
+# icons. Font Awesome by Fonticons, Inc. (https://fontawesome.com) and
+# Codicons by Microsoft Corporation
+# (https://github.com/microsoft/vscode-codicons) are under CC-BY-4.0, and
+# Material Design Icons by Pictogrammers (https://pictogrammers.com) under
+# Apache-2.0. Font Logos carries no license grant.
+#
+# References:
+# - ADR-1204 D5: the layer and its ranges.
+# - ADR-1204 D8: Font Logos come from a Nerd Fonts file the system holds.
+
+role=symbols
+source=font:Symbols Nerd Font Mono
+version=3.4.0
+check=U+E0B0
+url=https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0
+cover=U+E000-U+F8FF
+cover=U+23FB-U+23FE
+cover=U+2B58
+cover=U+F0001-U+F1AF0

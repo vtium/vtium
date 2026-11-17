@@ -1,0 +1,22 @@
+# arabic: the Arabic script for Arabic, Persian and Urdu, from Noto Sans
+# Arabic: its letters, its marks and its presentation forms. A font set
+# adds this layer after Noto Sans Mono, which holds no Arabic, and the font
+# draws at Noto Sans Mono's size.
+#
+# Arabic writes marks above and below the letters: hamza, the vowel marks
+# (harakat) and shadda, sometimes two in a stack. Noto Sans Arabic's
+# highest marks and its deepest letters reach past the text's height, so
+# its glyphs may use the rows that the set's line spacing adds. Arabic is
+# room by default, and the fit= line says so for the reader.
+#
+# License: SIL OFL 1.1.
+#
+# References:
+# - ADR-1204 D5: the script layers.
+# - ADR-1302 D13: line spacing and fit=.
+
+role=script
+source=font:Noto Sans Arabic
+version=2.013
+url=https://github.com/notofonts/arabic/releases/tag/NotoSansArabic-v2.013
+fit=room
