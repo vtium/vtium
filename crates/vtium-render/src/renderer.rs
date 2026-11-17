@@ -597,15 +597,15 @@ pub(crate) trait Back {
     /// cells: until they do, no cell's ink reaches another.
     fn reaching(&self, compose: &Composer) -> bool;
 
-    /// How far the glyph for `text` in `style`, `width` cells wide, reaches
-    /// past its cells, from the glyphs it draws from.
+    /// How far piece `piece` of the glyph for `text` in `style`, `width`
+    /// cells wide, reaches past its cells, from the glyphs it draws from.
+    /// A doubled piece is one cell of a glyph on a line of double size.
     fn reach<F: Face>(
         &mut self,
         compose: &mut Composer,
         font: &Font<F>,
-        text: &[char],
-        width: FontWidth,
-        style: Variant,
+        key: (&[char], FontWidth, Variant),
+        piece: double::Piece,
     ) -> Reach;
 
     /// Whether it draws the ink a cell receives from its neighbours' glyphs,
@@ -669,11 +669,16 @@ impl<T: Target> Back for Cpu<'_, T> {
         &mut self,
         compose: &mut Composer,
         font: &Font<F>,
-        text: &[char],
-        width: FontWidth,
-        style: Variant,
+        (text, width, style): (&[char], FontWidth, Variant),
+        piece: double::Piece,
     ) -> Reach {
-        compose.cache.reach(font, text, width, style)
+        match piece.is_whole() {
+            true => compose.cache.reach(font, text, width, style),
+            false => compose
+                .cache
+                .get_piece(font, (text, width, style), piece)
+                .map_or(Reach::NONE, crate::stored::Stored::reach),
+        }
     }
 
     const RECEIVES: bool = true;
@@ -1605,9 +1610,9 @@ impl<F: Face> Renderer<F> {
     /// Stamps every cell of each row whose size changed since the last
     /// frame, so each buffer draws the row again whole, and forgets the
     /// reach of its cells, which stamps the neighbours their ink reached.
-    /// A row of double size keeps no reach: its glyphs' ink stays in their
-    /// cells. A frame whose rows keep their sizes does one comparison for
-    /// each row.
+    /// A row of double size keeps the reach of its display cells, which
+    /// the scan reads again once the size has changed. A frame whose rows
+    /// keep their sizes does one comparison for each row.
     fn resize_rows(&mut self, p: &Pass<'_, '_>) {
         let (cols, rows) = (p.g.cols, p.g.rows);
         self.sizes.resize(rows, LineSize::Single);
@@ -1681,9 +1686,15 @@ impl<F: Face> Renderer<F> {
         if let Some(s) = self.cells.get_mut(col, row) {
             changed |= s.replace_span(role) != role;
         }
+        // a row of double size keeps the reach of each display cell, by
+        // its display column, rather than of each of its cells
+        let doubled = match self.sizes.get(row) {
+            Some(&size) if size != LineSize::Single => Some(size),
+            _ => None,
+        };
         if ncells == 0 {
             // a trailing half sends no ink of its own
-            if reads {
+            if reads && doubled.is_none() {
                 self.reach_to(col, row, role, (changed, Reach::NONE));
             }
             return false;
@@ -1723,6 +1734,23 @@ impl<F: Face> Renderer<F> {
         changed |= s.replace_blink_off(off) != off;
         s.cursor = look;
         let held = p.held == Some((col, row));
+        if let Some(size) = doubled {
+            if changed {
+                self.cells.stamp(col, row);
+            }
+            if reads {
+                let piece = run.map_or(double::Piece::of(size, 0), |_| double::Piece::WHOLE);
+                self.reach_pieces(
+                    p,
+                    (col, row),
+                    fc,
+                    (ncells, piece),
+                    (held, ink_changed),
+                    back,
+                );
+            }
+            return true;
+        }
         let reread = reads && (s.reach_stale(held) || ink_changed);
         if changed {
             self.cells.stamp(col, row);
@@ -1731,16 +1759,70 @@ impl<F: Face> Renderer<F> {
             #[cfg(not(feature = "bidi"))]
             let reach = match run {
                 Some(_) => Reach::NONE,
-                None => self.cell_reach(fc, held, back),
+                None => self.cell_reach(fc, (held, double::Piece::WHOLE), back),
             };
             #[cfg(feature = "bidi")]
             let reach = match run {
                 Some(_) => Reach::NONE,
-                None => self.cell_reach(fc, (p, (col, row), ncells), held, back),
+                None => self.cell_reach(
+                    fc,
+                    (p, (col, row), ncells),
+                    (held, double::Piece::WHOLE),
+                    back,
+                ),
             };
             self.reach_to(col, row, role, (ink_changed, reach));
         }
         true
+    }
+
+    /// Records the reach of each display cell that the cell `fc` at `col`,
+    /// `row`, drawing over `ncells` cells, draws on a row of double size.
+    /// Each display cell draws one piece of the doubled glyph and keeps
+    /// that piece's reach by its display column, as a one-cell glyph
+    /// ([`double::piece_ink`] says which ink each piece keeps). A display
+    /// cell's reach is read again when the cell's ink changed, as
+    /// `ink_changed` says, or when the cursor came or went. `first` is the
+    /// cell's first piece, or the whole glyph for a cell of a sized run,
+    /// whose ink stays in its cell.
+    fn reach_pieces<B: Back>(
+        &mut self,
+        p: &Pass<'_, '_>,
+        (col, row): (usize, usize),
+        fc: &FrameCell<'_>,
+        (ncells, first): (usize, double::Piece),
+        (held, ink_changed): (bool, bool),
+        back: &mut B,
+    ) {
+        let Some(size) = self.sizes.get(row).copied() else {
+            return;
+        };
+        let cols = p.g.cols;
+        for column in 0..ncells.saturating_mul(2) {
+            let d = col.saturating_mul(2).saturating_add(column);
+            if d >= cols {
+                break;
+            }
+            let stale = self
+                .cells
+                .get_mut(d, row)
+                .is_some_and(|s| s.reach_stale(held));
+            if !stale && !ink_changed {
+                continue;
+            }
+            let reach = match first.is_whole() {
+                true => Reach::NONE,
+                false => {
+                    let piece = double::Piece::of(size, column);
+                    #[cfg(not(feature = "bidi"))]
+                    let reach = self.cell_reach(fc, (held, piece), back);
+                    #[cfg(feature = "bidi")]
+                    let reach = self.cell_reach(fc, (p, (col, row), ncells), (held, piece), back);
+                    reach
+                }
+            };
+            self.reach_to(d, row, 1, (ink_changed, reach));
+        }
     }
 
     /// Forgets every cell's reach and marks every cell changed, so the
@@ -1770,16 +1852,18 @@ impl<F: Face> Renderer<F> {
         }
     }
 
-    /// How far the ink of `fc`'s glyph reaches past its cells as drawn
-    /// (ADR-1302 D8, ADR-1306 D6): cut to the bound; nowhere for a letter
-    /// that blinks, one whose ink its own background hides, a concealed
-    /// one, or a cell that draws no text; and only up and down for the letter the visible
-    /// cursor stands on, `held`, whatever the cursor's blink phase.
+    /// How far the ink of piece `piece` of `fc`'s glyph reaches past its
+    /// cells as drawn (ADR-1302 D8, ADR-1306 D6): cut to the bound; nowhere
+    /// for a letter that blinks, one whose ink its own background hides, a
+    /// concealed one, or a cell that draws no text; and only up and down
+    /// for the letter the visible cursor stands on, `held`, whatever the
+    /// cursor's blink phase. The piece is the whole glyph on a line of the
+    /// normal size, and one display cell of it on a line of double size.
     fn cell_reach<B: Back>(
         &mut self,
         fc: &FrameCell<'_>,
         #[cfg(feature = "bidi")] (p, at, ncells): (&Pass<'_, '_>, (usize, usize), usize),
-        held: bool,
+        (held, piece): (bool, double::Piece),
         back: &mut B,
     ) -> Reach {
         let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
@@ -1805,17 +1889,17 @@ impl<F: Face> Renderer<F> {
                 return Reach::NONE;
             }
             let width = if ncells == 2 { FontWidth::Wide } else { width };
-            back.reach(compose, &self.font, &self.chars, width, style)
+            back.reach(compose, &self.font, (&self.chars, width, style), piece)
                 .within(self.bound)
         };
         #[cfg(not(feature = "bidi"))]
         let reach = match fc.glyph {
             Glyph::Empty => return Reach::NONE,
-            Glyph::Char(c) => back.reach(compose, &self.font, &[c], width, style),
+            Glyph::Char(c) => back.reach(compose, &self.font, (&[c], width, style), piece),
             Glyph::Cluster(t) => {
                 self.chars.clear();
                 self.chars.extend(t.chars());
-                back.reach(compose, &self.font, &self.chars, width, style)
+                back.reach(compose, &self.font, (&self.chars, width, style), piece)
             }
         }
         .within(self.bound);
@@ -1874,8 +1958,26 @@ impl<F: Face> Renderer<F> {
             count = count.saturating_add(self.push_block(p, row, (b.c0, b.c1)));
         }
         self.finish_row(p, row, back);
-        // and the rows above it, already drawn, top to bottom; a row of
-        // double size receives no ink, so it is not drawn again
+        count = count.saturating_add(self.draw_reached_above(p, row, &reached, back));
+        self.reached = reached;
+        count
+    }
+
+    /// Draws again the cells of the rows above `row`, already drawn, that
+    /// the blocks `reached` cover: the cells that ink from `row` reached
+    /// once the scan had passed them. The rows are drawn top to bottom. A
+    /// row of double size receives no ink, so it is not drawn again.
+    /// Returns how many cells it drew that were not drawn before on this
+    /// frame.
+    fn draw_reached_above<B: Back>(
+        &mut self,
+        p: &Pass<'_, '_>,
+        row: usize,
+        reached: &[crate::reach::Block],
+        back: &mut B,
+    ) -> u32 {
+        let meets = |b: &crate::reach::Block, r: usize| b.r0 <= int(r) && b.r1 >= int(r);
+        let mut count = 0u32;
         for above in row.saturating_sub(usize::from(self.bound.rows))..row {
             if self
                 .sizes
@@ -1899,7 +2001,6 @@ impl<F: Face> Renderer<F> {
                 self.finish_row(p, above, back);
             }
         }
-        self.reached = reached;
         count
     }
 
@@ -2069,10 +2170,16 @@ impl<F: Face> Renderer<F> {
     /// The cells' own stamps, the pointer's and the pictures' count in the
     /// grid's columns, which on this row are not the display's, so drawing
     /// the whole row gives every buffer what it lacks without mapping one
-    /// onto the other. Its glyphs keep their ink in their cells, so the
-    /// row sends no ink to its neighbours and receives none from them. Only
-    /// the cells whose left half lies in the grid draw; the rest of the
-    /// line lies past the grid's right edge.
+    /// onto the other. Only the cells whose left half lies in the grid
+    /// draw; the rest of the line lies past the grid's right edge.
+    ///
+    /// The row sends its glyphs' ink past the line into the rows above and
+    /// below, and receives none. Each display cell keeps the reach of the
+    /// piece it draws, by its display column ([`Renderer::reach_pieces`]),
+    /// so a row that receives the ink finds each piece as a one-cell glyph
+    /// ([`Renderer::sent_reach`]). A piece whose ink changed stamps the
+    /// cells its old and new reach cover, and the cells of the rows above,
+    /// already drawn, are drawn again once the row is drawn.
     fn draw_doubled_row<B: Back>(
         &mut self,
         p: &Pass<'_, '_>,
@@ -2082,6 +2189,11 @@ impl<F: Face> Renderer<F> {
         let g = &p.g;
         let mut doubled = core::mem::take(&mut self.doubled);
         doubled.clear();
+        self.reached.clear();
+        // the reaches are read only where received ink is drawn, and once
+        // the font has drawn a glyph whose ink passes its cells
+        let reads = B::RECEIVES && back.reaching(&self.compose);
+        self.reaches_kept &= reads;
         let mut before = None;
         let runs = !p.frame.sized_runs(row).is_empty();
         self.row_runs = runs;
@@ -2095,8 +2207,7 @@ impl<F: Face> Renderer<F> {
                 false => ncells,
             };
             before = Some(fc.width);
-            // the row keeps no reach, so the scan reads none
-            if self.scan_cell(p, (here, row), &fc, (ncells, false), back)
+            if self.scan_cell(p, (here, row), &fc, (ncells, reads), back)
                 && here.saturating_mul(2) < g.cols
             {
                 doubled.push((here, ncells));
@@ -2125,6 +2236,9 @@ impl<F: Face> Renderer<F> {
             back.row(&mut self.compose, &self.font, self.layout.strip(), row);
         }
         self.doubled = doubled;
+        let reached = core::mem::take(&mut self.reached);
+        count = count.saturating_add(self.draw_reached_above(p, row, &reached, back));
+        self.reached = reached;
         count
     }
 
@@ -2219,10 +2333,8 @@ impl<F: Face> Renderer<F> {
                 let k0 = a.saturating_sub(side.saturating_add(1));
                 let k1 = end.saturating_add(side).min(cols);
                 for k in k0..k1 {
-                    let Some(s) = self.cells.get(k, r) else {
-                        continue;
-                    };
-                    let (reach, span) = (s.reach(), usize::from(s.span()));
+                    let (reach, span) = self.sent_reach(k, r);
+                    let span = usize::from(span);
                     if reach.is_none() || span == 0 {
                         continue;
                     }
@@ -2283,18 +2395,50 @@ impl<F: Face> Renderer<F> {
         }
     }
 
+    /// The reach of the cell at `k`, `r` and how many cells the glyph it
+    /// counts from spans. On a row of double size, the cell is a display
+    /// cell that sends the ink of the one-cell piece it draws.
+    pub(crate) fn sent_reach(&self, k: usize, r: usize) -> (Reach, u8) {
+        let Some(s) = self.cells.get(k, r) else {
+            return (Reach::NONE, 0);
+        };
+        match self.sizes.get(r) {
+            Some(&size) if size != LineSize::Single => (s.reach(), 1),
+            _ => (s.reach(), s.span()),
+        }
+    }
+
+    /// The cell of row `r` that draws display cell `k` of a row of double
+    /// size `size`, and the piece of its glyph that the display cell
+    /// draws: the cell at column `k / 2`, or the wide character it is the
+    /// trailing half of.
+    fn doubled_source(&self, (k, r): (usize, usize), size: LineSize) -> (usize, double::Piece) {
+        let half = k / 2;
+        let lead = match self.cells.get(half, r).map(|s| s.span()) {
+            Some(0) => half.saturating_sub(1),
+            _ => half,
+        };
+        let column = k.saturating_sub(lead.saturating_mul(2));
+        (lead, double::Piece::of(size, column))
+    }
+
     /// The glyph of the cell at `k`, `r`, spanning `span` cells, as a source
     /// of ink for `job` (ADR-1306 D6): in `job`'s mark color when a block
     /// cursor or the selection marks `job`'s cell, as `marked` says; else, at 1 bit, the
     /// opposite of `job`'s background; else in its own foreground, as it
-    /// draws unselected.
+    /// draws unselected. On a row of double size, `k` is a display cell,
+    /// and the source is the one-cell piece of the doubled glyph it draws.
     fn source(
         &mut self,
         p: &Pass<'_, '_>,
         (job, marked): (&Job, bool),
         (k, r, span): (usize, usize, usize),
     ) -> Option<Source> {
-        let fc = p.cell(r, k)?;
+        let (lead, piece) = match self.sizes.get(r) {
+            Some(&size) if size != LineSize::Single => self.doubled_source((k, r), size),
+            _ => (k, double::Piece::WHOLE),
+        };
+        let fc = p.cell(r, lead)?;
         let own = if self.config.depth == Depth::One {
             mono::opposite(job.bg)
         } else if fc.selected {
@@ -2311,10 +2455,10 @@ impl<F: Face> Renderer<F> {
             Glyph::Cluster(t) => text.extend(t.chars()),
         }
         let style = crate::variant::of(fc.attrs);
-        let (width, cells) = if fc.width == Width::Wide {
-            (FontWidth::Wide, 2)
-        } else {
-            (FontWidth::Narrow, 1)
+        let (width, cells) = match (fc.width, piece.is_whole()) {
+            (Width::Wide, true) => (FontWidth::Wide, 2),
+            (Width::Wide, false) => (FontWidth::Wide, 1),
+            _ => (FontWidth::Narrow, 1),
         };
         let reach = self.cells.get(k, r)?.reach();
         let b = reach.block(k, r, span);
@@ -2339,6 +2483,7 @@ impl<F: Face> Renderer<F> {
             cell: (k, r),
             own,
             marked,
+            piece,
         })
     }
 

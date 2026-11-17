@@ -3755,8 +3755,10 @@ fn tall_set(bytes: Vec<u8>, whole: Cell) -> Result<SetFace, String> {
 /// of each codepoint of `want` and of each cluster its cluster map holds,
 /// drawn for a line of double height. Each glyph comes in at half its
 /// height ([`halved`]), so it is the glyph of the normal size at twice its
-/// width, as a line of double width shows it. Gives whether any glyph
-/// went in.
+/// width, as a line of double width shows it. A glyph whose ink passes its
+/// cells keeps its ink box, halved the same way ([`halved_ink`]), so its
+/// marks reach past the line as at the normal size. Gives whether any
+/// glyph went in.
 ///
 /// The engine draws an outline glyph for a line of double width by
 /// stretching its outline sideways before it rasterises it. It cannot do
@@ -3773,7 +3775,11 @@ fn halve_into(
         let pixels = halved(glyph)?;
         let color = glyph.format() == vtium_font::Format::Rgba;
         let target = if color { &mut *rgba } else { &mut *r8 };
-        Some((color, target.glyph(glyph.cells(), pixels)))
+        let at = target.glyph(glyph.cells(), pixels);
+        if let Some((place, size, ink)) = halved_ink(glyph) {
+            target.ink(at, place, size, ink);
+        }
+        Some((color, at))
     };
     let mut maps: Vec<(char, bool, u32)> = Vec::new();
     for ch in want.iter().filter_map(|&c| char::from_u32(c)) {
@@ -3824,6 +3830,48 @@ fn halved(glyph: &Glyph) -> Option<Vec<u8>> {
         );
     }
     Some(out)
+}
+
+/// An ink box's place, size and pixels, as [`halved_ink`] gives them.
+type HalvedInk = ((i32, i32), (u32, u32), Vec<u8>);
+
+/// The ink box of `glyph` at half its height, as [`halved`] makes its
+/// pixels: each pair of the glyph's rows made one row, counted from the
+/// glyph's top, so a box that starts on an odd row above the glyph takes
+/// a row of its own that holds that row's ink at half. Its place, its size
+/// and its pixels; `None` for a glyph with no ink box, one of an odd
+/// height, or a box that, halved, no longer passes the glyph's cells.
+fn halved_ink(glyph: &Glyph) -> Option<HalvedInk> {
+    let ink = glyph.ink()?;
+    let height = i64::from(glyph.height());
+    if !glyph.height().is_multiple_of(2) || ink.pixels().len() > SET_CHUNK_BYTES as usize {
+        return None;
+    }
+    let bpp = usize::try_from(glyph.format().bytes_per_pixel()).ok()?;
+    let row = usize::try_from(ink.width()).ok()?.checked_mul(bpp)?;
+    let (top, bottom) = (
+        i64::from(ink.top()),
+        i64::from(ink.top()) + i64::from(ink.height()),
+    );
+    let (first, end) = (top.div_euclid(2), (bottom + 1).div_euclid(2));
+    let line = |y: i64| -> Option<&[u8]> {
+        let at = usize::try_from(y - top).ok()?.checked_mul(row)?;
+        ink.pixels().get(at..at.checked_add(row)?)
+    };
+    let mut out = Vec::with_capacity(row * usize::try_from(end - first).ok()?);
+    for y in first..end {
+        let (upper, lower) = (line(2 * y), line(2 * y + 1));
+        for x in 0..row {
+            let byte = |l: Option<&[u8]>| u16::from(l.and_then(|l| l.get(x)).copied().unwrap_or(0));
+            out.push((byte(upper) + byte(lower)).div_ceil(2) as u8);
+        }
+    }
+    let past = first < 0 || end > height / 2 || ink.left() < 0 || ink.width() > glyph.width();
+    past.then_some((
+        (ink.left(), i32::try_from(first).ok()?),
+        (ink.width(), u32::try_from(end - first).ok()?),
+        out,
+    ))
 }
 
 /// A coverage query's answer ([`FRAME_COVERAGE`]): which of `letters` the
@@ -8517,6 +8565,25 @@ mod tests {
         assert_eq!(halved(&g), Some(vec![0, 255, 11, 20]));
         let odd = Glyph::from_pixels(1, 3, Format::Mask, vec![1, 2, 3]).unwrap();
         assert_eq!(halved(&odd), None);
+    }
+
+    // A glyph halved for a line of double width keeps its ink box, halved
+    // by the same pairs of rows from the glyph's top: a mark 1 row above
+    // the tall glyph pairs with an empty row, so it keeps a row of its own
+    // above the halved glyph at half its coverage
+    #[test]
+    fn halving_a_glyph_keeps_its_ink_box() {
+        let own = vec![255, 0, 0, 0, 0, 0, 0, 255];
+        let mut ink = vec![200, 200];
+        ink.extend(&own);
+        let g = Glyph::from_pixels(2, 4, Format::Mask, own)
+            .unwrap()
+            .with_ink((0, -1), (2, 5), ink)
+            .unwrap();
+        assert_eq!(
+            halved_ink(&g),
+            Some(((0, -1), (2, 3), vec![100, 100, 128, 0, 0, 128]))
+        );
     }
 
     #[test]
