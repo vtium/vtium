@@ -143,11 +143,20 @@ name = "vtium-parse"
 version = "0.1.0-alpha.9"
 
 [[package]]
+name = "vtium-render"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "vtium-font",
+ "vtium-term",
+]
+
+[[package]]
 name = "vtium-settings"
 version = "0.1.0-alpha.9"
 dependencies = [
  "rustix",
  "vtium-font",
+ "vtium-render",
  "vtium-term",
 ]
 
