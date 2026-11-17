@@ -12,11 +12,11 @@ vtium any.question.confirm	y	vtium fonts(frit)	install
 vtium any.question.confirm +pending	Ctrl-C	vtium flow(doc display) +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium fonts(marked) +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium looks +pending	
-vtium any.question.confirm +pending	Ctrl-C	vtium settings(value) +pending	
+vtium any.question.confirm +pending	Ctrl-C	vtium settings +pending	
 vtium any.question.confirm +pending	Esc	vtium flow(doc display) +pending	
 vtium any.question.confirm +pending	Esc	vtium fonts(marked) +pending	
 vtium any.question.confirm +pending	Esc	vtium looks +pending	
-vtium any.question.confirm +pending	Esc	vtium settings(value) +pending	
+vtium any.question.confirm +pending	Esc	vtium settings +pending	
 vtium any.question.confirm +pending	Shrink	vtium any.question.confirm below 80×25 +pending	
 vtium any.question.confirm +pending	y	vtium flow(doc display)	install
 vtium any.question.confirm +pending	y	vtium flow(doc display) +pending	restore
@@ -24,7 +24,7 @@ vtium any.question.confirm +pending	y	vtium flow(doc display) +pending	revert
 vtium any.question.confirm +pending	y	vtium flow(new empty) +pending	new
 vtium any.question.confirm +pending	y	vtium fonts(builtin)	install
 vtium any.question.confirm +pending	y	vtium looks	install
-vtium any.question.confirm +pending	y	vtium settings(value)	install
+vtium any.question.confirm +pending	y	vtium settings	install
 vtium any.question.confirm +unsaved	Ctrl-C	vtium flow(doc display) +unsaved	
 vtium any.question.confirm +unsaved	Esc	vtium flow(doc display) +unsaved	
 vtium any.question.confirm +unsaved	Shrink	vtium any.question.confirm below 80×25 +unsaved	
@@ -68,13 +68,13 @@ vtium any.question.leave +pending	Ctrl-C	vtium fonts(marked) +pending
 vtium any.question.leave +pending	Ctrl-C	vtium help(help) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium looks +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium looks.new-frit(row 6) +pending	
-vtium any.question.leave +pending	Ctrl-C	vtium settings(value) +pending	
+vtium any.question.leave +pending	Ctrl-C	vtium settings +pending	
 vtium any.question.leave +pending	Esc	vtium flow(doc display) +pending	
 vtium any.question.leave +pending	Esc	vtium fonts(marked) +pending	
 vtium any.question.leave +pending	Esc	vtium help(help) +pending	
 vtium any.question.leave +pending	Esc	vtium looks +pending	
 vtium any.question.leave +pending	Esc	vtium looks.new-frit(row 6) +pending	
-vtium any.question.leave +pending	Esc	vtium settings(value) +pending	
+vtium any.question.leave +pending	Esc	vtium settings +pending	
 vtium any.question.leave +pending	Shrink	vtium any.question.leave below 80×25 +pending	
 vtium any.question.leave +pending	n	vtium left	exit 0
 vtium any.question.leave +pending	n	vtium left	mouse off, exit 0
@@ -85,13 +85,13 @@ vtium any.question.leave +unsaved +pending	Ctrl-C	vtium fonts(marked) +unsaved +
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium help(help) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks.new-frit(row 6) +unsaved +pending	
-vtium any.question.leave +unsaved +pending	Ctrl-C	vtium settings(value) +unsaved +pending	
+vtium any.question.leave +unsaved +pending	Ctrl-C	vtium settings +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium flow(doc display) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium fonts(marked) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium help(help) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium looks +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium looks.new-frit(row 6) +unsaved +pending	
-vtium any.question.leave +unsaved +pending	Esc	vtium settings(value) +unsaved +pending	
+vtium any.question.leave +unsaved +pending	Esc	vtium settings +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Shrink	vtium any.question.leave below 80×25 +unsaved +pending	
 vtium any.question.leave +unsaved +pending	n	vtium left	save, exit 0
 vtium any.question.leave +unsaved +pending	n	vtium left	save, mouse off, exit 0
@@ -100,7 +100,7 @@ vtium any.question.leave +unsaved +pending	y	vtium fonts(marked) +pending	save, 
 vtium any.question.leave +unsaved +pending	y	vtium help(help) +pending	save, prepare
 vtium any.question.leave +unsaved +pending	y	vtium looks +pending	save, prepare
 vtium any.question.leave +unsaved +pending	y	vtium looks.new-frit(row 6) +pending	save, prepare
-vtium any.question.leave +unsaved +pending	y	vtium settings(value) +pending	save, prepare
+vtium any.question.leave +unsaved +pending	y	vtium settings +pending	save, prepare
 vtium any.question.leave below 80×25 +pending	Ctrl-C	vtium any.too-small +pending	
 vtium any.question.leave below 80×25 +pending	Esc	vtium any.too-small +pending	
 vtium any.question.leave below 80×25 +pending	Grow	vtium any.question.leave +pending	
@@ -116,13 +116,13 @@ vtium any.question.quit +unsaved	Ctrl-C	vtium fonts(builtin) +unsaved
 vtium any.question.quit +unsaved	Ctrl-C	vtium help(help) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium looks +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium looks.new-frit(row 6) +unsaved	
-vtium any.question.quit +unsaved	Ctrl-C	vtium settings(value) +unsaved	
+vtium any.question.quit +unsaved	Ctrl-C	vtium settings +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium flow(doc display) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium fonts(builtin) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium help(help) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium looks +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium looks.new-frit(row 6) +unsaved	
-vtium any.question.quit +unsaved	Esc	vtium settings(value) +unsaved	
+vtium any.question.quit +unsaved	Esc	vtium settings +unsaved	
 vtium any.question.quit +unsaved	Shrink	vtium any.question.quit below 80×25 +unsaved	
 vtium any.question.quit +unsaved	n	vtium left	exit 0
 vtium any.question.quit +unsaved	n	vtium left	mouse off, exit 0
@@ -2224,7 +2224,7 @@ vtium fonts(builtin)	Home	vtium fonts(refused)
 vtium fonts(builtin)	PgUp	vtium fonts(refused)	
 vtium fonts(builtin)	Shift-Tab	vtium looks	
 vtium fonts(builtin)	Shrink	vtium any.too-small	
-vtium fonts(builtin)	Tab	vtium settings(value)	
+vtium fonts(builtin)	Tab	vtium settings	
 vtium fonts(builtin)	Up	vtium fonts(frit)	
 vtium fonts(builtin)	i	vtium fonts(builtin)	prepare
 vtium fonts(builtin)	n	vtium looks.new-frit.typing(row 0)	
@@ -2235,7 +2235,7 @@ vtium fonts(builtin) +pending	Home	vtium fonts(refused) +pending
 vtium fonts(builtin) +pending	PgUp	vtium fonts(refused) +pending	
 vtium fonts(builtin) +pending	Shift-Tab	vtium looks +pending	
 vtium fonts(builtin) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(builtin) +pending	Tab	vtium settings(value) +pending	
+vtium fonts(builtin) +pending	Tab	vtium settings +pending	
 vtium fonts(builtin) +pending	Up	vtium fonts(marked) +pending	
 vtium fonts(builtin) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(builtin) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
@@ -2246,7 +2246,7 @@ vtium fonts(builtin) +unsaved	Home	vtium fonts(refused) +unsaved
 vtium fonts(builtin) +unsaved	PgUp	vtium fonts(refused) +unsaved	
 vtium fonts(builtin) +unsaved	Shift-Tab	vtium looks +unsaved	
 vtium fonts(builtin) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(builtin) +unsaved	Tab	vtium settings(value) +unsaved	
+vtium fonts(builtin) +unsaved	Tab	vtium settings +unsaved	
 vtium fonts(builtin) +unsaved	Up	vtium fonts(frit) +unsaved	
 vtium fonts(builtin) +unsaved	i	vtium fonts(builtin)	save, prepare
 vtium fonts(builtin) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
@@ -2257,7 +2257,7 @@ vtium fonts(builtin) +unsaved +pending	Home	vtium fonts(refused) +unsaved +pendi
 vtium fonts(builtin) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(builtin) +unsaved +pending	Tab	vtium settings(value) +unsaved +pending	
+vtium fonts(builtin) +unsaved +pending	Tab	vtium settings +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	Up	vtium fonts(marked) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium fonts(builtin) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
@@ -2271,7 +2271,7 @@ vtium fonts(frit)	PgDn	vtium fonts(builtin)
 vtium fonts(frit)	PgUp	vtium fonts(refused)	
 vtium fonts(frit)	Shift-Tab	vtium looks	
 vtium fonts(frit)	Shrink	vtium any.too-small	
-vtium fonts(frit)	Tab	vtium settings(value)	
+vtium fonts(frit)	Tab	vtium settings	
 vtium fonts(frit)	i	vtium fonts(frit)	prepare
 vtium fonts(frit)	n	vtium looks.new-frit.typing(row 0)	
 vtium fonts(frit)	q	vtium left	exit 0
@@ -2286,7 +2286,7 @@ vtium fonts(frit) +pending	PgDn	vtium fonts(builtin) +pending
 vtium fonts(frit) +pending	PgUp	vtium fonts(refused) +pending	
 vtium fonts(frit) +pending	Shift-Tab	vtium looks +pending	
 vtium fonts(frit) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(frit) +pending	Tab	vtium settings(value) +pending	
+vtium fonts(frit) +pending	Tab	vtium settings +pending	
 vtium fonts(frit) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(frit) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(frit) +pending	q	vtium any.question.leave +pending	
@@ -2300,7 +2300,7 @@ vtium fonts(frit) +unsaved	PgDn	vtium fonts(builtin) +unsaved
 vtium fonts(frit) +unsaved	PgUp	vtium fonts(refused) +unsaved	
 vtium fonts(frit) +unsaved	Shift-Tab	vtium looks +unsaved	
 vtium fonts(frit) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(frit) +unsaved	Tab	vtium settings(value) +unsaved	
+vtium fonts(frit) +unsaved	Tab	vtium settings +unsaved	
 vtium fonts(frit) +unsaved	i	vtium any.question.confirm	save, prepare
 vtium fonts(frit) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
 vtium fonts(frit) +unsaved	q	vtium any.question.quit +unsaved	
@@ -2314,7 +2314,7 @@ vtium fonts(frit) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pending
 vtium fonts(frit) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(frit) +unsaved +pending	Tab	vtium settings(value) +unsaved +pending	
+vtium fonts(frit) +unsaved +pending	Tab	vtium settings +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium fonts(frit) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
@@ -2328,7 +2328,7 @@ vtium fonts(marked) +pending	PgDn	vtium fonts(builtin) +pending
 vtium fonts(marked) +pending	PgUp	vtium fonts(refused) +pending	
 vtium fonts(marked) +pending	Shift-Tab	vtium looks +pending	
 vtium fonts(marked) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(marked) +pending	Tab	vtium settings(value) +pending	
+vtium fonts(marked) +pending	Tab	vtium settings +pending	
 vtium fonts(marked) +pending	Up	vtium fonts(frit) +pending	
 vtium fonts(marked) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(marked) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
@@ -2344,7 +2344,7 @@ vtium fonts(marked) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pendin
 vtium fonts(marked) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(marked) +unsaved +pending	Tab	vtium settings(value) +unsaved +pending	
+vtium fonts(marked) +unsaved +pending	Tab	vtium settings +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	Up	vtium fonts(frit) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	i	vtium fonts(marked) +pending	save, prepare
 vtium fonts(marked) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
@@ -2357,7 +2357,7 @@ vtium fonts(refused)	End	vtium fonts(builtin)
 vtium fonts(refused)	PgDn	vtium fonts(builtin)	
 vtium fonts(refused)	Shift-Tab	vtium looks	
 vtium fonts(refused)	Shrink	vtium any.too-small	
-vtium fonts(refused)	Tab	vtium settings(value)	
+vtium fonts(refused)	Tab	vtium settings	
 vtium fonts(refused)	i	vtium fonts(refused)	prepare
 vtium fonts(refused)	n	vtium looks.new-frit.typing(row 0)	
 vtium fonts(refused)	q	vtium left	exit 0
@@ -2368,7 +2368,7 @@ vtium fonts(refused) +pending	End	vtium fonts(builtin) +pending
 vtium fonts(refused) +pending	PgDn	vtium fonts(builtin) +pending	
 vtium fonts(refused) +pending	Shift-Tab	vtium looks +pending	
 vtium fonts(refused) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(refused) +pending	Tab	vtium settings(value) +pending	
+vtium fonts(refused) +pending	Tab	vtium settings +pending	
 vtium fonts(refused) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(refused) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(refused) +pending	q	vtium any.question.leave +pending	
@@ -2379,7 +2379,7 @@ vtium fonts(refused) +unsaved	End	vtium fonts(builtin) +unsaved
 vtium fonts(refused) +unsaved	PgDn	vtium fonts(builtin) +unsaved	
 vtium fonts(refused) +unsaved	Shift-Tab	vtium looks +unsaved	
 vtium fonts(refused) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(refused) +unsaved	Tab	vtium settings(value) +unsaved	
+vtium fonts(refused) +unsaved	Tab	vtium settings +unsaved	
 vtium fonts(refused) +unsaved	i	vtium fonts(refused)	save, prepare
 vtium fonts(refused) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
 vtium fonts(refused) +unsaved	q	vtium any.question.quit +unsaved	
@@ -2390,63 +2390,63 @@ vtium fonts(refused) +unsaved +pending	End	vtium fonts(builtin) +unsaved +pendin
 vtium fonts(refused) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(refused) +unsaved +pending	Tab	vtium settings(value) +unsaved +pending	
+vtium fonts(refused) +unsaved +pending	Tab	vtium settings +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	i	vtium fonts(refused) +pending	save, prepare
 vtium fonts(refused) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium help(about)	Ctrl-C	vtium left	exit 130
 vtium help(about)	Left	vtium help(help)	
 vtium help(about)	Right	vtium help(help)	
-vtium help(about)	Shift-Tab	vtium settings(value)	
+vtium help(about)	Shift-Tab	vtium settings	
 vtium help(about)	Shrink	vtium any.too-small	
 vtium help(about)	Tab	vtium flow(doc display)	mouse on
 vtium help(about)	q	vtium left	exit 0
 vtium help(about) +pending	Ctrl-C	vtium left	exit 130
 vtium help(about) +pending	Left	vtium help(help) +pending	
 vtium help(about) +pending	Right	vtium help(help) +pending	
-vtium help(about) +pending	Shift-Tab	vtium settings(value) +pending	
+vtium help(about) +pending	Shift-Tab	vtium settings +pending	
 vtium help(about) +pending	Shrink	vtium any.too-small +pending	
 vtium help(about) +pending	Tab	vtium flow(doc display) +pending	mouse on
 vtium help(about) +pending	q	vtium any.question.leave +pending	
 vtium help(about) +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium help(about) +unsaved	Left	vtium help(help) +unsaved	
 vtium help(about) +unsaved	Right	vtium help(help) +unsaved	
-vtium help(about) +unsaved	Shift-Tab	vtium settings(value) +unsaved	
+vtium help(about) +unsaved	Shift-Tab	vtium settings +unsaved	
 vtium help(about) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium help(about) +unsaved	Tab	vtium flow(doc display) +unsaved	mouse on
 vtium help(about) +unsaved	q	vtium any.question.quit +unsaved	
 vtium help(about) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium help(about) +unsaved +pending	Left	vtium help(help) +unsaved +pending	
 vtium help(about) +unsaved +pending	Right	vtium help(help) +unsaved +pending	
-vtium help(about) +unsaved +pending	Shift-Tab	vtium settings(value) +unsaved +pending	
+vtium help(about) +unsaved +pending	Shift-Tab	vtium settings +unsaved +pending	
 vtium help(about) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium help(about) +unsaved +pending	Tab	vtium flow(doc display) +unsaved +pending	mouse on
 vtium help(about) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium help(help)	Ctrl-C	vtium left	exit 130
 vtium help(help)	Left	vtium help(about)	
 vtium help(help)	Right	vtium help(about)	
-vtium help(help)	Shift-Tab	vtium settings(value)	
+vtium help(help)	Shift-Tab	vtium settings	
 vtium help(help)	Shrink	vtium any.too-small	
 vtium help(help)	Tab	vtium flow(doc display)	mouse on
 vtium help(help)	q	vtium left	exit 0
 vtium help(help) +pending	Ctrl-C	vtium left	exit 130
 vtium help(help) +pending	Left	vtium help(about) +pending	
 vtium help(help) +pending	Right	vtium help(about) +pending	
-vtium help(help) +pending	Shift-Tab	vtium settings(value) +pending	
+vtium help(help) +pending	Shift-Tab	vtium settings +pending	
 vtium help(help) +pending	Shrink	vtium any.too-small +pending	
 vtium help(help) +pending	Tab	vtium flow(doc display) +pending	mouse on
 vtium help(help) +pending	q	vtium any.question.leave +pending	
 vtium help(help) +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium help(help) +unsaved	Left	vtium help(about) +unsaved	
 vtium help(help) +unsaved	Right	vtium help(about) +unsaved	
-vtium help(help) +unsaved	Shift-Tab	vtium settings(value) +unsaved	
+vtium help(help) +unsaved	Shift-Tab	vtium settings +unsaved	
 vtium help(help) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium help(help) +unsaved	Tab	vtium flow(doc display) +unsaved	mouse on
 vtium help(help) +unsaved	q	vtium any.question.quit +unsaved	
 vtium help(help) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium help(help) +unsaved +pending	Left	vtium help(about) +unsaved +pending	
 vtium help(help) +unsaved +pending	Right	vtium help(about) +unsaved +pending	
-vtium help(help) +unsaved +pending	Shift-Tab	vtium settings(value) +unsaved +pending	
+vtium help(help) +unsaved +pending	Shift-Tab	vtium settings +unsaved +pending	
 vtium help(help) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium help(help) +unsaved +pending	Tab	vtium flow(doc display) +unsaved +pending	mouse on
 vtium help(help) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
@@ -2604,99 +2604,165 @@ vtium looks.new-frit.typing(row 5) +unsaved +pending	Ctrl-C	vtium left	save, exi
 vtium looks.new-frit.typing(row 5) +unsaved +pending	Enter	vtium looks.new-frit(row 6) +unsaved +pending	
 vtium looks.new-frit.typing(row 5) +unsaved +pending	Esc	vtium fonts(marked) +unsaved +pending	
 vtium looks.new-frit.typing(row 5) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium settings(choice)	Ctrl-C	vtium left	exit 130
-vtium settings(choice)	End	vtium settings(value)	
-vtium settings(choice)	Enter	vtium settings(choice) +unsaved	check
-vtium settings(choice)	Home	vtium settings(value)	
-vtium settings(choice)	PgDn	vtium settings(value)	
-vtium settings(choice)	PgUp	vtium settings(value)	
-vtium settings(choice)	Shift-Tab	vtium fonts(builtin)	
-vtium settings(choice)	Shrink	vtium any.too-small	
-vtium settings(choice)	Tab	vtium help(help)	
-vtium settings(choice)	i	vtium settings(choice)	prepare
-vtium settings(choice)	q	vtium left	exit 0
-vtium settings(choice) +pending	Ctrl-C	vtium left	exit 130
-vtium settings(choice) +pending	End	vtium settings(value) +pending	
-vtium settings(choice) +pending	Enter	vtium settings(choice) +unsaved +pending	check
-vtium settings(choice) +pending	Home	vtium settings(value) +pending	
-vtium settings(choice) +pending	PgDn	vtium settings(value) +pending	
-vtium settings(choice) +pending	PgUp	vtium settings(value) +pending	
-vtium settings(choice) +pending	Shift-Tab	vtium fonts(marked) +pending	
-vtium settings(choice) +pending	Shrink	vtium any.too-small +pending	
-vtium settings(choice) +pending	Tab	vtium help(help) +pending	
-vtium settings(choice) +pending	i	vtium any.question.confirm +pending	prepare
-vtium settings(choice) +pending	q	vtium any.question.leave +pending	
-vtium settings(choice) +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium settings(choice) +unsaved	End	vtium settings(value) +unsaved	
-vtium settings(choice) +unsaved	Enter	vtium settings(choice) +unsaved	check
-vtium settings(choice) +unsaved	Home	vtium settings(value) +unsaved	
-vtium settings(choice) +unsaved	PgDn	vtium settings(value) +unsaved	
-vtium settings(choice) +unsaved	PgUp	vtium settings(value) +unsaved	
-vtium settings(choice) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
-vtium settings(choice) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium settings(choice) +unsaved	Tab	vtium help(help) +unsaved	
-vtium settings(choice) +unsaved	i	vtium settings(choice)	save, prepare
-vtium settings(choice) +unsaved	q	vtium any.question.quit +unsaved	
-vtium settings(choice) +unsaved	s	vtium settings(choice)	save
-vtium settings(choice) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium settings(choice) +unsaved +pending	End	vtium settings(value) +unsaved +pending	
-vtium settings(choice) +unsaved +pending	Enter	vtium settings(choice) +unsaved +pending	check
-vtium settings(choice) +unsaved +pending	Home	vtium settings(value) +unsaved +pending	
-vtium settings(choice) +unsaved +pending	PgDn	vtium settings(value) +unsaved +pending	
-vtium settings(choice) +unsaved +pending	PgUp	vtium settings(value) +unsaved +pending	
-vtium settings(choice) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
-vtium settings(choice) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium settings(choice) +unsaved +pending	Tab	vtium help(help) +unsaved +pending	
-vtium settings(choice) +unsaved +pending	i	vtium settings(choice) +pending	save, prepare
-vtium settings(choice) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
-vtium settings(choice) +unsaved +pending	s	vtium settings(choice) +pending	save
-vtium settings(value)	Ctrl-C	vtium left	exit 130
-vtium settings(value)	Enter	vtium settings.section.typing	
-vtium settings(value)	PgDn	vtium settings(choice)	
-vtium settings(value)	Shift-Tab	vtium fonts(builtin)	
-vtium settings(value)	Shrink	vtium any.too-small	
-vtium settings(value)	Tab	vtium help(help)	
-vtium settings(value)	i	vtium settings(value)	prepare
-vtium settings(value)	q	vtium left	exit 0
-vtium settings(value) +pending	Ctrl-C	vtium left	exit 130
-vtium settings(value) +pending	Enter	vtium settings.section.typing +pending	
-vtium settings(value) +pending	PgDn	vtium settings(choice) +pending	
-vtium settings(value) +pending	Shift-Tab	vtium fonts(marked) +pending	
-vtium settings(value) +pending	Shrink	vtium any.too-small +pending	
-vtium settings(value) +pending	Tab	vtium help(help) +pending	
-vtium settings(value) +pending	i	vtium any.question.confirm +pending	prepare
-vtium settings(value) +pending	q	vtium any.question.leave +pending	
-vtium settings(value) +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium settings(value) +unsaved	Enter	vtium settings.section.typing +unsaved	
-vtium settings(value) +unsaved	PgDn	vtium settings(choice) +unsaved	
-vtium settings(value) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
-vtium settings(value) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium settings(value) +unsaved	Tab	vtium help(help) +unsaved	
-vtium settings(value) +unsaved	i	vtium settings(value)	save, prepare
-vtium settings(value) +unsaved	q	vtium any.question.quit +unsaved	
-vtium settings(value) +unsaved	s	vtium settings(value)	save
-vtium settings(value) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium settings(value) +unsaved +pending	Enter	vtium settings.section.typing +unsaved +pending	
-vtium settings(value) +unsaved +pending	PgDn	vtium settings(choice) +unsaved +pending	
-vtium settings(value) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
-vtium settings(value) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium settings(value) +unsaved +pending	Tab	vtium help(help) +unsaved +pending	
-vtium settings(value) +unsaved +pending	i	vtium settings(value) +pending	save, prepare
-vtium settings(value) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
-vtium settings(value) +unsaved +pending	s	vtium settings(value) +pending	save
+vtium settings	Ctrl-C	vtium left	exit 130
+vtium settings	Enter	vtium settings.section(value)	
+vtium settings	Shift-Tab	vtium fonts(builtin)	
+vtium settings	Shrink	vtium any.too-small	
+vtium settings	Tab	vtium help(help)	
+vtium settings	i	vtium settings	prepare
+vtium settings	q	vtium left	exit 0
+vtium settings +pending	Ctrl-C	vtium left	exit 130
+vtium settings +pending	Enter	vtium settings.section(value) +pending	
+vtium settings +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium settings +pending	Shrink	vtium any.too-small +pending	
+vtium settings +pending	Tab	vtium help(help) +pending	
+vtium settings +pending	i	vtium any.question.confirm +pending	prepare
+vtium settings +pending	q	vtium any.question.leave +pending	
+vtium settings +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium settings +unsaved	Enter	vtium settings.section(value) +unsaved	
+vtium settings +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium settings +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium settings +unsaved	Tab	vtium help(help) +unsaved	
+vtium settings +unsaved	i	vtium settings	save, prepare
+vtium settings +unsaved	q	vtium any.question.quit +unsaved	
+vtium settings +unsaved	s	vtium settings	save
+vtium settings +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium settings +unsaved +pending	Enter	vtium settings.section(value) +unsaved +pending	
+vtium settings +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium settings +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium settings +unsaved +pending	Tab	vtium help(help) +unsaved +pending	
+vtium settings +unsaved +pending	i	vtium settings +pending	save, prepare
+vtium settings +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium settings +unsaved +pending	s	vtium settings +pending	save
+vtium settings.section(choice)	Ctrl-C	vtium left	exit 130
+vtium settings.section(choice)	Enter	vtium settings.section.list	
+vtium settings.section(choice)	Esc	vtium settings	
+vtium settings.section(choice)	Home	vtium settings.section(value)	
+vtium settings.section(choice)	PgDn	vtium settings.section(switch)	
+vtium settings.section(choice)	PgUp	vtium settings.section(value)	
+vtium settings.section(choice)	Shrink	vtium any.too-small	
+vtium settings.section(choice)	q	vtium left	exit 0
+vtium settings.section(choice) +pending	Ctrl-C	vtium left	exit 130
+vtium settings.section(choice) +pending	Enter	vtium settings.section.list +pending	
+vtium settings.section(choice) +pending	Esc	vtium settings +pending	
+vtium settings.section(choice) +pending	Home	vtium settings.section(value) +pending	
+vtium settings.section(choice) +pending	PgDn	vtium settings.section(switch) +pending	
+vtium settings.section(choice) +pending	PgUp	vtium settings.section(value) +pending	
+vtium settings.section(choice) +pending	Shrink	vtium any.too-small +pending	
+vtium settings.section(choice) +pending	q	vtium any.question.leave +pending	
+vtium settings.section(choice) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium settings.section(choice) +unsaved	Enter	vtium settings.section.list +unsaved	
+vtium settings.section(choice) +unsaved	Esc	vtium settings +unsaved	
+vtium settings.section(choice) +unsaved	Home	vtium settings.section(value) +unsaved	
+vtium settings.section(choice) +unsaved	PgDn	vtium settings.section(switch) +unsaved	
+vtium settings.section(choice) +unsaved	PgUp	vtium settings.section(value) +unsaved	
+vtium settings.section(choice) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium settings.section(choice) +unsaved	q	vtium any.question.quit +unsaved	
+vtium settings.section(choice) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium settings.section(choice) +unsaved +pending	Enter	vtium settings.section.list +unsaved +pending	
+vtium settings.section(choice) +unsaved +pending	Esc	vtium settings +unsaved +pending	
+vtium settings.section(choice) +unsaved +pending	Home	vtium settings.section(value) +unsaved +pending	
+vtium settings.section(choice) +unsaved +pending	PgDn	vtium settings.section(switch) +unsaved +pending	
+vtium settings.section(choice) +unsaved +pending	PgUp	vtium settings.section(value) +unsaved +pending	
+vtium settings.section(choice) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium settings.section(choice) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium settings.section(switch)	Ctrl-C	vtium left	exit 130
+vtium settings.section(switch)	End	vtium settings.section(choice)	
+vtium settings.section(switch)	Enter	vtium settings.section.list	
+vtium settings.section(switch)	Esc	vtium settings	
+vtium settings.section(switch)	Home	vtium settings.section(value)	
+vtium settings.section(switch)	PgDn	vtium settings.section(choice)	
+vtium settings.section(switch)	PgUp	vtium settings.section(choice)	
+vtium settings.section(switch)	Shrink	vtium any.too-small	
+vtium settings.section(switch)	q	vtium left	exit 0
+vtium settings.section(switch) +pending	Ctrl-C	vtium left	exit 130
+vtium settings.section(switch) +pending	End	vtium settings.section(choice) +pending	
+vtium settings.section(switch) +pending	Enter	vtium settings.section.list +pending	
+vtium settings.section(switch) +pending	Esc	vtium settings +pending	
+vtium settings.section(switch) +pending	Home	vtium settings.section(value) +pending	
+vtium settings.section(switch) +pending	PgDn	vtium settings.section(choice) +pending	
+vtium settings.section(switch) +pending	PgUp	vtium settings.section(choice) +pending	
+vtium settings.section(switch) +pending	Shrink	vtium any.too-small +pending	
+vtium settings.section(switch) +pending	q	vtium any.question.leave +pending	
+vtium settings.section(switch) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium settings.section(switch) +unsaved	End	vtium settings.section(choice) +unsaved	
+vtium settings.section(switch) +unsaved	Enter	vtium settings.section.list +unsaved	
+vtium settings.section(switch) +unsaved	Esc	vtium settings +unsaved	
+vtium settings.section(switch) +unsaved	Home	vtium settings.section(value) +unsaved	
+vtium settings.section(switch) +unsaved	PgDn	vtium settings.section(choice) +unsaved	
+vtium settings.section(switch) +unsaved	PgUp	vtium settings.section(choice) +unsaved	
+vtium settings.section(switch) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium settings.section(switch) +unsaved	q	vtium any.question.quit +unsaved	
+vtium settings.section(switch) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium settings.section(switch) +unsaved +pending	End	vtium settings.section(choice) +unsaved +pending	
+vtium settings.section(switch) +unsaved +pending	Enter	vtium settings.section.list +unsaved +pending	
+vtium settings.section(switch) +unsaved +pending	Esc	vtium settings +unsaved +pending	
+vtium settings.section(switch) +unsaved +pending	Home	vtium settings.section(value) +unsaved +pending	
+vtium settings.section(switch) +unsaved +pending	PgDn	vtium settings.section(choice) +unsaved +pending	
+vtium settings.section(switch) +unsaved +pending	PgUp	vtium settings.section(choice) +unsaved +pending	
+vtium settings.section(switch) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium settings.section(switch) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium settings.section(value)	Ctrl-C	vtium left	exit 130
+vtium settings.section(value)	End	vtium settings.section(choice)	
+vtium settings.section(value)	Enter	vtium settings.section.typing	
+vtium settings.section(value)	Esc	vtium settings	
+vtium settings.section(value)	PgDn	vtium settings.section(choice)	
+vtium settings.section(value)	Shrink	vtium any.too-small	
+vtium settings.section(value)	q	vtium left	exit 0
+vtium settings.section(value) +pending	Ctrl-C	vtium left	exit 130
+vtium settings.section(value) +pending	End	vtium settings.section(choice) +pending	
+vtium settings.section(value) +pending	Enter	vtium settings.section.typing +pending	
+vtium settings.section(value) +pending	Esc	vtium settings +pending	
+vtium settings.section(value) +pending	PgDn	vtium settings.section(choice) +pending	
+vtium settings.section(value) +pending	Shrink	vtium any.too-small +pending	
+vtium settings.section(value) +pending	q	vtium any.question.leave +pending	
+vtium settings.section(value) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium settings.section(value) +unsaved	End	vtium settings.section(choice) +unsaved	
+vtium settings.section(value) +unsaved	Enter	vtium settings.section.typing +unsaved	
+vtium settings.section(value) +unsaved	Esc	vtium settings +unsaved	
+vtium settings.section(value) +unsaved	PgDn	vtium settings.section(choice) +unsaved	
+vtium settings.section(value) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium settings.section(value) +unsaved	q	vtium any.question.quit +unsaved	
+vtium settings.section(value) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium settings.section(value) +unsaved +pending	End	vtium settings.section(choice) +unsaved +pending	
+vtium settings.section(value) +unsaved +pending	Enter	vtium settings.section.typing +unsaved +pending	
+vtium settings.section(value) +unsaved +pending	Esc	vtium settings +unsaved +pending	
+vtium settings.section(value) +unsaved +pending	PgDn	vtium settings.section(choice) +unsaved +pending	
+vtium settings.section(value) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium settings.section(value) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium settings.section.list	Ctrl-C	vtium left	exit 130
+vtium settings.section.list	Enter	vtium settings.section(choice) +unsaved	check
+vtium settings.section.list	Esc	vtium settings.section(choice)	
+vtium settings.section.list	Shrink	vtium any.too-small	
+vtium settings.section.list	q	vtium left	exit 0
+vtium settings.section.list +pending	Ctrl-C	vtium left	exit 130
+vtium settings.section.list +pending	Enter	vtium settings.section(choice) +unsaved +pending	check
+vtium settings.section.list +pending	Esc	vtium settings.section(choice) +pending	
+vtium settings.section.list +pending	Shrink	vtium any.too-small +pending	
+vtium settings.section.list +pending	q	vtium any.question.leave +pending	
+vtium settings.section.list +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium settings.section.list +unsaved	Enter	vtium settings.section(choice) +unsaved	check
+vtium settings.section.list +unsaved	Esc	vtium settings.section(choice) +unsaved	
+vtium settings.section.list +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium settings.section.list +unsaved	q	vtium any.question.quit +unsaved	
+vtium settings.section.list +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium settings.section.list +unsaved +pending	Enter	vtium settings.section(choice) +unsaved +pending	check
+vtium settings.section.list +unsaved +pending	Esc	vtium settings.section(choice) +unsaved +pending	
+vtium settings.section.list +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium settings.section.list +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium settings.section.typing	Ctrl-C	vtium left	exit 130
-vtium settings.section.typing	Enter	vtium settings(value) +unsaved	check
-vtium settings.section.typing	Esc	vtium settings(value)	
+vtium settings.section.typing	Enter	vtium settings.section(value) +unsaved	check
+vtium settings.section.typing	Esc	vtium settings.section(value)	
 vtium settings.section.typing	Shrink	vtium any.too-small	
 vtium settings.section.typing +pending	Ctrl-C	vtium left	exit 130
-vtium settings.section.typing +pending	Enter	vtium settings(value) +unsaved +pending	check
-vtium settings.section.typing +pending	Esc	vtium settings(value) +pending	
+vtium settings.section.typing +pending	Enter	vtium settings.section(value) +unsaved +pending	check
+vtium settings.section.typing +pending	Esc	vtium settings.section(value) +pending	
 vtium settings.section.typing +pending	Shrink	vtium any.too-small +pending	
 vtium settings.section.typing +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium settings.section.typing +unsaved	Enter	vtium settings(value) +unsaved	check
-vtium settings.section.typing +unsaved	Esc	vtium settings(value) +unsaved	
+vtium settings.section.typing +unsaved	Enter	vtium settings.section(value) +unsaved	check
+vtium settings.section.typing +unsaved	Esc	vtium settings.section(value) +unsaved	
 vtium settings.section.typing +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium settings.section.typing +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium settings.section.typing +unsaved +pending	Enter	vtium settings(value) +unsaved +pending	check
-vtium settings.section.typing +unsaved +pending	Esc	vtium settings(value) +unsaved +pending	
+vtium settings.section.typing +unsaved +pending	Enter	vtium settings.section(value) +unsaved +pending	check
+vtium settings.section.typing +unsaved +pending	Esc	vtium settings.section(value) +unsaved +pending	
 vtium settings.section.typing +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
