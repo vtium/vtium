@@ -467,6 +467,10 @@ pub struct App {
     /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
     /// "Changes wait for Save").
     pub unsaved: usize,
+    /// The page of the key line that shows, counted from 0. It goes back
+    /// to the first page whenever the TUI moves to another node of the
+    /// interface tree.
+    pub key_page: usize,
 }
 
 /// A question the Flow view asks before it acts.
@@ -561,6 +565,7 @@ impl App {
             saving_tried: None,
             quit_after_install: None,
             unsaved: 0,
+            key_page: 0,
         };
         // the Flow view's highlight on its first box from the first frame,
         // and what reading the color file found on the message line
@@ -697,9 +702,15 @@ impl App {
 
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
+        let node = super::contract::node(self);
         let mut out = self.handle(event);
         out.extend(self.ask_picture());
         self.flow_settle();
+        // a key line shows its first page in each node the TUI moves to,
+        // where the keys a person uses most are
+        if super::contract::node(self) != node {
+            self.key_page = 0;
+        }
         out
     }
 
@@ -960,6 +971,15 @@ impl App {
             && let Key::Char(_) | Key::Backspace = key
         {
             return self.type_key(key);
+        }
+        // `.` shows the key line's next page, and the first after the
+        // last, where the keys do not fit on one row
+        if key == Key::Char('.')
+            && let Some(pages) = super::contract::key_pages(super::contract::node(self))
+            && pages.len() > 1
+        {
+            self.key_page = self.key_page.saturating_add(1) % pages.len();
+            return Vec::new();
         }
         match key {
             // `q` quits or asks from a view and from what is open over

@@ -1453,10 +1453,13 @@ fn key_line(view: model::View, keys: &[&[u8]]) -> String {
     reach_from(view, 80, 25, keys).0
 }
 
-/// The key line that the contract gives the node `id` of the interface
-/// tree.
+/// The first page of the key line that the contract gives the node `id`
+/// of the interface tree, the page the TUI shows when it comes to the node.
 fn keys_of(id: &str) -> &'static str {
-    vtium_config::tui::contract::key_line(id).unwrap_or_else(|| panic!("no key line for {id}"))
+    vtium_config::tui::contract::key_pages(id)
+        .and_then(|pages| pages.first())
+        .copied()
+        .unwrap_or_else(|| panic!("no key line for {id}"))
 }
 
 /// The key line at the foot of `screen`: as many of its last rows as the
@@ -1533,6 +1536,50 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
         let line = key_line(view, &arrows);
         assert_eq!(foot(&line, own(view)), own(view), "the arrows on {view:?}");
     }
+}
+
+/// The last row of `screen`, without its margin.
+fn last_row(screen: &str) -> &str {
+    screen.lines().last().unwrap_or_default().trim()
+}
+
+/// The key line is one row in pages: `.` steps through the Flow view's
+/// pages and back to the first, and every node the TUI moves to shows its
+/// first page, whatever page the node before showed.
+///
+/// References:
+/// - ADR-1403 D7, "The same keys in every view": the key line is one row
+///   that shows its keys in pages, and `.` shows the next page.
+#[test]
+fn the_key_line_shows_its_pages_on_period_and_its_first_page_in_each_node() {
+    use model::View::{Flow, Help};
+    let flow = vtium_config::tui::contract::key_pages("flow").expect("the Flow view's pages");
+    assert!(flow.len() > 1, "{flow:?}");
+    let mut keys: Vec<&[u8]> = Vec::new();
+    for page in flow.iter().chain(flow.first()) {
+        assert_eq!(
+            last_row(&key_line(Flow, &keys)),
+            *page,
+            "after {} presses",
+            keys.len()
+        );
+        keys.push(b".");
+    }
+    // the second page, then a move inside the view keeps it
+    assert_eq!(last_row(&key_line(Flow, &[b".", DOWN])), flow[1]);
+    // the next view and Help's own pages start at 1, and so does the
+    // Flow view's when the TUI comes back to it
+    assert_eq!(last_row(&key_line(Flow, &[b".", TAB])), words::KEYS_LOOKS);
+    assert_eq!(last_row(&key_line(Flow, &[b".", BACKTAB])), keys_of("help"));
+    assert_eq!(
+        last_row(&key_line(Flow, &[b".", BACKTAB, TAB])),
+        keys_of("flow")
+    );
+    // a key line of one page takes `.` as a key that does nothing
+    let looks = key_line(Flow, &[TAB]);
+    assert_eq!(key_line(Flow, &[TAB, b"."]), looks);
+    let help = vtium_config::tui::contract::key_pages("help").expect("Help's pages");
+    assert_eq!(last_row(&key_line(Help, &[b"."])), help[1]);
 }
 
 /// Tab leaves a question open on any view, and Esc answers it no.
@@ -3610,8 +3657,9 @@ mod draft_flow {
         let ran = run(&b, &[&CHANGE[..], &[b"s", b"r", TAB, ESC]].concat());
         assert!(ran.said().contains(words::NOT_DONE), "{}", ran.screen());
         assert!(ran.status().contains("4 changes"), "{}", ran.status());
+        // the Flow view's key line shows its first page, which ends in q
         let line = ran.screen().lines().last().unwrap_or_default().trim();
-        assert!(line.ends_with("q quit"), "{}", ran.screen());
+        assert!(line.ends_with("q quit  . more 1/5"), "{}", ran.screen());
     }
 
     #[test]
@@ -3722,10 +3770,22 @@ mod draft_flow {
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
         assert!(screen.contains("▸   9 display * -> desk"), "{screen}");
+        assert!(screen.contains("Esc back"), "{screen}");
+        assert!(screen.contains("q quit  . more 1/3"), "{screen}");
+        // the key line's third page names Save and Install
+        let ran = run(&b, &[b"\x1b[H", b"v", b".", b"."]);
+        let screen = ran.screen();
+        assert!(screen.contains("▸   9 display * -> desk"), "{screen}");
         assert!(screen.contains("s save"), "{screen}");
         assert!(screen.contains("i install"), "{screen}");
-        assert!(screen.contains("Esc back"), "{screen}");
-        assert!(screen.contains("q quit"), "{screen}");
+        assert!(screen.contains(". more 3/3"), "{screen}");
+        // the file view shows its first page from any page of the Flow
+        // view's, and Esc goes back to the Flow view's first page
+        let ran = run(&b, &[b".", b"v"]);
+        assert!(ran.screen().contains(words::PAGER_TITLE));
+        assert_eq!(last_row(ran.screen()), super::keys_of("flow.file"));
+        let ran = run(&b, &[b"v", b".", ESC]);
+        assert_eq!(last_row(ran.screen()), super::keys_of("flow"));
         // Esc goes back to the flow
         let ran = run(&b, &[b"v", b"j", b"G", b"\x04", ESC]);
         assert!(!ran.screen().contains(words::PAGER_TITLE));
@@ -3750,7 +3810,8 @@ mod draft_flow {
     #[test]
     fn the_file_view_saves_and_installs_and_stays_open() {
         let b = bench("file-view");
-        let ran = run_rows(&b, &[b"v"]);
+        // the key line's third page names Save and Install
+        let ran = run_rows(&b, &[b"v", b".", b"."]);
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
         assert!(screen.contains("s save"), "{screen}");

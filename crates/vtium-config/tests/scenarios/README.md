@@ -29,7 +29,8 @@ After every key, `checks.rs` checks the rules the records set:
 - When the TUI leaves a vtium console, the console draws the font it drew at the start.
 - A question that throws the draft away counts the changes that are not saved.
 - Every screen has as many rows as the terminal, and no row is wider than the terminal.
-- Outside the Flow view, the key line shows every key it lists.
+- The key line takes one row, and the screen shows every key it lists. Its items are labels that the contract gives the node the TUI is in: all of them on a key line of one page. A paged key line ends with its more item, such as `. more 2/5`, and shows its first page after a key that moves to another node.
+- `.` shows the next page of a paged key line, and the first page after the last. Pressed once for each page, it goes round every page, and the pages together show every label of the node. The first page shows the labels of the rows that the key table's `page` column puts there.
 - From every state, some key sequence leaves the TUI.
 
 After the walk, the test checks ADR-1201's views table, `docs/architecture/font/ADR-1201-views.tsv`. The table gives the tabs and their order, the view each one shows under, the actions each tab bar shows, and what each view writes into vtium.conf. A planned row is checked against its `now` column, which says what the TUI does today.

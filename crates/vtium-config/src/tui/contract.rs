@@ -10,8 +10,14 @@
 //! writes both again.
 //!
 //! A node's key line lists each of its supported rows that has a label,
-//! the keys that share a label as one item. The help lists the same rows,
-//! each with what it does. A node whose status is still planned gets no
+//! the keys that share a label as one item. The key line is one row: where
+//! the items do not fit on a row at 80 columns, it shows them in pages,
+//! and each page ends with the item of `.`, `. more 1/3`, which shows the
+//! next page. The first page holds the items of the rows that the key
+//! table's `page` column marks with `1`, and the later pages hold the
+//! other items in the key line's order, as many as fit on each. So the
+//! pages are the same at every width. The help lists the same rows, each
+//! with what it does. A node whose status is still planned gets no
 //! generated key line or help: the TUI keeps its hand-written words there
 //! until the work that builds the node moves it to supported. So the help
 //! names only what the code does, and the scenario test checks that the
@@ -21,6 +27,8 @@
 //! - ADR-1403 D7, "The contract": the tree and the key table are the
 //!   TUI's contract, and the Help tab, the key lines and the site's page
 //!   are generated from them.
+//! - ADR-1403 D7, "The same keys in every view": the key line is one row
+//!   that shows its keys in pages.
 
 use super::flowview::{Obj, Slot};
 use super::model::{App, Then, View};
@@ -34,9 +42,10 @@ pub struct Node {
     pub what: &'static str,
     /// The code has the node now.
     pub supported: bool,
-    /// The keys that act in the node and their labels, each item two
-    /// spaces from the next; empty for a planned node.
-    pub key_line: &'static str,
+    /// The pages of the node's key line: the keys that act in the node
+    /// and their labels, each item two spaces from the next. A key line
+    /// that fits on one row has one page; empty for a planned node.
+    pub key_pages: &'static [&'static str],
     /// Each key that acts in the node, as the key line names it, and what
     /// it does; empty for a planned node.
     pub help: &'static [(&'static str, &'static str)],
@@ -49,9 +58,14 @@ pub fn find(id: &str) -> Option<&'static Node> {
     NODES.iter().find(|n| n.id == id)
 }
 
-/// The generated key line of the node `id`, where the node is supported.
-pub fn key_line(id: &str) -> Option<&'static str> {
-    find(id).filter(|n| n.supported).map(|n| n.key_line)
+/// The columns a page of a key line may fill: an 80-column screen, the
+/// smallest the TUI draws, less a column of margin on each side.
+pub const PAGE_COLUMNS: usize = 78;
+
+/// The pages of the generated key line of the node `id`, where the node
+/// is supported.
+pub fn key_pages(id: &str) -> Option<&'static [&'static str]> {
+    find(id).filter(|n| n.supported).map(|n| n.key_pages)
 }
 
 /// The node of the interface tree that the TUI is in: `flow.card`,
@@ -196,18 +210,43 @@ mod generate {
         }
     }
 
-    /// One item of a key line: the keys that share a label, and the label.
+    /// One item of a key line: the keys that share a label, the label, and
+    /// whether a paged key line shows it on its first page.
     struct Item<'a> {
         place: (u8, usize),
         keys: Vec<&'a str>,
         label: &'a str,
+        first: bool,
     }
 
-    /// A node's key line and help, from its supported rows with a label,
-    /// both in the order a key line gives its keys.
-    fn lines<'a>(rows: &[&'a Row]) -> (String, Vec<(String, String)>) {
-        let mut items: Vec<Item<'a>> = Vec::new();
+    impl Item<'_> {
+        fn text(&self) -> String {
+            format!("{} {}", joined(&self.keys), self.label)
+        }
+    }
+
+    /// The columns of items two spaces apart.
+    fn width(items: &[String]) -> usize {
+        items
+            .iter()
+            .map(|i| i.chars().count())
+            .sum::<usize>()
+            .saturating_add(items.len().saturating_sub(1).saturating_mul(2))
+    }
+
+    /// A node's help: each key as a key line writes it, and what it does.
+    type Help = Vec<(String, String)>;
+
+    /// A node's key line in pages, and its help, from its supported rows
+    /// with a label. A key line that fits on one row of
+    /// [`super::PAGE_COLUMNS`] is one page. Otherwise the first page holds
+    /// the items marked for it, the later pages the other items in order,
+    /// as many as fit beside the more item, and every page ends with the
+    /// more item of the row for `.`. The help lists `.` only where it acts.
+    fn lines(id: &str, rows: &[&Row]) -> Result<(Vec<String>, Help), String> {
+        let mut items: Vec<Item<'_>> = Vec::new();
         let mut help = Vec::new();
+        let mut more = None;
         for (i, row) in rows.iter().enumerate() {
             let label = col(row, "label");
             if col(row, "status") != "supported" || label == "-" {
@@ -215,27 +254,93 @@ mod generate {
             }
             let keys = names(col(row, "key"));
             let place = (keys.iter().map(|k| place(k)).min().unwrap_or(2), i);
-            help.push((place, joined(&keys), col(row, "means").to_owned()));
+            let entry = (place, joined(&keys), col(row, "means").to_owned());
+            if keys == ["."] {
+                more = Some((label, entry));
+                continue;
+            }
+            help.push(entry);
+            let first = col(row, "page") == "1";
             match items.iter_mut().find(|item| item.label == label) {
                 Some(item) => {
                     item.place = item.place.min(place);
                     item.keys.extend(keys);
+                    item.first |= first;
                 }
-                None => items.push(Item { place, keys, label }),
+                None => items.push(Item {
+                    place,
+                    keys,
+                    label,
+                    first,
+                }),
             }
         }
         items.sort_by_key(|item| item.place);
+        let all: Vec<String> = items.iter().map(Item::text).collect();
+        let pages = match more {
+            Some((label, entry)) if width(&all) > super::PAGE_COLUMNS => {
+                help.push(entry);
+                pages(id, &items, label)?
+            }
+            _ => vec![all.join("  ")],
+        };
         help.sort_by_key(|(place, _, _)| *place);
         let help = help
             .into_iter()
             .map(|(_, keys, means)| (keys, means))
             .collect();
-        let line = items
-            .iter()
-            .map(|item| format!("{} {}", joined(&item.keys), item.label))
-            .collect::<Vec<_>>()
-            .join("  ");
-        (line, help)
+        Ok((pages, help))
+    }
+
+    /// The pages of a key line too wide for one row, each ending with the
+    /// more item `. more 1/3`, which the row of `.` labels `label`.
+    fn pages(id: &str, items: &[Item<'_>], label: &str) -> Result<Vec<String>, String> {
+        // the widest more item a key line of up to nine pages shows
+        let more = format!(". {label} 9/9").chars().count().saturating_add(2);
+        let mut pages: Vec<Vec<String>> = Vec::new();
+        let first: Vec<String> = items.iter().filter(|i| i.first).map(Item::text).collect();
+        // with no item marked for it, the first page fills like the others
+        let marked = !first.is_empty();
+        if marked {
+            pages.push(first);
+        }
+        let mut page: Vec<String> = Vec::new();
+        for item in items.iter().filter(|i| !(marked && i.first)) {
+            let mut wider = page.clone();
+            wider.push(item.text());
+            if !page.is_empty() && width(&wider).saturating_add(more) > super::PAGE_COLUMNS {
+                pages.push(std::mem::take(&mut page));
+                page.push(item.text());
+            } else {
+                page = wider;
+            }
+        }
+        if !page.is_empty() {
+            pages.push(page);
+        }
+        let count = pages.len();
+        if count > 9 {
+            return Err(format!(
+                "the key line of {id} needs {count} pages, and nine is the most"
+            ));
+        }
+        pages
+            .into_iter()
+            .enumerate()
+            .map(|(i, mut page)| {
+                page.push(format!(". {label} {}/{count}", i.saturating_add(1)));
+                let line = page.join("  ");
+                if line.chars().count() > super::PAGE_COLUMNS {
+                    Err(format!(
+                        "page {} of the key line of {id} is wider than {} columns: {line}",
+                        i.saturating_add(1),
+                        super::PAGE_COLUMNS
+                    ))
+                } else {
+                    Ok(line)
+                }
+            })
+            .collect()
     }
 
     /// The two tables, with each node's rows in the order its `keys`
@@ -295,17 +400,25 @@ mod generate {
         );
         for node in &c.tree {
             let supported = col(node, "status") == "supported";
-            let (line, help) = if supported {
-                lines(&c.rows_of(node)?)
+            let (pages, help) = if supported {
+                lines(col(node, "id"), &c.rows_of(node)?)?
             } else {
                 c.rows_of(node)?;
-                (String::new(), Vec::new())
+                (Vec::new(), Vec::new())
             };
             let _ = writeln!(out, "    Node {{");
             let _ = writeln!(out, "        id: {},", lit(col(node, "id")));
             let _ = writeln!(out, "        what: {},", lit(col(node, "node")));
             let _ = writeln!(out, "        supported: {supported},");
-            let _ = writeln!(out, "        key_line: {},", lit(&line));
+            if pages.is_empty() {
+                let _ = writeln!(out, "        key_pages: &[],");
+            } else {
+                let _ = writeln!(out, "        key_pages: &[");
+                for page in pages {
+                    let _ = writeln!(out, "            {},", lit(&page));
+                }
+                let _ = writeln!(out, "        ],");
+            }
             if help.is_empty() {
                 let _ = writeln!(out, "        help: &[],");
             } else {
@@ -498,14 +611,84 @@ mod generate {
                     x\t-\ta node\t-\t-\tq.x, esc.x, c.x, down.x, j.x, up.x, p.x, t.x, y.x\tsupported\t\t\n";
         let c = Contract::read(keys, tree)?;
         let node = c.tree.first().ok_or("no node")?;
-        let (line, help) = lines(&c.rows_of(node)?);
-        assert_eq!(line, "j ↑↓ move  y yes  Esc Ctrl-C back  q quit");
+        let (pages, help) = lines("x", &c.rows_of(node)?)?;
+        assert_eq!(pages, ["j ↑↓ move  y yes  Esc Ctrl-C back  q quit"]);
         assert_eq!(help.len(), 7);
         assert_eq!(
             help.first(),
             Some(&("↓".to_owned(), "Moves down.".to_owned()))
         );
         assert_eq!(help.last(), Some(&("q".to_owned(), "Quits.".to_owned())));
+        Ok(())
+    }
+
+    /// A key line too wide for one row shows its keys in pages: the
+    /// first page holds the keys whose `page` column is 1, the later
+    /// pages the other keys in order, as many as fit, and each page ends
+    /// with the more item. Where the keys fit on one row, the key line
+    /// has one page, with no more item, and the help leaves `.` out.
+    #[test]
+    fn a_key_line_too_wide_for_a_row_shows_pages() -> Result<(), String> {
+        let head = "id\tkey\tstate\tmeans\tstatus\tnote\tdecided\tissue\tlabel\tpage\n";
+        let mut keys = String::from(head);
+        keys.push_str("q.x\tq\tview\tQuits.\tsupported\t\t\t\tquit\t1\n");
+        keys.push_str("up.x\tUp\tview\tMoves.\tsupported\t\t\t\tmove\t1\n");
+        keys.push_str(".x\t.\tview\tShows the next page.\tsupported\t\t\t\tmore\t\n");
+        let mut ids = vec!["q.x", "up.x", ".x"];
+        let letters = ["a", "b", "c", "d", "e", "f"];
+        for l in letters {
+            keys.push_str(&format!(
+                "{l}.x\t{l}\tview\tDoes {l}.\tsupported\t\t\t\tdoes the letter {l}\t\n"
+            ));
+        }
+        let ids_wide: Vec<String> = letters.iter().map(|l| format!("{l}.x")).collect();
+        ids.extend(ids_wide.iter().map(String::as_str));
+        let tree = format!(
+            "id\tparent\tnode\treach\tleave\tkeys\tstatus\tissue\tnow\n\
+             wide\t-\ta node\t-\t-\t{}\tsupported\t\t\n\
+             narrow\t-\ta node\t-\t-\tq.x, up.x, .x, a.x\tsupported\t\t\n",
+            ids.join(", ")
+        );
+        let c = Contract::read(&keys, &tree)?;
+        let wide = c.tree.first().ok_or("no node")?;
+        let (pages, help) = lines("wide", &c.rows_of(wide)?)?;
+        assert_eq!(
+            pages,
+            [
+                "↑ move  q quit  . more 1/3",
+                "a does the letter a  b does the letter b  c does the letter c  . more 2/3",
+                "d does the letter d  e does the letter e  f does the letter f  . more 3/3",
+            ]
+        );
+        assert!(help.iter().any(|(k, _)| k == "."));
+        let narrow = c.tree.get(1).ok_or("no node")?;
+        let (pages, help) = lines("narrow", &c.rows_of(narrow)?)?;
+        assert_eq!(pages, ["↑ move  a does the letter a  q quit"]);
+        assert!(!help.iter().any(|(k, _)| k == "."));
+        Ok(())
+    }
+
+    /// A first page wider than a row is an error, not a key line that
+    /// runs off the screen.
+    #[test]
+    fn a_first_page_wider_than_a_row_is_refused() -> Result<(), String> {
+        let mut keys =
+            String::from("id\tkey\tstate\tmeans\tstatus\tnote\tdecided\tissue\tlabel\tpage\n");
+        keys.push_str(".x\t.\tview\tShows the next page.\tsupported\t\t\t\tmore\t\n");
+        let mut ids = vec![".x".to_owned()];
+        for l in ["a", "b", "c", "d"] {
+            keys.push_str(&format!(
+                "{l}.x\t{l}\tview\tDoes {l}.\tsupported\t\t\t\tdoes the letter {l} at length\t1\n"
+            ));
+            ids.push(format!("{l}.x"));
+        }
+        let tree = format!(
+            "id\tparent\tnode\treach\tleave\tkeys\tstatus\tissue\tnow\n\
+             x\t-\ta node\t-\t-\t{}\tsupported\t\t\n",
+            ids.join(", ")
+        );
+        let c = Contract::read(&keys, &tree)?;
+        assert!(text(&c).is_err_and(|e| e.contains("page 1 of the key line of x")));
         Ok(())
     }
 

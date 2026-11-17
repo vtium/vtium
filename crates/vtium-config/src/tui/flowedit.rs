@@ -422,8 +422,7 @@ impl App {
     /// page, and Esc back to the flow. `q` quits, as it does everywhere.
     pub(crate) fn pager_key(&mut self, key: Key) {
         let lines = self.draft.as_ref().map_or(0, |d| d.text.lines().count());
-        // the draft's lines run from row 4 to the row above the key line,
-        // which wraps onto as many rows as its keys need
+        // the draft's lines run from row 4 to the row above the key line
         let keys = super::view::key_rows(self).len();
         let room = self.rows.saturating_sub(4).saturating_sub(keys).max(1);
         let last = lines.saturating_sub(room);

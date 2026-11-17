@@ -688,25 +688,31 @@ fn planned_keys(app: &App) -> &'static str {
     }
 }
 
-/// Every key the key line lists for the state `app` is in, each key and
-/// what it does two spaces apart: the key line that the contract gives
-/// the node of the interface tree the TUI is in.
+/// The key line for the state `app` is in, each key and what it does two
+/// spaces apart: the page that shows of the key line that the contract
+/// gives the node of the interface tree the TUI is in.
 ///
 /// References:
 /// - ADR-1403 D7, "The contract": the key lines are generated from the
 ///   key table and the tree.
+/// - ADR-1403 D7, "The same keys in every view": the key line is one row
+///   that shows its keys in pages, and `.` shows the next page.
 pub fn key_line(app: &App) -> &'static str {
-    super::contract::key_line(super::contract::node(app)).unwrap_or_else(|| planned_keys(app))
+    match super::contract::key_pages(super::contract::node(app)) {
+        Some(pages) => pages
+            .get(app.key_page)
+            .or_else(|| pages.first())
+            .copied()
+            .unwrap_or_default(),
+        None => planned_keys(app),
+    }
 }
 
-/// The key line in rows of at most the screen's width less its margin,
-/// each key and what it does kept whole on one row. A key line that does
-/// not fit on one row wraps onto the next, and drops no key.
-///
-/// References:
-/// - ADR-1403 D7: every key line shows every key it lists, at 80×25 too.
+/// The rows the key line takes: one. Each page of a generated key line
+/// fits on a row of 80 columns, the smallest the TUI draws, and so do the
+/// hand-written key lines of the views whose nodes are still planned.
 pub fn key_rows(app: &App) -> Vec<String> {
-    item_rows(key_line(app), app.cols.saturating_sub(2).max(1))
+    vec![key_line(app).to_owned()]
 }
 
 /// Items two spaces apart, in rows of at most `width` columns, each item

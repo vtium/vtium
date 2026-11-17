@@ -861,7 +861,7 @@ vtium-config takes these colors by role from a file of the person's own, `$XDG_C
 
 #### The keys
 
-The key line shows only the keys that fit what the person is doing now (the maintainer, 2026-11-09). It is one row, and it shows the keys in pages (the maintainer, 2026-11-17). With nothing open, its first page reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  q quit  . more 1/3`. The later pages hold the other keys of the Flow view: Home, End, PgUp and PgDn, the actions, `v`, `o`, `d`, `t`, Esc, Tab, Shift-Tab and Ctrl-C (below).
+The key line shows only the keys that fit what the person is doing now (the maintainer, 2026-11-09). It is one row, and it shows the keys in pages (the maintainer, 2026-11-17). With nothing open, its first page reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  q quit  . more 1/5`. Its four later pages hold the other keys of the Flow view: Home, End, PgUp and PgDn, the actions, `v`, `o`, `d`, `t`, Esc, Tab, Shift-Tab and Ctrl-C (below).
 
 - **Moving.** The arrow keys move the highlight from box to box in reading order. Left and Right move along a line of boxes and on to the next line. Up and Down move to the box above or below that is nearest in column. Home and End go to the first and the last box. PgUp and PgDn scroll by a window. Tab moves to the next view of the TUI and Shift-Tab to the view before, wherever the highlight is, as in every other view (the maintainer, 2026-11-07). While a detail, a part maker, a picker, the file view or a question is open, Tab and Shift-Tab do nothing, and Esc closes it. Coming back to the Flow view keeps the box that was highlighted.
 - **Space** picks the highlighted part into NEW PATH, or takes it out.

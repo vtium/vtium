@@ -215,7 +215,7 @@ So after `vtium config install` or the TUI's Install writes `/etc/vtium/vtium.co
 
 ## The TUI
 
-`vtium config tui` opens the TUI, vtium-config's full-screen view of the configuration, in the terminal you run it in. It needs a terminal of at least 80×25 character cells. In a smaller terminal, it shows only the size it needs and the commands, which work at any size. The TUI has five views: Flow, Looks, Fonts, Settings, and Help. It opens on Flow, and Tab moves to the next view. The key line at the bottom of the screen lists every key that acts where you are, and wraps onto more rows rather than leave one out. The Help view says what each key does in each view. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists every screen of the TUI, how you open and leave it, and its keys.
+`vtium config tui` opens the TUI, vtium-config's full-screen view of the configuration, in the terminal you run it in. It needs a terminal of at least 80×25 character cells. In a smaller terminal, it shows only the size it needs and the commands, which work at any size. The TUI has five views: Flow, Looks, Fonts, Settings, and Help. It opens on Flow, and Tab moves to the next view. The key line at the bottom of the screen lists the keys that act where you are. When they do not fit on one row, the key line shows them in pages. The first page holds the keys you use most, and the line ends with the page number, as in `. more 1/5`. Press `.` (period) to see the next page. The Help view says what each key does in each view. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists every screen of the TUI, how you open and leave it, and its keys.
 
 ### The Flow view
 

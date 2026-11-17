@@ -1454,8 +1454,8 @@ mod tests {
         assert!(words::SWITCH_EVERY_VT.contains(&format!("line {}", words::VTS_LABEL)));
         assert!(words::SWITCH_EVERY_VT.contains("Press e"));
         assert!(
-            super::super::contract::key_line("flow.card")
-                .is_some_and(|line| line.contains("e revise this path"))
+            super::super::contract::key_pages("flow.card")
+                .is_some_and(|pages| pages.iter().any(|p| p.contains("e revise this path")))
         );
         assert!(words::SWITCH_EVERY_VT_NEW.contains(&format!("line {}", words::VTS_LABEL)));
         // each hint fits the three lines the card gives it at 80 columns

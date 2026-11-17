@@ -552,7 +552,7 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
     }
 }
 
-/// The key line on the last rows, wrapped so that it shows every key.
+/// The key line on the last row.
 fn key_line(canvas: &mut Canvas, app: &App) {
     let rows = super::view::key_rows(app);
     let top = app.rows.saturating_sub(rows.len());
