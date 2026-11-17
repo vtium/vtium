@@ -4,13 +4,15 @@
 //! the TUI after it and what the key caused.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use vtium_config::tui::flowdraw::{self, CardLine};
 use vtium_config::tui::flowview::Obj;
+use vtium_config::tui::input::Key;
 use vtium_config::tui::model::{Then, View};
 
 use super::explore::Step;
-use super::sim::{Sim, Term};
+use super::sim::{Press, Sim, Term};
 use super::state::{StateKind, view_name};
 use super::tables::{self, KeyRow, ViewRow};
 
@@ -89,6 +91,76 @@ impl Seen<'_> {
         }
         if !self.kept() || !self.quiet() {
             return Err("answering no changed something".into());
+        }
+        Ok(())
+    }
+
+    /// `.` shows the key line's next page, and the first page after the
+    /// last, and changes nothing else; where the keys fit on one row it
+    /// does nothing. Pressing `.` once for each page goes round every page
+    /// and back: the pages together show every label the node's supported
+    /// rows give, the first page shows the labels of the rows the key
+    /// table puts there, and the keys would not fit on one row.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The same keys in every view": the key line is one
+    ///   row, and `.` shows its next page.
+    fn next_page(&self) -> Result<(), String> {
+        let line = |sim: &Sim| vtium_config::tui::view::key_line(&sim.app).to_owned();
+        let before = line(self.before);
+        let Some((at, pages)) = page_of(&before) else {
+            return self.nothing();
+        };
+        if !self.idle() || !self.kept() {
+            return Err("`.` did more than show the next page".into());
+        }
+        let next = if at == pages { 1 } else { at.saturating_add(1) };
+        let after = line(self.after);
+        if page_of(&after) != Some((next, pages)) {
+            return Err(format!("`.` on page {at} of {pages} shows {after:?}"));
+        }
+        let (want, first) = node_labels(&self.step.from.node());
+        let mut sim = self.before.clone();
+        let mut shown: Vec<&str> = Vec::new();
+        let mut items: Vec<String> = Vec::new();
+        for _ in 0..pages {
+            let now = line(&sim);
+            let (page, _) =
+                page_of(&now).ok_or_else(|| format!("a page without its more item: {now:?}"))?;
+            let mut got = labels_of(&now, &want)?;
+            if page == 1 && !first.is_empty() {
+                got.sort_unstable();
+                if got != first {
+                    return Err(format!(
+                        "the first page shows {got:?}, and the key table puts {first:?} there"
+                    ));
+                }
+            }
+            shown.extend(got);
+            items.extend(
+                now.split("  ")
+                    .filter(|i| !i.starts_with(". "))
+                    .map(str::to_owned),
+            );
+            sim.press(Press::Key(Key::Char('.')));
+        }
+        if line(&sim) != before {
+            return Err(format!(
+                "{pages} presses of `.` do not come back to {before:?}"
+            ));
+        }
+        shown.sort_unstable();
+        shown.dedup();
+        if shown != want {
+            return Err(format!(
+                "the pages show the labels {shown:?}, and the contract gives {want:?}"
+            ));
+        }
+        let width = items.join("  ").chars().count();
+        if width <= KEY_LINE_COLUMNS {
+            return Err(format!(
+                "the keys fit on one row of {width} columns, and the key line still has pages"
+            ));
         }
         Ok(())
     }
@@ -249,9 +321,8 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("q.trial", (back, no_today));
     m.insert("q.too-small", (quit, no_today));
     m.insert("esc.view", (nothing, no_today));
-    // today `.` does nothing, and the key line wraps instead of paging
     for id in ["period.view", "period.layer"] {
-        m.insert(id, (nothing, Some(nothing)));
+        m.insert(id, (|s| s.next_page(), Some(nothing)));
     }
     m.insert(
         "esc.view.flow",
@@ -934,16 +1005,21 @@ impl Checks {
     }
 
     /// The key line the TUI shows after the key holds what the contract
-    /// gives the node the TUI is in, and nothing else: one item for each
-    /// label of the node's supported rows that the key line shows, and no
-    /// item without such a label. A node that is still planned keeps its
-    /// hand-written key line until its work lands, and the screen below
-    /// 80×25 shows a sentence about its keys instead of a key line, so
-    /// neither is checked.
+    /// gives the node the TUI is in, and nothing else: each item is one
+    /// label of the node's supported rows that the key line shows. A key
+    /// line with one page shows every such label. A paged key line ends
+    /// with its more item, `. more 2/3`, and shows its first page after a
+    /// key that moves to another node; the row check of `.` checks that
+    /// its pages together show every label. A node that is still planned
+    /// keeps its hand-written key line until its work lands, and the
+    /// screen below 80×25 shows a sentence about its keys instead of a key
+    /// line, so neither is checked.
     ///
     /// References:
     /// - ADR-1403 D7, "The contract": the key lines are generated from the
     ///   key table and the tree, and the row `help.generated` tracks them.
+    /// - ADR-1403 D7, "The same keys in every view": the key line is one
+    ///   row that shows its keys in pages.
     fn contract_key_line(&self, s: &Seen<'_>) -> Result<(), String> {
         if s.after.exited.is_some() || !self.supported("help.generated") {
             return Ok(());
@@ -955,36 +1031,25 @@ impl Checks {
         if node.status != "supported" || node_id == "any.too-small" {
             return Ok(());
         }
-        let mut want: Vec<&str> = self
-            .rows
-            .iter()
-            .filter(|r| node.keys.contains(&r.id) && r.status == "supported" && r.label != "-")
-            .map(|r| r.label.as_str())
-            .collect();
-        want.sort_unstable();
-        want.dedup();
+        let (want, _) = node_labels(&node_id);
         let line = vtium_config::tui::view::key_line(&s.after.app);
-        let mut got = Vec::new();
-        for item in line.split("  ").filter(|i| !i.is_empty()) {
-            // the longest label that ends the item after its keys, so that
-            // `save and quit` is not read as `quit`
-            let label = want
-                .iter()
-                .filter(|l| {
-                    item.strip_suffix(**l)
-                        .is_some_and(|keys| keys.ends_with(' ') && !keys.trim().is_empty())
-                })
-                .max_by_key(|l| l.len())
-                .ok_or_else(|| format!("{node_id}: the key line shows {item:?}, which no supported row of the node labels"))?;
-            got.push(*label);
-        }
+        let mut got = labels_of(line, &want).map_err(|e| format!("{node_id}: {e}"))?;
         got.sort_unstable();
-        if got != want {
-            return Err(format!(
+        got.dedup();
+        match page_of(line) {
+            None if got != want => Err(format!(
                 "{node_id}: the key line shows the labels {got:?}, and the contract gives {want:?}"
-            ));
+            )),
+            None => Ok(()),
+            Some((at, pages)) if at == 0 || at > pages => Err(format!(
+                "{node_id}: the key line shows page {at} of {pages}"
+            )),
+            Some((at, _)) if at != 1 && s.step.from.node() != node_id => Err(format!(
+                "{node_id}: the key line shows page {at} after a key that came from {}",
+                s.step.from.node()
+            )),
+            Some(_) => Ok(()),
         }
-        Ok(())
     }
 
     /// The invariants after every key.
@@ -1027,6 +1092,11 @@ impl Checks {
                 let small = vtium_config::tui::view::too_small(app) && app.confirm.is_none();
                 if !small && let Some(key) = line.split("  ").find(|k| !shown.contains(k)) {
                     return Err(format!("the key line leaves out {key:?}"));
+                }
+                // the key line is one row, once the key-line rows say so
+                let rows = vtium_config::tui::view::key_rows(app).len();
+                if !small && self.supported("key-line.any") && rows != 1 {
+                    return Err(format!("the key line takes {rows} rows"));
                 }
             }
         } else {
@@ -1324,4 +1394,75 @@ fn generic(row: &KeyRow) -> Option<(Check, Option<Check>)> {
         stays
     };
     Some((means, None))
+}
+
+/// The columns a key line fills at the minimum size: 80 less a column of
+/// margin on each side.
+const KEY_LINE_COLUMNS: usize = 78;
+
+/// A key line's more item, `. more 2/3`, as the page it shows and the
+/// number of pages; `None` for a key line with one page.
+fn page_of(line: &str) -> Option<(usize, usize)> {
+    let last = line.rsplit("  ").next()?;
+    let (at, pages) = last.strip_prefix(". more ")?.split_once('/')?;
+    Some((at.parse().ok()?, pages.parse().ok()?))
+}
+
+/// The labels a key line shows, each item read as its keys and the
+/// longest label of `labels` that ends it, so that `save and quit` is not
+/// read as `quit`. The more item is left out.
+fn labels_of<'a>(line: &str, labels: &[&'a str]) -> Result<Vec<&'a str>, String> {
+    line.split("  ")
+        .filter(|i| !i.is_empty() && !i.starts_with(". more "))
+        .map(|item| {
+            labels
+                .iter()
+                .filter(|l| {
+                    item.strip_suffix(**l)
+                        .is_some_and(|keys| keys.ends_with(' ') && !keys.trim().is_empty())
+                })
+                .max_by_key(|l| l.len())
+                .copied()
+                .ok_or_else(|| {
+                    format!(
+                        "the key line shows {item:?}, which no supported row of the node labels"
+                    )
+                })
+        })
+        .collect()
+}
+
+/// The two tables, read once for the checks that need them outside a
+/// [`Checks`].
+fn tables() -> &'static (Vec<KeyRow>, Vec<tables::TreeNode>) {
+    static TABLES: OnceLock<(Vec<KeyRow>, Vec<tables::TreeNode>)> = OnceLock::new();
+    TABLES.get_or_init(|| (tables::keys(), tables::tree()))
+}
+
+/// The labels a key line shows in the node `id`: every label of the
+/// node's supported rows but `.`'s, sorted, and those of the rows the key
+/// table puts on a paged key line's first page.
+fn node_labels(id: &str) -> (Vec<&'static str>, Vec<&'static str>) {
+    let (rows, tree) = tables();
+    let Some(node) = tree.iter().find(|n| n.id == id) else {
+        return (Vec::new(), Vec::new());
+    };
+    let shown = || {
+        rows.iter().filter(|r| {
+            node.keys.contains(&r.id)
+                && r.status == "supported"
+                && r.label != "-"
+                && r.keys != ["."]
+        })
+    };
+    let mut all: Vec<&str> = shown().map(|r| r.label.as_str()).collect();
+    let mut first: Vec<&str> = shown()
+        .filter(|r| r.first_page)
+        .map(|r| r.label.as_str())
+        .collect();
+    for labels in [&mut all, &mut first] {
+        labels.sort_unstable();
+        labels.dedup();
+    }
+    (all, first)
 }

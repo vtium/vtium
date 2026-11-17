@@ -44,6 +44,8 @@ pub struct KeyRow {
     /// The short name a key line shows for the key, or `-` where the key
     /// line leaves the key out.
     pub label: String,
+    /// A paged key line shows the key on its first page.
+    pub first_page: bool,
 }
 
 /// The alphabet's names for one of the table's names of keys: a mouse
@@ -102,6 +104,7 @@ pub fn keys() -> Vec<KeyRow> {
                 key_line,
                 status: col("status"),
                 label: col("label"),
+                first_page: col("page") == "1",
             }
         })
         .collect()
