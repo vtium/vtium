@@ -75,7 +75,7 @@ Every decoder lives here. The console reads only the helper's glyphs and its own
 | `tests/harfbuzz/` | HarfBuzz's shaping tests of syllabic scripts on subsets of Noto fonts, copied from HarfRust, which judge the shaper in `src/shaping/harfbuzz.rs`. Its README says where they come from, and `differs.tsv` lists the 9 cases that the helper cannot draw as HarfBuzz does, with each reason. |
 | `gen-shaping/` | The generator of `src/shaping/data.rs` from the Unicode Character Database. It is a workspace of its own, run by hand. |
 | `fuzz/` | The fuzz targets, in a workspace of their own (`fuzz/README.md`). `shape` drives clusters through the shaper and the rasteriser. `bdf` drives any bytes through the BDF reader. `serve` drives any bytes through the glyph helper's request parser. |
-| `frits/` | The frits vtium ships. `minspec-16` and `minspec-8` are minspec's curated symbols and emoji over the built-in fonts. `proof` is vtium/vtium#23's desktop frit. `tiny5` is an example of the smallest font: the pixel font Tiny5 Mono at its own 6×9 cell. It is never a default (vtium/vtium#217). |
+| `frits/` | The catalog of font sets vtium ships, in six category folders (console, classic, code, nerd, scripts and small), with the layers they share in `layers/` (ADR-1204 D3, D5, D9). |
 
 `cargo test -p vtium-config` runs every test.
 

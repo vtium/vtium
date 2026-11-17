@@ -49,7 +49,7 @@ use std::path::{Path, PathBuf};
 
 use vtium_font::set::builtin;
 
-use crate::frit::{Frit, RESERVED, valid_name};
+use crate::frit::{Frit, RESERVED};
 use model::{DpiFrom, Font, FontState, Inputs};
 
 /// The most bytes the TUI reads of vtium.conf.
@@ -119,8 +119,9 @@ pub fn read_conf(path: &Path) -> Result<Option<String>, String> {
         .map_err(|_| format!("{} is not UTF-8 text", path.display()))
 }
 
-/// The frits in `dir` and the built-in fonts, sorted by name, each with
-/// its state. A frit is read as text, as the console reads it.
+/// The frits in `dir` and in its category folders, and the built-in fonts,
+/// sorted by name, each with its state. A frit is read as text with the
+/// layers it names, as the console reads it.
 pub fn fonts(dir: &Path) -> Vec<Font> {
     let mut out: Vec<Font> = RESERVED
         .iter()
@@ -130,57 +131,31 @@ pub fn fonts(dir: &Path) -> Vec<Font> {
             state: FontState::BuiltIn,
         })
         .collect();
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Some(name) = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|n| n.strip_suffix(".vtfrit"))
-            else {
-                continue;
-            };
-            if !valid_name(name) || RESERVED.contains(&name) {
-                continue;
-            }
-            if !std::fs::metadata(&path).is_ok_and(|m| m.is_file()) {
-                continue;
-            }
-            let state = match Frit::load(&path) {
-                Ok(_) => FontState::Reads,
-                Err(e) if e.line == 0 => FontState::Refused(e.why.clone()),
-                Err(e) => FontState::Refused(format!("line {}: {}", e.line, e.why)),
-            };
-            out.push(Font {
-                name: name.to_owned(),
-                state,
-            });
+    let layers = dir.join(vtium_font::set::layer::DIR);
+    for (name, path) in crate::switch::frit_files(dir) {
+        if RESERVED.contains(&name.as_str()) {
+            continue;
         }
+        let state = match Frit::load_in(&path, &layers) {
+            Ok(_) => FontState::Reads,
+            Err(e) if e.line == 0 => FontState::Refused(e.why.clone()),
+            Err(e) => FontState::Refused(format!("line {}: {}", e.line, e.why)),
+        };
+        out.push(Font { name, state });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out
 }
 
-/// Each frit installed in `dir`, by its name: its bytes, which a new frit
-/// of that name replaces and a removal removes. A file past the frit's
-/// bound, or not a regular file, is left out, as [`fonts`] leaves it.
+/// Each frit installed in `dir` or in its category folders, by its name:
+/// its bytes, which a new frit of that name replaces and a removal
+/// removes. A file past the frit's bound, or not a regular file, is left
+/// out, as [`fonts`] leaves it.
 pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     use std::io::Read;
     let mut out = std::collections::BTreeMap::new();
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return out;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Some(name) = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .and_then(|n| n.strip_suffix(".vtfrit"))
-            .filter(|n| valid_name(n) && !RESERVED.contains(n))
-        else {
-            continue;
-        };
-        if !std::fs::metadata(&path).is_ok_and(|m| m.is_file()) {
+    for (name, path) in crate::switch::frit_files(dir) {
+        if RESERVED.contains(&name.as_str()) {
             continue;
         }
         let mut bytes = Vec::new();
@@ -188,7 +163,7 @@ pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
         let read = std::fs::File::open(&path)
             .and_then(|f| f.take(max.saturating_add(1)).read_to_end(&mut bytes));
         if read.is_ok() && bytes.len() <= crate::frit::FRIT_BYTES_MAX {
-            out.insert(name.to_owned(), bytes);
+            out.insert(name, bytes);
         }
     }
     out
@@ -260,8 +235,11 @@ pub fn frit_text(frits: &Path, font: &str) -> Result<crate::serve::FritText, Str
             text: format!("source=builtin:{font}\n"),
         });
     }
-    let path = frits.join(format!("{font}.vtfrit"));
-    let text = Frit::load(&path).map_err(|e| e.to_string())?.text;
+    let path = crate::switch::frit_file(frits, font)
+        .ok_or_else(|| format!("there is no font set {font}"))?;
+    let text = Frit::load_in(&path, &frits.join(vtium_font::set::layer::DIR))
+        .map_err(|e| e.to_string())?
+        .text;
     Ok(crate::serve::FritText {
         name: font.to_owned(),
         text,

@@ -255,18 +255,38 @@ impl Console {
     }
 }
 
-/// A configuration directory and a frits directory with the shipped frits.
+/// The catalog's sets that the fixture installs: the vtium package's
+/// default sets other than terminus, whose names sort around the built-in
+/// fonts so that the arrow keys reach them in a known order.
+const FIXTURE_SETS: &[&str] = &["jetbrains-mono", "tiny5", "unifont-icons", "unscii-icons"];
+
+/// A configuration directory and a frits directory with [`FIXTURE_SETS`]
+/// from the shipped catalog, each at the top of the frits directory, and
+/// the catalog's layers in its `layers/` folder.
 fn fixture(name: &str) -> (PathBuf, PathBuf) {
     let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("tui-pty")
         .join(name);
     let _ = std::fs::remove_dir_all(&root);
     let fonts = root.join("fonts");
-    std::fs::create_dir_all(&fonts).expect("the fixture");
+    let layers = fonts.join("layers");
+    std::fs::create_dir_all(&layers).expect("the fixture");
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("frits");
-    for entry in std::fs::read_dir(shipped).expect("the shipped frits") {
+    let sets: Vec<_> = vtium_config::switch::frit_files(&shipped)
+        .into_iter()
+        .filter(|(name, _)| FIXTURE_SETS.contains(&name.as_str()))
+        .collect();
+    assert_eq!(
+        sets.len(),
+        FIXTURE_SETS.len(),
+        "the catalog holds {FIXTURE_SETS:?}"
+    );
+    for (name, path) in sets {
+        std::fs::copy(&path, fonts.join(format!("{name}.vtfrit"))).expect("a copy");
+    }
+    for entry in std::fs::read_dir(shipped.join("layers")).expect("the shipped layers") {
         let path = entry.expect("an entry").path();
-        std::fs::copy(&path, fonts.join(path.file_name().expect("a name"))).expect("a copy");
+        std::fs::copy(&path, layers.join(path.file_name().expect("a name"))).expect("a copy");
     }
     std::fs::write(root.join("vtium.conf"), "font-name=unifont\n").expect("vtium.conf");
     (root, fonts)
@@ -299,12 +319,12 @@ fn tui(slave: &File, root: &Path, fonts: &Path) -> Child {
 }
 
 const TAKES: &[&str] = &[
-    "minspec-16",
-    "minspec-8",
-    "proof",
+    "jetbrains-mono",
     "tiny5",
     "unifont",
+    "unifont-icons",
     "unscii-8",
+    "unscii-icons",
 ];
 const UP: &[u8] = b"\x1b[A";
 
@@ -472,12 +492,12 @@ fn the_screen_fits_80x25_and_100x30() {
             lines[0].contains(" Fonts ")
                 && lines[1].contains(vtium_config::tui::words::TRIAL_KEY)
                 && [
-                    "minspec-16",
-                    "minspec-8",
-                    "proof",
+                    "jetbrains-mono",
                     "tiny5",
                     "unifont",
+                    "unifont-icons",
                     "unscii-8",
+                    "unscii-icons",
                 ]
                 .iter()
                 .all(|name| s.screen.contains(name))
@@ -578,7 +598,7 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
     c.key(UP);
     c.key(UP);
     c.key(b"t");
-    c.until("drew proof", |s| s.font == "proof");
+    c.until("drew jetbrains-mono", |s| s.font == "jetbrains-mono");
     c.key(b"k");
     c.key(b"\r");
     c.key(b"i");
@@ -595,14 +615,14 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
     // saved font
     assert_eq!(
         std::fs::read_to_string(root.join("vtium.conf")).expect("vtium.conf"),
-        format!("font-frits={}\nfont-name=proof\n", fonts.display())
+        format!("font-frits={}\nfont-name=jetbrains-mono\n", fonts.display())
     );
     assert_eq!(
         std::fs::read_to_string(root.join("vtium.conf.bak")).expect("the old"),
         conf
     );
-    assert_eq!(c.font(), "proof");
-    assert_eq!(c.switches(), ["proof"]);
+    assert_eq!(c.font(), "jetbrains-mono");
+    assert_eq!(c.switches(), ["jetbrains-mono"]);
     // the TUI left its screen for the command and came back
     let written = String::from_utf8_lossy(&c.written()).into_owned();
     assert!(
@@ -870,10 +890,10 @@ fn the_udev_database_the_command_line_names_reaches_the_tui() {
 #[test]
 fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
     let (mut c, child, slave) = started("in-flight", Kind::Vtium { ops: true }, 80, 25);
-    // in one write: two Ups to proof, t to try it, and a key that puts
-    // unifont back, which waits for proof's reply
+    // in one write: two Ups to jetbrains-mono, t to try it, and a key
+    // that puts unifont back, which waits for jetbrains-mono's reply
     c.key(&[UP, UP, b"t", b"x"].concat());
-    c.until("drew proof and then unifont", |s| {
+    c.until("drew jetbrains-mono and then unifont", |s| {
         s.font == "unifont"
             && String::from_utf8_lossy(&s.written)
                 .matches("\x1b]50;unifont\x1b\\")
@@ -883,7 +903,7 @@ fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
-    assert_eq!(c.switches(), ["proof", "unifont"]);
+    assert_eq!(c.switches(), ["jetbrains-mono", "unifont"]);
     let per_read = c.seen.0.lock().expect("the lock").switches_per_read.clone();
     assert!(
         per_read.iter().all(|&n| n == 1),
