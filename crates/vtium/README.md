@@ -13,7 +13,7 @@ The rules are functions of what they are given, the time included. So their test
 
 | Path | What it is |
 |---|---|
-| `src/config/keys.rs` | The key table, every key and option with its type, default, bound, reader and source, re-exported from vtium-settings' `src/keys.rs`, which vtium-config shows and edits vtium.conf by too |
+| `src/config/keys.rs` | The key table, every key and option with its type, default, bound and description, re-exported from vtium-settings' `src/keys.rs`, which vtium-config shows and edits vtium.conf by too |
 | `src/config/` | Reading the top level of `vtium.conf` and the command line through the table, with the ownership check, and laying a head's sections over them |
 | `src/termcap.rs`, `src/termcap/table.rs` | The XTGETTCAP tables, generated from `install/xterm-vtium.ti` and `install/kmscon.ti`, and the name each answers under |
 | `src/start.rs` | What start-up takes from the configuration: the VT, the switch to it, the keymap, the key repeat and pointers |
