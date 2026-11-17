@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use super::keys::{
     Default, FRIT_CELL_MAX, FRIT_CELL_MIN, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY,
-    SCHEMES, SECTIONS, Scope, Section, TEXT_MAX,
+    SCHEMES, SECTIONS, Scope, Section, TEXT_MAX, notes,
 };
 use super::{FILE_MAX, LINE_MAX};
 
@@ -221,6 +221,12 @@ fn row(out: &mut String, k: &Key) {
     .chain((k.scope != Scope::Section).then_some("command line"))
     .collect();
     let set_in = set_in.join(", ");
+    // vtium-settings holds a note for every key, so a key without one is a
+    // fault in the key table, and the generated docs must not show it with
+    // empty cells.
+    #[expect(clippy::panic, reason = "only the docs' tests generate docs/config.md")]
+    let note = notes::of(k)
+        .unwrap_or_else(|| panic!("the key {} has no note in keys::notes::NOTES", k.name));
     let _ = writeln!(
         out,
         "| `{}` | {} | {} | {} | {} | {} | {set_in} | {} | {} |",
@@ -229,9 +235,9 @@ fn row(out: &mut String, k: &Key) {
         kind(k),
         default(k),
         bound(k),
-        k.reader,
+        note.reader,
         k.what_line(),
-        k.cite
+        note.cite
     );
 }
 
