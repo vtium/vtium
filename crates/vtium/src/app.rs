@@ -4563,6 +4563,18 @@ impl App {
             console.term.coalesce.turn_end();
             console.term.changed = false;
         }
+        // A synchronized update's end stops the terminal only until the
+        // displays take the finished frame. No display draws a hidden
+        // console, nor any console while the VT is not shown or the
+        // displays are blanked, so those take output again at once.
+        for head in &mut self.heads {
+            if !self.awake {
+                head.console.term.unshown = false;
+            }
+            for console in &mut head.hidden {
+                console.term.unshown = false;
+            }
+        }
         let flipping = self.heads.iter().any(|head| {
             head.views.iter().any(|((node, _), v)| {
                 v.away() || self.videos.get(node).is_some_and(|d| d.is_flipping(v.id))
@@ -5049,6 +5061,25 @@ impl App {
         if self.leaving == Some(Leaving::Done) || self.guard_due {
             return Some(Duration::ZERO);
         }
+        // The rest of a read waits in the pty while the terminal takes no
+        // output, as after a synchronized update's end. Once the turn has
+        // drawn and the terminal takes output again, the loop feeds it at
+        // once. calloop does not shorten its wait for the idle callback that
+        // feeds it, so the wait itself is zero. While the terminal still
+        // takes nothing, the loop waits for what it waits on, such as the
+        // display's flip, and does not spin.
+        //
+        // References:
+        // - ADR-1401 D2, the note of 2026-11-17: the loop wakes at once for
+        //   the rest of the read.
+        let owed = self
+            .heads
+            .iter()
+            .flat_map(Head::consoles)
+            .any(|c| c.term.takes_input() && c.pty.as_ref().is_some_and(Pty::feed_owed));
+        if owed {
+            return Some(Duration::ZERO);
+        }
         due.into_iter()
             .min()
             .map(|d| d.saturating_duration_since(now))
@@ -5270,6 +5301,10 @@ fn draw_head(
             }
         }
     }
+    // The output after a synchronized update's end goes on once every
+    // display has taken the finished frame. A display that waits for its
+    // flip takes the frame at the flip's end.
+    term.drawn(head.views.values());
 }
 
 /// Head `head`'s GPU path ended during the run, for `why`: it draws on the
@@ -8095,5 +8130,190 @@ mod tests {
         assert_eq!(hotplugs(&mut app, &card1), 1, "one scan for three hotplugs");
         assert_eq!(hotplugs(&mut app, &card0), 0);
         assert_eq!(released.get(), 0, "the VT stays");
+    }
+
+    // ADR-1401 D2: the pty's channel, read through calloop as `main` turns
+    // the loop, shows every frame of a stream of synchronized updates whose
+    // reads each hold the end of one update and the start of the next. The
+    // test writes each read to the session's pty and turns the loop until
+    // the frame composes. The loop then asks to wake at once, and its next
+    // turn parses the next update's start.
+    #[test]
+    fn the_pty_channel_shows_each_frame_of_back_to_back_updates() {
+        use std::io::Write;
+        let args: Vec<OsString> = ["--font-size=16", "--login", "--", "/bin/sh", "-c", "read x"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
+        let mut lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            vec![("PATH".into(), "/usr/bin:/bin".into())],
+        );
+        app.set_font_sources(no_fonts());
+        let node = PathBuf::from("/dev/mem0");
+        app.add_video(node.clone(), Box::new(Still::new(&[(1, "A")])));
+        shown(&mut app);
+        app.start();
+        // Turns the loop as `main` does, waiting at most 50 ms, until
+        // `done` holds, for at most 5 s.
+        fn turn_until(lp: &mut Loop<App>, app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
+            let end = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < end {
+                if done(app) {
+                    return true;
+                }
+                let wait = app
+                    .next_wake(Instant::now())
+                    .map_or(Duration::from_millis(50), |w| {
+                        w.min(Duration::from_millis(50))
+                    });
+                lp.dispatch(Some(wait), app).unwrap();
+                app.turn(Instant::now());
+            }
+            done(app)
+        }
+        assert!(
+            turn_until(&mut lp, &mut app, |app| app.pty().is_some()),
+            "the session starts"
+        );
+        assert!(
+            app.term_mut().unwrap().sync.enabled(),
+            "mode 2026 is offered"
+        );
+        let name = rustix::pty::ptsname(app.pty().unwrap().master(), Vec::new()).unwrap();
+        let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY;
+        let slave = rustix::fs::open(name.as_c_str(), flags, rustix::fs::Mode::empty()).unwrap();
+        let mut slave = std::fs::File::from(slave);
+        fn swaps(app: &mut App) -> u32 {
+            let node = Path::new("/dev/mem0");
+            let video = app.videos.get_mut(node).unwrap();
+            video.as_any().downcast_mut::<Still>().unwrap().swaps
+        }
+        let start = b"\x1b[?2026h\x1b[1;1H\x1b[2K";
+        slave.write_all(start).unwrap();
+        let mut written = start.len() as u64;
+        assert!(
+            turn_until(&mut lp, &mut app, |app| app.term_mut().unwrap().parsed
+                >= written),
+            "the first update begins"
+        );
+        assert!(turn_until(&mut lp, &mut app, |app| app
+            .heads
+            .iter()
+            .all(|h| h.frames_out() == 0)));
+        let first = swaps(&mut app);
+        for k in 0..60u32 {
+            let end = format!("\x1b[1;{}HX\x1b[?2026l", k % 4 + 1).into_bytes();
+            slave.write_all(&[end.as_slice(), start].concat()).unwrap();
+            let frame = written + end.len() as u64;
+            written = frame + start.len() as u64;
+            // The turns until the display takes the finished frame: the
+            // read is parsed up to the frame's end, and the rest waits.
+            assert!(
+                turn_until(&mut lp, &mut app, |app| {
+                    let term = app.term_mut().unwrap();
+                    term.parsed >= frame && !term.unshown
+                }),
+                "frame {k} is taken"
+            );
+            let term = app.term_mut().unwrap();
+            assert_eq!(
+                term.parsed, frame,
+                "frame {k}: the next update waits in the pty"
+            );
+            let row = app.screen_text().first().cloned().unwrap_or_default();
+            assert_eq!(
+                row.find('X'),
+                Some(k as usize % 4),
+                "frame {k} is the one taken"
+            );
+            assert_eq!(
+                app.next_wake(Instant::now()),
+                Some(Duration::ZERO),
+                "frame {k}: the loop wakes at once for the rest of the read"
+            );
+            lp.dispatch(Some(Duration::ZERO), &mut app).unwrap();
+            app.turn(Instant::now());
+            let term = app.term_mut().unwrap();
+            assert_eq!(term.parsed, written, "frame {k}: the next update begins");
+            assert!(
+                term.sync.holding(&term.terminal),
+                "frame {k}: its hold is in force"
+            );
+            assert!(
+                turn_until(&mut lp, &mut app, |app| swaps(app) == first + k + 1),
+                "frame {k} composes"
+            );
+        }
+        assert!(turn_until(&mut lp, &mut app, |app| app
+            .heads
+            .iter()
+            .all(|h| h.frames_out() == 0)));
+        assert_eq!(swaps(&mut app), first + 60, "one frame for each update");
+    }
+
+    // ADR-1401 D2: a synchronized update's end stops the terminal only
+    // until the displays take the finished frame. No display draws a hidden
+    // console, nor the shown one while the displays are off, so each takes
+    // output again at the end of the turn.
+    #[test]
+    fn a_console_no_display_draws_takes_output_after_an_update_ends() {
+        let heads = "version = 1\n[head one]\nconsoles = 2\n";
+        let (_lp, mut app) = seat(Some(heads), no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock,
+            ..
+        } = &mut app;
+        let head = heads.first_mut().unwrap();
+        head.open_wanted(|| {
+            crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
+        });
+        assert_eq!(head.console_count(), 2);
+        // An update ends in `term`, which offers mode 2026.
+        fn ended(term: &mut Term) {
+            term.terminal.set_sync_enabled(true);
+            term.sync =
+                crate::sync::Sync::new(Duration::from_millis(200), term.terminal.sync_frames());
+            let update = b"\x1b[?2026h\x1b[1;2Hx\x1b[?2026l";
+            assert_eq!(term.parse(update, &mut |_| {}), update.len());
+            assert!(!term.takes_input(), "the finished frame waits");
+        }
+        let hidden = |app: &mut App| {
+            let head = app.heads.first_mut().unwrap();
+            let shown = head.console.id;
+            head.consoles_mut()
+                .find(|c| c.id != shown)
+                .map(|c| c.term.takes_input())
+                .unwrap()
+        };
+        {
+            let head = app.heads.first_mut().unwrap();
+            let shown = head.console.id;
+            let console = head.consoles_mut().find(|c| c.id != shown).unwrap();
+            ended(&mut console.term);
+        }
+        app.turn(Instant::now());
+        assert!(hidden(&mut app), "a hidden console");
+        app.deactivate();
+        ended(app.term_mut().unwrap());
+        app.turn(Instant::now());
+        assert!(
+            app.term_mut().unwrap().takes_input(),
+            "the shown console while the displays are off"
+        );
     }
 }

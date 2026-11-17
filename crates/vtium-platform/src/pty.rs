@@ -378,6 +378,12 @@ impl Pty {
         Ok(())
     }
 
+    /// Whether the pty holds output its consumer left and owes it a feed,
+    /// which the loop's idle callback makes when the loop next wakes.
+    pub fn feed_owed(&self) -> bool {
+        self.channel.feed_owed()
+    }
+
     fn kick(&self, next: Next) {
         if let Some(link) = &self.link {
             link.kick(next);
