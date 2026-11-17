@@ -123,8 +123,9 @@ mod tests {
     }
 
     // A look's own vtlook wins over the top level's, and a head whose look
-    // names none takes the top level's.
+    // names none takes the top level's, through the heads a start makes.
     #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
     fn a_look_s_vtlook_wins_over_the_top_level_s() {
         let text = "vtlook = top\nversion = 1\n[look warm]\nvtlook = amber\n[look plain]\n[head a]\nlook = warm\n[head b]\nlook = plain\n";
         let path = std::path::Path::new("/etc/vtium/vtium.conf");
@@ -135,21 +136,19 @@ mod tests {
         let rules = vtium_settings::sections(text.as_bytes())
             .map(|s| s.parsed.config)
             .unwrap_or_default();
-        let under = |name: &str| {
-            let h = rules.head(name)?;
-            let mut settings: Vec<vtium_settings::Setting> = rules
-                .settings(h)
-                .into_iter()
-                .map(|(_, s)| s.clone())
-                .collect();
-            with_look_vtlook(&mut settings, rules.look(h));
-            top.for_head(path, &settings)
-                .0
-                .text(&keys::VTLOOK)
-                .map(str::to_owned)
-        };
-        assert_eq!(under("a").as_deref(), Some("amber"));
-        assert_eq!(under("b").as_deref(), Some("top"));
+        let clock: crate::term::Clock = std::rc::Rc::new(std::time::Instant::now);
+        let caps = crate::head::session::Caps { head: 4, total: 8 };
+        let heads = crate::head::session::heads(&rules, &top, ((100, 100), 1 << 20), caps, &clock);
+        let vtlooks: Vec<Option<String>> = heads
+            .iter()
+            .map(|h| {
+                top.for_head(path, &h.settings)
+                    .0
+                    .text(&keys::VTLOOK)
+                    .map(str::to_owned)
+            })
+            .collect();
+        assert_eq!(vtlooks, [Some("amber".to_owned()), Some("top".to_owned())]);
     }
 
     // A build without frame filters reads no vtlook and says so once.

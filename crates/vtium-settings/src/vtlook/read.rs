@@ -756,6 +756,15 @@ mod tests {
         );
     }
 
+    // One wrong filter fails the whole vtlook: the reader never keeps the
+    // filters that read cleanly and drops only the one at fault.
+    #[test]
+    fn one_wrong_filter_fails_the_whole_vtlook() {
+        let text = "version = 1\n[color tint]\n[color gamma]\ngamma = 9\n";
+        let read = read_text_with("half", &file("half"), text.as_bytes(), FILTERS);
+        assert_eq!(read.map_err(|e| e.len()), Err(1));
+    }
+
     #[test]
     fn a_number_takes_a_sign_and_at_most_four_digits_after_the_point() {
         for (text, n) in [
