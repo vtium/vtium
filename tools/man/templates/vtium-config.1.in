@@ -15,7 +15,7 @@ vtium reads `/etc/vtium/vtium.conf` only when it starts on a VT, so a change tha
 @COMMANDS@
 
 ## OPTIONS
-The options come before the command. Run as root, vtium-config refuses each option that names a path or a program, so that it reads and writes only `/etc/vtium` and its font set directory, and runs only the programs it was built with.
+The options come before the command. Run as root, vtium-config refuses each option that names a path or a program. As root, it reads and writes only `/etc/vtium` and its font set directory, and runs only the programs it was built with.
 
 @OPTIONS@
 

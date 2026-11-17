@@ -22,7 +22,7 @@ vtium \- a terminal for the Linux virtual console
 .br
 \fBvtium\fR \fBconsole\fR \fBfallback\fR \fIN\fR
 .SH DESCRIPTION
-vtium is a terminal that runs on a Linux virtual terminal (VT), one of the text screens you switch to with Ctrl+Alt and a function key. It takes the place of getty, the program that normally shows the login prompt there. vtium renders each frame itself through KMS/DRM, the kernel's graphics interface, so it shows modern fonts, color emoji, 24-bit color, and images.
+vtium is a terminal that runs on a Linux virtual terminal (VT), one of the text screens you switch to with Ctrl+Alt and a function key. vtium takes the place of getty, the program that normally shows the login prompt there. vtium renders each frame itself through KMS/DRM, the kernel's graphics interface, so it shows modern fonts, color emoji, 24-bit color, and images.
 .PP
 systemd starts vtium on a VT through one of its units, and vtium then runs a login prompt or another command in each console. \fBvtium console enable\fR chooses the VTs that vtium runs on. See UNITS below.
 .PP
@@ -89,7 +89,7 @@ fallback N is what vtium-getty@.service runs when vtium on VT N fails: it starts
 .SH UNITS
 .TP
 \fBvtium@.service\fR
-Runs vtium on a VT in direct mode, as \fBvtium@ttyN.service\fR. vtium opens the displays and the keyboards itself, as root. The unit is also \fBautovt@.service\fR, the unit that logind starts on a VT you switch to. It conflicts with \fBgetty@.service\fR on the same VT.
+Runs vtium on a VT in direct mode, as \fBvtium@ttyN.service\fR. vtium opens the displays and the keyboards itself, as root. The unit is also \fBautovt@.service\fR, the unit that logind starts on a VT you switch to. The unit conflicts with \fBgetty@.service\fR on the same VT.
 .TP
 \fBvtium\-seat@.service\fR
 Runs vtium on a VT in seat mode, where vtium takes the displays and the keyboards from logind through libseat. A build with libseat and logind ships this unit.
@@ -110,10 +110,10 @@ Set the kernel's console log level. vtium shows a kernel message on screen only 
 vtium starts two helper programs, each in a process of its own, so that it never parses a font file or an image itself.
 .TP
 \fBvtium\-config serve\fR
-The font helper. It reads the fonts that a font set names and renders their glyphs for the console. vtium starts it at the path that the \fBfont\-helper\fR setting names.
+The font helper, which reads the fonts that a font set names and renders their glyphs for the console. vtium starts it at the path that the \fBfont\-helper\fR setting names.
 .TP
 \fBvtium\-image\fR
-The image helper, in a build with image support. It decodes the images that programs send, in a sandbox, under an account of its own that its sysusers file creates. vtium starts it with the \fBimage\-helper\fR setting's path. Nobody runs it by hand.
+The image helper, in a build with image support. vtium-image decodes the images that programs send, in a sandbox, under an account of its own that its sysusers file creates. vtium starts it with the \fBimage\-helper\fR setting's path. Nobody runs it by hand.
 .PP
 Two programs run inside a vtium console. vtium-clipboard(1), also called \fBvticlip\fR, copies text to the console's clipboard. vtium-gallery(1), in a build with image support, shows pictures as thumbnails.
 .SH SIGNALS
@@ -132,7 +132,7 @@ Turns vtium's displays on again, as \fBvtium wake\fR does.
 vtium ended on \fBSIGTERM\fR or \fBSIGINT\fR, or a console's command exited while the \fBoneshot\fR setting is on. \fB\-\-help\fR and \fB\-\-version\fR exit 0 too.
 .TP
 1
-vtium could not run: its command line or \fBvtium.enable=0\fR stopped it, a console's command could not start or exited too quickly too many times, the VT hung up, or no display appeared within the time the \fBdisplay\-wait\fR setting gives.
+vtium stopped on an error. Its command line was wrong, or \fBvtium.enable=0\fR turned it off. A console's command could not start, or exited too quickly too many times. The VT hung up, or no display appeared within the time that the \fBdisplay\-wait\fR setting gives.
 .PP
 \fBvtium check\-config\fR exits 0, 1 or 6, as its section above says.
 .SH FILES

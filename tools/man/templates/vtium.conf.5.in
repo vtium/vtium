@@ -18,11 +18,11 @@ Without the file, vtium uses the defaults below and its built-in sections. `/etc
 ## FORMAT
 The file has two parts. Every line above the first section heading is the top level. The top level holds vtium's settings, which every screen uses unless its own section sets them, and the two keys of the sections, `version` and `policy`. The sections start at the first heading in brackets, such as `[look big]`.
 
-A top-level line holds one setting. It is `key=value`, or for a switch, `key` to turn it on and `no-key` to turn it off. A section's line is `key = value`. vtium drops the spaces and tabs around the key and the value.
+A top-level line holds one setting, written `key=value`, or for a switch, `key` to turn it on and `no-key` to turn it off. A section's line is `key = value`. vtium drops the spaces and tabs around the key and the value.
 
 A `#` starts a comment at the start of a line, or after a space or a tab. A `#` inside a word is part of the value, and so is a `#` that opens a `#rrggbb` color. `\#` after a space is a literal `#`.
 
-vtium reports a top-level key that it does not know, and a value that it cannot use. It clamps a number that is out of range. It ignores a value that it cannot read, and keeps the default. An error in a section never drops a top-level setting. vtium reads at most 65536 bytes of the file, and 8192 bytes of a line.
+vtium reports a top-level key that it does not know, and a value that it cannot use. vtium clamps a number that is out of range, and ignores a value that it cannot read, keeping the default. An error in a section never drops a top-level setting. vtium reads at most 65536 bytes of the file, and 8192 bytes of a line.
 
 Each top-level setting is also an option of vtium's command line, which wins over the file. On the command line, a setting is `--key=VALUE` or `--key VALUE`, and a switch is `--key` or `--no-key`.
 

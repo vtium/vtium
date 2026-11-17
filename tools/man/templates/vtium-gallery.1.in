@@ -7,17 +7,17 @@ vtium-gallery - show PNG pictures as thumbnails in a terminal that supports kitt
 ## DESCRIPTION
 @DESCRIPTION@
 
-A build of vtium with image support installs the program as `vtium-gallery`. It is a bash script, and it needs only bash and the usual base tools.
+A build of vtium with image support installs the program as `vtium-gallery`. The program is a bash script, and needs only bash and the usual base tools.
 
 ## OPTIONS
 @OPTIONS@
 
 ## EXIT STATUS
 = 0
-It showed the pictures, or printed its help.
+vtium-gallery showed the pictures, or printed its usage.
 
 = 1
-It found no PNG picture, or the terminal did not answer that it supports kitty graphics.
+vtium-gallery found no PNG picture, or the terminal did not answer that it supports kitty graphics.
 
 = 2
 The command line is wrong, or a file or directory it names does not exist.

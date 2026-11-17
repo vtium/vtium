@@ -8,7 +8,7 @@ vtium-gallery \- show PNG pictures as thumbnails in a terminal that supports kit
 .SH DESCRIPTION
 Shows PNG pictures as a grid of thumbnails, each with its file name under it, in a terminal that draws kitty graphics: kitty, WezTerm, Ghostty or vtium. A directory stands for the files in it, in name order, and no arguments means the current directory. The terminal scales each picture, so the tool sends PNG files as they are and skips any other file with a note.
 .PP
-A build of vtium with image support installs the program as \fBvtium\-gallery\fR. It is a bash script, and it needs only bash and the usual base tools.
+A build of vtium with image support installs the program as \fBvtium\-gallery\fR. The program is a bash script, and needs only bash and the usual base tools.
 .SH OPTIONS
 .TP
 \fB\-s\fR, \fB\-\-size\fR \fIN\fR
@@ -31,10 +31,10 @@ print the usage and exit
 .SH EXIT STATUS
 .TP
 0
-It showed the pictures, or printed its help.
+vtium-gallery showed the pictures, or printed its usage.
 .TP
 1
-It found no PNG picture, or the terminal did not answer that it supports kitty graphics.
+vtium-gallery found no PNG picture, or the terminal did not answer that it supports kitty graphics.
 .TP
 2
 The command line is wrong, or a file or directory it names does not exist.
