@@ -67,6 +67,9 @@ pub const ALPHABET: &[(&str, Press)] = &[
     ("Wheel down", Press::Mouse(Button::WheelDown, 3, 5)),
     ("Shrink", Press::Resize(79, 24)),
     ("Grow", Press::Resize(80, 25)),
+    // the key that shows a key line's next page, last, so that the
+    // walk reaches every other state by the same keys as without it
+    (".", Press::Key(Key::Char('.'))),
 ];
 
 /// The grids the explorer starts at: the minimum, and one column and one

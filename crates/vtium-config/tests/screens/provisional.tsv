@@ -1,1 +1,5 @@
 # The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
+settings-section-80x25	the Settings view with its first section, Fonts and text, open: the section's keys under the titles of their groups
+settings-section-100x30	the same at 100×30
+settings-values-80x25	the values of the first section's last key, cluster-width, open as the shared list over the section
+settings-values-100x30	the same at 100×30

@@ -21,6 +21,8 @@
 pub mod canvas;
 pub mod color;
 mod console;
+pub mod contract;
+mod contract_text;
 pub mod desk;
 pub mod edit;
 #[doc(hidden)]
@@ -32,10 +34,12 @@ mod flowedit;
 mod flowkeys;
 pub mod flowview;
 pub mod input;
+pub mod listbox;
 pub mod model;
 pub mod parts;
 pub mod paths;
 pub mod port;
+pub mod settings;
 pub mod shot;
 pub mod view;
 pub mod words;

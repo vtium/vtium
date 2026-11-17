@@ -215,7 +215,7 @@ So after `vtium config install` or the TUI's Install writes `/etc/vtium/vtium.co
 
 ## The TUI
 
-`vtium config tui` opens the TUI, vtium-config's full-screen view of the configuration, in the terminal you run it in. It needs a terminal of at least 80×25 character cells. In a smaller terminal, it shows only the size it needs and the commands. The commands work at any size. There, `q` quits, or first asks on one row when changes are not saved. The TUI has five views: Flow, Looks, Fonts, Settings, and Help. It opens on Flow. Tab moves to the next view and Shift-Tab to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, or a value you are typing is open, Tab does nothing. Press Esc to close it first. While a question waits for your answer, it takes only its own keys: `y` answers yes, and Esc or Ctrl-C goes back without changing anything. Every other key, Tab included, does nothing.
+`vtium config tui` opens the TUI, vtium-config's full-screen view of the configuration, in the terminal you run it in. It needs a terminal of at least 80×25 character cells. In a smaller terminal, it shows only the size it needs and the commands, which work at any size. The TUI has five views: Flow, Looks, Fonts, Settings, and Help. It opens on Flow, and Tab moves to the next view. The key line at the bottom of the screen lists the keys that act where you are. When they do not fit on one row, the key line shows them in pages. The first page holds the keys you use most, and the line ends with the page number, as in `. more 1/5`. Press `.` (period) to see the next page. The Help view says what each key does in each view. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists every screen of the TUI, how you open and leave it, and its keys.
 
 ### The Flow view
 
@@ -340,25 +340,7 @@ Ctrl-C saves the changes that are not saved and quits, without a question. At a 
 
 #### The keys
 
-The key line shows the keys that fit what you are doing. With nothing open, it reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit`. Where there is room, it adds `p preview`, `t trial` and `PgUp PgDn scroll`.
-
-| Key | What it does |
-|---|---|
-| the arrow keys | move the highlight from box to box |
-| Home and End | go to the first and the last box |
-| PgUp and PgDn | scroll by a window |
-| Tab and Shift-Tab | move to the next view and to the one before |
-| Space | picks the highlighted part into NEW PATH, or takes it out |
-| Enter | opens the highlighted box: a template's part maker, a part's detail, or a terminal's card |
-| `a` | adds the path in NEW PATH to CONFIGURATION |
-| `e` | revises the highlighted path |
-| Esc | clears NEW PATH, or closes what is open. While something is open, the action keys do nothing until you close it. |
-| `v`, `s`, `i`, `r`, `o`, `n` | View file, Save, Install, Revert, Restore and New |
-| `d` | reads every device again |
-| `p` | previews a complete path on the console. vtium does not have the console's control socket for this yet, so `p` says in one sentence why it cannot. |
-| `t` | says whether you can try a font on this console. The Fonts view tries one with `t`. |
-| `q` | quits, and asks first when changes are not saved or font sets wait for an install |
-| Ctrl-C | saves the changes that are not saved, and quits |
+The key line lists the keys of the Flow view and of what you open over it, such as a card or the file view. Esc closes what is open, and while something is open the action keys, such as `s` and `i`, do nothing. `q` quits from anywhere, and asks first when changes are not saved. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists what each key does on each screen.
 
 The mouse selects a box with a click and opens it with a second click.
 
@@ -366,7 +348,7 @@ The Looks view lists the console's sizes until vtium-config edits looks of their
 
 The Fonts view lists the frits and the built-in fonts. It shows each one as a picture of the console rendered in that font. With `t`, it tries one on the live console. It also makes and removes frits. A frit that you make or remove there waits, and goes in with the next Install. See [Choose a font](fonts.md#choosing-a-font-with-vtium-config) for details.
 
-The Settings view lists every setting with its value. Enter changes the highlighted setting in the draft. While you type a value, Enter keeps it and Esc drops it. The Help view lists the keys of each view, and the commands. Its tab bar shows no action, so `s` and `i` do nothing there.
+The Settings view groups the settings into sections, such as Fonts and text, Colors and Key bindings, in the order the example vtium.conf uses. Enter opens a section, which shows its settings under the titles of their groups, each with its value. Esc goes back to the sections. On a setting that takes a fixed set of values, such as on and off, Enter opens a list of the values, and Enter there picks one. On any other setting, Enter lets you type the value. While you type, Enter keeps the value and Esc drops it. The Help view lists the keys of each view, and the commands. Its tab bar shows no action, so `s` and `i` do nothing there.
 
 ## Edit the file as root
 
