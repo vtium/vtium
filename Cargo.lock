@@ -1155,6 +1155,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-man"
+version = "0.1.0-alpha.9"
+dependencies = [
+ "vtium",
+ "vtium-clipboard",
+ "vtium-config",
+ "vtium-settings",
+ "vtium-term",
+]
+
+[[package]]
 name = "vtium-parse"
 version = "0.1.0-alpha.9"
 dependencies = [

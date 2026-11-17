@@ -31,8 +31,9 @@ jobs:
       # feature links; and Mesa's EGL and llvmpipe, which the gpu feature's
       # tests draw on (vtium-platform loads libEGL and libgbm at run time and
       # links neither). The default build links neither libsystemd nor
-      # libseat; one install line serves both builds.
-      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1
+      # libseat; one install line serves both builds. mandoc lints the man
+      # pages in make man-check.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1 mandoc
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
@@ -58,6 +59,11 @@ jobs:
       - name: minspec build
         if: matrix.build == 'default'
         run: cargo build --profile minspec
+      # The committed man pages match what tools/man writes, and mandoc's
+      # lint finds no warning in them.
+      - name: man pages
+        if: matrix.build == 'default'
+        run: make man-check
 
   # minspec's ARM targets (tools/arm/README.md). The tests run natively on
   # an aarch64 runner, which judges what qemu-user cannot; the cross build

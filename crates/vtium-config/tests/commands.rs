@@ -560,6 +560,35 @@ fn check_notes_a_script_source_outside_the_range() {
     );
 }
 
+/// `check FILE` exits 6, as `vtium check-config` does, when the only
+/// warnings are about fonts that a font set needs and this machine lacks,
+/// so a script reads the same status from both tools.
+#[test]
+fn check_passes_the_missing_fonts_status_through() {
+    let f = fixture("check-missing-font", None);
+    std::fs::write(
+        f.etc().join("fonts").join("lacking.vtfrit"),
+        "source=font:Vtium Test Font That No Machine Has\nsource=builtin:unifont\n",
+    )
+    .expect("a frit");
+    // vtium check-config asks the font helper, this binary, which fonts a
+    // look's font set lacks
+    let conf = f.root.join("mine.conf");
+    let text = format!(
+        "font-helper={BIN}\nfont-frits={}\nversion = 1\n[look big]\nfont-name = lacking\n[head a]\nlook = big\n[rules]\ndisplay * -> a\ninput * -> a\n",
+        f.etc().join("fonts").display()
+    );
+    std::fs::write(&conf, text).expect("a conf");
+    let ran = f.run(&["check", conf.to_str().expect("a path")]);
+    assert_eq!(ran.status, 6, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.out.contains("Vtium Test Font That No Machine Has"),
+        "{}",
+        ran.out
+    );
+    assert!(!ran.out.contains("ok\t"), "{}", ran.out);
+}
+
 #[test]
 fn check_judges_a_frit_and_a_vtium_conf_and_writes_nothing() {
     let f = fixture("check", None);

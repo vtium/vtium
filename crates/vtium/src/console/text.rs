@@ -7,11 +7,11 @@ use super::advice::{self, Facts, Refusals, SeatBlock};
 use super::held::{Holder, Reason};
 use super::{Mode, Which};
 
-pub const USAGE: &str = "Usage: vtium console enable --direct|--seat N|--all | enable [N|--all] | disable N|--all | status | fallback N\n\
-enable makes vtium run on VT N, or on every VT, from its next start, and disable undoes that. N is 1 to 63, or ttyN.\n\
---direct runs vtium in direct mode, which opens the screen and the keyboards itself as root, or takes them from seatd where seatd runs and vtium is built with libseat. --seat runs it in seat mode, which takes them from logind.\n\
-enable with no mode changes nothing: it says which mode fits this machine and the command to run.\n\
-enable and disable need root, and they start or stop nothing now. disable turns off either mode. status shows what runs on each VT.\n\
+pub const USAGE: &str = "Usage: vtium console enable --direct|--seat N|--all | enable [N|--all] | disable N|--all | status | fallback N\n\n\
+enable makes vtium run on VT N, or on every VT, from its next start, and disable undoes that. N is 1 to 63, or ttyN.\n\n\
+--direct runs vtium in direct mode, which opens the screen and the keyboards itself as root, or takes them from seatd where seatd runs and vtium is built with libseat. --seat runs it in seat mode, which takes them from logind.\n\n\
+enable with no mode changes nothing: it says which mode fits this machine and the command to run.\n\n\
+enable and disable need root, and they start or stop nothing now. disable turns off either mode. status shows what runs on each VT.\n\n\
 fallback N is what vtium-getty@.service runs when vtium on VT N fails: it starts a login prompt (getty) on VT N, unless that would stop another program.\n";
 
 pub const NO_VERB: &str = "give a command: enable, disable, status or fallback";

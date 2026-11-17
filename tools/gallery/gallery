@@ -21,7 +21,7 @@ set -u
 name=${0##*/}
 
 usage() {
-	printf 'usage: %s [-s N] [-n N] [-L] [-w N] [--no-probe] [file|dir ...]\n' "$name"
+	printf 'usage: %s [-s N] [-n N] [-L] [-w N] [--no-probe] [FILE|DIR]...\n' "$name"
 	cat <<'EOF'
 
 Shows PNG pictures as a grid of thumbnails, each with its file name under
@@ -40,7 +40,7 @@ the tool sends PNG files as they are and skips any other file with a note.
   --no-probe       draw without first asking the terminal whether it draws
                    kitty graphics, and take its cells to be twice as tall as
                    they are wide
-  -h, --help       show this help
+  -h, --help       print the usage and exit
 EOF
 }
 

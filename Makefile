@@ -229,8 +229,8 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # documentation and never active (ADR-1401 D4), with images in
 # FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8), and with
 # libseat and logind in FEATURES seat mode's unit vtium-seat@.service and the
-# PAM file /etc/pam.d/vtium (ADR-1400 D3). Tier 3 installs this tree in its
-# guest.
+# PAM file /etc/pam.d/vtium (ADR-1400 D3), and the man pages in
+# /usr/share/man. Tier 3 installs this tree in its guest.
 # DESTDIR's default is install-tree's alone: make install refuses it below.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
@@ -291,6 +291,16 @@ clipboard-release: ## Build vtium-clipboard, the program that copies text to the
 	cargo build --release -p vtium-clipboard --target $(X86_TARGET)
 	$(call check-glibc,$(CLIPBOARD_RELEASE))
 
+# install-man,DIR installs the man pages every build ships under DIR, the
+# man directory, with vticlip.1 a link to vtium-clipboard.1 as vticlip is to
+# vtium-clipboard. The gallery's page goes with the gallery.
+define install-man
+install -Dm644 -t $(1)/man8 $(MAN_DIR)/vtium.8
+install -Dm644 -t $(1)/man1 $(MAN_DIR)/vtium-config.1 $(MAN_DIR)/vtium-clipboard.1
+ln -sfn vtium-clipboard.1 $(1)/man1/vticlip.1
+install -Dm644 -t $(1)/man5 $(MAN_DIR)/vtium.conf.5
+endef
+
 .PHONY: install-tree
 install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-release) ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' and its frits FRITS='...' when named (needs tic)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
@@ -310,11 +320,13 @@ install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-rele
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
+	$(call install-man,$(DESTDIR)/usr/share/man)
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-image)
 	install -Dm644 $(VTIUM_INSTALL)/vtium-image.conf $(DESTDIR)/usr/lib/sysusers.d/vtium-image.conf
 	install -Dm755 $(GALLERY) $(DESTDIR)/usr/bin/vtium-gallery
+	install -Dm644 $(MAN_DIR)/vtium-gallery.1 $(DESTDIR)/usr/share/man/man1/vtium-gallery.1
 endif
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
@@ -338,9 +350,9 @@ endif
 # names in /etc/vtium/fonts, which stay in /etc whatever PREFIX is, because
 # vtium reads its configuration and its frits from /etc/vtium alone (ADR-1500
 # D3, D4, D8), the example udev rules and hwdb fragment as documentation,
-# LICENSE_FILES under PKGNAME's name, and with libseat and logind in FEATURES
-# seat mode's unit vtium-seat@.service and the PAM file /etc/pam.d/vtium
-# (ADR-1400 D3).
+# LICENSE_FILES under PKGNAME's name, the man pages in PREFIX/share/man, and
+# with libseat and logind in FEATURES seat mode's unit vtium-seat@.service and
+# the PAM file /etc/pam.d/vtium (ADR-1400 D3).
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
@@ -444,7 +456,9 @@ ifneq ($(IMAGES),)
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-image $(DESTDIR)$(PREFIX)/bin/vtium-image
 	install -Dm644 $(VTIUM_INSTALL)/vtium-image.conf $(DESTDIR)$(PREFIX)/lib/sysusers.d/vtium-image.conf
 	install -Dm755 $(GALLERY) $(DESTDIR)$(PREFIX)/bin/vtium-gallery
+	install -Dm644 $(MAN_DIR)/vtium-gallery.1 $(DESTDIR)$(PREFIX)/share/man/man1/vtium-gallery.1
 endif
+	$(call install-man,$(DESTDIR)$(PREFIX)/share/man)
 	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service'$(if $(PAM_SESSION), --seat) $(DESTDIR)$(UNITDIR)
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
@@ -946,6 +960,26 @@ release-notes: ## Write the GitHub release body for VERSION=V from docs/releases
 	@test -n "$(VERSION)" || { echo "name the release: make release-notes VERSION=0.1.0-alpha.9" >&2; exit 1; }
 	cargo run -q -p vtium-site --bin release-notes -- --out target/release-notes/$(VERSION).md $(VERSION)
 
+# vtium's man pages, committed in man/. tools/man generates them in roff:
+# vtium.conf(5)'s settings from the key table, each command's options from
+# that command's own list, and the prose from tools/man/templates. make man
+# writes them, and make man-check, a gate of the gate line, fails when a
+# committed page differs from what the generator writes, or when mandoc's
+# lint reports a warning or worse on one; a style note passes. make install
+# and make install-tree install them in PREFIX/share/man, the gallery's page
+# only with images in FEATURES, as its program.
+MAN_DIR := man
+MAN_PAGES := vtium.8 vtium-config.1 vtium.conf.5 vtium-clipboard.1 vtium-gallery.1
+
+.PHONY: man man-check
+man: ## Write vtium's man pages into man/ from the key table, the commands' option lists and tools/man's templates
+	cargo run -q -p vtium-man -- write $(MAN_DIR)
+
+man-check: ## Fail when a man page in man/ is stale or mandoc -T lint finds a warning or worse in one (needs mandoc)
+	cargo run -q -p vtium-man -- check $(MAN_DIR)
+	@command -v mandoc >/dev/null || { echo "man-check: mandoc is not installed, so it cannot lint the man pages. Install the mandoc package." >&2; exit 1; }
+	mandoc -T lint -W warning $(addprefix $(MAN_DIR)/,$(MAN_PAGES))
+
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the goldens in
 # tools/tier3/goldens (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
@@ -1064,6 +1098,7 @@ docs/scripts/claims
 docs/scripts/prose --check
 docs/scripts/coverage
 make api
+make man-check
 make test-tools
 make conformance
 make conformance-probes
