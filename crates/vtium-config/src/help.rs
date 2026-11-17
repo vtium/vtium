@@ -450,7 +450,7 @@ pub const EXIT_STATUS: [(u8, &str); 7] = [
     (4, "sudo refused to run apply."),
     (5, "A file could not be read or written."),
     (
-        crate::commands::MISSING_FONTS,
+        vtium_settings::CHECK_MISSING_FONTS,
         "check found no problem in FILE but fonts that a font set needs and this machine lacks: a font that is not installed, or one that lacks a character the set checks for. vtium check-config exits 6 in the same case.",
     ),
 ];

@@ -316,16 +316,13 @@ fn script_notes(frit: &Frit, paths: &Paths) -> Vec<String> {
         .collect()
 }
 
-/// The status `vtium check-config` exits with when its only warnings are
-/// about fonts that a font set needs and this machine lacks.
-pub const MISSING_FONTS: u8 = 6;
-
 /// Runs the console's `vtium check-config` on the vtium.conf `candidate`,
 /// against the configuration directory, and prints each problem it
 /// reports, `copied`'s path named as `file`, then `ok FILE` when it found
 /// none. It exits as the check does: 0 when it found no problem,
-/// [`MISSING_FONTS`] when it found only missing fonts, and 1 otherwise, so
-/// that a script reads the same status from both tools.
+/// [`vtium_settings::CHECK_MISSING_FONTS`] when it found only missing
+/// fonts, and 1 otherwise, so that a script reads the same status from
+/// both tools.
 fn console_check(
     paths: &Paths,
     candidate: &Path,
@@ -358,7 +355,9 @@ fn console_check(
             let _ = writeln!(out, "ok\t{file}");
             0
         }
-        Some(code) if code == i32::from(MISSING_FONTS) => MISSING_FONTS,
+        Some(code) if code == i32::from(vtium_settings::CHECK_MISSING_FONTS) => {
+            vtium_settings::CHECK_MISSING_FONTS
+        }
         _ => 1,
     }
 }
