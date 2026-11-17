@@ -249,6 +249,10 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("q.trial", (back, no_today));
     m.insert("q.too-small", (quit, no_today));
     m.insert("esc.view", (nothing, no_today));
+    // today `.` does nothing, and the key line wraps instead of paging
+    for id in ["period.view", "period.layer"] {
+        m.insert(id, (nothing, Some(nothing)));
+    }
     m.insert(
         "esc.view.flow",
         (

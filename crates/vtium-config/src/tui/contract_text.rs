@@ -19,7 +19,7 @@ pub const NODES: &[Node] = &[
         id: "flow",
         what: "The Flow view: CONFIGURATION, NEW PATH and PARTS",
         supported: true,
-        key_line: "↑↓←→ move  Home first  End last  PgUp PgDn scroll  Enter open  Space pick  s save  i install  r revert  n new  v view file  o restore  a add path  e revise  d read devices  t trial  Esc clear  Tab next view  Shift-Tab view before  Ctrl-C save and quit  q quit",
+        key_line: "↑↓←→ move  Home first  End last  PgUp PgDn scroll  Space pick  Enter open  s save  i install  r revert  n new  v view file  o restore  a add path  e revise  d read devices  t trial  Esc clear  Tab next view  Shift-Tab view before  Ctrl-C save and quit  q quit",
         help: &[
             ("↑", "Moves to the box above."),
             ("↓", "Moves to the box below."),
@@ -29,8 +29,8 @@ pub const NODES: &[Node] = &[
             ("End", "Goes to the last box."),
             ("PgUp", "Scrolls up by a window."),
             ("PgDn", "Scrolls down by a window."),
-            ("Enter", "Opens the highlighted box: a part's detail, a path's card, a template's part maker, or the list of other inputs."),
             ("Space", "Picks the highlighted part into NEW PATH, or takes it out."),
+            ("Enter", "Opens the highlighted box: a part's detail, a path's card, a template's part maker, or the list of other inputs."),
             ("s", "Saves the changes that are not saved into the draft."),
             ("i", "Saves, then asks whether to install the draft."),
             ("r", "Asks whether to throw away the draft's changes and copy the installed file back."),

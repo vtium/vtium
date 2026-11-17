@@ -110,7 +110,8 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 | n | new | Asks whether to start a new configuration. |
 | v | view file | Shows the draft's vtium.conf as text. |
 | o | restore | Lists the files installed before, newest first, to copy one into the draft. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the box above. |
 | Down | move | Moves to the box below. |
 | Left | move | Moves to the box before, and on to the line before. |
@@ -119,8 +120,8 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 | End | last | Goes to the last box. |
 | PgUp | scroll | Scrolls up by a window. |
 | PgDn | scroll | Scrolls down by a window. |
-| Enter | open | Opens the highlighted box: a part's detail, a path's card, a template's part maker, or the list of other inputs. |
 | Space | pick | Picks the highlighted part into NEW PATH, or takes it out. |
+| Enter | open | Opens the highlighted box: a part's detail, a path's card, a template's part maker, or the list of other inputs. |
 | a | add path | Adds the path in NEW PATH to the configuration. |
 | e | revise | Takes the highlighted path out of the configuration into NEW PATH, to change it. On a box that is not a path, it says how to choose one. |
 | d | read devices | Reads the connected displays and input devices again. |
@@ -147,7 +148,8 @@ A part's detail, with its label line and the choices that narrow it, or the deta
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the line above. |
 | Down | move | Moves to the line below. |
 | Enter | label | On the label line, lets you type the part's label. |
@@ -203,7 +205,8 @@ A part's narrowing choices: the narrower parts the part's detail offers to pick 
 | Wheel up | - | Acts as Up does in what is open. |
 | Wheel down | - | Acts as Down does in what is open. |
 | Click | - | Does nothing until you close what is open with Esc. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 
 ## `flow.card`
 
@@ -225,7 +228,8 @@ A path's terminal card, in CONFIGURATION or NEW PATH.
 | Enter | choose | Shows the card's displays, devices or VTs as a list inside the card. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Enter | choose | Shows the font sets to choose from as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the field above. |
 | Down | move | Moves to the field below. |
 | Left | choose | Steps the highlighted field to its choice before. |
@@ -264,6 +268,7 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 | Click | - | Does nothing until you close what is open with Esc. |
 | Wheel up | - | Acts as Up does in what is open. |
 | Wheel down | - | Acts as Down does in what is open. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 
 ## `flow.card.typing`
 
@@ -302,7 +307,8 @@ A part maker: a template's choices, or an empty place in NEW PATH.
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the choice above. |
 | Down | move | Moves to the choice below. |
 | Enter | choose | Makes the part from the highlighted choice, or opens the list of values for a choice that filters. |
@@ -341,6 +347,7 @@ The filter picker: each value of a match with the devices it matches now, and Ot
 | Click | - | Does nothing until you close what is open with Esc. |
 | Wheel up | - | Acts as Up does in what is open. |
 | Wheel down | - | Acts as Down does in what is open. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 
 ## `flow.maker.picker.typing`
 
@@ -379,7 +386,8 @@ The folded list of the inputs that are neither keyboards nor pointers.
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Click | - | Does nothing until you close what is open with Esc. |
 | Wheel up | - | Acts as Up does in what is open. |
 | Wheel down | - | Acts as Down does in what is open. |
@@ -401,7 +409,8 @@ The file view: the draft's vtium.conf as text, read-only.
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | save | Saves the changes that are not saved into the draft. The file view stays open and shows the file as it now stands. |
 | i | install | Saves, then asks whether to install the draft. The file view stays open. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | j | lines | Scrolls down by a line. |
 | k | lines | Scrolls up by a line. |
 | Down | lines | Scrolls down by a line. |
@@ -440,7 +449,8 @@ Restore's list of the installed history, newest first.
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | Up | move | Moves to the item above. |
 | Down | move | Moves to the item below. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Home | first | Goes to the first item. |
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
@@ -478,7 +488,8 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Enter | choose | Shows the font sets to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | Enter | choose | Shows the font sizes as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the item above. |
 | Down | move | Moves to the item below. |
 | Home | first | Goes to the first item. |
@@ -511,6 +522,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 
 ## `looks.new-frit`
 
@@ -530,7 +542,8 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the field above. |
 | Down | move | Moves to the field below. |
 | Enter | add | On the last row, adds the new font set to the draft. |
@@ -587,6 +600,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 
 ## `fonts`
 
@@ -608,7 +622,8 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | s | save | Saves the changes that are not saved into the draft, in the Looks tab that the Fonts view goes into. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | i | install | Saves, then asks whether to install the draft. |
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the item above. |
 | Down | move | Moves to the item below. |
 | Home | first | Goes to the first item. |
@@ -641,7 +656,8 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 | i | install | Saves, then asks whether to install the draft. |
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Enter | open | Opens the highlighted section, with its keys in titled groups. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the item above. |
 | Down | move | Moves to the item below. |
 | Home | first | Goes to the first item. |
@@ -669,7 +685,8 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | Enter | choose | Shows the key's allowed values as a list to pick from. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Up | move | Moves to the key above. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Down | move | Moves to the key below. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 
@@ -720,6 +737,7 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 
 ## `help`
 
@@ -739,7 +757,8 @@ The Help view: the Help and About pages.
 | s | - | Does nothing here. |
 | i | - | Does nothing here. |
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Help and key line | - | Show, for the place you are in, the keys that act there and what each does. |
 | Up | scroll | Scrolls the page up by a line. |
 | Down | scroll | Scrolls the page down by a line. |
@@ -772,7 +791,7 @@ The quit question: changes are not saved.
 | Tab | - | Does nothing. The question stays until you answer it or cancel it. |
 | Shift-Tab | - | Does nothing. The question stays until you answer it or cancel it. |
 | any other key | - | Does nothing. The question stays until you answer it or cancel it. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Click | - | Does nothing. The question stays until you answer it or cancel it. |
 | Wheel up, Wheel down | - | Do nothing. The question stays until you answer it or cancel it. |
 
@@ -796,7 +815,7 @@ The leave question: new or removed font sets wait for an install.
 | Tab | - | Does nothing. The question stays until you answer it or cancel it. |
 | Shift-Tab | - | Does nothing. The question stays until you answer it or cancel it. |
 | any other key | - | Does nothing. The question stays until you answer it or cancel it. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Click | - | Does nothing. The question stays until you answer it or cancel it. |
 | Wheel up, Wheel down | - | Do nothing. The question stays until you answer it or cancel it. |
 
@@ -818,7 +837,7 @@ A question before an action: Install, Revert, Restore, New, or deleting a look.
 | Tab | - | Does nothing. The question stays until you answer it or cancel it. |
 | Shift-Tab | - | Does nothing. The question stays until you answer it or cancel it. |
 | any other key | - | Does nothing. The question stays until you answer it or cancel it. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Click | - | Does nothing. The question stays until you answer it or cancel it. |
 | Wheel up, Wheel down | - | Do nothing. The question stays until you answer it or cancel it. |
 
@@ -842,7 +861,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | Tab | - | Does nothing. The question stays until you answer it or cancel it. |
 | Shift-Tab | - | Does nothing. The question stays until you answer it or cancel it. |
 | any other key | - | Does nothing. The question stays until you answer it or cancel it. |
-| key line | - | Shows every key it lists, and wraps onto a second row before it drops one. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 
 ## `any.trial`
 

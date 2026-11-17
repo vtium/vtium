@@ -145,6 +145,7 @@ vtium any.too-small +unsaved	q	vtium any.question.quit below 80×25 +unsaved
 vtium any.too-small +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium any.too-small +unsaved +pending	Grow	vtium fonts(marked) +unsaved +pending	
 vtium any.too-small +unsaved +pending	q	vtium any.question.leave below 80×25 +unsaved +pending	
+vtium any.trial	.	vtium fonts(frit)	switch
 vtium any.trial	Backspace	vtium fonts(frit)	switch
 vtium any.trial	Click box	vtium fonts(frit)	switch
 vtium any.trial	Click tab	vtium fonts(frit)	switch
@@ -190,6 +191,7 @@ vtium any.trial	w	vtium fonts(frit)	switch
 vtium any.trial	x	vtium fonts(frit)	switch
 vtium any.trial	y	vtium fonts(frit)	switch
 vtium any.trial	z	vtium fonts(frit)	switch
+vtium any.trial +pending	.	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Backspace	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Click box	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Click tab	vtium fonts(marked) +pending	switch
@@ -235,6 +237,7 @@ vtium any.trial +pending	w	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	x	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	y	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	z	vtium fonts(marked) +pending	switch
+vtium any.trial +unsaved	.	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Backspace	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Click box	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Click tab	vtium fonts(frit) +unsaved	switch
@@ -280,6 +283,7 @@ vtium any.trial +unsaved	w	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	x	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	y	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	z	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved +pending	.	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Backspace	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Click box	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Click tab	vtium fonts(marked) +unsaved +pending	switch
@@ -325,6 +329,7 @@ vtium any.trial +unsaved +pending	w	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	x	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	y	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	z	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial below 80×25	.	vtium any.too-small	switch
 vtium any.trial below 80×25	Backspace	vtium any.too-small	switch
 vtium any.trial below 80×25	Click box	vtium any.too-small	switch
 vtium any.trial below 80×25	Click tab	vtium any.too-small	switch
@@ -370,6 +375,7 @@ vtium any.trial below 80×25	w	vtium any.too-small	switch
 vtium any.trial below 80×25	x	vtium any.too-small	switch
 vtium any.trial below 80×25	y	vtium any.too-small	switch
 vtium any.trial below 80×25	z	vtium any.too-small	switch
+vtium any.trial below 80×25 +pending	.	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Backspace	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Click box	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	Click tab	vtium any.too-small +pending	switch
@@ -415,6 +421,7 @@ vtium any.trial below 80×25 +pending	w	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	x	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	y	vtium any.too-small +pending	switch
 vtium any.trial below 80×25 +pending	z	vtium any.too-small +pending	switch
+vtium any.trial below 80×25 +unsaved	.	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Backspace	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Click box	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	Click tab	vtium any.too-small +unsaved	switch
@@ -460,6 +467,7 @@ vtium any.trial below 80×25 +unsaved	w	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	x	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	y	vtium any.too-small +unsaved	switch
 vtium any.trial below 80×25 +unsaved	z	vtium any.too-small +unsaved	switch
+vtium any.trial below 80×25 +unsaved +pending	.	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Backspace	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Click box	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	Click tab	vtium any.too-small +unsaved +pending	switch
