@@ -75,6 +75,25 @@ SCRIPT = next(os.path.join(d, "script") for d in ("/usr/sbin", "/usr/bin", "/sbi
 # Each call, one line: the command's name and its arguments.
 RECORD = 'printf "%s\\n" "${0##*/} $*" >>"$CALLS"\n'
 
+# What a minspec build of the console hands the vtium binary's link: packed
+# relative relocations and identical code folding, which keep the binary
+# small.
+MINSPEC_LINK = "-- -C link-arg=-Wl,-z,pack-relative-relocs -C link-arg=-Wl,--icf=all"
+
+# The directory cargo unpacks the crates.io sources into, under its home.
+CRATES_IO_SRC = "registry/src/index.crates.io-1949cf8c6b5b557f"
+
+
+def remap_paths(env):
+    """The option with which a minspec build run with env shortens the source
+    paths of every crate: cargo's home, $CARGO_HOME or else $HOME/.cargo,
+    becomes /cargo, and the crates.io sources start at each crate's
+    directory."""
+    home = env.get("CARGO_HOME") or os.path.join(env["HOME"], ".cargo")
+    return (f'--config build.rustflags = ["--remap-path-prefix={home}=/cargo", '
+            f'"--remap-path-prefix={home}/{CRATES_IO_SRC}/="]')
+
+
 # The minspec target reads the stand-in binary's dynamic section for DT_RELR and its version needs for GLIBC_.
 READELF = "#!/bin/bash\n" + RECORD + 'echo " 0x0000000000000024 (RELR) 0x3238  Name: GLIBC_2.34"\n'
 
@@ -2019,14 +2038,16 @@ class Make(Case):
         # unless FEATURES is named on make's command line (ADR-1501 D5).
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --features images bidi -- -C link-arg=-Wl,-z,pack-relative-relocs"])
+        self.assertEqual(self.s.calls_of("cargo"), [f"rustc --profile minspec {remap_paths(self.s.env())} -p vtium --bin vtium "
+                                                   f"--target x86_64-unknown-linux-gnu --features images bidi {MINSPEC_LINK}"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
         self.assertIn(" --features=images\\ bidi ", p.stdout)
         open(self.s.calls, "w").close()
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", "FEATURES=")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu -- -C link-arg=-Wl,-z,pack-relative-relocs"])
+        self.assertEqual(self.s.calls_of("cargo"), [f"rustc --profile minspec {remap_paths(self.s.env())} -p vtium --bin vtium "
+                                                   f"--target x86_64-unknown-linux-gnu {MINSPEC_LINK}"])
         self.assertIn(" --features= ", p.stdout)
         self.assertNotIn("--image", p.stdout)
 
@@ -2135,7 +2156,7 @@ class Make(Case):
         # each take the two settings, as make install's builds do (ADR-1500
         # D8).
         write(os.path.join(self.s.standins, "cargo"), self.CARGO_SETTINGS)
-        builds = {"rustc --profile minspec -p vtium --bin vtium", "build --release -p vtium-config",
+        builds = {f"rustc --profile minspec {remap_paths(self.s.env())} -p vtium --bin vtium", "build --release -p vtium-config",
                   "build --release -p vtium-image-helper"}
         for target, extra in (("vt-accept", ()), ("vt-login", ()), ("vt-shell", ()), ("vt-check", ("GUIDE=start",))):
             with self.subTest(target=target):
@@ -2212,8 +2233,8 @@ class Make(Case):
                 p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", *named)
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                 self.assertEqual(self.s.calls_of("cargo"), [
-                    f"rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --features {features} "
-                    "-- -C link-arg=-Wl,-z,pack-relative-relocs"])
+                    f"rustc --profile minspec {remap_paths(self.s.env())} -p vtium --bin vtium "
+                    f"--target x86_64-unknown-linux-gnu --features {features} {MINSPEC_LINK}"])
                 self.assertIn(f" --render-path={path} ", p.stdout)
                 self.assertIn(f" ACCEPT_RENDER_PATH={path} ", p.stdout)
                 self.assertRegex(p.stdout, rf"/run-vtium-vt/vtium --vt=tty\d+ .* {opt}( |\n)")
@@ -3205,8 +3226,8 @@ exec "$@"
         # The console starts its helper at the installed helper's path, and
         # builds in a target directory of its own, so the minspec build that
         # the review runs use is never replaced.
-        self.assertIn("VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config rustc --profile minspec -p vtium --bin vtium "
-                      f"--target x86_64-unknown-linux-gnu --target-dir {TARGET}/vt-dev -- -C link-arg=-Wl,-z,pack-relative-relocs",
+        self.assertIn(f"VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config rustc --profile minspec {remap_paths(self.s.env())} "
+                      f"-p vtium --bin vtium --target x86_64-unknown-linux-gnu --target-dir {TARGET}/vt-dev {MINSPEC_LINK}",
                       builds)
         self.assertIn("VTIUM_FONT_HELPER=unset build --release -p vtium-config --target x86_64-unknown-linux-gnu", builds)
         self.assertEqual(len(builds), 2, builds)
@@ -3644,8 +3665,8 @@ fi
         # The console starts its image helper at the development install's
         # own path, never the packaged /usr/bin/vtium-image.
         self.assertIn("VTIUM_FONT_HELPER=/usr/local/bin/vtium-dev-config VTIUM_IMAGE=/usr/local/bin/vtium-dev-image "
-                      f"rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --target-dir {TARGET}/vt-dev "
-                      "--features images -- -C link-arg=-Wl,-z,pack-relative-relocs", builds)
+                      f"rustc --profile minspec {remap_paths(self.s.env())} -p vtium --bin vtium --target x86_64-unknown-linux-gnu "
+                      f"--target-dir {TARGET}/vt-dev --features images {MINSPEC_LINK}", builds)
         self.assertIn("VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-config --target x86_64-unknown-linux-gnu",
                       builds)
         self.assertIn("VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-image-helper "
