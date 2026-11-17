@@ -81,6 +81,8 @@ impl Abs {
             (StateKind::Typing, "settings") => n("settings.section.typing"),
             (StateKind::Typing, "new-frit") => n("looks.new-frit.typing"),
             (StateKind::Layer, "new-frit") => n("looks.new-frit"),
+            (StateKind::Layer, "settings-section") => n("settings.section"),
+            (StateKind::Layer, "settings-list") => n("settings.section.list"),
             (StateKind::Layer, "file-view") => n("flow.file"),
             (StateKind::Layer, "restore") => n("flow.restore"),
             (StateKind::Layer, "picker") => n("flow.maker.picker"),

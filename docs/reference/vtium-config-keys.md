@@ -72,7 +72,7 @@ flowchart LR
     any --> any_trial
     any --> any_too_small
     classDef planned stroke-dasharray: 5 5
-    class flow_card_list,looks,looks_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,settings,settings_section,settings_section_typing,settings_section_list,any_question_window_ops planned
+    class flow_card_list,looks,looks_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,any_question_window_ops planned
 ```
 
 Each section below names a screen by its place in the tree, says how you open and leave it, and lists its keys. The column "Shown as" gives the word the key line shows beside the key, and a dash marks a key that the key line leaves out.
@@ -639,8 +639,6 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 
 The Settings view: the sections of vtium.conf's keys, as the shared list.
 
-vtium-config does not have this screen yet. See [#412](https://github.com/vtium/vtium/issues/412). Today: One flat list of every top-level key, the font keys first.
-
 **Open it:** Tab from looks, Shift-Tab from help.
 
 **Leave it:** Tab to help, Shift-Tab to looks.
@@ -655,7 +653,7 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 | s | save | Saves the changes that are not saved into the draft. |
 | i | install | Saves, then asks whether to install the draft. |
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| Enter | open | Opens the highlighted section, with its keys in titled groups. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | open | Opens the highlighted section, with its keys in titled groups. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the item above. |
@@ -669,32 +667,32 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 
 One section: its groups as headed blocks, with their keys beneath.
 
-vtium-config does not have this screen yet. See [#412](https://github.com/vtium/vtium/issues/412). Today: No sections.
-
 **Open it:** Enter on a section.
 
 **Leave it:** Esc to settings.
 
 | Key | Shown as | What it does |
 |---|---|---|
-| Enter | change | Lets you type the highlighted key's value, or shows its allowed values as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| Esc | back | Goes back to the list of sections. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | change | Lets you type the highlighted key's value, or shows its allowed values as a list. |
+| Esc | back | Goes back to the list of sections. |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| Enter | choose | Shows the key's allowed values as a list to pick from. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | - | Shows the key's allowed values as a list to pick from, with the highlight on the value the key has now. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
-| Up | move | Moves to the key above. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| Down | move | Moves to the key below. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Up | move | Moves to the key above. |
+| Down | move | Moves to the key below. |
+| Home | first | Goes to the first key of the section. |
+| End | last | Goes to the last key of the section. |
+| PgUp | page up | Moves up by a page. |
+| PgDn | page down | Moves down by a page. |
 
 ## `settings.section.typing`
 
 A key's value being typed.
-
-vtium-config does not have this screen yet. See [#412](https://github.com/vtium/vtium/issues/412). Today: Reached from the flat list, and Up and Down drop the value.
 
 **Open it:** Enter on a key whose value is typed.
 
@@ -715,8 +713,6 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 ## `settings.section.list`
 
 The shared list of a key's allowed values.
-
-vtium-config does not have this screen yet. See [#412](https://github.com/vtium/vtium/issues/412). Today: The allowed values show as one joined line.
 
 **Open it:** Enter on a key with a fixed set of values.
 

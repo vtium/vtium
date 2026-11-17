@@ -198,6 +198,20 @@ impl Seen<'_> {
         Ok(())
     }
 
+    /// The key moves to the node `id` of the tree, and changes nothing
+    /// the person made.
+    fn goes_to(&self, id: &str) -> Result<(), String> {
+        if self.exited() || !self.kept() {
+            return Err("the key quit or changed what the person made".into());
+        }
+        let to = self.step.to.node();
+        if to == id {
+            Ok(())
+        } else {
+            Err(format!("expected {id}, and the TUI is in {to}"))
+        }
+    }
+
     fn opens(&self, state: &str) -> Result<(), String> {
         if self.step.to.table_state() == state {
             Ok(())
@@ -589,13 +603,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // another shape today: what the key does there today is not pinned
     let not_built: Check = |_| Err("not built".into());
     for id in [
-        "list.settings-values",
         "list.filter-picker",
         "list.font-sets",
         "list.font-sizes",
-        "enter.view.settings",
-        "enter.layer.settings-section",
-        "esc.layer.settings-section",
         "enter.view.looks",
     ] {
         m.insert(id, (not_built, None));
@@ -780,7 +790,42 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     );
     m.insert("other.too-small", (nothing, no_today));
     m.insert("updown.typing.settings", (nothing, None));
+    settings_checks(&mut m);
     m
+}
+
+/// The Settings view's rows: Enter on a section opens it, Enter on a key
+/// opens its value for typing or its allowed values as the shared list,
+/// and Esc goes back to the sections. None of them writes anything.
+///
+/// References:
+/// - ADR-1201 D3, the Settings bullet: the view opens on the sections,
+///   Enter opens one and Esc goes back with the same section highlighted.
+/// - ADR-1403 D7, "One list for every set of items": a key's allowed
+///   values open in the shared list.
+fn settings_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
+    m.insert(
+        "enter.view.settings",
+        (|s| s.goes_to("settings.section"), None),
+    );
+    m.insert(
+        "enter.layer.settings-section",
+        (
+            |s| match s.step.from.focus.as_str() {
+                "switch" | "choice" => s.goes_to("settings.section.list"),
+                _ => s.goes_to("settings.section.typing"),
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "list.settings-values",
+        (|s| s.goes_to("settings.section.list"), None),
+    );
+    m.insert(
+        "esc.layer.settings-section",
+        (|s| s.goes_to("settings"), None),
+    );
 }
 
 fn step_view(s: &Seen<'_>, forward: bool) -> Result<(), String> {
@@ -840,6 +885,10 @@ fn row_cases() -> BTreeMap<&'static str, Case> {
             card_line(s),
             Some(CardLine::Part(_) | CardLine::Setting("vt"))
         )
+    });
+    // the allowed values open as a list only on a key with a fixed set
+    m.insert("list.settings-values", |s| {
+        matches!(s.step.from.focus.as_str(), "switch" | "choice")
     });
     m.insert("list.font-set-files", |s| {
         matches!(card_line(s), Some(CardLine::Font))
@@ -1296,11 +1345,10 @@ fn written(before: &str, after: &str) -> BTreeSet<String> {
 fn reached_today(id: &str) -> Option<bool> {
     Some(match id {
         // the view, the tab or the form exists today in another shape
-        "looks" | "fonts" | "settings" | "looks.new-frit" | "looks.new-frit.typing" => true,
-        "settings.section.typing" => true,
+        "looks" | "fonts" | "looks.new-frit" | "looks.new-frit.typing" => true,
         // nothing like it exists today
         "flow.card.list" | "looks.list" | "looks.new-frit.list" => false,
-        "settings.section" | "settings.section.list" | "any.question.window-ops" => false,
+        "any.question.window-ops" => false,
         _ => return None,
     })
 }
