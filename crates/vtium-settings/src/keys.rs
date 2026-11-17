@@ -1621,6 +1621,20 @@ pub const DISPLAY_DPI: Key = Key {
            When unset, vtium measures each display's density from the physical size it reports. If a display reports none, vtium assumes 96 DPI and logs a warning once for that display.",
 };
 
+pub const VTLOOK: Key = Key {
+    name: "vtlook",
+    short: None,
+    kind: Kind::Text,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    // a look sets its own vtlook with its `vtlook =` line, which the
+    // section reader takes beside the key table, as a head takes `look`
+    levels: TOP,
+    what: "The vtlook (a look file) whose frame filters change the picture before the display shows it, such as a color correction or a CRT effect.\n\n\
+           The value is the name of a file `NAME.vtlook` in `/etc/vtium/looks`. A look's own `vtlook` wins over this one. When unset, or set to `default`, vtium draws the built-in vtlook, which changes no pixel.\n\n\
+           When vtium cannot read the vtlook, or any part of it is wrong, the head draws the built-in vtlook and vtium logs where the vtlook failed. A build without frame filters accepts this key, logs one line, and draws the built-in vtlook.",
+};
+
 pub const RENDER_TIMER: Key = Key {
     name: "render-timer",
     short: None,
@@ -2038,7 +2052,7 @@ pub const LOGIN_IMAGE_SCALE: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 138] = [
+pub static KEYS: [Key; 139] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2164,6 +2178,7 @@ pub static KEYS: [Key; 138] = [
     GLYPH_CACHE,
     DISPLAY_DEPTH,
     DISPLAY_DPI,
+    VTLOOK,
     RENDER_TIMER,
     IMAGE_STORAGE_LIMIT,
     SIXEL,
@@ -2461,6 +2476,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Drawing with the GPU",
                 keys: &[&HWACCEL],
+            },
+            Group {
+                title: "Frame filters",
+                keys: &[&VTLOOK],
             },
             Group {
                 title: "Frame timer",

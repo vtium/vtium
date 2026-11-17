@@ -100,4 +100,6 @@ The sections, with the `version` and `policy` lines above them, make up the flow
 | `VT_MAX` | 63 | The highest VT number a head's `vt` names; the lowest is 1 | The head is dropped, with every rule naming it, the line named | ADR-1403 D4; the kernel's last VT, `MAX_NR_CONSOLES` in `include/uapi/linux/vt.h`, as vtium's `LAST_VT` (`crates/vtium/src/console.rs`) |
 | `ERRORS_MAX` | 64 | Errors, warnings and notes a check keeps, each kind apart | Counted, not kept, but for the first error of a `policy` line vtium cannot read, which takes the last place | vtium.conf's `REPORTS_MAX` (`crates/vtium/src/config/mod.rs`) |
 | `QUOTE_MAX` | 64 | Characters of the file's text an error quotes, escaped when shown | The quote is cut, and shown ending `...` | vtium's own: a name, a value or a token |
+| `VTLOOK_FILE_MAX` | 65536 | Bytes of a vtlook | The vtlook fails at its reading stage, and the head draws the built-in vtlook | ADR-1304 D4 |
+| `VTLOOK_SECTIONS_MAX` | 32 | Sections of a vtlook, its `[requires]` included | The vtlook fails at its reading stage, the first section past it named, and the head draws the built-in vtlook | ADR-1304 D4 |
 <!-- end of the bounds table -->
