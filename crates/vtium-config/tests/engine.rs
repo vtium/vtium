@@ -611,10 +611,36 @@ fn color_glyphs_fill_a_bitmap_fonts_cell() {
     assert!(!face.has_glyph('\u{4e00}'), "outside cover=");
 }
 
-/// A shipped frit's text.
+/// The frits' directory vtium-config ships: a folder for each category of
+/// the catalog, and the layers in `layers/`.
+fn catalog() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("frits")
+}
+
+/// The file of the shipped frit `frit`, in whichever category folder holds
+/// it.
+fn shipped_file(frit: &str) -> PathBuf {
+    let found: Vec<PathBuf> = fs::read_dir(catalog())
+        .expect("the frits")
+        .map(|e| e.expect("an entry").path().join(format!("{frit}.vtfrit")))
+        .filter(|p| p.is_file())
+        .collect();
+    assert_eq!(found.len(), 1, "{frit} is in one category folder");
+    found.into_iter().next().expect("the frit")
+}
+
+/// A shipped frit's own text, its `layer=` lines as written.
+fn shipped_own(frit: &str) -> String {
+    fs::read_to_string(shipped_file(frit)).expect("the frit")
+}
+
+/// A shipped frit's text with its layers' sources in place, as the
+/// console hands it to the helper.
 fn shipped(frit: &str) -> String {
-    let path = format!("{}/frits/{frit}.vtfrit", env!("CARGO_MANIFEST_DIR"));
-    fs::read_to_string(path).expect("the frit")
+    let layers = catalog().join("layers");
+    vtium_config::frit::Frit::load_in(&shipped_file(frit), &layers)
+        .unwrap_or_else(|e| panic!("{frit}: {e}"))
+        .text
 }
 
 // ADR-1200 D7: vtium's own frits carry no copy of unifont or Unscii-8; the
@@ -622,31 +648,55 @@ fn shipped(frit: &str) -> String {
 // character.
 #[test]
 fn vtiums_own_frits_name_no_built_in_font() {
-    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/frits");
-    let mut seen = 0;
-    for entry in fs::read_dir(dir).expect("the frits") {
-        let path = entry.expect("an entry").path();
-        let text = fs::read_to_string(&path).expect("a frit");
-        seen += 1;
-        for line in text.lines() {
-            assert!(
-                !line.trim_start().starts_with("source=builtin:"),
-                "{}: {line}",
-                path.display()
+    let mut seen = Vec::new();
+    for folder in fs::read_dir(catalog()).expect("the frits") {
+        let folder = folder.expect("a folder").path();
+        for entry in fs::read_dir(&folder).expect("a category") {
+            let path = entry.expect("an entry").path();
+            let text = fs::read_to_string(&path).expect("a frit or a layer");
+            seen.push(
+                path.strip_prefix(catalog())
+                    .expect("in the frits")
+                    .to_owned(),
             );
+            for line in text.lines() {
+                assert!(
+                    !line.trim_start().starts_with("source=builtin:"),
+                    "{}: {line}",
+                    path.display()
+                );
+            }
         }
     }
-    assert_eq!(seen, 4, "minspec-8, minspec-16, proof and tiny5");
+    let count = |dir: &str| seen.iter().filter(|p| p.starts_with(dir)).count();
+    let counts = [
+        "console", "classic", "code", "nerd", "scripts", "small", "layers",
+    ]
+    .map(count);
+    assert_eq!(counts, [7, 3, 8, 7, 9, 3, 13], "{seen:?}");
+    assert_eq!(seen.len(), 50, "no file outside the folders: {seen:?}");
 }
 
-/// Each shipped minspec frit, drawn here from stand-ins of the fonts it
-/// names: the outline fixture as `Noto Color Emoji`, its color square at
-/// U+23F3, U+2B50 and U+1F600, and as `Symbols Nerd Font Mono`, its bar
-/// at U+23FB, U+2B58 and U+E0B0. Each of those codepoints draws from the
-/// font the frit takes it from, in the frit's cell.
+/// Each shipped small panel set, drawn here from stand-ins of the fonts it
+/// names: a BDF font of the set's cell as its text font, the outline
+/// fixture as `Noto Color Emoji`, its color square at U+23F3, U+2B50 and
+/// U+1F600, and as `Symbols Nerd Font Mono`, its bar at U+23FB, U+2B58 and
+/// U+E0B0. Each of those codepoints draws from the font the set's layers
+/// take it from, in the set's cell.
 #[test]
-fn the_minspec_frits_take_each_chosen_symbol_from_its_font() {
-    for (frit, at) in [("minspec-16", cell(8, 16)), ("minspec-8", cell(8, 8))] {
+fn the_small_panel_sets_take_each_chosen_symbol_from_its_font() {
+    for (frit, text_font, at) in [
+        (
+            "unifont-icons",
+            "/usr/share/vtium/fonts/unifont-17.0.03.bdf",
+            cell(8, 16),
+        ),
+        (
+            "unscii-icons",
+            "/usr/share/fonts/vtium/unscii-8.bdf",
+            cell(8, 8),
+        ),
+    ] {
         let w = World::new(&format!("shipped-{frit}"));
         let mut emoji = ttf::test_mono();
         emoji.family = "Noto Color Emoji".to_owned();
@@ -661,12 +711,19 @@ fn the_minspec_frits_take_each_chosen_symbol_from_its_font() {
             nerd.build(),
         )
         .expect("font");
+        let bdf = w.path("fonts/text.bdf");
+        fs::write(&bdf, bdf_of_a(at)).expect("the text font");
         let text = shipped(frit);
         assert!(
             text.lines()
                 .any(|l| l == format!("cell={}x{}", at.width, at.height)),
             "{frit} states its cell"
         );
+        assert!(
+            text.contains(&format!("source=bdf:{text_font}\n")),
+            "{frit}"
+        );
+        let text = text.replace(text_font, &bdf.display().to_string());
         let face = SetFace::new(w.drawn(&text, at), at.height).expect("a face");
         for c in ['\u{23f3}', '\u{2b50}', '\u{1f600}'] {
             let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
@@ -674,21 +731,28 @@ fn the_minspec_frits_take_each_chosen_symbol_from_its_font() {
         }
         for c in ['\u{23fb}', '\u{2b58}', '\u{e0b0}'] {
             let g = face.draw_unscaled(&[c], Style::default()).expect("drawn");
-            // the bar's edges are partly covered: an outline, not a bitmap
+            // only the Nerd Font's stand-in holds it, and behind a bitmap
+            // text font its outline draws in 1 bit
+            assert!(g.pixels().iter().any(|&p| p > 0), "{frit} {c:?} has ink");
             assert!(
-                g.pixels().iter().any(|&p| p > 0 && p < 255),
-                "{frit} {c:?} is not the Nerd Font's"
+                g.pixels().iter().all(|&p| p == 0 || p == 255),
+                "{frit} {c:?} draws in 1 bit behind a bitmap text font"
             );
         }
     }
 }
 
-/// The shipped proof frit, drawn from stand-ins of its three fonts, takes
-/// Nerd Fonts' private-use symbols but not Font Logos (U+F300-U+F385),
-/// which carries no licence grant.
+/// The shipped jetbrains-mono set, drawn from stand-ins of its fonts, takes
+/// every Nerd Fonts icon from Symbols Nerd Font Mono, the Font Logos
+/// (U+F300-U+F385) included, because the font is one the system installed.
+///
+/// References:
+/// - ADR-1204 D5: the nerd-symbols layer covers U+E000-U+F8FF.
+/// - ADR-1204 D8: the Font Logos come from a Nerd Fonts file the system
+///   installed.
 #[test]
-fn the_proof_frit_leaves_font_logos_out() {
-    let w = World::new("shipped-proof");
+fn the_jetbrains_mono_set_takes_the_font_logos_from_an_installed_nerd_font() {
+    let w = World::new("shipped-jetbrains-mono");
     let mut text = ttf::test_mono();
     text.family = "JetBrains Mono".to_owned();
     text.colr.clear();
@@ -708,17 +772,34 @@ fn the_proof_frit_leaves_font_logos_out() {
         nerd.build(),
     )
     .expect("font");
-    let face = SetFace::new(w.drawn(&shipped("proof"), cell(8, 16)), 16).expect("a face");
+    let face = SetFace::new(w.drawn(&shipped("jetbrains-mono"), cell(8, 16)), 16).expect("a face");
     for (c, held) in [
         (0xe0b0, true),
         (0xf2ff, true),
-        (0xf300, false),
-        (0xf385, false),
+        (0xf300, true),
+        (0xf385, true),
         (0xf386, true),
     ] {
         let c = char::from_u32(c).expect("a char");
         assert_eq!(face.has_glyph(c), held, "{c:?}");
     }
+}
+
+/// A BDF font of the cell `at` that holds only `A`, a block one row short
+/// of the cell, as a small panel set's text font stands in.
+fn bdf_of_a(at: Cell) -> String {
+    let row = format!("{:02X}\n", 0xffu8 << (8 - at.width.min(8)));
+    format!(
+        "STARTFONT 2.1\nFONT -test-a-medium-r-normal--{h}-{h}-75-75-c-{w}0-iso10646-1\n\
+         SIZE {h} 75 75\nFONTBOUNDINGBOX {w} {h} 0 -1\nSTARTPROPERTIES 2\n\
+         FONT_ASCENT {a}\nFONT_DESCENT 1\nENDPROPERTIES\nCHARS 1\nSTARTCHAR A\n\
+         ENCODING 65\nSWIDTH 500 0\nDWIDTH {w} 0\nBBX {w} {a} 0 0\nBITMAP\n{rows}\
+         ENDCHAR\nENDFONT\n",
+        w = at.width,
+        h = at.height,
+        a = at.height - 1,
+        rows = row.repeat((at.height - 1) as usize),
+    )
 }
 
 /// A BDF font in the shape the published Tiny5Mono.bdf has: a 6x9 cell, 7
@@ -779,8 +860,13 @@ ENDFONT
 #[test]
 fn the_tiny5_frit_reads_its_bdf_as_published() {
     let w = World::new("shipped-tiny5");
-    let text = shipped("tiny5");
-    for line in ["name=tiny5", "cell=6x9", "license=OFL-1.1"] {
+    // the set's own source, without the layers it adds
+    let text: String = shipped_own("tiny5")
+        .lines()
+        .filter(|l| !l.starts_with("layer="))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    for line in ["name=tiny5", "cell=6x9", "license=OFL-1.1 AND MIT"] {
         assert!(text.lines().any(|l| l == line), "tiny5 has {line}");
     }
     let sources: Vec<&str> = text.lines().filter(|l| l.starts_with("source=")).collect();
