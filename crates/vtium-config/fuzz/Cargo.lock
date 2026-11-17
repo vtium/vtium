@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-config"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "bzip2",
  "harfrust",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-devices"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "vtium-platform",
  "vtium-settings",
@@ -901,18 +901,18 @@ dependencies = [
 
 [[package]]
 name = "vtium-font"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "miniz_oxide 0.8.9",
 ]
 
 [[package]]
 name = "vtium-parse"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 
 [[package]]
 name = "vtium-platform"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "calloop",
  "drm-ffi",
@@ -925,7 +925,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-render"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "vtium-font",
  "vtium-term",
@@ -933,7 +933,7 @@ dependencies = [
 
 [[package]]
 name = "vtium-settings"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "rustix",
  "vtium-font",
@@ -942,14 +942,14 @@ dependencies = [
 
 [[package]]
 name = "vtium-term"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "vtium-parse",
 ]
 
 [[package]]
 name = "vtium-testfont"
-version = "0.1.0-alpha.8"
+version = "0.1.0-alpha.9"
 dependencies = [
  "miniz_oxide 0.8.9",
  "vtium-font",
