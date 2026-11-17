@@ -8,6 +8,10 @@ These screens are vtium's own drawing on a Linux VT at 1920×1080. Tier 3, vtium
 
 vtium draws a shell session on a 1920×1080 display in Iosevka Term, 28 rows of 128 columns. The prompts are powerline segments with an icon from Symbols Nerd Font Mono. Below them are a colored directory listing, a git history with its branch graph, and a gallery of six pictures in kitty graphics with their file names. Then come greetings in several scripts with emoji, and a line of text styles. The styles are straight, double, curly, dotted and dashed underlines, a curly underline in a color of its own, strike, inverse and dim. vtium's own gallery tool, tools/gallery/gallery, draws the gallery. It shows four pictures computed from a few lines of arithmetic, and two photographs NASA's astronauts took, Earthrise and the Blue Marble. The scene writes the rest of the session byte for byte, and the last prompt is the shell's own, with its cursor.
 
+![Nine parts of vtium's showcase screens, in three rows of three. The first row shows a title in letters of double size, rows of color emoji, and the Mandelbrot set drawn in sixel. The second row shows Tamil, Hindi and Kannada syllables, a shell prompt above a gallery of pictures, and three cubes of the 256 colors. The third row shows Rust code with programming ligatures and a bar graph in a box. Last comes one sentence in Chinese, Japanese, Korean, Thai, Vietnamese, Hindi and Bengali.](grid.png)
+
+Nine parts of the screens on this page, each cropped at full size with no scaling.
+
 ## Text and fonts
 
 ![A console screen in a smooth monospaced font: a gold title twice as tall and twice as wide reading Lines of double size, a gray normal line under it, a light blue heading twice as wide, words twice as wide in single, double, curly, dotted and dashed underlines, struck and overlined, a blue badge reading READY twice as tall beside the words in 24-bit color, Greek and Russian words twice as wide, and two rulers of digits, one twice as wide, both ending at the right edge.](double-size.png)
@@ -85,6 +89,8 @@ vtium's minspec build draws this on a 320×240 display, the smallest vtium suppo
 ## How these screens are made
 
 `tools/tier3/showcase.sh` built vtium at commit `783fe28f+dirty`, whose console logged itself as vtium v0.1.0-alpha.8-645-g783fe28f-dirty. It ran tier 3's variant `showcase-1920x1080` on 2026-11-16 and wrote these pages. The variant's machine has 4 virtual CPUs, 4096 MB of memory, a virtio-vga display at 1920×1080 and Linux 7.2.11-arch1-1. It runs vtium built with the `images` and `bidi` features, drawing on its CPU renderer. The console starts in a character cell of 16×40 pixels. The shell scene, the hero, switches to a font set of its own, `showcase-shell`, with a cell of 15×38 pixels, so the hero holds 28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
+
+`t3_showcase.py grid` cuts the grid at the top of this page out of nine of these screens. It lays the nine panes out in three rows, with a gray line of one pixel between them.
 
 Each figure under "How it behaves" is an SVG drawn by hand and kept in `docs/figures/`. Where a claim file lies beside a figure, it names the code that each step rests on, and `docs/scripts/claims` checks that the code is still there.
 

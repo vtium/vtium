@@ -54,7 +54,7 @@ $ vtium check-config
 $ vtium check-config ./vtium.conf
 ```
 
-`vtium check-config` exits 1 when it finds an error or a warning, and 0 when it finds none.
+`vtium check-config` exits 0 when it finds no error or warning. It exits 6 when its only warnings are about missing fonts. A font is missing when a font set needs it and it is not installed, or when the installed font lacks a character that the font set checks for. vtium draws the font set without that font, so `vtium config install` installs such a file anyway. Any other error or warning makes `vtium check-config` exit 1. Both 1 and 6 are failures to a script that accepts only 0.
 
 It also refuses a file that leaves nobody at the machine able to type. Such a file has no complete route. A complete route is two things together:
 
@@ -194,7 +194,7 @@ Everything `vtium config` does runs as you, apart from one step of an install. I
 
 An install takes three steps:
 
-1. **As you,** vtium-config first checks that the installed file has not changed since the draft was made from it. If it has changed, vtium-config refuses the draft with exit status 3, and asks nothing. It then checks the draft with `vtium check-config`. It refuses a draft that fails the check, with exit status 1. Last, it builds an install bundle in a new directory under `~/.local/state/vtium/drafts/`, named for the time. The bundle holds the new vtium.conf, and any frits that the TUI's Fonts view has waiting to install. It also holds a list of each file that the bundle replaces. The list gives the SHA-256 of each of those files as it is when the install starts.
+1. **As you,** vtium-config first checks that the installed file has not changed since the draft was made from it. If it has changed, vtium-config refuses the draft with exit status 3, and asks nothing. It then checks the draft with `vtium check-config`. It refuses a draft that fails the check, with exit status 1. Missing fonts are the one exception. When the check exits 6 because its only warnings are about missing fonts, vtium-config shows the warnings and installs the draft. Last, it builds an install bundle in a new directory under `~/.local/state/vtium/drafts/`, named for the time. The bundle holds the new vtium.conf, and any frits that the TUI's Fonts view has waiting to install. It also holds a list of each file that the bundle replaces. The list gives the SHA-256 of each of those files as it is when the install starts.
 2. **As root,** one command runs: `sudo /usr/bin/vtium-config apply DIR`, where DIR is the bundle's directory. sudo asks for your password here. The command takes no option that names a path or a program, so a sudo rule can allow exactly that command. The command reads the bundle without following links. It refuses the bundle, and writes nothing, when a file it would replace has changed since the install started. It checks every file before it writes any. It checks each frit with vtium's frit reader, and the new vtium.conf with the console's own `vtium check-config`. It then writes the frits first, and vtium.conf after them, so that vtium.conf never names a frit that is not there yet. It writes each new file beside the old one, with mode 0644, and renames it into place. It keeps the old file as `NAME.bak`, such as `vtium.conf.bak`. This step is one short process. It takes about 20 ms on the maintainer's machine, check included. A large vtium.conf or many frits take longer.
 3. **As you again,** vtium-config saves the file that the install replaced in your installed history. It records the new installed file as the draft's base. The draft and the installed file are then the same.
 
@@ -215,7 +215,7 @@ So after `vtium config install` or the TUI's Install writes `/etc/vtium/vtium.co
 
 ## The TUI
 
-`vtium config tui` opens the TUI, vtium-config's full-screen view of the configuration, in the terminal you run it in. It needs a terminal of at least 80×25 character cells. In a smaller terminal, it shows only the size it needs and the commands. The commands work at any size. The TUI has five views: Flow, Looks, Fonts, Settings, and Help. It opens on Flow. Tab moves to the next view and Shift-Tab to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, or a value you are typing is open, Tab does nothing. Press Esc to close it first. While a question waits for your answer, Tab answers no.
+`vtium config tui` opens the TUI, vtium-config's full-screen view of the configuration, in the terminal you run it in. It needs a terminal of at least 80×25 character cells. In a smaller terminal, it shows only the size it needs and the commands. The commands work at any size. There, `q` quits, or first asks on one row when changes are not saved. The TUI has five views: Flow, Looks, Fonts, Settings, and Help. It opens on Flow. Tab moves to the next view and Shift-Tab to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, or a value you are typing is open, Tab does nothing. Press Esc to close it first. While a question waits for your answer, it takes only its own keys: `y` answers yes, and Esc or Ctrl-C goes back without changing anything. Every other key, Tab included, does nothing.
 
 ### The Flow view
 
@@ -325,14 +325,18 @@ Each change you make goes into a set of unsaved changes. The status line counts 
 
 The tab bar shows the Flow view's actions beside the views' names: `v View file`, `s Save`, `i Install`, `r Revert` and `n New`. Each one acts on the whole draft.
 
-- **View file**, on `v`, shows the draft's vtium.conf with the unsaved changes applied. This is what Install would write. It opens at the line of the highlighted box, and marks each line that the check complains about. Its keys are `s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back`.
+- **View file**, on `v`, shows the draft's vtium.conf with the unsaved changes applied. This is what Install would write. It opens at the line of the highlighted box, and marks each line that the check complains about. Its keys are `Esc back  s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q quit`. Esc goes back to the configuration, and `q` quits as it does everywhere.
 - **Save**, on `s`, writes the unsaved changes into the draft. It asks nothing, because a draft can be unfinished.
 - **Install**, on `i`, saves first and runs the check. When the check fails, Install refuses and lists what fails. Otherwise it asks `Install the draft? 3 lines added, 1 removed.` and installs as [above](#when-vtium-config-asks-for-sudo). When the only problem is that no complete route exists, it asks before it installs anyway. The TUI leaves its screen while sudo asks for your password. It also leaves its screen while it enables vtium on the VTs your heads name and asks whether to restart vtium. [How an install reaches the VTs](#how-an-install-reaches-the-vts) describes those steps.
 - **Revert**, on `r`, asks `Throw away the draft's changes? 3 lines added and 1 removed will be lost.` and then copies the installed file back over the draft.
-- **Restore**, on `o`, lists the installed history. It copies the file you choose into the draft after asking, for example, `Replace the draft with earlier file 1? 2 lines added and 5 removed will be lost.`
+- **Restore**, on `o`, lists the installed history. It copies the file you choose into the draft after asking, for example, `Replace the draft with earlier file 1? 2 lines added and 5 removed will be lost.` Esc closes the list, and `q` quits.
 - **New**, on `n`, asks `Start a new configuration? The draft's heads, rules and looks will be lost.` It then empties the draft to the short comment, `version = 1` and one look, `[look default]`, so that it sets no setting.
 
-When you press `q` with changes that are not saved, the view asks whether to save them first, for example `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.`
+When you press `q` with changes that are not saved, the view asks whether to save them first, for example `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.` With nothing unsaved, `q` quits at once.
+
+When font sets that you made or removed in the Fonts view wait for an install, `q` asks `Install before you quit? Quitting without installing loses the removal of tiny5. y installs and quits, n quits without installing, and Esc goes back.` Both `y` and `n` first save the changes that are not saved, and the question says so when there are any. When the install fails, the TUI stays and says why.
+
+Ctrl-C saves the changes that are not saved and quits, without a question. At a question, Ctrl-C goes back, as Esc does.
 
 #### The keys
 
@@ -348,12 +352,13 @@ The key line shows the keys that fit what you are doing. With nothing open, it r
 | Enter | opens the highlighted box: a template's part maker, a part's detail, or a terminal's card |
 | `a` | adds the path in NEW PATH to CONFIGURATION |
 | `e` | revises the highlighted path |
-| Esc | clears NEW PATH, or closes what is open |
+| Esc | clears NEW PATH, or closes what is open. While something is open, the action keys do nothing until you close it. |
 | `v`, `s`, `i`, `r`, `o`, `n` | View file, Save, Install, Revert, Restore and New |
 | `d` | reads every device again |
 | `p` | previews a complete path on the console. vtium does not have the console's control socket for this yet, so `p` says in one sentence why it cannot. |
 | `t` | says whether you can try a font on this console. The Fonts view tries one with `t`. |
-| `q` | leaves |
+| `q` | quits, and asks first when changes are not saved or font sets wait for an install |
+| Ctrl-C | saves the changes that are not saved, and quits |
 
 The mouse selects a box with a click and opens it with a second click.
 
@@ -361,7 +366,7 @@ The Looks view lists the console's sizes until vtium-config edits looks of their
 
 The Fonts view lists the frits and the built-in fonts. It shows each one as a picture of the console rendered in that font. With `t`, it tries one on the live console. It also makes and removes frits. A frit that you make or remove there waits, and goes in with the next Install. See [Choose a font](fonts.md#choosing-a-font-with-vtium-config) for details.
 
-The Settings view lists every setting with its value. Enter changes the highlighted setting in the draft. The Help view lists the keys of each view, and the commands.
+The Settings view lists every setting with its value. Enter changes the highlighted setting in the draft. While you type a value, Enter keeps it and Esc drops it. The Help view lists the keys of each view, and the commands. Its tab bar shows no action, so `s` and `i` do nothing there.
 
 ## Edit the file as root
 
@@ -380,6 +385,33 @@ A draft that was made before such an edit shows `made before the installed file 
 
 ```
 # vtium blank --vt 3
+```
+
+## Keep your own cursor style
+
+A session starts with the cursor that vtium.conf sets: a block, which blinks while `blink` is on. A program can change the cursor's style, and many programs reset it when they exit. Programs such as vim send terminfo's `Se` capability as they exit, and vtium's terminfo entry makes `Se` return to the cursor vtium.conf sets. So after you quit vim, the cursor is the one the session started with.
+
+To keep a style of your own, have your shell send it each time it shows a prompt. The sequence is `ESC [ N SP q`. N picks the style: 0 or 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar, 6 a steady bar. 7 returns to the cursor vtium.conf sets. A style you choose blinks or stays steady as its number says, whatever `blink` says.
+
+For bash, this line in `~/.bashrc` asks for a blinking bar at each prompt:
+
+```sh
+PROMPT_COMMAND="printf '\e[5 q'; $PROMPT_COMMAND"
+```
+
+For zsh, these lines go in `~/.zshrc`:
+
+```zsh
+cursor_bar() { printf '\e[5 q' }
+precmd_functions+=(cursor_bar)
+```
+
+For fish, these lines go in `~/.config/fish/config.fish`:
+
+```fish
+function cursor_bar --on-event fish_prompt
+    printf '\e[5 q'
+end
 ```
 
 ## Remove the login picture when you log in

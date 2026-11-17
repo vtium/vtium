@@ -2,8 +2,9 @@
 //!
 //! A glyph is cached under its text (the cluster's codepoints), its
 //! variant (bold, italic, and superscript or subscript), its width in
-//! cells and its piece: the glyph itself, or one cell of it doubled for a
-//! line of double size (`crate::renderer::double`). So the same text in the same variant is drawn by the font once however often the screen re-creates it. Glyphs
+//! cells and its piece: the glyph itself, one cell of it doubled for a
+//! line of double size (`crate::renderer::double`), or one cell of a sized
+//! run's block (`crate::renderer::sized`). So the same text in the same variant is drawn by the font once however often the screen re-creates it. Glyphs
 //! live in four pools, masks and color glyphs each one or two cells wide,
 //! and each pool has its own least-recently-used order, a glyph count and a
 //! byte ceiling. Recency is the drawn frame. A glyph that would evict one
@@ -29,6 +30,7 @@ use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
 use crate::mono::Fallback;
 use crate::reach::Reach;
 use crate::renderer::double::{self, Piece};
+use crate::renderer::sized::{Block, RunPiece, RunSize};
 use crate::stored::Stored;
 use crate::target::Orientation;
 
@@ -263,6 +265,20 @@ struct LastDoubled {
     glyph: Option<Glyph>,
 }
 
+/// The block a sized run last drew, for its text, variant and size, which
+/// each cell's piece of the run is cut from. A run's cells on one row draw
+/// one after the other, so the block is drawn once for each row of the run
+/// whose pieces are not yet cached, not once for each cell. Runs side by
+/// side take turns on each row, so each of them draws its block again on
+/// each of its rows.
+#[derive(Debug)]
+struct LastSized {
+    text: Text,
+    variant: Variant,
+    size: RunSize,
+    block: Option<Block>,
+}
+
 /// A glyph the font drew nothing for: its text, variant, width and piece.
 #[derive(Debug)]
 struct Failed {
@@ -305,6 +321,8 @@ pub(crate) struct GlyphCache<T = Stored> {
     /// after the other, so the font draws the glyph once for them, not
     /// once for each piece. An arrival forgets it.
     last_doubled: Option<LastDoubled>,
+    /// The block a sized run last drew. An arrival forgets it.
+    last_sized: Option<LastSized>,
     /// The font has drawn a glyph whose ink passes its cells.
     reaching: bool,
     /// How far the glyph of each ASCII character in each variant reaches,
@@ -366,6 +384,7 @@ impl<T: Held> GlyphCache<T> {
             missing: Vec::new(),
             fallback: None,
             last_doubled: None,
+            last_sized: None,
             reaching: false,
             reaches: Vec::new(),
         }
@@ -389,6 +408,7 @@ impl<T: Held> GlyphCache<T> {
         self.failed.clear();
         self.reaches.clear();
         self.last_doubled = None;
+        self.last_sized = None;
         // eviction frees an entry in place, so the indices ahead stand
         for i in 0..self.entries.len() {
             let Ok(i) = u32::try_from(i) else { break };
@@ -477,6 +497,19 @@ impl<T: Held> GlyphCache<T> {
             return None;
         }
         self.counts.misses = self.counts.misses.saturating_add(1);
+        if let Some(run) = piece.run() {
+            let ((glyph, color), missing) = self.run_piece(font, (text, variant), run)?;
+            if missing {
+                self.missing.extend_from_slice(text);
+            }
+            let (o, bits) = (self.orientation, self.storage.bits);
+            let stored = Stored::new(&glyph, 1, o, bits);
+            let stored = match color {
+                Some(c) => stored.with_layer(Stored::new(&c, 1, o, bits)),
+                None => stored,
+            };
+            return Some((stored, missing));
+        }
         let drawn = if self.storage.unscaled {
             font.glyph_unscaled_variant(text, width, variant)
         } else {
@@ -556,6 +589,33 @@ impl<T: Held> GlyphCache<T> {
             });
         }
         self.last_doubled.as_ref().and_then(|d| d.glyph.as_ref())
+    }
+
+    /// The piece `run` of the sized run whose text is `text`, cut from the
+    /// run's block ([`Block::draw`]): the block last drawn when it is for
+    /// the same text, variant and size, else drawn now and kept in its
+    /// place. Gives whether any of the run's clusters drew the font's
+    /// missing glyph.
+    fn run_piece<F: Face>(
+        &mut self,
+        font: &Font<F>,
+        (text, variant): (&[char], Variant),
+        run: RunPiece,
+    ) -> Option<((Glyph, Option<Glyph>), bool)> {
+        let same = self
+            .last_sized
+            .as_ref()
+            .is_some_and(|l| l.text.chars() == text && l.variant == variant && l.size == run.size);
+        if !same {
+            self.last_sized = Some(LastSized {
+                text: Text::of(text),
+                variant,
+                size: run.size,
+                block: Block::draw(font, (text, variant), run.size, self.fallback.as_ref()),
+            });
+        }
+        let block = self.last_sized.as_ref()?.block.as_ref()?;
+        Some((block.piece(font.cell(), run)?, block.missing))
     }
 
     /// Whether the font has drawn a glyph whose ink passes its cells: until

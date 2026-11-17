@@ -650,14 +650,14 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
     .expect("a frit");
     std::fs::write(
         fonts.join("none.vtfrit"),
-        "source=font:No Such Family Anywhere\n",
+        "source=font:No Such Family Anywhere\nversion=2.304\nurl=https://example.org/nsfa\n",
     )
     .expect("a frit");
     std::fs::write(fonts.join("broken.vtfrit"), "colour=red\n").expect("a frit");
     let ran = f.run(&["--font-dir", "/nonexistent", "fonts"]);
     assert_eq!(ran.status, 0, "{}", ran.err);
     let lines: Vec<&str> = ran.out.lines().collect();
-    assert_eq!(lines.len(), 7, "{}", ran.out);
+    assert_eq!(lines.len(), 11, "{}", ran.out);
     assert!(
         lines[0].starts_with("broken\tcannot be read: "),
         "{}",
@@ -673,6 +673,141 @@ fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
     assert_eq!(lines[4], "tiny\treads\t");
     assert_eq!(lines[5], "unifont\tbuilt in\t");
     assert_eq!(lines[6], "unscii-8\tbuilt in\t");
+    // the report after the list names the font half needs
+    assert_eq!(
+        lines[7],
+        "Font set half needs the font No Such Family Anywhere, and no font of that name is installed."
+    );
+    // a set with no font left names its fonts as a set with some left
+    // does, with the version it asks for and the font's page
+    assert_eq!(
+        lines[8],
+        "Font set none needs the font No Such Family Anywhere, version 2.304 or later, and no font of that name is installed."
+    );
+    assert_eq!(
+        lines[9],
+        "You can get the font from https://example.org/nsfa."
+    );
+    assert_eq!(
+        lines[10],
+        "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font."
+    );
+}
+
+/// A BDF font of one character, `A`, whose `FONT_VERSION` is 3.000.
+const BDF_3_000: &str = "STARTFONT 2.1\n\
+    FONT -test-\n\
+    SIZE 6 75 75\n\
+    FONTBOUNDINGBOX 8 6 0 -1\n\
+    STARTPROPERTIES 4\n\
+    FONT_VERSION \"3.000\"\n\
+    FONT_ASCENT 5\n\
+    FONT_DESCENT 1\n\
+    CHARSET_REGISTRY \"ISO10646\"\n\
+    ENDPROPERTIES\n\
+    CHARS 1\n\
+    STARTCHAR A\n\
+    ENCODING 65\n\
+    DWIDTH 8 0\n\
+    BBX 3 5 1 0\n\
+    BITMAP\n\
+    40\nA0\nE0\nA0\nA0\n\
+    ENDCHAR\n\
+    ENDFONT\n";
+
+/// After its list, `fonts` names each font a set needs that is not
+/// installed, with the version the set asks for and the font's page; an
+/// installed font of that name that lacks a character `check=` names; an
+/// older version; and a font file with a different SHA-256. A last line
+/// points to the help page on installing fonts, and no line of the report
+/// holds a tab, so none reads as a font's line.
+///
+/// References:
+/// - ADR-1204 D7: vtium-config's report of missing fonts and of fonts that
+///   differ.
+#[test]
+fn fonts_names_each_missing_or_different_font_and_its_page() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    let f = fixture("fonts-needs", None);
+    let fonts = f.etc().join("fonts");
+    let (older, plain) = (f.root.join("older.bdf"), f.root.join("plain.bdf"));
+    std::fs::write(&older, BDF_3_000).expect("a font");
+    std::fs::write(&plain, BDF_3_000).expect("a font");
+    std::fs::write(
+        fonts.join("want.vtfrit"),
+        format!(
+            "source=font:No Such Family Anywhere\n\
+             version=2.304\n\
+             url=https://example.org/nsfa\n\
+             source=bdf:{}\n\
+             version=3.1\n\
+             sha256={}\n\
+             url=https://example.org/older\n\
+             source=bdf:{}\n\
+             check=U+0041\n\
+             check=U+E0B0\n\
+             source=builtin:unifont\n\
+             source=bdf:/nonexistent/vtium-gone.bdf\n\
+             version=1.0\n\
+             layer=gone\n",
+            older.display(),
+            "0".repeat(64),
+            plain.display()
+        ),
+    )
+    .expect("a frit");
+    // a layer's font is named with the version and page its layer gives
+    std::fs::create_dir_all(fonts.join("layers")).expect("the layers' folder");
+    std::fs::write(
+        fonts.join("layers/gone.vtlayer"),
+        "role=symbols\n\
+         source=font:Gone Layer Nowhere\n\
+         version=1.5\n\
+         url=https://example.org/layer\n",
+    )
+    .expect("a layer");
+    let ran = f.run(&["--font-dir", "/nonexistent", "fonts"]);
+    assert_eq!(ran.status, 0, "{}", ran.err);
+    let report: Vec<&str> = ran.out.lines().filter(|l| !l.contains('\t')).collect();
+    assert_eq!(
+        report,
+        [
+            "Font set want needs the font No Such Family Anywhere, version 2.304 or later, and no font of that name is installed.".to_owned(),
+            "You can get the font from https://example.org/nsfa.".to_owned(),
+            format!(
+                "Font set want needs the font {}. The font file at that path lacks the character U+E0B0, so it is a different font, and vtium does not use it.",
+                plain.display()
+            ),
+            // a font named by its path is a file, not an installed font
+            "Font set want needs the font /nonexistent/vtium-gone.bdf, version 1.0 or later, and there is no file at that path.".to_owned(),
+            "Font set want needs the font Gone Layer Nowhere, version 1.5 or later, and no font of that name is installed.".to_owned(),
+            "You can get the font from https://example.org/layer.".to_owned(),
+            format!(
+                "Font set want asks for the font {}, version 3.1 or later, and the installed font is version 3.000. vtium still uses it.",
+                older.display()
+            ),
+            "You can get the font from https://example.org/older.".to_owned(),
+            format!(
+                "The font file {} that font set want names has a different SHA-256 from the one the font set gives, so it may be another version of the font. vtium still uses it.",
+                older.display()
+            ),
+            "You can get the font from https://example.org/older.".to_owned(),
+            "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font.".to_owned(),
+        ]
+    );
+    // the font's own line still lists the sources left out
+    assert!(
+        ran.out.lines().any(|l| l
+            == format!(
+                "want\treads\tfont:No Such Family Anywhere, bdf:{}, bdf:/nonexistent/vtium-gone.bdf, font:Gone Layer Nowhere",
+                plain.display()
+            )),
+        "{}",
+        ran.out
+    );
 }
 
 /// A font-frits that is no absolute path names no directory vtium-config

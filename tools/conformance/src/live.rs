@@ -135,6 +135,11 @@ pub fn screen(term: &Terminal) -> Vec<u8> {
 pub fn below(rows: usize) -> Vec<u8> {
     let mut out = String::from("\x1b[0m\x1b8");
     down(&mut out, rows.saturating_sub(1));
+    // DECSCUSR 0 puts back a blinking block, the cursor a shell has under
+    // vtium's default configuration and the reset that xterm's control
+    // sequences give. No sequence returns a vtium console to its own
+    // configured style short of DECSTR, which would also reset the modes,
+    // the palette and the margins that the player's shell set.
     out.push_str("\r\n\x1b[?7h\x1b[8h\x1b[0 q\x1b]112\x1b\\\x1b[?25h");
     out.into_bytes()
 }

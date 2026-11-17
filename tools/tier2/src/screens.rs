@@ -3194,6 +3194,45 @@ const BASE: &[Case] = &[
         b"\x1b[2;5H\x1b[4 q\x1b[?25h",
         LINES_OUTLINE,
     ),
+    // the sized run screens (kitty's text sizing protocol, OSC 66), each in
+    // unifont, a bitmap font whose pixels multiply by whole factors, and in
+    // the outline test font set
+    Case {
+        screen: Screen::new("runs-scale-unifont", RUNS_SCALE_DESC, RUNS_SCALE, 40, 10),
+    },
+    Case {
+        screen: outline("runs-scale", RUNS_SCALE_DESC, RUNS_SCALE, 40, 10),
+    },
+    Case {
+        screen: Screen::new(
+            "runs-fraction-unifont",
+            RUNS_FRACTION_DESC,
+            RUNS_FRACTION,
+            40,
+            6,
+        ),
+    },
+    Case {
+        screen: outline("runs-fraction", RUNS_FRACTION_DESC, RUNS_FRACTION, 40, 6),
+    },
+    Case {
+        screen: Screen::new(
+            "runs-decorations-unifont",
+            RUNS_DECORATIONS_DESC,
+            RUNS_DECORATIONS,
+            40,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "runs-decorations",
+            RUNS_DECORATIONS_DESC,
+            RUNS_DECORATIONS,
+            40,
+            10,
+        ),
+    },
     // the line size screens for the characters that are not plain text:
     // color emoji, marks, Arabic, Indic syllables, the sprites vtium draws
     // itself, and Powerline's symbols, each on a line of the normal size, a
@@ -3741,6 +3780,57 @@ const LINES_DWL: &[u8] = concat!(
 .as_bytes();
 
 const LINES_DWL_DESC: &str = "Two double-width lines (DECDWL, ESC # 6) between two lines of the normal size, 32 by 4 cells. The second line reads Double wide AaGg. The third reads red, green on a green background, rev in reverse video, and the wide character 中. Correct: each character on the two middle lines twice as wide as on the normal lines and as tall, each pixel of its glyph doubled sideways; the wide character across four cells; colors and reverse video covering both cells of each character; the normal lines unchanged.";
+
+/// The `runs-scale` screens: sized runs (OSC 66) at scales 2, 3 and 7,
+/// a wide character and a word in one block, and a run in colors. The
+/// run of scale 7 starts on the fourth row, so its block fits the screen.
+const RUNS_SCALE: &[u8] = concat!(
+    "Scale 1 \x1b]66;s=2;Ag\x07 \x1b]66;s=3;Ag\x07 \x1b]66;s=2;\u{4e2d}\x07",
+    "\x1b]66;s=2:w=3;Big\x07",
+    "\x1b[4;1H\x1b]66;s=7;R\x07 ",
+    "\x1b[31;47m\x1b]66;s=2;Red\x07\x1b[0m done",
+)
+.as_bytes();
+
+const RUNS_SCALE_DESC: &str = "Sized runs (kitty's text sizing protocol, OSC 66), 40 by 10 cells. The top row reads Scale 1 at the normal size, then A and g at scale 2, each across 2 by 2 cells, A and g at scale 3, each across 3 by 3 cells, the wide character 中 at scale 2 across 4 by 2 cells, and the word Big at scale 2 in one block of 6 by 2 cells. From the fourth row, R at scale 7 across 7 by 7 cells, then Red at scale 2 in red on a light gray background, then done at the normal size. Correct: each run's letters s times as wide and as tall as at the normal size, filling their blocks; in unifont each pixel of the glyph repeated as a square of s by s pixels; Big as wide as its 6 cells; the colors covering every cell of the red run; the normal text unchanged.";
+
+/// The `runs-fraction` screens: text at a fraction of its run's scale,
+/// at each vertical and horizontal alignment, half-size text that fits
+/// two letters in a cell, and text wider than its block.
+const RUNS_FRACTION: &[u8] = concat!(
+    "\x1b]66;s=2:n=1:d=2:v=0:h=0;T\x07|",
+    "\x1b]66;s=2:n=1:d=2:v=2:h=2;M\x07|",
+    "\x1b]66;s=2:n=1:d=2:v=1:h=1;B\x07|",
+    "\x1b]66;s=3:n=2:d=3:v=1:h=0;b\x07|",
+    "\x1b]66;s=3:n=1:d=3:v=2:h=2:w=2;mid\x07|",
+    "\x1b[4;1H",
+    "\x1b]66;n=1:d=2:w=1;Ha\x07\x1b]66;n=1:d=2:w=1;lf\x07 half; ",
+    "\x1b]66;n=1:d=2:v=1:w=1;sb\x07 sub; ",
+    "\x1b]66;w=2;Squeezed\x07 fits",
+)
+.as_bytes();
+
+const RUNS_FRACTION_DESC: &str = "Sized runs drawn at a fraction of their scale (OSC 66 with n and d), 40 by 6 cells, each block followed by a bar. The top rows hold T, M and B at half of scale 2, each the normal size inside a block of 2 by 2 cells: T at the top left, M in the middle, B at the bottom right. Then b at two thirds of scale 3, twice the normal size at the bottom left of a 3 by 3 block, and mid at a third of scale 3, the normal size, in the middle of a block of 6 by 3 cells. On the fourth row, Half at half size, two letters in each of two cells along the top of the row, then the word half; sb at half size in one cell along the bottom of the row, then the word sub; and Squeezed in a block of 2 cells, drawn smaller until it fits. At that size its letters cannot be read, so Squeezed is a minimum alignment check: it stands on the row's baseline. Correct: each fraction's text at n/d of its scale, placed in its block where v and h say; half-size letters two to a cell; Squeezed narrow, inside its 2 cells, standing on the row's baseline.";
+
+/// The `runs-decorations` screens: sized runs (OSC 66) under each
+/// underline style, a strike-through and an overline, which scale with the
+/// run's text; a run that mixes text with a color emoji; and a run with a
+/// curly underline across three cells of a double-width line.
+const RUNS_DECORATIONS: &[u8] = concat!(
+    "\x1b[4m\x1b]66;s=2;Ag\x07\x1b[m ",
+    "\x1b[4:3;58:5:1m\x1b]66;s=2;Ag\x07\x1b[m ",
+    "\x1b[9m\x1b]66;s=2;Ag\x07\x1b[m ",
+    "\x1b[53m\x1b]66;s=2;Ag\x07\x1b[m",
+    "\x1b[3;1H\x1b[4:2m\x1b]66;s=3;D\x07\x1b[m ",
+    "\x1b[4:4m\x1b]66;s=3;o\x07\x1b[m ",
+    "\x1b[4:5m\x1b]66;s=3;d\x07\x1b[m",
+    "\x1b[3;14H\x1b]66;s=2:w=4;Hi \u{1f389}\x07",
+    "\x1b[7;1H\x1b#6\x1b[4:3m\x1b]66;w=3;abc\x07\x1b[m",
+    "\x1b[8;1H\x1b[4;9;53;31m\x1b]66;s=2:w=3;All\x07\x1b[m",
+)
+.as_bytes();
+
+const RUNS_DECORATIONS_DESC: &str = "Sized runs (OSC 66) with decorations, 40 by 10 cells. The top two rows hold Ag at scale 2 four times: underlined, with a red curly underline, struck through, and overlined. From the third row, D, o and d at scale 3 with a double, a dotted and a dashed underline, and beside them Hi and a party popper emoji at scale 2 in one block of 8 by 2 cells. The seventh row is a double-width line holding abc in a run 3 cells wide with a curly underline. The last two rows hold All at scale 2 in red, underlined, struck through and overlined. Correct: each decoration as thick as the scale times its normal thickness, the underline under the block's bottom row, the strike through the block's middle and the overline over its top row, with no line across the middle of any letter; the curly, dotted and dashed underlines keeping their shape at the larger size; the emoji in its own colors beside the text; the curly underline on the double-width line unbroken under all three cells.";
 
 /// The `lines-dhl` screens: two double-height pairs (DECDHL, `ESC # 3`
 /// on the top line and `ESC # 4` on the bottom line), the second with

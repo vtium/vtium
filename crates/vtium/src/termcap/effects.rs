@@ -1038,8 +1038,19 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
                 t.input(&s(&[N(4)]));
                 assert_eq!(t.cursor_style(), CursorStyle::UnderlineSteady);
             } else {
+                // Se resets the cursor. vtium's entry sends `CSI 7 SP q`,
+                // which returns to the style vtium's configuration gives,
+                // so a program that restores the cursor on exit leaves the
+                // cursor the session started with. kmscon's published
+                // entry sends `CSI 0 SP q`, which DECSCUSR makes a
+                // blinking block.
                 t.input(&s(&[]));
-                assert_eq!(t.cursor_style(), CursorStyle::Default);
+                let reset = if entry.term == super::KMSCON {
+                    CursorStyle::BlockBlink
+                } else {
+                    CursorStyle::Default
+                };
+                assert_eq!(t.cursor_style(), reset, "{}: Se", entry.term);
             }
         }
         ("Cs", _) => {

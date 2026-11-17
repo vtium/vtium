@@ -582,7 +582,6 @@ impl App {
     /// leaves, and any other key puts the font back and does nothing else.
     pub(crate) fn trial_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
-            Key::Interrupt => self.leave(130),
             Key::Char('k') => {
                 if let Some(t) = self.trial.take() {
                     self.message = Some(words::trial_kept(&t.font));

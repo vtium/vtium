@@ -289,6 +289,15 @@ pub fn link_copied(uri: &str) -> String {
 pub mod check_config {
     use std::fmt::Display;
 
+    /// The sentences on a font that a font set needs and that is missing
+    /// or differs. vtium-config's `fonts` report says the same, so both
+    /// take them from vtium-settings' catalog.
+    ///
+    /// References:
+    /// - ADR-1204 D7: `vtium check-config` prints the same lines as
+    ///   `vtium config fonts`.
+    pub use vtium_settings::fonts_report as font_needs;
+
     /// The subcommand's help.
     pub const HELP: &str = "Usage: vtium check-config [OPTION]... [--no-devices] [FILE]\n\n\
 Checks vtium's configuration without applying it. It reads\n\
@@ -303,7 +312,11 @@ It also checks that at least one display that is connected reaches a\n\
 head that a keyboard reaches, and says what is missing if not. With no\n\
 display or keyboard connected, or with --no-devices, it checks the rules\n\
 alone and says so.\n\n\
-It exits 1 when it finds an error or warning, and 0 when it finds none.\n\
+It exits 0 when it finds no error or warning. It exits 6 when the only\n\
+warnings are fonts that a font set needs and this machine lacks: a font\n\
+that is not installed, or one that lacks a character the set checks for.\n\
+vtium-config installs such a file anyway, because vtium draws the set\n\
+without those fonts. Any other error or warning makes it exit 1.\n\
 Notes, printed on standard output, do not count: for example a weak\n\
 match, a rule that needs udev, a head no rule uses, a device no rule\n\
 places, a head whose VTs have no vtium enabled, a font helper vtium\n\

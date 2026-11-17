@@ -24,35 +24,55 @@ impl App {
         Vec::new()
     }
 
-    /// A key while a question is asked: `y` acts, any other key does not.
+    /// A key while a question is asked. `y` does what the question asks.
+    /// The quit question also takes `n`, which quits without the unsaved
+    /// changes, and the leave question takes `n`, which quits without
+    /// installing. Esc and Ctrl-C cancel the question and change nothing.
+    /// Every other key does nothing, and the question stays, so a stray
+    /// key cannot answer it.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The same keys in every view": the answer keys of
+    ///   every question, as the maintainer amended them on 2026-11-16.
     pub(crate) fn confirm_key(&mut self, key: Key) -> Vec<Effect> {
+        let leaves = matches!(
+            self.confirm.as_ref().map(|c| &c.then),
+            Some(Then::Quit(_) | Then::Leave(_))
+        );
+        match key {
+            Key::Char('y') => {}
+            Key::Char('n') if leaves => {}
+            Key::Escape | Key::Interrupt => {
+                self.confirm = None;
+                // going back from the install the leave question started
+                // leaves no install waiting
+                self.quit_after_install = None;
+                return self.say(if leaves {
+                    words::NOT_LEFT
+                } else {
+                    words::NOT_DONE
+                });
+            }
+            _ => return Vec::new(),
+        }
         let Some(confirm) = self.confirm.take() else {
             return Vec::new();
         };
-        if let Then::Quit(status) = confirm.then {
-            self.message = None;
-            return match key {
-                Key::Char('y') => self.save_and_leave(status),
-                Key::Char('n') => self.leave(status),
-                _ => self.say(words::NOT_LEFT),
-            };
-        }
-        if let Then::Leave(status) = confirm.then {
-            self.message = None;
-            return match key {
-                Key::Char('l') => self.leave(status),
-                Key::Char('i') => self.action('i'),
-                _ => self.say(words::NOT_LEFT),
-            };
-        }
-        if key != Key::Char('y') {
-            return self.say(words::NOT_DONE);
-        }
         self.message = None;
         match confirm.then {
+            Then::Quit(status) if key == Key::Char('n') => self.leave(status),
+            Then::Quit(status) => self.save_and_leave(status),
+            Then::Leave(status) if key == Key::Char('n') => self.save_and_leave(status),
+            // Install saves first, and the TUI leaves once it ends well;
+            // with no draft there is nothing to install, and nothing waits
+            Then::Leave(status) => {
+                if self.draft.is_some() {
+                    self.quit_after_install = Some(status);
+                }
+                self.action('i')
+            }
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
-            Then::Leave(_) | Then::Quit(_) => Vec::new(),
             Then::Install(plan) => {
                 self.installing = true;
                 self.message = Some(words::INSTALLING.to_owned());
@@ -61,9 +81,16 @@ impl App {
         }
     }
 
-    /// `q` or Ctrl-C: leaves, or, while new frits or frit removals wait
-    /// for an install, asks first, since leaving loses them (ADR-1403
-    /// D7): `i` installs, `l` leaves anyway, any other key goes back.
+    /// `q`: leaves, or asks first. While changes wait for Save, it asks
+    /// the quit question. While new frits or frit removals wait for an
+    /// install, it asks the leave question instead, since leaving loses
+    /// them. The leave question also names the changes that wait for
+    /// Save, and its `y` saves them before the TUI leaves, as the quit
+    /// question's does.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The same keys in every view": what `q` asks, and
+    ///   that the leave question names and saves the unsaved changes.
     pub(crate) fn quit(&mut self, status: u8) -> Vec<Effect> {
         if self.pending.is_empty() && self.unsaved > 0 {
             self.ask(words::quit_question(self.unsaved), Then::Quit(status));
@@ -73,14 +100,17 @@ impl App {
             return self.leave(status);
         }
         let added: Vec<String> = self.pending.frits.iter().map(|(n, _)| n.clone()).collect();
-        let question = words::leave_question(&added, &self.pending.removals);
+        let question = words::leave_question(&added, &self.pending.removals, self.unsaved);
         self.ask(question, Then::Leave(status));
         Vec::new()
     }
 
     /// Leaves with `status`, writing the unsaved changes into the draft
-    /// first: Ctrl-C, a signal, and `y` to the question `q` asks (ADR-1403
-    /// D7).
+    /// first: Ctrl-C, a signal, and `y` to the question `q` asks.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "What carries over": a signal saves the unsaved
+    ///   changes before the TUI leaves.
     pub(crate) fn save_and_leave(&mut self, status: u8) -> Vec<Effect> {
         // a TUI already leaving has answered for its changes
         if self.leaving.is_some() {
@@ -188,6 +218,7 @@ impl App {
             Ok(done) => done,
             Err(why) => {
                 self.select_after = None;
+                self.quit_after_install = None;
                 return self.say(&why);
             }
         };
@@ -235,7 +266,10 @@ impl App {
                 // is not there yet (ADR-1403 D8)
                 let frits = match self.frit_plan() {
                     Ok(frits) => frits,
-                    Err(why) => return self.say(&why),
+                    Err(why) => {
+                        self.quit_after_install = None;
+                        return self.say(&why);
+                    }
                 };
                 let n = frits.files.len().saturating_add(frits.removals.len());
                 let mut files = frits.files;
@@ -243,7 +277,17 @@ impl App {
                 plan.files = files;
                 plan.removals = frits.removals;
                 if plan.is_empty() {
-                    return self.say(words::NOTHING_TO_INSTALL);
+                    return match self.quit_after_install.take() {
+                        Some(status) => self.leave(status),
+                        None => self.say(words::NOTHING_TO_INSTALL),
+                    };
+                }
+                // `y` at the leave question already said to install; a draft
+                // with no complete route still asks its own question first
+                if self.quit_after_install.is_some() && !plan.no_route {
+                    self.installing = true;
+                    self.message = Some(words::INSTALLING.to_owned());
+                    return vec![Effect::Install(plan)];
                 }
                 let (added, removed) = match plan.files.last() {
                     Some(f) if self.draft.as_ref().is_some_and(|d| d.text == f.new) => self
@@ -263,6 +307,7 @@ impl App {
                 self.ask(question, Then::Install(plan));
             }
             Done::Refused(why, problems) => {
+                self.quit_after_install = None;
                 let mut lines = vec![why];
                 lines.extend(problems);
                 // the views beside the flow show one paragraph
@@ -291,7 +336,10 @@ impl App {
             Ok(Done::Draft(opened, _)) => (opened, None),
             Ok(Done::Installed(opened, outcome)) => (opened, Some(outcome)),
             Ok(_) => return Vec::new(),
-            Err(why) => return self.say(&words::install_failed(&why)),
+            Err(why) => {
+                self.quit_after_install = None;
+                return self.say(&words::install_failed(&why));
+            }
         };
         let message = match &outcome {
             Some(outcome) => crate::vts::message(&opened.name, outcome),
@@ -300,6 +348,10 @@ impl App {
         self.draft = Some(opened);
         self.frits_installed();
         self.rebuild(None);
+        if let Some(status) = self.quit_after_install.take() {
+            self.message = Some(message);
+            return self.leave(status);
+        }
         self.say(&message)
     }
 
@@ -367,7 +419,7 @@ impl App {
 
     /// A key in the pager: `j` `k` and the arrows scroll, `h` `l`
     /// sideways, `g` `G` to the top and the bottom, Ctrl-d Ctrl-u by half a
-    /// page, `q` and Esc back to the flow.
+    /// page, and Esc back to the flow. `q` quits, as it does everywhere.
     pub(crate) fn pager_key(&mut self, key: Key) {
         let lines = self.draft.as_ref().map_or(0, |d| d.text.lines().count());
         // the draft's lines run from row 4 to the row above the key line
@@ -378,7 +430,7 @@ impl App {
             return;
         };
         match key {
-            Key::Char('q') | Key::Escape => self.pager = None,
+            Key::Escape => self.pager = None,
             Key::Char('j') | Key::Down => p.top = p.top.saturating_add(1).min(last),
             Key::Char('k') | Key::Up => p.top = p.top.saturating_sub(1),
             Key::Char('l') | Key::Right => p.left = p.left.saturating_add(8),
@@ -392,13 +444,14 @@ impl App {
     }
 
     /// A key on Restore's list of the installed history: Up and Down move,
-    /// Enter asks to copy the file into the draft, Esc and `q` close it.
+    /// Enter asks to copy the file into the draft, and Esc closes it. `q`
+    /// quits, as it does everywhere.
     pub(crate) fn restore_key(&mut self, key: Key) -> Vec<Effect> {
         let Some((kept, at)) = self.restore.as_mut() else {
             return Vec::new();
         };
         match key {
-            Key::Char('q') | Key::Escape => self.restore = None,
+            Key::Escape => self.restore = None,
             Key::Enter => {
                 let n = at.saturating_add(1);
                 let restored = kept.get(*at).map(|k| k.text.clone()).unwrap_or_default();

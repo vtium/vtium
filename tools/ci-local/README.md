@@ -29,7 +29,7 @@ The image adds the packages the `check` jobs install, and the packages of the ru
 ## How the container matches the runner
 
 - The tests run as a user named runner, in `/home/runner/work/vtium/vtium`, as on CI. The user has your uid and gid, so the files in the cache stay yours.
-- The runner's awk is gawk, and Ubuntu's container image ships mawk, so the image installs gawk. The key tests in `crates/vtium/tests/boot.rs` fail under mawk.
+- The runner's awk is gawk, and the image keeps the mawk that Ubuntu's container image ships. The tests work with any POSIX awk, so a test that needs gawk fails here before it reaches CI.
 - The runner is a virtual machine with the VT devices `/dev/tty0` to `/dev/tty63`, and some tests read a VT's number from one. The container starts as root only to create those device nodes, then drops to runner with no capabilities. The container's device rules refuse every open of the nodes, even by root, so no test can reach this machine's VTs. Rootless podman cannot create device nodes, so under podman the tests in `crates/vtium/tests/enable_key.rs` fail.
 - docker and podman put a seccomp filter of their own on each process, and the runner has none. One test counts a process's seccomp filters, so the container runs with `--security-opt seccomp=unconfined`. The tests then have the same system calls as when they run on this machine.
 

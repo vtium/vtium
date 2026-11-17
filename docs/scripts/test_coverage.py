@@ -186,5 +186,42 @@ class CoverageMap(unittest.TestCase):
         self.assertIn('cannot run cargo', err.getvalue())
 
 
+class SequencePages(unittest.TestCase):
+    """--update runs vtium-term's test with VTIUM_TERM_BLESS=1, which writes
+    docs/sequences/, and says when a page changed."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.dir.name)
+        self.pages = self.root / coverage.SEQUENCES.path
+        self.pages.mkdir(parents=True)
+        (self.pages / 'index.md').write_text('stale\n', encoding='utf-8')
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def run_with(self, script):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = coverage.write_sequence_pages(self.root, [sys.executable, '-c', script])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_update_blesses_vtium_terms_test_and_names_the_rewritten_folder(self):
+        script = ("import os, sys\n"
+                  "if os.environ.get('VTIUM_TERM_BLESS') != '1': sys.exit(3)\n"
+                  "open('docs/sequences/index.md', 'w').write('# Escape sequences\\n')\n"
+                  "print('test result: ok. 1 passed; 0 failed')")
+        code, out, _ = self.run_with(script)
+        self.assertEqual(code, 0)
+        self.assertEqual((self.pages / 'index.md').read_text(encoding='utf-8'), '# Escape sequences\n')
+        self.assertIn(f'coverage: rewrote {coverage.SEQUENCES.path}', out)
+        self.assertIn('generated_documents_of_the_sequences_match_the_tables', ' '.join(coverage.SEQUENCES.cargo))
+
+    def test_unchanged_pages_are_not_reported_as_rewritten(self):
+        code, out, _ = self.run_with("print('test result: ok. 1 passed; 0 failed')")
+        self.assertEqual(code, 0)
+        self.assertNotIn('rewrote', out)
+
+
 if __name__ == '__main__':
     unittest.main()

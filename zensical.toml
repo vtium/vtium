@@ -49,6 +49,7 @@ nav = [
       { "The pointer file" = "reference/pointer-file.md" },
       { "The sections of vtium.conf" = "head-file.md" },
       { "Modes" = "modes.md" },
+      { "Escape sequences" = "sequences/index.md" },
       { "systemd, logind and PID 1" = "systemd.md" },
       { "Specimens" = "specimens/README.md" },
   ] },
@@ -59,6 +60,7 @@ nav = [
           "concepts/index.md",
           { "What vtium is" = "concepts/what-vtium-is.md" },
           { "How vtium works" = "concepts/how-vtium-works.md" },
+          { "Escape sequences" = "concepts/escape-sequences.md" },
           { "The suite" = "concepts/suite.md" },
           { "Deployment and start-up" = "concepts/start-up.md" },
           { "Seats and sessions" = "concepts/seats-and-sessions.md" },
@@ -103,7 +105,8 @@ exclude_docs = """
 # links, the showcase's category pages, which showcase/README.md links, one
 # line for each of t3_showcase.CATEGORIES as ShowcaseTest checks, and the
 # tutorial Your first frit, which joins the menu once it is written.
-# The release pages, other than their index, are reached from the index.
+# The release pages, other than their index, are reached from the index, and
+# so are the pages of the escape sequences (ADR-1507 D1).
 # The crates' interfaces: Getting started and Conventions are reached from
 # the index under api/, which the menu lists. The index sits in a
 # sub-section of its own because the theme's navigation.indexes makes an
@@ -127,6 +130,7 @@ not_in_nav = """
 /releases/*.md
 /api/getting-started.md
 /api/conventions.md
+/sequences/*.md
 """
 
 [project.theme]

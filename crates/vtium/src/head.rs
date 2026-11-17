@@ -29,7 +29,7 @@ use vtium_platform::pty::{Pty, Size};
 use vtium_render::{
     Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
 };
-use vtium_term::{Content, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
+use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
 
 use crate::blink::Blink;
 use crate::config::{Config, keys};
@@ -328,6 +328,9 @@ pub(crate) fn terminal(
         terminal.screen_mut().set_scrollback_memory_from_grid(bytes);
     }
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
+    // `blink` sets the cursor a session starts with: a block that blinks or
+    // stays steady. A style a program chooses later blinks as it says.
+    terminal.set_cursor_blink(config.switch(&keys::BLINK));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
     terminal.set_window_ops(config.switch(&keys::ALLOW_WINDOW_OPS));
@@ -1348,23 +1351,13 @@ impl Head {
     }
 
     /// What the next frame draws beyond the terminal's state. A cursor
-    /// whose style blinks follows the blink timer's phase, and a steady
-    /// one (DECSCUSR 2, 4 and 6, or mode 12 reset) is drawn in every
-    /// phase. The default style blinks, since vtium leaves the host's
-    /// cursor blink on and lets the `blink` key decide whether the timer
-    /// runs.
+    /// that blinks follows the blink timer's phase, and a steady one
+    /// (DECSCUSR 2, 4 and 6, mode 12 reset, or the starting block with
+    /// `blink` off) is drawn in every phase.
     pub(crate) fn draw_state(&self) -> DrawState {
         let terminal = &self.console.term.terminal;
         let palette = terminal.palette();
-        let blinks = match terminal.cursor_style() {
-            CursorStyle::Default
-            | CursorStyle::BlockBlink
-            | CursorStyle::UnderlineBlink
-            | CursorStyle::BarBlink => true,
-            CursorStyle::BlockSteady | CursorStyle::UnderlineSteady | CursorStyle::BarSteady => {
-                false
-            }
-        };
+        let blinks = terminal.cursor_blinks();
         DrawState {
             cursor_on: !blinks || self.console.term.blink.cursor_shown(),
             blink_hidden: !self.console.term.blink.text_shown(),
@@ -2989,7 +2982,7 @@ mod tests {
             (b"\x1b[3 q\x1b[?12l", true),
             (b"\x1b[4 q\x1b[?12h", false),
             (b"\x1b[5 q\x1b[?12l", true),
-            (b"\x1b[0 q\x1b[?12l", false),
+            (b"\x1b[0 q\x1b[?12l", true),
         ];
         for (bytes, on) in cases {
             head.console.term.terminal.input(bytes);
@@ -3004,6 +2997,42 @@ mod tests {
         assert!(head.console.term.blink.fired(Timer::Cursor, true));
         head.console.term.terminal.input(b"\x1b[1 q");
         assert!(head.draw_state().cursor_on);
+    }
+
+    // The `blink` key sets the cursor a session starts with: a block that
+    // blinks while the key is on and stays steady while it is off. DECRQM
+    // reports mode 12 as the console shows it, and DECRQSS reports the
+    // starting cursor as the DECSCUSR style it is.
+    // covers: DEC-12
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn the_blink_key_sets_the_starting_cursor() {
+        for (args, blinks, decrqm, decrqss) in [
+            (
+                &[][..],
+                true,
+                &b"\x1b[?12;1$y"[..],
+                &b"\x1bP1$r1 q\x1b\\"[..],
+            ),
+            (
+                &["--no-blink"][..],
+                false,
+                b"\x1b[?12;2$y",
+                b"\x1bP1$r2 q\x1b\\",
+            ),
+        ] {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            let config = crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config;
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let mut term = terminal(&config, (0, 0), 0, clock);
+            let t = &mut term.terminal;
+            assert_eq!(t.cursor_blinks(), blinks, "{args:?}");
+            t.take_replies();
+            t.input(b"\x1b[?12$p");
+            assert_eq!(t.take_replies(), decrqm, "{args:?}");
+            t.input(b"\x1bP$q q\x1b\\");
+            assert_eq!(t.take_replies(), decrqss, "{args:?}");
+        }
     }
 
     /// A head whose shown console prints three links, `x:a`, `x:b` and

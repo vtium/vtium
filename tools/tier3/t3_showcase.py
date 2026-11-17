@@ -21,12 +21,14 @@ beyond the harness:
   (`header_faults`);
 - the pages: each scene's capture copied into docs/showcase/, the fonts
   scene's four captures cropped to their bands and stacked, the two
-  small-machine goldens copied beside them, the showcase page with each
-  category's hero, and a page for each category with its scenes and
-  figures, with the source of each font and each photograph (`compose`).
+  small-machine goldens copied beside them, the grid of nine panes cut
+  out of nine screens (`grid`), the showcase page with each category's
+  hero, and a page for each category with its scenes and figures, with
+  the source of each font and each photograph (`compose`).
 
     t3_showcase.py fetch-fonts          fetch the pinned fonts into the cache
     t3_showcase.py compose [--out DIR]  write the showcase from the last run
+    t3_showcase.py grid [--out DIR]     write the grid from the screens in DIR
 """
 
 import argparse
@@ -810,6 +812,95 @@ def stack(images):
                        b"".join(img.data for img in images))
 
 
+# The grid, docs/showcase/grid.png: nine panes in three rows of three, each a
+# part of one showcase screen cut out at its own size, so every pixel is
+# vtium's own. One line of GRID_LINE parts two panes.
+GRID = "grid.png"
+GRID_PANE = (640, 360)
+GRID_LINE = (0x3a, 0x3a, 0x3a)
+# Each pane as (image in docs/showcase, x, y): the pane's top left corner
+# in that screen, row by row. Text rows are 40 pixels tall (38 in the hero),
+# so each pane's top and bottom edges fall where no text is drawn.
+GRID_PANES = [
+    # The title "Lines of double size", the lines under it and the doubled
+    # words in their five underlines, strike and overline.
+    ("double-size.png", 64, 26),
+    # The emoji rows Faces, Nature, Food, Things and People, with their names.
+    ("emoji.png", 16, 323),
+    # The Mandelbrot set that the scene draws with sixel. Neither picture of
+    # the scene fits a pane, so the pane holds the set's main body, the bulb
+    # left of it and the spike.
+    ("pictures.png", 150, 280),
+    # The cells each Tamil, Hindi and Kannada syllable takes, and the
+    # syllables that span several clusters.
+    ("syllables.png", 16, 104),
+    # The hero's prompt, `ls crates` and the gallery of six pictures with
+    # their names, under the last lines of the git graph.
+    ("hero.png", 0, 483),
+    # The first three cubes of the 256 colors, with their heading and the
+    # gray ramp under them.
+    ("color.png", 16, 100),
+    # Lines 1 to 9 of the code drawn with programming ligatures.
+    ("ligatures.png", 32, 117),
+    # The box "Load, the last 48 minutes" with its bar graph.
+    ("boxes.png", 32, 34),
+    # Chinese, Japanese, Korean, Thai, Vietnamese, Hindi and Bengali.
+    ("scripts.png", 16, 81),
+]
+# The grid's alt text, which names what GRID_PANES frames, and its caption
+# on the showcase page. The README at the repository's root shows the grid
+# with the same alt text.
+GRID_ALT = ("Nine parts of vtium's showcase screens, in three rows of three. The first "
+            "row shows a title in letters of double size, rows of color emoji, and the "
+            "Mandelbrot set drawn in sixel. The second row shows Tamil, Hindi and Kannada "
+            "syllables, a shell prompt above a gallery of pictures, and three cubes of the "
+            "256 colors. The third row shows Rust code with programming ligatures and a bar "
+            "graph in a box. Last comes one sentence in Chinese, Japanese, Korean, Thai, "
+            "Vietnamese, Hindi and Bengali.")
+GRID_CAPTION = ("Nine parts of the screens on this page, each cropped at full size with no "
+                "scaling.")
+
+
+def crop(img, x, y, width, height):
+    """The `width` by `height` pixels of `img` whose top left corner is at
+    (`x`, `y`), unscaled."""
+    if x < 0 or y < 0 or x + width > img.width or y + height > img.height:
+        raise ValueError("a crop of %dx%d at %d,%d from an image of %dx%d"
+                         % (width, height, x, y, img.width, img.height))
+    stride, start = img.width * 3, x * 3
+    return t3img.Image(width, height, b"".join(
+        img.data[row * stride + start:row * stride + start + width * 3]
+        for row in range(y, y + height)))
+
+
+def grid(directory=OUT, panes=GRID_PANES, size=GRID_PANE):
+    """The grid of `panes` from the screens in `directory`: three panes to
+    a row, each `size` in pixels and cut out of its screen unscaled, with a
+    line of GRID_LINE between two panes and none around the edge."""
+    width, height = size
+    columns = 3
+    rows = -(-len(panes) // columns)
+    total_w = columns * width + columns - 1
+    total_h = rows * height + rows - 1
+    out = bytearray(bytes(GRID_LINE) * (total_w * total_h))
+    for i, (name, x, y) in enumerate(panes):
+        pane = crop(t3img.read(os.path.join(directory, name)), x, y, width, height)
+        left = (i % columns) * (width + 1)
+        top = (i // columns) * (height + 1)
+        for row in range(height):
+            at = ((top + row) * total_w + left) * 3
+            out[at:at + width * 3] = pane.row(row)
+    return t3img.Image(total_w, total_h, bytes(out))
+
+
+def write_grid(directory=OUT, panes=GRID_PANES, size=GRID_PANE):
+    """Writes the grid of the screens in `directory` to GRID there, unless
+    the file there already holds the same pixels. Returns the path when it
+    wrote and None when it did not."""
+    path = os.path.join(directory, GRID)
+    return path if write_if_changed(path, grid(directory, panes, size)) else None
+
+
 def write_if_changed(path, img):
     """Writes `img` to `path` as PNG unless the file there already holds the
     same pixels; True when it wrote."""
@@ -955,6 +1046,9 @@ def made(report, date):
                 v["cpus"], v["memory_mb"], v["kernel"],
                 "×".join(str(n) for n in v["cell"] or ()) or "unknown",
                 "×".join(str(n) for n in gallery.CELL)), "",
+             "`t3_showcase.py grid` cuts the grid at the top of this page out of nine of "
+             "these screens. It lays the nine panes out in three rows, with a gray line of "
+             "one pixel between them.", "",
              "Each figure under \"How it behaves\" is an SVG drawn by hand and kept in "
              "`docs/figures/`. Where a claim file lies beside a figure, it names the code "
              "that each step rests on, and `docs/scripts/claims` checks that the code is "
@@ -1008,6 +1102,7 @@ def page(report, date, screens=SCREENS_DIR, figure_dir=FIGURES):
     for scene in front:
         text, alt = caption(scene.script, screens)
         lines += entry(alt, scene.image, text)
+    lines += entry(GRID_ALT, GRID, GRID_CAPTION)
     for category, (images, figs) in shown(screens, figure_dir).items():
         lines += ["## %s" % title(category), ""]
         if category == SMALL_MACHINES:
@@ -1041,10 +1136,12 @@ def category_page(category, images, figs):
     return "\n".join(lines) + "\n"
 
 
-def compose(run=None, report=REPORT, out=OUT, screens=SCREENS_DIR, figure_dir=FIGURES):
+def compose(run=None, report=REPORT, out=OUT, screens=SCREENS_DIR, figure_dir=FIGURES,
+            panes=GRID_PANES, size=GRID_PANE):
     """Writes the showcase into `out` from the last run of the variant: each
-    scene's image, the small-machine goldens in small/, README.md and a page
-    for each category that shows something. Refuses while a scene's or a
+    scene's image, the small-machine goldens in small/, the grid of `panes`
+    cut from those images (write_grid), README.md and a page for each
+    category that shows something. Refuses while a scene's or a
     figure's header lines are wrong (header_faults), and refuses a run in
     which a case of the variant is not a capture. Returns (wrote, removed):
     the files it wrote, where an image whose pixels did not change is left
@@ -1078,6 +1175,9 @@ def compose(run=None, report=REPORT, out=OUT, screens=SCREENS_DIR, figure_dir=FI
         path = os.path.join(out, name)
         if copy_if_changed(os.path.join(ROOT, src), path):
             wrote.append(path)
+    path = write_grid(out, panes, size)
+    if path:
+        wrote.append(path)
     date = datetime.datetime.fromtimestamp(os.path.getmtime(report),
                                            datetime.timezone.utc).date().isoformat()
     pages = {"README.md": page(rep, date, screens, figure_dir)}
@@ -1105,9 +1205,15 @@ def main(argv=None):
     sub.add_parser("fetch-fonts", help="fetch the pinned fonts into the cache")
     comp = sub.add_parser("compose", help="write the showcase from the last tier 3 run")
     comp.add_argument("--out", default=OUT, help="the directory to write (docs/showcase)")
+    grd = sub.add_parser("grid", help="write %s from the screens already in the directory" % GRID)
+    grd.add_argument("--out", default=OUT, help="the directory to read and write (docs/showcase)")
     args = parser.parse_args(argv)
     if args.command == "fetch-fonts":
         print("the showcase's fonts are in %s" % fetch())
+    elif args.command == "grid":
+        path = write_grid(args.out)
+        print("wrote %s" % rel(path) if path else
+              "%s is current" % rel(os.path.join(args.out, GRID)))
     else:
         wrote, removed = compose(out=args.out)
         for path in wrote:

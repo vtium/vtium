@@ -135,9 +135,13 @@
 
 # -- Blinking ----------------------------------------------------------------
 
-## blink: Blink blinking text (SGR 5) and the cursor, every 500 ms. A program
-## can set another pace for the cursor with the Linux console's
-## `CSI 16 ; n ]`. When off, neither blinks.
+## blink: Blink blinking text (SGR 5) every 500 ms, and start each session
+## with a blinking block cursor. When off, the text stays steady and the
+## cursor starts as a steady block.
+##
+## A program can choose another cursor style with DECSCUSR, and that style
+## blinks or stays steady as it says. A program can also set another pace for
+## the cursor with the Linux console's `CSI 16 ; n ]`.
 #
 ## blink-text: How blinking text (SGR 5 or 6) looks while a blink is off.
 ##

@@ -379,7 +379,10 @@ impl State {
                     right.saturating_add(1)
                 ))
             }
-            Some(b" q") => Some(format!("{} q", self.cursor_style.param())),
+            Some(b" q") => Some(format!(
+                "{} q",
+                self.cursor_style.param(self.host.cursor_blink)
+            )),
             // Pc 1: the replies stay 7-bit whatever DECSCL asked.
             Some(b"\"p") => Some(format!("{};1\"p", self.conformance)),
             // DECSCA 1 or 0, and DECSACE 2 or 0, as xterm reports them.
@@ -889,7 +892,7 @@ mod tests {
                 Query::TextArea => (b"\x1b[?2048h", b"\x1b[48;5;10;80;80t"),
                 Query::Visibility => (b"\x1b[?998n", b"\x1b[?999;1n"),
                 Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),
-                Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[?3;3#Q"),
+                Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[3;3#Q"),
                 Query::Font => (b"\x1b]50;?\x07", b"\x1b]50;unifont\x07"),
                 Query::PointerShape => (
                     b"\x1b]22;>hand2\x1b\\\x1b]22;?__current__,text,cell\x07",

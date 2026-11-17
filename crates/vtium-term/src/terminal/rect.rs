@@ -6,7 +6,9 @@
 //! nothing, as in xterm. DECCARA takes every SGR parameter as SGR applies
 //! it to the pen, kitty's extension of DEC's 0, 1, 4, 5, 7 and 22 to 27;
 //! DECRARA reverses DEC's 1, 4, 5 and 7, all four for 0, and 8, as xterm
-//! does. An omitted parameter after the corners is 0.
+//! does. An omitted parameter after the corners is 0, and so is a list of
+//! attributes left out altogether, since the VT510 manual gives 0 as the
+//! default of both DECCARA and DECRARA.
 
 use vtium_parse::Params;
 
@@ -46,11 +48,18 @@ impl State {
         match final_byte {
             b'z' => self.screen.erase_rect(rect, Erase::All),
             b'{' => self.screen.erase_rect(rect, Erase::Unprotected),
-            b'r' if params.count() > 4 => self.screen.change_attrs(rect, |style| {
-                let mut style = style;
-                sgr::apply_from(&mut style, params, 4);
-                style
-            }),
+            b'r' => {
+                let attrs_given = params.count() > 4;
+                self.screen.change_attrs(rect, |style| {
+                    let mut style = style;
+                    if attrs_given {
+                        sgr::apply_from(&mut style, params, 4);
+                    } else {
+                        sgr::reset(&mut style);
+                    }
+                    style
+                });
+            }
             b't' => {
                 let reverse = Reverse::of(params);
                 self.screen.change_attrs(rect, |style| reverse.apply(style));
@@ -60,15 +69,15 @@ impl State {
     }
 
     /// DECFRA, `CSI Pc ; Pt ; Pl ; Pb ; Pr $ x`: the character of code
-    /// `Pc`, 0 or omitted a space, through the character set in GL or GR
-    /// as a printed one goes. DEC STD 070 takes a GL or GR graphic
-    /// character and xterm any printable one; vtium takes one a cell wide,
-    /// and the sequence with no parameter at all does nothing, as in xterm.
+    /// `Pc`, through the character set in GL or GR as a printed one goes.
+    /// The VT510 manual ignores DECFRA when `Pc` is outside 32 to 126 and
+    /// 160 to 255, so a `Pc` of 0 or one left out fills nothing. Past 255,
+    /// vtium takes any printable character one cell wide, as xterm takes
+    /// any printable one.
     fn fill(&mut self, params: &Params) {
-        if params.count() == 1 && params.get(0).is_none() {
+        let Some(code) = params.get(0).filter(|&c| c != 0) else {
             return;
-        }
-        let code = params.get(0).filter(|&c| c != 0).unwrap_or(0x20);
+        };
         let eight_bit = self.input_mode == vtium_parse::InputMode::EightBit;
         // A copy, so a pending single shift stays for the next character.
         let mut charsets = self.charsets;
@@ -130,8 +139,10 @@ impl Reverse {
             }
         };
         let mut underline = false;
-        for i in 4..params.count() {
-            match params.get(i).unwrap_or(0) {
+        // With no attribute at all, the list is one 0, DECRARA's default.
+        let codes = (4..params.count().max(5)).map(|i| params.get(i).unwrap_or(0));
+        for code in codes {
+            match code {
                 0 => {
                     flip(Attrs::BOLD);
                     flip(Attrs::BLINK);
