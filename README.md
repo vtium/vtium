@@ -20,13 +20,9 @@ This is alpha software, at version 0.1.0-alpha.8. Installing the package gives v
 
 **Documentation:** [vtium.github.io/vtium](https://vtium.github.io/vtium/)
 
-![A shell session showing a colored prompt, directory listing, git branch graph, six images with filenames, multilingual text and emoji, and examples of underline and other text styles.](docs/showcase/hero.png)
-
-*A shell session rendered by vtium on a 1920×1080 display. [The showcase](docs/showcase/README.md) has more screenshots and explains how they were captured.*
-
 [![Nine parts of vtium's showcase screens, in three rows of three. The first row shows a title in letters of double size, rows of color emoji, and the Mandelbrot set drawn in sixel. The second row shows Tamil, Hindi and Kannada syllables, a shell prompt above a gallery of pictures, and three cubes of the 256 colors. The third row shows Rust code with programming ligatures and a bar graph in a box. Last comes one sentence in Chinese, Japanese, Korean, Thai, Vietnamese, Hindi and Bengali.](docs/showcase/grid.png)](docs/showcase/README.md)
 
-*Parts of nine showcase screens rendered by vtium, each cropped at full size with no scaling.*
+*Parts of nine showcase screens rendered by vtium, each cropped at full size with no scaling. [The showcase](docs/showcase/README.md) has the whole screens and explains how they were captured.*
 
 ## If something goes wrong
 
