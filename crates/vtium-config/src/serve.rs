@@ -1301,7 +1301,7 @@ pub struct DrawsNothing {
     pub read: Option<Found>,
 }
 
-/// What [`Engine::read`] found as it read a frit's sources, which a frit
+/// What the engine found as it read a frit's sources, which a frit
 /// with no source left keeps for the console and a sources query.
 pub struct Found {
     /// The warnings the frit's text and its sources gave, as
