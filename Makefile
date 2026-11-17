@@ -248,29 +248,37 @@ IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
 # with libseat alone is for seatd: it opens no PAM session, and its logins
 # run as in the default build. PAM reads /etc/pam.d whatever PREFIX is.
 PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter logind,$(subst $(comma), ,$(FEATURES))))
-# The frits make install and make install-tree stage into /etc/vtium/fonts,
-# by name (ADR-1500 D8). Each is NAME.vtfrit in crates/vtium-config/frits,
-# or in tools/specimens/frits, where the specimens draw desktop. The
-# default is the set the vtium package ships; a minspec package names
-# FRITS='minspec-16 minspec-8'. A frit names its fonts, and no vtium
-# install ships a font.
-FRITS := desktop minspec-16 minspec-8
-FRIT_DIRS := crates/vtium-config/frits tools/specimens/frits
-# The frits the optional vtium-fonts package ships beside the fonts they
-# name, which make install-fonts stages: the five for scripts whose marks
-# need room above and below the letters, and the four for Chinese, Japanese
-# and Korean, one for each region's forms of Han (ADR-1500 D8). make
-# install stages any of them that FRITS names too.
-FONTS_FRITS := arabic hebrew indic thai-lao vietnamese cjk-sc cjk-tc cjk-jp cjk-kr
+# The font sets (frits) make install and make install-tree stage into
+# /etc/vtium/fonts, each in its category's folder, and the layers they add
+# in /etc/vtium/fonts/layers (ADR-1204 D9, ADR-1500 D8). Each set is
+# NAME.vtfrit in a category folder of crates/vtium-config/frits, and each
+# layer NAME.vtlayer in its layers folder. The default is the vtium
+# package's: terminus, jetbrains-mono and the small panels' two sets, and
+# FRIT_LAYERS names the layers those sets add. A set names its fonts, and
+# no vtium install ships a font.
+FRIT_ROOT := crates/vtium-config/frits
+FRIT_CATEGORIES := console classic code nerd scripts small
+FRIT_DIRS := $(addprefix $(FRIT_ROOT)/,$(FRIT_CATEGORIES))
+FRITS := terminus jetbrains-mono unifont-icons unscii-icons
+FRIT_LAYERS := nerd-symbols nerd-symbols-small noto-emoji noto-emoji-small unifont
+# The sets and layers the optional vtium-fonts package ships beside the
+# fonts they name, which make install-fonts stages: the whole catalog
+# (ADR-1204 D9). make install stages any of them that FRITS names too.
+FONTS_FRITS := $(sort $(basename $(notdir $(wildcard $(addsuffix /*.vtfrit,$(FRIT_DIRS))))))
+FONTS_LAYERS := $(sort $(basename $(notdir $(wildcard $(FRIT_ROOT)/layers/*.vtlayer))))
 frit_paths = $(foreach f,$(1),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
+layer_paths = $(foreach l,$(1),$(or $(wildcard $(FRIT_ROOT)/layers/$(l).vtlayer),$(error no layer $(l) in $(FRIT_ROOT)/layers)))
 frit_files = $(call frit_paths,$(FRITS))
+# The command that stages the sets $(1) in their category folders and the
+# layers $(2) in the layers folder, under DESTDIR.
+install_frits = $(strip $(foreach c,$(FRIT_CATEGORIES),$(if $(filter $(FRIT_ROOT)/$(c)/%,$(1)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts/$(c) $(filter $(FRIT_ROOT)/$(c)/%,$(1)) &&))) install -Dm644 -t $(DESTDIR)/etc/vtium/fonts/layers $(2)
 # A frit vtium does not hold stops the install as make reads this file,
 # before anything is built.
 ifneq ($(filter install install-build install-tree,$(MAKECMDGOALS)),)
-_frits := $(frit_files)
+_frits := $(frit_files) $(call layer_paths,$(FRIT_LAYERS))
 endif
 ifneq ($(filter install-fonts,$(MAKECMDGOALS)),)
-_fonts_frits := $(call frit_paths,$(FONTS_FRITS))
+_fonts_frits := $(call frit_paths,$(FONTS_FRITS)) $(call layer_paths,$(FONTS_LAYERS))
 endif
 # The picture gallery tool, which a console with images ships as
 # vtium-gallery (ADR-1500 D8).
@@ -316,7 +324,7 @@ install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-rele
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/xterm-vtium.ti
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
-	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
+	$(if $(strip $(FRITS)),$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS))))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
@@ -447,7 +455,7 @@ endif
 	$(build_settings)cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
-install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default desktop minspec-16 minspec-8): make install DESTDIR=DIR PREFIX=/usr
+install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus jetbrains-mono unifont-icons unscii-icons): make install DESTDIR=DIR PREFIX=/usr
 	install -Dm755 $(INSTALL_TARGET_DIR)/minspec/vtium $(DESTDIR)$(PREFIX)/bin/vtium
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-config $(DESTDIR)$(PREFIX)/bin/vtium-config
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-clipboard $(DESTDIR)$(PREFIX)/bin/vtium-clipboard
@@ -464,14 +472,14 @@ ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
-	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
+	$(if $(strip $(FRITS)),$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS))))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)$(PREFIX)/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
-install-fonts: ## Stage the frits the vtium-fonts package ships, FONTS_FRITS='...' (default arabic hebrew indic thai-lao vietnamese cjk-sc cjk-tc cjk-jp cjk-kr), in /etc/vtium/fonts under DESTDIR=DIR
-	install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(call frit_paths,$(FONTS_FRITS))
+install-fonts: ## Stage the font sets and layers the vtium-fonts package ships, FONTS_FRITS='...' and FONTS_LAYERS='...' (default the whole catalog), in /etc/vtium/fonts under DESTDIR=DIR
+	$(call install_frits,$(call frit_paths,$(FONTS_FRITS)),$(call layer_paths,$(FONTS_LAYERS)))
 
 .PHONY: install-terminfo
 install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and its alias vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
