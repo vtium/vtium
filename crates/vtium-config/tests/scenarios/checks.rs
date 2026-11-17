@@ -850,6 +850,9 @@ impl Checks {
         if let Err(e) = self.invariants(&seen) {
             self.fail(step, e);
         }
+        if let Err(e) = self.contract_key_line(&seen) {
+            self.fail(step, format!("help.generated: {e}"));
+        }
         // every state the walk reaches is a node of the interface tree
         let node_id = step.from.node();
         let to_id = step.to.node();
@@ -919,6 +922,67 @@ impl Checks {
         self.views(&seen);
     }
 
+    /// Whether the key table's row `id` is supported.
+    fn supported(&self, id: &str) -> bool {
+        self.rows
+            .iter()
+            .any(|r| r.id == id && r.status == "supported")
+    }
+
+    /// The key line the TUI shows after the key holds what the contract
+    /// gives the node the TUI is in, and nothing else: one item for each
+    /// label of the node's supported rows that the key line shows, and no
+    /// item without such a label. A node that is still planned keeps its
+    /// hand-written key line until its work lands, and the screen below
+    /// 80×25 shows a sentence about its keys instead of a key line, so
+    /// neither is checked.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The contract": the key lines are generated from the
+    ///   key table and the tree, and the row `help.generated` tracks them.
+    fn contract_key_line(&self, s: &Seen<'_>) -> Result<(), String> {
+        if s.after.exited.is_some() || !self.supported("help.generated") {
+            return Ok(());
+        }
+        let node_id = s.step.to.node();
+        let Some(node) = self.tree.iter().find(|n| n.id == node_id) else {
+            return Ok(());
+        };
+        if node.status != "supported" || node_id == "any.too-small" {
+            return Ok(());
+        }
+        let mut want: Vec<&str> = self
+            .rows
+            .iter()
+            .filter(|r| node.keys.contains(&r.id) && r.status == "supported" && r.label != "-")
+            .map(|r| r.label.as_str())
+            .collect();
+        want.sort_unstable();
+        want.dedup();
+        let line = vtium_config::tui::view::key_line(&s.after.app);
+        let mut got = Vec::new();
+        for item in line.split("  ").filter(|i| !i.is_empty()) {
+            // the longest label that ends the item after its keys, so that
+            // `save and quit` is not read as `quit`
+            let label = want
+                .iter()
+                .filter(|l| {
+                    item.strip_suffix(**l)
+                        .is_some_and(|keys| keys.ends_with(' ') && !keys.trim().is_empty())
+                })
+                .max_by_key(|l| l.len())
+                .ok_or_else(|| format!("{node_id}: the key line shows {item:?}, which no supported row of the node labels"))?;
+            got.push(*label);
+        }
+        got.sort_unstable();
+        if got != want {
+            return Err(format!(
+                "{node_id}: the key line shows the labels {got:?}, and the contract gives {want:?}"
+            ));
+        }
+        Ok(())
+    }
+
     /// The invariants after every key.
     fn invariants(&mut self, s: &Seen<'_>) -> Result<(), String> {
         let app = &s.after.app;
@@ -949,9 +1013,11 @@ impl Checks {
                     c.question
                 ));
             }
-            // every key the key line lists shows, outside the Flow view,
-            // whose key lines its own drawing picks
-            if app.view != View::Flow || app.confirm.is_some() {
+            // every key the key line lists shows; in the Flow view and its
+            // file view, once their key-line rows are supported
+            let flow_lines =
+                self.supported("key-line.view.flow") && self.supported("key-line.layer.file-view");
+            if app.view != View::Flow || app.confirm.is_some() || flow_lines {
                 let shown = screen.join("\n");
                 let line = vtium_config::tui::view::key_line(app);
                 let small = vtium_config::tui::view::too_small(app) && app.confirm.is_none();

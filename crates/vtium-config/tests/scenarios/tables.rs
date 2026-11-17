@@ -41,6 +41,9 @@ pub struct KeyRow {
     pub letters: bool,
     pub key_line: bool,
     pub status: String,
+    /// The short name a key line shows for the key, or `-` where the key
+    /// line leaves the key out.
+    pub label: String,
 }
 
 /// The alphabet's names for one of the table's names of keys: a mouse
@@ -98,6 +101,7 @@ pub fn keys() -> Vec<KeyRow> {
                 letters,
                 key_line,
                 status: col("status"),
+                label: col("label"),
             }
         })
         .collect()
