@@ -324,7 +324,7 @@ fn the_vtium_part_names_each_binary_its_version_and_its_features() {
     // no features line in --version and no marker: each is read from the
     // binary, and gpu has no marker
     assert!(
-        p.contains("images no, logind no, bidi unknown, gpu unknown"),
+        p.contains("images no, logind no, bidi unknown, filters unknown, gpu unknown"),
         "{p}"
     );
     assert!(p.contains("/usr/local/bin/vtium-dev\n"), "{p}");
@@ -399,7 +399,7 @@ fn a_binary_s_features_are_read_from_its_marker_text() {
     let p = report(&t.machine(1000));
     let p = part(&p, "vtium");
     assert!(
-        p.contains("images yes, logind yes, bidi unknown, gpu unknown"),
+        p.contains("images yes, logind yes, bidi unknown, filters unknown, gpu unknown"),
         "{p}"
     );
 }
