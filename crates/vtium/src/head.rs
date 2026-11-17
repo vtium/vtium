@@ -12,6 +12,7 @@
 pub mod chord;
 pub mod console;
 pub mod images;
+pub(crate) mod look;
 pub(crate) mod route;
 pub(crate) mod session;
 pub(crate) mod vt;
@@ -216,6 +217,12 @@ pub struct Head {
     /// [`Config::for_head`] lays over the configuration wherever the
     /// console reads a key a section may set.
     pub(crate) settings: Vec<vtium_settings::Setting>,
+    /// The vtlook the head draws with, chosen once when the head is made.
+    #[expect(
+        dead_code,
+        reason = "the color layer draws with it; until then every vtlook that reads holds no filter"
+    )]
+    pub(crate) vtlook: look::Chosen,
     /// The base font's height; each display may draw larger
     /// ([`crate::layout::layout`]).
     pub(crate) font_size: u32,
@@ -536,6 +543,7 @@ impl Head {
             focused: false,
             tracking: MouseTracking::Off,
             font_name,
+            vtlook: look::choose(name, config),
             settings,
             font_size: 0,
             points,

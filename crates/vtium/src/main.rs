@@ -489,6 +489,7 @@ mod tests {
         let lines: Vec<&str> = text.lines().collect();
         let built: Vec<&str> = [
             ("bidi", cfg!(feature = "bidi")),
+            ("filters", cfg!(feature = "filters")),
             ("gpu", cfg!(feature = "gpu")),
             ("images", cfg!(feature = "images")),
             ("libseat", cfg!(feature = "libseat")),

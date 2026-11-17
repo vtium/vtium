@@ -18,6 +18,7 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 | `src/trig.rs` | `sin` and `cos` from basic float operations, for the curly underline. |
 | `src/blend.rs` | The per-pixel arithmetic, in whole numbers. |
 | `src/blend/linear.rs` | With `images`: the three tables that blend a partly transparent picture pixel in linear light, and their layout as the GPU path's texture. |
+| `src/filter/mod.rs` | With `filters`: the frame filters' declarations. Each names its filter, its layer and its parameters, each with a kind, a range, a default and a line of help. `COLOR` is the one list of the color filters, empty until the color layer arrives (ADR-1304 D1, D10). |
 | `src/mono.rs` | `Depth`. A 1-bit display's colors by cell, its coverage cut at half, and a color glyph's stand-in. |
 | `src/target.rs` | `Target`, the write-only display buffer. `Canvas`, a buffer in memory. `Mapped`, a mapped dumb buffer. `Orientation` and `Rect`. |
 | `src/sprite.rs` | `hollow_box`: the hollow box vtium's messages draw for a character the built-in font lacks. |
