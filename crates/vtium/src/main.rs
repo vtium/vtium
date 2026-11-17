@@ -34,9 +34,8 @@ use vtium_platform::vt::font::{ConsoleFont, ConsoleTty};
 use vtium_platform::vt::{FakeVt, KernelVt, Switch, Tty};
 
 fn help() -> String {
-    let mut out = String::from(
-        "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration without applying it\n       vtium config [COMMAND] [ARG]...         run vtium-config, the font and settings tool\n       vtium blank --vt N                      turn off the displays of the vtium on VT N now\n       vtium wake --vt N                       turn on the displays of the vtium on VT N\n       vtium console enable N|--all            run vtium on VT N, or on every VT, from the next start\n       vtium console disable N|--all           stop running vtium on VT N, or on every VT\n       vtium console status                    show what runs on each VT\n       vtium console fallback N                start a login prompt on VT N after vtium failed there\n\n",
-    );
+    let mut out = vtium::notice::usage::lines();
+    out.push('\n');
     for k in &KEYS {
         let arg = match k.kind {
             Kind::Switch if k.scope == Scope::CommandLine => String::new(),
