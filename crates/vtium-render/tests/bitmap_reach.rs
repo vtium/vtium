@@ -459,3 +459,116 @@ fn every_gpu_frame_of_a_doubled_glyphs_ink_matches_a_whole_draw() {
         }
     }
 }
+
+/// A face in 8x16 cells whose `A` carries an accent in its ink box, 4
+/// rows above its cell, and which holds `A` drawn at each double size with
+/// the accent 4 rows above the doubled cell, as the font helper renders an
+/// outline font's glyph at the line's size.
+struct Accented;
+
+impl Accented {
+    /// `A` in a box `w` by `h` with the accent's 4 rows above it: a frame
+    /// of ink in the cells, and a bar of accent above.
+    fn glyph(w: u32, h: u32) -> Option<vtium_font::Glyph> {
+        use vtium_font::{Format, Glyph};
+        let own = (0..h)
+            .flat_map(|y| (0..w).map(move |x| if x == 1 || y == h - 1 { 255 } else { 0 }))
+            .collect();
+        let boxed = (0..h + 4)
+            .flat_map(|y| {
+                (0..w).map(move |x| match y {
+                    0..4 => 255 * u8::from((2..w - 2).contains(&x)),
+                    _ if x == 1 || y == h + 3 => 255,
+                    _ => 0,
+                })
+            })
+            .collect();
+        Glyph::from_pixels(w, h, Format::Mask, own)?.with_ink((0, -4), (w, h + 4), boxed)
+    }
+}
+
+impl vtium_font::Face for Accented {
+    fn cell(&self) -> Cell {
+        Cell {
+            width: CW,
+            height: CH,
+        }
+    }
+    fn size_step(&self) -> u32 {
+        1
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        c == 'A'
+    }
+    fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+        (cluster == ['A'])
+            .then(|| Accented::glyph(CW, CH))
+            .flatten()
+    }
+    fn doubled(
+        &self,
+        cluster: &[char],
+        _: vtium_font::Variant,
+        doubled: vtium_font::Doubled,
+    ) -> Option<vtium_font::Glyph> {
+        (cluster == ['A'])
+            .then(|| Accented::glyph(2 * CW, CH * doubled.rows()))
+            .flatten()
+    }
+}
+
+// A glyph that the font helper renders at the line's size keeps its ink
+// past the line as a doubled bitmap glyph does: the accent of `A`, drawn
+// above the doubled cell, lies in the row above a double-width line and
+// above a pair's top line, on the CPU path and the GPU path alike
+// covers: text.line-size
+#[test]
+fn a_glyph_rendered_at_double_size_keeps_its_accent_above_the_line() {
+    use LineSize::*;
+    for (top, bottom) in [
+        (DoubleWidth, None),
+        (DoubleHeightTop, Some(DoubleHeightBottom)),
+    ] {
+        let mut s = Screen::new(4, 3, rgb(FG), rgb(BG));
+        s.cursor.visible = false;
+        for (row, size) in [(1, Some(top)), (2, bottom)] {
+            let Some(size) = size else { continue };
+            s.put(0, row, 'A', false, style(rgb(FG), rgb(BG)));
+            s.lines[row].flags_mut().set_size(size);
+        }
+        let (w, h) = size(&s);
+        let mut r = Renderer::new(Font::new(Accented), w, h, Config::default());
+        let mut c = Canvas::new(w, h, 0);
+        r.draw(&s.frame(Age::NEVER), &mut c, 0, &state(&s));
+        // the accent's 4 rows, at the bottom of the row above
+        let accent: Vec<u32> = (12..16).collect();
+        assert_eq!(inked_rows(&c, 1, 0..16), accent, "{top:?}");
+        #[cfg(feature = "gpu")]
+        {
+            use vtium_render::gpu::{Gl, Pipeline, Size, StandIn};
+            let size = Size::new(w, h);
+            let mut gl = StandIn::new();
+            let mut pipeline = Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default())
+                .expect("a pipeline");
+            let buffer = gl.import_buffer(&size).expect("a buffer");
+            let mut r = Renderer::new(Font::new(Accented), w, h, Config::default());
+            r.draw_gpu(
+                &mut gl,
+                &mut pipeline,
+                &s.frame(Age::NEVER),
+                &buffer,
+                1,
+                &state(&s),
+                &[],
+            )
+            .expect("drawn");
+            let name = *gl.frame_names().last().expect("a frame");
+            let got = gl.frame_pixels(name).expect("its pixels").1.to_vec();
+            let differ = (0..h)
+                .flat_map(|y| (0..w).map(move |x| (x, y)))
+                .filter(|&(x, y)| c.pixel(x, y) != Some(got[(y * w + x) as usize]))
+                .count();
+            assert_eq!(differ, 0, "{top:?}: pixels that differ from the CPU path's");
+        }
+    }
+}

@@ -36,6 +36,7 @@ These tests check what vtium does with the sequences on this page.
 - `the_pieces_of_a_cell_of_double_size_are_cut_from_one_drawn_glyph` in [crates/vtium-render/src/cache.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/cache.rs)
 - `a_box_drawing_line_on_a_double_height_pair_takes_the_taller_cells_weight` in [crates/vtium-render/src/renderer/double.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/renderer/double.rs)
 - `a_box_drawing_line_on_a_double_width_line_keeps_its_weight` in [crates/vtium-render/src/renderer/double.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/src/renderer/double.rs)
+- `a_glyph_rendered_at_double_size_keeps_its_accent_above_the_line` in [crates/vtium-render/tests/bitmap_reach.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/bitmap_reach.rs)
 - `every_buffer_gets_a_doubled_glyphs_ink_as_it_changes` in [crates/vtium-render/tests/bitmap_reach.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/bitmap_reach.rs)
 - `every_gpu_frame_of_a_doubled_glyphs_ink_matches_a_whole_draw` in [crates/vtium-render/tests/bitmap_reach.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/bitmap_reach.rs)
 - `ink_from_a_normal_row_never_reaches_into_a_line_of_double_size` in [crates/vtium-render/tests/bitmap_reach.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/bitmap_reach.rs)
