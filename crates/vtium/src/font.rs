@@ -172,11 +172,28 @@ fn frit_name(name: &str) -> bool {
 /// refuses a request naming any other (ADR-1200 D1).
 pub const GENERATED: &str = "generated";
 
-/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, for a
-/// frit's name, so no name reaches outside the directory.
+/// The category folders of the catalog of font sets, in the order vtium
+/// searches them. vtium-config searches the same folders.
+///
+/// References:
+/// - ADR-1204 D3 and D9: the six categories and their folders.
+pub const CATEGORIES: [&str; 6] = ["console", "classic", "code", "nerd", "scripts", "small"];
+
+/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, in the
+/// frits' directory itself, where a person's own sets live, else in the
+/// first category folder that holds it. Only a frit's name is looked up,
+/// so no name reaches outside the directory.
+///
+/// References:
+/// - ADR-1204 D9: the directory itself first, then each category folder.
 pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
-    let path = frits.join(format!("{name}.vtfrit"));
-    (frit_name(name) && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
+    if !frit_name(name) {
+        return None;
+    }
+    let file = format!("{name}.vtfrit");
+    std::iter::once(frits.join(&file))
+        .chain(CATEGORIES.iter().map(|c| frits.join(c).join(&file)))
+        .find(|path| std::fs::metadata(path).is_ok_and(|m| m.is_file()))
 }
 
 /// The smallest and largest side of a frit's `cell=` and a look's
@@ -2368,6 +2385,46 @@ mod tests {
                 "source=font:DejaVu Sans Mono\n".into()
             ))
         );
+    }
+
+    // A set is found by its name in the frits' directory itself, where a
+    // person's own sets live, and then in each category folder of the
+    // catalog. A name in the directory itself wins over a category folder,
+    // two category folders are searched in the catalog's order, and a name
+    // in a folder that is not a category, or in the layers' folder, is not
+    // a set.
+    //
+    // References:
+    // - ADR-1204 D9: the category folders and the order vtium searches.
+    #[test]
+    fn a_set_is_found_in_the_frits_directory_and_then_in_its_category_folder() {
+        let dir = Scratch::new("font-catalog");
+        for (folder, name) in [
+            ("console", "terminus"),
+            ("code", "both"),
+            ("small", "both"),
+            ("code", "mine"),
+            ("", "mine"),
+            ("elsewhere", "stray"),
+            ("layers", "layered"),
+        ] {
+            std::fs::create_dir_all(dir.join(folder)).expect("the folder");
+            std::fs::write(
+                dir.join(folder).join(format!("{name}.vtfrit")),
+                "source=kbd:x\n",
+            )
+            .expect("the set");
+        }
+        assert_eq!(
+            frit(&dir, "terminus"),
+            Some(dir.join("console/terminus.vtfrit"))
+        );
+        assert_eq!(frit(&dir, "mine"), Some(dir.join("mine.vtfrit")));
+        assert_eq!(frit(&dir, "both"), Some(dir.join("code/both.vtfrit")));
+        assert_eq!(frit(&dir, "stray"), None);
+        assert_eq!(frit(&dir, "layered"), None);
+        assert_eq!(frit(&dir, "absent"), None);
+        assert_eq!(frit(&dir, "../console/terminus"), None);
     }
 
     // ADR-1401 D10, ADR-1403 D3: vtium reads a frit, at the start and for
