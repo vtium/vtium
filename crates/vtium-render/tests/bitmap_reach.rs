@@ -264,7 +264,6 @@ fn grin_lines(across: usize, down: usize) -> Vec<Vec<bool>> {
 // is lost on both. The test waits for the fix, which draws that ink past
 // the line as the normal size draws it.
 #[test]
-#[ignore = "fails until a line of double size draws a glyph's ink past its cells"]
 fn a_raised_bitmap_glyph_keeps_every_row_on_lines_of_every_size() {
     use LineSize::*;
     let cases = [
@@ -288,4 +287,175 @@ fn a_raised_bitmap_glyph_keeps_every_row_on_lines_of_every_size() {
         .map(|(what, ..)| what)
         .collect();
     assert_eq!(cut, [] as [&str; 0], "the sizes that cut 😀's ink");
+}
+
+/// Three rows of three cells, `a` and ẳ on the middle row, the top row at
+/// `top`'s size with `aa` on it.
+fn hook_under(top: LineSize, hook: bool) -> Screen {
+    let mut s = Screen::new(3, 3, rgb(FG), rgb(BG));
+    s.cursor.visible = false;
+    s.text(0, 0, "aa", style(rgb(FG), rgb(BG)));
+    s.text(
+        0,
+        1,
+        if hook { "aẳ" } else { "aa" },
+        style(rgb(FG), rgb(BG)),
+    );
+    s.lines[0].flags_mut().set_size(top);
+    s
+}
+
+/// The pixels of grid row `row` of `c`, `cols` cells across.
+fn row_pixels(c: &Canvas, cols: u32, row: u32) -> Vec<u32> {
+    (row * CH..(row + 1) * CH)
+        .flat_map(|y| (0..cols * CW).map(move |x| c.pixel(2 + x, 1 + y).unwrap_or(0)))
+        .collect()
+}
+
+// A line of double size receives no ink: the hook of ẳ, raised into the
+// row above, draws into that row at the normal size and into none of the
+// double sizes, whichever line of a pair the row is. The row above is
+// drawn again on a second frame, once the hook's reach is known, so a
+// line of double size that read its neighbours' reach would draw it.
+// covers: text.line-size
+#[test]
+fn ink_from_a_normal_row_never_reaches_into_a_line_of_double_size() {
+    use LineSize::*;
+    let row0 = |top: LineSize, hook: bool| {
+        let mut s = hook_under(top, hook);
+        let (w, h) = size(&s);
+        let mut r = Renderer::new(Font::new(set(true)), w, h, Config::default());
+        let mut c = Canvas::new(w, h, 0);
+        r.draw(&s.frame(Age::NEVER), &mut c, 0, &state(&s));
+        let since = s.damage.checkpoint();
+        s.damage.mark_cells(0, 0..s.cols);
+        r.draw(&s.frame(since), &mut c, 1, &state(&s));
+        row_pixels(&c, 3, 0)
+    };
+    assert_ne!(
+        row0(Single, true),
+        row0(Single, false),
+        "the hook draws into a row of the normal size"
+    );
+    for top in [DoubleWidth, DoubleHeightTop, DoubleHeightBottom] {
+        assert_eq!(row0(top, true), row0(top, false), "{top:?}");
+    }
+}
+
+/// The steps of a screen whose 😀 on row 1 sends ink past a line of double
+/// size: each changes what the rows around the line receive.
+type Step = (&'static str, fn(&mut Screen));
+
+fn grin_steps() -> [Step; 9] {
+    fn sized(s: &mut Screen, row: usize, size: LineSize) {
+        s.lines[row].flags_mut().set_size(size);
+        s.damage.mark_cells(row, 0..s.cols);
+    }
+    fn grin(s: &mut Screen, c: char) {
+        s.put(0, 1, c, c != ' ', style(rgb(FG), rgb(BG)));
+        if c == ' ' {
+            s.put(1, 1, ' ', false, style(rgb(FG), rgb(BG)));
+        }
+    }
+    [
+        ("the screen", |_| {}),
+        ("the screen again", |_| {}),
+        ("its line doubles in width", |s| {
+            sized(s, 1, LineSize::DoubleWidth)
+        }),
+        ("the grin goes", |s| grin(s, ' ')),
+        ("the grin comes back", |s| grin(s, '😀')),
+        ("the cursor stands on it", |s| {
+            s.cursor.visible = true;
+            (s.cursor.col, s.cursor.row) = (0, 1);
+            s.damage.mark_cell(1, 0);
+        }),
+        ("a double-height pair", |s| {
+            s.cursor.visible = false;
+            s.damage.mark_cell(1, 0);
+            s.put(0, 2, '😀', true, style(rgb(FG), rgb(BG)));
+            sized(s, 1, LineSize::DoubleHeightTop);
+            sized(s, 2, LineSize::DoubleHeightBottom);
+        }),
+        ("the pair's top half goes", |s| grin(s, ' ')),
+        ("every line normal", |s| {
+            sized(s, 1, LineSize::Single);
+            sized(s, 2, LineSize::Single);
+        }),
+    ]
+}
+
+/// A screen of four rows of four cells with 😀 at the left of row 1.
+fn grin_start() -> Screen {
+    grin_screen(LineSize::Single, None)
+}
+
+// Each frame of a doubled glyph whose ink passes the line, drawn into one
+// of `n` buffers in turn, matches a whole draw: a change to the glyph, its
+// line's size or the cursor on it draws again the cells its old and new
+// ink reach, in the rows above and below
+// covers: text.line-size
+#[test]
+fn every_buffer_gets_a_doubled_glyphs_ink_as_it_changes() {
+    for n in [2usize, 3] {
+        let mut s = grin_start();
+        let (w, h) = size(&s);
+        let mut r = Renderer::new(Font::new(grin_set()), w, h, Config::default());
+        let mut buffers: Vec<Canvas> = (0..n).map(|_| Canvas::new(w, h, 0)).collect();
+        let mut since = Age::NEVER;
+        for (i, (what, step)) in grin_steps().into_iter().enumerate() {
+            step(&mut s);
+            let age = if i < n { 0 } else { n as u32 };
+            let buffer = &mut buffers[i % n];
+            r.draw(&s.frame(since), buffer, age, &state(&s));
+            since = s.damage.checkpoint();
+            let want = cpu(&s, grin_set());
+            assert!(
+                *buffer == want,
+                "{what}, {n} buffers: differs from a whole draw"
+            );
+        }
+    }
+}
+
+// The GPU path draws a doubled glyph's ink past the line as the CPU path
+// does: the stand-in GL draws the cells through its model of the cell
+// shader, whose ink grid names each piece of the doubled glyph by its
+// display cell, and each frame's pixels are a whole CPU draw's
+// covers: text.line-size
+#[cfg(feature = "gpu")]
+#[test]
+fn every_gpu_frame_of_a_doubled_glyphs_ink_matches_a_whole_draw() {
+    use vtium_render::gpu::{Gl, Pipeline, Size, StandIn};
+    let mut s = grin_start();
+    let (w, h) = size(&s);
+    let size = Size::new(w, h);
+    let mut gl = StandIn::new();
+    let mut pipeline =
+        Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).expect("a pipeline");
+    let buffer = gl.import_buffer(&size).expect("a buffer");
+    let mut r = Renderer::new(Font::new(grin_set()), w, h, Config::default());
+    let mut since = Age::NEVER;
+    for (what, step) in grin_steps() {
+        step(&mut s);
+        let frame = s.frame(since);
+        r.draw_gpu(&mut gl, &mut pipeline, &frame, &buffer, 1, &state(&s), &[])
+            .expect("drawn");
+        since = s.damage.checkpoint();
+        let want = cpu(&s, grin_set());
+        let name = *gl.frame_names().last().expect("a frame");
+        let got = gl.frame_pixels(name).expect("its pixels").1.to_vec();
+        let differ = (0..h)
+            .flat_map(|y| (0..w).map(move |x| (x, y)))
+            .filter(|&(x, y)| want.pixel(x, y) != Some(got[(y * w + x) as usize]))
+            .count();
+        assert_eq!(differ, 0, "{what}: pixels that differ from the CPU path's");
+        if what == "its line doubles in width" {
+            // the grin's top row, in the row above its line
+            let fg = u32::from_str_radix(FG, 16).unwrap();
+            let above = (1 + CH - 1) * w;
+            let lit = (0..w).any(|x| got[(above + x) as usize] & 0xff_ffff == fg);
+            assert!(lit, "{what}: the row above shows the grin's top row");
+        }
+    }
 }

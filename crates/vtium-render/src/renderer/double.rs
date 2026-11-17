@@ -32,6 +32,13 @@
 //! glyph arrives. [`doubled_glyph`] and [`piece_glyph`] are the one place
 //! that chooses among the three.
 //!
+//! A doubled glyph sends its ink past the line as a glyph at the normal
+//! size sends its ink past its cells. Each piece carries the part of the
+//! doubled ink box that lies on its own side of the doubled character
+//! ([`piece_ink`]), so the renderer finds each piece as a one-cell glyph
+//! whose ink reaches the rows above and below. A line of double size
+//! receives no ink from its neighbours.
+//!
 //! References:
 //! - The maintainer's direction on the double-size lines work, 2026-11-14:
 //!   bitmap fonts double each pixel, outline fonts draw at true double
@@ -217,9 +224,10 @@ pub(crate) fn cut(
 }
 
 /// `glyph`'s piece `piece` as a one-cell glyph, with each pixel doubled
-/// ([`cut`]). The glyph's own pixels are its ink cut to its cells, so the
-/// piece holds no ink past its cell, and a line of double size sends no
-/// ink to its neighbours.
+/// ([`cut`]). The glyph's own pixels are its ink cut to its cells. When
+/// the glyph also carries an ink box, the piece carries the part of the
+/// doubled box that [`piece_ink`] gives it, so the piece's ink reaches
+/// past its cell as the glyph's does at the normal size.
 fn doubled(glyph: &Glyph, piece: Piece) -> Option<Glyph> {
     let cells = match glyph.cells() {
         Width::Wide => 2,
@@ -234,16 +242,153 @@ fn doubled(glyph: &Glyph, piece: Piece) -> Option<Glyph> {
         piece,
     );
     let cw = w.checked_div(cells).unwrap_or(0);
-    let piece = Glyph::from_pixels(cw, h, format, pixels)?;
-    Some(piece.with_cells(Width::Narrow))
+    let cut_piece = Glyph::from_pixels(cw, h, format, pixels)?.with_cells(Width::Narrow);
+    let rows = match piece.kind() {
+        TOP | BOTTOM => 2,
+        _ => 1,
+    };
+    let ink = glyph
+        .ink()
+        .map(|b| InkBox {
+            left: i64::from(b.left()),
+            top: i64::from(b.top()),
+            width: i64::from(b.width()),
+            height: i64::from(b.height()),
+            pixels: b.pixels(),
+        })
+        .and_then(|b| piece_ink(&b, (2, rows), (cw, h, cells), piece, format));
+    Some(with_piece_ink(cut_piece, ink))
+}
+
+/// An ink box as [`piece_ink`] reads it: its place from the top left of
+/// the glyph's first cell, its size and its pixels, row by row.
+struct InkBox<'a> {
+    left: i64,
+    top: i64,
+    width: i64,
+    height: i64,
+    pixels: &'a [u8],
+}
+
+/// The piece's ink box, from its place and size and its pixels.
+type PieceInk = ((i32, i32), (u32, u32), Vec<u8>);
+
+/// `piece` with the ink box `ink`, or `piece` alone where it has none, or
+/// where the box is one the glyph cannot carry, such as a doubled color
+/// emoji's edge.
+fn with_piece_ink(piece: Glyph, ink: Option<PieceInk>) -> Glyph {
+    match ink {
+        Some((at, size, pixels)) => piece.clone().with_ink(at, size, pixels).unwrap_or(piece),
+        None => piece,
+    }
+}
+
+/// The part of a glyph's ink box that piece `piece` of the glyph carries
+/// past its cell, as an ink box of the piece: its place from the piece's
+/// top left, its size and its pixels in `format`. `None` when no ink
+/// lies past the piece's cell.
+///
+/// The box `ink` is drawn `fx` times as wide and `fy` times as tall,
+/// which is how the piece's glyph is drawn: twice as wide and once or
+/// twice as tall for a glyph whose pixels are doubled, and at its own size
+/// for a glyph drawn at the double size. The glyph spans `cells` cells, each `cw` by `ch`
+/// pixels at that size. A piece keeps the ink that lies outside the
+/// doubled character on its own side: above for a piece of a top line or
+/// of a double-width line, below for a piece of a bottom line or of a
+/// double-width line, to the left for the character's first piece and to
+/// the right for its last. The ink inside the doubled character is
+/// another piece's own. The box reaches no further than the bound on a
+/// glyph's reach allows a one-cell glyph.
+///
+/// References:
+/// - ADR-1306 D1: the bound on a glyph's ink above and below its row.
+/// - ADR-1302 D1: the bound on a glyph's ink beside its cells.
+fn piece_ink(
+    ink: &InkBox<'_>,
+    (fx, fy): (i64, i64),
+    (cw, ch, cells): (u32, u32, u32),
+    piece: Piece,
+    format: Format,
+) -> Option<PieceInk> {
+    let (cw, ch) = (i64::from(cw), i64::from(ch));
+    let bpp = i64::from(format.bytes_per_pixel());
+    let column = i64::from(piece.column());
+    let last = i64::from(cells).saturating_mul(2).saturating_sub(1);
+    let (side, rows) = (
+        cw.saturating_mul(i64::from(vtium_font::REACH_CELLS)),
+        ch.saturating_mul(i64::from(vtium_font::REACH_ROWS)),
+    );
+    // the piece's cell in the drawn glyph
+    let px = column.saturating_mul(cw);
+    let py = match piece.kind() {
+        BOTTOM => ch,
+        _ => 0,
+    };
+    let (up, down) = match piece.kind() {
+        TOP => (true, false),
+        BOTTOM => (false, true),
+        _ => (true, true),
+    };
+    let reach = |more: bool, n: i64| if more { n } else { 0 };
+    // the drawn box, cut to the piece's own side and to the bound
+    let x0 = ink
+        .left
+        .saturating_mul(fx)
+        .max(px.saturating_sub(reach(column == 0, side)));
+    let x1 = ink.left.saturating_add(ink.width).saturating_mul(fx).min(
+        px.saturating_add(cw)
+            .saturating_add(reach(column == last, side)),
+    );
+    let y0 = ink
+        .top
+        .saturating_mul(fy)
+        .max(py.saturating_sub(reach(up, rows)));
+    let y1 = ink
+        .top
+        .saturating_add(ink.height)
+        .saturating_mul(fy)
+        .min(py.saturating_add(ch).saturating_add(reach(down, rows)));
+    // the box always spans the piece's cell, so it holds ink past the cell
+    // only when it is larger than the cell
+    let past = x0 < px || y0 < py || x1 > px.saturating_add(cw) || y1 > py.saturating_add(ch);
+    if !past || x0 > px || y0 > py {
+        return None;
+    }
+    let (w, h) = (x1.saturating_sub(x0), y1.saturating_sub(y0));
+    let src_row = ink.width.saturating_mul(bpp);
+    let mut pixels =
+        Vec::with_capacity(usize::try_from(w.saturating_mul(h).saturating_mul(bpp)).ok()?);
+    for y in y0..y1 {
+        let sy = y
+            .saturating_sub(ink.top.saturating_mul(fy))
+            .checked_div(fy)?;
+        for x in x0..x1 {
+            let sx = x
+                .saturating_sub(ink.left.saturating_mul(fx))
+                .checked_div(fx)?;
+            let at = usize::try_from(
+                sy.saturating_mul(src_row)
+                    .saturating_add(sx.saturating_mul(bpp)),
+            )
+            .ok()?;
+            let n = usize::try_from(bpp).ok()?;
+            pixels.extend_from_slice(ink.pixels.get(at..at.checked_add(n)?)?);
+        }
+    }
+    let at = (
+        i32::try_from(x0.saturating_sub(px)).ok()?,
+        i32::try_from(y0.saturating_sub(py)).ok()?,
+    );
+    Some((at, (u32::try_from(w).ok()?, u32::try_from(h).ok()?), pixels))
 }
 
 /// Piece `piece` of `glyph`, a glyph `width` cells wide drawn at the
 /// piece's double size in cells of `cell`, as one narrow glyph of `cell`:
 /// the cell at the piece's column, and on a line of double height the
 /// glyph's upper or lower half. The glyph's pixels are its ink cut to its
-/// cells, so the piece holds no ink past its cell. `None` when the glyph
-/// is not the size that double size gives `width` cells of `cell`.
+/// cells, and the piece carries the part of the glyph's ink box that
+/// [`piece_ink`] gives it. `None` when the glyph is not the size that
+/// double size gives `width` cells of `cell`.
 fn cut_drawn(
     glyph: &Glyph,
     (cell, width): (vtium_font::Cell, Width),
@@ -276,8 +421,18 @@ fn cut_drawn(
             .checked_add(left)?;
         out.extend_from_slice(glyph.pixels().get(at..at.checked_add(out_row)?)?);
     }
-    let piece = Glyph::from_pixels(cw, ch, glyph.format(), out)?;
-    Some(piece.with_cells(Width::Narrow))
+    let cut_piece = Glyph::from_pixels(cw, ch, glyph.format(), out)?.with_cells(Width::Narrow);
+    let ink = glyph
+        .ink()
+        .map(|b| InkBox {
+            left: i64::from(b.left()),
+            top: i64::from(b.top()),
+            width: i64::from(b.width()),
+            height: i64::from(b.height()),
+            pixels: b.pixels(),
+        })
+        .and_then(|b| piece_ink(&b, (1, 1), (cw, ch, width.cells()), piece, glyph.format()));
+    Some(with_piece_ink(cut_piece, ink))
 }
 
 /// The glyph that a line of double size draws for `text` in `variant`,
@@ -530,6 +685,64 @@ mod tests {
         )
         .unwrap();
         assert_eq!(Some(glyph), doubled(&whole, piece));
+    }
+
+    /// A narrow 2 by 2 glyph whose ink box reaches 1 pixel past each side.
+    fn boxed() -> Glyph {
+        Glyph::from_pixels(2, 2, Format::Mask, vec![255; 4])
+            .unwrap()
+            .with_ink((-1, -1), (4, 4), vec![255; 16])
+            .unwrap()
+    }
+
+    /// The place and size of `glyph`'s ink box.
+    fn ink_box(glyph: &Glyph) -> Option<(i32, i32, u32, u32)> {
+        glyph
+            .ink()
+            .map(|b| (b.left(), b.top(), b.width(), b.height()))
+    }
+
+    // Each piece of a doubled glyph keeps the doubled ink on its own side
+    // of the doubled character: both pieces of a double-width line keep
+    // the ink above and below, the top line keeps the ink above, the
+    // bottom line the ink below, and only the first and last pieces keep
+    // the ink to their side. The doubled ink is 2 pixels wide and, on a
+    // double-height pair, 2 tall.
+    #[test]
+    fn each_piece_keeps_the_ink_on_its_own_side() {
+        use LineSize::*;
+        let cases = [
+            (DoubleWidth, 0, (-2, -1, 4, 4)),
+            (DoubleWidth, 1, (0, -1, 4, 4)),
+            (DoubleHeightTop, 0, (-2, -2, 4, 4)),
+            (DoubleHeightTop, 1, (0, -2, 4, 4)),
+            (DoubleHeightBottom, 0, (-2, 0, 4, 4)),
+            (DoubleHeightBottom, 1, (0, 0, 4, 4)),
+        ];
+        for (size, column, want) in cases {
+            let piece = doubled(&boxed(), Piece::of(size, column)).unwrap();
+            assert_eq!(ink_box(&piece), Some(want), "{size:?} piece {column}");
+        }
+    }
+
+    // A glyph drawn at the double size keeps the ink past the doubled
+    // character in the same way, at the glyph's own size: here a row above
+    // the double-width cells, which each piece keeps above itself
+    #[test]
+    fn a_glyph_drawn_at_double_size_keeps_its_ink_above_the_line() {
+        let cell = vtium_font::Cell {
+            width: 2,
+            height: 2,
+        };
+        let drawn = Glyph::from_pixels(4, 2, Format::Mask, vec![255; 8])
+            .unwrap()
+            .with_ink((0, -1), (4, 3), vec![255; 12])
+            .unwrap();
+        for column in [0, 1] {
+            let piece = Piece::of(LineSize::DoubleWidth, column);
+            let got = cut_drawn(&drawn, (cell, Width::Narrow), piece).unwrap();
+            assert_eq!(ink_box(&got), Some((0, -1, 2, 3)), "piece {column}");
+        }
     }
 
     // A piece's glyph is one narrow cell of the doubled glyph
