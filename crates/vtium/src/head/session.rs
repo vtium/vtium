@@ -110,11 +110,12 @@ pub(crate) fn heads(
         .iter()
         .zip(console_shares(rules, caps))
         .map(|(h, wanted)| {
-            let settings: Vec<vtium_settings::Setting> = rules
+            let mut settings: Vec<vtium_settings::Setting> = rules
                 .settings(h)
                 .into_iter()
                 .map(|(_, s)| s.clone())
                 .collect();
+            crate::head::look::with_look_vtlook(&mut settings, rules.look(h));
             let (own, reports) = config.for_head(&crate::config::path(config), &settings);
             for r in reports {
                 log::warn!("head {}: {r}; the top level's value stands", h.name);
