@@ -20,9 +20,9 @@ cell=8x16
 license=OFL-1.1 AND MIT
 
 # The text, GNU Unifont's BDF file, the file that the unifont layer names.
-source=bdf:/usr/share/vtium/fonts/unifont-17.0.03.bdf.gz
+source=bdf:/usr/share/vtium/fonts/unifont-17.0.03.bdf
 version=17.0.03
-sha256=30d50302daca631e2cf454d9747117d98c9f35c0b18af4f67d2fa5e116992033
+sha256=3dbf3ed14e63f69dcc36663092269b312494429ce5a4ddc3adab042b5a0909c2
 url=https://unifoundry.com/pub/unifont/unifont-17.0.03/
 
 layer=nerd-symbols-small

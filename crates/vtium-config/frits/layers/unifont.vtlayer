@@ -5,8 +5,9 @@
 # font instead.
 #
 # The file is unifont-17.0.03.bdf.gz from Unifoundry, which holds the Basic
-# Multilingual Plane. It is a required font: you install it at the path
-# below.
+# Multilingual Plane, decompressed: the font helper reads a gzipped file of
+# 1 MiB at most, and this one is larger. It is a required font: you install
+# it at the path below.
 #
 # License: SIL OFL 1.1, the option vtium takes of Unifont's two licenses,
 # with the copyright line the file's COPYRIGHT property gives: Copyright (C)
@@ -19,7 +20,7 @@
 # - ADR-1204 D2: where vtium installs the file.
 
 role=fallback
-source=bdf:/usr/share/vtium/fonts/unifont-17.0.03.bdf.gz
+source=bdf:/usr/share/vtium/fonts/unifont-17.0.03.bdf
 version=17.0.03
-sha256=30d50302daca631e2cf454d9747117d98c9f35c0b18af4f67d2fa5e116992033
+sha256=3dbf3ed14e63f69dcc36663092269b312494429ce5a4ddc3adab042b5a0909c2
 url=https://unifoundry.com/pub/unifont/unifont-17.0.03/
