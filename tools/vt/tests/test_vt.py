@@ -3806,13 +3806,19 @@ class Package(Case):
         "usr/share/licenses/vtium/OFL-1.1.txt",
         "usr/share/licenses/vtium/rgb-license.txt",
         "usr/share/licenses/vtium/tiny-skia-LICENSE",
+        "usr/share/man/man1/vticlip.1",
+        "usr/share/man/man1/vtium-clipboard.1",
+        "usr/share/man/man1/vtium-config.1",
+        "usr/share/man/man5/vtium.conf.5",
+        "usr/share/man/man8/vtium.8",
         "usr/share/vtium/pointers.svg",
     ])
 
     # What the ordinary-machine build, FEATURES='images logind gpu', stages
     # beside STAGED: the image helper, its account file and the picture
-    # gallery tool (ADR-1101 D1, ADR-1500 D8).
-    WITH_IMAGES = ["usr/bin/vtium-gallery", "usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf"]
+    # gallery tool and its man page (ADR-1101 D1, ADR-1500 D8).
+    WITH_IMAGES = ["usr/bin/vtium-gallery", "usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf",
+                   "usr/share/man/man1/vtium-gallery.1"]
 
     # Where each staged file that vtium's tree holds as it is comes from.
     SOURCES = {
@@ -3832,6 +3838,11 @@ class Package(Case):
         "usr/share/licenses/vtium/rgb-license.txt": "crates/vtium-term/gen-color-names/src/rgb-license.txt",
         "usr/share/licenses/vtium/tiny-skia-LICENSE": "crates/vtium-config/licenses/tiny-skia-LICENSE",
         "usr/share/vtium/pointers.svg": "crates/vtium/install/pointers.svg",
+        "usr/share/man/man1/vtium-clipboard.1": "man/vtium-clipboard.1",
+        "usr/share/man/man1/vtium-config.1": "man/vtium-config.1",
+        "usr/share/man/man1/vtium-gallery.1": "man/vtium-gallery.1",
+        "usr/share/man/man5/vtium.conf.5": "man/vtium.conf.5",
+        "usr/share/man/man8/vtium.8": "man/vtium.8",
     }
 
     # A stand-in cargo that records the helper paths each build bakes in,
