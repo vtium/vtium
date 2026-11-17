@@ -26,10 +26,20 @@
 //! columns selected, and a copy takes the pair's text once, from its top
 //! line.
 //!
+//! A sized run, the block of cells one OSC 66 sequence writes, is one unit
+//! to the selection. A selection that touches any cell of a run selects the
+//! whole run, on every row of it, and a copy gives the run's text once,
+//! from its top row; the run's other cells copy as nothing. On each row the
+//! selection covers one stretch of columns, from its first selected cell to
+//! its last, so a run that the selection reaches from another row also
+//! selects the cells between the run and the rest of that row's selection.
+//!
 //! References:
 //! - ADR-1308 D1, "Selection on a double-size line follows the cursor's
 //!   rule": the half-width columns, both halves highlighted, and the pair's
 //!   text copied once from its top line.
+//! - ADR-1308 D6, "Selection and copy": a run selected whole, and its text
+//!   copied once from its top row.
 
 use core::ops::Range;
 
@@ -37,6 +47,19 @@ use super::Screen;
 use crate::cell::Width;
 use crate::frame::pair_of;
 use crate::line::{Glyph, Line, LineFlags, LineId, LineSize};
+
+/// A sized run that the selection touches: the place of its top line in
+/// reading order, how many rows it takes, and its columns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct TouchedRun {
+    top: usize,
+    rows: usize,
+    span: Range<usize>,
+}
+
+/// The selection's first and last cells, each as its line's place in
+/// reading order and a column.
+type Span = ((usize, usize), (usize, usize));
 
 /// One end of the selection: a column of a line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -335,33 +358,48 @@ impl Screen {
     /// wrapped and the last of a selection of characters, each cell's whole
     /// cluster, an empty cell a space, and nothing for the tail of a wide
     /// character; the bottom line of a double-height pair whose top line is
-    /// selected gives nothing, so the pair's text comes once; `None` when
-    /// nothing is selected.
+    /// selected gives nothing, so the pair's text comes once; a sized run
+    /// gives its text once, from its top row, even when the selection
+    /// touches only a lower row of it; `None` when nothing is selected.
     pub fn selection_text(&self) -> Option<String> {
-        let (from, to) = self.selected_span()?;
-        let mut out = String::new();
+        let span = self.selected_span()?;
+        let ((first, _), (to, _)) = span;
+        let runs = self.touched_runs(span);
+        let first = runs.iter().map(|r| r.top).fold(first, usize::min);
+        let last = runs
+            .iter()
+            .map(|r| r.top.saturating_add(r.rows).saturating_sub(1))
+            .fold(to, usize::max);
+        let mut texts: Vec<(usize, String)> = Vec::new();
         for (i, line) in self
             .all_lines()
             .enumerate()
-            .take(to.0.saturating_add(1))
-            .skip(from.0)
+            .take(last.saturating_add(1))
+            .skip(first)
         {
             // the bottom line of a pair whose top line the selection
             // covers copies nothing: the top line holds the pair's text
-            if i > from.0 && self.pair_place(i).is_some_and(|top| top < i) {
+            if i > first && self.pair_place(i).is_some_and(|top| top < i) {
                 continue;
             }
-            let start = if i == from.0 { from.1 } else { 0 };
-            let end = if i == to.0 {
-                to.1.saturating_add(1)
-            } else {
-                self.cols
-            };
-            let Some(text) = self.line_text(line, start, end) else {
+            let cols = self.selected_on(i, span, &runs);
+            if cols.is_empty() {
                 continue;
-            };
+            }
+            if let Some(text) = self.line_text(line, cols.start, cols.end) {
+                texts.push((i, text));
+            }
+        }
+        // the lower rows of a run below the selection's last line copy
+        // nothing, and add no empty line to the copy
+        while texts.last().is_some_and(|(i, t)| *i > to && t.is_empty()) {
+            texts.pop();
+        }
+        let end = texts.last().map_or(to, |&(i, _)| i);
+        let mut out = String::new();
+        for (i, text) in texts {
             out.push_str(&text);
-            if i == to.0 || !self.continues(i) {
+            if i == end || !self.continues(i) {
                 out.push('\n');
             }
         }
@@ -373,6 +411,8 @@ impl Screen {
 
     /// The text of `line` from column `start` to before `end`, up to its
     /// last cell that holds something; `None` when `start` is past that.
+    /// A sized run gives its text at the first cell of its top row, and
+    /// its other cells give nothing.
     fn line_text(&self, line: &Line, start: usize, end: usize) -> Option<String> {
         let len = text_len(line).min(self.cols);
         if start > len {
@@ -381,6 +421,13 @@ impl Screen {
         let mut text = String::new();
         for col in start..end.min(len) {
             let cell = line.cell(col);
+            if cell.in_run()
+                && line
+                    .run_at(col)
+                    .is_none_or(|r| r.row() > 0 || r.col() != col)
+            {
+                continue;
+            }
             match line.glyph(cell) {
                 Glyph::Empty if cell.width() == Width::WideTail => {}
                 Glyph::Empty => text.push(' '),
@@ -391,32 +438,95 @@ impl Screen {
         Some(text)
     }
 
-    /// The columns of each view row the selection covers, for the frame.
+    /// The columns of the line at `place` that the stream of the selection
+    /// covers, from its first cell to its last in reading order.
+    fn stream_on(&self, place: usize, ((from, start), (to, end)): Span) -> Range<usize> {
+        if place < from || place > to {
+            return 0..0;
+        }
+        let start = if place == from { start } else { 0 };
+        let end = if place == to {
+            end.saturating_add(1)
+        } else {
+            self.cols
+        };
+        start..end.min(self.cols)
+    }
+
+    /// The sized runs that the stream of the selection touches on any of
+    /// their rows. Each run is listed once, by its top line.
+    fn touched_runs(&self, span: Span) -> Vec<TouchedRun> {
+        let ((from, _), (to, _)) = span;
+        let mut runs: Vec<TouchedRun> = Vec::new();
+        for place in from..=to {
+            let Some(line) = self.line_at(place) else {
+                break;
+            };
+            let cols = self.stream_on(place, span);
+            for run in line.runs() {
+                let run_span = run.span();
+                if run_span.start < cols.end && cols.start < run_span.end {
+                    let touched = TouchedRun {
+                        top: place.saturating_sub(run.row()),
+                        rows: run.rows(),
+                        span: run_span,
+                    };
+                    if !runs.contains(&touched) {
+                        runs.push(touched);
+                    }
+                }
+            }
+        }
+        runs
+    }
+
+    /// The columns of the line at `place` in the selection, the stretch
+    /// from the first to the last of the cells of its stream and of `runs`
+    /// on that line. A run counts on a line only when the line holds the
+    /// run's row there, so a run whose top rows left the scrollback marks
+    /// no other line.
+    fn selected_on(&self, place: usize, span: Span, runs: &[TouchedRun]) -> Range<usize> {
+        let mut cols = self.stream_on(place, span);
+        let Some(line) = self.line_at(place) else {
+            return cols;
+        };
+        for run in runs {
+            let Some(row) = place.checked_sub(run.top).filter(|&r| r < run.rows) else {
+                continue;
+            };
+            if !line
+                .runs()
+                .iter()
+                .any(|r| r.span() == run.span && r.row() == row)
+            {
+                continue;
+            }
+            cols = if cols.is_empty() {
+                run.span.clone()
+            } else {
+                cols.start.min(run.span.start)..cols.end.max(run.span.end)
+            };
+        }
+        cols.start..cols.end.min(self.cols)
+    }
+
+    /// The columns of each view row the selection covers, for the frame,
+    /// each sized run it touches whole on every row of it.
     /// Both lines of a double-height pair get the same columns: the top
     /// line's when the selection covers the top line, and the bottom
     /// line's otherwise. So a selected doubled character shows both its
     /// halves selected, even when the view shows only one line of its
     /// pair.
     pub(super) fn selected_columns(&self, view: &[&Line]) -> Vec<Range<usize>> {
-        let Some((from, to)) = self.selected_span() else {
+        let Some(span) = self.selected_span() else {
             return Vec::new();
         };
+        let runs = self.touched_runs(span);
         let base = self
             .scrollback
             .view_index()
             .unwrap_or(self.scrollback.len());
-        let covered = |i: usize| {
-            if i < from.0 || i > to.0 {
-                return 0..0;
-            }
-            let start = if i == from.0 { from.1 } else { 0 };
-            let end = if i == to.0 {
-                to.1.saturating_add(1)
-            } else {
-                self.cols
-            };
-            start..end.min(self.cols)
-        };
+        let covered = |i: usize| self.selected_on(i, span, &runs);
         (0..view.len())
             .map(|row| {
                 let i = base.saturating_add(row);
@@ -435,7 +545,7 @@ impl Screen {
     /// reading order and a column. A first cell whose line has gone is the
     /// oldest line's first; a last cell whose line has gone is the end of
     /// the screen.
-    fn selected_span(&self) -> Option<((usize, usize), (usize, usize))> {
+    fn selected_span(&self) -> Option<Span> {
         let sel = &self.selection;
         if !sel.active {
             return None;

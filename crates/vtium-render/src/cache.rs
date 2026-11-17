@@ -266,8 +266,11 @@ struct LastDoubled {
 }
 
 /// The block a sized run last drew, for its text, variant and size, which
-/// each cell's piece of the run is cut from. A run's cells draw one after
-/// the other, so the block is drawn once for them, not once for each cell.
+/// each cell's piece of the run is cut from. A run's cells on one row draw
+/// one after the other, so the block is drawn once for each row of the run
+/// whose pieces are not yet cached, not once for each cell. Runs side by
+/// side take turns on each row, so each of them draws its block again on
+/// each of its rows.
 #[derive(Debug)]
 struct LastSized {
     text: Text,
@@ -495,11 +498,16 @@ impl<T: Held> GlyphCache<T> {
         }
         self.counts.misses = self.counts.misses.saturating_add(1);
         if let Some(run) = piece.run() {
-            let (glyph, missing) = self.run_piece(font, (text, variant), run)?;
+            let ((glyph, color), missing) = self.run_piece(font, (text, variant), run)?;
             if missing {
                 self.missing.extend_from_slice(text);
             }
-            let stored = Stored::new(&glyph, 1, self.orientation, self.storage.bits);
+            let (o, bits) = (self.orientation, self.storage.bits);
+            let stored = Stored::new(&glyph, 1, o, bits);
+            let stored = match color {
+                Some(c) => stored.with_layer(Stored::new(&c, 1, o, bits)),
+                None => stored,
+            };
             return Some((stored, missing));
         }
         let drawn = if self.storage.unscaled {
@@ -593,7 +601,7 @@ impl<T: Held> GlyphCache<T> {
         font: &Font<F>,
         (text, variant): (&[char], Variant),
         run: RunPiece,
-    ) -> Option<(Glyph, bool)> {
+    ) -> Option<((Glyph, Option<Glyph>), bool)> {
         let same = self
             .last_sized
             .as_ref()

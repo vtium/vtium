@@ -73,6 +73,50 @@ fn unreachable_exits(map: &Map) -> Vec<String> {
         .collect()
 }
 
+/// The keys a terminal's card acts on its line with, which do something
+/// else on each kind of line.
+const CARD_KEYS: [&str; 3] = ["Enter", "Left", "Right"];
+
+/// The lines of each terminal card the walk opens, which its abstract
+/// state does not tell apart: from the TUI that stands for each card, and
+/// from NEW PATH's terminal box opened with Enter, Down to each line in
+/// turn, then each of [`CARD_KEYS`] on it, each
+/// transition checked as the walk's are. The map records none of them, so
+/// it stays one line for each abstract state and key.
+fn card_lines(map: &Map, checks: &mut Checks) {
+    for (abs, (sim, path, start)) in &map.reps {
+        let mut at = sim.clone();
+        let mut keys = path.clone();
+        // NEW PATH's card, which has lines of its own, opens from its box
+        if abs.node() == "flow" && abs.focus == "new terminal" {
+            at.press(press_of("Enter"));
+            keys.push("Enter");
+        } else if abs.node() != "flow.card" {
+            continue;
+        }
+        let lines = Checks::card_line_count(&at);
+        for line in 0..lines {
+            if line > 0 {
+                at.press(press_of("Down"));
+                keys.push("Down");
+            }
+            for key in CARD_KEYS {
+                let mut after = at.clone();
+                let did = after.press(press_of(key));
+                let step = explore::Step {
+                    from: state::of(&at),
+                    key,
+                    to: state::of(&after),
+                    did,
+                    path: keys.clone(),
+                    start: *start,
+                };
+                checks.see(&step, &at, &after);
+            }
+        }
+    }
+}
+
 /// The 0-switch run: every key in every state of every kind of terminal,
 /// each terminal on a thread of its own, with every check after every
 /// key, the map compared with the committed one, and the tables met.
@@ -87,6 +131,7 @@ fn every_key_in_every_state_keeps_the_rules() {
                     let map = explore::explore(term, |step, before, after| {
                         checks.see(step, before, after);
                     });
+                    card_lines(&map, &mut checks);
                     (term, map, checks)
                 })
             })
@@ -450,7 +495,71 @@ fn below_the_minimum_size_the_leave_question_says_what_it_does() {
         .cloned()
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(top.contains("Font sets wait to install"), "{top}");
+    assert!(top.contains("Font sets wait to be installed"), "{top}");
     assert!(top.contains("1 change"), "{top}");
     assert!(top.contains("y install and quit"), "{top}");
+}
+
+/// The screen's rows joined with single spaces, so a line that wraps
+/// reads as one.
+fn joined(screen: &[String]) -> String {
+    screen
+        .iter()
+        .flat_map(|row| row.split_whitespace())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Below the minimum size, a question shows whole however narrow or short
+/// the screen: what it says and every key it takes wrap to the width and
+/// come first, and while it is open the screen shows the question's keys,
+/// never the screen's own "Press q to quit", since q does nothing under a
+/// question.
+///
+/// References:
+/// - ADR-1201 D3: below the minimum size only `q`, `u` and Ctrl-C act.
+/// - ADR-1403 D7, "The same keys in every view": the answer keys of every
+///   question.
+#[test]
+fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
+    let quit = [
+        "1 change is not saved.",
+        "y save and quit",
+        "n quit without saving",
+        "Esc back",
+    ];
+    let leave = [
+        "Font sets wait to be installed; y and n save 1 change first.",
+        "y install and quit",
+        "n quit without installing",
+        "Esc back",
+    ];
+    for (name, keys, said) in [
+        ("quit", &["Up", "Enter"][..], quit),
+        ("leave", &["Up", "Up", "Enter", "Down", "r"][..], leave),
+    ] {
+        for (cols, rows) in [(60, 30), (50, 25), (40, 12), (80, 3), (80, 2)] {
+            let mut sim = Sim::start(Term::Vtium, 80, 25);
+            press(&mut sim, keys);
+            sim.press(sim::Press::Resize(cols, rows));
+            press(&mut sim, &["q"]);
+            assert!(sim.app.confirm.is_some(), "{name} at {cols}x{rows}");
+            let screen = sim.screen();
+            let text = joined(&screen);
+            for part in said {
+                assert!(
+                    text.contains(part),
+                    "{name} at {cols}x{rows}: {part:?} in {screen:#?}"
+                );
+            }
+            assert!(
+                !text.contains("Press q to quit"),
+                "{name} at {cols}x{rows}: {screen:#?}"
+            );
+            assert!(
+                screen.iter().all(|r| r.trim_end().chars().count() <= cols),
+                "{screen:#?}"
+            );
+        }
+    }
 }

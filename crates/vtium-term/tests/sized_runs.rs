@@ -9,7 +9,7 @@ mod common;
 use common::Rng;
 use std::collections::BTreeSet;
 
-use vtium_term::{Attrs, Glyph, Line, LineId, LineSize, Terminal};
+use vtium_term::{Age, Attrs, Glyph, Line, LineId, LineSize, Terminal};
 
 /// A terminal `cols` × `rows` with a scrollback of 50 lines, after `bytes`.
 fn term(cols: usize, rows: usize, bytes: &str) -> Terminal {
@@ -49,6 +49,52 @@ fn text(t: &Terminal, x: usize, y: usize) -> String {
         Glyph::Char(c) => c.to_string(),
         Glyph::Cluster(s) => s.to_owned(),
     }
+}
+
+/// The columns the frame draws selected in each view row.
+fn selected(t: &Terminal) -> Vec<std::ops::Range<usize>> {
+    t.screen()
+        .frame(t.palette(), Age::NEVER)
+        .selection()
+        .to_vec()
+}
+
+/// Selects from cell (`x0`, `y0`) to cell (`x1`, `y1`), and returns the
+/// copy.
+fn select(t: &mut Terminal, (x0, y0): (usize, usize), (x1, y1): (usize, usize)) -> String {
+    let s = t.screen_mut();
+    s.select_start(x0, y0);
+    s.select_to(x1, y1);
+    t.screen().selection_text().unwrap_or_default()
+}
+
+// ADR-1308 D6: a selection that touches any cell of a run selects the
+// whole run, and a copy gives the run's text once, from its top row. A
+// drag from the top row of B's run to its bottom row, which also touches
+// A's bottom row, selects both runs whole and copies AB once.
+// covers: text.kitty-sizing, clipboard.selection
+#[test]
+fn a_selection_over_part_of_a_run_selects_and_copies_it_whole() {
+    let mut t = term(12, 6, "\x1b[2;1H\x1b]66;s=2;AB\x07");
+    assert_eq!(runs(&t, 1), [(0, 2, 0, 2), (2, 2, 0, 2)]);
+    assert_eq!(select(&mut t, (3, 1), (6, 2)), "AB\n");
+    assert_eq!(selected(&t)[1..3], [0..12, 0..7]);
+}
+
+// A selection on a run's bottom row alone selects the run's top row too,
+// and copies the run's text from there, while the text beside the run on
+// its top row stays unselected. A selection on a run's top row alone
+// draws the run's lower row selected and copies nothing from it.
+// covers: text.kitty-sizing, clipboard.selection
+#[test]
+fn a_selection_on_one_row_of_a_run_selects_its_other_rows() {
+    let mut t = term(12, 6, "\x1b[2;1H\x1b]66;s=2;A\x07xy");
+    assert_eq!(select(&mut t, (0, 2), (5, 2)), "A\n");
+    assert_eq!(selected(&t)[1..3], [0..2, 0..6]);
+
+    let mut t = term(12, 6, "\x1b[2;1Hab\x1b]66;s=2;C\x07\x1b[3;1Hzz");
+    assert_eq!(select(&mut t, (0, 1), (2, 1)), "abC");
+    assert_eq!(selected(&t)[1..3], [0..4, 2..4]);
 }
 
 // DECCRA whose target, clipped to the screen's last row, covers only the

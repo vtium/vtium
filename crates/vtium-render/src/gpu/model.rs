@@ -109,6 +109,8 @@ fn int(v: impl TryInto<i64>) -> i64 {
 pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     let [dx, dy, dw, _] = q.dst.map(i64::from);
     let [sx, sy, col, row] = q.src.map(i64::from);
+    let run = q.src[3] >> 16;
+    let row = row & 0xffff;
     let [p0, p1, p2, p3] = q.params;
     let local = (x.saturating_sub(dx), y.saturating_sub(dy));
     let at = (sx.saturating_add(local.0), sy.saturating_add(local.1));
@@ -127,7 +129,7 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
         row.saturating_mul(ch).saturating_add(local.1),
     );
     let a = if kind == 1 { i.masks.byte(at, 0) } else { 0 };
-    let mut one = ul == 0 && st == 0;
+    let mut one = ul == 0 && st == 0 && kind != 3;
     let mut recv = 0;
     if i.with_ink && flags & RECEIVES != 0 && line_inked(i, &job, px, flags & DOWN != 0) {
         recv = received(i, &job, px);
@@ -141,6 +143,24 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
         };
     }
     let pos = (local.0.checked_rem(cw.max(1)).unwrap_or(0), local.1);
+    // a cell of a sized run reads its decorations scaled by the run's scale
+    let pos = match run {
+        0 => pos,
+        run => {
+            let s = i64::from(run & 7).max(1);
+            let (r, c) = (i64::from(run >> 3 & 7), i64::from(run >> 6 & 7));
+            (
+                c.saturating_mul(cw)
+                    .saturating_add(pos.0)
+                    .checked_div(s)
+                    .unwrap_or(0),
+                r.saturating_mul(ch)
+                    .saturating_add(pos.1)
+                    .checked_div(s)
+                    .unwrap_or(0),
+            )
+        }
+    };
     let sprite = |k: u32| {
         let k = int(k.saturating_sub(1));
         let across = i.sprite_columns.max(1);
@@ -158,6 +178,13 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     match kind {
         1 => p = tint_over(p, a, fg),
         2 => p = argb_over(p, i.colors.argb(at)),
+        // a sized run's piece: the text's mask in the alpha one cell to the
+        // right, then the color layer over it
+        3 => {
+            let mask = i.colors.byte((at.0.saturating_add(cw), at.1), 3);
+            p = tint_over(p, mask, fg);
+            p = argb_over(p, i.colors.argb(at));
+        }
         _ => {}
     }
     if st != 0 {

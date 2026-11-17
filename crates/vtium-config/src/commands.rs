@@ -14,13 +14,14 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use vtium_settings::fonts_report::Named;
 use vtium_settings::keys::{self, Default as KeyDefault, Kind, Scope};
 use vtium_settings::{Edit, fonts_report, setting, switch};
 
 use crate::draft::{FileEdit, Plan, Removal};
-use crate::frit::{FRIT_BYTES_MAX, Frit, RESERVED, valid_name};
+use crate::frit::{FRIT_BYTES_MAX, Frit, Origin, RESERVED, valid_name};
 use crate::needs::{Differ, Differs};
-use crate::specimen::Sources;
+use crate::specimen::{Found, Sources};
 use crate::tui::{Paths, model::FontState};
 use vtium_font::set::layer;
 
@@ -45,16 +46,18 @@ fn conf(paths: &Paths) -> Result<(PathBuf, Option<String>), String> {
 }
 
 /// `fonts`: each frit and built-in font, one line each, tab-separated: its
-/// name, its state, and the sources this machine lacks or refuses, which
-/// the glyph helper finds under its own sandbox, so this process parses
-/// no font (ADR-1201 D3). After the list, a report in sentences names each
-/// font a set needs and this machine lacks, each installed font of a lower
-/// version than the set asks for, and each font file whose SHA-256
-/// differs, with the font's upstream page where the set gives one. A last
-/// line points to the help page on installing fonts. A line of the report
-/// holds no tab, so it never reads as a font's line.
+/// name, its state, and the sources this machine lacks or refuses. The
+/// glyph helper finds those sources under its own sandbox, so this process
+/// parses no font. After the list, a report in sentences names each font a
+/// set needs and this machine lacks, also for a set with no font left,
+/// each installed font of a lower version than the set asks for, and each
+/// font file whose SHA-256 differs, with the font's upstream page where
+/// the set gives one. A last line points to the help page on installing
+/// fonts. A line of the report holds no tab, so it never reads as a font's
+/// line.
 ///
 /// References:
+/// - ADR-1201 D3: vtium-config reads a font only through the sandboxed helper.
 /// - ADR-1204 D7: what the report names, and the page it points to.
 pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     if !words.is_empty() {
@@ -88,15 +91,22 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     let mut answers = crate::specimen::found_of(&paths.helper, texts).into_iter();
     let mut found = read.into_iter().map(|(name, frit)| match frit {
         Ok(frit) => {
-            let (sources, differs) = answers.next().unwrap_or_else(|| {
-                (
-                    Sources::Unknown("the font helper did not answer".to_owned()),
-                    Vec::new(),
-                )
+            let found = answers.next().unwrap_or_else(|| Found {
+                sources: Sources::Unknown("the font helper did not answer".to_owned()),
+                left_out: Vec::new(),
+                differs: Vec::new(),
             });
-            (name, Some(frit), sources, differs)
+            (name, Some(frit), found)
         }
-        Err(why) => (name, None, Sources::DrawsNothing(why), Vec::new()),
+        Err(why) => (
+            name,
+            None,
+            Found {
+                sources: Sources::DrawsNothing(why),
+                left_out: Vec::new(),
+                differs: Vec::new(),
+            },
+        ),
     });
     let mut report = Vec::new();
     for font in fonts {
@@ -104,11 +114,13 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
             FontState::Refused(why) => (format!("cannot be read: {why}"), String::new()),
             FontState::Reads => match found.next() {
-                Some((name, frit, sources, differs)) => {
-                    if let (Some(frit), Sources::LeftOut(left)) = (&frit, &sources) {
-                        report.extend(needs_report(&name, frit, left, &differs));
+                Some((name, frit, found)) => {
+                    // a set with no font left names the fonts it lacks
+                    // as a set with some left does
+                    if let Some(frit) = &frit {
+                        report.extend(needs_report(&name, frit, &found.left_out, &found.differs));
                     }
-                    match sources {
+                    match found.sources {
                         Sources::LeftOut(left) => ("reads".to_owned(), left_out_text(&left)),
                         Sources::DrawsNothing(why) => {
                             (format!("no font file found: {why}"), String::new())
@@ -173,11 +185,17 @@ fn needs_report(
             }
             _ => None,
         });
+        // a font named by its path is a file this machine lacks, not a font
+        // it has not installed
+        let named = match source.origin {
+            Origin::File(_) | Origin::Bdf(_) | Origin::Outline(_) => Named::ByPath,
+            _ => Named::ByName,
+        };
         let text = match (version, lacks) {
-            (None, None) => fonts_report::missing(set, &font),
-            (Some(v), None) => fonts_report::missing_version(set, &font, v),
-            (None, Some(c)) => fonts_report::lacks(set, &font, &c),
-            (Some(v), Some(c)) => fonts_report::lacks_version(set, &font, v, &c),
+            (None, None) => fonts_report::missing(set, &font, named),
+            (Some(v), None) => fonts_report::missing_version(set, &font, v, named),
+            (None, Some(c)) => fonts_report::lacks(set, &font, &c, named),
+            (Some(v), Some(c)) => fonts_report::lacks_version(set, &font, v, &c, named),
         };
         with_page(text, source);
     }

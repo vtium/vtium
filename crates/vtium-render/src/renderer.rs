@@ -697,6 +697,9 @@ pub struct Renderer<F> {
     /// without reading reaches, as the GPU path scans and as every path
     /// scans while the font has drawn no glyph whose ink passes its cells.
     reaches_kept: bool,
+    /// Whether the row being drawn holds any cell of a sized run, decided
+    /// once for the row, so a row with no run spends nothing on runs.
+    row_runs: bool,
     /// How far a glyph's ink may reach past its cells.
     bound: Bound,
     /// A cell's text, read for its glyph's reach.
@@ -1006,6 +1009,7 @@ impl<F: Face> Renderer<F> {
             cursor_at: None,
             held_at: None,
             reaches_kept: true,
+            row_runs: false,
             bound: Bound::DRAWN,
             chars: Vec::new(),
             #[cfg(feature = "bidi")]
@@ -1667,7 +1671,10 @@ impl<F: Face> Renderer<F> {
         let role = u8::try_from(ncells).unwrap_or(1);
         // each cell of a sized run draws a piece of the run's text, which
         // the run's first cell holds, and its ink stays in its cell
-        let run = p.run_piece(row, col).map(|(_, first)| first);
+        let run = match self.row_runs {
+            true => p.run_piece(row, col).map(|(_, first)| first),
+            false => None,
+        };
         let mut changed = fc.changed
             || self.shows_changed(&fc.glyph)
             || run.is_some_and(|first| self.shows_changed(&first.glyph));
@@ -1844,6 +1851,7 @@ impl<F: Face> Renderer<F> {
         let mut count = 0u32;
         let mut before = None;
         let runs = !p.frame.sized_runs(row).is_empty();
+        self.row_runs = runs;
         for (here, fc) in p.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
@@ -1877,6 +1885,7 @@ impl<F: Face> Renderer<F> {
                 continue;
             }
             let mut first = true;
+            self.row_runs = !p.frame.sized_runs(above).is_empty();
             for b in reached.iter().filter(|b| meets(b, above)) {
                 if core::mem::take(&mut first) {
                     self.compose.jobs.clear();
@@ -1926,15 +1935,22 @@ impl<F: Face> Renderer<F> {
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
         // a cell of a sized run draws as a narrow cell that holds the
         // run's text, and its job draws its piece of the run's block
-        let run = p.run_piece(row, col);
+        let run = match self.row_runs {
+            true => p.run_piece(row, col),
+            false => None,
+        };
         let own = fc;
-        let fc = &match run {
-            Some((_, first)) => FrameCell {
-                glyph: first.glyph,
-                width: Width::Narrow,
-                ..*fc
-            },
-            None => *fc,
+        let in_run;
+        let fc = match run {
+            Some((_, first)) => {
+                in_run = FrameCell {
+                    glyph: first.glyph,
+                    width: Width::Narrow,
+                    ..*fc
+                };
+                &in_run
+            }
+            None => fc,
         };
         #[cfg(feature = "bidi")]
         let mut drawn = core::mem::take(&mut self.drawn);
@@ -1950,13 +1966,15 @@ impl<F: Face> Renderer<F> {
         }
         let lit = self.one_bit_lit(p, own, row, col);
         let jobs = self.compose.jobs.len();
-        // on a run, a block cursor covers every cell, a bar stands along the
-        // block's left edge and an underline lies under its bottom row
+        // on a run, a block cursor covers every cell and a bar stands along
+        // the block's left edge. An underline cursor is the cell's
+        // underline, which scales with the run, so every cell of the run
+        // draws its piece of it, and the scaled line lies under the block's
+        // bottom row whichever of the block's rows its pixels fall in.
         let draws_cursor = is_cursor
             && run.is_none_or(|(piece, _)| match p.cursor.shape {
-                CursorShape::Block => true,
+                CursorShape::Block | CursorShape::Underline => true,
                 CursorShape::Bar => piece.column == 0,
-                CursorShape::Underline => piece.row.saturating_add(1) == piece.size.scale,
             });
         self.push_jobs(
             &p.g,
@@ -1972,6 +1990,10 @@ impl<F: Face> Renderer<F> {
             let scale = i64::from(piece.size.scale);
             for job in self.compose.jobs.get_mut(jobs..).unwrap_or_default() {
                 job.piece = double::Piece::of_run(piece);
+                // the decorations scale with the run's text
+                for (line, _) in job.underline.into_iter().chain(job.over) {
+                    self.compose.sprites.prepare(line, job.piece);
+                }
                 // the bar scales with the run's glyph
                 job.bar = job.bar.map(|b| {
                     let w = b.w.saturating_mul(scale);
@@ -2062,6 +2084,7 @@ impl<F: Face> Renderer<F> {
         doubled.clear();
         let mut before = None;
         let runs = !p.frame.sized_runs(row).is_empty();
+        self.row_runs = runs;
         for (here, fc) in p.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
@@ -2596,6 +2619,10 @@ impl<F: Face> Renderer<F> {
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);
+            // each cell of a sized run draws its own piece of the run, as
+            // the row's scan draws it
+            let in_run = self.row_runs && p.run_at(row, here).is_some();
+            let ncells = if in_run { 1 } else { ncells };
             if ncells == 0 {
                 continue;
             }
@@ -2605,6 +2632,11 @@ impl<F: Face> Renderer<F> {
                 .iter()
                 .any(|j| here >= j.posx && here < j.posx.saturating_add(j.ncells));
             if covered {
+                continue;
+            }
+            if in_run {
+                self.cells.mark_drawn(here, row, 1);
+                self.push_cell_jobs(p, (here, row), &fc, 1);
                 continue;
             }
             let is_cursor = p.shows_cursor(here, row);

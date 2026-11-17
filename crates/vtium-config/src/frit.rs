@@ -1279,12 +1279,25 @@ fn code_points(value: &str) -> Option<Cover> {
 /// `needs`, for a source whose origin is `origin`. `check=` may come
 /// several times, and its ranges join; each other key comes once for a
 /// source. `sha256=` is only for a source that names a file by its path,
-/// because only such a file has one hash.
+/// because only such a file has one hash. `version=` and `check=` are only
+/// for a font a person installs: a `builtin:` font is always there, and
+/// `vconsole` and `console:` name the system's console font, so the
+/// helper never counts one of them missing, and no report could name it.
 ///
 /// References:
 /// - ADR-1204 D7: the four keys and their values.
 fn need(needs: &mut Needs, origin: &Origin, key: &str, value: &str) -> Result<(), String> {
     let twice = || format!("{key}= appears twice for one source");
+    if matches!(key, "version" | "check")
+        && matches!(
+            origin,
+            Origin::Builtin(_) | Origin::Vconsole | Origin::Console(_)
+        )
+    {
+        return Err(format!(
+            "{key}= is for a font you install, and the source above it is built into vtium or names the system's console font"
+        ));
+    }
     match key {
         "version" => {
             if needs.version.is_some() {
@@ -2250,12 +2263,14 @@ mod tests {
     }
 
     // A malformed value, a key given twice for one source, `sha256=` under
-    // a source that names no file, and a key with no source above it are
-    // each refused, naming the line, as every other key of the frit is.
+    // a source that names no file, `version=` and `check=` under a source
+    // that names no font a person installs, and a key with no source above
+    // it are each refused, naming the line, as every other key of the frit
+    // is.
     #[test]
     fn a_malformed_requirement_is_refused_naming_its_line() {
         let hash = "a".repeat(64);
-        let cases: [(String, &str); 15] = [
+        let cases: [(String, &str); 19] = [
             (
                 "source=kbd:x\nversion=v2\n".into(),
                 "version=v2 is not a version. Write the version as numbers separated by dots, such as 2.304.",
@@ -2299,6 +2314,22 @@ mod tests {
             (
                 format!("source=font:Fira Code\nsha256={hash}\n"),
                 "sha256= is for a source named by its path, file:, bdf: or outline:, and the source above it names no file",
+            ),
+            (
+                "source=builtin:unscii-8\ncheck=U+4E2D\n".into(),
+                "check= is for a font you install, and the source above it is built into vtium or names the system's console font",
+            ),
+            (
+                "source=builtin:unifont\nversion=15.1\n".into(),
+                "version= is for a font you install, and the source above it is built into vtium or names the system's console font",
+            ),
+            (
+                "source=vconsole\ncheck=U+0041\n".into(),
+                "check= is for a font you install, and the source above it is built into vtium or names the system's console font",
+            ),
+            (
+                "source=console:1\nversion=1\n".into(),
+                "version= is for a font you install, and the source above it is built into vtium or names the system's console font",
             ),
             (
                 "source=kbd:x\nurl=github.com/x\n".into(),

@@ -84,9 +84,8 @@ impl Piece {
         Piece(kind << 2 | column)
     }
 
-    /// The piece of a sized run that the cell at row `row` and column
-    /// `column` of the run's block draws, both counted from 0 at the
-    /// block's top left.
+    /// The piece `run` of a sized run: the cell of the run's block that
+    /// `run` names by its row and column, on the line size it names.
     pub(crate) fn of_run(run: RunPiece) -> Piece {
         Piece(RUN_BIT | u64::from(run.bits()))
     }
@@ -148,10 +147,11 @@ impl Piece {
     /// of its column. A decoration spans one cell, so a wide cell's
     /// second cell draws the same sprite as its first, as on a line of the
     /// normal size. A sized run's cell draws the set of the line it lies
-    /// on.
+    /// on, by the parity of its display column in the run, which may pass
+    /// the doubled piece's last column.
     pub(crate) fn sprite_set(self) -> usize {
         if let Some(run) = self.run() {
-            return Piece::of(run.line, usize::from(run.column)).sprite_set();
+            return Piece::of(run.line, usize::from(run.column & 1)).sprite_set();
         }
         match self.kind() {
             0 | RUN => 0,

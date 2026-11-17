@@ -5,6 +5,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use vtium_config::tui::flowdraw::{self, CardLine};
+use vtium_config::tui::flowview::Obj;
 use vtium_config::tui::model::{Then, View};
 
 use super::explore::Step;
@@ -129,6 +131,65 @@ impl Seen<'_> {
             Ok(())
         } else {
             Err(format!("expected {state}"))
+        }
+    }
+
+    /// The terminal card open in `sim`, with the line under its cursor:
+    /// its object, its path and the line. `None` outside a card.
+    fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
+        let fv = &sim.app.flow_view;
+        let obj = fv.layer.clone()?;
+        let path = flowdraw::card_path(&sim.app, &obj)?;
+        let line = flowdraw::card_lines(&path, matches!(obj, Obj::New(_)))
+            .get(fv.line)
+            .cloned()?;
+        Some((obj, path, line))
+    }
+
+    /// Enter on a card's line sets the line to the choice under the
+    /// cursor, or starts typing where that choice is typed, or says in the
+    /// message why it refuses the choice. A display's or a device's line
+    /// has one choice, which disconnects it.
+    fn sets_the_field(&self) -> Result<(), String> {
+        let Some((_, _, line)) = Self::card(self.before) else {
+            return Err("no card was open".into());
+        };
+        let pick = self.before.app.flow_view.pick;
+        if self.exited() {
+            return Err("Enter left the TUI".into());
+        }
+        if flowdraw::card_types(&self.before.app, &line, pick) {
+            return if self.after.app.flow_view.typing.is_some() {
+                Ok(())
+            } else {
+                Err("Enter on a typed choice did not start the typing".into())
+            };
+        }
+        if self.after.app.message.is_some() && self.after.app.message != self.before.app.message {
+            return Ok(());
+        }
+        // a display's or a device's one choice disconnects it, so its line
+        // goes from the card
+        if matches!(line, CardLine::Part(_)) {
+            let still = Self::card(self.after).is_some_and(|(obj, path, _)| {
+                flowdraw::card_lines(&path, matches!(obj, Obj::New(_))).contains(&line)
+            });
+            return if still {
+                Err("Enter on a part left it on the card".into())
+            } else {
+                Ok(())
+            };
+        }
+        // the card the change leaves open shows the line at the choice set
+        let held = Self::card(self.after).and_then(|(_, path, after_line)| {
+            (after_line == line)
+                .then(|| flowdraw::card_chosen(&self.after.app, &path, &line))
+                .flatten()
+        });
+        if held == Some(pick) {
+            Ok(())
+        } else {
+            Err(format!("Enter on choice {pick} left the line at {held:?}"))
         }
     }
 
@@ -454,10 +515,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     let not_built: Check = |_| Err("not built".into());
     for id in [
         "list.settings-values",
-        "list.flow-card",
         "list.filter-picker",
-        "list.font-set-files",
-        "list.terminals",
         "list.font-sets",
         "list.font-sizes",
         "enter.view.settings",
@@ -510,6 +568,97 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     };
     m.insert("o.view.looks", (nothing, Some(ops_on)));
     m.insert("o.view", (nothing, Some(ops_on)));
+    // a card's own keys: Left and Right step the choice under the cursor,
+    // Enter sets it, and e on a path's detail takes the path into NEW PATH
+    m.insert(
+        "left.layer.flow-card",
+        (
+            |s| {
+                let (a, b) = (&s.before.app.flow_view, &s.after.app.flow_view);
+                if s.exited() || !s.kept() || a.line != b.line {
+                    return Err("Left left the card, changed a line or changed the draft".into());
+                }
+                if b.pick == a.pick.saturating_sub(1) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Left stepped the choice from {} to {}",
+                        a.pick, b.pick
+                    ))
+                }
+            },
+            no_today,
+        ),
+    );
+    m.insert(
+        "right.layer.flow-card",
+        (
+            |s| {
+                let (a, b) = (&s.before.app.flow_view, &s.after.app.flow_view);
+                if s.exited() || !s.kept() || a.line != b.line {
+                    return Err("Right left the card, changed a line or changed the draft".into());
+                }
+                let last = Seen::card(s.before)
+                    .map(|(_, _, line)| flowdraw::card_choices(&s.before.app, &line).len())
+                    .unwrap_or(0)
+                    .saturating_sub(1);
+                if b.pick == a.pick.saturating_add(1).min(last) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Right stepped the choice from {} to {}",
+                        a.pick, b.pick
+                    ))
+                }
+            },
+            no_today,
+        ),
+    );
+    let sets: Check = |s| s.sets_the_field();
+    m.insert("enter.layer.flow-card", (sets, no_today));
+    // the lists the card's Enter is to open are not built: today Enter
+    // sets the line as it sets any other
+    for id in ["list.flow-card", "list.font-set-files", "list.terminals"] {
+        m.insert(id, (not_built, Some(sets)));
+    }
+    m.insert(
+        "e.layer.flow-detail",
+        (
+            |s| {
+                if s.exited() {
+                    return Err("e left the TUI".into());
+                }
+                // NEW PATH holds another path already, which e says
+                if !s.before.app.flow_view.new.is_empty() {
+                    return if s.after.app.message.is_some() && s.kept() {
+                        Ok(())
+                    } else {
+                        Err("e over a full NEW PATH said nothing or changed something".into())
+                    };
+                }
+                if s.after.app.flow_view.revising.is_some() && s.after.app.flow_view.layer.is_none()
+                {
+                    Ok(())
+                } else {
+                    Err("e did not take the path into NEW PATH".into())
+                }
+            },
+            no_today,
+        ),
+    );
+    m.insert(
+        "enter.layer.restore",
+        (
+            |s| {
+                if s.step.to.kind == StateKind::Question && !s.exited() && s.kept() {
+                    Ok(())
+                } else {
+                    Err("Enter on an installed file did not ask before copying it".into())
+                }
+            },
+            no_today,
+        ),
+    );
     m.insert(
         "t.layer.flow-card",
         (
@@ -601,13 +750,44 @@ fn installs(s: &Seen<'_>) -> Result<(), String> {
     }
 }
 
+/// When a row applies, for rows that share a key in one node: the row is
+/// checked, and counts as reached, only on a transition from a state it
+/// applies in.
+type Case = fn(&Seen<'_>) -> bool;
+
+/// The cases of the rows that share a key in one node. Enter on a
+/// terminal's card sets the line under the cursor today; the planned
+/// lists it is to open each belong to one kind of line.
+fn row_cases() -> BTreeMap<&'static str, Case> {
+    let mut m: BTreeMap<&'static str, Case> = BTreeMap::new();
+    m.insert("list.flow-card", |s| {
+        matches!(
+            card_line(s),
+            Some(CardLine::Part(_) | CardLine::Setting("vt"))
+        )
+    });
+    m.insert("list.font-set-files", |s| {
+        matches!(card_line(s), Some(CardLine::Font))
+    });
+    m.insert("list.terminals", |s| {
+        matches!(card_line(s), Some(CardLine::Name))
+    });
+    m
+}
+
+/// The line under the cursor of the card open before the key.
+fn card_line(s: &Seen<'_>) -> Option<CardLine> {
+    Seen::card(s.before).map(|(_, _, line)| line)
+}
+
 /// What one run of the checks found.
 #[derive(Default)]
 pub struct Findings {
     /// Each failure, with the scenario that shows it.
     pub failures: Vec<String>,
-    /// The key table's rows some transition reached.
-    pub reached: BTreeSet<String>,
+    /// The key table's rows some transition reached, each with the node
+    /// of the tree it was reached in.
+    pub reached: BTreeSet<(String, String)>,
     /// The tree's nodes the walk reached, each with the keys that first
     /// reach it.
     pub nodes: BTreeMap<String, String>,
@@ -622,6 +802,7 @@ pub struct Checks {
     rows: Vec<KeyRow>,
     tree: Vec<tables::TreeNode>,
     checks: BTreeMap<&'static str, (Check, Option<Check>)>,
+    cases: BTreeMap<&'static str, Case>,
     pub found: Findings,
 }
 
@@ -631,8 +812,23 @@ impl Checks {
             rows: tables::keys(),
             tree: tables::tree(),
             checks: row_checks(),
+            cases: row_cases(),
             found: Findings::default(),
         }
+    }
+
+    /// How many lines the terminal card open in `sim` has, 0 outside a
+    /// card.
+    pub fn card_line_count(sim: &Sim) -> usize {
+        sim.app
+            .flow_view
+            .layer
+            .as_ref()
+            .and_then(|obj| {
+                let path = flowdraw::card_path(&sim.app, obj)?;
+                Some(flowdraw::card_lines(&path, matches!(obj, Obj::New(_))).len())
+            })
+            .unwrap_or(0)
     }
 
     fn fail(&mut self, step: &Step, what: impl std::fmt::Display) {
@@ -694,7 +890,12 @@ impl Checks {
             );
         }
         for row in rows {
-            self.found.reached.insert(row.id.clone());
+            if let Some(case) = self.cases.get(row.id.as_str())
+                && !case(&seen)
+            {
+                continue;
+            }
+            self.found.reached.insert((node_id.clone(), row.id.clone()));
             let check = self
                 .checks
                 .get(row.id.as_str())
@@ -822,19 +1023,25 @@ impl Checks {
     /// checked, and the views table met.
     pub fn finish(&mut self, views: &[ViewRow]) {
         // each key row is checked in every node the walk reaches that
-        // lists it
+        // lists it, and a row with a case only in a state it applies in
         for row in &self.rows {
-            let listing: Vec<&str> = self
+            let missed: Vec<&str> = self
                 .tree
                 .iter()
                 .filter(|n| n.keys.contains(&row.id) && self.found.nodes.contains_key(&n.id))
                 .map(|n| n.id.as_str())
+                .filter(|n| {
+                    !self
+                        .found
+                        .reached
+                        .contains(&((*n).to_owned(), row.id.clone()))
+                })
                 .collect();
-            if !row.key_line && !listing.is_empty() && !self.found.reached.contains(&row.id) {
+            if !row.key_line && !missed.is_empty() {
                 self.found.failures.push(format!(
                     "the key table's row {} matched no transition in {}",
                     row.id,
-                    listing.join(", ")
+                    missed.join(", ")
                 ));
             }
         }

@@ -28,8 +28,8 @@ use vtium_font::{Cell, Face, Format, Script, Style, Variant, Width};
 use crate::made::Made;
 use crate::needs::Differs;
 use crate::serve::{
-    ASK, ASK_MADE, FRAME_BYTES_MAX, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED, FRAME_GLYPHS,
-    FRAME_MADE, FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SANDBOX,
+    ASK, ASK_MADE, DrawsNothing, FRAME_BYTES_MAX, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED,
+    FRAME_GLYPHS, FRAME_MADE, FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SANDBOX,
     FRAME_SOURCES, FRAME_WARNING, FritText, LeftOut, OWN_CELL, SOURCES, ServeRequest,
 };
 
@@ -388,19 +388,34 @@ pub enum Sources {
 pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
     found_of(helper, frits)
         .into_iter()
-        .map(|(sources, _)| sources)
+        .map(|found| found.sources)
         .collect()
 }
 
+/// What the helper said of one frit's sources, with what it found of each
+/// font the frit needs ([`found_of`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Found {
+    /// Whether the frit draws, and from which sources.
+    pub sources: Sources,
+    /// Every source the helper left out, which this machine lacks or
+    /// refuses, also when the frit has no source left and draws nothing.
+    pub left_out: Vec<LeftOut>,
+    /// The fonts that differ from what their sources need.
+    pub differs: Vec<Differs>,
+}
+
 /// What the helper said of each of `frits`, as [`sources_of`] asks it, with
-/// the fonts that differ from what their sources need: a font that lacks a
-/// character its `check=` names, which is also among the sources left out,
-/// a font of a lower version than its `version=`, and a file whose SHA-256
-/// is not its `sha256=`.
+/// every source left out, also of a frit that draws nothing because no
+/// source of it is on this machine, and the fonts that differ from what
+/// their sources need: a font that lacks a character its `check=` names,
+/// which is also among the sources left out, a font of a lower version than
+/// its `version=`, and a file whose SHA-256 is not its `sha256=`.
 ///
 /// References:
-/// - ADR-1204 D7: what vtium-config reports of each font a set needs.
-pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<(Sources, Vec<Differs>)> {
+/// - ADR-1204 D7: what vtium-config reports of each font a set needs,
+///   whether or not the set has a font left.
+pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Found> {
     let count = frits.len();
     let mut answers = Vec::with_capacity(count);
     let session = start(helper).map(|(child, mut stdin, mut stdout)| {
@@ -427,15 +442,26 @@ pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<(Sources, Vec<Diff
                     match frame(&mut stdout) {
                         Ok((FRAME_SOURCES, payload)) => {
                             let answer = text(&payload);
-                            break Ok((
-                                Sources::LeftOut(
-                                    answer.lines().filter_map(LeftOut::parse).collect(),
-                                ),
-                                answer.lines().filter_map(Differs::parse).collect(),
-                            ));
+                            let left_out: Vec<LeftOut> =
+                                answer.lines().filter_map(LeftOut::parse).collect();
+                            // a frit with no source left says so in a line
+                            // of its own, before the sources it lacks
+                            let sources = match DrawsNothing::parse(&answer) {
+                                Some(why) => Sources::DrawsNothing(why),
+                                None => Sources::LeftOut(left_out.clone()),
+                            };
+                            break Ok(Found {
+                                sources,
+                                left_out,
+                                differs: answer.lines().filter_map(Differs::parse).collect(),
+                            });
                         }
                         Ok((FRAME_DRAWS_NOTHING, payload)) => {
-                            break Ok((Sources::DrawsNothing(text(&payload)), Vec::new()));
+                            break Ok(Found {
+                                sources: Sources::DrawsNothing(text(&payload)),
+                                left_out: Vec::new(),
+                                differs: Vec::new(),
+                            });
                         }
                         Ok((FRAME_FAILED, payload)) => {
                             break Err(format!("the font helper failed: {}", text(&payload)));
@@ -484,7 +510,11 @@ pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<(Sources, Vec<Diff
         Err(why) => why,
     };
     while answers.len() < count {
-        answers.push((Sources::Unknown(why.clone()), Vec::new()));
+        answers.push(Found {
+            sources: Sources::Unknown(why.clone()),
+            left_out: Vec::new(),
+            differs: Vec::new(),
+        });
     }
     answers
 }

@@ -33,6 +33,7 @@ These tests check what vtium does with the sequences on this page.
 - `decrqss_reports_rapid_blink_conceal_overline_and_the_script` in [crates/vtium-term/tests/replies.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/replies.rs)
 - `decrqss_reports_settings_and_refuses_with_no_echo` in [crates/vtium-term/tests/replies.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/replies.rs)
 - `decrqss_reports_the_conformance_level` in [crates/vtium-term/tests/replies.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/replies.rs)
+- `decrqss_reports_the_starting_cursor_as_the_style_it_shows` in [crates/vtium-term/tests/replies.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/replies.rs)
 
 ## Where to read more
 

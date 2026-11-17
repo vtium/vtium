@@ -74,9 +74,8 @@ pub use images::{ImageNote, ImageString};
 /// shape that DECSCUSR chooses, which blinks or stays steady.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CursorStyle {
-    /// The host's style, which a session starts with and RIS and DECSTR
-    /// return to: a block, blinking as the host says. DECSCUSR never
-    /// selects it.
+    /// The host's style, which a session starts with and RIS, DECSTR and
+    /// DECSCUSR 7 return to: a block, blinking as the host says.
     #[default]
     Default,
     BlockBlink,
@@ -88,11 +87,14 @@ pub enum CursorStyle {
 }
 
 impl CursorStyle {
-    /// DECSCUSR's style for `Ps`: 0 to 6, and none for a value past 6,
-    /// which xterm ignores. The VT510 manual and ctlseqs make 0, like 1, a
-    /// blinking block.
+    /// DECSCUSR's style for `Ps`. The VT510 manual and ctlseqs make 0,
+    /// like 1, a blinking block, and 2 to 6 the other shapes. 7 is the
+    /// style the host configured, which ctlseqs gives as "Ps = 7 ⇒ initial
+    /// resources". A value past 7 names no style, and the cursor keeps the
+    /// one it has.
     fn from_param(ps: u32) -> Option<Self> {
         Some(match ps {
+            7 => Self::Default,
             0 | 1 => Self::BlockBlink,
             2 => Self::BlockSteady,
             3 => Self::UnderlineBlink,
@@ -103,10 +105,14 @@ impl CursorStyle {
         })
     }
 
-    /// DECSCUSR's `Ps` for the style.
-    fn param(self) -> u8 {
+    /// DECSCUSR's `Ps` for the style the console shows. The default style
+    /// is a block that blinks as the host says (`host_blink`), so it reads
+    /// as 1, a blinking block, or 2, a steady one. A program that sends the
+    /// answer back to DECSCUSR then gets the cursor it saw.
+    fn param(self, host_blink: bool) -> u8 {
         match self {
-            Self::Default => 0,
+            Self::Default if host_blink => 1,
+            Self::Default => 2,
             Self::BlockBlink => 1,
             Self::BlockSteady => 2,
             Self::UnderlineBlink => 3,
@@ -523,6 +529,13 @@ impl Terminal {
         self.state.cursor_style
     }
 
+    /// Whether the cursor blinks, which DECRQM reports for mode 12: a
+    /// style DECSCUSR chose blinks as its number says, and the default
+    /// style blinks as the host's cursor blink says.
+    pub fn cursor_blinks(&self) -> bool {
+        self.state.cursor_blinks()
+    }
+
     /// The host's cursor blink: whether the default cursor style blinks,
     /// mode 12's initial state.
     pub fn set_cursor_blink(&mut self, on: bool) {
@@ -736,6 +749,15 @@ impl State {
             .get(i)
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(0)
+    }
+
+    /// Whether the cursor blinks: a style DECSCUSR chose blinks as its
+    /// number says, and the default style blinks as the host says.
+    fn cursor_blinks(&self) -> bool {
+        match self.cursor_style {
+            CursorStyle::Default => self.host.cursor_blink,
+            style => style.blinks(),
+        }
     }
 
     /// Sets DECSCUSR's style, and draws it: the default style is a block

@@ -54,7 +54,7 @@ $ vtium check-config
 $ vtium check-config ./vtium.conf
 ```
 
-`vtium check-config` exits 1 when it finds an error or a warning, and 0 when it finds none.
+`vtium check-config` exits 0 when it finds no error or warning. It exits 6 when its only warnings are about missing fonts. A font is missing when a font set needs it and it is not installed, or when the installed font lacks a character that the font set checks for. vtium draws the font set without that font, so `vtium config install` installs such a file anyway. Any other error or warning makes `vtium check-config` exit 1. Both 1 and 6 are failures to a script that accepts only 0.
 
 It also refuses a file that leaves nobody at the machine able to type. Such a file has no complete route. A complete route is two things together:
 
@@ -194,7 +194,7 @@ Everything `vtium config` does runs as you, apart from one step of an install. I
 
 An install takes three steps:
 
-1. **As you,** vtium-config first checks that the installed file has not changed since the draft was made from it. If it has changed, vtium-config refuses the draft with exit status 3, and asks nothing. It then checks the draft with `vtium check-config`. It refuses a draft that fails the check, with exit status 1. Last, it builds an install bundle in a new directory under `~/.local/state/vtium/drafts/`, named for the time. The bundle holds the new vtium.conf, and any frits that the TUI's Fonts view has waiting to install. It also holds a list of each file that the bundle replaces. The list gives the SHA-256 of each of those files as it is when the install starts.
+1. **As you,** vtium-config first checks that the installed file has not changed since the draft was made from it. If it has changed, vtium-config refuses the draft with exit status 3, and asks nothing. It then checks the draft with `vtium check-config`. It refuses a draft that fails the check, with exit status 1. Missing fonts are the one exception. When the check exits 6 because its only warnings are about missing fonts, vtium-config shows the warnings and installs the draft. Last, it builds an install bundle in a new directory under `~/.local/state/vtium/drafts/`, named for the time. The bundle holds the new vtium.conf, and any frits that the TUI's Fonts view has waiting to install. It also holds a list of each file that the bundle replaces. The list gives the SHA-256 of each of those files as it is when the install starts.
 2. **As root,** one command runs: `sudo /usr/bin/vtium-config apply DIR`, where DIR is the bundle's directory. sudo asks for your password here. The command takes no option that names a path or a program, so a sudo rule can allow exactly that command. The command reads the bundle without following links. It refuses the bundle, and writes nothing, when a file it would replace has changed since the install started. It checks every file before it writes any. It checks each frit with vtium's frit reader, and the new vtium.conf with the console's own `vtium check-config`. It then writes the frits first, and vtium.conf after them, so that vtium.conf never names a frit that is not there yet. It writes each new file beside the old one, with mode 0644, and renames it into place. It keeps the old file as `NAME.bak`, such as `vtium.conf.bak`. This step is one short process. It takes about 20 ms on the maintainer's machine, check included. A large vtium.conf or many frits take longer.
 3. **As you again,** vtium-config saves the file that the install replaced in your installed history. It records the new installed file as the draft's base. The draft and the installed file are then the same.
 
@@ -389,9 +389,9 @@ A draft that was made before such an edit shows `made before the installed file 
 
 ## Keep your own cursor style
 
-A session starts with the cursor that vtium.conf sets: a block, which blinks while `blink` is on. A program can change the cursor's style, and many programs reset it when they exit. Programs such as vim send terminfo's `Se` capability as they exit, and vtium's terminfo entry makes `Se` a steady block. So after you quit vim, the cursor stays a steady block until something sets it again.
+A session starts with the cursor that vtium.conf sets: a block, which blinks while `blink` is on. A program can change the cursor's style, and many programs reset it when they exit. Programs such as vim send terminfo's `Se` capability as they exit, and vtium's terminfo entry makes `Se` return to the cursor vtium.conf sets. So after you quit vim, the cursor is the one the session started with.
 
-To keep a style of your own, have your shell send it each time it shows a prompt. The sequence is `ESC [ N SP q`. N picks the style: 0 or 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar, 6 a steady bar. With `blink` off, no style blinks.
+To keep a style of your own, have your shell send it each time it shows a prompt. The sequence is `ESC [ N SP q`. N picks the style: 0 or 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar, 6 a steady bar. 7 returns to the cursor vtium.conf sets. A style you choose blinks or stays steady as its number says, whatever `blink` says.
 
 For bash, this line in `~/.bashrc` asks for a blinking bar at each prompt:
 

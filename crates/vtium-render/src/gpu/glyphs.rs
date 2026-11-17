@@ -76,6 +76,10 @@ pub(crate) struct Slot {
     reach: Reach,
     /// A color glyph, which among the boxes lies in the color boxes too.
     color: bool,
+    /// A piece of a sized run that mixes text with color glyphs: a slot of
+    /// the wide color pool whose left cell holds the color layer and whose
+    /// right cell holds the text's mask in its alpha ([`Glyphs::fill`]).
+    mixed: bool,
 }
 
 impl Held for Slot {
@@ -100,6 +104,10 @@ pub(crate) struct Place {
     pub(crate) y: u32,
     /// A color glyph, in an [`Format::Rgba8`] texture.
     pub(crate) color: bool,
+    /// A sized run's piece of text and color glyphs, in an
+    /// [`Format::Rgba8`] texture: the color layer in the slot's left cell,
+    /// and the text's mask in the alpha of its right cell.
+    pub(crate) mixed: bool,
     /// For a glyph whose ink passes its cells, its slot among the boxes and
     /// how far its ink reaches.
     pub(crate) boxed: Option<(u32, Reach)>,
@@ -780,7 +788,13 @@ impl Glyphs {
         let Some((stored, missing)) = self.cache.draw(font, (text, width, style), piece) else {
             return Ok(None);
         };
-        let pool = pool_of(stored.is_rgba(), width == Width::Wide && piece.is_whole());
+        // a piece of text and color glyphs takes two cells of the color
+        // pool, one for each of its layers
+        let mixed = stored.layer().is_some();
+        let pool = match mixed {
+            true => pool_of(true, true),
+            false => pool_of(stored.is_rgba(), width == Width::Wide && piece.is_whole()),
+        };
         let stored = match self.boxed(gl, (text, width, style), pool, (stored, missing))? {
             Ok(place) => return Ok(Some(place)),
             Err(stored) => stored,
@@ -803,6 +817,7 @@ impl Glyphs {
             bytes,
             reach: Reach::NONE,
             color: false,
+            mixed,
         };
         if let Err(e) = self.fill(gl, slot, &stored) {
             if let Some(p) = self.pools.get_mut(pool) {
@@ -871,6 +886,7 @@ impl Glyphs {
             bytes,
             reach,
             color,
+            mixed: false,
         };
         if kept {
             self.cache.keep((text, width, style), pool, slot, missing);
@@ -945,6 +961,7 @@ impl Glyphs {
                 x: x.saturating_add(b.margin.0),
                 y: y.saturating_add(b.margin.1),
                 color: s.color,
+                mixed: false,
                 boxed: Some((s.index, s.reach)),
             });
         }
@@ -954,6 +971,7 @@ impl Glyphs {
             x,
             y,
             color: s.pool & COLOR != 0,
+            mixed: s.mixed,
             boxed: None,
         })
     }
@@ -1273,7 +1291,23 @@ impl Glyphs {
         let mut pixels =
             vec![0u8; stride.saturating_mul(usize::try_from(p.slot.height).unwrap_or(0))];
         let mut line = vec![0u32; w];
+        // a piece with a color layer: the layer in the slot's left cell,
+        // the mask's coverage in the alpha of its right cell
+        let cell = usize::try_from(self.cell.width).unwrap_or(0);
+        let mut cov = vec![0u8; cell];
         for (row, out) in (0..).zip(pixels.chunks_mut(stride.max(1))) {
+            if let (Some(layer), Format::Rgba8) = (stored.layer(), p.format) {
+                layer.argb_line(0, row, &mut line);
+                stored.mask_line(0, row, &mut cov);
+                let (left, right) = out.split_at_mut(cell.saturating_mul(4).min(out.len()));
+                for (px, &argb) in left.as_chunks_mut::<4>().0.iter_mut().zip(&line) {
+                    px.copy_from_slice(&rgba(argb));
+                }
+                for (px, &a) in right.as_chunks_mut::<4>().0.iter_mut().zip(&cov) {
+                    *px = [0, 0, 0, a];
+                }
+                continue;
+            }
             match p.format {
                 Format::R8 => stored.mask_line(0, row, out),
                 Format::Rgba8 => {

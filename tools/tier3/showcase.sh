@@ -3,10 +3,11 @@
 # fetches the fonts t3_showcase.py pins, runs tier 3's variant
 # showcase-1920x1080 in the QEMU/KVM guest, and writes docs/showcase/: each
 # scene's capture, the fonts scene's four bands cropped and stacked, the two
-# small-machine goldens, the showcase page, and a page for each category
-# that shows a scene or a figure. An image whose pixels did not change is
-# left as it is. `make showcase` runs it; tools/tier3/README.md (The
-# showcase) describes the variant.
+# small-machine goldens, the grid of nine panes cropped from nine screens,
+# the showcase page, and a page for each category that shows a scene or a
+# figure. An image whose pixels did not change is left as it is. `make
+# showcase` runs it; tools/tier3/README.md (The showcase) describes the
+# variant.
 #
 #   tools/tier3/showcase.sh            fetch the fonts, run the variant, write the showcase
 #   tools/tier3/showcase.sh --no-run   write the showcase from the last run
@@ -19,7 +20,7 @@ for arg in "$@"; do
 	case $arg in
 	--no-run) run=no ;;
 	-h | --help)
-		sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+		sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
 		exit 0
 		;;
 	*)

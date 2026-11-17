@@ -839,7 +839,7 @@ $(SITE_VENV)/installed: tools/site/requirements.txt
 	$(SITE_VENV)/bin/pip install --quiet --require-hashes -r tools/site/requirements.txt
 	touch $@
 
-.PHONY: docs docs-serve showcase
+.PHONY: docs docs-serve showcase showcase-grid
 docs: $(SITE_VENV)/installed ## Build the documentation site into target/site in strict mode, which fails on a broken link or anchor
 	$(SITE_VENV)/bin/zensical build --strict --clean
 
@@ -848,6 +848,9 @@ docs-serve: $(SITE_VENV)/installed ## Serve the documentation site at http://loc
 
 showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
+
+showcase-grid: ## Make docs/showcase/grid.png again from the screens already in docs/showcase, with no VM; make showcase makes it too
+	python3 -I -B tools/tier3/t3_showcase.py grid
 
 # The crates' interfaces (ADR-1508 D1): rustdoc for each crate under crates/
 # that has a library, on the pinned toolchain, written to target/doc. The

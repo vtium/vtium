@@ -49,6 +49,7 @@ use rustix::fs::{FileType, Mode, OFlags};
 use vtium_font::{Sha256, sha256_hex};
 
 use crate::draft::Plan;
+use crate::drafts::Verdict;
 use crate::frit::{FRIT_BYTES_MAX, Frit, valid_name};
 use crate::tui::{CONF_MAX, Paths};
 
@@ -507,9 +508,14 @@ fn summarize(stderr: &str, copies: &[(PathBuf, &str)]) -> String {
 /// Runs the console's `vtium check-config` on the draft's vtium.conf,
 /// `file`, both its parts in one run, against the installed configuration
 /// directory `configdir`, or on the installed vtium.conf where the draft
-/// holds none; what it wrote to standard error when the check fails,
-/// which [`summarize`] says as root may say it.
-fn check_config(vtium: &OsString, configdir: &Path, file: Option<&Path>) -> Result<(), String> {
+/// holds none: what its exit status says of the draft, and what it wrote
+/// to standard error. When the check fails, [`summarize`] says that as
+/// root may say it.
+fn check_config(
+    vtium: &OsString,
+    configdir: &Path,
+    file: Option<&Path>,
+) -> Result<(Verdict, String), String> {
     let mut command = std::process::Command::new(vtium);
     command
         .arg("check-config")
@@ -522,11 +528,10 @@ fn check_config(vtium: &OsString, configdir: &Path, file: Option<&Path>) -> Resu
         .stdin(std::process::Stdio::null())
         .output()
         .map_err(|e| format!("{}: {e}", vtium.to_string_lossy()))?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).into_owned())
-    }
+    Ok((
+        Verdict::of(out.status),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    ))
 }
 
 /// `apply DIR` with its words, writing to `out` and `err`; returns the
@@ -794,10 +799,18 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         let checked = check_config(&targets.vtium, &targets.configdir, Some(&file));
         drop(scratch);
         match checked {
-            Ok(()) => {}
+            Ok((Verdict::Passed, _)) => {}
+            // check-config's own status for a draft whose only problems
+            // are missing fonts: the warnings are shown, and the draft
+            // installs
+            Ok((Verdict::MissingFonts, said)) => {
+                for line in said.lines() {
+                    let _ = writeln!(out, "{line}");
+                }
+            }
             // the one problem the person may accept, and only that one
             // (ADR-1403 D8)
-            Err(said)
+            Ok((Verdict::Failed, said))
                 if accept_no_route
                     && crate::drafts::only_no_route(
                         &said.lines().collect::<Vec<_>>(),
@@ -806,7 +819,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             {
                 let _ = writeln!(out, "{ACCEPTED_NO_ROUTE}");
             }
-            Err(said) => {
+            Ok((Verdict::Failed, said)) | Err(said) => {
                 return Err(format!(
                     "vtium check-config refused the draft:\n{}\nTo see the full report, run vtium check-config --configdir {} as yourself.",
                     summarize(&said, &copies),

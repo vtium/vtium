@@ -2202,14 +2202,14 @@ impl App {
             head.set_visible(true);
             // The cursor's first phase lasts the interval its program set,
             // so a phase longer than 500 ms is not cut short.
-            let cursor = crate::blink::cursor_period(&head.console.term.terminal);
-            if let Some(arms) = head.console.term.blink.activate(cursor) {
-                for (timer, arm) in arms {
-                    match timer {
-                        Timer::Text => head.text_due = Some(after(now, arm.first)),
-                        Timer::Cursor => {
-                            head.cursor_due = Some((after(now, arm.first), arm.every));
-                        }
+            let terminal = &head.console.term.terminal;
+            let cursor = crate::blink::cursor_period(terminal);
+            let blinks = terminal.cursor_blinks();
+            for (timer, arm) in head.console.term.blink.activate(cursor, blinks) {
+                match timer {
+                    Timer::Text => head.text_due = Some(after(now, arm.first)),
+                    Timer::Cursor => {
+                        head.cursor_due = Some((after(now, arm.first), arm.every));
                     }
                 }
             }
@@ -3904,7 +3904,8 @@ impl App {
             }
         }
         let rate = crate::blink::cursor_period(&head.console.term.terminal);
-        if let Some(arm) = head.console.term.blink.key(rate) {
+        let blinks = head.console.term.terminal.cursor_blinks();
+        if let Some(arm) = head.console.term.blink.key(rate, blinks) {
             head.cursor_due = Some((after(now, arm.first), arm.every));
         }
         head.draw_now = true;
@@ -4655,6 +4656,21 @@ impl App {
             // within the new interval. Each later phase lasts the new
             // interval.
             let every = crate::blink::cursor_period(&head.console.term.terminal);
+            // A program changes the cursor's style at any moment: a style
+            // that blinks starts the timer from now, and a steady one
+            // stops it with the cursor shown.
+            let blinks = head.console.term.terminal.cursor_blinks();
+            match (
+                head.console.term.blink.cursor_runs(blinks, awake),
+                head.cursor_due,
+            ) {
+                (true, None) => head.cursor_due = Some((after(now, every), every)),
+                (false, Some(_)) => {
+                    head.cursor_due = None;
+                    head.draw_now = true;
+                }
+                _ => {}
+            }
             if let Some((due, armed)) = head.cursor_due {
                 if armed != every && due > now {
                     head.cursor_due = Some((due.min(after(now, every)), every));

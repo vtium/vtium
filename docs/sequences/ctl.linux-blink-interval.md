@@ -14,7 +14,7 @@
 
 vtium blinks the cursor of the console that receives the sequence with phases of Ps milliseconds. RIS returns the interval to the default, while DECSTR and the alternate screen keep it.
 
-Blinking text keeps the interval of the `blink` key, and with `blink` off the cursor does not blink.
+Blinking text keeps the `blink` key's 500 ms. The interval applies while the cursor blinks, so a steady cursor stays steady.
 
 ## Status
 

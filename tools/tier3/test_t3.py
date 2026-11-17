@@ -6183,6 +6183,10 @@ class ShowcaseTest(unittest.TestCase):
                "concepts-heads-mirror.svg": "displays and VTs",
                "concepts-vt-handover.svg": "displays and VTs"}
 
+    # A grid of three panes of 4x3 pixels for the stand-in run's captures,
+    # which are 32 pixels wide and 12 tall.
+    PANES = [("double-size.png", 0, 0), ("emoji.png", 28, 9), ("hero.png", 5, 4)]
+
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
@@ -7089,7 +7093,7 @@ class ShowcaseTest(unittest.TestCase):
         for name, line in (("motion.md", t3_showcase.GENERATED), ("notes.md", "# Notes")):
             with open(os.path.join(out, name), "w") as f:
                 f.write(line + "\n")
-        wrote, removed = t3_showcase.compose(run, report, out)
+        wrote, removed = t3_showcase.compose(run, report, out, panes=self.PANES, size=(4, 3))
         self.assertEqual(removed, [os.path.join(out, "motion.md")])
         self.assertTrue(os.path.exists(os.path.join(out, "notes.md")))
         pages = ["README.md", "text-and-fonts.md", "scripts-and-emoji.md", "styles-and-modes.md",
@@ -7097,9 +7101,21 @@ class ShowcaseTest(unittest.TestCase):
                  "displays-and-vts.md", "small-machines.md"]
         self.assertEqual(sorted(os.path.relpath(p, out) for p in wrote),
                          sorted([s.image for s in t3_showcase.SCENES] +
-                                [name for _, name, _, _ in t3_showcase.SMALL] + pages))
+                                [name for _, name, _, _ in t3_showcase.SMALL] +
+                                [t3_showcase.GRID] + pages))
         hero = t3img.read(os.path.join(out, "hero.png"))
         self.assertEqual(hero.data[:3], bytes([1] * 3))
+        # the grid holds the three panes in one row, each the color of its
+        # screen, with a line of GRID_LINE between two panes
+        grid = t3img.read(os.path.join(out, t3_showcase.GRID))
+        self.assertEqual((grid.width, grid.height), (3 * 4 + 2, 3))
+        line = bytes(t3_showcase.GRID_LINE)
+        index = {"double-size.png": self.SCREENS.index("showcase-double-size") + 1,
+                 "emoji.png": self.SCREENS.index("showcase-emoji") + 1, "hero.png": 1}
+        for y in range(3):
+            self.assertEqual(grid.row(y), b"".join(
+                (bytes([index[name]]) * 12 + (line if i < 2 else b""))
+                for i, (name, _, _) in enumerate(self.PANES)))
         fonts = t3img.read(os.path.join(out, "fonts.png"))
         self.assertEqual((fonts.width, fonts.height), (32, 8 + 3 + 6 + 5))
         self.assertEqual([fonts.data[y * 32 * 3] for y in (0, 7, 8, 10, 11, 16, 17, 21)],
@@ -7181,7 +7197,9 @@ class ShowcaseTest(unittest.TestCase):
             self.assertIn("`%s` |" % photo.file_sha256, page)
         # a second run with the same pixels rewrites no image, only the pages
         self.assertEqual(sorted(os.path.relpath(p, out)
-                                for p in t3_showcase.compose(run, report, out)[0]), sorted(pages))
+                                for p in t3_showcase.compose(run, report, out,
+                                                             panes=self.PANES, size=(4, 3))[0]),
+                         sorted(pages))
 
     def test_the_pages_keep_to_the_prose_limits(self):
         # The pages compose writes are pages people read, so their captions
@@ -7192,7 +7210,9 @@ class ShowcaseTest(unittest.TestCase):
         # the committed pages are current.
         run, report = self.run_dir()
         out = os.path.join(self.dir.name, "out")
-        t3_showcase.compose(run, report, out)
+        t3_showcase.compose(run, report, out, panes=self.PANES, size=(4, 3))
+        with open(os.path.join(out, "README.md")) as f:
+            self.assertIn("![%s](%s)" % (t3_showcase.GRID_ALT, t3_showcase.GRID), f.read())
         pages = sorted(os.path.join(out, f) for f in os.listdir(out) if f.endswith(".md"))
         self.assertIn(os.path.join(out, "README.md"), pages)
         check = subprocess.run([sys.executable, "-I", "-B",
@@ -7200,6 +7220,52 @@ class ShowcaseTest(unittest.TestCase):
                                 "--check"] + pages, capture_output=True, text=True, timeout=60)
         self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
         self.assertIn("prose: %d pages read: 0 sentences over" % len(pages), check.stdout)
+
+    def test_grid(self):
+        # The committed grid is nine panes of 640x360 pixels, three to a
+        # row, each cut out of its screen at its own size, with a line of
+        # GRID_LINE between two panes. Its pixels are the ones grid() cuts
+        # from the committed screens, so a change to GRID_PANES or a screen
+        # that leaves the grid as it was fails here.
+        shown = os.path.join(t3_common.ROOT, "docs", "showcase")
+        grid = t3_showcase.grid(shown)
+        self.assertEqual((grid.width, grid.height), (1922, 1082))
+        committed = t3img.read(os.path.join(shown, t3_showcase.GRID))
+        self.assertEqual((committed.width, committed.height, committed.data),
+                         (grid.width, grid.height, grid.data))
+        self.assertEqual([name for name, _, _ in t3_showcase.GRID_PANES],
+                         ["double-size.png", "emoji.png", "pictures.png", "syllables.png",
+                          "hero.png", "color.png", "ligatures.png", "boxes.png", "scripts.png"])
+        # the middle pane, the hero's, is the hero's pixels at 1:1
+        name, x, y = t3_showcase.GRID_PANES[4]
+        hero = t3img.read(os.path.join(shown, name))
+        for dy in (0, 1, 180, 359):
+            row = grid.row(361 + dy)[641 * 3:(641 + 640) * 3]
+            self.assertEqual(row, hero.row(y + dy)[x * 3:(x + 640) * 3], dy)
+        line = bytes(t3_showcase.GRID_LINE)
+        self.assertEqual(grid.row(360), line * 1922)
+        self.assertEqual(grid.row(721), line * 1922)
+        for row in (0, 500, 1081):
+            for col in (640, 1281):
+                self.assertEqual(grid.row(row)[col * 3:col * 3 + 3], line, (col, row))
+        # writing it again leaves the file as it is
+        out = os.path.join(self.dir.name, "grid")
+        shutil.copytree(shown, out, ignore=shutil.ignore_patterns("*.md", "small"))
+        self.assertIsNone(t3_showcase.write_grid(out))
+        os.unlink(os.path.join(out, t3_showcase.GRID))
+        self.assertEqual(t3_showcase.write_grid(out), os.path.join(out, t3_showcase.GRID))
+        with open(os.path.join(out, t3_showcase.GRID), "rb") as a, \
+                open(os.path.join(shown, t3_showcase.GRID), "rb") as b:
+            self.assertEqual(a.read(), b.read())
+
+    def test_crop(self):
+        img = t3img.Image(4, 3, bytes(range(36)))
+        self.assertEqual(t3_showcase.crop(img, 1, 1, 2, 2).data,
+                         bytes(range(15, 21)) + bytes(range(27, 33)))
+        self.assertEqual(t3_showcase.crop(img, 0, 0, 4, 3).data, img.data)
+        for x, y, w, h in ((3, 0, 2, 1), (0, 2, 1, 2), (-1, 0, 1, 1)):
+            with self.assertRaisesRegex(ValueError, "a crop of"):
+                t3_showcase.crop(img, x, y, w, h)
 
     def test_compose_refuses_a_run_that_did_not_capture(self):
         run, report = self.run_dir({"showcase-emoji": "fail"})
