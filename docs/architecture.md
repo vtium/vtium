@@ -7,7 +7,8 @@ vtium (binary)
 ├── vtium-platform   displays (KMS/DRM, fbdev), VT, seat, input, pty, event loop
 ├── vtium-settings   the key table, vtium.conf's line syntax and editor, and vtium.conf's sections: their reader, parser, rules, guards, complete-route check and one writer
 │   ├── vtium-font   the cell's largest side, for font-size's bound (constants only)
-│   └── vtium-term   the scrollback's bounds and default (constants only)
+│   ├── vtium-term   the scrollback's bounds and default (constants only)
+│   └── vtium-render (feature `filters`): the frame filters' declarations (constants only)
 ├── vtium-devices    each device present described as the rules match it
 │   ├── vtium-platform
 │   └── vtium-settings
@@ -43,7 +44,7 @@ Both crates carry `#![deny(unsafe_code)]`. Each site that uses `unsafe` allows i
 - The key table. It lists every key and command-line option that vtium reads, with its type, default, bound and description. The console reads its configuration through the key table, and vtium-config shows and edits the configuration through it (ADR-1201 D1).
 - The one reading of a vtium.conf line. The console's reader and vtium-config's line-by-line editor both use it.
 
-From vtium-font and vtium-term, vtium-settings takes only constants: the bounds and defaults that the key table states. vtium-settings also splits vtium.conf where its first section begins. It parses and evaluates the sections that [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) and [ADR-1403](architecture/platform/ADR-1403-vtium-conf-holds-the-configuration-as-one-flow-from-the-displays-to-the-input-devices-and-vtium-config-draws-it.md) define:
+From vtium-font and vtium-term, vtium-settings takes only constants: the bounds and defaults that the key table states. With the `filters` feature, vtium-settings also takes the frame filters' declarations from vtium-render, constants only, and reads each vtlook against them ([ADR-1304](architecture/render/ADR-1304-vtium-s-frame-filters-are-built-in-and-a-vtlook-file-chooses-them-and-sets-their-parameters.md) D10). vtium-settings also splits vtium.conf where its first section begins. It parses and evaluates the sections that [ADR-1401](architecture/platform/ADR-1401-heads-a-terminal-per-physical-display-placed-by-a-first-match-ruleset.md) and [ADR-1403](architecture/platform/ADR-1403-vtium-conf-holds-the-configuration-as-one-flow-from-the-displays-to-the-input-devices-and-vtium-config-draws-it.md) define:
 
 - the heads, where a head is a terminal for one or more displays;
 - the looks, where a look is what a head draws with, such as its frit and its size;
