@@ -501,6 +501,9 @@ considered:
   - operator: aaronsb
     said: "(a) Check between steps"
     via: the maintainer, through the steering session's question tool, 2026-11-13, asked whether vtium may let the VT go before display work in progress finishes, with options (a) check between steps, (b) answer on a timer thread, (c) display work on threads
+  - operator: aaronsb
+    said: "1. The parser stops. Term::parse takes no more input once a frame's hold ends, until the turn has drawn the finished frame. … 2. No copy of the finished frame. … 3. One timer per hold. sync-timeout stays a limit on each hold, as today. … 4. Scrolling and selection wait for the hold. While a hold is in force, vtium draws a scroll or a selection when the hold ends or times out."
+    via: the maintainer's comment on the issue that traced a skipped synchronized-output frame, 2026-11-17
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -722,6 +725,14 @@ A head's render thread draws each frame straight into the buffer the display wil
   - *Two buffers* keep memory low on minspec hardware. The thread starts a frame only once the display has a free buffer, so a frame is composed after the flip of the frame before it has completed. Composing a whole frame at minspec's 1366x768 took 0.535 ms in a release build and 0.96 ms in the minspec build, on one core of a desktop processor (ADR-1300 D5), well inside a 60 Hz display's 16.7 ms refresh; a minspec board's slower cores take longer, not yet measured.
   - *One buffer* holds the least memory and never waits for a flip, since there is none: vtium draws into the buffer being shown, so a frame can be seen half drawn. Its age is always 1, or 0 just after the display was set up.
   - A framebuffer has one buffer whatever the key says, the framebuffer itself or its conversion copy, so its age is 1, or 0 just after it was cleared.
+
+> Note 2026-11-17 (every finished frame of a synchronized update is drawn): the maintainer decided four questions on synchronized output (`considered`, 2026-11-17), after the work that traced a skipped frame found how vtium could lose one. A program that uses synchronized output (DEC private mode 2026) brackets each frame between `CSI ? 2026 h` and `CSI ? 2026 l`, and vtium shows the frame once the second sequence ends the hold. When one read from the pty held the end of one frame and the start of the next, vtium parsed the start of the next frame before the loop drew. The draw then found a new hold in force and composed nothing, so the finished frame was never shown. A program that writes frames faster than the loop turns, such as an animation, kept the screen frozen for as long as it wrote.
+>
+> - **The parser stops at a frame's end.** Once a frame's hold ends, the terminal takes no more of the program's output until each display of the head has taken the finished frame to draw. A display whose draw waits for its flip in flight takes the frame when the flip ends, so the stop lasts at most about a refresh. A console that no display draws, such as a hidden console, or every console while the VT is not shown or the displays are blanked, takes output again at the end of the turn. The pty's channel stays as it is.
+> - **The loop wakes at once for the rest of the read.** While the pty owes the terminal a feed and the terminal takes input, the loop's wait before its next turn is zero, so vtium parses the rest of the read right after the draw. calloop does not shorten its wait for a pending idle callback, so the idle callback alone would leave the rest of the read until the loop next woke for another reason. A ping source on every request for a feed would wake the loop again and again while the finished frame waits for a flip, so the wait is zero only while the terminal takes input.
+> - **vtium keeps no copy of the finished frame.** Because of the stop, vtium draws each finished frame before it parses the next one. A program that writes frames faster than vtium draws them is slowed to vtium's draw rate.
+> - **One timer per hold.** `sync-timeout` stays a limit on each hold. It guards a hold that never ends. With the stop, a stream of back-to-back holds shows every frame, so the stream needs no limit of its own.
+> - **Scrolling and selection wait for the hold.** While a hold is in force, vtium draws a scroll or a selection when the hold ends or times out, so the person never sees a half-written frame. The wait is usually a few milliseconds and at most `sync-timeout`.
 
 The steps of one frame, from the loop to the render thread and back:
 
