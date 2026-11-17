@@ -1,9 +1,9 @@
-//! The fonts the desktop frit and the tiny5 frit name, and their glyphs.
+//! The fonts the catalog sets jetbrains-mono and tiny5 name, and their glyphs.
 //!
 //! vtium ships no third-party font bytes, so the profiles' fonts are
 //! pinned here by URL and SHA-256 and fetched into a cache outside the
 //! tree, as tier 3 pins its guest images: `$XDG_CACHE_HOME/vtium/specimens/fonts`.
-//! The glyphs of `frits/desktop.vtfrit` are generated from the outline
+//! The glyphs of the catalog set `jetbrains-mono` are generated from the outline
 //! fonts by vtium-config's engine, the one the helper runs, in this
 //! process, with the cache as its only font directory, at each outline
 //! profile's cell. The glyphs of the shipped frit `tiny5` are generated the
@@ -21,7 +21,8 @@ use vtium_font::{Cell, Sha256, sha256_hex};
 use crate::draw::{CellGlyphs, StyleClusters};
 
 /// One pinned font: its file in the cache, where it comes from, and the
-/// SHA-256 of its bytes, which the frit's comment above its source repeats.
+/// SHA-256 of its bytes. The set names the font's version, which the URL
+/// holds.
 #[derive(Clone, Copy, Debug)]
 pub struct Pinned {
     pub file: &'static str,
@@ -29,7 +30,8 @@ pub struct Pinned {
     pub sha256: &'static str,
 }
 
-/// The desktop set's outline fonts, in the frit's order.
+/// The outline fonts of the set jetbrains-mono and its layers, in the
+/// set's order.
 pub const FONTS: [Pinned; 3] = [
     Pinned {
         file: "JetBrainsMono-Regular.ttf",
@@ -48,8 +50,42 @@ pub const FONTS: [Pinned; 3] = [
     },
 ];
 
-/// The desktop set's frit.
-pub const FRIT: &str = include_str!("../frits/desktop.vtfrit");
+/// The catalog set the outline profiles draw, as vtium-config ships it in
+/// its category folder.
+pub const FRIT: &str =
+    include_str!("../../../crates/vtium-config/frits/code/jetbrains-mono.vtfrit");
+
+/// The text of the catalog's layer `name` that the specimens' sets add,
+/// as vtium-config ships it. The fallback layer `unifont` is left out: its
+/// file is not in the cache, so every character the other sources lack
+/// draws in the built-in font, as on a console without the Unifont file.
+///
+/// References:
+/// - ADR-1204 D11: the specimens draw the catalog sets from the catalog's
+///   folders.
+fn layer_text(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "nerd-symbols" => {
+            include_str!("../../../crates/vtium-config/frits/layers/nerd-symbols.vtlayer")
+        }
+        "noto-emoji" => {
+            include_str!("../../../crates/vtium-config/frits/layers/noto-emoji.vtlayer")
+        }
+        "nerd-symbols-small" => {
+            include_str!("../../../crates/vtium-config/frits/layers/nerd-symbols-small.vtlayer")
+        }
+        "noto-emoji-small" => {
+            include_str!("../../../crates/vtium-config/frits/layers/noto-emoji-small.vtlayer")
+        }
+        _ => return None,
+    })
+}
+
+/// The set `text` with its layers in place, as the console hands a set to
+/// the helper.
+pub fn spliced(text: &str) -> String {
+    vtium_font::set::layer::expand(text, &mut |name| Ok(layer_text(name).map(str::to_owned))).text
+}
 
 /// Tiny5 Mono's BDF file, at the commit and with the SHA-256 the shipped
 /// frit `tiny5` names in its comment.
@@ -60,7 +96,7 @@ pub const TINY5: Pinned = Pinned {
 };
 
 /// The shipped frit `tiny5`, as vtium-config ships it.
-pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-config/frits/tiny5.vtfrit");
+pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-config/frits/small/tiny5.vtfrit");
 
 /// The path the shipped frit `tiny5` names its BDF file at.
 const TINY5_SOURCE: &str = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
@@ -120,7 +156,7 @@ pub fn fetch(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The desktop frit's glyphs at each of `cells`, and `clusters` drawn
+/// The set jetbrains-mono's glyphs at each of `cells`, and `clusters` drawn
 /// whole in each style ([`crate::draw::clusters_shown`]), generated from the fonts in `fonts`, or why they
 /// are not.
 pub fn desktop(
@@ -133,7 +169,7 @@ pub fn desktop(
             "{why}; `make specimens-fonts` fetches the pinned fonts"
         ));
     }
-    generate("desktop", FRIT, fonts, cells, clusters)
+    generate("jetbrains-mono", &spliced(FRIT), fonts, cells, clusters)
 }
 
 /// The shipped frit `tiny5`'s glyphs at each of `cells`, and `clusters`
@@ -156,7 +192,7 @@ pub fn tiny5(
     let here = format!("source=bdf:{}", fonts.join(TINY5.file).display());
     generate(
         "tiny5",
-        &TINY5_FRIT.replace(TINY5_SOURCE, &here),
+        &spliced(TINY5_FRIT).replace(TINY5_SOURCE, &here),
         fonts,
         cells,
         clusters,
@@ -255,18 +291,23 @@ mod tests {
     }
     use vtium_font::Face;
 
-    // The frit names each source's SHA-256, the bytes the cache is checked
-    // against, in the same order.
+    // The set and its layers name the version of each font this table
+    // fetches, in the same order, the version the table's URL holds.
     #[test]
     fn the_frit_names_the_fonts_this_table_fetches() {
-        let pins: Vec<&str> = FRIT
+        let versions: Vec<String> = spliced(FRIT)
             .lines()
-            .filter_map(|l| l.strip_prefix("# "))
-            .filter(|l| l.len() == 65 && l.ends_with('.'))
-            .map(|l| &l[..64])
+            .filter_map(|l| l.strip_prefix("version="))
+            .map(|v| format!("/v{v}/"))
             .collect();
-        let table: Vec<&str> = FONTS.iter().map(|f| f.sha256).collect();
-        assert_eq!(pins, table);
+        assert_eq!(versions.len(), FONTS.len(), "{versions:?}");
+        for (font, version) in FONTS.iter().zip(&versions) {
+            assert!(
+                font.url.contains(version.as_str()),
+                "{} {version}",
+                font.url
+            );
+        }
     }
 
     // The shipped tiny5 frit names, in its comment, the commit and the
