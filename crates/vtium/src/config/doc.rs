@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use super::keys::{
     Default, FRIT_CELL_MAX, FRIT_CELL_MIN, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY,
-    SCHEMES, SECTIONS, Scope, Section, TEXT_MAX,
+    SCHEMES, SECTIONS, Scope, Section, TEXT_MAX, notes,
 };
 use super::{FILE_MAX, LINE_MAX};
 
@@ -221,6 +221,7 @@ fn row(out: &mut String, k: &Key) {
     .chain((k.scope != Scope::Section).then_some("command line"))
     .collect();
     let set_in = set_in.join(", ");
+    let (reader, cite) = notes::of(k).map_or(("", ""), |n| (n.reader, n.cite));
     let _ = writeln!(
         out,
         "| `{}` | {} | {} | {} | {} | {} | {set_in} | {} | {} |",
@@ -229,9 +230,9 @@ fn row(out: &mut String, k: &Key) {
         kind(k),
         default(k),
         bound(k),
-        k.reader,
+        reader,
         k.what_line(),
-        k.cite
+        cite
     );
 }
 
