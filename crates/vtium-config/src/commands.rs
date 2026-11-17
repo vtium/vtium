@@ -764,22 +764,6 @@ fn check_layers(text: &str, path: &Path, name: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Ok when vtium-config may install a set named `name` in the frits'
-/// directory `frits`; else why not: a category folder of the catalog holds
-/// a set of that name already.
-///
-/// References:
-/// - ADR-1204 D9: vtium-config refuses a name that another folder holds.
-fn unheld(frits: &Path, name: &str) -> Result<(), String> {
-    match crate::switch::category_file(frits, name) {
-        Some(held) => Err(format!(
-            "The font set {name} is already installed as {}, a set of vtium's catalog. Give your font set another name.",
-            held.display()
-        )),
-        None => Ok(()),
-    }
-}
-
 /// The plan that installs the frit `text` as `name` in `paths`' frits,
 /// once the frit reader takes it strictly, as the helper reads it, and
 /// once no category folder of the catalog holds a set of that name.
@@ -790,7 +774,7 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
         ));
     }
     let frits = paths.frits.as_ref().map_err(Clone::clone)?;
-    unheld(frits, name)?;
+    crate::switch::unheld(frits, name)?;
     let path = frits.join(format!("{name}.vtfrit"));
     let frit = Frit::parse(text.as_bytes(), &path, name).map_err(|e| e.to_string())?;
     if !frit.layers.is_empty() {
@@ -915,7 +899,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("console")).expect("the folder");
         std::fs::write(dir.join("console/terminus.vtfrit"), "source=kbd:x\n").expect("the set");
-        let why = unheld(&dir, "terminus").expect_err("held");
+        let why = crate::switch::unheld(&dir, "terminus").expect_err("held");
         assert!(
             why.starts_with("The font set terminus is already installed as "),
             "{why}"
@@ -924,7 +908,7 @@ mod tests {
             why.contains(&dir.join("console/terminus.vtfrit").display().to_string()),
             "{why}"
         );
-        assert_eq!(unheld(&dir, "mine"), Ok(()));
+        assert_eq!(crate::switch::unheld(&dir, "mine"), Ok(()));
     }
 
     // ADR-1005 D10: a key binding set by its old name shows the value vtium

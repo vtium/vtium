@@ -265,6 +265,22 @@ pub fn category_file(frits: &Path, name: &str) -> Option<PathBuf> {
         .find(|path| is_file(path))
 }
 
+/// Ok when vtium-config may install a set named `name` in the frits'
+/// directory `frits`; else why not: a category folder of the catalog holds
+/// a set of that name already.
+///
+/// References:
+/// - ADR-1204 D9: vtium-config refuses a name that another folder holds.
+pub fn unheld(frits: &Path, name: &str) -> Result<(), String> {
+    match category_file(frits, name) {
+        Some(held) => Err(format!(
+            "The font set {name} is already installed as {}, a set of vtium's catalog. Give your font set another name.",
+            held.display()
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Every set in `frits` by its name, sorted by name, each with the file
 /// that [`frit_file`] finds for it.
 pub fn frit_files(frits: &Path) -> Vec<(String, PathBuf)> {
