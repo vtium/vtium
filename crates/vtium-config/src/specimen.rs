@@ -412,10 +412,39 @@ pub struct Found {
 /// which is also among the sources left out, a font of a lower version than
 /// its `version=`, and a file whose SHA-256 is not its `sha256=`.
 ///
+/// Each frit is asked of a helper of its own, under a wait of its own. A
+/// helper keeps the fonts of every frit it has read until it exits, under
+/// its memory limit, so one helper that read the whole catalog ran out of
+/// memory and aborted, and the frits after that point got no answer. Once
+/// a helper gives no answer, the frits not yet asked are unknown for the
+/// same reason, so a helper that never answers costs one wait, not one for
+/// each frit.
+///
 /// References:
 /// - ADR-1204 D7: what vtium-config reports of each font a set needs,
 ///   whether or not the set has a font left.
 pub fn found_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Found> {
+    let mut answers: Vec<Found> = Vec::with_capacity(frits.len());
+    for frit in frits {
+        let unanswered = answers.last().and_then(|last| match &last.sources {
+            Sources::Unknown(why) => Some(why.clone()),
+            _ => None,
+        });
+        match unanswered {
+            Some(why) => answers.push(Found {
+                sources: Sources::Unknown(why),
+                left_out: Vec::new(),
+                differs: Vec::new(),
+            }),
+            None => answers.extend(found_in_one(helper, vec![frit])),
+        }
+    }
+    answers
+}
+
+/// What one helper said of each of `frits`, every request written before
+/// the answers are read, under one wait ([`found_of`]).
+fn found_in_one(helper: &Helper, frits: Vec<FritText>) -> Vec<Found> {
     let count = frits.len();
     let mut answers = Vec::with_capacity(count);
     let session = start(helper).map(|(child, mut stdin, mut stdout)| {
