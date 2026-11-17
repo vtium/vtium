@@ -697,7 +697,7 @@ pub struct HeadCheck {
     pub refused: bool,
     /// The vtlook each look of the file that a start runs names, other
     /// than the built-in one: the look's name, the vtlook's and the line
-    /// of its `vtlook`, for [`vtlook_findings`] to read.
+    /// of its `vtlook`, for check-config to read.
     pub vtlooks: Vec<(String, String, usize)>,
 }
 
