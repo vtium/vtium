@@ -7,7 +7,9 @@
 //! [`NOTES`], so the linker leaves the table and its strings out. That
 //! saves about 12 KB of the console's size budget, the 4,259,840 bytes that
 //! tier 3 holds the minspec binary to. Each note names its key by the key's
-//! constant, and a test fails when a key of [`KEYS`] has no note.
+//! constant. [`NOTES`] holds exactly as many notes as [`KEYS`] has keys, so
+//! a key added without a note fails the build, and a test fails on a note
+//! that names a key twice or names no key.
 //!
 //! References:
 //! - ADR-1200 D19: the minspec binary's size budget.
