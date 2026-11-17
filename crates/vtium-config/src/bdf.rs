@@ -402,7 +402,12 @@ fn glyph<'a>(
 
 /// The glyphs placed in the font's cell: its width the advance most of
 /// its glyphs take, the narrower on a tie, its height the ascent and
-/// descent, from the properties, else the bounding box.
+/// descent, from the properties, else the bounding box. A font whose
+/// glyphs take exactly two advances, one twice the other, reads at the
+/// narrow advance whichever is commoner, so that its wide glyphs take two
+/// cells. GNU Unifont is such a font: its Basic Multilingual Plane holds
+/// 49,804 glyphs 16 pixels wide and 7,282 that are 8 wide, and it reads at
+/// 8×16 with every one of them.
 fn place(
     header: &Header,
     chars: Vec<Char>,
@@ -426,11 +431,14 @@ fn place(
     for c in &chars {
         *counts.entry(c.advance).or_default() += 1;
     }
-    let width = counts
-        .iter()
-        .max_by(|(wa, na), (wb, nb)| na.cmp(nb).then(wb.cmp(wa)))
-        .map(|(&w, _)| w)
-        .ok_or("the BDF font has no glyph for any Unicode character")?;
+    let width = match counts.keys().copied().collect::<Vec<u32>>()[..] {
+        [narrow, wide] if narrow.checked_mul(2) == Some(wide) => narrow,
+        _ => counts
+            .iter()
+            .max_by(|(wa, na), (wb, nb)| na.cmp(nb).then(wb.cmp(wa)))
+            .map(|(&w, _)| w)
+            .ok_or("the BDF font has no glyph for any Unicode character")?,
+    };
     if width > FRIT_CELL_MAX {
         return Err(format!(
             "the BDF font's characters are mostly {width} pixels wide, more than {FRIT_CELL_MAX}"
@@ -681,12 +689,12 @@ pub(crate) mod tests {
     }
 
     // a file of 4.4 MB of BDF that places 146 MB of glyphs, under 1 MiB
-    // gzipped. Its glyphs mostly advance 192, so its cell is past
-    // FRIT_CELL_MAX; half and one narrow keep the cell at 96, and place
-    // over 100 MB.
+    // gzipped. When its glyphs all advance 192, its cell is past
+    // FRIT_CELL_MAX. One narrow glyph of 96, or half of them, reads the
+    // font at 96 with the rest two cells wide, which places over 100 MB.
     #[test]
     fn glyphs_placed_past_psf_bytes_max_refuse_the_font() {
-        let reviewers = inkless(1);
+        let reviewers = inkless(0);
         assert!(reviewers.len() < 5 << 20, "{}", reviewers.len());
         let gz = crate::decode::tests::gzip(reviewers.as_bytes());
         assert!(
@@ -698,11 +706,19 @@ pub(crate) mod tests {
             panic!("accepted")
         };
         assert!(e.contains("mostly 192 pixels wide"), "{e}");
-        let Err(e) = font(&crate::decode::tests::gzip(inkless(32_768).as_bytes())) else {
-            panic!("accepted")
-        };
-        assert!(e.contains("would take more than"), "{e}");
-        assert!(!e.contains("_MAX"), "{e}");
+        for narrow in [1, 32_768] {
+            let gz = crate::decode::tests::gzip(inkless(narrow).as_bytes());
+            assert!(
+                gz.len() < crate::decode::COMPRESSED_BYTES_MAX,
+                "{}",
+                gz.len()
+            );
+            let Err(e) = font(&gz) else {
+                panic!("accepted")
+            };
+            assert!(e.contains("would take more than"), "{e}");
+            assert!(!e.contains("_MAX"), "{e}");
+        }
         // 14,563 glyphs of 1,152 bytes stay under 16 MiB, and one more
         // passes it
         let narrow = inkless(65_535);
@@ -712,6 +728,87 @@ pub(crate) mod tests {
             font(first(&narrow, 14_564).as_bytes()).is_err(),
             "14,564 glyphs"
         );
+    }
+
+    /// A BDF font of 8x16 cells, ascent 14 and descent 2, in Unifont's
+    /// layout: each glyph of `glyphs`, as its codepoint and its advance, a
+    /// bar along its top row as wide as its advance, and a dot at its
+    /// bottom right.
+    fn mixed(glyphs: &[(u32, u32)]) -> String {
+        let mut f = String::from(
+            "STARTFONT 2.1\nFONT -test-mixed\nSIZE 16 75 75\nFONTBOUNDINGBOX 16 16 0 -2\n\
+             STARTPROPERTIES 3\nFONT_ASCENT 14\nFONT_DESCENT 2\n\
+             CHARSET_REGISTRY \"ISO10646\"\nENDPROPERTIES\n",
+        );
+        f.push_str(&format!("CHARS {}\n", glyphs.len()));
+        for &(code, advance) in glyphs {
+            let bytes = advance.div_ceil(8) as usize;
+            let top = "FF".repeat(bytes);
+            let mut bottom = "00".repeat(bytes - 1);
+            bottom.push_str("01");
+            let mut rows = vec![top];
+            rows.extend(std::iter::repeat_n("00".repeat(bytes), 14));
+            rows.push(bottom);
+            f.push_str(&format!(
+                "STARTCHAR u{code:X}\nENCODING {code}\nDWIDTH {advance} 0\nBBX {advance} 16 0 -2\nBITMAP\n{}\nENDCHAR\n",
+                rows.join("\n")
+            ));
+        }
+        f.push_str("ENDFONT\n");
+        f
+    }
+
+    // A font whose glyphs take two advances, one twice the other, as
+    // Unifont's 8 and 16 do, reads at the narrow advance, however many
+    // wide glyphs it holds: the narrow glyphs take one cell and the wide
+    // ones two, and none is left out.
+    #[test]
+    fn a_font_of_narrow_and_double_width_glyphs_reads_at_the_narrow_width() {
+        let f = font(
+            mixed(&[
+                (0x41, 8),
+                (0x5d0, 8),
+                (0x4e00, 16),
+                (0x4e2d, 16),
+                (0x754c, 16),
+                (0xac00, 16),
+            ])
+            .as_bytes(),
+        )
+        .expect("reads");
+        assert_eq!((f.cell.width, f.cell.height, f.baseline), (8, 16, Some(14)));
+        let keys: Vec<u32> = f.map.keys().copied().collect();
+        assert_eq!(keys, [0x41, 0x5d0, 0x4e00, 0x4e2d, 0x754c, 0xac00]);
+        assert_eq!(f.glyphs[f.map[&0x41] as usize].0, Width::Narrow);
+        assert_eq!(f.glyphs[f.map[&0x5d0] as usize].0, Width::Narrow);
+        assert_eq!(f.glyphs[f.map[&0x754c] as usize].0, Width::Wide);
+        let wide = rows(&f, '界');
+        assert_eq!(wide.len(), 16);
+        assert_eq!(wide[0], "#".repeat(16), "the whole bar, over two cells");
+        assert_eq!(wide[15], format!("{}#", ".".repeat(15)));
+        let narrow = rows(&f, 'A');
+        assert_eq!(narrow[0], "########");
+        assert_eq!(narrow[15], ".......#");
+    }
+
+    // Two advances that are not one twice the other read as before: at
+    // the advance most glyphs take, and the others left out.
+    #[test]
+    fn a_font_of_two_advances_not_one_twice_the_other_reads_at_the_commoner() {
+        let f = font(mixed(&[(0x41, 8), (0x4e00, 12), (0x4e01, 12), (0x4e02, 12)]).as_bytes())
+            .expect("reads");
+        assert_eq!((f.cell.width, f.cell.height), (12, 16));
+        let keys: Vec<u32> = f.map.keys().copied().collect();
+        assert_eq!(
+            keys,
+            [0x4e00, 0x4e01, 0x4e02],
+            "the 8-wide glyph is left out"
+        );
+        let f = font(mixed(&[(0x41, 6), (0x4e00, 12), (0x4e01, 12), (0x4e02, 16)]).as_bytes())
+            .expect("reads");
+        assert_eq!(f.cell.width, 12, "three advances read as before");
+        let keys: Vec<u32> = f.map.keys().copied().collect();
+        assert_eq!(keys, [0x4e00, 0x4e01]);
     }
 
     // the cell is the advance most of the glyphs take, so one stray glyph
