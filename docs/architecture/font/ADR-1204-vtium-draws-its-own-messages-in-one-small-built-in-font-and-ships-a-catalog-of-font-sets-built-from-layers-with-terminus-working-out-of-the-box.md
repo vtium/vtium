@@ -130,6 +130,15 @@ considered:
     said: "The bare word \"Terminus\" counts as the reserved font name wherever it appears in the faces, the BDF table included. The faces still state where Cullet Mono comes from: the copyright string and a description credit Terminus, because the OFL reserves the name only as the font's name and expects the original to be credited."
     via: the steering session, 2026-11-15, relaying the maintainer's decision on the review of the Cullet Mono build, in the brief of its fix round
     paraphrase: true
+  - operator: aaronsb
+    said: "it should be a warning"
+    via: the steering session, 2026-11-16, the maintainer's answer on how check-config and vtium-config treat a missing font, during the fix round of the code review of wave 1
+  - operator: aaronsb
+    said: "Warn, but still install"
+    via: the steering session, 2026-11-16, the maintainer's answer on how check-config and vtium-config treat a missing font, during the fix round of the code review of wave 1
+  - operator: aaronsb
+    said: "A distinct exit status"
+    via: the steering session, 2026-11-16, the maintainer's answer on how check-config and vtium-config treat a missing font, during the fix round of the code review of wave 1
 observable:
   - "Every catalog frit passes the catalog check: its text font first, then its layers in the order script, symbols, emoji, each source supplying only characters of its role, each font named with its upstream name, version and page, and its license line naming every source's license"
   - "On a machine with every font of a catalog frit installed, its specimen draws Latin text from its text font, box drawing from vtium's sprites, a Powerline separator and a Nerd Fonts icon from its symbols source, and an emoji in color"
@@ -379,6 +388,8 @@ vtium draws a set with every named font that it finds and that passes its `check
 vtium-config tells the person before they meet a gap. `vtium config fonts` lists each set's missing fonts, each by its name, its version and its upstream page. The TUI's Fonts and Looks views mark a set with a missing font, and name the missing fonts when the person chooses that set. `vtium check-config` prints the same lines for each set that vtium.conf names.
 
 vtium-config names fonts and leaves installing them to the person (amended 2026-11-15). The maintainer chose general advice over a command for each distribution, because a list of commands for each distribution is hard to keep current. vtium's help page on fonts says how to install a font: search the distribution's packages for the font's name, or download it from its upstream page into a fonts folder. Each report of a missing font points to that page. (Amended 2026-11-15, after the code review of this amendment: eight places elsewhere in this record still named a distribution's package for a font, and D12's check still accepted a `package=` line. They now say what D7 decides: a missing font is named by its upstream name, its version and its upstream page, and every source carries `url=`. Only the vtium-fonts recipes name distribution packages.)
+
+> Note 2026-11-16: the maintainer decided how the two programs treat a missing font. `vtium check-config` reports a missing font as a warning. vtium-config warns about a draft whose only problem is a missing font, and still installs the draft. check-config signals that case with an exit status of its own, 6, and with 1 when any other problem stands beside the missing fonts. vtium-config decides by that status, so it never reads check-config's words.
 
 ### D8: how each font reaches the machine
 
