@@ -139,13 +139,32 @@ considered:
   - operator: aaronsb
     said: "A distinct exit status"
     via: the steering session, 2026-11-16, the maintainer's answer on how check-config and vtium-config treat a missing font, during the fix round of the code review of wave 1
+  - operator: aaronsb
+    said: "Fonts come in three tiers. The built-in font, compiled into the binary, is the absolute minimum: always there, so minspec always works. Above it, vtium ships GNU Unifont as a file with every build, minspec included. Above that sits the font set a head uses. If Unifont is disabled or missing, vtium falls back to the built-in font."
+    via: the steering session, 2026-11-17, relaying the maintainer's decisions on the fonts that every build ships, in the brief for this amendment
+    paraphrase: true
+  - operator: aaronsb
+    said: "The default font set and every catalog set end with Unifont, so the normal shipped shape, minspec's included, shows few or no hollow boxes. vtium reaches for Unifont for any character its other sources lack."
+    via: the steering session, 2026-11-17, relaying the maintainer's decisions on the fonts that every build ships, in the brief for this amendment
+    paraphrase: true
+  - operator: aaronsb
+    said: "there's no reason to compress unifont super small or cut it. most minspec devices have sufficient storage to hold the entire unifont"
+    via: the steering session, 2026-11-17, relaying the maintainer's decisions on the fonts that every build ships, in the brief for this amendment; the words are the maintainer's as the brief quotes them
+  - operator: aaronsb
+    said: "Unifont ships whole and uncompressed, with every plane, not only the Basic Multilingual Plane."
+    via: the steering session, 2026-11-17, relaying the maintainer's decisions on the fonts that every build ships, in the brief for this amendment
+    paraphrase: true
+  - operator: aaronsb
+    said: "Every build, minspec included, also ships vtium's distribution of bitmap Terminus: every upstream strike from 12 to 32 pixels, regular and bold. Minspec then draws crisp bitmap Terminus at every console size up to 32 pixels with no outline font. The full package keeps Cullet Mono for the Nerd Fonts icons and for cells larger than 32 pixels."
+    via: the steering session, 2026-11-17, relaying the maintainer's decisions on the fonts that every build ships, in the brief for this amendment
+    paraphrase: true
 observable:
   - "Every catalog frit passes the catalog check: its text font first, then its layers in the order script, symbols, emoji, each source supplying only characters of its role, each font named with its upstream name, version and page, and its license line naming every source's license"
   - "On a machine with every font of a catalog frit installed, its specimen draws Latin text from its text font, box drawing from vtium's sprites, a Powerline separator and a Nerd Fonts icon from its symbols source, and an emoji in color"
   - "With fira-code chosen and Fira Code absent, the console draws text in the built-in font with the frit's symbols and emoji, logs one line that names Fira Code and its version, and vtium config fonts names Fira Code, its version and its upstream page"
   - "The frit that vtium makes for font-name=DejaVu Sans Mono holds that one source"
   - "With no vtium.conf, no font sets, no font files and no font helper, vtium reaches a login prompt drawn in the built-in font, and its notices draw in the built-in font"
-  - "On a tier 3 guest with the full package and no other font installed, terminus draws a letter from Terminus, a Nerd Fonts icon from Cullet Mono, an emoji from Noto Color Emoji and a Han character from Unifont; with the minspec build, the icon, the emoji and the Han character draw as hollow boxes"
+  - "On a tier 3 guest with the full package and no other font installed, terminus draws a letter from Terminus, a Nerd Fonts icon from Cullet Mono, an emoji from Noto Color Emoji and a Han character from Unifont; with the minspec build, the Han character draws from Unifont, and the icon and the emoji draw as hollow boxes"
 status: accepted
 date: 2026-11-14
 deciders:
@@ -162,8 +181,8 @@ related:
 
 ## Summary
 
-- **Decided:** vtium has one built-in font. It is the font vtium draws with when every other font, font set and configuration file is missing or unusable, and vtium's own notices, on-screen display and panic screen always use it. It is small: three bitmap strikes that hold just the characters vtium's messages, a login prompt and a shell's basic output need, compiled into the console binary and drawn without the font helper. Every other font is an ordinary file that the font helper loads. vtium ships a catalog of font sets in six categories: console fonts, classic hardware fonts, code-friendly fonts, Nerd Fonts, scripts and regions, and small panels. Each set is named after the font it is based on, and each is ready to use: it draws text, box drawing, Powerline and Nerd Fonts icons, color emoji and every other character. The console category also holds sets for the Linux kernel's own fonts, which vtium loads from the person's system and never ships. One set is vtium's default and works out of the box: `terminus`. The full package makes it complete: bitmap Terminus in cells up to 16 pixels, Cullet Mono, vtium's own outline Terminus with Nerd Fonts' icons, above 16 pixels and for the icons, color emoji, and Unifont for every other script. The minspec builds install bitmap Terminus alone. A set is built from parts: its own first source is the text font, and `layer=` lines add shared layers for a script, for symbols, for emoji and for every other character, in that order. A person composes a set from the same parts. Each set names every font it needs precisely, and vtium-config names a missing one with its version and its upstream page. A font set holds exactly the sources its file and its layers name, with the built-in font at the end.
-- **Trades away:** The built-in font draws only its short list of characters. On a machine where the font helper or every font file is missing, a CJK or emoji character draws as a hollow box, where today the compiled-in Unifont draws it. A translated notice in a script beyond that list shows in English. The full package grows by about 7.0 MB of font files, its own outline Terminus with Nerd Fonts' icons among them, and depends on the distribution's emoji package where one exists. On the minspec builds, `terminus` draws Nerd Fonts icons, emoji and CJK as hollow boxes until the person installs the layers' fonts. Several shipped sets change name, so a vtium.conf that names `desktop`, `minspec-16`, `minspec-8` or a script set changes too. The frit format grows a layer file and five keys that describe a source.
+- **Decided:** vtium has one built-in font. It is the font vtium draws with when every other font, font set and configuration file is missing or unusable, and vtium's own notices, on-screen display and panic screen always use it. It is small: three bitmap strikes that hold just the characters vtium's messages, a login prompt and a shell's basic output need, compiled into the console binary and drawn without the font helper. Every other font is an ordinary file that the font helper loads. vtium ships a catalog of font sets in six categories: console fonts, classic hardware fonts, code-friendly fonts, Nerd Fonts, scripts and regions, and small panels. Each set is named after the font it is based on, and each is ready to use: it draws text, box drawing, Powerline and Nerd Fonts icons, color emoji and every other character. The console category also holds sets for the Linux kernel's own fonts, which vtium loads from the person's system and never ships. One set is vtium's default and works out of the box: `terminus`. Every build, minspec included, installs bitmap Terminus's strikes from 12 to 32 pixels and all of GNU Unifont as files. So `terminus` draws crisp bitmap text up to 32 pixels, and Unifont draws every other script. The full package adds Cullet Mono, vtium's own outline Terminus with Nerd Fonts' icons, for the icons and for cells above 32 pixels, and color emoji. A set is built from parts: its own first source is the text font, and `layer=` lines add shared layers for a script, for symbols, for emoji and for every other character, in that order. A person composes a set from the same parts. Each set names every font it needs precisely, and vtium-config names a missing one with its version and its upstream page. A font set holds exactly the sources its file and its layers name, with the built-in font at the end.
+- **Trades away:** The built-in font draws only its short list of characters. On a machine where the font helper or every font file is missing, a CJK or emoji character draws as a hollow box, where today the compiled-in Unifont draws it. A translated notice in a script beyond that list shows in English. Every build installs about 8.7 MB of font files, and the full package about 13.9 MB, its own outline Terminus with Nerd Fonts' icons among them. The full package depends on the distribution's emoji package where one exists. On the minspec builds, `terminus` draws Nerd Fonts icons and emoji as hollow boxes until the person installs the layers' fonts. Several shipped sets change name, so a vtium.conf that names `desktop`, `minspec-16`, `minspec-8` or a script set changes too. The frit format grows a layer file and five keys that describe a source.
 - **One-way?** No. Font sets and layers are text files, and the new keys describe fonts without changing how a glyph draws. The renames are the costly part, so this record makes them once.
 - **Probes:** *Confident (exact sources):* a font set holds exactly the sources its file and its layers name, so a person who wants color emoji with their own font picks a catalog set or composes one. *Not confident (renames):* the record renames `desktop` to `jetbrains-mono`, the smallest-build sets to `unifont-icons` and `unscii-icons`, and the script sets to `noto-` names, so that every catalog set is named after its font. Should the old names go now?
 - **Inversion:** The choice sits between two ends. At one end each set is a single font, and the built-in font draws every other character. At the other a set gathers whatever installed fonts reach the most characters, which is the collage the maintainer named. vtium builds each set from a text font and a few shared layers, and each layer has one named role.
@@ -224,13 +243,15 @@ The acceptance check: vtium starts with no vtium.conf, no font sets, no font fil
 
 > Note 2026-11-15: card 5 of D14 lands in two parts. Card 5a compiles the built-in font in and draws vtium's notices, on-screen display, focus mark and panic screen in it. In those messages, a character outside the list draws as the hollow box. Card 5a also gives vtium the check that shows a translation beyond the list in English. The terminal itself still draws in the compiled-in GNU Unifont and Unscii-8 when no font is named, so with nothing installed the login prompt draws in Unifont. Card 5b removes Unifont and Unscii-8 from the binary and moves the terminal to the built-in font. Only then does the acceptance check's login prompt draw in the built-in font, and only then does a character outside the list draw as a hollow box in the terminal.
 
-### D2: the default set, `terminus`, in two tiers
+### D2: the default set, `terminus`, and the fonts every build ships
 
-vtium's default font set, `terminus` in `console/`, sits on top of the built-in font (D1). The built-in font is always there, and it always draws vtium's own messages. On the minspec builds, bitmap Terminus sits on top of it. In the full package, the complete `terminus` set sits on top of it. A character that none of the set's sources holds falls through to the built-in font, and a character that the built-in font lacks too draws as a hollow box.
+vtium draws with three tiers of fonts. The built-in font (D1) is the minimum. vtium always has it, and it always draws vtium's own messages, so a minspec console always works. Above it, every build installs GNU Unifont as a file, the `unifont` layer (D5). Above Unifont sits the font set that a head uses, and vtium's default set is `terminus`, in `console/`. A character that none of the set's own sources holds draws from Unifont. Where Unifont's file is missing, or a person's own set leaves the `unifont` layer out, vtium falls back to the built-in font. A character that the built-in font lacks too draws as a hollow box.
 
-**One set, bitmap and outline together.** `terminus` names two forms of one design. Small cells draw bitmap Terminus: its 12, 14 and 16 pixel strikes, regular and bold. Each cell up to 16 pixels high draws the largest strike that fits it, placed as a bitmap source is placed (ADR-1200 D1). Larger consoles draw Cullet Mono, the outline Terminus that vtium builds with Nerd Fonts' icons (below), for text and icons at every height above 16 pixels. Cullet Mono also draws the Nerd Fonts icons in the small cells, because no bitmap strike holds them. The set says this with a key under its outline source, `strike=`, once for each bitmap file. The tallest strike sets the switch: at or below its height the strikes draw, and above it the outline draws. One key form serves both, because each strike file states its own height, so the set needs no separate switch number.
+**One set, bitmap and outline together.** `terminus` names two forms of one design. Bitmap Terminus draws every cell up to 32 pixels high, from its nine strikes of 12, 14, 16, 18, 20, 22, 24, 28 and 32 pixels, regular and bold. Each such cell draws the largest strike that fits it, placed as a bitmap source is placed (ADR-1200 D1). In the full package, Cullet Mono, the outline Terminus that vtium builds with Nerd Fonts' icons (below), draws the text in every cell above 32 pixels. Cullet Mono also draws the Nerd Fonts icons at every height, because no bitmap strike holds them. The set says this with a key under its outline source, `strike=`, once for each bitmap file. The tallest strike sets the switch: at or below its height the strikes draw, and above it the outline draws. One key form serves both, because each strike file states its own height, so the set needs no separate switch number.
 
-The switch rests on a 1:1 drawing of both forms at each strike height, through vtium's font helper with `render=bitmap`, on the branch that builds that drawing. At 12, 14 and 16 pixels the outline loses strokes, so the bitmap draws there. From 18 to 24 pixels the outline's strokes come out heavier than the bitmap's, and at 28 and 32 pixels the two read alike. The maintainer chose the outline for every larger console, heavier strokes included: "terminus bitmap for 8x8 is fine, and is similar to ibm codepage 437 and most minspec displays. for larger consoles we can move to the outline".
+The switch rests on a 1:1 drawing of both forms at each strike height, through vtium's font helper with `render=bitmap`, on the branch that builds that drawing. At 12, 14 and 16 pixels the outline loses strokes. From 18 to 24 pixels the outline's strokes come out heavier than the bitmap's, and at 28 and 32 pixels the two read alike. So the bitmap draws at every height Terminus has a strike for, and the outline draws only where Terminus has none.
+
+**When the outline is missing.** The minspec builds install no Cullet Mono, so the outline source of `terminus` is missing there. The set's strikes still draw the text, at the same heights as with the outline present. A cell taller than 32 pixels draws the 32-pixel strike at the largest whole factor that fits, as ADR-1200 D1 places a bitmap source. The cell is the one D5 gives a set whose text font is missing: the set's `cell=`, else the cell for the configured size. In that cell the strikes draw the text, where a set without strikes would draw it in the built-in font.
 
 **An 8-pixel cell.** Terminus has no strike under 12 pixels. A cell 8 pixels high, which ADR-1200 D17's small-display rule picks on a 320×240 panel, draws the built-in font's 8×8 strike, cut from Unscii-8, whose shapes follow the IBM PC's code page 437 font. That holds with `terminus` named too, because the set falls through to the built-in font. A Terminus 6×12 cell would give a 320×240 panel 53 columns of 20 rows, against 40 columns of 30 rows at 8×8, and the notices are written for 40 columns. So vtium keeps the 8×8 cell there, and `terminus` draws its 12-pixel strike only where the cell is 12 pixels high.
 
@@ -238,24 +259,37 @@ The switch rests on a 1:1 drawing of both forms at each strike height, through v
 
 (Amended 2026-11-15: the maintainer reads the bare word "Terminus" as the reserved name wherever it names the font, the names of the bitmap strikes in FontForge's `BDF ` table included, so no name of Cullet Mono holds it. The license reserves the word only as the font's name, so the copyright notice and the description of each face still state that Cullet Mono is derived from Terminus Font and Terminus (TTF).)
 
+**What draws each cell height.** A cell under 12 pixels fits no strike, and the paragraph on an 8-pixel cell says what draws there. From 12 pixels up:
+
+| Cell height | On the minspec builds | In the full package |
+|---|---|---|
+| 12 to 15 pixels | The 12- or 14-pixel strike draws the text. Unifont's 16-pixel glyphs fit no such cell. So a character Terminus lacks draws from the built-in font when its list holds it, and as a hollow box otherwise. | The same strike draws the text. Cullet Mono draws the icons and every other character it holds that the strike lacks, and the rest draws as on the minspec builds. |
+| 16 to 31 pixels | The largest strike that fits draws the text: 16, 18, 20, 22, 24 or 28 pixels. Unifont draws every character Terminus lacks, at its own size. | The same strike draws the text, Cullet Mono the icons, and Unifont the rest. |
+| 32 to 47 pixels | The 32-pixel strike draws the text at its own size, and Unifont draws the rest at twice its size. | The 32-pixel strike draws the text in a 32-pixel cell, and Cullet Mono draws it in a taller one. Cullet Mono draws the icons, and Unifont the rest at twice its size. |
+| 48 pixels and above | The 32-pixel strike and Unifont each draw at the largest whole factor that fits. | Cullet Mono draws the text and the icons, and Unifont the rest at the largest whole factor that fits. |
+
+At every height vtium's sprites draw box drawing, blocks, Braille and the legacy computing shapes. In the full package, Noto Color Emoji draws the emoji. On the minspec builds, a Nerd Fonts icon or an emoji draws as a hollow box until the person installs the layers' fonts.
+
 **The full package,** the build with images, the GPU path and bidi that the AUR `vtium` package builds, makes `terminus` complete:
 
 | Characters | Drawn from | How the font reaches the machine |
 |---|---|---|
-| Latin, Greek and Cyrillic text, arrows, and the Powerline separators | bitmap Terminus 4.49.1, the regular and bold BDF files of its 12, 14 and 16 pixel strikes, up to 16 pixels; Cullet Mono above 16 pixels | vtium installs the files: 97,162 bytes of BDF files under gzip, and Cullet Mono's two faces, 5,235,792 bytes |
+| Latin, Greek and Cyrillic text, arrows, and the Powerline separators | bitmap Terminus 4.49.1, the regular and bold BDF files of its nine strikes from 12 to 32 pixels, up to 32 pixels; Cullet Mono above 32 pixels | every build installs the eighteen BDF files, 327,314 bytes under gzip; the full package installs Cullet Mono's two faces, 5,235,792 bytes |
 | Nerd Fonts icons, apart from Font Logos | Cullet Mono | vtium installs the file |
 | Box drawing, blocks, Braille and legacy computing | vtium's sprites | built in |
 | Color emoji | Noto Color Emoji, through `noto-emoji` | the recipe depends on the distribution's package that provides Noto Color Emoji, where one exists |
-| Every other character, such as Han, kana and Hangul | GNU Unifont 17.0.03, through `unifont`, in 1 bit | vtium installs the file, about 1.7 MB under gzip |
+| Every other character, such as Han, kana and Hangul | GNU Unifont 17.0.03, every plane, through `unifont`, in 1 bit | every build installs the file uncompressed, 8,329,308 bytes (D5) |
 | The Font Logos icons, U+F300 to U+F385 | Symbols Nerd Font Mono, through `nerd-symbols`, once the system has it installed; a hollow box until then | a Nerd Fonts build, which the person installs; vtium-config names the font and its page |
 
-vtium installs its files in `/usr/share/vtium/fonts/`, which is in the build's list of font folders (ADR-1200 D25). The set names each file by path with its `sha256=` line (D7), and `make install` writes the package's prefix into the paths. The set also names the `nerd-symbols` layer after Cullet Mono, so that it finds Symbols Nerd Font Mono once the system has it installed, and draws the Font Logos icons from it. The full package grows by about 7.0 MB of font files. Where a distribution packages no Noto Color Emoji, the full package still works, and emoji draw as hollow boxes until the person installs the font.
+vtium installs its files in `/usr/share/vtium/fonts/`, which is in the build's list of font folders (ADR-1200 D25). The set names each file by path with its `sha256=` line (D7), and `make install` writes the package's prefix into the paths. The set also names the `nerd-symbols` layer after Cullet Mono, so that it finds Symbols Nerd Font Mono once the system has it installed, and draws the Font Logos icons from it. The full package installs about 13.9 MB of font files. Where a distribution packages no Noto Color Emoji, the full package still works, and emoji draw as hollow boxes until the person installs the font.
 
-**The minspec builds** install bitmap Terminus's 16-pixel files alone, `ter-u16n.bdf` and `ter-u16b.bdf`, 33,383 bytes under gzip. There `terminus` draws text and the Powerline separators from Terminus and box drawing from vtium's sprites. It draws Nerd Fonts icons, emoji, and every character that neither Terminus nor the built-in font holds as a hollow box. Once the person installs the three layers' fonts, `terminus` draws those characters from them, as in the full package. vtium-config names each one with its version and its upstream page, and `vtium check-config` names them too (D7).
+**The minspec builds** install the same Terminus and Unifont files: the eighteen BDF files and the whole of Unifont, about 8.7 MB in all. The maintainer: "there's no reason to compress unifont super small or cut it. most minspec devices have sufficient storage to hold the entire unifont". There `terminus` draws text and the Powerline separators from bitmap Terminus in every cell up to 32 pixels high, and box drawing from vtium's sprites. Unifont draws every other character in each cell its glyphs fit. Nerd Fonts icons and emoji draw as hollow boxes. Once the person installs the layers' fonts, `terminus` draws those characters from them, as in the full package. vtium-config names each one with its version and its upstream page, and `vtium check-config` names them too (D7).
 
 With no font named, vtium draws `terminus` where its files read, and the built-in font otherwise. On a display where ADR-1200 D17's small-display rule picks 8-pixel rows, such as a 320×240 panel, vtium draws the built-in font's 8×8 strike instead. The order in which vtium chooses a font becomes: the set that a head's look names, then `font-name`, then vconsole's font, then `terminus`, then the built-in font (ADR-1200 D9, D11).
 
-The check is a tier 3 case on a guest with no other font package installed. With the full package's install tree, it draws the specimen of `terminus` at 16 and at 26 pixels and asks the font helper which source drew each character. A letter comes from the bitmap strike at 16 pixels and from Cullet Mono at 26. A Nerd Fonts icon comes from Cullet Mono, an emoji from Noto Color Emoji, a Han character from Unifont, and a Font Logos icon draws as a hollow box. Once the case installs the distribution's Symbols Nerd Font Mono and restarts vtium, the Font Logos icon comes from it. With the minspec install tree, the letter and a Powerline separator come from Terminus, and the icon, the emoji and the Han character draw as hollow boxes.
+The check is a tier 3 case on a guest with no other font package installed. With the full package's install tree, it draws the specimen of `terminus` at 16, 24 and 40 pixels and asks the font helper which source drew each character. A letter comes from the strike of that height at 16 and 24 pixels, and from Cullet Mono at 40. A Nerd Fonts icon comes from Cullet Mono, and an emoji from Noto Color Emoji. A Han character and a character beyond the Basic Multilingual Plane, such as U+20000, come from Unifont, and a Font Logos icon draws as a hollow box. Once the case installs the distribution's Symbols Nerd Font Mono and restarts vtium, the Font Logos icon comes from it. With the minspec install tree, it draws the specimen at 16, 24 and 40 pixels. The letter and a Powerline separator come from Terminus's strikes at every height, the Han character and U+20000 from Unifont, and the icon and the emoji draw as hollow boxes.
+
+> Amended 2026-11-17: the maintainer decided that every build, minspec included, ships bitmap Terminus's strikes from 12 to 32 pixels and the whole of GNU Unifont (`considered`, 2026-11-17). Unifont ships uncompressed and with every plane, and the strikes draw every cell up to 32 pixels. D2 described two tiers. The minspec builds installed bitmap Terminus's 16-pixel files alone, `ter-u16n.bdf` and `ter-u16b.bdf`, 33,383 bytes under gzip. There every character that neither Terminus nor the built-in font holds drew as a hollow box, Han, kana and Hangul included. The full package installed the 12, 14 and 16 pixel strikes, 97,162 bytes under gzip, and Unifont's file, about 1.7 MB under gzip, and grew by about 7.0 MB of font files. Cullet Mono drew every cell above 16 pixels. The maintainer had chosen the outline for every larger console, heavier strokes included: "terminus bitmap for 8x8 is fine, and is similar to ibm codepage 437 and most minspec displays. for larger consoles we can move to the outline". The tier 3 check drew the full package's letter from Cullet Mono at 26 pixels, and the minspec build's Han character as a hollow box. The Summary, the last observable, D3's `terminus` row, D5's `unifont` row, D8's first bullet and its Unifont row, D9's package lists and the Consequences said the same, and this note covers them.
 
 ### D3: the catalog and its categories
 
@@ -274,7 +308,7 @@ The members, their fonts and their sources:
 
 | Set | Based on | Its sources, in order | The fonts |
 |---|---|---|---|
-| `terminus` | Terminus, kbd's `ter-v16n` | Terminus; `nerd-symbols`; `noto-emoji` | installed by vtium |
+| `terminus` | Terminus: its nine bitmap strikes and Cullet Mono | Cullet Mono with the strikes (D2); `nerd-symbols`; `noto-emoji` | installed by vtium |
 | `default8x16` | kbd's `default8x16` | kbd's `default8x16`; `nerd-symbols`; `noto-emoji` | required |
 | `linux-console` | the font the Linux console holds when vtium starts | the VT's font, through `console:`; `nerd-symbols`; `noto-emoji` | required, from the system |
 | `linux-vga-8x16`, `linux-vga-8x8`, `linux-sun-8x16`, `linux-sun-12x22`, `linux-ter-16x32` | the Linux kernel's font of that name | the file of kbd or Terminus that holds the same glyphs (below); `nerd-symbols`; `noto-emoji` | required |
@@ -289,7 +323,7 @@ The members, their fonts and their sources:
 | `unifont-icons`, `unscii-icons` | GNU Unifont or Unscii-8, as files | Unifont or Unscii-8; `nerd-symbols-small`; `noto-emoji-small` | required |
 | `tiny5` | Tiny5 Mono | Tiny5 Mono's BDF file; `nerd-symbols-small`; `noto-emoji-small` | required |
 
-The last column says how the font reaches a machine without vtium-fonts. Once vtium-fonts is installed, every font of the catalog is there, apart from a Nerd Fonts build on a distribution that packages none (D8). The vtium package installs the Terminus files of `terminus` itself, so that set works out of the box (D2). Every set ends with the `unifont` layer, which the table leaves out. The script sets keep the line spacing they have now (ADR-1302 D13). Each set states its starting `size=` or its `cell=`, as the set it replaces does.
+The last column says how the font reaches a machine without vtium-fonts. Once vtium-fonts is installed, every font of the catalog is there, apart from a Nerd Fonts build on a distribution that packages none (D8). Every vtium build installs the Terminus and Unifont files of `terminus` itself, so that set works out of the box (D2). Every set ends with the `unifont` layer, which the table leaves out. The script sets keep the line spacing they have now (ADR-1302 D13). Each set states its starting `size=` or its `cell=`, as the set it replaces does.
 
 #### The Linux kernel's own fonts
 
@@ -349,9 +383,15 @@ The catalog's layers:
 | `nerd-symbols-small`, `noto-emoji-small` | symbols, emoji | the chosen ranges and emoji of today's `minspec-16` and `minspec-8` |
 | `arabic`, `hebrew`, `indic`, `thai-lao` | script | the script's Noto fonts, as today's script sets name them, with their `fit=` lines |
 | `cjk-sc`, `cjk-tc`, `cjk-jp`, `cjk-kr` | script | Noto Sans CJK in the region's face |
-| `unifont` | fallback | GNU Unifont 17.0.03 as a BDF file, a required font. It draws every character that the sources before it lack, in 1 bit, as the compiled-in Unifont draws them today. |
+| `unifont` | fallback | GNU Unifont 17.0.03, every plane, as the `.hex` file that every build installs (below). Unifont draws every character that the sources before it lack, in 1 bit, as the compiled-in Unifont draws them today. |
 
 A person composes a set from the same parts. `vtium config new-frit FONT` takes `--layer NAME`, once for each layer, and its TUI view offers the layers as choices. For example, `vtium config new-frit "Iosevka Term" --layer arabic --layer nerd-symbols --layer noto-emoji` writes a set with Iosevka Term for text, the Arabic layer, Nerd Fonts' icons and color emoji.
+
+**The `unifont` layer's file.** The layer names `hex:/usr/share/vtium/fonts/unifont_all-17.0.03.hex`, with `version=17.0.03`, its `sha256=` and its `url=`. The file is Unifoundry's `unifont_all-17.0.03.hex.gz`, decompressed: 8,329,308 bytes, SHA-256 90a5d4dd44a5ef8d3fd02a3f397926b2f9d98640f0b86a3f050faef7bb2683b2. Unifont's 126,641 glyphs are `codepoint:bits` lines, 8×16 and 16×16, in planes 0 to 3, 14 and 15. The tree holds the same file as `crates/vtium-font/data/unifont.hex`, from which the build compiles today's built-in Unifont. vtium installs it uncompressed, so the font helper's 1 MiB limit on a gzipped file does not apply to it. Unifoundry publishes every plane only as `.hex` files and as OpenType, and its BDF file holds the Basic Multilingual Plane alone. The helper's BDF reader also takes 65,535 glyphs at most, fewer than Unifont's 126,641.
+
+The font helper reads no `.hex` file today. The helper's sources read PSF, BDF and outline files, and only the build reads a `.hex` file, to pack the compiled-in Unifont. So the build adds a source kind, `hex:PATH`, which reads Unifont's `.hex` format. Each line holds one glyph: a code point in hex, a colon, and 32 or 64 hex digits for an 8×16 or a 16×16 glyph. vtium reads a `hex:` file uncompressed, up to the 16 MiB that bounds every bitmap file, with one glyph at most for each code point. A `.hex` file states no version, so vtium-config checks it by its `sha256=` line, as D7 treats any font that states no version.
+
+> Amended 2026-11-17: the `unifont` layer named Unifoundry's `unifont-17.0.03.bdf`, which holds the Basic Multilingual Plane alone, decompressed from its gzipped file because the font helper reads a gzipped file of 1 MiB at most. The person installed it as a required font. Every build now installs the all-planes `.hex` file uncompressed (D2).
 
 ### D6: each source has a role, and the roles come in one order
 
@@ -395,7 +435,7 @@ vtium-config names fonts and leaves installing them to the person (amended 2026-
 
 vtium ships every catalog set and layer as a text file. A font reaches the machine in one of three ways:
 
-- **Installed by vtium.** The vtium packages install the Terminus files, and the full package also installs Unifont's file (D2).
+- **Installed by vtium.** Every vtium build installs the Terminus and Unifont files, and the full package also installs Cullet Mono (D2).
 - **Brought by vtium-fonts.** vtium-fonts is an optional package of its own, apart from vtium. Once it is installed, every catalog set works. It provides each font in the way that suits that font. Each recipe of vtium-fonts depends on its distribution's package that provides a font, where that distribution packages it. Where it does not, the recipe carries a pinned copy of the upstream file with its license text, when the license allows redistribution. So a font may be brought when the common distribution families package it, or when a recipe may carry it under its license.
 - **Required.** A font that neither vtium nor vtium-fonts provides is one the person installs. The set names it with D7's keys, and vtium-config names the font and its upstream page.
 
@@ -428,7 +468,7 @@ Each font is named first by its upstream identity. The packaging table follows i
 | Noto Sans Mono and the Noto script fonts | OFL-1.1 | noto-fonts, 106.8 MiB | fonts-noto | google-noto-sans-mono-fonts, google-noto-sans-arabic-fonts and one package for each script | carried |
 | Noto Sans CJK | OFL-1.1 | noto-fonts-cjk, 298.8 MiB; optional | fonts-noto-cjk | google-noto-sans-cjk-fonts | carried |
 | Noto Color Emoji | OFL-1.1 | noto-fonts-emoji, 10.2 MiB | fonts-noto-color-emoji | google-noto-color-emoji-fonts | carried |
-| GNU Unifont 17.0.03 | OFL-1.1, the option vtium takes of its two licenses | none | unifont | unifont-fonts | vtium's full package installs its own file |
+| GNU Unifont 17.0.03, `unifont_all-17.0.03.hex` | OFL-1.1, the option vtium takes of its two licenses | none | unifont | unifont-fonts | every vtium build installs its own file |
 | Unscii-8 2.1, `unscii-8.hex` | public domain | none | not checked | not checked | carried, 73,409 bytes as hex, converted to a form the font helper reads |
 | Tiny5 Mono 3.000, `Tiny5Mono.bdf` | OFL-1.1 | none | not checked | not checked | carried, 571,375 bytes |
 
@@ -445,6 +485,8 @@ One font set file serves every distribution, because it names each font by its u
 
 **The notices.** vtium-fonts carries one notices file. For each font that a catalog set names, it gives the font's source, its version, its copyright line, its license, and its Reserved Font Name or the attribution its license asks for, such as Px437's and the CC-BY-4.0 icon sets' in the Nerd Fonts builds. It says that vtium-fonts carries no Nerd Fonts file because of Font Logos. Beside it, vtium-fonts carries the full text of each license. vtium itself carries only the notices of its own fonts: the built-in font's Unscii-8 and Terminus lines, the OFL text, and the notices of the Terminus and Unifont files it installs. vtium names vtium-fonts as an optional dependency.
 
+**The notices of the files every build installs.** vtium installs the eighteen Terminus files and the Unifont file as upstream wrote them, so each keeps its upstream name. The Terminus files are gzipped. The OFL lets a font be bundled with software when each copy carries the font's copyright notice and the license. Each Terminus file states its own in its `COPYRIGHT` and `NOTICE` properties: "Copyright (C) 2020 Dimitar Toshkov Zhekov", under the OFL-1.1, with the Reserved Font Name "Terminus Font". A `.hex` file holds glyphs alone, so Unifont's notice travels beside it. Unifont's copyright line is the one that Unifoundry's BDF build states: "Copyright (C) 1998-2025 Roman Czyborra, Paul Hardy, Qianqian Fang, Andrew Miller, Johnnie Weaver, David Corbett, Ælla Chiana Moskopp, Rebecca Bettencourt, Minseo Lee, Ho-Seok Ee, et al." vtium takes Unifont under the OFL-1.1, and Unifont reserves no font name. vtium's COPYING names each installed file with its copyright line, its license and its Reserved Font Name. The package carries the OFL text beside COPYING, as it does for the built-in font.
+
 **Font Logos.** vtium draws the Font Logos icons, U+F300 to U+F385, from a Nerd Fonts file that the system installed, and from no file that vtium ships. Drawing a glyph from a font the person installed redistributes nothing. Cullet Mono, which vtium ships, leaves Font Logos out. So a prompt that shows its system's logo, such as Starship's operating-system module with Arch Linux's logo at U+F303, draws a hollow box until the person installs the distribution's Symbols Nerd Font Mono or a Nerd Fonts build, and the logo from then on. The docs say this plainly: to get the logos and the full Nerd Fonts coverage, install the distribution's Nerd Fonts package, and vtium uses it.
 
 ### D9: names, folders and the package lists
@@ -453,7 +495,7 @@ A catalog set is named after its font, in lowercase words joined by `-`: `fira-c
 
 In vtium's tree the sets live in `crates/vtium-config/frits/CATEGORY/NAME.vtfrit`, and the layers in `crates/vtium-config/frits/layers/NAME.vtlayer`. They install into the same folders under `/etc/vtium/fonts/`. vtium finds a name in the frits' directory itself first, where a person's own sets live, and then in each category folder. vtium-config refuses to install a set whose name another folder already holds. `terminus` moves into `console/` from the recipe repository, and it names Terminus by its upstream name, version and page.
 
-The full package installs `terminus` with its Terminus, Cullet Mono and Unifont files, depends on the distribution's package that provides Noto Color Emoji where one exists, and installs `jetbrains-mono`, `unifont-icons`, `unscii-icons` and the layers they use as text files. The minspec builds install `terminus` with its Terminus files, and `unifont-icons`, `unscii-icons` and their layers as text files. The vtium-fonts package installs the whole catalog, and it depends on every brought font. The Makefile's lists name the sets by category, as ADR-1500 D8 lets a recipe name its sets.
+The full package installs `terminus` with its Terminus, Cullet Mono and Unifont files, depends on the distribution's package that provides Noto Color Emoji where one exists, and installs `jetbrains-mono`, `unifont-icons`, `unscii-icons` and the layers they use as text files. The minspec builds install `terminus` with its Terminus and Unifont files, and `unifont-icons`, `unscii-icons` and their layers as text files. The vtium-fonts package installs the whole catalog, and it depends on every brought font. The Makefile's lists name the sets by category, as ADR-1500 D8 lets a recipe name its sets.
 
 ### D10: the font set made from `font-name` holds the one font it names
 
@@ -503,6 +545,8 @@ The build cards, in order:
 7. **Cullet Mono.** The build step that patches Terminus (TTF) 4.49.3 with Nerd Fonts' patcher at a pinned release and every icon set apart from Font Logos, reproducibly from pinned sources; and its notices.
 8. **The recipes.** vtium-arch's vtium-fonts installs the catalog, depends on the distribution's font packages, carries the four pinned fonts with their license texts and the notices file, and carries no Nerd Fonts file. The vtium recipe drops its own `terminus.vtfrit`, installs the Terminus and Unifont files, and names vtium-fonts as optional.
 
+> Note 2026-11-17: D2's amendment of the same date pulls part of cards 6 and 8 forward, into the wave that builds the catalog of card 3. Every build installs the eighteen Terminus files and the Unifont file in `/usr/share/vtium/fonts/`, through `make install` and every vtium recipe of vtium-arch, and the recipes drop their own `terminus.vtfrit`. `terminus` names its final sources: Cullet Mono with the nine strikes in each style, then the layers. The `unifont` layer names the installed `.hex` file through the new `hex:` source (D5). The font helper draws an outline source's strikes where the outline is missing, so the minspec builds draw `terminus` in bitmap Terminus (D2). Card 6 keeps the full package's install of Cullet Mono, its dependence on the emoji package, `terminus` as the font set with none named, and D2's tier 3 case. The decisions of 2026-11-17 do not settle when `terminus` becomes the set with none named. D2 already decides that it does, and the switch changes what every unconfigured console draws, so it moves the tier 3 goldens. The switch lands with card 5b, which moves them too, so that the maintainer reviews the moved goldens once. Card 8 keeps the vtium-fonts recipe and the vtium recipe's optional dependence on vtium-fonts.
+
 ### D15: the maintainer's choices
 
 The maintainer decided every choice this record put to them on 2026-11-14, each as the record leaned (`considered`). The decisions above follow those answers:
@@ -515,12 +559,14 @@ The maintainer decided every choice this record put to them on 2026-11-14, each 
 - the built-in 8×16 strike is cut from Terminus (D1);
 - vtium-fonts provides each font in the way that suits it (D8), Unifont ships in the full package (D2), Font Logos come from a Nerd font the system installed (D8), and vtium's own outline Terminus is named Cullet Mono (D2).
 
+> Note 2026-11-17: Unifont now ships in every build, and bitmap Terminus's strikes from 12 to 32 pixels with it, as D2's note of that date says.
+
 ## Consequences
 
 ### Positive
 
 - The minspec console shrinks by about 1.35 MB, and it still draws its own messages with no font file at all.
-- A fresh full install draws text, Nerd Fonts icons, color emoji and every script. A fresh minspec install draws text, Powerline separators and box drawing.
+- A fresh full install draws text, Nerd Fonts icons, color emoji and every script. A fresh minspec install draws text in bitmap Terminus up to 32 pixels, Powerline separators, box drawing, and every script that Unifont holds.
 - Every catalog set draws text, box drawing, icons and color emoji, so a person who picks a font gets a working console.
 - Each source in a set has a named role, and a check holds the catalog to it, so each added font has a stated reason.
 - A person composes a set from the same layers the catalog uses, with one command.
@@ -530,7 +576,9 @@ The maintainer decided every choice this record put to them on 2026-11-14, each 
 ### Negative
 
 - With no font helper or font files, a CJK or emoji character draws as a hollow box.
-- On the minspec builds, `terminus` draws Nerd Fonts icons, emoji and CJK as hollow boxes until the person installs the layers' fonts.
+- On the minspec builds, `terminus` draws Nerd Fonts icons and emoji as hollow boxes until the person installs the layers' fonts.
+- Every build installs about 8.7 MB of font files, which most minspec machines have the storage for.
+- Until card 5b of D14 lands, every build carries Unifont twice: compiled into the console and as the installed file.
 - vtium.conf files that name a renamed set need the new name.
 - The frit format gains a file kind and five keys, which vtium-config's template, its check and its TUI learn.
 - A required font that the person has not installed leaves the set's text in the built-in font.
@@ -539,6 +587,7 @@ The maintainer decided every choice this record put to them on 2026-11-14, each 
 ### Neutral
 
 - A person's own font sets keep working as written, with or without layers.
+- The console binary's size does not change with the installed files. Card 5b still removes the compiled-in Unifont and keeps the built-in font, so the minspec console shrinks as D1 says.
 - The test sets keep their fonts, and ADR-1503 D9 keeps choosing them.
 - ADR-1200 D9's sentence that waits on "a specification [that] decides how font sets are organized" gains a dated note that names this record.
 
@@ -549,6 +598,8 @@ The maintainer decided every choice this record put to them on 2026-11-14, each 
 - **An implicit emoji source for the font set made from `font-name`,** through the key `font-emoji`. The maintainer declined it (ADR-1200 D9). D10 gives the person the same result through a set they choose.
 - **A flat catalog in one folder.** It keeps the lookup simple. The maintainer asked for a structure by category, and thirty sets read better in six folders. It was rejected.
 - **Each catalog set written out in full, without layers.** Each file would stand alone. The same symbols and emoji lines would repeat in thirty files, and a person could not reuse them. It was rejected.
+- **Unifont's Basic Multilingual Plane alone, or Unifont compressed.** Either keeps the minspec install smaller. The maintainer chose the whole font on 2026-11-17: "there's no reason to compress unifont super small or cut it. most minspec devices have sufficient storage to hold the entire unifont".
+- **Bitmap Terminus's 16-pixel strike alone on the minspec builds,** the first form of D2. That form installs 33,383 bytes of Terminus and draws one size of Terminus at every cell height. On 2026-11-17 the maintainer chose every strike from 12 to 32 pixels, in every build.
 - **Keeping Unifont compiled in.** The built-in font would draw every script with no file. It costs 1.34 MB of the minspec binary, and the `unifont` layer gives the same coverage as a file. It was rejected.
 - **The Linux kernel's console fonts as the built-in font.** They have the console's look. They carry GPL-2.0, and compiling them into vtium's MIT binary would make it a GPL combination. A set may still name kbd's copies as required fonts, which redistributes nothing. It was rejected for the built-in font.
 - **Spleen,** under BSD-2-Clause, has 5×8 to 32×64 sizes. It is a clean choice too. Terminus already is the catalog's console font, so the built-in font and `terminus` share one look. It was rejected.
