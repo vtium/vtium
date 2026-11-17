@@ -74,8 +74,13 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
         .iter()
         .filter(|f| f.state == FontState::Reads)
         .map(|f| {
-            let path = frits.join(format!("{}.vtfrit", f.name));
-            (f.name.clone(), Frit::load(&path).map_err(|e| e.to_string()))
+            let path = crate::switch::frit_file(frits, &f.name)
+                .unwrap_or_else(|| frits.join(format!("{}.vtfrit", f.name)));
+            let layers = frits.join(layer::DIR);
+            (
+                f.name.clone(),
+                Frit::load_in(&path, &layers).map_err(|e| e.to_string()),
+            )
         })
         .collect();
     let texts: Vec<crate::serve::FritText> = read
@@ -470,7 +475,8 @@ pub fn remove_frit(
         return failed(err, &why);
     }
     let path = match &paths.frits {
-        Ok(frits) => frits.join(format!("{name}.vtfrit")),
+        Ok(frits) => crate::switch::frit_file(frits, name)
+            .unwrap_or_else(|| frits.join(format!("{name}.vtfrit"))),
         Err(why) => return failed(err, why),
     };
     let old = match read_bounded(&path) {
@@ -758,19 +764,34 @@ fn check_layers(text: &str, path: &Path, name: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Ok when vtium-config may install a set named `name` in the frits'
+/// directory `frits`; else why not: a category folder of the catalog holds
+/// a set of that name already.
+///
+/// References:
+/// - ADR-1204 D9: vtium-config refuses a name that another folder holds.
+fn unheld(frits: &Path, name: &str) -> Result<(), String> {
+    match crate::switch::category_file(frits, name) {
+        Some(held) => Err(format!(
+            "The font set {name} is already installed as {}, a set of vtium's catalog. Give your font set another name.",
+            held.display()
+        )),
+        None => Ok(()),
+    }
+}
+
 /// The plan that installs the frit `text` as `name` in `paths`' frits,
-/// once the frit reader takes it strictly, as the helper reads it.
+/// once the frit reader takes it strictly, as the helper reads it, and
+/// once no category folder of the catalog holds a set of that name.
 pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> {
     if !valid_name(name) || RESERVED.contains(&name) {
         return Err(format!(
             "{name:?} cannot be a font set's name: a name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot be a built-in font's name"
         ));
     }
-    let path = paths
-        .frits
-        .as_ref()
-        .map_err(Clone::clone)?
-        .join(format!("{name}.vtfrit"));
+    let frits = paths.frits.as_ref().map_err(Clone::clone)?;
+    unheld(frits, name)?;
+    let path = frits.join(format!("{name}.vtfrit"));
     let frit = Frit::parse(text.as_bytes(), &path, name).map_err(|e| e.to_string())?;
     if !frit.layers.is_empty() {
         check_layers(text, &path, name)?;
@@ -881,6 +902,30 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // vtium-config installs no set of a name that a category folder of the
+    // catalog already holds, and installs any other name.
+    //
+    // References:
+    // - ADR-1204 D9: a name stays unique across every folder.
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test fails by panicking")]
+    fn a_set_named_as_a_catalog_set_is_not_installed() {
+        let dir = std::env::temp_dir().join(format!("vtium-config-held-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("console")).expect("the folder");
+        std::fs::write(dir.join("console/terminus.vtfrit"), "source=kbd:x\n").expect("the set");
+        let why = unheld(&dir, "terminus").expect_err("held");
+        assert!(
+            why.starts_with("The font set terminus is already installed as "),
+            "{why}"
+        );
+        assert!(
+            why.contains(&dir.join("console/terminus.vtfrit").display().to_string()),
+            "{why}"
+        );
+        assert_eq!(unheld(&dir, "mine"), Ok(()));
+    }
 
     // ADR-1005 D10: a key binding set by its old name shows the value vtium
     // reads from that line, the new name wins where both are set, and the
