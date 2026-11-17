@@ -107,10 +107,12 @@ ICF_LINK := -C link-arg=-Wl,--icf=all
 # the binary. A panic message names the file and line it comes from, so the
 # binary holds the path of each dependency's source file that can panic,
 # such as ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.14.4/src/sys.rs.
-# The first --remap-path-prefix writes the crates.io sources as cargo's own
-# trim-paths option does, from the crate's directory on, as
-# calloop-0.14.4/src/sys.rs. The second writes the rest of the cargo home,
-# such as a git checkout of a dependency, under /cargo. The binary shrinks
+# The first --remap-path-prefix writes the cargo home, such as a git
+# checkout of a dependency, under /cargo. The second writes the crates.io
+# sources as cargo's own trim-paths option does, from the crate's directory
+# on, as calloop-0.14.4/src/sys.rs. rustc applies the last prefix that
+# matches a path, so the crates.io prefix, the more specific one, comes
+# last and wins over the cargo home's. The binary shrinks
 # by about 2.6 KB, which counts against the 4,259,840-byte budget that tier
 # 3 holds the minspec binary to, and its size no longer depends on where
 # the cargo home is. vtium's own sources already appear as paths relative

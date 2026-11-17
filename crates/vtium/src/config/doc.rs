@@ -221,7 +221,12 @@ fn row(out: &mut String, k: &Key) {
     .chain((k.scope != Scope::Section).then_some("command line"))
     .collect();
     let set_in = set_in.join(", ");
-    let (reader, cite) = notes::of(k).map_or(("", ""), |n| (n.reader, n.cite));
+    // vtium-settings holds a note for every key, so a key without one is a
+    // fault in the key table, and the generated docs must not show it with
+    // empty cells.
+    #[expect(clippy::panic, reason = "only the docs' tests generate docs/config.md")]
+    let note = notes::of(k)
+        .unwrap_or_else(|| panic!("the key {} has no note in keys::notes::NOTES", k.name));
     let _ = writeln!(
         out,
         "| `{}` | {} | {} | {} | {} | {} | {set_in} | {} | {} |",
@@ -230,9 +235,9 @@ fn row(out: &mut String, k: &Key) {
         kind(k),
         default(k),
         bound(k),
-        reader,
+        note.reader,
         k.what_line(),
-        cite
+        note.cite
     );
 }
 

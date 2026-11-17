@@ -2009,6 +2009,26 @@ class Make(Case):
         tests = subprocess.run(sysroot, env=self.s.env(), capture_output=True, text=True, check=True).stdout
         self.assertEqual(tests, callers)
 
+    def test_check_paths_fails_on_a_registry_source_path(self):
+        # The minspec builds shorten the cargo registry's source paths, and
+        # check-paths fails a binary that still holds one, as one built with
+        # RUSTFLAGS set in the environment does. A binary without such a path
+        # passes.
+        for name, text, fails in (("long", "x/home/u/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.14.4/src/sys.rs\0x", True),
+                                  ("short", "x\0calloop-0.14.4/src/sys.rs\0/cargo/git/checkouts/unicode-bidi\0x", False)):
+            with self.subTest(binary=name):
+                binary = os.path.join(self.s.tmp, name)
+                write(binary, text, mode=0o644)
+                p = subprocess.run(["make", "--no-print-directory", "-C", ROOT,
+                                    "--eval", f"check-paths-probe: ; @$(call check-paths,{binary})", "check-paths-probe"],
+                                   env=self.s.env(), capture_output=True, text=True, timeout=WAIT_BOUND)
+                if fails:
+                    self.assertNotEqual(p.returncode, 0, p.stdout + p.stderr)
+                    self.assertIn(f"{binary} holds the path of a crate's source in the cargo registry", p.stderr)
+                else:
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    self.assertEqual(p.stderr, "")
+
     def make(self, *args, **env):
         # The review targets build the helper unless one is named; these
         # tests name the stand-in's, as they name the binary.
