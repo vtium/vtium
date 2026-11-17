@@ -1,0 +1,27 @@
+# terminus: Terminus, a bitmap font drawn for reading on a console, from
+# kbd's ter-v16n, its 8x16 strike with the Unicode characters that Terminus
+# holds. The font draws at its own 8x16 cell, scaled by whole factors on a
+# larger display.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: Terminus is under the SIL OFL 1.1, with the Reserved Font Name
+# "Terminus Font". The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the console fonts category.
+
+name=terminus
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# Terminus 4.49.1's 8x16 strike, as kbd installs it.
+source=kbd:ter-v16n
+version=4.49.1
+url=https://sourceforge.net/projects/terminus-font/files/terminus-font-4.49/
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

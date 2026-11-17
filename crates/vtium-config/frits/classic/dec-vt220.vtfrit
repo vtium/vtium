@@ -1,0 +1,27 @@
+# dec-vt220: the DEC VT220's character set, as Glass TTY VT220 re-creates
+# it, with the glow of the terminal's glass. The font is drawn for 20
+# pixels, 15 points at 96 DPI, which the set states as its starting size.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: Glass TTY VT220 is under the Unlicense. The layers name their
+# own licenses.
+#
+# References:
+# - ADR-1204 D3: the classic hardware fonts category.
+
+name=dec-vt220
+size=15
+license=Unlicense AND OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# svofski/glasstty's Glass_TTY_VT220.ttf, version 1.3.
+source=font:Glass TTY VT220
+version=1.3
+url=https://github.com/svofski/glasstty
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

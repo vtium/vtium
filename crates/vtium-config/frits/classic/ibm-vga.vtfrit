@@ -1,0 +1,30 @@
+# ibm-vga: the IBM VGA's 9x16 text mode font, as Px437 IBM VGA 9x16
+# re-creates it, from VileR's Ultimate Oldschool PC Font Pack. The font is
+# an outline whose shapes are the VGA's pixels, so it draws sharp at its own
+# 9x16 cell, which the set states.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: Px437 IBM VGA 9x16 is under CC-BY-SA-4.0. Attribution, which the
+# license asks for: the Ultimate Oldschool PC Font Pack by VileR
+# (https://int10h.org/oldschool-pc-fonts/). The layers name their own
+# licenses.
+#
+# References:
+# - ADR-1204 D3: the classic hardware fonts category.
+
+name=ibm-vga
+cell=9x16
+license=CC-BY-SA-4.0 AND OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# The Ultimate Oldschool PC Font Pack 2.2, Px437_IBM_VGA_9x16.ttf.
+source=font:Px437 IBM VGA 9x16
+version=2.2
+url=https://int10h.org/oldschool-pc-fonts/fontlist/
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

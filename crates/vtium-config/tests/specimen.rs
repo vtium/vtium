@@ -107,7 +107,7 @@ fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit()
     let frits = Path::new(env!("CARGO_MANIFEST_DIR")).join("frits");
     let measure = vtium_config::tui::measurer(frits.clone(), helper());
     let paint = vtium_config::tui::painter(frits, helper(), "C".to_owned());
-    for font in ["unifont", "unscii-8", "minspec-16"] {
+    for font in ["unifont", "unscii-8", "unifont-icons"] {
         let (cell, face_height) = measure(font, 16).unwrap_or_else(|e| panic!("{font}: {e}"));
         let display = (640, 480);
         let grid = ((640 / cell.width) as usize, (480 / cell.height) as usize);

@@ -1,0 +1,27 @@
+# dejavu-sans-mono: DejaVu Sans Mono, the monospaced member of the DejaVu
+# family, derived from Bitstream Vera. The font draws the text and sets the
+# character cell. The set starts at 12 points, 16 pixels at 96 DPI.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: DejaVu's changes are in the public domain, and the glyphs it
+# takes from Bitstream Vera are under the Bitstream Vera License. The layers
+# name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the code-friendly fonts category.
+
+name=dejavu-sans-mono
+size=12
+license=Bitstream-Vera AND OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+source=font:DejaVu Sans Mono
+version=2.37
+url=https://github.com/dejavu-fonts/dejavu-fonts/releases/tag/version_2_37
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

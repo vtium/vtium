@@ -857,7 +857,7 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                 }
                 InkFonts::Shipped(frit) => {
                     crate::fonts::check_shipped(&fetched)?;
-                    (frit.name, frit.text.to_owned(), fetched.as_path())
+                    (frit.name, frit.spliced(), fetched.as_path())
                 }
                 InkFonts::Bitmap { smooth } => {
                     crate::fonts::check(&fetched)?;

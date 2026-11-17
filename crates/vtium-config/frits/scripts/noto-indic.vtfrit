@@ -1,0 +1,37 @@
+# noto-indic: a font set for Devanagari and the other Indic scripts. Noto
+# Sans Mono draws Latin text and sets the character cell, and one Noto font
+# for each script draws that script at Noto Sans Mono's size.
+#
+# The set adds Nerd Fonts' icons and color emoji after the script, and
+# GNU Unifont last, which draws every other character. vtium ships this
+# font set, never the fonts. The font helper leaves out a font that the
+# machine lacks, and the next source that holds a character draws it.
+#
+# Indic scripts stack signs above and below each letter: vowel signs
+# (matras), the reph over a cluster, and the lower half of a conjunct under
+# it. Kannada's and Telugu's conjuncts reach furthest below the line. Line
+# spacing of 40 adds a fifth of the text's height above each row and a
+# fifth below it, so the signs of one row stay clear of the row above and
+# the row below.
+#
+# Licenses: Noto Sans Mono and the script's Noto fonts are under the SIL OFL
+# 1.1. The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the scripts and regions category.
+# - ADR-1302 D13: the line spacing.
+
+name=noto-indic
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# Latin text, setting the cell at each size.
+source=font:Noto Sans Mono
+version=2.014
+url=https://github.com/notofonts/latin-greek-cyrillic/releases/tag/NotoSansMono-v2.014
+
+layer=indic
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont
+
+line-spacing=40

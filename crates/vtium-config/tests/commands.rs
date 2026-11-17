@@ -990,18 +990,21 @@ fn a_helper_that_fails_before_the_requests_are_written_gives_its_own_reason() {
     }
 }
 
-/// A helper that never answers, or answers one frit and then stalls,
+/// A helper that never answers, or answers the first frit and then stalls,
 /// marks no frit as drawing nothing: the answers that came are kept, and
-/// each frit still unanswered after the helper's wait is unknown.
+/// each frit still unanswered after the helper's wait is unknown. Each
+/// frit is asked of a helper of its own, so the stalling helper answers
+/// its first start and stalls from its second.
 #[test]
 fn fonts_keeps_the_answers_that_came_and_marks_the_rest_unknown() {
     let f = fixture("fonts-stalled", None);
     for (name, script, first) in [
         ("silent", "exec sleep 30", "spare\treads\tunknown: "),
         (
-            // one sources answer, kind 11 with no payload, then nothing
+            // one sources answer, kind 11 with no payload, at its first
+            // start, then nothing at the next
             "one-then-stalls",
-            "printf '\\013\\000\\000\\000\\000\\000\\000\\000'\nexec sleep 30",
+            "[ -e \"$0.ran\" ] && exec sleep 30\n: > \"$0.ran\"\nprintf '\\013\\000\\000\\000\\000\\000\\000\\000'\nexec sleep 30",
             "spare\treads\t\n",
         ),
     ] {

@@ -1,0 +1,32 @@
+# unscii-icons: Unscii-8 at 8x8 cells for the small panels of the minspec
+# build, with a chosen list of Nerd Fonts' icons and color emoji. Unscii-8
+# draws the text, from a BDF file, and its shapes follow the IBM PC's code
+# page 437 font. The two small layers add the icons that shell prompts and
+# file listers draw and the emoji that terminals show most.
+#
+# Unscii-8 is published as a .hex file, which the font helper does not
+# read, so the source names a BDF file converted from it. When that file is
+# missing, vtium's built-in font draws the text in the same 8x8 cell. GNU
+# Unifont, the last layer, holds 8x16 glyphs, which do not fit an 8x8 cell,
+# so the built-in font draws every character that the sources before it
+# lack. vtium ships this font set, never the fonts.
+#
+# Licenses: Unscii-8 is in the public domain. The layers name their own
+# licenses.
+#
+# References:
+# - ADR-1204 D3: the small panels category.
+# - ADR-1204 D8: the BDF file converted from Unscii-8's .hex file.
+
+name=unscii-icons
+cell=8x8
+license=OFL-1.1 AND MIT
+
+# The text, Unscii-8 2.1 converted to BDF.
+source=bdf:/usr/share/fonts/vtium/unscii-8.bdf
+version=2.1
+url=http://viznut.fi/unscii/
+
+layer=nerd-symbols-small
+layer=noto-emoji-small
+layer=unifont

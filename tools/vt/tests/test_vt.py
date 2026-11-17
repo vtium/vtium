@@ -3783,9 +3783,15 @@ class Package(Case):
     # Every file make install stages, by its path under DESTDIR with
     # PREFIX=/usr, with no FEATURES and the default FRITS.
     STAGED = sorted([
-        "etc/vtium/fonts/desktop.vtfrit",
-        "etc/vtium/fonts/minspec-16.vtfrit",
-        "etc/vtium/fonts/minspec-8.vtfrit",
+        "etc/vtium/fonts/code/jetbrains-mono.vtfrit",
+        "etc/vtium/fonts/console/terminus.vtfrit",
+        "etc/vtium/fonts/layers/nerd-symbols-small.vtlayer",
+        "etc/vtium/fonts/layers/nerd-symbols.vtlayer",
+        "etc/vtium/fonts/layers/noto-emoji-small.vtlayer",
+        "etc/vtium/fonts/layers/noto-emoji.vtlayer",
+        "etc/vtium/fonts/layers/unifont.vtlayer",
+        "etc/vtium/fonts/small/unifont-icons.vtfrit",
+        "etc/vtium/fonts/small/unscii-icons.vtfrit",
         "etc/vtium/vtium.conf.example",
         "usr/bin/vticlip",
         "usr/bin/vtium",
@@ -3810,9 +3816,15 @@ class Package(Case):
 
     # Where each staged file that vtium's tree holds as it is comes from.
     SOURCES = {
-        "etc/vtium/fonts/desktop.vtfrit": "tools/specimens/frits/desktop.vtfrit",
-        "etc/vtium/fonts/minspec-16.vtfrit": "crates/vtium-config/frits/minspec-16.vtfrit",
-        "etc/vtium/fonts/minspec-8.vtfrit": "crates/vtium-config/frits/minspec-8.vtfrit",
+        "etc/vtium/fonts/console/terminus.vtfrit": "crates/vtium-config/frits/console/terminus.vtfrit",
+        "etc/vtium/fonts/code/jetbrains-mono.vtfrit": "crates/vtium-config/frits/code/jetbrains-mono.vtfrit",
+        "etc/vtium/fonts/small/unifont-icons.vtfrit": "crates/vtium-config/frits/small/unifont-icons.vtfrit",
+        "etc/vtium/fonts/small/unscii-icons.vtfrit": "crates/vtium-config/frits/small/unscii-icons.vtfrit",
+        "etc/vtium/fonts/layers/nerd-symbols.vtlayer": "crates/vtium-config/frits/layers/nerd-symbols.vtlayer",
+        "etc/vtium/fonts/layers/nerd-symbols-small.vtlayer": "crates/vtium-config/frits/layers/nerd-symbols-small.vtlayer",
+        "etc/vtium/fonts/layers/noto-emoji.vtlayer": "crates/vtium-config/frits/layers/noto-emoji.vtlayer",
+        "etc/vtium/fonts/layers/noto-emoji-small.vtlayer": "crates/vtium-config/frits/layers/noto-emoji-small.vtlayer",
+        "etc/vtium/fonts/layers/unifont.vtlayer": "crates/vtium-config/frits/layers/unifont.vtlayer",
         "usr/bin/vtium-gallery": "tools/gallery/gallery",
         "usr/share/licenses/vtium/COPYING": "COPYING",
         "usr/share/licenses/vtium/LICENSE": "LICENSE",
@@ -4019,19 +4031,20 @@ class Package(Case):
             f"-p vtium-config -p vtium-clipboard -p vtium-image-helper --target-dir {self.build}"])
 
     def test_a_minspec_install_stages_the_frits_it_names_and_no_gallery(self):
-        # ADR-1500 D8: a minspec package ships the two minspec frits alone.
+        # ADR-1204 D9: a minspec package ships terminus and the small panels'
+        # sets, with the layers.
         self.built("/usr/bin/vtium-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
-                      "FRITS=minspec-16 minspec-8", "HWACCEL=off", "DISPLAY_BUFFERS=2")
+                      "FRITS=terminus unifont-icons unscii-icons", "HWACCEL=off", "DISPLAY_BUFFERS=2")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.staged(), [f for f in self.STAGED if f != "etc/vtium/fonts/desktop.vtfrit"])
+        self.assertEqual(self.staged(), [f for f in self.STAGED if f != "etc/vtium/fonts/code/jetbrains-mono.vtfrit"])
         self.assertEqual([c.split(" rustc ")[0].split(" build ")[0] for c in self.s.calls_of("cargo")], [
             "VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2",
             "VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2"])
 
     def test_install_refuses_a_frit_vtium_does_not_hold_and_a_setting_out_of_its_range(self):
         self.built("/usr/bin/vtium-config")
-        for arg, why in (("FRITS=minspec-16 absent", "no frit absent in"),
+        for arg, why in (("FRITS=unifont-icons absent", "no frit absent in"),
                          ("HWACCEL=yes", "HWACCEL is on or off"),
                          ("HWACCEL=on off", "HWACCEL is on or off"),
                          ("DISPLAY_BUFFERS=4", "DISPLAY_BUFFERS is 1, 2 or 3")):
@@ -4039,7 +4052,7 @@ class Package(Case):
             self.assertNotEqual(p.returncode, 0, arg)
             self.assertIn(why, p.stderr, arg)
         for target in ("install-tree", "install-build"):
-            p = self.make(target, f"DESTDIR={self.dest}", f"INSTALL_TARGET_DIR={self.build}", "FRITS=minspec-16 absent")
+            p = self.make(target, f"DESTDIR={self.dest}", f"INSTALL_TARGET_DIR={self.build}", "FRITS=unifont-icons absent")
             self.assertNotEqual(p.returncode, 0, target)
             self.assertIn("no frit absent in", p.stderr, target)
         # Every target that builds checks the settings, the tier 3 runs that
@@ -4175,23 +4188,22 @@ class Package(Case):
         self.assertIn("install-terminfo: no", p.stderr)
         self.assertEqual(self.staged(), [])
 
-    # ADR-1500 D8: vtium-fonts ships the frits for scripts with marks and the
-    # four CJK frits, one for each region, beside the fonts they name, and
+    # ADR-1204 D9: vtium-fonts ships the whole catalog beside the fonts it
+    # names, each set in its category folder and the layers in layers/, and
     # make install-fonts stages them for its recipe.
-    SCRIPT_FRITS = ("arabic", "hebrew", "indic", "thai-lao", "vietnamese",
-                    "cjk-sc", "cjk-tc", "cjk-jp", "cjk-kr")
-
-    def test_install_fonts_stages_the_script_frits_alone(self):
+    def test_install_fonts_stages_the_catalog_alone(self):
         p = self.make("install-fonts", f"DESTDIR={self.dest}", "PREFIX=/usr")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.staged(), sorted("etc/vtium/fonts/%s.vtfrit" % n for n in self.SCRIPT_FRITS))
-        for n in self.SCRIPT_FRITS:
-            self.assertEqual(read(os.path.join(self.dest, "etc/vtium/fonts/%s.vtfrit" % n)),
-                             read(os.path.join(ROOT, "tools/specimens/frits/%s.vtfrit" % n)), n)
+        catalog = os.path.join(ROOT, "crates/vtium-config/frits")
+        files = sorted(os.path.join(d, f) for d in os.listdir(catalog) for f in os.listdir(os.path.join(catalog, d)))
+        self.assertEqual(len(files), 50)
+        self.assertEqual(self.staged(), ["etc/vtium/fonts/" + f for f in files])
+        for f in files:
+            self.assertEqual(read(os.path.join(self.dest, "etc/vtium/fonts", f)), read(os.path.join(catalog, f)), f)
         self.assertEqual(self.s.calls_of("cargo"), [])
         # A frit vtium does not hold stops it before it stages anything.
         shutil.rmtree(self.dest)
-        p = self.make("install-fonts", f"DESTDIR={self.dest}", "FONTS_FRITS=arabic absent")
+        p = self.make("install-fonts", f"DESTDIR={self.dest}", "FONTS_FRITS=noto-arabic absent")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("no frit absent in", p.stderr)
         self.assertEqual(self.staged(), [])

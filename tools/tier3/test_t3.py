@@ -3607,9 +3607,14 @@ class DevicesTest(unittest.TestCase):
                                cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
             return r.stdout.splitlines()
         lines = make_n()
-        self.assertIn("install -Dm644 -t /D/etc/vtium/fonts tools/specimens/frits/desktop.vtfrit "
-                      "crates/vtium-config/frits/minspec-16.vtfrit "
-                      "crates/vtium-config/frits/minspec-8.vtfrit", lines)
+        frits = "crates/vtium-config/frits"
+        self.assertIn(f"install -Dm644 -t /D/etc/vtium/fonts/console {frits}/console/terminus.vtfrit && "
+                      f"install -Dm644 -t /D/etc/vtium/fonts/code {frits}/code/jetbrains-mono.vtfrit && "
+                      f"install -Dm644 -t /D/etc/vtium/fonts/small {frits}/small/unifont-icons.vtfrit "
+                      f"{frits}/small/unscii-icons.vtfrit && "
+                      f"install -Dm644 -t /D/etc/vtium/fonts/layers {frits}/layers/nerd-symbols.vtlayer "
+                      f"{frits}/layers/nerd-symbols-small.vtlayer {frits}/layers/noto-emoji.vtlayer "
+                      f"{frits}/layers/noto-emoji-small.vtlayer {frits}/layers/unifont.vtlayer", lines)
         self.assertFalse([l for l in lines if "heads.conf" in l], lines)
         self.assertIn("install -Dm644 crates/vtium/install/vtium.conf.example "
                       "/D/etc/vtium/vtium.conf.example", lines)

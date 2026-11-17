@@ -1,0 +1,26 @@
+# source-code-pro: Source Code Pro, Adobe's monospaced font for code. The
+# font draws the text and sets the character cell. The set starts at 12
+# points, 16 pixels at 96 DPI.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: Source Code Pro is under the SIL OFL 1.1. The layers name their
+# own licenses.
+#
+# References:
+# - ADR-1204 D3: the code-friendly fonts category.
+
+name=source-code-pro
+size=12
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+source=font:Source Code Pro
+version=2.042
+url=https://github.com/adobe-fonts/source-code-pro/releases/tag/2.042R-u%2F1.062R-i%2F1.026R-vf
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

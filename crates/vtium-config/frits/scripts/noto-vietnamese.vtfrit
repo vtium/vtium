@@ -1,9 +1,12 @@
-# vietnamese: a font set for Vietnamese (vtium/vtium#204). Noto Sans Mono
-# draws the text and sets the character cell. It holds every precomposed
-# Vietnamese letter, such as ấ (U+1EA5) and ộ (U+1ED9), so no letter falls
-# back to another font. vtium ships this font set, never the font. The
-# font helper leaves out a font that the machine lacks, and then the
-# built-in font draws the text.
+# noto-vietnamese: a font set for Vietnamese. Noto Sans Mono draws the text
+# and sets the character cell. It holds every precomposed Vietnamese
+# letter, such as ấ (U+1EA5) and ộ (U+1ED9), so no letter falls back to
+# another font, and the set needs no script layer.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this
+# font set, never the fonts. The font helper leaves out a font that the
+# machine lacks, and the next source that holds a character draws it.
 #
 # Vietnamese writes Latin letters with two marks stacked on one letter: a
 # vowel's own mark, such as the circumflex, and a tone mark over or under
@@ -12,17 +15,23 @@
 # an eighth below it, so a capital's tone mark stays clear of the
 # descenders of the row above.
 #
-# Licence, as the font's documentation gives it: SIL OFL 1.1.
+# Licenses: Noto Sans Mono is under the SIL OFL 1.1. The layers name their
+# own licenses.
+#
+# References:
+# - ADR-1204 D3: the scripts and regions category.
+# - ADR-1302 D13: the line spacing.
 
-name=vietnamese
-license=OFL-1.1
+name=noto-vietnamese
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
 
 # Every character of Noto Sans Mono, in four sets. The Latin letters and
 # the combining marks may use the rows that line spacing adds. Box drawing
 # and the other characters keep their defaults: box drawing stretches to
 # the whole cell, and the rest keeps the font's size.
 source=font:Noto Sans Mono
-# Arch's noto-fonts installs it.
+version=2.014
+url=https://github.com/notofonts/latin-greek-cyrillic/releases/tag/NotoSansMono-v2.014
 # Latin, Latin-1, Latin Extended-A and B, IPA, spacing modifiers and the
 # combining marks.
 cover=U+0000-U+036F
@@ -35,5 +44,9 @@ fit=room
 # Additional, and everything after it.
 cover=U+0370-U+1DFF
 cover=U+1F00-U+10FFFF
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont
 
 line-spacing=25

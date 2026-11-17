@@ -734,6 +734,10 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         };
         let bytes = match name.strip_prefix("fonts/") {
             Some(file) => {
+                // a set of the catalog's name is never installed beside it
+                if let (Ok(frits), Some(stem)) = (&targets.frits, file.strip_suffix(".vtfrit")) {
+                    crate::switch::unheld(frits, stem)?;
+                }
                 let fonts = rustix::fs::openat(
                     &draft,
                     "fonts",
@@ -1150,6 +1154,22 @@ mod tests {
             "font-size=12\n"
         );
         assert!(entries_of(&drafts).is_empty(), "{:?}", entries_of(&drafts));
+        // a set named as a set of the catalog's category folders is not
+        // installed, because a name stays unique across every folder
+        // (ADR-1204 D9)
+        let console = fonts.join("console");
+        std::fs::create_dir(&console).unwrap();
+        std::fs::write(console.join("mine.vtfrit"), "source=builtin:unifont\n").unwrap();
+        let refused = install_under(
+            scratch(),
+            &plan("source=builtin:unifont\n", "font-size=13\n"),
+            &targets("/bin/true"),
+            &mut out,
+        );
+        let why = refused.unwrap_err();
+        assert!(why.contains("already installed as"), "{why}");
+        assert!(!fonts.join("mine.vtfrit").exists());
+        std::fs::remove_dir_all(&console).unwrap();
         // a change every check takes lands in the targets
         let written = install_under(
             scratch(),

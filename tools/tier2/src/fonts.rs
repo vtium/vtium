@@ -217,14 +217,57 @@ pub struct ShippedFrit {
     pub text: &'static str,
 }
 
-/// The font set `name`, read from `tools/specimens/frits` as it ships.
+/// The catalog's script set `name`, read from the `scripts/` category
+/// folder as vtium-config ships it.
 macro_rules! shipped {
     ($name:literal) => {
         ShippedFrit {
             name: $name,
-            text: include_str!(concat!("../../specimens/frits/", $name, ".vtfrit")),
+            text: include_str!(concat!(
+                "../../../crates/vtium-config/frits/scripts/",
+                $name,
+                ".vtfrit"
+            )),
         }
     };
+}
+
+/// The text of the catalog's script layer `name`, as vtium-config ships
+/// it. The layers every set shares after its script, Nerd Fonts' icons,
+/// color emoji and GNU Unifont, are left out: tier 2 pins none of their
+/// fonts, and the `frit-` screens judge the script sets' own fonts.
+fn script_layer(name: &str) -> Option<&'static str> {
+    macro_rules! layer {
+        ($name:literal) => {
+            include_str!(concat!(
+                "../../../crates/vtium-config/frits/layers/",
+                $name,
+                ".vtlayer"
+            ))
+        };
+    }
+    Some(match name {
+        "arabic" => layer!("arabic"),
+        "hebrew" => layer!("hebrew"),
+        "indic" => layer!("indic"),
+        "thai-lao" => layer!("thai-lao"),
+        "cjk-sc" => layer!("cjk-sc"),
+        "cjk-tc" => layer!("cjk-tc"),
+        "cjk-jp" => layer!("cjk-jp"),
+        "cjk-kr" => layer!("cjk-kr"),
+        _ => return None,
+    })
+}
+
+impl ShippedFrit {
+    /// The set's text with its script layer in place, as the console hands
+    /// a set to the helper.
+    pub fn spliced(&self) -> String {
+        vtium_font::set::layer::expand(self.text, &mut |name| {
+            Ok(script_layer(name).map(str::to_owned))
+        })
+        .text
+    }
 }
 
 /// The shipped font sets the `frit-` screens draw, in their screens' order.
@@ -232,14 +275,14 @@ macro_rules! shipped {
 /// Simplified Chinese ones that the `cjk` and `wide-deco` screens draw have
 /// a screen each.
 pub const SHIPPED_FRITS: [ShippedFrit; 8] = [
-    shipped!("arabic"),
-    shipped!("hebrew"),
-    shipped!("indic"),
-    shipped!("thai-lao"),
-    shipped!("vietnamese"),
-    shipped!("cjk-jp"),
-    shipped!("cjk-tc"),
-    shipped!("cjk-kr"),
+    shipped!("noto-arabic"),
+    shipped!("noto-hebrew"),
+    shipped!("noto-indic"),
+    shipped!("noto-thai-lao"),
+    shipped!("noto-vietnamese"),
+    shipped!("noto-cjk-jp"),
+    shipped!("noto-cjk-tc"),
+    shipped!("noto-cjk-kr"),
 ];
 
 /// Every font the shipped font sets name, each the file of its family in
@@ -1187,8 +1230,13 @@ mod tests {
         use vtium_config::frit::{Frit, Origin};
         let mut named = BTreeSet::new();
         for frit in SHIPPED_FRITS {
-            let parsed =
-                Frit::parse(frit.text.as_bytes(), Path::new(frit.name), frit.name).unwrap();
+            let parsed = Frit::parse_spliced(
+                frit.spliced().as_bytes(),
+                Path::new(frit.name),
+                frit.name,
+                Path::new("layers"),
+            )
+            .unwrap();
             assert_eq!(parsed.name, frit.name);
             for source in parsed.sources {
                 let Origin::Font(family) = source.origin else {

@@ -1,0 +1,60 @@
+# indic: Devanagari and the other Indic scripts, one Noto font for each:
+# Devanagari (Hindi, Marathi, Nepali, Sanskrit), Bengali (Bengali,
+# Assamese), Gurmukhi (Punjabi), Gujarati, Odia, Tamil, Telugu, Kannada,
+# Malayalam and Sinhala. A font set adds this layer after Noto Sans Mono,
+# which holds none of them, and each font draws at Noto Sans Mono's size.
+# A machine needs only the fonts of the scripts it shows, because the font
+# helper leaves out a font that the machine lacks.
+#
+# Indic scripts stack signs above and below each letter: vowel signs
+# (matras), the reph over a cluster, and the lower half of a conjunct under
+# it. Each script's signs may use the rows that the set's line spacing
+# adds.
+#
+# License: every font below is under the SIL OFL 1.1.
+#
+# References:
+# - ADR-1204 D5: the script layers.
+# - ADR-1302 D13: line spacing and fit=.
+
+role=script
+source=font:Noto Sans Devanagari
+version=2.007
+url=https://github.com/notofonts/devanagari/releases/tag/NotoSansDevanagari-v2.007
+fit=room
+source=font:Noto Sans Bengali
+version=3.011
+url=https://github.com/notofonts/bengali/releases/tag/NotoSansBengali-v3.011
+fit=room
+source=font:Noto Sans Gurmukhi
+version=2.004
+url=https://github.com/notofonts/gurmukhi/releases/tag/NotoSansGurmukhi-v2.004
+fit=room
+source=font:Noto Sans Gujarati
+version=2.106
+url=https://github.com/notofonts/gujarati/releases/tag/NotoSansGujarati-v2.106
+fit=room
+source=font:Noto Sans Oriya
+version=2.007
+url=https://github.com/notofonts/oriya/releases/tag/NotoSansOriya-v2.007
+fit=room
+source=font:Noto Sans Tamil
+version=2.004
+url=https://github.com/notofonts/tamil/releases/tag/NotoSansTamil-v2.004
+fit=room
+source=font:Noto Sans Telugu
+version=2.005
+url=https://github.com/notofonts/telugu/releases/tag/NotoSansTelugu-v2.005
+fit=room
+source=font:Noto Sans Kannada
+version=2.006
+url=https://github.com/notofonts/kannada/releases/tag/NotoSansKannada-v2.006
+fit=room
+source=font:Noto Sans Malayalam
+version=2.104
+url=https://github.com/notofonts/malayalam/releases/tag/NotoSansMalayalam-v2.104
+fit=room
+source=font:Noto Sans Sinhala
+version=3.000
+url=https://github.com/notofonts/sinhala/releases/tag/NotoSansSinhala-v3.000
+fit=room

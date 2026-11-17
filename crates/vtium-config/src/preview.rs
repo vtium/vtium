@@ -38,8 +38,15 @@ fn frit_for(paths: &Paths, font: &str) -> Result<FritText, String> {
     }
     if crate::frit::valid_name(font) {
         let frits = paths.frits.as_ref().map_err(Clone::clone)?;
-        if frits.join(format!("{font}.vtfrit")).is_file() {
-            return crate::tui::frit_text(frits, font);
+        if let Some(path) = crate::switch::frit_file(frits, font) {
+            let layers = frits.join(vtium_font::set::layer::DIR);
+            let text = crate::frit::Frit::load_in(&path, &layers)
+                .map_err(|e| e.to_string())?
+                .text;
+            return Ok(FritText {
+                name: font.to_owned(),
+                text,
+            });
         }
     }
     let name = match crate::commands::name_from(font) {
