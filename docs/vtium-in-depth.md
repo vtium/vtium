@@ -54,7 +54,7 @@ See [the releases](https://github.com/vtium/vtium/releases) for the latest versi
 - vtium runs as root, as getty does, so it can start the system’s login program. By default, it opens the VT, graphics cards, and input devices directly. A build with the `libseat` feature gets them from seatd instead, where seatd runs. In seat mode, such a build gets them from logind. See [Direct mode and seat mode](install.md#direct-mode-and-seat-mode) for details.
 - CPU rendering is the default. Builds with the `gpu` feature can use GPU rendering on heads where `hwaccel` is enabled.
 - vtium is tested with systemd and sysvinit. Other init systems have not been tested. See [systemd, logind and PID 1](systemd.md).
-- Programming ligatures, input methods, and configuration reloads without a restart are not built yet. See [Status](features.md#status) for the full list, with the issue that tracks each one.
+- Input methods and configuration reloads without a restart are not built yet. See [Status](features.md#status) for the full list, with the issue that tracks each one.
 
 ## Requirements
 
