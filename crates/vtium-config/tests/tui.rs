@@ -1448,17 +1448,38 @@ const RIGHT: &[u8] = b"\x1b[C";
 const LEFT: &[u8] = b"\x1b[D";
 const TAB: &[u8] = b"\t";
 
-/// The key line the script `keys` leaves at 80x25, from `view`.
+/// The screen the script `keys` leaves at 80x25, from `view`.
 fn key_line(view: model::View, keys: &[&[u8]]) -> String {
-    let (screen, _) = reach_from(view, 80, 25, keys);
-    screen.lines().last().unwrap_or_default().trim().to_owned()
+    reach_from(view, 80, 25, keys).0
 }
 
-/// Whether `line` is the Flow view's key line, which shows the keys that
-/// fit and starts with the first.
-fn is_flow_keys(line: &str) -> bool {
-    let first = words::KEYS_FLOW.split("  ").next().unwrap_or_default();
-    line.starts_with(first) && line.ends_with("q quit")
+/// The key line that the contract gives the node `id` of the interface
+/// tree.
+fn keys_of(id: &str) -> &'static str {
+    vtium_config::tui::contract::key_line(id).unwrap_or_else(|| panic!("no key line for {id}"))
+}
+
+/// The key line at the foot of `screen`: as many of its last rows as the
+/// key line `line` takes at 80 columns, each key kept whole on a row,
+/// joined as a key line. It equals `line` when the screen shows `line`.
+fn foot(screen: &str, line: &str) -> String {
+    let mut rows: Vec<String> = Vec::new();
+    for item in line.split("  ") {
+        match rows.last_mut() {
+            Some(row) if row.chars().count() + 2 + item.chars().count() <= 78 => {
+                row.push_str("  ");
+                row.push_str(item);
+            }
+            _ => rows.push(item.to_owned()),
+        }
+    }
+    let shown: Vec<&str> = screen.lines().map(str::trim).collect();
+    shown[shown.len().saturating_sub(rows.len())..].join("  ")
+}
+
+/// Whether `screen` shows the Flow view's key line.
+fn is_flow_keys(screen: &str) -> bool {
+    foot(screen, keys_of("flow")) == keys_of("flow")
 }
 
 use vtium_config::tui::words;
@@ -1469,11 +1490,19 @@ fn tab_and_shift_tab_step_the_views_from_every_column_of_the_flow_through_the_lo
         let mut keys: Vec<&[u8]> = vec![RIGHT; column];
         keys.push(TAB);
         let line = key_line(model::View::Flow, &keys);
-        assert_eq!(line, words::KEYS_LOOKS, "Tab from column {column}");
+        assert_eq!(
+            foot(&line, words::KEYS_LOOKS),
+            words::KEYS_LOOKS,
+            "Tab from column {column}"
+        );
         keys.pop();
         keys.push(BACKTAB);
         let line = key_line(model::View::Flow, &keys);
-        assert_eq!(line, words::KEYS_HELP, "Shift-Tab from column {column}");
+        assert_eq!(
+            foot(&line, keys_of("help")),
+            keys_of("help"),
+            "Shift-Tab from column {column}"
+        );
     }
 }
 
@@ -1484,11 +1513,11 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
         Looks => words::KEYS_LOOKS,
         Fonts => words::KEYS_FONTS_LIVE,
         Settings => words::KEYS_SETTINGS,
-        _ => words::KEYS_HELP,
+        _ => keys_of("help"),
     };
     let shown = |line: &str, view| match view {
         Flow => is_flow_keys(line),
-        _ => line == own(view),
+        _ => foot(line, own(view)) == own(view),
     };
     for (view, next, before) in [
         (Looks, Fonts, Flow),
@@ -1502,7 +1531,7 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
         assert!(shown(&line, before), "Shift-Tab from {view:?}: {line}");
         let arrows = [LEFT, LEFT, RIGHT, RIGHT, RIGHT, UP, DOWN, DOWN];
         let line = key_line(view, &arrows);
-        assert_eq!(line, own(view), "the arrows on {view:?}");
+        assert_eq!(foot(&line, own(view)), own(view), "the arrows on {view:?}");
     }
 }
 
@@ -1516,21 +1545,30 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("Install the draft?"), "{screen}");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_CONFIRM, "{screen}");
+    assert_eq!(
+        foot(&screen, keys_of("any.question.confirm")),
+        keys_of("any.question.confirm"),
+        "{screen}"
+    );
     let mut c = console().keys(&[&ask[..], &[TAB]].concat());
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_CONFIRM, "{screen}");
+    assert_eq!(
+        foot(&screen, keys_of("any.question.confirm")),
+        keys_of("any.question.confirm"),
+        "{screen}"
+    );
     let mut c = console().keys(&[&ask[..], &[TAB, b"\x1b"]].concat());
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_DONE), "{screen}");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_LOOKS, "{screen}");
+    assert_eq!(
+        foot(&screen, words::KEYS_LOOKS),
+        words::KEYS_LOOKS,
+        "{screen}"
+    );
     assert!(d.plans.is_empty());
     // the question before leaving with a frit waiting: Tab leaves it
     // open, and Esc goes back
@@ -1538,21 +1576,30 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_LEAVE, "{screen}");
+    assert_eq!(
+        foot(&screen, keys_of("any.question.leave")),
+        keys_of("any.question.leave"),
+        "{screen}"
+    );
     let mut c = console().keys(&[UP, b"r", b"q", TAB]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_LEAVE, "{screen}");
+    assert_eq!(
+        foot(&screen, keys_of("any.question.leave")),
+        keys_of("any.question.leave"),
+        "{screen}"
+    );
     let mut c = console().keys(&[UP, b"r", b"q", TAB, b"\x1b"]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_LEFT), "{screen}");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_FONTS_LIVE, "{screen}");
+    assert_eq!(
+        foot(&screen, words::KEYS_FONTS_LIVE),
+        words::KEYS_FONTS_LIVE,
+        "{screen}"
+    );
 }
 
 #[test]
@@ -1571,12 +1618,15 @@ fn tab_does_nothing_while_a_value_is_typed_in_settings() {
 fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_fonts() {
     for key in [TAB, BACKTAB] {
         let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"n", b"abc", key]);
-        let line = screen.lines().last().unwrap_or_default().trim();
-        assert_eq!(line, words::KEYS_NEW, "{key:?}: {screen}");
+        assert_eq!(
+            foot(&screen, words::KEYS_NEW),
+            words::KEYS_NEW,
+            "{key:?}: {screen}"
+        );
         assert!(screen.contains("abc"), "{screen}");
     }
     let line = key_line(model::View::Fonts, &[b"n", b"abc", TAB, b"\x1b"]);
-    assert_eq!(line, words::KEYS_FONTS_LIVE);
+    assert_eq!(foot(&line, words::KEYS_FONTS_LIVE), words::KEYS_FONTS_LIVE);
 }
 
 #[test]
@@ -2546,7 +2596,7 @@ fn at_80x25_no_key_or_sentence_is_cut() {
             &[words::CONSOLE_SIZE_CAPTION],
         ),
         (&[b"\t"], words::KEYS_SETTINGS, &[words::SETTINGS_HINT]),
-        (&[b"\t", b"\t"], words::KEYS_HELP, &[]),
+        (&[b"\t", b"\t"], keys_of("help"), &[]),
     ];
     for (keys, key_line, sentences) in views {
         let screen = reach(80, 25, keys);
@@ -2568,7 +2618,7 @@ fn at_80x25_no_key_or_sentence_is_cut() {
             assert!(rows[0].contains(name), "{name}: {:?}", rows[0]);
         }
         // the Help view shows no actions (ADR-1403 D7)
-        if key_line != words::KEYS_HELP {
+        if key_line != keys_of("help") {
             for (_, short) in words::ACTIONS {
                 assert!(rows[0].contains(short), "{short}: {:?}", rows[0]);
             }
@@ -2935,14 +2985,14 @@ mod flow_view {
     }
 
     #[test]
-    fn the_help_view_draws_the_keys_from_the_catalog_and_about_from_its_source() {
+    fn the_help_view_draws_the_keys_from_the_contract_and_about_from_its_source() {
         let mut a = app(80, 25);
         a.flow_at = Item::Display(0);
         press(&mut a, Key::BackTab);
         assert_eq!(a.view, View::Help);
         let joined = |a: &App| text(a).lines().map(str::trim).collect::<Vec<_>>().join(" ");
         assert!(
-            joined(&a).contains("Flow shows how the console is set up"),
+            joined(&a).contains("The Flow view: CONFIGURATION, NEW PATH and PARTS"),
             "{}",
             text(&a)
         );
@@ -3508,7 +3558,11 @@ mod draft_flow {
             "{}",
             ran.screen()
         );
-        assert!(ran.screen().contains(words::KEYS_QUIT), "{}", ran.screen());
+        assert!(
+            ran.screen().contains(keys_of("any.question.quit")),
+            "{}",
+            ran.screen()
+        );
         // n quits without the change, and y saves it and quits
         let b = bench("quit-n");
         run(&b, &[&CHANGE[..], &[b"q", b"n"]].concat());
@@ -3537,8 +3591,12 @@ mod draft_flow {
         run(&b, &[&CHANGE[..], &[b"i", b"y"]].concat());
         for key in [TAB, BACKTAB] {
             let ran = run(&b, &[b"o", key]);
-            let line = ran.screen().lines().last().unwrap_or_default().trim();
-            assert_eq!(line, words::KEYS_RESTORE, "{key:?}: {}", ran.screen());
+            assert_eq!(
+                foot(ran.screen(), keys_of("flow.restore")),
+                keys_of("flow.restore"),
+                "{key:?}: {}",
+                ran.screen()
+            );
         }
         let ran = run(&b, &[b"o", TAB, BACKTAB, b"\r"]);
         assert!(
@@ -3664,7 +3722,9 @@ mod draft_flow {
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
         assert!(screen.contains("▸   9 display * -> desk"), "{screen}");
-        assert!(screen.contains("Esc back  s save"), "{screen}");
+        assert!(screen.contains("s save"), "{screen}");
+        assert!(screen.contains("i install"), "{screen}");
+        assert!(screen.contains("Esc back"), "{screen}");
         assert!(screen.contains("q quit"), "{screen}");
         // Esc goes back to the flow
         let ran = run(&b, &[b"v", b"j", b"G", b"\x04", ESC]);
@@ -3693,7 +3753,8 @@ mod draft_flow {
         let ran = run_rows(&b, &[b"v"]);
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
-        assert!(screen.contains("s save  i install"), "{screen}");
+        assert!(screen.contains("s save"), "{screen}");
+        assert!(screen.contains("i install"), "{screen}");
         // s says what Save says, and the file stays open
         let ran = run_rows(&b, &[b"v", b"s"]);
         let screen = ran.screen();

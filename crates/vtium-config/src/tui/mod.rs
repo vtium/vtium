@@ -21,6 +21,8 @@
 pub mod canvas;
 pub mod color;
 mod console;
+pub mod contract;
+mod contract_text;
 pub mod desk;
 pub mod edit;
 #[doc(hidden)]

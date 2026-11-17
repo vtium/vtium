@@ -526,13 +526,13 @@ fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
         "1 change is not saved.",
         "y save and quit",
         "n quit without saving",
-        "Esc back",
+        "Esc Ctrl-C cancel",
     ];
     let leave = [
         "Font sets wait to be installed; y and n save 1 change first.",
         "y install and quit",
         "n quit without installing",
-        "Esc back",
+        "Esc Ctrl-C cancel",
     ];
     for (name, keys, said) in [
         ("quit", &["Up", "Enter"][..], quit),

@@ -307,6 +307,56 @@ fn body(app: &App) -> Body {
     }
 }
 
+/// The widest a key column of the Help page grows; keys wider than this
+/// push their meaning onto the rows below.
+const HELP_KEYS_MAX: usize = 16;
+
+/// One node's section of the Help page, from the contract: what the node
+/// is, in bold, then each key that acts there and what it does, the
+/// meaning wrapped under its own column.
+fn help_section(node: &super::contract::Node, cols: usize) -> Vec<Row> {
+    let mut rows = Vec::new();
+    if node.help.is_empty() {
+        return rows;
+    }
+    let bold = Style {
+        bold: true,
+        ..Style::PLAIN
+    };
+    for line in wrap(node.what, cols.saturating_sub(2), usize::MAX) {
+        rows.push(vec![span(format!(" {line}"), bold)]);
+    }
+    let keys_width = node
+        .help
+        .iter()
+        .map(|(keys, _)| keys.chars().count())
+        .filter(|w| *w <= HELP_KEYS_MAX)
+        .max()
+        .unwrap_or(0);
+    let indent = keys_width.saturating_add(5);
+    for (keys, does) in node.help {
+        let lines = wrap(does, cols.saturating_sub(indent).max(1), usize::MAX);
+        let mut lines = lines.into_iter();
+        if keys.chars().count() > keys_width {
+            rows.push(plain(format!("   {keys}")));
+        } else {
+            let first = lines.next().unwrap_or_default();
+            rows.push(vec![
+                span(
+                    format!("   {keys:<keys_width$}  "),
+                    Style::text(palette::GREY),
+                ),
+                span(first, Style::PLAIN),
+            ]);
+        }
+        for line in lines {
+            rows.push(plain(format!("{:indent$}{line}", "")));
+        }
+    }
+    rows.push(plain(""));
+    rows
+}
+
 /// The Help view's rows: on the Help page, what each view does and its
 /// keys, the route card, and the commands, from the catalog the command
 /// line's help draws on; on the About page, what `vtium-config --help
@@ -338,14 +388,21 @@ pub fn help_rows(app: &App) -> Vec<Row> {
         }
         return rows;
     }
-    rows.extend(prose(words::HELP_TABS, cols));
-    rows.push(plain(""));
-    for (name, does, keys) in words::HELP_VIEWS {
+    for node in super::contract::NODES {
+        if node.supported {
+            rows.extend(help_section(node, cols));
+            continue;
+        }
+        // a view whose node is still planned keeps its hand-written words
+        let Some((_, name, does, keys)) = words::HELP_PLANNED.iter().find(|p| p.0 == node.id)
+        else {
+            continue;
+        };
         // the Fonts view's keys in a vtium console, where `s` saves
-        let (does, keys) = if name == words::FONTS && app.text_preview() {
+        let (does, keys) = if *name == words::FONTS && app.text_preview() {
             (words::HELP_FONTS_LIVE, words::KEYS_FONTS_LIVE)
         } else {
-            (does, keys)
+            (*does, *keys)
         };
         let mut first = true;
         for line in wrap(
@@ -615,68 +672,49 @@ fn status(canvas: &mut Canvas, app: &App) {
 /// The most rows the message line wraps to.
 const MESSAGE_ROWS: usize = 3;
 
-/// The keys of the view as it is, with no question asked: those of what
-/// is open in it, else its own.
-fn view_keys(app: &App) -> &'static str {
+/// The hand-written keys of a view whose node of the interface tree is
+/// still planned: Looks, Fonts, the new-frit form and Settings. Their work
+/// rebuilds them and moves their nodes to supported, and the key line then
+/// comes from the contract, as everywhere else.
+fn planned_keys(app: &App) -> &'static str {
     match app.view {
-        View::Flow if app.pager.is_some() => words::KEYS_PAGER,
-        View::Flow if app.restore.is_some() => words::KEYS_RESTORE,
-        View::Flow => words::KEYS_FLOW,
         View::Looks => words::KEYS_LOOKS,
         View::Fonts if app.text_preview() => words::KEYS_FONTS_LIVE,
         View::Fonts => words::KEYS_FONTS,
         View::Settings if app.editing.is_some() => words::KEYS_EDITING,
         View::Settings => words::KEYS_SETTINGS,
-        View::Help => words::KEYS_HELP,
         View::New => words::KEYS_NEW,
+        View::Flow | View::Help => "",
     }
 }
 
 /// Every key the key line lists for the state `app` is in, each key and
-/// what it does two spaces apart: a question's keys on every view, since
-/// the question takes the next key, else the view's.
+/// what it does two spaces apart: the key line that the contract gives
+/// the node of the interface tree the TUI is in.
+///
+/// References:
+/// - ADR-1403 D7, "The contract": the key lines are generated from the
+///   key table and the tree.
 pub fn key_line(app: &App) -> &'static str {
-    match &app.confirm {
-        Some(c) if matches!(c.then, Then::Leave(_)) => words::KEYS_LEAVE,
-        Some(c) if matches!(c.then, Then::Quit(_)) => words::KEYS_QUIT,
-        Some(_) => words::KEYS_CONFIRM,
-        None => view_keys(app),
-    }
+    super::contract::key_line(super::contract::node(app)).unwrap_or_else(|| planned_keys(app))
 }
 
-/// The view's keys in rows of at most the screen's width less its margin,
-/// each key and what it does kept whole on one row.
-fn key_rows(app: &App) -> Vec<String> {
-    let keys = key_line(app);
-    let width = app.cols.saturating_sub(2).max(1);
-    // the Flow view's key line shows the keys that fit on one row, and
-    // always its last, the key that leaves
-    if app.view == View::Flow {
-        let items: Vec<&str> = keys.split("  ").collect();
-        let (last, rest) = items.split_last().unwrap_or((&"", &[]));
-        let mut row = String::new();
-        for item in rest {
-            let len = row
-                .chars()
-                .count()
-                .saturating_add(2)
-                .saturating_add(item.chars().count());
-            if len.saturating_add(2).saturating_add(last.chars().count()) > width {
-                break;
-            }
-            if !row.is_empty() {
-                row.push_str("  ");
-            }
-            row.push_str(item);
-        }
-        if !row.is_empty() {
-            row.push_str("  ");
-        }
-        row.push_str(last);
-        return vec![row];
-    }
+/// The key line in rows of at most the screen's width less its margin,
+/// each key and what it does kept whole on one row. A key line that does
+/// not fit on one row wraps onto the next, and drops no key.
+///
+/// References:
+/// - ADR-1403 D7: every key line shows every key it lists, at 80×25 too.
+pub fn key_rows(app: &App) -> Vec<String> {
+    item_rows(key_line(app), app.cols.saturating_sub(2).max(1))
+}
+
+/// Items two spaces apart, in rows of at most `width` columns, each item
+/// kept whole on one row: an item goes onto the next row rather than
+/// break.
+fn item_rows(items: &str, width: usize) -> Vec<String> {
     let mut rows: Vec<String> = Vec::new();
-    for item in keys.split("  ") {
+    for item in items.split("  ").filter(|i| !i.is_empty()) {
         match rows.last_mut() {
             Some(row)
                 if row
@@ -750,18 +788,17 @@ fn small(canvas: &mut Canvas, app: &App) {
     // since q does nothing under a question
     let question: Vec<String> = match app.confirm.as_ref().map(|c| &c.then) {
         None => Vec::new(),
-        Some(Then::Quit(_)) => wrap(
+        Some(Then::Quit(_)) => item_rows(
             &format!("{}  {}", words::small_question(app.unsaved), key_line(app)),
             cols,
-            usize::MAX,
         ),
         // the leave question's keys fill a row, so what it says goes on
         // the row above them
         Some(Then::Leave(_)) => wrap(&words::small_leave(app.unsaved), cols, usize::MAX)
             .into_iter()
-            .chain(wrap(key_line(app), cols, usize::MAX))
+            .chain(item_rows(key_line(app), cols))
             .collect(),
-        Some(_) => wrap(key_line(app), cols, usize::MAX),
+        Some(_) => item_rows(key_line(app), cols),
     };
     // the keys that stay on the screen however few its rows: the
     // question's, at the top, or the screen's own, at the bottom
