@@ -1,0 +1,48 @@
+## NAME
+vtium.conf - the configuration file of vtium, a terminal for the Linux console
+
+## SYNOPSIS
+`/etc/vtium/vtium.conf`
+
+## DESCRIPTION
+vtium reads `/etc/vtium/vtium.conf` when it starts on a virtual terminal (VT). The file sets vtium's settings, such as its font, its colors and its key bindings. Its sections say which displays and input devices belong to which screen.
+
+vtium reads the file once, when it starts. A change takes effect when vtium starts again, for example when its service restarts. vtium never changes the file.
+
+vtium reads the file only when root owns it. For a vtium that runs as another user, that user may own it instead. Neither the file's group nor other users may be able to write to the file, or to a directory above it. vtium reads none of a file that fails this check, and runs its built-in configuration instead.
+
+Without the file, vtium uses the defaults below and its built-in sections. `/etc/vtium/vtium.conf.example` lists every setting at its default, commented out.
+
+`vtium check-config FILE` checks a file before you install it. `vtium-config` edits a copy of the file and installs the copy. See vtium(8) and vtium-config(1).
+
+## FORMAT
+The file has two parts. Every line above the first section heading is the top level. The top level holds vtium's settings, which every screen uses unless its own section sets them, and the two keys of the sections, `version` and `policy`. The sections start at the first heading in brackets, such as `[look big]`.
+
+A top-level line holds one setting. It is `key=value`, or for a switch, `key` to turn it on and `no-key` to turn it off. A section's line is `key = value`. vtium drops the spaces and tabs around the key and the value.
+
+A `#` starts a comment at the start of a line, or after a space or a tab. A `#` inside a word is part of the value, and so is a `#` that opens a `#rrggbb` color. `\#` after a space is a literal `#`.
+
+vtium reports a top-level key that it does not know, and a value that it cannot use. It clamps a number that is out of range. It ignores a value that it cannot read, and keeps the default. An error in a section never drops a top-level setting. vtium reads at most 65536 bytes of the file, and 8192 bytes of a line.
+
+Each top-level setting is also an option of vtium's command line, which wins over the file. On the command line, a setting is `--key=VALUE` or `--key VALUE`, and a switch is `--key` or `--no-key`.
+
+## SETTINGS
+@SETTINGS@
+
+## SECTIONS
+A look is a font and its size. A head is a screen: one or more displays that show the same consoles, with the input devices that type into them. The rules send each display and each input device to a head. The policy decides what happens to a device that no rule names.
+
+@SECTIONS@
+
+## FILES
+= `/etc/vtium/vtium.conf`
+The configuration file.
+
+= `/etc/vtium/vtium.conf.example`
+Every setting at its default, commented out, and the built-in sections.
+
+= `/etc/vtium/fonts`
+The font sets (frits) that `font-name` names, each in a file `NAME.vtfrit`.
+
+## SEE ALSO
+vtium(8), vtium-config(1)
