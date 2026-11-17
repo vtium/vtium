@@ -40,7 +40,7 @@ v0.1.0-alpha.5 built with `HWACCEL=off`. Its vtium rendered on the CPU until a l
 
 `vtium` and `vtium-git` depend on `libglvnd` and `mesa`. These two packages hold the two libraries that the GPU path loads, `libEGL.so.1` and `libgbm.so.1`. They also depend on `seatd`, which holds `libseat.so`, the library that seat mode links. Installing `seatd` enables no seatd daemon.
 
-No package ships a font, and no package sets `font-name`. vtium renders text in the font that vconsole.conf names, or in its two built-in fonts, unifont and unscii-8, until `font-name` names a frit whose fonts the machine has. `vtium` and `vtium-git` install three frits (font set files): `desktop`, `minspec-16` and `minspec-8`. Each of them names fonts that the distribution packages. A frit leaves out any font that the machine lacks. So a frit with none of its fonts installed renders in the built-in fonts. On Arch, the frits' fonts are in `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`.
+No package ships a font, and no package sets `font-name`. vtium renders text in the font that vconsole.conf names, or in its two built-in fonts, unifont and unscii-8, until `font-name` names a frit whose fonts the machine has. `vtium` and `vtium-git` install four frits (font set files): `terminus`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, with the layers they share. Each frit names the fonts it needs. A frit leaves out any font that the machine lacks, so a frit with none of its fonts installed renders in the built-in fonts. On Arch, most of their fonts are in `kbd`, `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`. `vtium config fonts` names each font that a frit still lacks, and where to get it.
 
 makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key. Import it once from there, then build and install. With `VTIUM_FEATURES` unset, makepkg builds the recipe's default features, as above:
 
@@ -66,7 +66,7 @@ The packages install these files:
 | `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in a build with `images` |
 | `/usr/bin/vtium-gallery` | the image gallery tool, in a build with `images`. It shows PNG images as a grid of thumbnails. |
 | `/etc/vtium/vtium.conf.example` | the example configuration. It lists every key at its default, commented out. Then it lists the heads and rules that vtium runs with when there is no configuration. |
-| `/etc/vtium/fonts/` | the frits `desktop`, `minspec-16` and `minspec-8`. You can choose each one with `vtium config` or with vtium.conf's `font-name`. A frit that nothing names changes nothing. |
+| `/etc/vtium/fonts/` | the frits `terminus`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, and in `layers/` the layers they share. You can choose each one with `vtium config` or with vtium.conf's `font-name`. A frit that nothing names changes nothing. |
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment. They are documentation, and they are never active. |
 | `/usr/share/terminfo/x/xterm-vtium`, `/usr/share/terminfo/v/vtium` | the terminfo entry, under its name and its alias `vtium`, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
@@ -98,7 +98,7 @@ The repository `vtium/vtium-arch` also keeps four minspec recipes: `vtium-minspe
 
 The `vtium` and `vtium-git` recipes in `vtium/vtium-arch` also ship a fourth frit, `terminus`, for the Terminus console font. The packages that the AUR carries today do not have it yet.
 
-From the next publish, `vtium-fonts` also installs five frits for scripts whose marks need room above and below the letters: `arabic`, `hebrew`, `indic`, `thai-lao` and `vietnamese`. It also installs four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters: `cjk-sc`, `cjk-tc`, `cjk-jp` and `cjk-kr`. It then depends on `noto-fonts` and `noto-fonts-cjk` too, which hold every font these frits name. See [Fonts for other scripts](fonts-for-scripts.md) for details.
+From the next publish, `vtium-fonts` also installs five frits for scripts whose marks need room above and below the letters. They are `noto-arabic`, `noto-hebrew`, `noto-indic`, `noto-thai-lao` and `noto-vietnamese`. It also installs four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters: `noto-cjk-sc`, `noto-cjk-tc`, `noto-cjk-jp` and `noto-cjk-kr`. It then depends on `noto-fonts` and `noto-fonts-cjk` too, which hold every font these frits name. See [Fonts for other scripts](fonts-for-scripts.md) for details.
 
 ## From a checkout
 
@@ -121,7 +121,7 @@ vtium is packaged only for Arch so far. [The issue for Fedora, RHEL, Debian and 
 - `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files that the `vtium` package ships.
 - `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry.
 
-`make install` builds vtium with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `desktop`, `minspec-16` and `minspec-8`. `make install-fonts` stages the frits that the `vtium-fonts` package ships. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
+`make install` builds vtium with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `terminus`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, with the layers they use. `make install-fonts` stages the frits that the `vtium-fonts` package ships. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
 
 Some package builds run with no network, as Debian's does. Such a build takes the crates that vtium builds with from the release:
 
