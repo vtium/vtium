@@ -103,6 +103,35 @@ RELR_LINK := -C link-arg=-Wl,-z,pack-relative-relocs
 # - ADR-1200 D19: the minspec binary's size budget.
 ICF_LINK := -C link-arg=-Wl,--icf=all
 
+# The minspec builds also shorten the source paths that rustc writes into
+# the binary. A panic message names the file and line it comes from, so the
+# binary holds the path of each dependency's source file that can panic,
+# such as ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.14.4/src/sys.rs.
+# The first --remap-path-prefix writes the crates.io sources as cargo's own
+# trim-paths option does, from the crate's directory on, as
+# calloop-0.14.4/src/sys.rs. The second writes the rest of the cargo home,
+# such as a git checkout of a dependency, under /cargo. The binary shrinks
+# by about 2.6 KB, which counts against the 4,259,840-byte budget that tier
+# 3 holds the minspec binary to, and its size no longer depends on where
+# the cargo home is. vtium's own sources already appear as paths relative
+# to the workspace, such as crates/vtium/src/main.rs. The flags go to every
+# crate of the build through cargo's build.rustflags, which a RUSTFLAGS in
+# the environment replaces, so check-paths fails a build that lost them.
+# The directory name of the crates.io sources is the hash cargo gives
+# crates.io, so check-paths also fails when a new cargo names it otherwise.
+#
+# References:
+# - ADR-1200 D19: the minspec binary's size budget.
+CARGO_HOME_DIR := $(or $(CARGO_HOME),$(HOME)/.cargo)
+CRATES_IO_SRC := $(CARGO_HOME_DIR)/registry/src/index.crates.io-1949cf8c6b5b557f
+REMAP_PATHS := --config 'build.rustflags = ["--remap-path-prefix=$(CARGO_HOME_DIR)=/cargo", "--remap-path-prefix=$(CRATES_IO_SRC)/="]'
+
+# check-paths FILE fails when FILE holds the path of a crate's source in a
+# cargo registry, so the shortened paths cannot drop silently.
+define check-paths
+! grep -qaF '/registry/src/' $(1) || { echo "$(1) holds the path of a crate's source in the cargo registry: the minspec build lost --remap-path-prefix (is RUSTFLAGS set?), or cargo names the crates.io sources' directory otherwise than $(CRATES_IO_SRC)" >&2; exit 1; }
+endef
+
 # check-relr FILE fails unless the dynamic section of FILE carries DT_RELR, so
 # the flag cannot drop silently.
 define check-relr
@@ -178,8 +207,9 @@ endif
 .PHONY: minspec
 minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	$(build_settings)VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
+	$(build_settings)VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
 	$(call check-relr,$(VTIUM_MINSPEC))
+	$(call check-paths,$(VTIUM_MINSPEC))
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
 # vtium as a system installs it, staged under DESTDIR: the console binary,
@@ -521,10 +551,11 @@ msrv: ## Build the workspace, its tests and the minspec profile with the oldest 
 
 .PHONY: arm
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(addprefix --target ,$(ARM_TARGETS))
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(REMAP_PATHS) $(addprefix --target ,$(ARM_TARGETS))
 	for t in $(ARM_TARGETS); do \
-		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $$t -- $(RELR_LINK) $(ICF_LINK) || exit 1; \
+		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $$t -- $(RELR_LINK) $(ICF_LINK) || exit 1; \
 		$(call check-relr,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
+		$(call check-paths,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
 		$(call check-glibc,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
 	done
 
@@ -731,8 +762,9 @@ $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 .PHONY: vt-dev-console
 vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
+	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
 	$(call check-relr,$(VTIUM_DEV))
+	$(call check-paths,$(VTIUM_DEV))
 	$(call check-glibc,$(VTIUM_DEV))
 ifneq ($(IMAGES),)
 	grep -qaF '$(VTIUM_DEV_IMAGE)' $(VTIUM_DEV) || { echo "$(VTIUM_DEV) does not start its image helper at $(VTIUM_DEV_IMAGE)" >&2; exit 1; }
