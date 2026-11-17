@@ -564,11 +564,23 @@ fn outcome_with(
         .map(|(name, file)| font_needs(&name, &file, &settings))
         .unwrap_or_default();
     let missing_fonts = needs.warnings.len().saturating_add(heads.missing_fonts);
+    // each vtlook a start would read, read as the start reads it
+    let top_vtlook = (!heads.refused)
+        .then(|| vtium_settings::vtlook::chosen(loaded.config.text(&keys::VTLOOK)))
+        .flatten();
+    let vtlooks = vtlook_findings(
+        top_vtlook,
+        path,
+        &heads.vtlooks,
+        Path::new(vtium_settings::vtlook::LOOKS),
+        &settings.trust,
+    );
     let stderr: Vec<String> = stderr
         .into_iter()
         .chain(refused)
         .chain(layers)
         .chain(needs.warnings)
+        .chain(vtlooks)
         .collect();
     let problems = stderr.len().saturating_add(heads.counted.len());
     let status = match problems {
@@ -683,6 +695,10 @@ pub struct HeadCheck {
     /// The installed file fails the ownership check, so a start reads
     /// none of it, its top level included.
     pub refused: bool,
+    /// The vtlook each look of the file that a start runs names, other
+    /// than the built-in one: the look's name, the vtlook's and the line
+    /// of its `vtlook`, for [`vtlook_findings`] to read.
+    pub vtlooks: Vec<(String, String, usize)>,
 }
 
 /// Whether `a` and `b` name one file, by its device and inode once
@@ -956,6 +972,71 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
     }
 }
 
+/// What check-config says of the vtlooks a start would read: `top`, the
+/// one vtium.conf's top level names, and those its looks name in `looks`,
+/// each with its look's name and its line in the vtium.conf at `conf`.
+/// Each line counts against the file, since the heads that take a vtlook
+/// with an error draw the built-in vtlook.
+///
+/// A build with frame filters reads each distinct vtlook once from `dir`
+/// under `trust`, as the start reads it, and lists every error of every
+/// vtlook, each starting with the vtlook's file and line. A build without
+/// them reads none and says, for each vtlook named, that the heads that
+/// take it draw the built-in vtlook.
+///
+/// References:
+/// - ADR-1304 D6: check-config lists every error of the reading and checking stages, each report whole.
+/// - ADR-1304 D10: check-config warns of a vtlook in a build without `filters`, as it warns of `hwaccel` in a build without `gpu`.
+#[cfg(feature = "filters")]
+fn vtlook_findings(
+    top: Option<&str>,
+    _conf: &Path,
+    looks: &[(String, String, usize)],
+    dir: &Path,
+    trust: &Trust,
+) -> Vec<String> {
+    let mut names: Vec<&str> = top.into_iter().collect();
+    for (_, name, _) in looks {
+        if !names.contains(&name.as_str()) {
+            names.push(name);
+        }
+    }
+    names
+        .into_iter()
+        .flat_map(|name| {
+            vtium_settings::vtlook::read(name, dir, trust)
+                .err()
+                .unwrap_or_default()
+        })
+        .map(|r| format!("{}: {r}", r.at()))
+        .collect()
+}
+
+/// [`vtlook_findings`] in a build without frame filters, which reads no
+/// vtlook.
+#[cfg(not(feature = "filters"))]
+fn vtlook_findings(
+    top: Option<&str>,
+    conf: &Path,
+    looks: &[(String, String, usize)],
+    _dir: &Path,
+    _trust: &Trust,
+) -> Vec<String> {
+    use vtium_settings::vtlook::BUILT_IN;
+    let top = top.map(|name| {
+        format!("vtlook = {name}: this build of vtium has no frame filters, so the heads that take this vtlook draw the vtlook {BUILT_IN}.")
+    });
+    let looks = looks.iter().map(|(look, name, line)| {
+        at(
+            conf,
+            Some(*line),
+            format!("Look {look:?} names vtlook {name}, but this build of vtium has no frame filters, so the heads that use this look draw the vtlook {BUILT_IN}."),
+        )
+        .to_string()
+    });
+    top.into_iter().chain(looks).collect()
+}
+
 /// What [`font_needs`] says of a font set's fonts: the warnings on fonts
 /// this machine lacks, which count against the file with a status of
 /// their own, and the notes, which do not count.
@@ -1170,6 +1251,17 @@ fn findings(
         out.counted.push(at(path, Some(w.line()), w).to_string());
     }
     look_frits(out, path, parsed, settings);
+    if runs_file(runs) {
+        out.vtlooks = parsed
+            .config
+            .looks
+            .iter()
+            .filter_map(|l| {
+                let name = vtium_settings::vtlook::chosen(l.vtlook.as_deref())?;
+                Some((l.name.clone(), name.to_owned(), l.vtlook_line))
+            })
+            .collect();
+    }
     #[cfg(feature = "images")]
     look_login_images(out, path, parsed, rustix::process::geteuid().as_raw());
     if parsed.more_warnings > 0 {
@@ -3219,6 +3311,7 @@ mod tests {
                 )],
                 refused: false,
                 missing_fonts: 0,
+                vtlooks: Vec::new(),
             }
         );
         assert_eq!(
@@ -3228,6 +3321,7 @@ mod tests {
                 notes: Vec::new(),
                 refused: false,
                 missing_fonts: 0,
+                vtlooks: Vec::new(),
             }
         );
     }
@@ -3350,6 +3444,7 @@ mod tests {
             notes: Vec::new(),
             refused: false,
             missing_fonts: 0,
+            vtlooks: Vec::new(),
         };
         assert_eq!(
             conf_file(&file, false, &trust, &machine(true), &caps(4)),
@@ -4176,5 +4271,82 @@ mod tests {
             HELP.replace('\n', " ")
                 .contains("It opens nothing under /dev and changes nothing.")
         );
+    }
+
+    // The looks of a file that runs each name their vtlook for the check
+    // to read, but for the built-in one, which no file holds.
+    #[test]
+    fn each_look_s_vtlook_is_listed_for_the_check() {
+        let text = "version = 1\n[look warm]\nvtlook = amber\n[look plain]\nvtlook = default\n[look none]\n[head desk]\nlook = warm\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
+        let (out, _) = checked("vtlooks", text, true);
+        assert_eq!(out.vtlooks, [("warm".to_owned(), "amber".to_owned(), 3)]);
+    }
+
+    // A build without frame filters reads no vtlook: each one named says
+    // that its heads draw the built-in vtlook, and counts.
+    #[cfg(not(feature = "filters"))]
+    #[test]
+    fn a_build_without_filters_warns_of_each_vtlook_named() {
+        let conf = Path::new("/etc/vtium/vtium.conf");
+        let looks = [("warm".to_owned(), "amber".to_owned(), 3)];
+        assert_eq!(
+            vtlook_findings(
+                Some("crt"),
+                conf,
+                &looks,
+                Path::new("/nonexistent"),
+                &font::trust()
+            ),
+            [
+                "vtlook = crt: this build of vtium has no frame filters, so the heads that take this vtlook draw the vtlook default (built in).",
+                "/etc/vtium/vtium.conf:3: Look \"warm\" names vtlook amber, but this build of vtium has no frame filters, so the heads that use this look draw the vtlook default (built in).",
+            ]
+        );
+        assert!(
+            vtlook_findings(None, conf, &[], Path::new("/nonexistent"), &font::trust()).is_empty()
+        );
+    }
+
+    // check-config lists every error of every vtlook named, each vtlook
+    // read once however many looks name it, each line starting with the
+    // vtlook's file and line.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn check_config_lists_every_error_of_each_vtlook_once() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("check-vtlooks");
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+        let trust = Trust::owner(rustix::process::geteuid().as_raw()).below(&dir);
+        let write = |name: &str, text: &str| {
+            let file = dir.join(format!("{name}.vtlook"));
+            let _ = std::fs::write(&file, text);
+            let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+            file.display().to_string()
+        };
+        let old = write("old", "# old.vtlook\n[color sepia]\namount = 0.5\n");
+        write("plain", "version = 1\n[requires]\ngpu = any\n");
+        let conf = Path::new("/etc/vtium/vtium.conf");
+        let looks = [
+            ("a".to_owned(), "old".to_owned(), 3),
+            ("b".to_owned(), "old".to_owned(), 5),
+            ("c".to_owned(), "plain".to_owned(), 7),
+        ];
+        assert_eq!(
+            vtlook_findings(Some("gone"), conf, &looks, &dir, &trust),
+            [
+                format!(
+                    "{}: reading: found no such file, needs gone.vtlook in {}",
+                    dir.join("gone.vtlook").display(),
+                    dir.display()
+                ),
+                format!(
+                    "{old}:2: reading: found [color sepia] before version = 1, needs version = 1 first"
+                ),
+                format!(
+                    "{old}:2: color filter 1 of 1, sepia: checking: found sepia, but this build of vtium has no color filters"
+                ),
+            ]
+        );
+        assert!(vtlook_findings(None, conf, &looks[2..], &dir, &trust).is_empty());
     }
 }

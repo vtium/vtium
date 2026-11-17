@@ -817,17 +817,12 @@
 
 # -- Frame filters -----------------------------------------------------------
 
-## The vtlook (a look file) whose frame filters change the picture before the
-## display shows it, such as a color correction or a CRT effect.
+## The vtlook, a file of frame filters that change the picture before the
+## display shows it, such as a CRT effect.
 ##
-## The value is the name of a file `NAME.vtlook` in `/etc/vtium/looks`. A
-## look's own `vtlook` wins over this one. When unset, or set to `default`,
-## vtium draws the built-in vtlook, which changes no pixel.
-##
-## When vtium cannot read the vtlook, or any part of it is wrong, the head
-## draws the built-in vtlook and vtium logs where the vtlook failed. A build
-## without frame filters accepts this key, logs one line, and draws the
-## built-in vtlook.
+## The value names a file `NAME.vtlook` in `/etc/vtium/looks`. A look's own
+## `vtlook` wins over this one. Unset or `default` is the built-in vtlook,
+## which changes no pixel.
 
 #vtlook=
 

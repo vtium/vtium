@@ -1630,9 +1630,9 @@ pub const VTLOOK: Key = Key {
     // a look sets its own vtlook with its `vtlook =` line, which the
     // section reader takes beside the key table, as a head takes `look`
     levels: TOP,
-    what: "The vtlook (a look file) whose frame filters change the picture before the display shows it, such as a color correction or a CRT effect.\n\n\
-           The value is the name of a file `NAME.vtlook` in `/etc/vtium/looks`. A look's own `vtlook` wins over this one. When unset, or set to `default`, vtium draws the built-in vtlook, which changes no pixel.\n\n\
-           When vtium cannot read the vtlook, or any part of it is wrong, the head draws the built-in vtlook and vtium logs where the vtlook failed. A build without frame filters accepts this key, logs one line, and draws the built-in vtlook.",
+    what: "The vtlook, a file of frame filters that change the picture before the display shows it, such as a CRT effect.\n\n\
+           The value names a file `NAME.vtlook` in `/etc/vtium/looks`. A look's own `vtlook` wins over this one. Unset or `default` is the built-in vtlook, which changes no pixel.\n\n\
+           [docs] When the vtlook has an error, the head draws the built-in vtlook, and vtium logs where the vtlook failed. A build without frame filters accepts this key, logs one line, and draws the built-in vtlook.",
 };
 
 pub const RENDER_TIMER: Key = Key {
