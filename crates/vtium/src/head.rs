@@ -3,7 +3,7 @@
 //! laid out over its own displays by the scaled rule ([`crate::layout`])
 //! at its own density, zoom and rotation.
 //!
-//! [`identity`] maps vtium-platform's identities of a display and of an
+//! [`vtium_devices`] maps vtium-platform's identities of a display and of an
 //! input into the head file's, which the rules walk. The app holds the
 //! heads, places each display in one, and drives each head's session as
 //! it drove the seat's one session before heads: each head is one
@@ -29,7 +29,7 @@ use vtium_platform::pty::{Pty, Size};
 use vtium_render::{
     Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
 };
-use vtium_term::{Content, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
+use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
 
 use crate::blink::Blink;
 use crate::config::{Config, keys};
@@ -241,7 +241,10 @@ pub struct Head {
     /// neither sets it.
     pub(crate) line_spacing: Option<u32>,
     /// `font-ligatures`, vtium.conf's or the head's look's: whether a run
-    /// of ASCII symbols draws as the font's ligature (ADR-1308 D8).
+    /// of ASCII symbols draws as the font's ligature.
+    ///
+    /// References:
+    /// - ADR-1308 D8: the programming ligatures and their setting.
     ligatures: bool,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
@@ -296,8 +299,11 @@ pub struct Head {
     /// What the image keys give the head's consoles (ADR-1100 D11).
     #[cfg(feature = "images")]
     pub(crate) image_settings: images::Settings,
-    /// The login picture the head's look or the top level names
-    /// (ADR-1100 D17).
+    /// The login picture the head's look or the top level names.
+    ///
+    /// References:
+    /// - ADR-1100 D17, "The keys": the picture's keys are look keys and
+    ///   top-level keys.
     #[cfg(feature = "images")]
     pub(crate) login_image: images::Login,
 }
@@ -322,6 +328,9 @@ pub(crate) fn terminal(
         terminal.screen_mut().set_scrollback_memory_from_grid(bytes);
     }
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
+    // `blink` sets the cursor a session starts with: a block that blinks or
+    // stays steady. A style a program chooses later blinks as it says.
+    terminal.set_cursor_blink(config.switch(&keys::BLINK));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
     terminal.set_window_ops(config.switch(&keys::ALLOW_WINDOW_OPS));
@@ -1342,23 +1351,13 @@ impl Head {
     }
 
     /// What the next frame draws beyond the terminal's state. A cursor
-    /// whose style blinks follows the blink timer's phase, and a steady
-    /// one (DECSCUSR 2, 4 and 6, or mode 12 reset) is drawn in every
-    /// phase. The default style blinks, since vtium leaves the host's
-    /// cursor blink on and lets the `blink` key decide whether the timer
-    /// runs.
+    /// that blinks follows the blink timer's phase, and a steady one
+    /// (DECSCUSR 2, 4 and 6, mode 12 reset, or the starting block with
+    /// `blink` off) is drawn in every phase.
     pub(crate) fn draw_state(&self) -> DrawState {
         let terminal = &self.console.term.terminal;
         let palette = terminal.palette();
-        let blinks = match terminal.cursor_style() {
-            CursorStyle::Default
-            | CursorStyle::BlockBlink
-            | CursorStyle::UnderlineBlink
-            | CursorStyle::BarBlink => true,
-            CursorStyle::BlockSteady | CursorStyle::UnderlineSteady | CursorStyle::BarSteady => {
-                false
-            }
-        };
+        let blinks = terminal.cursor_blinks();
         DrawState {
             cursor_on: !blinks || self.console.term.blink.cursor_shown(),
             blink_hidden: !self.console.term.blink.text_shown(),
@@ -1685,13 +1684,13 @@ impl Head {
         let screen = self.console.term.terminal.screen_mut();
         let links = screen.view_links();
         if links.is_empty() {
-            screen.set_overlay_note(Some(crate::hints::NO_LINKS.to_owned()));
+            screen.set_overlay_note(Some(crate::notice::NO_LINKS.to_owned()));
             self.note_shows = true;
             return;
         }
         let labels = crate::hints::labels(links.len());
         screen.set_link_hints(links.into_iter().zip(labels).collect());
-        screen.set_overlay_note(Some(crate::hints::PROMPT.to_owned()));
+        screen.set_overlay_note(Some(crate::notice::LINK_HINTS.to_owned()));
         self.note_shows = false;
         self.hints = Some(crate::hints::Hints::default());
     }
@@ -1733,7 +1732,7 @@ impl Head {
                 if let Some(uri) = uri {
                     let screen = self.console.term.terminal.screen_mut();
                     screen.clear_selection();
-                    let note = format!("{}{uri}", crate::hints::COPIED);
+                    let note = crate::notice::link_copied(&uri);
                     screen.set_overlay_note(Some(note));
                     self.note_shows = true;
                     *selection = Some(uri.into_bytes());
@@ -2332,6 +2331,73 @@ mod tests {
         );
     }
 
+    // ADR-1308 D8: `font-ligatures` in vtium.conf reaches the console. With
+    // it on, the head's renderer draws ligatures and the glyphs the head
+    // asks the helper for hold both pieces of `->`. Off, by default or
+    // under a look that turns it off, the head asks for no piece
+    // covers: text.ligatures
+    #[test]
+    #[cfg(feature = "bidi")]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn font_ligatures_reaches_the_renderer_and_the_glyphs_asked_for() {
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let text = "version = 1\nfont-ligatures = on\n[look plain]\nfont-ligatures = off\n\
+                    [head a]\nlook = plain\n[head b]\n";
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let under = |name: &str| {
+            let settings: Vec<vtium_settings::Setting> = rules
+                .head(name)
+                .map(|h| {
+                    rules
+                        .settings(h)
+                        .into_iter()
+                        .map(|(_, s)| s.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            top.for_head(path, &settings).0
+        };
+        let none = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let arrow = ['-', '>'];
+        let pieces: Vec<Vec<char>> = (0..2u8)
+            .filter_map(|start| {
+                let mut key = Vec::new();
+                vtium_font::syllable::Piece::new(start, 1, 2)?.key(&arrow, &mut key);
+                Some(key)
+            })
+            .collect();
+        assert_eq!(pieces.len(), 2);
+        for (config, on, what) in [
+            (under("b"), true, "on in vtium.conf"),
+            (under("a"), false, "off in the head's look"),
+            (none, false, "unset"),
+        ] {
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let mut head = Head::new(
+                "h",
+                &config,
+                Vec::new(),
+                terminal(&config, (0, 0), 0, clock),
+            );
+            head.console.term.terminal.input(b"a -> b");
+            assert_eq!(head.render_config(&config).ligatures, on, "{what}");
+            let shown = head.visible();
+            let asked = shown
+                .first()
+                .map(|s| s.clusters.clone())
+                .unwrap_or_default();
+            for key in &pieces {
+                assert_eq!(asked.contains(key), on, "{what}: {key:?} in {asked:?}");
+            }
+        }
+    }
+
     // ADR-1006 D8: what a head shows carries its terminal's cluster width,
     // so the helper places each cluster in the cells the terminal gives it
     #[test]
@@ -2916,7 +2982,7 @@ mod tests {
             (b"\x1b[3 q\x1b[?12l", true),
             (b"\x1b[4 q\x1b[?12h", false),
             (b"\x1b[5 q\x1b[?12l", true),
-            (b"\x1b[0 q\x1b[?12l", false),
+            (b"\x1b[0 q\x1b[?12l", true),
         ];
         for (bytes, on) in cases {
             head.console.term.terminal.input(bytes);
@@ -2931,6 +2997,42 @@ mod tests {
         assert!(head.console.term.blink.fired(Timer::Cursor, true));
         head.console.term.terminal.input(b"\x1b[1 q");
         assert!(head.draw_state().cursor_on);
+    }
+
+    // The `blink` key sets the cursor a session starts with: a block that
+    // blinks while the key is on and stays steady while it is off. DECRQM
+    // reports mode 12 as the console shows it, and DECRQSS reports the
+    // starting cursor as the DECSCUSR style it is.
+    // covers: DEC-12
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn the_blink_key_sets_the_starting_cursor() {
+        for (args, blinks, decrqm, decrqss) in [
+            (
+                &[][..],
+                true,
+                &b"\x1b[?12;1$y"[..],
+                &b"\x1bP1$r1 q\x1b\\"[..],
+            ),
+            (
+                &["--no-blink"][..],
+                false,
+                b"\x1b[?12;2$y",
+                b"\x1bP1$r2 q\x1b\\",
+            ),
+        ] {
+            let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
+            let config = crate::config::load(&args, &mut |_: &std::path::Path| Ok(None)).config;
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let mut term = terminal(&config, (0, 0), 0, clock);
+            let t = &mut term.terminal;
+            assert_eq!(t.cursor_blinks(), blinks, "{args:?}");
+            t.take_replies();
+            t.input(b"\x1b[?12$p");
+            assert_eq!(t.take_replies(), decrqm, "{args:?}");
+            t.input(b"\x1bP$q q\x1b\\");
+            assert_eq!(t.take_replies(), decrqss, "{args:?}");
+        }
     }
 
     /// A head whose shown console prints three links, `x:a`, `x:b` and
@@ -2976,7 +3078,10 @@ mod tests {
         head.link_hints_key();
         assert!(head.hints.is_some());
         assert_eq!(labels(&head), [("a".into(), true), ("s".into(), true)]);
-        assert_eq!(head.link_overlay().as_deref(), Some(crate::hints::PROMPT));
+        assert_eq!(
+            head.link_overlay().as_deref(),
+            Some(crate::notice::LINK_HINTS)
+        );
         assert!(
             head.hint_key(&sym('m'), false, &mut selection),
             "taken, ignored"
@@ -3005,7 +3110,10 @@ mod tests {
         head.console.term.terminal.input(b"\x1b[2J");
         head.link_hints_key();
         assert!(head.hints.is_none());
-        assert_eq!(head.link_overlay().as_deref(), Some(crate::hints::NO_LINKS));
+        assert_eq!(
+            head.link_overlay().as_deref(),
+            Some(crate::notice::NO_LINKS)
+        );
         head.pointer_event(
             PointerEvent::Moved {
                 x: 1,

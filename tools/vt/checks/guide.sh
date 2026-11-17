@@ -43,7 +43,9 @@
 # the last step, at q, when the terminal closes, or when a signal ends the
 # run. A guide that changes the machine for a few steps puts the change back
 # there, so a run that stops halfway leaves nothing behind; the command does
-# nothing when there is nothing to put back.
+# nothing when there is nothing to put back. A guide names each chord by
+# its keys, such as Ctrl+Super+Enter, never as "the open chord", which the
+# operator may not know by name.
 set -euo pipefail
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
@@ -95,6 +97,9 @@ while IFS= read -r line || [ -n "$line" ]; do
 	# the key as the operator's keyboard does. A command's words are not prose.
 	[ "$key" = run ] || [[ ! ${text,,} =~ (^|[^[:alnum:]])logo([^[:alnum:]]|$) ]] ||
 		die "$guide:$n: name the Super (Windows) key, not Logo"
+	# "The open chord" left the operator without the keys at a guided pass.
+	[ "$key" = run ] || [[ ! ${text,,} =~ (^|[^[:alnum:]])the\ (open|close|switch)\ chord ]] ||
+		die "$guide:$n: name the chord's keys, such as Ctrl+Super+Enter, not the chord's name"
 	s=$((${#titles[@]} - 1))
 	case $key in
 	title | step) [[ $text != *\** ]] || die "$guide:$n: a $key: line has no asterisk" ;;
@@ -307,6 +312,12 @@ run() {
 	stty -echo
 	PATH=$here:$PATH GUIDE_STEP_HEADING=$2 GUIDE_STEP_DO=$3 GUIDE_STEP_EXPECT=$4 GUIDE_FILE=$guide \
 		/bin/bash --noprofile --norc -c "$1" || status=$?
+	# A command that ends early, by Ctrl-C or a failure, may leave the mouse
+	# reports on or a pointer shape set, and the reports would turn a click at
+	# the step's question into bytes. Both go back to their defaults after
+	# every command, before the keys pressed meanwhile are dropped.
+	# shellcheck disable=SC1003 # the backslash ends the OSC's string terminator
+	printf '\033[?1006l\033[?1003l\033[?1002l\033[?1000l\033]22;\033\\'
 	while read -r -s -n 1 -t 0.05 _; do :; done
 	stty "$saved"
 	trap - INT QUIT

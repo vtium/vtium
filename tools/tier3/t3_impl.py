@@ -14,15 +14,15 @@ import tarfile
 
 from t3_common import RUNDIR, rel
 
-# The operator's size budget for the minspec binary, 4 MiB, raised from
-# 3.5 MiB on 2026-11-07 by the operator's decision recorded in ADR-1200 D19,
-# so that new work need not be trimmed to fit. A run whose minspec binary is
+# The operator's size budget for the minspec binary, 4 MiB + 64 KiB, raised
+# from 4 MiB on 2026-11-15 by the maintainer's decision recorded in ADR-1200
+# D19, for now, until the compiled Unifont leaves the binary. A run whose minspec binary is
 # larger fails, and raising the budget is a decision recorded in an ADR,
 # this one ADR-1200 D19. A tree whose console is built with features, such
 # as images or the GPU path, is no minspec tree, and the budget does not
 # judge it.
 BINARY = "usr/bin/vtium"
-BINARY_BUDGET = 4194304
+BINARY_BUDGET = 4259840
 # What the guest needs of a tree (README, "What the harness needs of the
 # build"): the VT unit that vtium console links autovt@.service to in the
 # guest, and the binary it starts.

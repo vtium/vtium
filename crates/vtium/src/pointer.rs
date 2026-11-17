@@ -12,7 +12,9 @@
 //! without a cursor plane, fbdev's or a card's on the legacy calls, or
 //! whose plane refused the arrow, failed a commit or went with a move to a
 //! CRTC that has none, has the renderer draw the same arrow over the
-//! cells. The arrow goes to the plane at a draw,
+//! cells. A plane that refuses a new arrow is hidden, so the arrow it
+//! showed before does not stay on screen beside the one the renderer
+//! draws. The arrow goes to the plane at a draw,
 //! when the display is lent for one and so awake and online: a display that
 //! is not yet tries again at the next draw, and draws the pointer in
 //! software until then. Each decision is logged with the display's
@@ -110,14 +112,31 @@ impl Pointer {
     /// names, with `renderer`, and keeps `arrow`, the copy of the
     /// renderer's image that the cursor plane takes, the same. A new shape
     /// goes to the plane at this draw, through [`Pointer::reset`].
+    ///
+    /// It also hands the renderer the pointer file's pictures in `file`,
+    /// the console's store, when they changed since, so that a picture the
+    /// font helper drew replaces vtium's own from this draw on. And it asks
+    /// through `file` for an SVG pointer file to be drawn at the renderer's
+    /// cell height.
     pub fn follow<F: Face>(
         &mut self,
         renderer: &mut Renderer<F>,
         arrow: &mut Arrow,
         shape: PointerShape,
+        file: &crate::pointer_file::Store,
     ) {
-        if renderer.pointer_shape() == shape {
+        file.want(renderer.pointer_cell_height());
+        let pictures = file.current();
+        let same = match (renderer.pointer_pictures(), &pictures) {
+            (None, None) => true,
+            (Some(held), Some(new)) => std::sync::Arc::ptr_eq(held, new),
+            _ => false,
+        };
+        if renderer.pointer_shape() == shape && same {
             return;
+        }
+        if !same {
+            renderer.set_pointer_pictures(pictures);
         }
         renderer.set_pointer_shape(shape);
         arrow.clone_from(renderer.arrow());
@@ -167,6 +186,11 @@ impl Pointer {
                 Err(e) if e.kind() == io::ErrorKind::NotConnected && e.raw_os_error().is_none() => {
                 }
                 Err(e) => {
+                    // The plane may still hold the picture of an earlier
+                    // shape, which after_draw no longer moves or hides once
+                    // the renderer draws the pointer: hide it, or it stays
+                    // frozen beside the pointer the renderer draws.
+                    plane.hide(id);
                     self.take(
                         &*plane,
                         id,
@@ -274,6 +298,7 @@ pub(crate) fn said() -> Vec<(log::Level, String)> {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+    use crate::pointer_file::Store;
     use vtium_font::{Font, Unifont};
     use vtium_render::{Canvas, Config, DrawState, Orientation, Renderer};
     use vtium_term::{Age, Cursor, Damage, Frame, Line, LineId, Palette, Rgb};
@@ -629,20 +654,42 @@ mod tests {
         let mut arrow = r.arrow().clone();
         p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
         assert_eq!(plane.arrow, Some(Arrow::new(16, Orientation::Normal)));
-        p.follow(&mut r, &mut arrow, PointerShape::Pointer);
+        p.follow(&mut r, &mut arrow, PointerShape::Pointer, &Store::default());
         let hand = Arrow::shape(PointerShape::Pointer, 16, Orientation::Normal);
         assert_eq!((r.pointer_shape(), &arrow), (PointerShape::Pointer, &hand));
         assert_eq!(p.route(), Route::Unset);
         assert_eq!(p.before_draw(&mut plane, ID, &arrow, Some((5, 6))), None);
         assert_eq!((plane.arrow.as_ref(), plane.set_ups), (Some(&hand), 2));
-        p.follow(&mut r, &mut arrow, PointerShape::Pointer);
+        p.follow(&mut r, &mut arrow, PointerShape::Pointer, &Store::default());
         assert_eq!(p.route(), Route::Hardware);
         p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
         assert_eq!(plane.set_ups, 2);
         // back to the default shape, the arrow
-        p.follow(&mut r, &mut arrow, PointerShape::Default);
+        p.follow(&mut r, &mut arrow, PointerShape::Default, &Store::default());
         assert_eq!(arrow, Arrow::new(16, Orientation::Normal));
         assert_eq!(p.route(), Route::Unset);
+    }
+
+    // A new shape whose picture the plane refuses, as a picture larger than
+    // the plane would be, goes to the renderer, and the plane hides the
+    // earlier shape's picture instead of leaving it frozen on screen.
+    #[test]
+    fn a_new_shape_the_plane_refuses_hides_the_plane() {
+        let mut r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::default(), Fake::default());
+        let mut arrow = r.arrow().clone();
+        p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
+        after(&mut p, &mut plane, &r, Some((5, 6)));
+        assert!(plane.shown.is_some());
+        p.follow(&mut r, &mut arrow, PointerShape::Wait, &Store::default());
+        plane.refuse.push(io::ErrorKind::Unsupported.into());
+        assert_eq!(
+            p.before_draw(&mut plane, ID, &arrow, Some((5, 6))),
+            Some((5, 6))
+        );
+        assert_eq!(p.route(), Route::Software);
+        after(&mut p, &mut plane, &r, Some((5, 6)));
+        assert_eq!(plane.shown, None);
     }
 
     // The renderer turned with the display draws the shape turned too, and
@@ -652,7 +699,7 @@ mod tests {
     fn a_new_shape_on_a_turned_display_is_turned() {
         let mut r = renderer(Orientation::Right);
         let (mut p, mut arrow) = (Pointer::default(), r.arrow().clone());
-        p.follow(&mut r, &mut arrow, PointerShape::Text);
+        p.follow(&mut r, &mut arrow, PointerShape::Text, &Store::default());
         assert_eq!(
             arrow,
             Arrow::shape(PointerShape::Text, 16, Orientation::Right)

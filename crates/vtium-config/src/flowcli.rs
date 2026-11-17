@@ -19,7 +19,7 @@ use vtium_platform::listing::Roots;
 use vtium_settings::Of;
 
 use crate::apply::Ask;
-use crate::drafts::{Checked, From, Session, State, Unrouted, diff, run_child};
+use crate::drafts::{Checked, From, Session, State, Unrouted, Verdict, diff, run_child};
 use crate::flowmodel::{self, Present};
 use crate::ops::{self, RuleChange, To};
 use crate::outcome::Fail;
@@ -313,7 +313,7 @@ impl Command<'_, '_> {
             );
             let checked = self.session.check(new, &path)?;
             self.print_check(&checked);
-            self.say(if checked.passed {
+            self.say(if checked.verdict == Verdict::Passed {
                 "the check passes; nothing was saved (--dry-run)"
             } else {
                 "the check finds problems; nothing was saved (--dry-run)"
@@ -816,7 +816,8 @@ impl Command<'_, '_> {
             self.say(&format!("wrote {}", path.display()));
             let checked = self.session.check(&draft, &path)?;
             self.print_check(&checked);
-            if checked.passed {
+            // a missing font is shown, and never asks for another edit
+            if checked.clears() {
                 break;
             }
             let _ = write!(self.out, "The check found problems. Edit again? [y/N] ");
@@ -921,7 +922,7 @@ mod tests {
         ];
         let line = |m: &Missing| format!("vtium.conf line 4: {m}");
         let checked = Checked {
-            passed: false,
+            verdict: Verdict::Failed,
             problems: gaps.iter().chain(&others).map(line).collect(),
             notes: Vec::new(),
         };

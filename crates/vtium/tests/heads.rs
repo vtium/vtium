@@ -6982,6 +6982,20 @@ fn end_shown_session(s: &mut Seat) -> String {
 /// The first session switches to frit b; when it ends, vtium returns the
 /// head to the font file vtium.conf's `font-name` gives, which has no
 /// font set's name, so the next session's query names no font, not b.
+/// Whether head `name` shows the whole reply to an OSC 50 query. The tty
+/// echoes the reply as it arrives, and a busy machine can draw the echo in
+/// two pieces, so the reply counts only once its line ends with the BEL
+/// that ends it, shown as `^G`. The line ends that way whether or not the
+/// reply names a font, so a test that waits on this can still check the
+/// name.
+fn shows_whole_font_reply(app: &App, name: &str) -> bool {
+    app.head(name).is_some_and(|h| {
+        h.screen_text()
+            .iter()
+            .any(|l| l.contains("]50;") && l.ends_with("^G"))
+    })
+}
+
 #[test]
 fn after_a_return_to_a_font_file_the_query_names_no_font() {
     let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
@@ -6999,7 +7013,7 @@ fn after_a_return_to_a_font_file_the_query_names_no_font() {
     assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
     end_shown_session(&mut s);
     assert_eq!(s.app.font_name(), path, "returned to the font file");
-    let replied = |a: &App| head_shows(a, "small", "]50;");
+    let replied = |a: &App| shows_whole_font_reply(a, "small");
     assert!(
         s.until(BOUND, replied),
         "{:?}",
@@ -7142,7 +7156,7 @@ fn a_query_on_a_head_with_no_display_names_the_font_switched_to() {
     assert_eq!(s.app.font_name(), "a");
     s.unplug("/dev/mem0", now());
     std::fs::write(dir.join("go"), "").expect("the go mark");
-    let replied = |a: &App| head_shows(a, "small", "]50;");
+    let replied = |a: &App| shows_whole_font_reply(a, "small");
     assert!(
         s.until(BOUND, replied),
         "{:?}",

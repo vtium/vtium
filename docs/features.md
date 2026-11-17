@@ -6,10 +6,8 @@ This page lists what vtium renders and does, and what is still to come. [Concept
 
 This page describes vtium's `main` branch, which may be ahead of [the latest release](https://github.com/vtium/vtium/releases). A checkout of `main` builds and runs everything on this page. These parts are not built yet, and each has an issue that tracks it:
 
-- Programming ligatures, and shaping across character cells. See [the ligatures issue](https://github.com/vtium/vtium/issues/23).
 - An input method for composing Chinese, Japanese, or Korean text. See [the input method issue](https://github.com/vtium/vtium/issues/45).
-- Three parts of vtium-config, vtium's setup tool: identifying a device from a keypress on it, `vtium config status`, and trying a whole configuration on the console before installing it. See [the vtium-config issue](https://github.com/vtium/vtium/issues/367).
-- `vtium-clipboard`, a tool that lets a script copy text into vtium's clipboard. No program can read the clipboard back today, and the issue leaves open whether the tool will paste with your confirmation. See [the vtium-clipboard issue](https://github.com/vtium/vtium/issues/113).
+- Two parts of vtium-config, vtium's setup tool: identifying a device from a keypress on it, and trying a whole configuration on the console before installing it. See [the vtium-config issue](https://github.com/vtium/vtium/issues/367).
 - Reading a changed vtium.conf without a restart. See [the reload issue](https://github.com/vtium/vtium/issues/86).
 
 The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
@@ -35,11 +33,11 @@ A graphical program can also take the display without a VT switch, such as a vid
 
 With systemd, vtium runs on a VT in a getty's place, and `pam_systemd` registers the login with logind. If vtium fails, a fallback unit starts a getty. The fallback unit starts no getty when vtium.conf's policy is closed, or when starting the getty would stop another program, such as a display manager.
 
-The package and `make install` both install the unit as `vtium@.service`, with its fallback `vtium-getty@.service`. The package's install script then gives vtium every free VT, as [What the install does to your VTs](install.md#what-the-install-does-to-your-vts) explains. `make install` only stages files, so it gives vtium no VT. `vtium console enable N` gives vtium VT N, and `vtium console enable --all` gives it every free VT. systemd then starts vtium on those VTs at boot, where it would otherwise start a getty. After `enable --all`, logind also starts vtium when you switch to a VT where nothing runs. `make install-tree` makes the install tree that tier 3, vtium's virtual machine tests, installs in its guest. That tree installs the same two units. Tier 3 gives vtium the guest's VTs with `vtium console enable --all`, as a user does.
+The package and `make install` both install the unit as `vtium@.service`, with its fallback `vtium-getty@.service`. The package's install script then gives vtium every free VT, as [What the install does to your VTs](install.md#what-the-install-does-to-your-vts) explains. `make install` only stages files, so it gives vtium no VT. `vtium console enable N` gives vtium VT N, and `vtium console enable --all` gives it every free VT. systemd then starts vtium on those VTs at boot, where it would otherwise start a getty. After `enable --all`, logind also starts vtium when you switch to a VT from 1 to 6 where nothing runs. `make install-tree` makes the install tree that tier 3, vtium's virtual machine tests, installs in its guest. That tree installs the same two units. Tier 3 gives vtium the guest's VTs with `vtium console enable --all`, as a user does.
 
 Without systemd, another init system runs `vtium --vt=ttyN --no-switchvt` where it ran a getty: from an inittab line, a script, or a supervisor. A person can also start vtium by hand. Where elogind runs, it registers the login in logind's place. Of the other init systems, only sysvinit is tested, and OpenRC, runit, s6, and busybox init are not. elogind is not tested either. busybox init does not catch `SIGRTMIN+4`, so under busybox init the power-off key does not power the machine off.
 
-Tier 3 boots vtium under sysvinit on Debian 13, with no logind, from an inittab line. It boots vtium once with the udev daemon running (`sysvinit-640x480`) and once with it stopped (`sysvinit-no-udev`). There, vtium's reboot and power-off keys go through sysvinit. The screens vtium renders there match vtium's own goldens to the pixel. A golden is a saved expected result, and the maintainer has reviewed these. So vtium runs under sysvinit today. [systemd.md](systemd.md) lists each place vtium touches systemd, logind or PID 1, and what it does without them.
+Tier 3 boots vtium under sysvinit on Debian 13, with no logind, from an inittab line. It boots vtium once with the udev daemon running (`sysvinit-640x480`) and once with it stopped (`sysvinit-no-udev`). There, vtium's reboot and power-off keys go through sysvinit. The screens vtium renders there match vtium's own goldens to the pixel. A golden is a saved expected result, and the maintainer has reviewed these goldens. [systemd.md](systemd.md) lists each place vtium touches systemd, logind or PID 1, and what it does without them.
 
 vtium runs on a VT in one of two modes. In direct mode, vtium opens the VT, the graphics cards, and the input devices itself. Where seatd runs, a vtium built with the `libseat` feature gets them from seatd instead. In seat mode, vtium gets them from logind through libseat. libseat is the seat management library "allowing applications to use whatever seat management is available" ([seatd's README](https://git.sr.ht/~kennylevinsen/seatd/blob/master/README.md)). Seat mode needs a vtium built with both `libseat` and `logind`, and `vtium console enable --seat N` moves VT N to it. In both modes, the vtium process runs as root, so that it can start `/bin/login`. [Direct mode and seat mode](install.md#direct-mode-and-seat-mode) explains how to choose.
 
@@ -63,7 +61,7 @@ vtium reads keyboards and pointers directly from their devices. It uses libxkbco
 
 A program can ask for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/), which editors such as Neovim and Helix and shells such as fish use. Under it, the program can tell every key and modifier apart, Escape from the start of an escape sequence and Ctrl+I from Tab among them. It can also ask for a key's repeats and releases, for every key as an escape code, and for the text a key types. On a non-Latin layout it gets each key's place on the US layout too, so a shortcut such as Ctrl+C works there.
 
-You select text with the pointer. The middle button and Shift+Insert paste it. A program can copy text into the same selection with OSC 52. A program cannot read the selection back.
+You select text with the pointer. The middle button and Shift+Insert paste it. A program can copy text into the same selection with OSC 52. `vtium-clipboard`, also installed as `vticlip`, copies text from a script or a pipe into the selection the same way. A program cannot read the selection back.
 
 You can bind keys to reboot, power off or suspend the machine. See [systemd.md](systemd.md) for details.
 
@@ -77,6 +75,7 @@ vtium's main process never parses a font file. A frit is a font set file, `/etc/
 
 - When vtium runs as root, the helper runs as `nobody`. vtium restarts a crashed helper at most 3 times per boot. Until the helper is back, vtium draws with its built-in fonts.
 - The helper reads PSF and raw console fonts, kbd font names, BDF fonts, and the kernel's own VT font. It also reads outline fonts, by family or by file, including color emoji (COLR version 0, CBDT, and sbix). It rasterizes outlines with swash. It shapes each grapheme cluster, a character as a reader sees it, with HarfRust.
+- With `font-ligatures` on, vtium draws a programming font's ligatures, such as `->` and `!=`, across the cells of their characters. Each character keeps its own cell, so the cursor and what programs count do not change. A ligature splits into its characters while the cursor is on one of them. Bitmap fonts show no ligatures.
 - Unifont and Unscii-8 are built into the vtium binary. They draw the first frame and every character a frit lacks.
 - `vtium config use-frit` switches the running console's font through OSC 50. Ctrl+= and Ctrl+- zoom the font. A switch or a zoom lasts until the session ends. Then vtium returns the head to the font and size that vtium.conf names.
 - `vtium config tui`, run at a terminal, opens vtium-config's full-screen tool. The tool opens on its Flow view, which draws the configuration as six columns. The columns run from the displays, through the rules, heads and looks, to the input devices. The view places the devices that are plugged in now. Every change goes into a draft of your own. Only Install writes `/etc/vtium/vtium.conf`. Install runs one `sudo vtium-config apply DIR`, the only step that runs as root. For scripts, every change the view makes is also a `vtium config` command with fixed exit statuses. The tool needs a terminal of at least 80 by 25 cells.
@@ -104,7 +103,7 @@ When an image changes, vtium redraws only the cells it covers. Tier 3's `img-tmu
 - It splits Unicode text into extended grapheme clusters, the characters as a reader sees them. It draws wide characters and emoji presentation. When a program resets mode 2027, vtium measures text width with the codepoint-width method instead.
 - A vtium built with the `bidi` feature lays out right-to-left text, such as Arabic and Hebrew. It shows the text in the order that the Unicode bidirectional algorithm gives. It draws mirrored characters as their counterparts, and it joins Arabic letters. The cursor, the selection, mouse reports and the arrow keys all move in that same order.
 - It reports the mouse with modes 9, 1000, 1002 and 1003, in the SGR, urxvt and pixel encodings. It also reports focus, bracketed pastes, and in-band resizes (mode 2048). It holds frames back for synchronized output (mode 2026).
-- It keeps OSC 8 links and OSC 133 prompt marks. vtium draws a dashed underline under the link beneath the pointer. While you hold Ctrl over a link, vtium shows the link's address on the bottom row. When the pointer is on the bottom row, vtium shows the address on the top row instead. Ctrl+click copies a link's address and never opens the link. Ctrl+Shift+Up and Ctrl+Shift+Down move the view from prompt to prompt.
+- It keeps OSC 8 links and OSC 133 prompt marks. vtium draws a dashed underline under the link beneath the pointer. While you hold Ctrl over a link, vtium shows the link's address on the bottom row. When the pointer is on the bottom row, vtium shows the address on the top row instead. Ctrl+click copies a link's address and never opens the link. Ctrl+Shift+O labels each link with letters, and typing a label copies that link's address. Ctrl+Shift+Up and Ctrl+Shift+Down move the view from prompt to prompt.
 - Programs set, query and reset colors with OSC 4, 10, 11 and 12, and with xterm's and kitty's color stacks. vtium carries out DEC's rectangular area operations, character protection, XTSAVE, and XTRESTORE. It answers XTGETTCAP, XTVERSION, and DECRQM.
 - A reply to a query is built from vtium's own state. It never repeats bytes the program sent, so text a program prints cannot type into the program reading the replies.
 
@@ -120,11 +119,11 @@ When the width changes, vtium rewraps the main screen and its scrollback. It car
 
 The default build, minspec, is the smallest build that is still a complete terminal. It holds the CPU renderer, the two built-in bitmap fonts, the parser and screen, the pty, and input. Like every build, it draws outline fonts and color emoji through the font helper when a frit names them. It is built for a single-board computer with ARM cores of the Cortex-A53 class or older, 512 MB of memory or less, and no GPU. Its smallest display is a 320×240 panel with 8×8 cells, which gives 40 columns by 30 rows. `make arm` builds it for aarch64 and armv7.
 
-Tier 3 measures minspec in a virtual machine guest with 1 vCPU and 512 MB of memory. These figures come from `make tier3-minimal` at commit `c107f9a`, run on 2026-11-01:
+Tier 3 measures minspec in a virtual machine guest with 1 vCPU and 512 MB of memory. The memory and install tree figures come from `make tier3-minimal` at commit `c107f9a`, run on 2026-11-01. The binary's size comes from `make minspec` for x86_64, run on 2026-11-15:
 
 | Measure | Value |
 |---|---|
-| Console binary | 3,216,864 bytes. The run fails past a budget of 4,194,304 bytes (4 MiB). |
+| Console binary | 4,226,160 bytes. A tier 3 run fails past a budget of 4,259,840 bytes (4 MiB + 64 KiB). |
 | Install tree, the font helper included | 7.63 MiB |
 | Peak resident memory at 320×240, 8×8 cells | 5.81 MiB |
 | Peak resident memory at 640×480, 8×16 cells | 7.77 MiB |

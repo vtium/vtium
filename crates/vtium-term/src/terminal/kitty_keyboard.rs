@@ -320,8 +320,8 @@ fn kind(keysym: u32) -> Option<Kind> {
         // its first form, `CSI E`, as it sends Home's `1 H`.
         //
         // References:
-        // - ADR-1005's amendment of 2026-11-14: the table's entry wins
-        //   over the disambiguate section's dedicated numbers.
+        // - ADR-1005 D15: the table's entry for KP_BEGIN wins over the
+        //   disambiguate section's dedicated numbers.
         sym::KP_BEGIN => f(Letter(b'E')),
         // The media keys xkbcommon names (`xkbcommon-keysyms.h`).
         0x1008_ff14 => f(U(57428)),

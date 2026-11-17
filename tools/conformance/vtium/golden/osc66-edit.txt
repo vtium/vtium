@@ -1,0 +1,40 @@
+checkpoint 27
+size 10x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 |  abCD ef|
+row 1 ||
+row 2 ||
+row 3 ||
+checkpoint 36
+size 10x4
+cursor 5,0
+flags AUTO_WRAP
+row 0 |  ab ef|
+row 1 ||
+row 2 ||
+row 3 ||
+checkpoint 63
+size 10x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+row 1 |  ab ef|
+row 2 |T|
+row 3 |T|
+checkpoint 72
+size 10x4
+cursor 0,3
+flags AUTO_WRAP
+row 0 ||
+row 1 |  ab ef|
+row 2 ||
+row 3 ||
+checkpoint 99
+size 10x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+row 1 ||
+row 2 |  ab ef|
+row 3 ||

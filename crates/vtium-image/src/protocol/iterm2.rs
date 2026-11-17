@@ -7,7 +7,7 @@
 //! handler takes four strings:
 //!
 //! - `File=KEYS:BASE64` is a picture in one string. Its keys are read as
-//!   [`keys`] describes; a string with no `:`, or without `inline=1`, is
+//!   `keys` describes; a string with no `:`, or without `inline=1`, is
 //!   dropped.
 //! - `MultipartFile=KEYS` starts a *transfer in parts*: a picture too large
 //!   for one string, sent as a run of `FilePart=BASE64` strings, each a
@@ -23,7 +23,7 @@
 //! flag (ADR-1101, D7), and the helper decodes it as PNG, JPEG or GIF by
 //! its first bytes. The decoded picture is stored at its own size under the
 //! sixel tag, so every sixel rule applies to it, and placed at the cursor
-//! as a sixel is with sixel scrolling on ([`place_scrolling`]), sized by
+//! as a sixel is with sixel scrolling on (`place_scrolling`), sized by
 //! its keys. Mode 80 (DECSDM) and mode 8452 are sixel modes and do not
 //! apply: an iTerm2 picture always scrolls, and the cursor ends at the
 //! picture's left column.

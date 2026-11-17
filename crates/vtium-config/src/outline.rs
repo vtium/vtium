@@ -20,11 +20,12 @@
 //!          below the cell u32 and u32, fit u8 (1 for a fallback source,
 //!          whose glyphs too big for their cells are drawn smaller, else
 //!          0), hinting u8 (0 light, 1 full, 2 full and then 1-bit),
-//!          synthesis u8 (bit 1 bold, bit 2 italic), script u8 (0 normal, 1 superscript, 2 subscript),
-//!          cluster width u8 (0 double, 1 single: the console's
-//!          `cluster-width`, ADR-1006 D8), double width u8 (1 for a line
-//!          of double width, whose glyphs are drawn twice as wide, else 0)
-//! answer   magic "VTVOUTL4", family length u32, the family, format length
+//!          synthesis u8 (bit 1 bold, bit 2 italic), script u8 (0
+//!          normal, 1 superscript, 2 subscript), cluster width u8 (0
+//!          double, 1 single: the console's `cluster-width`, ADR-1006
+//!          D8), double width u8 (1 for a line of double width, whose
+//!          glyphs are drawn twice as wide, else 0)
+//! answer   magic "VTVOUTL5", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
 //!          u32, glyph count u32, map length u32, cluster count u32, each
@@ -33,7 +34,9 @@
 //!          top i32, width u32, height u32 and R8 rows, then
 //!          the map: each (codepoint u32, glyph u32), sorted, then the
 //!          clusters: each length u8, scalar values u32 and glyph u32,
-//!          sorted
+//!          sorted; after the strikes, color count u32 and each codepoint
+//!          u32, sorted: the color glyphs a request for a line of double
+//!          width leaves out (0 for any other request)
 //! ```
 //!
 //! Little-endian throughout.
@@ -118,12 +121,13 @@ const LICENSE_MAX: usize = 1024;
 const MAP_MAX: usize = 0x11_0000;
 /// The most glyphs a strike holds: a font's glyph ids are 16 bits.
 const GLYPHS_MAX: usize = 65536;
-/// The most clusters one request asks for: every cluster
-/// [`crate::shaping::asks`] lists is under half of it.
+/// The most clusters one request asks for. The console asks for at most
+/// 4096 clusters at a time (`CLUSTERS_WAITING_MAX` in the vtium crate), so
+/// its requests stay well under this bound.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
 pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUTA\0";
-const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL4";
+const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL5";
 
 const GLYPH_WIDE: u8 = 1;
 const GLYPH_COLOR: u8 = 2;
@@ -166,7 +170,12 @@ pub struct OutlineRequest {
     pub reaches: Vec<(u32, u32)>,
     /// How the outline glyphs are fitted to the pixel grid: the frit's
     /// `hinting=`, or [`Hinting::Bitmap`] for a source whose glyphs draw
-    /// 1-bit, as a bitmap font's glyphs draw (ADR-1200 D1).
+    /// 1-bit, with each pixel fully on or fully off, as a bitmap font's
+    /// glyphs draw.
+    ///
+    /// References:
+    /// - ADR-1200 D1, the `render=` row: which sources draw 1-bit, and the
+    ///   full hinting they draw with whatever `hinting=` says.
     pub hinting: Hinting,
     /// Whether a glyph whose ink would pass its cells is drawn smaller
     /// until it fits, as a fallback source's glyph is (ADR-1200 D17): set
@@ -191,7 +200,9 @@ pub struct OutlineRequest {
     /// the request names, hinted and styled as at that size, and then
     /// stretched sideways to twice its width before it is rasterised, so
     /// its edges stay sharp. Each advance counts twice, so a glyph sits in
-    /// a cell twice as wide as it would. A color glyph is drawn as it is.
+    /// a cell twice as wide as it would. A color glyph, a bitmap or layers
+    /// of color, cannot be stretched that way, so the rasteriser leaves it
+    /// out and names its codepoint in [`Outline::color`] instead.
     pub double_width: bool,
 }
 
@@ -264,6 +275,10 @@ pub struct Outline {
     /// together into single spaces; empty when it gives none.
     pub license: String,
     pub strikes: Vec<Strike>,
+    /// The codepoints a request for a line of double width leaves out
+    /// because the font draws them in color, sorted
+    /// ([`OutlineRequest::double_width`]); empty for any other request.
+    pub color: Vec<u32>,
 }
 
 fn put32(out: &mut Vec<u8>, v: u32) {
@@ -601,6 +616,10 @@ impl Outline {
                 put32(&mut out, *g);
             }
         }
+        put32(&mut out, len32(self.color.len()));
+        for &c in &self.color {
+            put32(&mut out, c);
+        }
         out
     }
 
@@ -769,14 +788,32 @@ impl Outline {
                 clusters,
             });
         }
+        // the codepoints left out in color: only for a line of double
+        // width, each one the request covers, in order
+        let count = r.count(MAP_MAX)?;
+        if count > 0 && !request.double_width {
+            return Err("color glyphs left out of a request that leaves none out");
+        }
+        let mut color: Vec<u32> = Vec::with_capacity(count);
+        for _ in 0..count {
+            let c = r.u32()?;
+            if char::from_u32(c).is_none() || !request.covers(c) {
+                return Err("a color codepoint the request does not cover");
+            }
+            if color.last().is_some_and(|&last| last >= c) {
+                return Err("the color codepoints are not sorted, or name one twice");
+            }
+            color.push(c);
+        }
         if !r.0.is_empty() {
-            return Err("bytes after the last strike");
+            return Err("bytes after the last strike and the color codepoints");
         }
         Ok(Outline {
             family,
             format,
             license,
             strikes,
+            color,
         })
     }
 }
@@ -810,6 +847,19 @@ pub(crate) mod raster {
     use swash::zeno::{Command, Mask, Origin, Placement, Point, Transform};
 
     use crate::resample::{self, METHOD};
+
+    #[cfg(test)]
+    thread_local! {
+        /// How many color glyphs [`Drawer::draw_transformed`] has drawn on
+        /// this thread, which a test counts.
+        pub(crate) static COLOR_DRAWS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+    }
+
+    /// Counts a color glyph drawn, for a test.
+    fn drew_color() {
+        #[cfg(test)]
+        COLOR_DRAWS.with(|n| n.set(n.get().saturating_add(1)));
+    }
     use swash::{FontDataRef, FontRef, StringId};
 
     /// The face `family` names in `data`, its Regular face first, or its
@@ -1175,6 +1225,20 @@ pub(crate) mod raster {
             self.draw_transformed(g, ppem, fit, stretch)
         }
 
+        /// Whether [`Drawer::draw_transformed`] draws glyph `g` at `ppem` in
+        /// color: from layers of color, or from a color bitmap strike that
+        /// holds it. It reads the font's tables and draws nothing.
+        pub(crate) fn is_color(&mut self, g: u16, ppem: f32) -> bool {
+            let mut scaler = self.context.builder(self.font).size(ppem).build();
+            (scaler.has_color_outlines() && scaler.scale_color_outline(g).is_some())
+                || (scaler.has_color_bitmaps()
+                    && self
+                        .font
+                        .color_strikes()
+                        .find_by_largest_ppem(g)
+                        .is_some_and(|strike| strike.ppem() != 0))
+        }
+
         /// Glyph `g` drawn as [`Drawer::draw`] draws it, its outline moved
         /// through `transform` before it is rasterised; a color glyph is
         /// drawn as it stands.
@@ -1189,11 +1253,13 @@ pub(crate) mod raster {
             if scaler.has_color_outlines()
                 && let Some(layers) = scaler.scale_color_outline(g)
             {
+                drew_color();
                 return Some(self.compose(&layers));
             }
             if scaler.has_color_bitmaps()
                 && let Some(image) = self.bitmap(g, ppem, fit)
             {
+                drew_color();
                 return Some(image);
             }
             self.outline(g, ppem, transform)
@@ -1727,6 +1793,7 @@ pub(crate) mod raster {
         // whatever style is drawn over it, so every style shares them
         let mut plain = Drawer::new(font, index, request.hinting);
         let mut strikes = Vec::new();
+        let mut color_left: Vec<u32> = Vec::new();
         for (i, &(want_w, h)) in request.cells.iter().enumerate() {
             let ppem = request
                 .sizes
@@ -1758,6 +1825,13 @@ pub(crate) mod raster {
                 let at = match index.iter().find(|(id, _)| *id == g) {
                     Some(&(_, i)) => i,
                     None => {
+                        // a line of double width stretches each outline
+                        // sideways, which a color glyph cannot take: the
+                        // glyph is left out and named, not drawn
+                        if request.double_width && drawer.is_color(g, ppem) {
+                            color_left.push(c);
+                            continue;
+                        }
                         let advance = advances.advance_width(g) * widen;
                         // a glyph larger than a set's chunk goes in a chunk of
                         // its own (ADR-1302 D6), so none is left out for its size
@@ -1792,7 +1866,10 @@ pub(crate) mod raster {
                 clusters,
             });
         }
-        let color = strikes.iter().flat_map(|s| &s.glyphs).any(|g| g.color);
+        color_left.sort_unstable();
+        color_left.dedup();
+        let color =
+            !color_left.is_empty() || strikes.iter().flat_map(|s| &s.glyphs).any(|g| g.color);
         let mut license = font
             .localized_strings()
             .find_by_id(StringId::License, Some("en"))
@@ -1811,6 +1888,7 @@ pub(crate) mod raster {
             format: if color { "outline+color" } else { "outline" }.to_owned(),
             license,
             strikes,
+            color: color_left,
         })
     }
 
@@ -2122,6 +2200,48 @@ pub(crate) mod raster {
 mod tests {
     use super::raster::{Cell, embolden_per_side, one_bit, place_drawn, synthesise};
     use swash::zeno::{Command, Point};
+
+    // issue #61: a request for a line of double width leaves each color
+    // glyph out and names its codepoint, since the line stretches each
+    // outline sideways and a color glyph cannot be stretched. Test Mono's
+    // U+1F600 is a COLR glyph and `A` an outline one. The answer carries
+    // the name across the pipe, and the console's check refuses a name the
+    // request did not ask for or could not leave out
+    #[test]
+    fn a_line_of_double_width_names_the_color_glyphs_it_leaves_out() {
+        use super::{Outline, OutlineRequest, rasterise};
+        let request = |double_width| OutlineRequest {
+            font: vtium_testfont::ttf::test_mono().build().into(),
+            cells: vec![(16, 16)],
+            cover: vec![(0x41, 0x41), (0x1f600, 0x1f600)],
+            double_width,
+            ..OutlineRequest::default()
+        };
+        let wide = request(true);
+        let o = rasterise(&wide).expect("Test Mono rasterises");
+        assert_eq!(o.color, [0x1f600]);
+        let s = &o.strikes[0];
+        assert_eq!(s.map.iter().map(|&(c, _)| c).collect::<Vec<_>>(), [0x41]);
+        assert!(s.glyphs.iter().all(|g| !g.color), "a color glyph is drawn");
+        assert_eq!(o.format, "outline+color");
+        assert_eq!(Outline::decode(&o.encode(), &wide), Ok(o.clone()));
+        // a request at the normal size draws the color glyph and names none
+        let normal = rasterise(&request(false)).expect("Test Mono rasterises");
+        assert!(normal.color.is_empty());
+        assert!(normal.strikes[0].glyphs.iter().any(|g| g.color));
+        assert_eq!(
+            Outline::decode(&o.encode(), &request(false)),
+            Err("color glyphs left out of a request that leaves none out")
+        );
+        let uncovered = Outline {
+            color: vec![0x42],
+            ..o.clone()
+        };
+        assert_eq!(
+            Outline::decode(&uncovered.encode(), &wide),
+            Err("a color codepoint the request does not cover")
+        );
+    }
 
     /// The points of `path` that close each of its segments.
     fn ends(path: &[Command]) -> Vec<(f32, f32)> {

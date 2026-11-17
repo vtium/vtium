@@ -54,7 +54,8 @@
 //! ```text
 //! request  magic "VTVSREQA", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
-//!          says how its glyphs were made, 8 coverage query), frit name length u32, the name (ADR-1200 D1's
+//!          says how its glyphs were made, 8 coverage query; 9, the pointer
+//!          ask, has a layout of its own, below), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a query), cell height u32 (for a sources or
 //!          coverage query 0, for a cell query
@@ -112,9 +113,39 @@
 //!          query's answer, the count u32 and each codepoint u32 of the
 //!          letters asked that the frit covers, then the family of an
 //!          installed font that covers the most of the rest (UTF-8, empty
-//!          when none does); kind 3 a failure (UTF-8
+//!          when none does); kind 16 a pointer picture and 17 a pointer
+//!          shape the helper draws nothing for, both answers to a pointer
+//!          ask (below); kind 3 a failure (UTF-8
 //!          reason), the helper's own, as when it fails as it starts
+//! pointer  magic "VTVSREQA", kind u32 9, file kind u32 (1 SVG, 2 a cursor
+//!   ask    theme's Xcursor file), shape u32 (its place in vtium-term's
+//!          PointerShape::ALL), pointer-size u32 (0 unset, else 8 to 64; 0
+//!          for SVG), height count u32 (1 to 16 for SVG, 0 for Xcursor),
+//!          each cell height u32 (1 to CELL_SIDE_MAX), file length u32 (at
+//!          most POINTER_SVG_BYTES_MAX for SVG, XCURSOR_FILE_MAX for
+//!          Xcursor), the file's bytes
+//! pointer  kind 16, one for each picture drawn: shape u32, size u32 (the
+//!  answer  cell height asked for SVG, the nominal size for Xcursor), width
+//!          u32, height u32, hotspot x u32 and y u32, then width × height
+//!          premultiplied RGBA pixels; or kind 17, once: shape u32, why
+//!          u32 (0 the file has no picture of the shape, 1 the helper
+//!          cannot draw it), then the reason (UTF-8, empty for 0); then
+//!          kind 2, done, as every ask ends
 //! ```
+//!
+//! The console reads each pointer file itself, under the ownership check a
+//! frit passes, and sends its bytes in a pointer ask, so the helper opens
+//! no pointer file. A pointer ask is answered in its turn among the asks:
+//! for an SVG file, the shape's symbol drawn a cell tall at each height
+//! asked ([`crate::pointer_svg`]); for a cursor theme's file, every size
+//! the reader keeps, or the size nearest `pointer-size`
+//! ([`crate::xcursor`]). The console checks each picture before it trusts
+//! it: its shape and size among those asked, its sides from 1 to
+//! [`POINTER_SIDE_MAX`], its pixels exactly that many, its hotspot inside
+//! it, and no color above its alpha.
+//!
+//! References:
+//! - ADR-1309 D5: the pointer ask, its answer frames and the console's checks of them.
 //!
 //! Little-endian throughout. The console checks every frame before it
 //! trusts it: the length against [`FRAME_BYTES_MAX`] before it allocates,
@@ -201,13 +232,14 @@ use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, Un
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
-use crate::frit::Render;
 use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
+use crate::frit::{Render, RenderLine};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve};
-use vtium_term::ClusterWidth;
+use vtium_render::{POINTER_SIDE_MAX, POINTER_SVG_BYTES_MAX, XCURSOR_FILE_MAX};
+use vtium_term::{ClusterWidth, PointerShape};
 
 /// The command that makes the binary the helper.
 pub const SERVE_ARG: &str = "serve";
@@ -249,11 +281,14 @@ pub const FRAME_WARNING: u32 = 9;
 /// answer when the frit's first source is an outline font: its width and
 /// height, the height the one asked for.
 pub const FRAME_OUTLINE_CELL: u32 = 10;
-/// A sources query's answer: each source left out, one a line.
+/// A sources query's answer: each source left out, one a line, and each
+/// font that differs from what its source needs. For a frit that reads and
+/// has no source left, a first line of the kind `nothing` says why
+/// ([`DrawsNothing::line_text`]).
 pub const FRAME_SOURCES: u32 = 11;
-/// A sources query's answer for a frit the helper draws nothing from: the
-/// frit does not read, or none of its sources is on this machine; the
-/// reason, as UTF-8. It is a kind of its own so that [`FRAME_FAILED`],
+/// The answer to a sources query for a frit that does not read, and to a
+/// coverage query for a frit the helper draws nothing from: the reason, as
+/// UTF-8. It is a kind of its own so that [`FRAME_FAILED`],
 /// which the helper also sends when it fails as it starts, is never taken
 /// as a frit's answer.
 pub const FRAME_DRAWS_NOTHING: u32 = 12;
@@ -272,6 +307,28 @@ pub const FRAME_SANDBOX: u32 = 14;
 /// most of the rest, UTF-8, empty when none does
 /// ([`crate::sources::font_covering`]).
 pub const FRAME_COVERAGE: u32 = 15;
+/// A pointer picture, an answer to a [`POINTER`] ask
+/// ([`PointerPicture::payload`]).
+pub const FRAME_POINTER: u32 = 16;
+/// A pointer shape the helper draws nothing for, an answer to a
+/// [`POINTER`] ask: the shape u32, [`NO_POINTER_MISSING`] or
+/// [`NO_POINTER_REFUSED`] u32, and the reason in UTF-8.
+pub const FRAME_NO_POINTER: u32 = 17;
+/// [`FRAME_NO_POINTER`]'s why: the file has no picture of the shape.
+pub const NO_POINTER_MISSING: u32 = 0;
+/// [`FRAME_NO_POINTER`]'s why: the helper cannot draw the file's picture.
+pub const NO_POINTER_REFUSED: u32 = 1;
+/// A pointer ask (ADR-1309 D5): a pointer file's bytes, one shape, and
+/// the heights to draw it at, read with a layout of its own
+/// ([`PointerAsk`]).
+pub const POINTER: u32 = 9;
+/// A pointer ask's file kind: an SVG pointer file.
+pub const POINTER_SVG: u32 = 1;
+/// A pointer ask's file kind: a cursor theme's Xcursor file.
+pub const POINTER_XCURSOR: u32 = 2;
+/// The most cell heights one pointer ask names: the displays of one head
+/// draw at few cell heights.
+pub const POINTER_HEIGHTS_MAX: usize = 16;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// An ask from a console that also takes the part of a cluster the font
@@ -494,26 +551,16 @@ impl ServeRequest {
     /// kernel's font inside the kernel's own bounds with its data exactly
     /// as long as its shape.
     pub fn read(r: &mut impl Read) -> Result<Option<ServeRequest>, String> {
-        let mut magic = [0u8; 8];
-        let (head, rest) = magic.split_at_mut(1);
-        match r.read(head) {
-            Ok(0) => return Ok(None),
-            Ok(_) => {}
-            Err(e) => return Err(format!("cannot read a request: {e}")),
-        }
-        r.read_exact(rest)
-            .map_err(|_| "a request cut short".to_owned())?;
-        if &magic != REQUEST_MAGIC {
-            // a request of another layout of this format comes from a
-            // console of another build
-            return Err(if magic.starts_with(b"VTVSREQ") {
-                OTHER_BUILD.to_owned()
-            } else {
-                "not a serve request".to_owned()
-            });
+        if !read_magic(r)? {
+            return Ok(None);
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
+        ServeRequest::read_body(kind, &mut f).map(Some)
+    }
+
+    /// Reads the fields of a request of `kind` that follow its kind.
+    fn read_body<R: Read>(kind: u32, f: &mut Fields<'_, R>) -> Result<ServeRequest, String> {
         if !matches!(
             kind,
             ASK | ASK_PARTS | ASK_MADE | FILL | STOP | OWN_CELL | SOURCES | COVERAGE
@@ -666,7 +713,7 @@ impl ServeRequest {
             }
             _ => return Err("an unknown console font flag".to_owned()),
         };
-        Ok(Some(ServeRequest {
+        Ok(ServeRequest {
             kind,
             frit: FritText { name, text },
             cell,
@@ -679,7 +726,268 @@ impl ServeRequest {
             clusters,
             held,
             console,
-        }))
+        })
+    }
+}
+
+/// Reads the magic of the next request from `r`: `false` at the end of the
+/// input between requests.
+fn read_magic(r: &mut impl Read) -> Result<bool, String> {
+    let mut magic = [0u8; 8];
+    let (head, rest) = magic.split_at_mut(1);
+    match r.read(head) {
+        Ok(0) => return Ok(false),
+        Ok(_) => {}
+        Err(e) => return Err(format!("cannot read a request: {e}")),
+    }
+    r.read_exact(rest)
+        .map_err(|_| "a request cut short".to_owned())?;
+    if &magic != REQUEST_MAGIC {
+        // a request of another layout of this format comes from a
+        // console of another build
+        return Err(if magic.starts_with(b"VTVSREQ") {
+            OTHER_BUILD.to_owned()
+        } else {
+            "not a serve request".to_owned()
+        });
+    }
+    Ok(true)
+}
+
+/// Any request the helper reads: one of the glyph requests, or a pointer
+/// ask.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Request {
+    Serve(ServeRequest),
+    Pointer(PointerAsk),
+}
+
+/// Reads one request of any kind from `r`, as [`ServeRequest::read`] and
+/// [`PointerAsk::read`] check them: `None` at the end of the input between
+/// requests.
+pub fn read_request(r: &mut impl Read) -> Result<Option<Request>, String> {
+    if !read_magic(r)? {
+        return Ok(None);
+    }
+    let mut f = Fields(r);
+    let kind = f.u32()?;
+    if kind == POINTER {
+        PointerAsk::read_body(&mut f).map(|a| Some(Request::Pointer(a)))
+    } else {
+        ServeRequest::read_body(kind, &mut f).map(|r| Some(Request::Serve(r)))
+    }
+}
+
+/// The kind of pointer file a pointer ask carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerFile {
+    /// An SVG pointer file, whose symbols the helper draws a cell tall.
+    Svg,
+    /// One cursor theme file, in the Xcursor format.
+    Xcursor,
+}
+
+/// A pointer ask (ADR-1309 D5): a pointer file's bytes, which the console
+/// read, and one shape to draw from it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PointerAsk {
+    pub file: PointerFile,
+    pub shape: PointerShape,
+    /// `pointer-size`, the nominal size a cursor theme's picture is kept
+    /// at; `None` keeps every size within the budget. Always `None` for an
+    /// SVG file.
+    pub size: Option<u32>,
+    /// The cell heights the displays draw at, each of which an SVG file's
+    /// symbol is drawn for; none for a cursor theme's file, which answers
+    /// with the sizes it keeps.
+    pub heights: Vec<u32>,
+    pub bytes: Vec<u8>,
+}
+
+/// A shape's place in [`PointerShape::ALL`], as a pointer ask and its
+/// answers carry it.
+pub fn shape_code(shape: PointerShape) -> u32 {
+    PointerShape::ALL
+        .iter()
+        .position(|&s| s == shape)
+        .and_then(|i| u32::try_from(i).ok())
+        .unwrap_or(0)
+}
+
+/// The shape at `code` in [`PointerShape::ALL`].
+pub fn shape_of(code: u32) -> Option<PointerShape> {
+    PointerShape::ALL.get(usize::try_from(code).ok()?).copied()
+}
+
+impl PointerAsk {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = REQUEST_MAGIC.to_vec();
+        put32(&mut out, POINTER);
+        put32(
+            &mut out,
+            match self.file {
+                PointerFile::Svg => POINTER_SVG,
+                PointerFile::Xcursor => POINTER_XCURSOR,
+            },
+        );
+        put32(&mut out, shape_code(self.shape));
+        put32(&mut out, self.size.unwrap_or(0));
+        put32(&mut out, len32(self.heights.len()));
+        for &h in &self.heights {
+            put32(&mut out, h);
+        }
+        put32(&mut out, len32(self.bytes.len()));
+        out.extend_from_slice(&self.bytes);
+        out
+    }
+
+    /// Reads one pointer ask from `r`, as [`read_request`] does, refusing
+    /// any other request.
+    pub fn read(r: &mut impl Read) -> Result<Option<PointerAsk>, String> {
+        match read_request(r)? {
+            None => Ok(None),
+            Some(Request::Pointer(a)) => Ok(Some(a)),
+            Some(Request::Serve(_)) => {
+                Err("a glyph request where a pointer ask was expected".to_owned())
+            }
+        }
+    }
+
+    /// Reads the fields of a pointer ask that follow its kind, each checked
+    /// before anything is allocated for it: the file kind one of two, the
+    /// shape one of the ten, `pointer-size` 0 or 8 to 64 and 0 for SVG,
+    /// the heights 1 to [`POINTER_HEIGHTS_MAX`] of them for SVG and none
+    /// for Xcursor, each 1 to [`CELL_SIDE_MAX`], and the file within its
+    /// kind's bound.
+    fn read_body<R: Read>(f: &mut Fields<'_, R>) -> Result<PointerAsk, String> {
+        let file = match f.u32()? {
+            POINTER_SVG => PointerFile::Svg,
+            POINTER_XCURSOR => PointerFile::Xcursor,
+            _ => return Err("a pointer ask of an unknown file kind".to_owned()),
+        };
+        let shape = shape_of(f.u32()?).ok_or("a pointer ask for an unknown shape")?;
+        let size = match f.u32()? {
+            0 => None,
+            s if file == PointerFile::Xcursor && (8..=POINTER_SIDE_MAX).contains(&s) => Some(s),
+            _ => {
+                return Err(
+                    "a pointer ask whose pointer-size is not 8 to 64, or set for an SVG file"
+                        .to_owned(),
+                );
+            }
+        };
+        let most = match file {
+            PointerFile::Svg => POINTER_HEIGHTS_MAX,
+            PointerFile::Xcursor => 0,
+        };
+        let n = f.count(most, "a pointer ask's heights")?;
+        if file == PointerFile::Svg && n == 0 {
+            return Err("a pointer ask for an SVG file with no height".to_owned());
+        }
+        let mut heights = Vec::with_capacity(n);
+        for _ in 0..n {
+            let h = f.u32()?;
+            if !(1..=CELL_SIDE_MAX).contains(&h) {
+                return Err(format!(
+                    "a pointer ask's height of 0 or of more than {CELL_SIDE_MAX} pixels"
+                ));
+            }
+            heights.push(h);
+        }
+        let n = f.count(
+            match file {
+                PointerFile::Svg => POINTER_SVG_BYTES_MAX,
+                PointerFile::Xcursor => XCURSOR_FILE_MAX,
+            },
+            "a pointer file's bytes",
+        )?;
+        let bytes = f.bytes(n)?;
+        Ok(PointerAsk {
+            file,
+            shape,
+            size,
+            heights,
+            bytes,
+        })
+    }
+
+    /// Draws the ask's pictures and writes the answer: a [`FRAME_POINTER`]
+    /// for each picture, or one [`FRAME_NO_POINTER`], then
+    /// [`FRAME_DONE`].
+    fn answer(&self, out: &mut dyn Write) -> io::Result<()> {
+        let code = shape_code(self.shape);
+        let none = |out: &mut dyn Write, why: u32, reason: &str| {
+            let mut payload = Vec::new();
+            put32(&mut payload, code);
+            put32(&mut payload, why);
+            let mut reason = reason.to_owned();
+            while reason.len() > REASON_BYTES_MAX {
+                reason.pop();
+            }
+            payload.extend_from_slice(reason.as_bytes());
+            write_frame(out, FRAME_NO_POINTER, &payload)
+        };
+        match self.file {
+            PointerFile::Svg => {
+                let mut heights = self.heights.clone();
+                heights.sort_unstable();
+                heights.dedup();
+                for h in heights {
+                    match crate::pointer_svg::draw(&self.bytes, self.shape.name(), h) {
+                        Ok(p) => write_frame(out, FRAME_POINTER, &p.payload(self.shape))?,
+                        Err(crate::pointer_svg::NoPicture::Missing) => {
+                            none(out, NO_POINTER_MISSING, "")?;
+                            break;
+                        }
+                        Err(crate::pointer_svg::NoPicture::Refused(why)) => {
+                            none(out, NO_POINTER_REFUSED, &why)?;
+                            break;
+                        }
+                    }
+                }
+            }
+            PointerFile::Xcursor => match crate::xcursor::read(&self.bytes, self.size) {
+                Ok(pictures) => {
+                    for p in pictures {
+                        write_frame(out, FRAME_POINTER, &p.payload(self.shape))?;
+                    }
+                }
+                Err(why) => none(out, NO_POINTER_REFUSED, &why)?,
+            },
+        }
+        write_frame(out, FRAME_DONE, &[])
+    }
+}
+
+/// One pointer picture the helper drew: premultiplied RGBA rows, `width`
+/// pixels a row, with the pixel the pointer names at `hot`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PointerPicture {
+    /// The cell height it was drawn for, from an SVG file, or its nominal
+    /// size, from a cursor theme's file.
+    pub size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub hot: (u32, u32),
+    pub rgba: Vec<u8>,
+}
+
+impl PointerPicture {
+    /// The picture as [`FRAME_POINTER`]'s payload, for `shape`.
+    pub fn payload(&self, shape: PointerShape) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.rgba.len().saturating_add(24));
+        for v in [
+            shape_code(shape),
+            self.size,
+            self.width,
+            self.height,
+            self.hot.0,
+            self.hot.1,
+        ] {
+            put32(&mut out, v);
+        }
+        out.extend_from_slice(&self.rgba);
+        out
     }
 }
 
@@ -794,6 +1102,11 @@ pub struct Paths {
     pub font_dirs: Vec<PathBuf>,
     pub vconsole_conf: PathBuf,
     pub kernel_cmdline: PathBuf,
+    /// The console's locale, in `LANG`'s form, which the console passes
+    /// with `--locale` when it starts the helper. It picks the built-in
+    /// font that draws the text of a set whose text font is missing, as
+    /// the console picks its own ([`vtium_font::set::builtin_name`]).
+    pub locale: String,
 }
 
 impl Default for Paths {
@@ -804,6 +1117,7 @@ impl Default for Paths {
             font_dirs: FONT_DIRS.iter().map(PathBuf::from).collect(),
             vconsole_conf: PathBuf::from("/etc/vconsole.conf"),
             kernel_cmdline: PathBuf::from("/proc/cmdline"),
+            locale: "C".to_owned(),
         }
     }
 }
@@ -855,6 +1169,38 @@ const REGULAR: Style = Style {
     bold: false,
     italic: false,
 };
+
+/// Whether `source` is one of the frit's own regular sources, which may be
+/// its text font and set its cell; a layer's source never is.
+fn own_regular(source: &Source) -> bool {
+    source.style == REGULAR && source.layer.is_none()
+}
+
+/// The built-in font `face` as a bitmap font with no glyphs: its cell at
+/// the scale it draws at, and its regular strike's baseline at that scale.
+/// It stands for the built-in font where the built-in font draws the text
+/// in place of a missing text font, so that the other sources' glyphs
+/// share its baseline and lines.
+fn built_in_metrics(face: &vtium_font::set::SetFace) -> Font {
+    use vtium_font::Face;
+    let cell = face.cell();
+    let baseline = face
+        .set()
+        .strikes()
+        .filter(|s| s.style == Style::default() && s.cell.height > 0)
+        .find_map(|s| {
+            let k = cell.height / s.cell.height;
+            (k > 0 && s.cell.height * k == cell.height && s.cell.width * k == cell.width)
+                .then_some(s.baseline * k)
+        });
+    Font {
+        cell,
+        baseline,
+        glyphs: Vec::new(),
+        map: BTreeMap::new(),
+        format: "builtin".to_owned(),
+    }
+}
 const BOLD: Style = Style {
     bold: true,
     italic: false,
@@ -944,6 +1290,48 @@ impl LeftOut {
     }
 }
 
+/// Why an engine draws nothing from a frit, and what reading the frit
+/// found.
+pub struct DrawsNothing {
+    /// Why: the frit does not read, it names no source, or no source of it
+    /// is left.
+    pub why: String,
+    /// What reading the frit's sources found, `None` when its text does not
+    /// read.
+    pub read: Option<Found>,
+}
+
+/// What the engine found as it read a frit's sources, which a frit
+/// with no source left keeps for the console and a sources query.
+pub struct Found {
+    /// The warnings the frit's text and its sources gave, as
+    /// [`Engine::warnings`] holds them.
+    pub warnings: Vec<String>,
+    /// The sources left out, as [`Engine::left_out`] holds them.
+    pub left_out: Vec<LeftOut>,
+    /// The fonts that differ from what their sources need, as
+    /// [`Engine::differs`] holds them.
+    pub differs: Vec<crate::needs::Differs>,
+}
+
+impl DrawsNothing {
+    /// The line a sources query answers first for a frit that reads and
+    /// has no source left: the kind `nothing`, line 0, no spelling, and
+    /// why. A reader that knows only the `missing` and `refused` lines
+    /// skips it, as it skips any kind it does not know.
+    pub fn line_text(&self) -> String {
+        format!("nothing\t0\t\t{}", self.why.replace(['\t', '\n'], " "))
+    }
+
+    /// Why the frit draws nothing, from a sources query's answer `text`:
+    /// its `nothing` line's why, `None` when the answer has no such line.
+    pub fn parse(text: &str) -> Option<String> {
+        text.lines()
+            .find_map(|l| l.strip_prefix("nothing\t0\t\t"))
+            .map(str::to_owned)
+    }
+}
+
 /// A frit's sources, ready to draw at any cell.
 pub struct Engine {
     name: String,
@@ -958,6 +1346,9 @@ pub struct Engine {
     /// The sources [`Engine::load`] left out, each as a sources query
     /// answers it.
     left_out: Vec<LeftOut>,
+    /// The fonts that differ from what their sources need, each as a
+    /// sources query answers it ([`crate::needs`]).
+    differs: Vec<crate::needs::Differs>,
     /// Each outline source's baseline at a cell's height, by its place in
     /// `sources` and the height (ADR-1302 D3): found once, from the
     /// source's printable ASCII, so every request draws it on one
@@ -975,11 +1366,69 @@ pub struct Engine {
     /// fonts its `script-source=` lines name (ADR-1202 D3, D12). Its own
     /// strike, which comes first, is not repeated here.
     smaller: Vec<Vec<SmallerFont>>,
+    /// Each outline source's strikes by its place in `sources`, each a
+    /// [`Loaded::Bitmap`]: the bitmap files its `strike=` lines name that
+    /// this machine has and that read. Empty for a bitmap source.
+    strikes: Vec<Vec<Loaded>>,
     /// The frit's `cell=`, which sets its own cell where it states one.
     cell: Option<Cell>,
+    /// Why the frit has no text font to draw from, when it has none: its
+    /// text font, its own first regular source, was left out by
+    /// [`Engine::load`], or the frit has no source of its own, only
+    /// layers. Then the built-in font draws the text in the text font's
+    /// place ([`Engine::built_in_at`]), and the frit has no own cell.
+    text_left_out: Option<TextOut>,
+    /// The console's locale ([`Paths::locale`]), which picks the built-in
+    /// font that stands in for a missing text font.
+    locale: String,
     /// The frit's `render=` lines, by the line of the source each is for
     /// ([`Engine::draws_as_bitmap`]).
-    render: Vec<(usize, Render)>,
+    render: Vec<RenderLine>,
+    /// Whether the frit's first source is a bitmap font, which decides how
+    /// the outline sources with no `render=` line draw. The engine decides
+    /// it once, when [`Engine::own_cell`] picks the source that sets the
+    /// cell or at the first draw before that, and keeps it for its life.
+    /// A first source that fails later in the session hands the cell's
+    /// glyphs to the next source, but the outline sources keep drawing as
+    /// they began, so that one font's glyphs never mix 1-bit and
+    /// antialiased ones, and each baseline measured for them stays right.
+    first_is_bitmap: std::cell::Cell<Option<bool>>,
+}
+
+/// Why a frit has no text font to draw from ([`Engine::own_cell`]).
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum TextOut {
+    /// The text font, by its spelling and the frit's line that names it,
+    /// is missing or cannot be read.
+    LeftOut(String, usize),
+    /// The frit has no source of its own, only layers' sources.
+    NoneOwn,
+}
+
+/// The frit's first regular source as it draws in a cell
+/// ([`Engine::first_drawn`]): the text font, or its strike, at its place
+/// in `sources`; or the built-in font that stands in for a text font the
+/// frit lacks, of which only the cell and the baseline matter.
+enum FirstDrawn<'a> {
+    Source(usize, &'a Loaded),
+    BuiltIn(Loaded),
+}
+
+impl FirstDrawn<'_> {
+    fn loaded(&self) -> &Loaded {
+        match self {
+            FirstDrawn::Source(_, loaded) => loaded,
+            FirstDrawn::BuiltIn(loaded) => loaded,
+        }
+    }
+
+    /// Its place in `sources`; `None` for the built-in font.
+    fn at(&self) -> Option<usize> {
+        match self {
+            FirstDrawn::Source(i, _) => Some(*i),
+            FirstDrawn::BuiltIn(_) => None,
+        }
+    }
 }
 
 /// A vitrified set of glyphs, `None` when no source gives any, and how the
@@ -994,14 +1443,14 @@ struct SmallerFont {
     named: Option<(usize, String)>,
 }
 
-/// The codepoints `font` maps in the face of `family` (its first face for
-/// an empty family), as the rasteriser takes them: no control character
-/// and no glyph 0.
-fn outline_coverage(font: &[u8], family: &str) -> Result<Vec<u32>, String> {
+/// The face of `family` in `font`, a font file or a collection, matched on
+/// its family names as fontconfig matches them, or its first face for an
+/// empty family.
+fn outline_face<'a>(font: &'a [u8], family: &str) -> Result<swash::FontRef<'a>, String> {
     use swash::{FontDataRef, StringId};
     let fonts = FontDataRef::new(font).ok_or("not a TrueType or OpenType font")?;
     let want = family_key(family);
-    let face = fonts
+    fonts
         .fonts()
         .find(|f| {
             want.is_empty() || {
@@ -1012,7 +1461,33 @@ fn outline_coverage(font: &[u8], family: &str) -> Result<Vec<u32>, String> {
                     .any(|s| family_key(&s.to_string()) == want)
             }
         })
-        .ok_or_else(|| format!("the font holds no face of family {family}"))?;
+        .ok_or_else(|| format!("the font holds no face of family {family}"))
+}
+
+/// The version string of the face of `family` in `font` (its first face
+/// for an empty family), from its name table's version entry (name ID 5),
+/// in English where the font gives one; `None` when the font states none.
+/// It reads the name table with read-fonts, as the search for a family
+/// does, which checks each offset against the file, so a malformed file
+/// has no version rather than a panic.
+///
+/// References:
+/// - ADR-1204 D7: `version=` is matched against the font's version.
+pub fn outline_version(font: &[u8], family: &str) -> Option<String> {
+    let faces = crate::names::faces(font).ok()?;
+    let face = if family.is_empty() {
+        faces.first()
+    } else {
+        crate::names::choose(&faces, family)
+    }?;
+    face.version.clone()
+}
+
+/// The codepoints `font` maps in the face of `family` (its first face for
+/// an empty family), as the rasteriser takes them: no control character
+/// and no glyph 0.
+fn outline_coverage(font: &[u8], family: &str) -> Result<Vec<u32>, String> {
+    let face = outline_face(font, family)?;
     let mut out = Vec::new();
     face.charmap().enumerate(|c, g| {
         let control = c < 0x20 || (0x7f..0xa0).contains(&c);
@@ -1023,6 +1498,13 @@ fn outline_coverage(font: &[u8], family: &str) -> Result<Vec<u32>, String> {
     out.sort_unstable();
     out.dedup();
     Ok(out)
+}
+
+/// Whether `key` is the key of one piece of a run of ASCII symbols that
+/// may draw as a ligature, rather than of a syllable's piece.
+fn is_ligature_piece(key: &[u32]) -> bool {
+    vtium_font::syllable::piece_of(key)
+        .is_some_and(|(text, _)| vtium_font::syllable::is_ligature_run(text))
 }
 
 /// Sorted codepoints as ranges, runs joined.
@@ -1273,44 +1755,91 @@ struct SmallerGlyph<'a> {
 fn smaller_fonts(
     source: &Source,
     host: &Host<'_>,
-    name: &str,
+    frit: &Frit,
     warnings: &mut Vec<String>,
 ) -> Vec<SmallerFont> {
     let mut fonts = Vec::new();
     for (named, input) in crate::sources::smaller(source, host) {
         let font = input.and_then(|input| {
-            match input {
-                Input::Bitmap(font) => Ok(font),
-                Input::Bdf(bytes) => crate::bdf::font(&bytes),
-                Input::Font(req) => req
-                    .unimap
-                    .as_ref()
-                    .and_then(|_| crate::decode::font(&req.font, None, None).ok())
-                    .map_or_else(
-                        || {
-                            crate::decode::font(
-                                &req.font,
-                                req.unimap.as_deref(),
-                                req.def_uni.as_deref(),
-                            )
-                        },
-                        Ok,
-                    )
-                    .map(Font::from_glyphs),
-                Input::Outline(_) => {
-                    Err("this is an outline font, not a smaller bitmap font".to_owned())
-                }
-            }
-            .map_err(SourceError::Failed)
+            bitmap_of(input, "this is an outline font, not a smaller bitmap font")
+                .map_err(SourceError::Failed)
         });
         match (font, &named) {
             (Ok(font), _) => fonts.push(SmallerFont { font, named }),
             (Err(SourceError::Failed(e)), Some((line, spelling))) => warnings.push(format!(
-                "{name}:{line}: script-source={spelling}: {e}; the font is left out"
+                "{}: script-source={spelling}: {e}; the font is left out",
+                frit.at(*line)
             )),
             // a font this machine lacks, and a CPI height that does not
             // decode, are left out quietly
             (Err(_), _) => {}
+        }
+    }
+    fonts
+}
+
+/// The glyphs of a bitmap font that a source names besides its own: a
+/// smaller size or a strike. A font with a Unicode table of its own keeps
+/// it, and one with none takes the source's `unimap=`, else kbd's
+/// `def.uni`. An outline font is refused with `outline`.
+fn bitmap_of(input: Input, outline: &str) -> Result<Font, String> {
+    match input {
+        Input::Bitmap(font) => Ok(font),
+        Input::Bdf(bytes) => crate::bdf::font(&bytes),
+        Input::Font(req) => req
+            .unimap
+            .as_ref()
+            .and_then(|_| crate::decode::font(&req.font, None, None).ok())
+            .map_or_else(
+                || crate::decode::font(&req.font, req.unimap.as_deref(), req.def_uni.as_deref()),
+                Ok,
+            )
+            .map(Font::from_glyphs),
+        Input::Outline(_) => Err(outline.to_owned()),
+    }
+}
+
+/// The strikes that the outline `source`'s `strike=` lines name, read and
+/// parsed, each a [`Loaded::Bitmap`]. A strike this machine does not have
+/// is left out quietly, as a source is, and one that is here and is
+/// refused is left out with a warning that names its line in `frit`.
+///
+/// References:
+/// - ADR-1204 D2: the `strike=` key under an outline source.
+fn strike_fonts(
+    source: &Source,
+    host: &Host<'_>,
+    frit: &Frit,
+    warnings: &mut Vec<String>,
+) -> Vec<Loaded> {
+    let mut fonts = Vec::new();
+    for strike in &source.strikes {
+        let file = Source {
+            spelling: strike.spelling.clone(),
+            origin: strike.origin.clone(),
+            unimap: None,
+            cover: Vec::new(),
+            cp_size: None,
+            script_sources: Vec::new(),
+            strikes: Vec::new(),
+            style: source.style,
+            fits: Vec::new(),
+            layer: source.layer.clone(),
+            line: strike.line,
+            needs: crate::frit::Needs::default(),
+        };
+        let font = resolve(&file, host).and_then(|input| {
+            bitmap_of(input, "this is an outline font, not a bitmap strike")
+                .map_err(SourceError::Failed)
+        });
+        match font {
+            Ok(font) => fonts.push(Loaded::Bitmap(font)),
+            Err(SourceError::Failed(e)) => warnings.push(format!(
+                "{}: strike={}: {e}. Because of this error, vtium leaves the strike out.",
+                frit.at(strike.line),
+                strike.spelling
+            )),
+            Err(SourceError::Missing(_)) => {}
         }
     }
     fonts
@@ -1329,17 +1858,52 @@ impl Engine {
     /// account; a source missing or unreadable is left out, and the frit
     /// fails only when none is left. A source that is on this machine and
     /// is refused, such as a BDF file the reader refuses, is also a
-    /// warning when the frit loads without it, so the console logs it; a
-    /// source this machine does not have is left out quietly. Its messages
-    /// name the frit by its name.
+    /// warning when the frit loads without it, so the console logs it. A
+    /// font this machine does not have, or one that lacks a character its
+    /// `check=` names, is a warning that names the set, the font and the
+    /// version the set asks for. Each font that loads is matched against
+    /// its `version=` and `sha256=`, and a difference is kept for the
+    /// sources query ([`crate::needs`]). Its messages name the frit by its
+    /// name.
+    ///
+    /// References:
+    /// - ADR-1204 D7: a font that fails `check=` is missing, a lower
+    ///   version or another hash still draws, and the console logs each
+    ///   missing font.
     pub fn load(
         frit: &FritText,
         paths: &Paths,
         console: Option<ConsoleFont>,
     ) -> Result<Engine, String> {
+        Engine::read(frit, paths, console).map_err(|nothing| nothing.why)
+    }
+
+    /// [`Engine::load`], which for a frit it draws nothing from keeps what
+    /// the read found: the warnings, so the console still logs each
+    /// missing font, and the sources left out and the fonts that differ,
+    /// so a sources query still names them.
+    ///
+    /// References:
+    /// - ADR-1204 D7: the console logs each missing font, and vtium-config
+    ///   names each one, whether or not the set has a font left.
+    fn read(
+        frit: &FritText,
+        paths: &Paths,
+        console: Option<ConsoleFont>,
+    ) -> Result<Engine, DrawsNothing> {
         let file = Path::new(&frit.name);
-        let frit =
-            Frit::parse(frit.text.as_bytes(), file, &frit.name).map_err(|e| e.to_string())?;
+        // the console hands the frit with its layers in place, so each
+        // message names the file and line a line came from
+        let frit = Frit::parse_spliced(
+            frit.text.as_bytes(),
+            file,
+            &frit.name,
+            Path::new(vtium_font::set::layer::DIR),
+        )
+        .map_err(|e| DrawsNothing {
+            why: e.to_string(),
+            read: None,
+        })?;
         let mut warnings: Vec<String> = frit.warnings.iter().map(ToString::to_string).collect();
         let handed = Handed(console);
         let host = Host {
@@ -1351,13 +1915,28 @@ impl Engine {
         };
         let mut sources = Vec::new();
         let mut smaller = Vec::new();
+        let mut strikes = Vec::new();
         let mut why = Vec::new();
         let mut left_out = Vec::new();
+        let mut differs = Vec::new();
         for source in &frit.sources {
+            let own_line = frit.place(source.line).own;
+            // the version the font states, read only where the set asks
+            // for one
+            let mut version = None;
             let loaded = resolve(source, &host).and_then(|input| {
+                let wants = source.needs.version.is_some();
+                // a BDF font gives its version as it is read, from one
+                // decompression of its bytes
+                if wants && !matches!(input, Input::Bdf(_)) {
+                    version = crate::needs::version_of(&input);
+                }
                 match input {
                     Input::Bitmap(font) => Ok(Loaded::Bitmap(font)),
-                    Input::Bdf(bytes) => crate::bdf::font(&bytes).map(Loaded::Bitmap),
+                    Input::Bdf(bytes) => crate::bdf::read(&bytes, wants).map(|(font, stated)| {
+                        version = stated;
+                        Loaded::Bitmap(font)
+                    }),
                     Input::Font(req) => crate::decode::font(
                         &req.font,
                         req.unimap.as_deref(),
@@ -1374,17 +1953,67 @@ impl Engine {
                 }
                 .map_err(SourceError::Failed)
             });
+            // a font that lacks a character its check= line names is a
+            // different font of a similar name, and is missing
+            let mut lacks = None;
+            let loaded = loaded.and_then(|l| {
+                let lacked = match &l {
+                    Loaded::Bitmap(f) => crate::needs::lacking(&source.needs.check, |a, b| {
+                        f.map.range(a..=b).count()
+                    }),
+                    Loaded::Outline { mapped, .. } => {
+                        crate::needs::lacking(&source.needs.check, |a, b| {
+                            mapped
+                                .partition_point(|&c| c <= b)
+                                .saturating_sub(mapped.partition_point(|&c| c < a))
+                        })
+                    }
+                };
+                match lacked {
+                    None => Ok(l),
+                    Some(c) => {
+                        lacks = Some(c);
+                        differs.push(crate::needs::Differs {
+                            line: own_line,
+                            spelling: source.spelling.clone(),
+                            what: crate::needs::Differ::Lacks(c),
+                        });
+                        Err(SourceError::Missing(format!(
+                            "the font of that name on this machine lacks U+{c:04X}, which check= names, so it is not the font the set needs"
+                        )))
+                    }
+                }
+            });
             match loaded {
                 Ok(l) => {
-                    let small = match l {
-                        Loaded::Bitmap(_) => {
-                            smaller_fonts(source, &host, &frit.name, &mut warnings)
+                    differs.extend(crate::needs::differences(
+                        source,
+                        version.as_deref(),
+                        own_line,
+                    ));
+                    strikes.push(match l {
+                        Loaded::Outline { .. } => {
+                            strike_fonts(source, &host, &frit, &mut warnings)
                         }
+                        Loaded::Bitmap(_) => {
+                            if let Some(strike) = source.strikes.first() {
+                                warnings.push(format!(
+                                    "{}: strike={} is ignored, because the source above it is a bitmap font",
+                                    frit.at(strike.line),
+                                    strike.spelling
+                                ));
+                            }
+                            Vec::new()
+                        }
+                    });
+                    let small = match l {
+                        Loaded::Bitmap(_) => smaller_fonts(source, &host, &frit, &mut warnings),
                         Loaded::Outline { .. } => {
                             if let Some(named) = source.script_sources.first() {
                                 warnings.push(format!(
-                                    "{}:{}: script-source={} is ignored: the source above it is an outline font, which draws its own superscripts and subscripts at a smaller size",
-                                    frit.name, named.line, named.spelling
+                                    "{}: script-source={} is ignored: the source above it is an outline font, which draws its own superscripts and subscripts at a smaller size",
+                                    frit.at(named.line),
+                                    named.spelling
                                 ));
                             }
                             Vec::new()
@@ -1395,9 +2024,11 @@ impl Engine {
                 }
                 Err(SourceError::Missing(e)) => {
                     why.push(format!("source={}: {e}", source.spelling));
+                    // the console logs this line once a boot
+                    warnings.extend(crate::needs::missing_line(&frit.name, source, lacks));
                     left_out.push(LeftOut {
                         missing: true,
-                        line: source.line,
+                        line: own_line,
                         spelling: source.spelling.clone(),
                         why: e,
                     });
@@ -1405,39 +2036,69 @@ impl Engine {
                 Err(SourceError::Failed(e)) => {
                     left_out.push(LeftOut {
                         missing: false,
-                        line: source.line,
+                        line: own_line,
                         spelling: source.spelling.clone(),
                         why: e.clone(),
                     });
                     let line = format!("source={}: {e}", source.spelling);
                     warnings.push(format!(
-                        "{}:{}: {line}; the source is left out",
-                        frit.name, source.line
+                        "{}: {line}; the source is left out",
+                        frit.at(source.line)
                     ));
                     why.push(line);
                 }
             }
         }
-        // a font: source that turns out to be a console font draws 1-bit
-        // whatever its render= line says, so the line does nothing
+        // a font: source that turns out to be a console font draws its
+        // pixels fully on or off whatever its render= line says, so the
+        // line does nothing, and the warning names the render= line
         for (source, _) in sources
             .iter()
             .filter(|(_, l)| matches!(l, Loaded::Bitmap(_)))
         {
-            if frit.render_for(source.line).is_some() {
+            if let Some(render) = frit.render_for(source.line) {
                 warnings.push(format!(
-                    "{}:{}: source={}: render= is ignored, because this font is a bitmap font, which always draws 1-bit",
-                    frit.name, source.line, source.spelling
+                    "{}: render= is ignored, because {} is a bitmap font, whose characters always have sharp edges",
+                    frit.at(render.line),
+                    source.spelling
                 ));
             }
         }
+        // the text font is the frit's own first regular source, never a
+        // layer's
+        let text_left_out = match frit
+            .sources
+            .iter()
+            .find(|s| s.style == REGULAR && s.layer.is_none())
+        {
+            None => Some(TextOut::NoneOwn),
+            Some(text)
+                if !sources
+                    .iter()
+                    .any(|(s, _): &(Source, _)| s.line == text.line) =>
+            {
+                Some(TextOut::LeftOut(text.spelling.clone(), text.line))
+            }
+            Some(_) => None,
+        };
         if sources.is_empty() {
-            return Err(if why.is_empty() {
-                format!("{}: the frit names no source", file.display())
-            } else {
-                why.join("; ")
+            return Err(DrawsNothing {
+                why: if why.is_empty() {
+                    format!("{}: the frit names no source", file.display())
+                } else {
+                    why.join("; ")
+                },
+                read: Some(Found {
+                    warnings,
+                    left_out,
+                    differs,
+                }),
             });
         }
+        // the coverage holds what the frit draws at every height, so an
+        // outline source counts its own characters and not those that only
+        // its strikes hold, which draw only up to the tallest strike's
+        // height
         let mut coverage: Vec<u32> = sources
             .iter()
             .flat_map(|(source, l)| {
@@ -1459,11 +2120,16 @@ impl Engine {
             failed: RefCell::default(),
             warnings,
             left_out,
+            differs,
             baselines: RefCell::default(),
             hinting: frit.hinting,
             smaller,
+            strikes,
             cell: frit.cell,
+            text_left_out,
+            locale: paths.locale.clone(),
             render: frit.render,
+            first_is_bitmap: std::cell::Cell::new(None),
         })
     }
 
@@ -1472,9 +2138,7 @@ impl Engine {
     /// ways. The source's `render=` line decides where it has one. A source
     /// with none draws as a bitmap when the frit's first source is a bitmap
     /// font, so that the outline glyphs that fill its gaps look like the
-    /// rest of it. The first source is the first regular one the engine can
-    /// still draw from, the one that sets the frit's cell
-    /// ([`Engine::own_cell`]).
+    /// rest of it ([`Engine::first_is_bitmap`]).
     ///
     /// References:
     /// - ADR-1200 D1, the `render=` row: the values and the default.
@@ -1482,30 +2146,93 @@ impl Engine {
         let Some((source, _)) = self.sources.get(i) else {
             return false;
         };
-        if let Some(&(_, render)) = self.render.iter().find(|&&(at, _)| at == source.line) {
-            return render == Render::Bitmap;
+        if let Some(render) = self.render.iter().find(|r| r.source == source.line) {
+            return render.value == Render::Bitmap;
         }
-        let failed = self.failed.borrow();
-        self.sources
-            .iter()
-            .enumerate()
-            .filter(|(at, (s, _))| s.style == REGULAR && !failed.contains_key(at))
-            .map(|(_, (_, loaded))| loaded)
-            .next()
-            .is_some_and(|loaded| matches!(loaded, Loaded::Bitmap(_)))
+        self.first_is_bitmap()
     }
 
-    /// `request`, for the outline source at `i` in `sources`, asking for
-    /// that source's glyphs 1-bit where they draw as a bitmap
-    /// ([`Engine::draws_as_bitmap`]). Such a request carries
-    /// [`Hinting::Bitmap`] in place of the frit's `hinting=`.
-    fn rendered(&self, request: OutlineRequest, i: usize) -> OutlineRequest {
+    /// Whether the frit's first source is a bitmap font. The first source
+    /// is the frit's own first regular source that the engine can still
+    /// draw from, the one that sets the frit's cell ([`Engine::own_cell`]),
+    /// and never a layer's. Where the built-in font draws the text in place
+    /// of a missing text font, the first source is the built-in font, a
+    /// bitmap font. Otherwise the answer is decided at the first call,
+    /// unless [`Engine::own_cell`] decided it before, and stays the same for
+    /// the engine's life.
+    fn first_is_bitmap(&self) -> bool {
+        if let Some(known) = self.first_is_bitmap.get() {
+            return known;
+        }
+        if self.text_left_out.is_some() {
+            return true;
+        }
+        let failed = self.failed.borrow();
+        let known = self
+            .sources
+            .iter()
+            .enumerate()
+            .filter(|(at, (s, _))| own_regular(s) && !failed.contains_key(at))
+            .map(|(_, (_, loaded))| loaded)
+            .next()
+            .is_some_and(|loaded| matches!(loaded, Loaded::Bitmap(_)));
+        self.first_is_bitmap.set(Some(known));
+        known
+    }
+
+    /// The text font's place in `sources`: the frit's own first regular
+    /// source. `None` when the built-in font draws the text in its place,
+    /// because the text font is missing or the frit has only layers.
+    fn text_font(&self) -> Option<usize> {
+        if self.text_left_out.is_some() {
+            return None;
+        }
+        self.sources.iter().position(|(s, _)| own_regular(s))
+    }
+
+    /// The built-in font that the console draws in a cell `cell` high, when
+    /// it draws the text in place of the frit's missing text font; else
+    /// `None`. It is the one the console picks, by the cell's height and
+    /// the console's locale ([`vtium_font::set::builtin_name`]), which the
+    /// console passes the helper as it starts it.
+    ///
+    /// References:
+    /// - ADR-1204 D5 and D7: the built-in font draws the text when the
+    ///   set's text font is missing.
+    fn built_in_at(&self, cell: Cell) -> Option<vtium_font::set::SetFace> {
+        self.text_left_out.as_ref()?;
+        let name = vtium_font::set::builtin_name(cell.height, &self.locale);
+        vtium_font::set::SetFace::new(vtium_font::set::builtin(name)?, cell.height)
+    }
+
+    /// Records that the frit's first source is a bitmap font, or is not,
+    /// once [`Engine::own_cell`] has picked the source that sets the cell,
+    /// unless a draw before it already decided ([`Engine::first_is_bitmap`]).
+    fn decide_first(&self, bitmap: bool) {
+        if self.first_is_bitmap.get().is_none() {
+            self.first_is_bitmap.set(Some(bitmap));
+        }
+    }
+
+    /// How the glyphs of the outline source at `i` in `sources` are hinted:
+    /// [`Hinting::Bitmap`] where they draw as a bitmap
+    /// ([`Engine::draws_as_bitmap`]), else the frit's `hinting=`. Each
+    /// request for the source's glyphs carries it, and the source's
+    /// baseline and lines are measured with it, so that they fit the
+    /// glyphs as they are drawn.
+    fn hinting_for(&self, i: usize) -> Hinting {
         match self.draws_as_bitmap(i) {
-            true => OutlineRequest {
-                hinting: Hinting::Bitmap,
-                ..request
-            },
-            false => request,
+            true => Hinting::Bitmap,
+            false => self.hinting,
+        }
+    }
+
+    /// `request`, for the outline source at `i` in `sources`, hinted as
+    /// that source's glyphs are drawn ([`Engine::hinting_for`]).
+    fn rendered(&self, request: OutlineRequest, i: usize) -> OutlineRequest {
+        OutlineRequest {
+            hinting: self.hinting_for(i),
+            ..request
         }
     }
 
@@ -1521,35 +2248,66 @@ impl Engine {
         &self.left_out
     }
 
+    /// The fonts that differ from what their sources need: one that lacks
+    /// a character its `check=` names, which is also left out, one of a
+    /// lower version than its `version=`, and a file whose SHA-256 is not
+    /// its `sha256=`.
+    pub fn differs(&self) -> &[crate::needs::Differs] {
+        &self.differs
+    }
+
     /// Every codepoint the frit's sources give, sorted.
     pub fn coverage(&self) -> &[u32] {
         &self.coverage
     }
 
     /// The frit's own cell (ADR-1200 D17), which its first source sets and
-    /// later sources draw into. The first source is the first in the
-    /// frit's order that the helper can draw from: [`Engine::load`] leaves
-    /// out a source this machine does not have or cannot read, and a
-    /// source that has failed as it drew is left out for the engine's life,
-    /// as it is for glyphs, so the next one sets the cell. A bitmap first
+    /// later sources draw into. The first source is the frit's text font,
+    /// its own first regular source. When [`Engine::load`] left the text
+    /// font out, because this machine does not have it or cannot read it,
+    /// or the frit has no source of its own, the built-in font draws the
+    /// text in its place and the frit has no own cell. The console then
+    /// takes the cell of its configuration, as for a console with no font
+    /// named. A text font that has failed as it drew is left out for the
+    /// engine's life, as it is for glyphs, and the frit's next own regular
+    /// source sets the cell. A layer's source never sets it. A bitmap first
     /// source gives its own cell, once every later bitmap source's cell
     /// fits in it, so each draws at a whole factor (the operator,
     /// 2026-10-28). An outline first source gives the cell `height` pixels
     /// high that the W rule gives it (the maintainer, 2026-11-01); the
     /// console names the height, and at a height of 0 there is none. An outline
     /// source whose W rule fails fails as a source that fails to draw does.
-    /// Else why the frit has none: a later bitmap source whose cell does not
-    /// fit, no height to draw an outline font at, or no source left.
+    /// Else why the frit has none: a missing text font, a later bitmap
+    /// source whose cell does not fit, no height to draw an outline font
+    /// at, or no source of its own left.
+    ///
+    /// References:
+    /// - ADR-1204 D5: a missing text font leaves the cell to the
+    ///   configuration, and a layer's font never sets the cell.
     pub fn own_cell(&self, height: u32) -> Result<OwnCell, String> {
+        match &self.text_left_out {
+            Some(TextOut::LeftOut(text, _)) => {
+                return Err(format!(
+                    "the text font source={text} is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration"
+                ));
+            }
+            Some(TextOut::NoneOwn) => {
+                return Err(
+                    "the font set has no font of its own, only layers, so the built-in font draws the text, and the cell comes from the configuration"
+                        .to_owned(),
+                );
+            }
+            None => {}
+        }
         let mut why = Vec::new();
         let mut sources = self
             .sources
             .iter()
             .enumerate()
-            .filter(|(_, (source, _))| source.style == REGULAR);
+            .filter(|(_, (source, _))| own_regular(source));
         let (first, cell) = loop {
             let Some((i, (source, loaded))) = sources.next() else {
-                why.push("the frit has no source left to take a cell from".to_owned());
+                why.push("the frit has no source of its own left to take a cell from".to_owned());
                 return Err(why.join("; "));
             };
             if let Some(failed) = self.failed.borrow().get(&i) {
@@ -1557,7 +2315,10 @@ impl Engine {
                 continue;
             }
             match loaded {
-                Loaded::Bitmap(font) => break (source, font.cell),
+                Loaded::Bitmap(font) => {
+                    self.decide_first(true);
+                    break (source, font.cell);
+                }
                 Loaded::Outline { .. } if height == 0 => {
                     return Err(format!(
                         "source={} is an outline font, whose cell needs the height it is drawn at",
@@ -1569,7 +2330,10 @@ impl Engine {
                     let mut faces: Vec<(&[u8], &str)> = vec![(font, family)];
                     faces.extend(self.bold_face());
                     match crate::outline::cell_width(&faces, height) {
-                        Ok(width) => return Ok(OwnCell::Outline(Cell { width, height })),
+                        Ok(width) => {
+                            self.decide_first(false);
+                            return Ok(OwnCell::Outline(Cell { width, height }));
+                        }
                         Err(e) => {
                             why.push(format!("source={}: {e}", source.spelling));
                             self.failed.borrow_mut().insert(i, e);
@@ -1606,15 +2370,17 @@ impl Engine {
 
     /// The frit's bold face, which the W rule measures beside the regular
     /// face (ADR-1200 D17), so a bold face wider than the regular one
-    /// still fits the cell: the first outline source the frit gave
-    /// `style=bold` that has not failed, its bytes and its family.
-    /// `None` when the frit names none.
+    /// still fits the cell: the first outline source of the frit's own,
+    /// never a layer's, that it gave `style=bold` and that has not failed,
+    /// its bytes and its family. `None` when the frit names none.
     fn bold_face(&self) -> Option<(&[u8], &str)> {
         let failed = self.failed.borrow();
         self.sources
             .iter()
             .enumerate()
-            .filter(|(i, (source, _))| source.style == BOLD && !failed.contains_key(i))
+            .filter(|(i, (source, _))| {
+                source.style == BOLD && source.layer.is_none() && !failed.contains_key(i)
+            })
             .find_map(|(_, (_, loaded))| match loaded {
                 Loaded::Outline { font, family, .. } => Some((&font[..], family.as_str())),
                 Loaded::Bitmap(_) => None,
@@ -1624,13 +2390,14 @@ impl Engine {
     /// The size, in pixels to the em, source `i` draws at in a cell
     /// `height` pixels high when it is an outline source after an outline
     /// first source: the first source's size (ADR-1200 D17). The first
-    /// source is the frit's first regular one, the one whose metrics every
-    /// strike reports ([`Engine::metrics_at`]). `None` draws the source at
+    /// source is the text font ([`Engine::text_font`]), the frit's own
+    /// first regular source and never a layer's, whose metrics every strike
+    /// reports ([`Engine::metrics_at`]). `None` draws the source at
     /// its own size, so its ascent and descent span the height, as the
     /// first source itself and every source behind a bitmap first source
     /// do.
     fn size(&self, i: usize, height: u32) -> Option<f32> {
-        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
+        let first = self.text_font()?;
         if i == first {
             return None;
         }
@@ -1658,10 +2425,9 @@ impl Engine {
             return None;
         };
         if self.size(i, height).is_some() {
-            let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
-            return self.baseline(first, height);
+            return self.baseline(self.text_font()?, height);
         }
-        let b = crate::outline::baseline(font, family, height, None, self.hinting).ok()?;
+        let b = crate::outline::baseline(font, family, height, None, self.hinting_for(i)).ok()?;
         self.baselines.borrow_mut().insert((i, height), b);
         Some(b)
     }
@@ -1684,7 +2450,7 @@ impl Engine {
         let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
             return None;
         };
-        let b = crate::outline::baseline(font, family, height, None, self.hinting).ok()?;
+        let b = crate::outline::baseline(font, family, height, None, self.hinting_for(i)).ok()?;
         self.baselines.borrow_mut().insert(key, b);
         Some(b)
     }
@@ -1714,13 +2480,91 @@ impl Engine {
         if !private_use(c) {
             return false;
         }
-        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR);
+        let first = self.text_font();
         let outline = |i: usize| matches!(self.sources.get(i), Some((_, Loaded::Outline { .. })));
         let merged = self
             .sources
             .get(i)
             .is_some_and(|(source, _)| !source.cover.is_empty());
         merged && first.is_some_and(|first| first != i && outline(first)) && outline(i)
+    }
+
+    /// The strike that source `i` draws from in a text band `cell`: the
+    /// tallest of its strikes that fits the cell, when the cell is no
+    /// taller than the tallest strike. Above that height, and in a cell
+    /// that no strike fits, the source draws its outline. A character the
+    /// strike lacks draws from the outline at every height.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the largest strike that fits a cell up to the
+    ///   tallest strike's height, and the outline above it.
+    fn strike_at(&self, i: usize, cell: Cell) -> Option<&Loaded> {
+        let strikes = self.strikes.get(i)?;
+        let height = |l: &Loaded| match l {
+            Loaded::Bitmap(font) => Some(font.cell),
+            Loaded::Outline { .. } => None,
+        };
+        let tallest = strikes.iter().filter_map(height).map(|c| c.height).max()?;
+        if cell.height > tallest {
+            return None;
+        }
+        strikes
+            .iter()
+            .filter(|l| height(l).is_some_and(|c| c.width <= cell.width && c.height <= cell.height))
+            .max_by_key(|l| height(l).map_or(0, |c| c.height))
+    }
+
+    /// The frit's first regular source, the one whose baseline and lines
+    /// every glyph at `cell` shares, as it draws in that text band: the
+    /// text font at its place in `sources`, as its strike at that cell
+    /// where it has one ([`Engine::strike_at`]), else as itself, so its
+    /// baseline and lines are the strike's where the strike draws, as a
+    /// bitmap first source's are. Where the built-in font draws the text
+    /// in place of a missing text font, it is the built-in font's cell and
+    /// baseline at that height. A layer's source is never the first.
+    fn first_drawn(&self, cell: Cell) -> Option<FirstDrawn<'_>> {
+        if let Some(face) = self.built_in_at(cell) {
+            return Some(FirstDrawn::BuiltIn(Loaded::Bitmap(built_in_metrics(&face))));
+        }
+        let first = self.text_font()?;
+        let (_, own) = self.sources.get(first)?;
+        Some(FirstDrawn::Source(
+            first,
+            self.strike_at(first, cell).unwrap_or(own),
+        ))
+    }
+
+    /// The first regular source's own box in a text band `cell` (ADR-1202
+    /// D1), as its first row and its rows: a bitmap source's cell at the
+    /// whole factor it draws at, on the band's bottom row; an outline
+    /// source's rows from its ascent to its descent about its baseline;
+    /// else the whole band.
+    fn own_box(&self, cell: Cell) -> (u32, u32) {
+        let band = (0, cell.height);
+        let Some(first) = self.first_drawn(cell) else {
+            return band;
+        };
+        match first.loaded() {
+            Loaded::Bitmap(font) => {
+                let scale = (cell.width / font.cell.width.max(1))
+                    .min(cell.height / font.cell.height.max(1));
+                let tall = font.cell.height * scale;
+                if scale == 0 {
+                    return band;
+                }
+                (cell.height - tall, tall)
+            }
+            Loaded::Outline { font, family, .. } => {
+                let (Some(base), Ok((above, below))) = (
+                    first.at().and_then(|i| self.baseline(i, cell.height)),
+                    crate::outline::own_box(font, family, cell.height, None),
+                ) else {
+                    return band;
+                };
+                let top = base.saturating_sub(above);
+                (top, (base + below).min(cell.height) - top)
+            }
+        }
     }
 
     /// The baseline and the underline and strike-through a strike at
@@ -1734,46 +2578,12 @@ impl Engine {
     /// glyphs for italic (vtium-font's set reader) leans them as the helper
     /// does. One whose font cannot be read, or that fits the cell at no
     /// whole factor, reports the cell's bottom row.
-    /// The first regular source's own box in a text band `cell` (ADR-1202
-    /// D1), as its first row and its rows: a bitmap source's cell at the
-    /// whole factor it draws at, on the band's bottom row; an outline
-    /// source's rows from its ascent to its descent about its baseline;
-    /// else the whole band.
-    fn own_box(&self, cell: Cell) -> (u32, u32) {
-        let band = (0, cell.height);
-        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
-            return band;
-        };
-        match self.sources.get(first) {
-            Some((_, Loaded::Bitmap(font))) => {
-                let scale = (cell.width / font.cell.width.max(1))
-                    .min(cell.height / font.cell.height.max(1));
-                let tall = font.cell.height * scale;
-                if scale == 0 {
-                    return band;
-                }
-                (cell.height - tall, tall)
-            }
-            Some((_, Loaded::Outline { font, family, .. })) => {
-                let (Some(base), Ok((above, below))) = (
-                    self.baseline(first, cell.height),
-                    crate::outline::own_box(font, family, cell.height, None),
-                ) else {
-                    return band;
-                };
-                let top = base.saturating_sub(above);
-                (top, (base + below).min(cell.height) - top)
-            }
-            _ => band,
-        }
-    }
-
     fn metrics_at(&self, cell: Cell) -> (u32, Decorations) {
         let plain = (cell.height, Decorations::for_height(cell.height));
-        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+        let Some(first) = self.first_drawn(cell) else {
             return plain;
         };
-        if let Some((_, Loaded::Bitmap(font))) = self.sources.get(first) {
+        if let Loaded::Bitmap(font) = first.loaded() {
             let scale =
                 (cell.width / font.cell.width.max(1)).min(cell.height / font.cell.height.max(1));
             if scale == 0 {
@@ -1782,15 +2592,23 @@ impl Engine {
             let top = cell.height - font.cell.height * scale;
             return (top + bitmap_baseline(font) * scale, plain.1);
         }
-        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(first) else {
+        let Loaded::Outline { font, family, .. } = first.loaded() else {
             return plain;
         };
-        let Some(base) = self.baseline(first, cell.height) else {
+        let Some(at) = first.at() else {
             return plain;
         };
-        let lines =
-            crate::outline::decorations(font, family, (cell.height, base), None, self.hinting)
-                .unwrap_or(plain.1);
+        let Some(base) = self.baseline(at, cell.height) else {
+            return plain;
+        };
+        let lines = crate::outline::decorations(
+            font,
+            family,
+            (cell.height, base),
+            None,
+            self.hinting_for(at),
+        )
+        .unwrap_or(plain.1);
         (base, lines)
     }
 
@@ -1818,14 +2636,17 @@ impl Engine {
         }
         let own = self.own_box(cell);
         let mapped = lines::mapped(normal, script, own, cell.height, Band::NONE);
-        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+        let Some(first) = self.first_drawn(cell) else {
             return mapped;
         };
-        match self.sources.get(first) {
-            Some((_, Loaded::Bitmap(font))) => {
+        match first.loaded() {
+            Loaded::Bitmap(font) => {
                 let scale = (cell.width / font.cell.width.max(1))
                     .min(cell.height / font.cell.height.max(1));
-                let others = self.smaller.get(first).map_or(&[][..], Vec::as_slice);
+                let others = first
+                    .at()
+                    .and_then(|i| self.smaller.get(i))
+                    .map_or(&[][..], Vec::as_slice);
                 let strikes: Vec<Cell> = std::iter::once(font.cell)
                     .chain(others.iter().map(|f| f.font.cell))
                     .collect();
@@ -1844,7 +2665,10 @@ impl Engine {
                 let at = lines::at_multiple(Decorations::for_height(own.height), own.height, j);
                 lines::placed(at, script, size, (cell.width, cell.height), Band::NONE)
             }
-            Some((_, Loaded::Outline { font, family, .. })) => {
+            Loaded::Outline { font, family, .. } => {
+                let Some(at) = first.at() else {
+                    return mapped;
+                };
                 let Ok(size) = crate::outline::size(font, family, cell.height) else {
                     return mapped;
                 };
@@ -1856,7 +2680,7 @@ impl Engine {
                     family,
                     (cell.height, baseline),
                     Some(small),
-                    self.hinting,
+                    self.hinting_for(at),
                 );
                 let Ok(measured) = measured else {
                     return mapped;
@@ -1869,7 +2693,6 @@ impl Engine {
                     ..measured
                 }
             }
-            _ => mapped,
         }
     }
 
@@ -1920,7 +2743,7 @@ impl Engine {
     }
 
     /// The regular glyphs at `cell` for `want`, sorted codepoints, as
-    /// [`Engine::glyphs`] draws them.
+    /// `Engine::glyphs` draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
         let mut made = BTreeMap::new();
         self.glyphs(
@@ -1934,7 +2757,7 @@ impl Engine {
     }
 
     /// The regular glyphs at `cell` for `clusters`, sorted, as
-    /// [`Engine::glyphs`] draws them.
+    /// `Engine::glyphs` draws them.
     pub fn draw_clusters(
         &self,
         cell: Cell,
@@ -1953,7 +2776,7 @@ impl Engine {
 
     /// The glyphs of `style` at `at`, a cell and the rows its line spacing
     /// adds (a plain cell adds none), for `want`, sorted codepoints, and
-    /// `clusters`, sorted, as [`Engine::glyphs`] draws them, with the parts
+    /// `clusters`, sorted, as `Engine::glyphs` draws them, with the parts
     /// of clusters where `parts` says, as an [`ASK_PARTS`] gets them.
     pub fn draw_style(
         &self,
@@ -2342,14 +3165,28 @@ impl Engine {
         // source, the first source's for each character
         let mut in_one_cell: Vec<(char, Placed, Fit)> = Vec::new();
         let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
+        // the piece keys of ligature runs that a source has already
+        // decided, whether it joins them or not
+        let mut decided: BTreeSet<&[u32]> = BTreeSet::new();
         let mut parts: BTreeSet<Vec<u32>> = BTreeSet::new();
         let steps = steps(style);
+        // an outline source with a strike at this cell draws the strike's
+        // glyphs first, and its outline the characters the strike lacks
+        //
+        // References:
+        // - ADR-1204 D2: an outline source's strikes, and the outline for
+        //   what they lack.
         let order = steps.iter().flat_map(|step| {
             self.sources
                 .iter()
                 .enumerate()
                 .filter(move |(_, (source, _))| source.style == step.face)
-                .map(move |(i, source)| (i, source, step.synth))
+                .flat_map(move |(i, (source, loaded))| {
+                    self.strike_at(i, cell)
+                        .map(|strike| (i, (source, strike), step.synth))
+                        .into_iter()
+                        .chain(std::iter::once((i, (source, loaded), step.synth)))
+                })
         });
         // what asks for emoji presentation goes first to the sources in
         // order that give it a color glyph, then everything left to the
@@ -2363,22 +3200,54 @@ impl Engine {
         let passes = passes.flat_map(|pass| [true, false].map(|fitted| (pass, fitted)));
         // what a double ask leaves to the console, which doubles the pixels
         // of its glyph at the normal size: the codepoints a bitmap source
-        // draws; and on a line of double width, the codepoints a color
-        // glyph draws, which `squashed` holds and which are drawn again
+        // draws; and on a line of double width, the codepoints the
+        // rasteriser leaves out because a color glyph draws them
+        // ([`Outline::color`]), which `squashed` holds and which are drawn
         // below from a line of double height
         let mut left_out: BTreeSet<u32> = BTreeSet::new();
         let mut squashed: BTreeSet<u32> = BTreeSet::new();
         let wide_line = doubled == Some(Doubled::Width);
+        // where the built-in font draws the text in place of a missing text
+        // font, it takes the text font's place in the order: after the
+        // pass for color glyphs and after the sources of a bold or italic
+        // face, the turn of the first regular source after the text font's
+        // line leaves each character the built-in font holds, and each
+        // cluster led by one, to the console, which draws them from the
+        // built-in font. A layer spliced in before that line draws first.
+        let built_in = self.built_in_at(cell);
+        let text_line = match &self.text_left_out {
+            Some(TextOut::LeftOut(_, line)) => *line,
+            Some(TextOut::NoneOwn) | None => 0,
+        };
+        let mut standing: Option<BTreeSet<u32>> = None;
         for ((color_only, (i, (source, loaded), synth)), fitted) in passes {
             if self.failed.borrow().contains_key(&i) {
                 continue;
             }
+            if !color_only
+                && source.style == REGULAR
+                && source.line > text_line
+                && standing.is_none()
+            {
+                use vtium_font::Face;
+                standing = Some(match &built_in {
+                    Some(face) => want
+                        .iter()
+                        .copied()
+                        .filter(|c| !mapped.contains(c))
+                        .filter(|&c| char::from_u32(c).is_some_and(|ch| face.has_glyph(ch)))
+                        .collect(),
+                    None => BTreeSet::new(),
+                });
+            }
+            let built_in_draws = |c: u32| standing.as_ref().is_some_and(|s| s.contains(&c));
             let asked = |k: &[u32]| !color_only || crate::shaping::asks_for_emoji(k);
             let left: Vec<u32> = want
                 .iter()
                 .copied()
                 .filter(|&c| {
                     !mapped.contains(&c)
+                        && !built_in_draws(c)
                         && !left_out.contains(&c)
                         && source.covers(c)
                         && asked(&[c])
@@ -2394,10 +3263,35 @@ impl Engine {
                     !fitted
                         && !wide_line
                         && !shaped.contains(k)
-                        && lead(k).is_some_and(|c| source.covers(c))
+                        && !decided.contains(k)
+                        && lead(k).is_some_and(|c| source.covers(c) && !built_in_draws(c))
                         && asked(k)
                 })
                 .collect();
+            // The font that draws a ligature run's first character decides
+            // the run's pieces. If that font is a bitmap one, or does not
+            // join the run, the run draws unjoined: a later source never
+            // gets the pieces, so another font's ligature is never drawn
+            // among the first font's characters.
+            //
+            // References:
+            // - ADR-1308 D8: a bitmap font draws no ligatures, and a run the
+            //   font does not join draws each cell alone.
+            if !color_only && !fitted {
+                let draws = |c: u32| {
+                    source.covers(c)
+                        && match loaded {
+                            Loaded::Bitmap(font) => font.map.contains_key(&c),
+                            Loaded::Outline { mapped, .. } => mapped.binary_search(&c).is_ok(),
+                        }
+                };
+                decided.extend(
+                    clusters
+                        .iter()
+                        .map(Vec::as_slice)
+                        .filter(|k| is_ligature_piece(k) && lead(k).is_some_and(draws)),
+                );
+            }
             match loaded {
                 // a bitmap font has no color glyph
                 Loaded::Bitmap(_) if left.is_empty() || color_only => {}
@@ -2622,6 +3516,17 @@ impl Engine {
                             != Some(i),
                         double_width: doubled == Some(Doubled::Width),
                     };
+                    // A source drawn 1-bit still sends its glyphs in the
+                    // 8-bit strike, at a byte a pixel, and not in the 1-bit
+                    // strike, which would hold them in an eighth of the
+                    // memory. The console takes every glyph of a 1-bit
+                    // strike for a bitmap font's glyph: it makes the
+                    // glyph's superscripts and subscripts from smaller
+                    // multiples of the strike, and adds any style the
+                    // strike lacks by widening and shearing pixels. The
+                    // helper draws this source's script sizes and styles
+                    // from the outline itself, so the console would draw
+                    // them differently from the 8-bit strike.
                     let request = self.rendered(request, i);
                     let request = match doubled {
                         None => request,
@@ -2649,6 +3554,14 @@ impl Engine {
                             continue;
                         }
                     };
+                    // the color glyphs a line of double width leaves out,
+                    // which it draws below from a line of double height
+                    for &c in &outline.color {
+                        if !mapped.contains(&c) && left.binary_search(&c).is_ok() {
+                            left_out.insert(c);
+                            squashed.insert(c);
+                        }
+                    }
                     let Some(s) = outline.strikes.first() else {
                         continue;
                     };
@@ -2668,11 +3581,6 @@ impl Engine {
                             || left.binary_search(&c).is_err()
                             || (color_only && !glyph.color)
                         {
-                            continue;
-                        }
-                        if glyph.color && wide_line {
-                            left_out.insert(c);
-                            squashed.insert(c);
                             continue;
                         }
                         // a character that presents as text by default
@@ -2759,9 +3667,14 @@ impl Engine {
             }
         }
         // a line of double width takes its color glyphs and its clusters
-        // from a line of double height, each row pair made one row
+        // from a line of double height, each row pair made one row. Where
+        // the double-height cell passes the largest cell, the line leaves
+        // them to the console, which doubles the pixels of their glyphs at
+        // the normal size, as it does for a bitmap font's
         let mut halved = false;
-        if wide_line && (!squashed.is_empty() || !clusters.is_empty()) {
+        let tall_fits =
+            Doubled::Height.cell(cell).is_some() && Doubled::Height.cell(whole).is_some();
+        if wide_line && tall_fits && (!squashed.is_empty() || !clusters.is_empty()) {
             let want: Vec<u32> = squashed.into_iter().collect();
             let tall = self.glyphs(
                 whole,
@@ -2966,9 +3879,18 @@ fn send_glyphs(
 ) -> io::Result<Result<bool, String>> {
     // no more glyphs drawn at once than a frame holds at their largest, so
     // a cell whose glyphs each pass a set's chunk (ADR-1302 D6) never draws
-    // a batch whose bytes would outgrow the helper's memory limit
+    // a batch whose bytes would outgrow the helper's memory limit. A line of
+    // double width draws its color glyphs and its clusters at double height
+    // too, and keeps both sizes until it halves the tall ones, so each of
+    // its glyphs counts at both sizes
     let drawn = doubled.and_then(|d| d.cell(cell)).unwrap_or(cell);
-    let at_once = (max / engine.glyph_bytes_max(drawn).max(1)).max(1);
+    let mut glyph_bytes = engine.glyph_bytes_max(drawn);
+    if doubled == Some(Doubled::Width)
+        && let Some(tall) = Doubled::Height.cell(cell)
+    {
+        glyph_bytes = glyph_bytes.saturating_add(engine.glyph_bytes_max(tall));
+    }
+    let at_once = (max / glyph_bytes.max(1)).max(1);
     let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::new();
     if want.len().saturating_add(clusters.len()) <= at_once {
         queue.push_back((want, clusters));
@@ -3108,14 +4030,14 @@ fn reason(out: &mut dyn Write, kind: u32, why: &str) -> io::Result<()> {
 /// The requests read from `input` on a thread of their own, so the wait for
 /// the next one has a deadline; the thread ends with the input, or at the
 /// first malformed request.
-type Requests = mpsc::Receiver<Result<Option<ServeRequest>, String>>;
+type Requests = mpsc::Receiver<Result<Option<Request>, String>>;
 
 fn read_requests(input: impl Read + Send + 'static) -> Requests {
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let mut input = input;
         loop {
-            let r = ServeRequest::read(&mut input);
+            let r = read_request(&mut input);
             let end = !matches!(r, Ok(Some(_)));
             if tx.send(r).is_err() || end {
                 break;
@@ -3188,30 +4110,54 @@ struct Work<'p> {
     paths: &'p Paths,
     /// Each frit's engine, by its name and text, so a frit whose text
     /// changes is read again.
-    engines: BTreeMap<FritText, Result<Engine, String>>,
+    engines: BTreeMap<FritText, Result<Engine, DrawsNothing>>,
     console: Option<ConsoleFont>,
-    asks: VecDeque<ServeRequest>,
+    asks: VecDeque<Queued>,
     fills: VecDeque<Fill>,
 }
 
+/// An ask waiting its turn: a glyph ask, or a pointer ask, which is
+/// answered in the same order so that each done frame answers the oldest
+/// ask.
+enum Queued {
+    Glyphs(ServeRequest),
+    Pointer(PointerAsk),
+}
+
 impl Work<'_> {
-    fn engine(&mut self, frit: &FritText) -> &Result<Engine, String> {
+    /// The engine of `frit`, read the first time it is asked for, or why
+    /// it draws nothing.
+    fn engine(&mut self, frit: &FritText) -> Result<&Engine, &String> {
+        self.read(frit).as_ref().map_err(|nothing| &nothing.why)
+    }
+
+    /// The engine of `frit`, read the first time it is asked for, or why
+    /// it draws nothing and what its read found.
+    fn read(&mut self, frit: &FritText) -> &Result<Engine, DrawsNothing> {
         let (paths, console) = (self.paths, self.console.clone());
         self.engines
             .entry(frit.clone())
-            .or_insert_with(|| Engine::load(frit, paths, console))
+            .or_insert_with(|| Engine::read(frit, paths, console))
     }
 
     /// Reads `frit` when it is not read yet, and sends each warning its
-    /// text gives, so the console logs them.
+    /// text and its sources give, so the console logs them. A frit with no
+    /// source left sends its warnings too, so the console logs each font
+    /// it lacks.
     fn load(&mut self, frit: &FritText, out: &mut dyn Write) -> io::Result<()> {
         if self.engines.contains_key(frit) {
             return Ok(());
         }
-        if let Ok(engine) = self.engine(frit) {
-            for w in engine.warnings.clone() {
-                reason(out, FRAME_WARNING, &w)?;
-            }
+        let warnings = match self.read(frit) {
+            Ok(engine) => engine.warnings.clone(),
+            Err(nothing) => nothing
+                .read
+                .as_ref()
+                .map(|found| found.warnings.clone())
+                .unwrap_or_default(),
+        };
+        for w in warnings {
+            reason(out, FRAME_WARNING, &w)?;
         }
         Ok(())
     }
@@ -3229,7 +4175,7 @@ impl Work<'_> {
         let same =
             |f: &Fill| f.frit == request.frit && f.cell == request.cell && f.band == request.band;
         match request.kind {
-            ASK | ASK_PARTS | ASK_MADE => self.asks.push_back(request),
+            ASK | ASK_PARTS | ASK_MADE => self.asks.push_back(Queued::Glyphs(request)),
             FILL => {
                 self.fills.retain(|f| !same(f));
                 let fill = match self.engine(&request.frit) {
@@ -3265,18 +4211,41 @@ impl Work<'_> {
                 };
             }
             SOURCES => {
-                return match self.engine(&request.frit) {
+                return match self.read(&request.frit) {
+                    // a frit that reads and has no source left names its
+                    // fonts as a frit with some left does, after the line
+                    // that says it draws nothing
+                    Err(
+                        nothing @ DrawsNothing {
+                            read: Some(found), ..
+                        },
+                    ) => {
+                        let lines: Vec<String> = std::iter::once(nothing.line_text())
+                            .chain(found.left_out.iter().map(LeftOut::line_text))
+                            .chain(found.differs.iter().map(crate::needs::Differs::line_text))
+                            .collect();
+                        write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
+                    }
+                    Err(nothing) => reason(out, FRAME_DRAWS_NOTHING, &nothing.why.clone()),
                     Ok(engine) => {
                         // the notes on its script-source= lines, which only
                         // a sources query answers (ADR-1202 D12)
                         for note in engine.script_notes() {
                             reason(out, FRAME_WARNING, &note)?;
                         }
-                        let lines: Vec<String> =
-                            engine.left_out().iter().map(LeftOut::line_text).collect();
+                        let lines: Vec<String> = engine
+                            .left_out()
+                            .iter()
+                            .map(LeftOut::line_text)
+                            .chain(
+                                engine
+                                    .differs()
+                                    .iter()
+                                    .map(crate::needs::Differs::line_text),
+                            )
+                            .collect();
                         write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
                     }
-                    Err(why) => reason(out, FRAME_DRAWS_NOTHING, &why.clone()),
                 };
             }
             _ => {
@@ -3426,7 +4395,14 @@ fn answer_requests(
                     {
                         return 1;
                     }
-                    if work.take(r, out).is_err() {
+                    let taken = match r {
+                        Request::Serve(r) => work.take(r, out),
+                        Request::Pointer(a) => {
+                            work.asks.push_back(Queued::Pointer(a));
+                            Ok(())
+                        }
+                    };
+                    if taken.is_err() {
                         return 1;
                     }
                 }
@@ -3440,7 +4416,8 @@ fn answer_requests(
             }
         }
         let wrote = match work.asks.pop_front() {
-            Some(ask) => work.ask(&ask, out),
+            Some(Queued::Glyphs(ask)) => work.ask(&ask, out),
+            Some(Queued::Pointer(ask)) => ask.answer(out),
             None if !work.fills.is_empty() => work.fill(out),
             None => return 0,
         };
@@ -4013,10 +4990,10 @@ mod tests {
     }
 
     /// A sources query is answered for every frit: the sources left out of
-    /// one that reads, and for one the helper draws nothing from, because
-    /// no source of it is on this machine or it does not read, a frame of
-    /// its own, never the failed frame the helper sends for its own
-    /// failure.
+    /// one that reads, those of one that reads and has no source on this
+    /// machine after a line that says it draws nothing, and for one that
+    /// does not read a frame of its own, never the failed frame the helper
+    /// sends for its own failure.
     #[test]
     fn a_frit_that_draws_nothing_has_an_answer_of_its_own() {
         let ask = |text: &str| ServeRequest {
@@ -4028,18 +5005,25 @@ mod tests {
             band: Band::NONE,
             ..request(SOURCES, frit(text), &[])
         };
-        let kinds: Vec<u32> = run(&[
+        let frames: Vec<(u32, Vec<u8>)> = run(&[
             ask("source=builtin:unifont\n"),
             ask("source=file:/nonexistent/vtium.psf\n"),
             ask("no-such-key=1\n"),
         ])
-        .iter()
-        .map(|f| f.0)
-        .filter(|&k| k != FRAME_WARNING)
+        .into_iter()
+        .filter(|f| f.0 != FRAME_WARNING)
         .collect();
         assert_eq!(
-            kinds,
-            [FRAME_SOURCES, FRAME_DRAWS_NOTHING, FRAME_DRAWS_NOTHING]
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_SOURCES, FRAME_SOURCES, FRAME_DRAWS_NOTHING]
+        );
+        let nothing = String::from_utf8_lossy(&frames[1].1);
+        assert_eq!(
+            DrawsNothing::parse(&nothing).as_deref(),
+            Some(
+                "source=file:/nonexistent/vtium.psf: /nonexistent/vtium.psf is not on this machine"
+            ),
+            "{nothing}"
         );
     }
 
@@ -4195,24 +5179,29 @@ mod tests {
         assert!(e.contains("CHARSET_REGISTRY"), "{e}");
     }
 
-    // a source on this machine that the helper refuses, such as a BDF
+    // A source on this machine that the helper refuses, such as a BDF
     // file its reader refuses, is a warning the console logs when the
-    // frit loads without it; a source this machine does not have is left
-    // out quietly, as a frit names fonts a machine may not install
+    // frit loads without it. A source this machine does not have is a
+    // warning too, which names the set and the font, so the console logs
+    // one line for each missing font.
+    //
+    // References:
+    // - ADR-1204 D7: the console's line for each missing font.
     #[test]
-    fn a_source_refused_is_a_warning_and_a_missing_one_is_not() {
+    fn a_source_refused_and_a_missing_one_are_each_a_warning() {
         let dir = scratch("refused");
         let bad = dir.join("bad.bdf");
         std::fs::write(&bad, "STARTFONT 2.1\nCHARS 1\n").unwrap();
+        let missing = dir.join("missing.bdf");
         let text = format!(
-            "source=builtin:unifont\nsource=bdf:{}\nsource=bdf:{}\n",
+            "source=builtin:unifont\nsource=bdf:{}\nsource=bdf:{}\nversion=1.2\n",
             bad.display(),
-            dir.join("missing.bdf").display()
+            missing.display()
         );
         let engine = Engine::load(&frit(&text), &Paths::default(), None);
         let frames = run(&[request(ASK, frit(&text), &['A'])]);
         let warnings = engine.unwrap().warnings().to_vec();
-        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
         let w = &warnings[0];
         assert!(
             w.starts_with(&format!("t:2: source=bdf:{}: ", bad.display())),
@@ -4220,12 +5209,262 @@ mod tests {
         );
         assert!(w.contains("CHARSET_REGISTRY"), "{w}");
         assert!(w.ends_with("; the source is left out"), "{w}");
+        assert_eq!(
+            warnings[1],
+            format!(
+                "t needs the font {} 1.2 or later, which is not on this machine, so vtium draws its characters from the next font that has them",
+                missing.display()
+            )
+        );
         let sent: Vec<String> = frames
             .iter()
             .filter(|(k, _)| *k == FRAME_WARNING)
             .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
             .collect();
         assert_eq!(sent, warnings, "sent to the console as the frit loads");
+    }
+
+    // A font that lacks a character its check= line names is a different
+    // font of a similar name. The helper leaves it out as missing, the
+    // next source gives its characters, the console's line names the
+    // character, and a sources query answers both that the source is
+    // missing and which character the font lacks. A font that holds every
+    // character check= names draws.
+    //
+    // References:
+    // - ADR-1204 D7: a font that fails check= counts as missing.
+    #[test]
+    fn a_font_that_fails_its_check_is_missing_and_the_next_source_draws() {
+        let dir = scratch("check");
+        let file = dir.join("t.bdf");
+        std::fs::write(&file, crate::bdf::tests::bdf("")).unwrap();
+        let named = |check: &str| {
+            format!(
+                "source=bdf:{}\n{check}\nsource=builtin:unscii-8\n",
+                file.display()
+            )
+        };
+        // the font holds A and U+4E2D, and lacks U+E0B0
+        let held = Engine::load(
+            &frit(&named("check=U+0041\ncheck=U+4E2D")),
+            &Paths::default(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(held.left_out(), []);
+        assert_eq!(held.differs(), []);
+        assert_eq!(held.warnings(), [] as [String; 0]);
+        assert_eq!(held.sources.len(), 2);
+        let text = named("check=U+0041-U+0042");
+        let lacked = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert_eq!(lacked.sources.len(), 1, "the font is left out");
+        assert!(matches!(
+            &lacked.sources[0].0.origin,
+            crate::frit::Origin::Builtin(_)
+        ));
+        assert_eq!(lacked.left_out().len(), 1);
+        assert!(lacked.left_out()[0].missing);
+        assert_eq!(lacked.left_out()[0].line, 1);
+        assert_eq!(
+            lacked.differs(),
+            [crate::needs::Differs {
+                line: 1,
+                spelling: format!("bdf:{}", file.display()),
+                what: crate::needs::Differ::Lacks(0x42),
+            }]
+        );
+        assert_eq!(
+            lacked.warnings(),
+            [format!(
+                "t needs the font {}, and the font of that name on this machine lacks U+0042, so vtium counts it as missing and draws its characters from the next font that has them",
+                file.display()
+            )]
+        );
+        let frames = run(&[sources_query(frit(&text))]);
+        let answer = frames
+            .iter()
+            .find(|(k, _)| *k == FRAME_SOURCES)
+            .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
+            .unwrap();
+        let lines: Vec<&str> = answer.lines().collect();
+        assert_eq!(lines.len(), 2, "{answer}");
+        assert!(
+            lines[0].starts_with(&format!("missing\t1\tbdf:{}\t", file.display())),
+            "{answer}"
+        );
+        assert_eq!(
+            lines[1],
+            format!("lacks\t1\tbdf:{}\tU+0042", file.display())
+        );
+    }
+
+    // A set whose every font is missing draws nothing, and its read still
+    // finds what a set with one font left finds: the sources query answers
+    // a line that says the set draws nothing and why, then a line for each
+    // missing font, and the console is sent the warning for each missing
+    // font, so it logs them.
+    //
+    // References:
+    // - ADR-1204 D7: the console logs each missing font, and vtium-config
+    //   names each one.
+    #[test]
+    fn a_set_whose_every_font_is_missing_still_names_each_font() {
+        let text =
+            "source=font:No Such Family Anywhere\nversion=2.304\nsource=bdf:/nonesuch/gone.bdf\n";
+        let frames = run(&[sources_query(frit(text))]);
+        let warnings: Vec<String> = frames
+            .iter()
+            .filter(|(k, _)| *k == FRAME_WARNING)
+            .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
+            .collect();
+        assert_eq!(
+            warnings,
+            [
+                "t needs the font No Such Family Anywhere 2.304 or later, which is not on this machine, so vtium draws its characters from the next font that has them",
+                "t needs the font /nonesuch/gone.bdf, which is not on this machine, so vtium draws its characters from the next font that has them",
+            ],
+            "{frames:?}"
+        );
+        let answer = frames
+            .iter()
+            .find(|(k, _)| *k == FRAME_SOURCES)
+            .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
+            .unwrap();
+        let lines: Vec<&str> = answer.lines().collect();
+        assert_eq!(lines.len(), 3, "{answer}");
+        assert!(
+            lines[0].starts_with("nothing\t0\t\tsource=font:No Such Family Anywhere: "),
+            "{answer}"
+        );
+        assert!(
+            lines[1].starts_with("missing\t1\tfont:No Such Family Anywhere\t"),
+            "{answer}"
+        );
+        assert!(
+            lines[2].starts_with("missing\t3\tbdf:/nonesuch/gone.bdf\t"),
+            "{answer}"
+        );
+        assert!(frames.iter().all(|(k, _)| *k != FRAME_DRAWS_NOTHING));
+        // a frit that does not read has no sources to name, and answers
+        // with the frame of its own
+        let frames = run(&[sources_query(frit("source=\n"))]);
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_DRAWS_NOTHING],
+            "{frames:?}"
+        );
+    }
+
+    // An outline font's version comes from its name table's version
+    // string, and a lower one than version= asks for is reported while the
+    // font still draws. A font whose name table states no version is not
+    // compared.
+    //
+    // References:
+    // - ADR-1204 D7: a font of a lower version still draws, and is
+    //   reported.
+    #[test]
+    fn an_outline_fonts_version_comes_from_its_name_table() {
+        let dir = scratch("outline-version");
+        let font = ttf::test_mono();
+        let differs = |bytes: Vec<u8>| {
+            let file = dir.join("t.ttf");
+            std::fs::write(&file, bytes).unwrap();
+            let text = format!("source=outline:{}\nversion=2.304\n", file.display());
+            let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+            assert_eq!(engine.sources.len(), 1, "the font draws");
+            engine
+                .differs()
+                .iter()
+                .map(|d| d.what.clone())
+                .collect::<Vec<_>>()
+        };
+        let older = font.build_with_version("Version 2.242; ttfautohint (v1.8.4)");
+        assert_eq!(
+            outline_version(&older, "").as_deref(),
+            Some("Version 2.242; ttfautohint (v1.8.4)")
+        );
+        assert_eq!(
+            differs(older),
+            [crate::needs::Differ::Older("2.242".into())]
+        );
+        assert_eq!(differs(font.build_with_version("Version 2.304")), []);
+        assert_eq!(outline_version(&font.build(), ""), None);
+        assert_eq!(differs(font.build()), []);
+    }
+
+    // The version reader reads a font's name table with read-fonts, which
+    // checks every offset, so a file whose table directory points past its
+    // end has no version and never panics. The bytes are the fuzz input
+    // that found swash's range check subtracting past zero, as the names
+    // target ran outline_version.
+    //
+    // References:
+    // - ADR-1204 D7: the helper reads an outline font's version from its
+    //   name table.
+    #[test]
+    fn a_font_whose_tables_point_past_its_end_has_no_version() {
+        let cut: &[u8] = &[
+            0x4f, 0x54, 0x54, 0x4f, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x6e, 0x61,
+            0x6d, 0x65, 0x54, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+            0x00,
+        ];
+        assert_eq!(outline_version(cut, ""), None);
+        assert_eq!(outline_version(cut, "Mname"), None);
+    }
+
+    // A font of a lower version than version= asks for, and a file whose
+    // SHA-256 is not the one sha256= gives, each still draw. The helper
+    // reports each in its answer to a sources query, and the console logs
+    // neither, because neither is missing.
+    //
+    // References:
+    // - ADR-1204 D7: a lower version or a different hash still draws, and
+    //   is reported.
+    #[test]
+    fn a_lower_version_and_another_hash_still_draw_and_are_reported() {
+        let dir = scratch("versions");
+        let file = dir.join("t.bdf");
+        let bdf = crate::bdf::tests::bdf("").replace(
+            "STARTPROPERTIES 3\n",
+            "STARTPROPERTIES 4\nFONT_VERSION \"3.000\"\n",
+        );
+        std::fs::write(&file, &bdf).unwrap();
+        let hash = vtium_font::sha256_hex(&vtium_font::Sha256::digest(bdf.as_bytes()));
+        let load = |keys: &str| {
+            let text = format!("source=bdf:{}\n{keys}\n", file.display());
+            let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+            assert_eq!(engine.sources.len(), 1, "the font draws");
+            assert_eq!(engine.left_out(), []);
+            assert_eq!(engine.warnings(), [] as [String; 0]);
+            engine
+                .differs()
+                .iter()
+                .map(|d| d.what.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(load(&format!("version=3\nsha256={hash}")), []);
+        assert_eq!(load("version=2.9"), []);
+        assert_eq!(
+            load("version=3.1"),
+            [crate::needs::Differ::Older("3.000".into())]
+        );
+        let other = "0".repeat(64);
+        assert_eq!(
+            load(&format!("version=3.0.1\nsha256={other}")),
+            [
+                crate::needs::Differ::Older("3.000".into()),
+                crate::needs::Differ::OtherHash(hash.clone()),
+            ]
+        );
+        let text = format!("source=bdf:{}\nsha256={other}\n", file.display());
+        let frames = run(&[sources_query(frit(&text))]);
+        let answer = frames
+            .iter()
+            .find(|(k, _)| *k == FRAME_SOURCES)
+            .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
+            .unwrap();
+        assert_eq!(answer, format!("sha256\t1\tbdf:{}\t{hash}", file.display()));
     }
 
     // A zstd font whose window is past ZSTD_WINDOW_MAX is refused with a
@@ -4412,6 +5651,98 @@ mod tests {
         assert_eq!(sets.len(), 2);
     }
 
+    // issue #61: a line of double width draws its color glyphs and its
+    // clusters at double height as well, so a batch of its glyphs counts
+    // each at both sizes. Test Mono's glyphs at an 8×16 cell take at most
+    // 2,048 bytes on a line of double width, 16×16 two cells wide in RGBA,
+    // and 4,096 at double height. With room for 5,120 bytes a frame, the
+    // line draws its glyphs one at a time, where a line of double width
+    // alone would draw two
+    #[test]
+    fn a_batch_on_a_line_of_double_width_counts_its_glyphs_at_both_sizes() {
+        let dir = scratch("batch-wide");
+        let path = dir.join("TestMono.ttf");
+        std::fs::write(&path, super::ttf::test_mono().build()).unwrap();
+        let engine = Engine::load(
+            &frit(&format!("source=outline:{}\n", path.display())),
+            &Paths::default(),
+            None,
+        )
+        .unwrap();
+        let wide = Doubled::Width.cell(CELL).unwrap();
+        let tall = Doubled::Height.cell(CELL).unwrap();
+        assert_eq!(engine.glyph_bytes_max(wide), 2048);
+        assert_eq!(engine.glyph_bytes_max(tall), 4096);
+        let sets = |doubled| {
+            let mut out = Vec::new();
+            let sent = send_glyphs(
+                &engine,
+                (CELL, Band::NONE, REGULAR.into(), doubled),
+                (&[u32::from('A'), u32::from('W')], &[], false),
+                FRAME_GLYPHS,
+                (&mut out, &mut BTreeMap::new()),
+                5120,
+            )
+            .unwrap();
+            assert_eq!(sent, Ok(true));
+            frames(&out).len()
+        };
+        assert_eq!(sets(Some(Doubled::Width)), 2, "one glyph a frame");
+        assert_eq!(sets(None), 1, "both glyphs in one frame");
+    }
+
+    // issue #61: a line of double width draws each color glyph once, at
+    // double height, and halves it. The rasteriser stretches each outline
+    // sideways for the line, which a color glyph cannot take, so it leaves
+    // the color glyph out and names it rather than drawing it for nothing.
+    // The rasteriser draws a color glyph again, smaller, until it fits its
+    // cells, so the test compares counts: the line of double width draws
+    // Test Mono's COLR U+1F600 exactly as often as a pair of double-height
+    // lines does
+    #[test]
+    fn a_double_width_ask_draws_each_color_glyph_once() {
+        let dir = scratch("doubled-wide-color-once");
+        let path = dir.join("TestMono.ttf");
+        std::fs::write(&path, super::ttf::test_mono().build()).unwrap();
+        let engine = Engine::load(
+            &frit(&format!("source=outline:{}\n", path.display())),
+            &Paths::default(),
+            None,
+        )
+        .unwrap();
+        let drawn = |doubled| {
+            let draws = || crate::outline::raster::COLOR_DRAWS.with(core::cell::Cell::get);
+            let before = draws();
+            let set = engine
+                .glyphs(
+                    CELL,
+                    Band::NONE,
+                    (REGULAR.into(), doubled),
+                    &[0x1f600],
+                    (&[], false),
+                    &mut BTreeMap::new(),
+                )
+                .unwrap();
+            assert!(set.is_some(), "the emoji is answered at {doubled:?}");
+            draws() - before
+        };
+        let tall = drawn(Some(Doubled::Height));
+        assert!(tall >= 1, "drawn at double height");
+        assert_eq!(
+            drawn(Some(Doubled::Width)),
+            tall,
+            "on a line of double width"
+        );
+    }
+
+    /// A sources query for `frit`, as vtium-config asks it.
+    fn sources_query(frit: FritText) -> ServeRequest {
+        ServeRequest {
+            kind: SOURCES,
+            ..query(frit)
+        }
+    }
+
     /// A cell query for `frit`: at no cell, naming nothing.
     fn query(frit: FritText) -> ServeRequest {
         ServeRequest {
@@ -4473,10 +5804,13 @@ mod tests {
     #[test]
     fn a_frit_whose_sources_do_not_fit_its_first_has_no_own_cell() {
         let (frit, _dir) = psf_frit("own-unfit", &[Ok((8, 8)), Err("builtin:unifont")]);
-        let frames = run(&[
+        let frames: Vec<(u32, Vec<u8>)> = run(&[
             query(frit),
             query(self::frit("source=file:/nonexistent/x.psf\n")),
-        ]);
+        ])
+        .into_iter()
+        .filter(|f| f.0 != FRAME_WARNING)
+        .collect();
         assert_eq!(
             frames.iter().map(|f| f.0).collect::<Vec<_>>(),
             [FRAME_NO_OWN_CELL, FRAME_NO_OWN_CELL]
@@ -4589,6 +5923,437 @@ mod tests {
         );
     }
 
+    /// The frit `text` with the layer `name`, whose text is `layer`, in
+    /// place, as the console hands it over.
+    fn layered(text: &str, name: &str, layer: &str) -> FritText {
+        let mut read = |n: &str| Ok((n == name).then(|| layer.to_owned()));
+        frit(&vtium_font::set::layer::expand(text, &mut read).text)
+    }
+
+    /// The characters of `chars` that the helper draws for `frit` at
+    /// `cell`, in an ask; the rest it leaves to the console.
+    fn drawn_chars(frit: &FritText, cell: Cell, chars: &[char]) -> Vec<char> {
+        let frames = run(&[ServeRequest {
+            cluster_width: Default::default(),
+            cell,
+            band: Band::NONE,
+            ..request(ASK, frit.clone(), chars)
+        }]);
+        let faces: Vec<SetFace> = frames
+            .iter()
+            .filter(|f| f.0 == FRAME_GLYPHS)
+            .filter_map(|f| SetFace::new(Arc::new(Set::from_bytes(f.1.clone()).ok()?), cell.height))
+            .collect();
+        chars
+            .iter()
+            .copied()
+            .filter(|&c| faces.iter().any(|face| face.has_glyph(c)))
+            .collect()
+    }
+
+    // When the set's text font, its own first source, is missing or
+    // refused, or the set has no source of its own, the built-in font
+    // takes the text font's place. The frit gives no own cell, so the
+    // console takes the cell of its configuration, and no later source,
+    // such as a layer's font, sets the cell.
+    //
+    // References:
+    // - ADR-1204 D5: the cell rule for a missing text font.
+    #[test]
+    fn a_missing_text_font_leaves_the_cell_to_the_configuration() {
+        let (layered_text, dir) = outline_frit(
+            "own-missing-text",
+            "source=font:Nonesuch Mono\n",
+            &[Ok(super::ttf::test_mono())],
+        );
+        let broken = dir.join("broken.psf");
+        std::fs::write(&broken, b"not a font").unwrap();
+        let refused = frit(&format!(
+            "source=file:{}\nsource=builtin:unscii-8\n",
+            broken.display()
+        ));
+        let missing_bitmap = frit("source=kbd:nonesuch\nsource=builtin:unscii-8\n");
+        let only_layers = layered(
+            "layer=small\n",
+            "small",
+            "role=symbols\nsource=builtin:unscii-8\n",
+        );
+        let frames: Vec<(u32, Vec<u8>)> = run(&[
+            query_at(layered_text, 16),
+            query(refused),
+            query(missing_bitmap),
+            query(only_layers),
+        ])
+        .into_iter()
+        .filter(|f| f.0 != FRAME_WARNING)
+        .collect();
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_NO_OWN_CELL; 4]
+        );
+        let why = |i: usize| String::from_utf8_lossy(&frames[i].1).into_owned();
+        assert_eq!(
+            why(0),
+            "the text font source=font:Nonesuch Mono is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration"
+        );
+        assert_eq!(
+            why(3),
+            "the font set has no font of its own, only layers, so the built-in font draws the text, and the cell comes from the configuration"
+        );
+    }
+
+    // A text font that fails as it draws leaves the cell to the frit's next
+    // own source. A layer's source never sets it, so with no own source
+    // left the frit has no own cell.
+    //
+    // References:
+    // - ADR-1204 D5: a layer's font never sets the cell.
+    #[test]
+    fn a_layers_source_never_sets_the_cell() {
+        let dir = scratch("own-layer-cell");
+        let ttf = dir.join("mono.ttf");
+        std::fs::write(&ttf, super::ttf::test_mono().build()).unwrap();
+        let set = layered(
+            &format!("source=outline:{}\nlayer=small\n", ttf.display()),
+            "small",
+            "role=symbols\nsource=builtin:unscii-8\n",
+        );
+        let engine = Engine::load(&set, &Paths::default(), None).unwrap();
+        assert!(matches!(engine.own_cell(16), Ok(OwnCell::Outline(_))));
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        let why = engine.own_cell(16).unwrap_err();
+        assert!(why.contains("no source of its own left"), "{why}");
+    }
+
+    // With the text font missing, the built-in font draws the text in the
+    // text font's place. The helper leaves each character the built-in
+    // font holds to the console, which draws it from the built-in font, and
+    // the later sources, here a layer's font, draw only the characters the
+    // built-in font lacks. With the text font there, it draws them all.
+    //
+    // References:
+    // - ADR-1204 D5 and D7: the built-in font draws the text when the
+    //   set's text font is missing.
+    #[test]
+    fn the_built_in_font_draws_the_text_in_place_of_a_missing_text_font() {
+        use vtium_font::Face;
+        let dir = scratch("built-in-text");
+        let ttf = dir.join("mono.ttf");
+        std::fs::write(&ttf, super::ttf::test_mono().build()).unwrap();
+        let symbols = format!("role=symbols\nsource=outline:{}\n", ttf.display());
+        // an 8-pixel cell draws the built-in Unscii-8, which holds no Han
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let built_in = SetFace::new(
+            vtium_font::set::builtin(vtium_font::set::builtin_name(cell.height, "")).unwrap(),
+            cell.height,
+        )
+        .unwrap();
+        let chars = ['A', 'W', '\u{4e00}'];
+        assert_eq!(chars.map(|c| built_in.has_glyph(c)), [true, true, false]);
+        let missing = layered("source=font:Nonesuch Mono\nlayer=sym\n", "sym", &symbols);
+        assert_eq!(drawn_chars(&missing, cell, &chars), ['\u{4e00}']);
+        let only_layers = layered("layer=sym\n", "sym", &symbols);
+        assert_eq!(drawn_chars(&only_layers, cell, &chars), ['\u{4e00}']);
+        let present = layered(
+            &format!("source=outline:{}\nlayer=sym\n", ttf.display()),
+            "sym",
+            "role=symbols\nsource=builtin:unscii-8\n",
+        );
+        assert_eq!(drawn_chars(&present, cell, &chars), chars);
+    }
+
+    // The text font, the frit's own first regular source, sets the baseline
+    // that the sources drawing at its size stand on, even where a layer's
+    // regular source comes first in the frit. Test Mono stands on row 13 of
+    // a 16-pixel cell; Test Low, the layer's font, with its ascent and
+    // descent at 500 units each, stands on row 8.
+    //
+    // References:
+    // - ADR-1204 D5: a layer's font never sets the cell or its baseline.
+    // - ADR-1200 D17: the sources at the text font's size stand on its
+    //   baseline.
+    #[test]
+    fn a_layers_regular_source_never_sets_the_baseline() {
+        let dir = scratch("layer-baseline");
+        let mono = dir.join("mono.ttf");
+        std::fs::write(&mono, super::ttf::test_mono().build()).unwrap();
+        let mut low = super::ttf::test_mono();
+        low.family = "Test Low".to_owned();
+        (low.ascent, low.descent) = (500, -500);
+        let low_path = dir.join("low.ttf");
+        std::fs::write(&low_path, low.build()).unwrap();
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
+        let alone = frit(&format!("source=outline:{}\n", mono.display()));
+        let alone = Engine::load(&alone, &Paths::default(), None).unwrap();
+        let own = alone.metrics_at(cell).0;
+        let low_alone = frit(&format!("source=outline:{}\n", low_path.display()));
+        let low_alone = Engine::load(&low_alone, &Paths::default(), None).unwrap();
+        assert_ne!(
+            low_alone.metrics_at(cell).0,
+            own,
+            "the two fonts stand apart"
+        );
+        let text = layered(
+            &format!("layer=low\nsource=outline:{}\n", mono.display()),
+            "low",
+            &format!("role=symbols\nsource=outline:{}\n", low_path.display()),
+        );
+        let engine = Engine::load(&text, &Paths::default(), None).unwrap();
+        assert!(
+            engine
+                .sources
+                .first()
+                .is_some_and(|(s, _)| s.layer.is_some()),
+            "the layer's source comes first"
+        );
+        assert_eq!(engine.metrics_at(cell).0, own);
+        let at = engine
+            .sources
+            .iter()
+            .position(|(s, _)| own_regular(s))
+            .unwrap();
+        assert_eq!(engine.baseline(at, cell.height), Some(own));
+        assert_eq!(engine.own_baseline(at, cell.height), Some(own));
+    }
+
+    // A layer's bold source is never the frit's bold face, so it never
+    // joins the W rule that sets the cell's width. Test Wide, the layer's
+    // bold font, has advances of 900 units where Test Mono's are 600.
+    //
+    // References:
+    // - ADR-1204 D5: a layer's font never sets the cell.
+    // - ADR-1200 D17: the W rule measures the frit's bold face beside its
+    //   regular one.
+    #[test]
+    fn a_layers_bold_source_never_widens_the_cell() {
+        let dir = scratch("layer-bold-width");
+        let mono = dir.join("mono.ttf");
+        std::fs::write(&mono, super::ttf::test_mono().build()).unwrap();
+        let mut wide = super::ttf::test_mono();
+        wide.family = "Test Wide".to_owned();
+        for glyph in &mut wide.glyphs {
+            glyph.advance = 900;
+        }
+        let wide_path = dir.join("wide.ttf");
+        std::fs::write(&wide_path, wide.build()).unwrap();
+        let own_cell = |text: &FritText| {
+            Engine::load(text, &Paths::default(), None)
+                .unwrap()
+                .own_cell(16)
+        };
+        let alone = own_cell(&frit(&format!("source=outline:{}\n", mono.display())));
+        let own_bold = own_cell(&frit(&format!(
+            "source=outline:{}\nsource=outline:{}\nstyle=bold\n",
+            mono.display(),
+            wide_path.display()
+        )));
+        assert!(
+            matches!(
+                (&own_bold, &alone),
+                (Ok(OwnCell::Outline(bold)), Ok(OwnCell::Outline(plain))) if bold.width > plain.width
+            ),
+            "the frit's own bold face widens the cell: {own_bold:?} against {alone:?}"
+        );
+        let text = layered(
+            &format!("source=outline:{}\nlayer=wide\n", mono.display()),
+            "wide",
+            &format!(
+                "role=script\nsource=outline:{}\nstyle=bold\n",
+                wide_path.display()
+            ),
+        );
+        assert_eq!(own_cell(&text), alone);
+    }
+
+    // The built-in font takes the missing text font's place in the set's
+    // order, so a layer placed before the text font's line draws first:
+    // Test Mono, the layer's font, draws A, W and U+4E00, and the built-in
+    // font draws none of them. A layer after the text font's line draws
+    // only what the built-in font lacks.
+    //
+    // References:
+    // - ADR-1204 D5: the layers are spliced in place, and the built-in font
+    //   draws the text in the missing text font's place.
+    #[test]
+    fn a_layer_before_a_missing_text_font_draws_before_the_built_in_font() {
+        let dir = scratch("built-in-after-layer");
+        let ttf = dir.join("mono.ttf");
+        std::fs::write(&ttf, super::ttf::test_mono().build()).unwrap();
+        let symbols = format!("role=symbols\nsource=outline:{}\n", ttf.display());
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let chars = ['A', 'W', '\u{4e00}'];
+        let before = layered("layer=sym\nsource=font:Nonesuch Mono\n", "sym", &symbols);
+        assert_eq!(drawn_chars(&before, cell, &chars), chars);
+        let after = layered("source=font:Nonesuch Mono\nlayer=sym\n", "sym", &symbols);
+        assert_eq!(drawn_chars(&after, cell, &chars), ['\u{4e00}']);
+    }
+
+    // Whatever the order, a character the built-in font holds and no
+    // source before it holds is left to the console, which draws it from
+    // the built-in font. A frit whose only source is a missing text font
+    // draws nothing in the helper: the ask fails, and the console draws
+    // the text in the built-in font. With the text font missing and a
+    // layer that holds no Latin, after the text font's line or before it,
+    // the helper draws U+4E00 from the layer and leaves A to the console.
+    //
+    // References:
+    // - ADR-1204 D5 and D7: the built-in font draws the text when the
+    //   set's text font is missing.
+    #[test]
+    fn a_missing_text_font_leaves_a_to_the_built_in_font_in_any_order() {
+        let dir = scratch("built-in-lone");
+        let mut han = super::ttf::test_mono();
+        han.family = "Test Han".to_owned();
+        han.cmap.retain(|&(c, _)| c == 0x4e00);
+        let ttf = dir.join("han.ttf");
+        std::fs::write(&ttf, han.build()).unwrap();
+        let script = format!("role=script\nsource=outline:{}\n", ttf.display());
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let chars = ['A', '\u{4e00}'];
+        let lone = frit("source=font:Nonesuch Mono\n");
+        let frames = run(&[ServeRequest {
+            cluster_width: Default::default(),
+            cell,
+            band: Band::NONE,
+            ..request(ASK, lone, &chars)
+        }]);
+        // the warning for the missing font comes first, so the console logs
+        // it, then the failure
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_WARNING, FRAME_FAILED],
+            "no glyph from a frit with no source here"
+        );
+        for text in [
+            "source=font:Nonesuch Mono\nlayer=han\n",
+            "layer=han\nsource=font:Nonesuch Mono\n",
+        ] {
+            let layered = layered(text, "han", &script);
+            assert_eq!(drawn_chars(&layered, cell, &chars), ['\u{4e00}'], "{text}");
+        }
+    }
+
+    // In a zh, ja or ko locale the console draws Unifont as its built-in
+    // font at every height, so a set whose text font is missing leaves Han
+    // to the console even in an 8-pixel cell, where Unscii-8, which holds
+    // no Han, would otherwise be the built-in font. The helper picks the
+    // built-in font from the locale the console passes it.
+    //
+    // References:
+    // - ADR-1200 D7: the built-in font for a cell height and locale.
+    // - ADR-1204 D5: the built-in font draws the text when the set's text
+    //   font is missing.
+    #[test]
+    fn the_built_in_font_follows_the_consoles_locale() {
+        let dir = scratch("built-in-locale");
+        let ttf = dir.join("mono.ttf");
+        std::fs::write(&ttf, super::ttf::test_mono().build()).unwrap();
+        let symbols = format!("role=symbols\nsource=outline:{}\n", ttf.display());
+        let missing = layered("source=font:Nonesuch Mono\nlayer=sym\n", "sym", &symbols);
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let chars = ['A', '\u{4e00}'];
+        let drawn = |locale: &str| {
+            let paths = Paths {
+                locale: locale.to_owned(),
+                ..Paths::default()
+            };
+            let engine = Engine::load(&missing, &paths, None).unwrap();
+            let want: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
+            let Some(bytes) = engine.draw(cell, &want).unwrap() else {
+                return Vec::new();
+            };
+            let face =
+                SetFace::new(Arc::new(Set::from_bytes(bytes).unwrap()), cell.height).unwrap();
+            chars
+                .iter()
+                .copied()
+                .filter(|&c| face.has_glyph(c))
+                .collect::<Vec<char>>()
+        };
+        assert_eq!(drawn("C"), ['\u{4e00}']);
+        assert_eq!(drawn("en_US.UTF-8"), ['\u{4e00}']);
+        for cjk in ["ja_JP.UTF-8", "zh_CN.UTF-8", "ko_KR.UTF-8"] {
+            assert!(drawn(cjk).is_empty(), "{cjk}");
+        }
+    }
+
+    // The helper is handed a frit with its layers in place, and each of its
+    // messages names the file and line a line came from: a layer's file
+    // and the layer's own line for a layer's line, and the frit's own line
+    // for the frit's.
+    //
+    // References:
+    // - ADR-1204 D5: the splice the console makes.
+    #[test]
+    fn the_helpers_messages_name_a_layers_file_and_line() {
+        let refused = layered(
+            "source=kbd:x\nlayer=sym\n",
+            "sym",
+            "role=symbols\n# c\n# c\nsource=font:S\ncover=nowhere\n",
+        );
+        let e = Engine::load(&refused, &Paths::default(), None)
+            .err()
+            .unwrap();
+        assert!(
+            e.starts_with("layers/sym.vtlayer:5: cover=nowhere is not one of"),
+            "{e}"
+        );
+        let dir = scratch("layer-messages");
+        let broken = dir.join("broken.psf");
+        std::fs::write(&broken, b"not a font").unwrap();
+        let set = layered(
+            "source=builtin:unscii-8\nlayer=sym\nsize=12\nsource=file:/nonesuch.psf\n",
+            "sym",
+            &format!("role=symbols\n\nsource=file:{}\n", broken.display()),
+        );
+        let engine = Engine::load(&set, &Paths::default(), None).unwrap();
+        assert_eq!(engine.warnings().len(), 2, "{:?}", engine.warnings());
+        assert!(
+            engine.warnings()[0].starts_with(&format!(
+                "layers/sym.vtlayer:3: source=file:{}: ",
+                broken.display()
+            )),
+            "{:?}",
+            engine.warnings()
+        );
+        // a missing font's line names the set, as the console logs it
+        assert!(
+            engine.warnings()[1].starts_with("t needs the font /nonesuch.psf, which"),
+            "{:?}",
+            engine.warnings()
+        );
+        let lines: Vec<(usize, &str)> = engine
+            .left_out()
+            .iter()
+            .map(|l| (l.line, l.spelling.as_str()))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                (2, format!("file:{}", broken.display()).as_str()),
+                (4, "file:/nonesuch.psf")
+            ]
+        );
+    }
+
     // A source that has failed is left out of the cell as it is out of the
     // glyphs, and the next source sets the cell: one whose W rule fails, a
     // font giving no ascent or descent, and one that failed as it drew
@@ -4637,7 +6402,7 @@ mod tests {
         engine.failed.borrow_mut().insert(1, "planted".to_owned());
         let why = engine.own_cell(16).unwrap_err();
         assert!(
-            why.contains("failed as it drew") && why.contains("no source left"),
+            why.contains("failed as it drew") && why.contains("no source of its own left"),
             "{why}"
         );
     }
@@ -4943,9 +6708,131 @@ mod tests {
         assert_eq!(
             engine.warnings(),
             [
-                "t:1: source=font:x: render= is ignored, because this font is a bitmap font, which always draws 1-bit"
+                "t:2: render= is ignored, because font:x is a bitmap font, whose characters always have sharp edges"
             ]
         );
+    }
+
+    // An outline source that draws 1-bit is hinted fully, whatever the
+    // frit's hinting= says, so its baseline and lines are measured with full
+    // hinting too. DejaVu Sans Mono's lowest ASCII ink lies on a different
+    // row under light and under full hinting at 16 and 57 pixels, so a
+    // baseline measured with light hinting would set the 1-bit glyphs a row
+    // too high, and at 57 pixels the underscore's ink would pass the cell's
+    // bottom. This holds for a source behind a bitmap first source, for a
+    // first source with render=bitmap and its lines, and for a later source
+    // with render=bitmap that draws on its own baseline.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: full hinting for a source that draws
+    //   1-bit.
+    // - ADR-1302 D3: the baseline from the lowest ASCII ink, hinted as it
+    //   is drawn.
+    #[test]
+    fn a_source_that_draws_one_bit_is_measured_as_it_draws() {
+        let dejavu = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+        );
+        let font = std::fs::read(dejavu).unwrap();
+        let measured = |h, hinting| crate::outline::baseline(&font, "", h, None, hinting).unwrap();
+        for h in [16, 57] {
+            assert_ne!(measured(h, Hinting::Light), measured(h, Hinting::Bitmap));
+        }
+        let load = |text: &str| Engine::load(&frit(text), &Paths::default(), None).unwrap();
+        let (psf, _dir) = psf_frit("measured-psf", &[Ok((8, 16))]);
+        let outline = format!("source=outline:{dejavu}\n");
+        let behind = load(&format!("{}{outline}", psf.text));
+        for h in [16, 57] {
+            assert_eq!(behind.baseline(1, h), Some(measured(h, Hinting::Bitmap)));
+        }
+        let smooth = load(&format!("{}{outline}render=smooth\n", psf.text));
+        assert_eq!(smooth.baseline(1, 16), Some(measured(16, Hinting::Light)));
+        let first = load(&format!("{outline}render=bitmap\n"));
+        let base = measured(16, Hinting::Bitmap);
+        let lines =
+            crate::outline::decorations(&font, "", (16, base), None, Hinting::Bitmap).unwrap();
+        assert_eq!(first.metrics_at(CELL), (base, lines));
+        let later = load(&format!("{outline}{outline}cover=ascii\nrender=bitmap\n"));
+        assert_eq!(later.baseline(1, 16), Some(measured(16, Hinting::Light)));
+        assert_eq!(
+            later.own_baseline(1, 16),
+            Some(measured(16, Hinting::Bitmap))
+        );
+    }
+
+    // The frit's first source, whose kind decides how the outline sources
+    // with no render= line draw, is its first regular source the engine can
+    // still draw from. A bold bitmap font in front of a regular outline
+    // font does not make the outline font draw 1-bit. An outline first
+    // source that the W rule refuses hands the cell to the bitmap font
+    // behind it, and the outline font after that draws 1-bit.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: the default follows the first source.
+    // - ADR-1200 D17: the first regular source sets the cell.
+    #[test]
+    fn the_first_source_is_the_first_regular_one_left() {
+        let dejavu = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+        );
+        let (psf, _dir) = psf_frit("first-bold", &[Ok((8, 16))]);
+        let bold = format!("{}style=bold\nsource=outline:{dejavu}\n", psf.text);
+        let engine = Engine::load(&frit(&bold), &Paths::default(), None).unwrap();
+        assert!(!engine.draws_as_bitmap(1), "{bold}");
+        let flat = super::ttf::Font {
+            ascent: 0,
+            descent: 0,
+            ..super::ttf::test_mono()
+        };
+        let (refused, _flat) = outline_frit("first-refused", "", &[Ok(flat)]);
+        let text = format!("{}{}source=outline:{dejavu}\n", refused.text, psf.text);
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert!(matches!(engine.own_cell(16), Ok(OwnCell::Bitmap(_))));
+        assert!(engine.draws_as_bitmap(2), "{text}");
+        // an outline first source that failed before anything was decided
+        let outline = format!("source=outline:{dejavu}\n");
+        let failed = format!("{outline}{}{outline}", psf.text);
+        let engine = Engine::load(&frit(&failed), &Paths::default(), None).unwrap();
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert!(engine.draws_as_bitmap(2), "{failed}");
+    }
+
+    // The engine decides once whether its outline sources draw 1-bit by
+    // default. When the frit's outline first source fails as it draws
+    // later in the session, the bitmap font behind it becomes the first
+    // source, but the outline font after both keeps drawing antialiased and
+    // keeps its baseline, so its glyphs never mix the two kinds.
+    #[test]
+    fn a_failing_first_source_does_not_change_how_the_others_draw() {
+        let dejavu = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+        );
+        let (psf, _dir) = psf_frit("first-fails", &[Ok((8, 16))]);
+        let outline = format!("source=outline:{dejavu}\n");
+        let text = format!("{outline}{}{outline}", psf.text);
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert!(!engine.draws_as_bitmap(2));
+        let base = engine.baseline(2, 16);
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert!(!engine.draws_as_bitmap(2), "{text}");
+        assert_eq!(engine.baseline(2, 16), base);
+        // decided by own_cell before any draw, as the console asks for it
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert!(matches!(engine.own_cell(16), Ok(OwnCell::Outline(_))));
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert!(!engine.draws_as_bitmap(2), "{text}");
     }
 
     // one helper keeps a source's baseline for each height apart (review
@@ -5064,6 +6951,127 @@ mod tests {
         out.extend(rows.iter().cloned());
         out.extend(vec![blank; below]);
         out
+    }
+
+    // An outline source's strike= lines name bitmap files of its design. A
+    // cell up to the tallest strike's height draws the largest strike that
+    // fits it, placed on the cell's bottom row as a bitmap source is
+    // placed. Above that height, and in a cell no strike fits, the outline
+    // draws. A character the strikes lack, W here, draws from the outline
+    // at every height. The 12-pixel strike draws its A in the cell's last
+    // column and the 16-pixel strike in the one before it.
+    //
+    // References:
+    // - ADR-1204 D2: the strikes and the switch at the tallest strike.
+    #[test]
+    fn an_outline_sources_strikes_draw_up_to_the_tallest_strikes_height() {
+        let dir = scratch("strikes");
+        let outline = dir.join("mono.ttf");
+        std::fs::write(&outline, super::ttf::test_mono().build()).unwrap();
+        let strike = |height: u32, glyph: u32| {
+            let path = dir.join(format!("{height}.psf"));
+            let font = crate::decode::tests::psf2(8, height, 3, Some(&[(glyph, 'A')]));
+            std::fs::write(&path, font).unwrap();
+            path
+        };
+        let (twelve, sixteen) = (strike(12, 1), strike(16, 2));
+        let plain = frit(&format!("source=outline:{}\n", outline.display()));
+        let struck = frit(&format!(
+            "source=outline:{}\nstrike=file:{}\nstrike=file:{}\n",
+            outline.display(),
+            sixteen.display(),
+            twelve.display()
+        ));
+        // the strike's A: its column lit on its rows, at the cell's bottom
+        let strike_a = |height: u32, tall: u32, column: usize| -> Vec<Vec<u8>> {
+            (0..height)
+                .map(|y| {
+                    let mut row = vec![0u8; 8];
+                    if y >= height.saturating_sub(tall) {
+                        row[column] = 255;
+                    }
+                    row
+                })
+                .collect()
+        };
+        for height in [10, 12, 14, 15, 16, 17, 20] {
+            let cell = Cell { width: 8, height };
+            let (drawn, _) = spaced_rows(&struck, cell, Band::NONE, &['A', 'W']);
+            let (outline_drawn, _) = spaced_rows(&plain, cell, Band::NONE, &['A', 'W']);
+            let want_a = match height {
+                12..=15 => strike_a(height, 12, 7),
+                16 => strike_a(height, 16, 6),
+                _ => outline_drawn[0].clone(),
+            };
+            assert_ne!(strike_a(height, 12, 7), outline_drawn[0], "{height}");
+            assert_eq!(drawn[0], want_a, "A at {height} pixels");
+            assert_eq!(drawn[1], outline_drawn[1], "W at {height} pixels");
+        }
+    }
+
+    // The frit's coverage holds what it draws at every height, so a
+    // character that only a strike holds is not in it, though a cell up to
+    // the strike's height draws it.
+    //
+    // References:
+    // - ADR-1204 D2: the strikes draw only up to the tallest strike's
+    //   height.
+    #[test]
+    fn a_character_only_a_strike_holds_is_not_in_the_coverage() {
+        let dir = scratch("strike-coverage");
+        let outline = dir.join("mono.ttf");
+        std::fs::write(&outline, super::ttf::test_mono().build()).unwrap();
+        let strike = dir.join("12.psf");
+        std::fs::write(
+            &strike,
+            crate::decode::tests::psf2(8, 12, 3, Some(&[(1, 'Z')])),
+        )
+        .unwrap();
+        let struck = frit(&format!(
+            "source=outline:{}\nstrike=file:{}\n",
+            outline.display(),
+            strike.display()
+        ));
+        let engine = Engine::load(&struck, &Paths::default(), None).unwrap();
+        assert!(engine.coverage().contains(&u32::from('A')));
+        assert!(!engine.coverage().contains(&u32::from('Z')));
+        let small = Cell {
+            width: 8,
+            height: 12,
+        };
+        assert_eq!(drawn_chars(&struck, small, &['Z']), ['Z']);
+        assert!(drawn_chars(&struck, CELL, &['Z']).is_empty());
+    }
+
+    // A strike this machine lacks is left out quietly, and one it refuses
+    // is a warning naming its line.
+    //
+    // References:
+    // - ADR-1204 D2: the strike= key.
+    #[test]
+    fn a_strike_this_machine_lacks_is_left_out_and_a_bad_one_warns() {
+        let dir = scratch("strikes-bad");
+        let outline = dir.join("mono.ttf");
+        std::fs::write(&outline, super::ttf::test_mono().build()).unwrap();
+        let broken = dir.join("broken.psf");
+        std::fs::write(&broken, b"not a font").unwrap();
+        let text = format!(
+            "source=outline:{}\nstrike=file:{}/gone.psf\nstrike=file:{}\n",
+            outline.display(),
+            dir.display(),
+            broken.display()
+        );
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert_eq!(engine.warnings().len(), 1, "{:?}", engine.warnings());
+        assert!(
+            engine.warnings()[0].starts_with(&format!("t:3: strike=file:{}: ", broken.display())),
+            "{:?}",
+            engine.warnings()
+        );
+        assert!(
+            engine.warnings()[0].ends_with(". Because of this error, vtium leaves the strike out.")
+        );
+        assert!(engine.strikes.iter().all(Vec::is_empty));
     }
 
     // ADR-1302 D13: where line spacing adds rows to the cell, the helper
@@ -5559,10 +7567,13 @@ mod tests {
     #[test]
     fn a_frit_with_no_source_here_fails_each_request() {
         let frit = frit("source=file:/nonexistent/x.psf\n");
-        let frames = run(&[
+        let frames: Vec<(u32, Vec<u8>)> = run(&[
             request(ASK, frit.clone(), &['A']),
             request(FILL, frit, &['B']),
-        ]);
+        ])
+        .into_iter()
+        .filter(|f| f.0 != FRAME_WARNING)
+        .collect();
         assert_eq!(frames.len(), 2);
         assert!(frames.iter().all(|f| f.0 == FRAME_FAILED));
         assert!(String::from_utf8_lossy(&frames[0].1).contains("not on this machine"));
@@ -5613,6 +7624,155 @@ mod tests {
         let frames = frames(&out);
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].0, FRAME_FAILED);
+    }
+
+    /// An SVG pointer file with a white 8 × 16 `default` symbol, its
+    /// hotspot at its corner.
+    fn pointer_svg() -> Vec<u8> {
+        b"<svg xmlns=\"http://www.w3.org/2000/svg\"><symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><rect width=\"8\" height=\"16\" fill=\"#fff\"/></symbol></svg>".to_vec()
+    }
+
+    fn svg_ask(shape: PointerShape, heights: Vec<u32>) -> PointerAsk {
+        PointerAsk {
+            file: PointerFile::Svg,
+            shape,
+            size: None,
+            heights,
+            bytes: pointer_svg(),
+        }
+    }
+
+    // A pointer ask reads back as it was encoded, and the glyph requests'
+    // reader refuses it as a kind it does not know.
+    #[test]
+    fn a_pointer_ask_reads_back_and_glyph_reading_refuses_it() {
+        let ask = svg_ask(PointerShape::Text, vec![16, 32]);
+        let bytes = ask.encode();
+        assert_eq!(
+            read_request(&mut &bytes[..]),
+            Ok(Some(Request::Pointer(ask.clone())))
+        );
+        assert_eq!(PointerAsk::read(&mut &bytes[..]), Ok(Some(ask)));
+        assert!(ServeRequest::read(&mut &bytes[..]).is_err());
+        let x = PointerAsk {
+            file: PointerFile::Xcursor,
+            shape: PointerShape::NsResize,
+            size: Some(24),
+            heights: Vec::new(),
+            bytes: b"Xcur".to_vec(),
+        };
+        assert_eq!(
+            read_request(&mut &x.encode()[..]),
+            Ok(Some(Request::Pointer(x)))
+        );
+    }
+
+    // Each field of a pointer ask is checked before it is trusted.
+    #[test]
+    fn a_pointer_ask_refuses_each_field_out_of_bounds() {
+        let good = svg_ask(PointerShape::Default, vec![16]);
+        let svg_sized = PointerAsk {
+            size: Some(24),
+            ..good.clone()
+        };
+        let no_height = svg_ask(PointerShape::Default, Vec::new());
+        let many = svg_ask(PointerShape::Default, vec![16; POINTER_HEIGHTS_MAX + 1]);
+        let zero = svg_ask(PointerShape::Default, vec![0]);
+        let tall = svg_ask(PointerShape::Default, vec![CELL_SIDE_MAX + 1]);
+        let xcursor_height = PointerAsk {
+            file: PointerFile::Xcursor,
+            ..good.clone()
+        };
+        let small = PointerAsk {
+            file: PointerFile::Xcursor,
+            heights: Vec::new(),
+            size: Some(7),
+            ..good.clone()
+        };
+        let large_svg = PointerAsk {
+            bytes: vec![b' '; POINTER_SVG_BYTES_MAX + 1],
+            ..good.clone()
+        };
+        for (what, ask) in [
+            ("size on SVG", svg_sized),
+            ("no height", no_height),
+            ("too many heights", many),
+            ("height 0", zero),
+            ("height too tall", tall),
+            ("height on Xcursor", xcursor_height),
+            ("size under 8", small),
+            ("SVG too large", large_svg),
+        ] {
+            assert!(read_request(&mut &ask.encode()[..]).is_err(), "{what}");
+        }
+        let mut file_kind = good.encode();
+        file_kind[12] = 3;
+        assert!(read_request(&mut &file_kind[..]).is_err());
+        let mut shape = good.encode();
+        shape[16] = 10;
+        assert!(read_request(&mut &shape[..]).is_err());
+        let bytes = good.encode();
+        assert!(read_request(&mut &bytes[..bytes.len() - 1]).is_err());
+    }
+
+    // The helper answers a pointer ask with a picture at each height
+    // asked, then done; a shape the file lacks with a frame that says so;
+    // and a cursor file it cannot read with the reason.
+    #[test]
+    fn the_helper_answers_a_pointer_ask_with_its_pictures() {
+        let mut input = svg_ask(PointerShape::Default, vec![20, 16, 16]).encode();
+        input.extend(svg_ask(PointerShape::Wait, vec![16]).encode());
+        input.extend(
+            PointerAsk {
+                file: PointerFile::Xcursor,
+                shape: PointerShape::Text,
+                size: None,
+                heights: Vec::new(),
+                bytes: b"not a cursor".to_vec(),
+            }
+            .encode(),
+        );
+        let mut out = Vec::new();
+        let status = serve(
+            std::io::Cursor::new(input),
+            &mut out,
+            &Paths::default(),
+            Duration::from_secs(5),
+        );
+        assert_eq!(status, 0);
+        let frames = raw_frames(&out);
+        let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();
+        assert_eq!(
+            kinds,
+            [
+                FRAME_POINTER,
+                FRAME_POINTER,
+                FRAME_DONE,
+                FRAME_NO_POINTER,
+                FRAME_DONE,
+                FRAME_NO_POINTER,
+                FRAME_DONE
+            ]
+        );
+        let word = |b: &[u8], i: usize| u32::from_le_bytes(b[i * 4..i * 4 + 4].try_into().unwrap());
+        let first = &frames[0].1;
+        // shape 0, drawn for 16, 8 × 16, hotspot at 0, 0
+        assert_eq!(
+            (0..6).map(|i| word(first, i)).collect::<Vec<_>>(),
+            [0, 16, 8, 16, 0, 0]
+        );
+        assert_eq!(first.len(), 24 + 8 * 16 * 4);
+        assert_eq!(word(&frames[1].1, 1), 20);
+        assert_eq!(
+            (word(&frames[3].1, 0), word(&frames[3].1, 1)),
+            (shape_code(PointerShape::Wait), NO_POINTER_MISSING)
+        );
+        let why = &frames[5].1;
+        assert_eq!(
+            (word(why, 0), word(why, 1)),
+            (shape_code(PointerShape::Text), NO_POINTER_REFUSED)
+        );
+        assert!(String::from_utf8_lossy(&why[8..]).contains("Xcur"));
     }
 
     /// Input that never ends and never gives a byte.
@@ -6192,6 +8352,106 @@ mod tests {
                 .count()
         };
         assert!(red(&t) >= 3 * red(&n), "{} against {}", red(&t), red(&n));
+    }
+
+    // issue #61: a line of double width draws its color glyphs from a
+    // double-height cell. Where that cell passes CELL_SIDE_MAX, as 640×1100
+    // does at 1280×2200 while its double width is 1280×1100, the line
+    // leaves the color glyph to the console, which doubles the pixels of
+    // the glyph at the normal size, and still draws its other glyphs. The
+    // ask does not fail, so the helper is not given up
+    #[test]
+    fn a_double_width_ask_whose_double_height_is_too_large_leaves_its_color_glyphs() {
+        let dir = scratch("doubled-wide-tall");
+        let path = dir.join("TestMono.ttf");
+        std::fs::write(&path, super::ttf::test_mono().build()).unwrap();
+        let font = frit(&format!("source=outline:{}\n", path.display()));
+        let cell = Cell {
+            width: 640,
+            height: 1100,
+        };
+        assert!(Doubled::Height.cell(cell).is_none());
+        let ask = ServeRequest {
+            cell,
+            doubled: Some(Doubled::Width),
+            ..request(ASK, font, &['A', '\u{1f600}'])
+        };
+        let frames = run(&[ask]);
+        assert!(frames.iter().all(|f| f.0 != FRAME_FAILED), "the ask failed");
+        let (wide, cells) = answered_face(&frames, "double width");
+        assert_eq!(
+            cells,
+            [Cell {
+                width: 1280,
+                height: 1100
+            }]
+        );
+        assert!(wide.draw(&['A'], Style::default()).is_some(), "A is drawn");
+        assert!(
+            wide.draw(&['\u{1f600}'], Style::default()).is_none(),
+            "the color glyph is left to the console"
+        );
+    }
+
+    // covers: text.line-size
+    // issue #61: a character that presents as text by default, whose only
+    // glyph is a color glyph one cell wide, waits for a later source's text
+    // glyph, and takes the color glyph once no source has one. On a pair of
+    // double-height lines that color glyph is placed in the doubled cell,
+    // with the doubled rows that line spacing adds, like every other glyph
+    // of the answer. Test Mono here draws U+263A, which presents as text by
+    // default, as one opaque red layer of its `A` bar. A cell of 8 by 20
+    // with 2 rows of spacing above and below the text doubles to 16 by 40
+    // with 4 rows above and below, and those rows stay clear
+    #[test]
+    fn a_double_ask_places_a_color_glyph_held_for_text_in_the_doubled_cell() {
+        let dir = scratch("doubled-held-color");
+        let path = dir.join("TestMono.ttf");
+        let mut mono = super::ttf::test_mono();
+        mono.glyphs
+            .push(super::ttf::Glyph::rect(600, 100, 0, 500, 700));
+        let held = mono.glyphs.len() as u16 - 1;
+        mono.cmap.push((0x263a, held));
+        mono.cmap.sort_unstable();
+        mono.colr.push((held, vec![(2, 0)]));
+        std::fs::write(&path, mono.build()).unwrap();
+        let font = frit(&format!("source=outline:{}\n", path.display()));
+        let smiley = ['\u{263a}'];
+        assert!(!crate::shaping::emoji_by_default(0x263a));
+        let ask = ServeRequest {
+            cell: Cell {
+                width: 8,
+                height: 20,
+            },
+            band: Band { above: 2, below: 2 },
+            doubled: Some(Doubled::Height),
+            ..request(ASK, font, &smiley)
+        };
+        let (tall, cells) = answered_face(&run(&[ask]), "double height");
+        assert_eq!(
+            cells,
+            [Cell {
+                width: 16,
+                height: 40
+            }]
+        );
+        let t = tall.draw(&smiley, Style::default()).unwrap();
+        assert_eq!(
+            (t.format(), t.cells(), t.width(), t.height()),
+            (Format::Rgba, Width::Narrow, 16, 40)
+        );
+        let red_rows: Vec<usize> = t
+            .pixels()
+            .chunks(16 * 4)
+            .enumerate()
+            .filter(|(_, row)| row.chunks(4).any(|p| p[0] > 200 && p[3] > 200))
+            .map(|(y, _)| y)
+            .collect();
+        assert!(!red_rows.is_empty(), "the glyph holds its red layer");
+        assert!(
+            red_rows.iter().all(|y| (4..36).contains(y)),
+            "red outside the text band: {red_rows:?}"
+        );
     }
 
     // covers: text.line-size

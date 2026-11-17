@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 
 use super::keys::{
     Default, FRIT_CELL_MAX, FRIT_CELL_MIN, KEYS, Key, Kind, OSD_BORDER, OVERLAY_COLORS, SB_MEMORY,
-    SCHEMES, SECTIONS, Scope, Section, TEXT_MAX,
+    SCHEMES, SECTIONS, Scope, Section, TEXT_MAX, notes,
 };
 use super::{FILE_MAX, LINE_MAX};
 
@@ -139,6 +139,8 @@ pub(super) fn markdown() -> String {
          - any error or warning about the sections, and\n\
          - a file whose flow wires no complete route.\n\
          \n\
+         It exits 6 instead when its only warnings are about missing fonts. A font is missing when a font set that vtium.conf names needs it and it is not installed. It is missing too when the installed font lacks a character that the font set checks for. vtium draws the font set without that font, so vtium-config installs such a file anyway. A script that accepts only 0 still sees a failure.\n\
+         \n\
          A complete route is a connected display that its first matching rule sends to a head, together with a connected keyboard that reaches that head. When no display or no keyboard is connected, or with `--no-devices`, `vtium check-config` judges the rules alone, and says so.\n\
          \n\
          `vtium check-config` also prints notes on standard output. A note does not count toward the exit status. One note gives the density at which vtium converts font points to pixels. For the sections, it notes each of these:\n\
@@ -219,6 +221,12 @@ fn row(out: &mut String, k: &Key) {
     .chain((k.scope != Scope::Section).then_some("command line"))
     .collect();
     let set_in = set_in.join(", ");
+    // vtium-settings holds a note for every key, so a key without one is a
+    // fault in the key table, and the generated docs must not show it with
+    // empty cells.
+    #[expect(clippy::panic, reason = "only the docs' tests generate docs/config.md")]
+    let note = notes::of(k)
+        .unwrap_or_else(|| panic!("the key {} has no note in keys::notes::NOTES", k.name));
     let _ = writeln!(
         out,
         "| `{}` | {} | {} | {} | {} | {} | {set_in} | {} | {} |",
@@ -227,9 +235,9 @@ fn row(out: &mut String, k: &Key) {
         kind(k),
         default(k),
         bound(k),
-        k.reader,
+        note.reader,
         k.what_line(),
-        k.cite
+        note.cite
     );
 }
 
@@ -477,8 +485,11 @@ pub(super) const EXAMPLE_MAX: usize = 49_152;
 /// `cluster-width` (ADR-1006) used half a KiB of that room, which leaves
 /// 3.5 KiB. `font-ligatures` (ADR-1308) used 274 bytes more, the link
 /// hints key 261 bytes and the four login picture keys 473 bytes, which
-/// leaves 2,615 bytes.
-const EXAMPLE_ROOM: usize = 2_615;
+/// leaves 2,615 bytes. The maintainer raised the example's budget by
+/// 1,024 bytes on 2026-11-15, when the pointer file keys and the login
+/// picture's placement keys used the last of the room, which leaves 1,591
+/// bytes kept for the planned settings.
+const EXAMPLE_ROOM: usize = 1_591;
 
 #[cfg(test)]
 #[expect(

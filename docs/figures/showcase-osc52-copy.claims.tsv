@@ -6,7 +6,8 @@ element	file	symbol
 2: vtium holds the text as its selection, for a paste	crates/vtium/src/app.rs	App::session_turn
 2: no-clipboard-write drops it	crates/vtium-settings/src/keys.rs	key clipboard-write
 3: Shift+Insert pastes	crates/vtium/src/grab.rs	Action::Paste
+3: Shift+Insert is the paste key by default	crates/vtium-settings/src/keys.rs	key key-paste
 3: the middle button pastes	crates/vtium/src/head.rs	Head::pointer_event
 3: the paste reaches the console's program	crates/vtium/src/head.rs	Head::paste
-test: OSC 52 sets the selection	crates/vtium-term/tests/clipboard.rs	osc_52_sets_the_selection
+1: test: OSC 52 sets the selection	crates/vtium-term/tests/clipboard.rs	osc_52_sets_the_selection
 4: test: a request to read the selection gets no reply	crates/vtium-term/tests/clipboard.rs	osc_52_query_gets_no_reply

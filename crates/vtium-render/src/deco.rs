@@ -42,8 +42,10 @@
 //! The dash starts at the cell's left edge, so that each character's dash
 //! reads as that letter's own underline (the maintainer, 2026-10-28).
 
+use std::collections::BTreeMap;
+
 use vtium_font::{Decorations, Script};
-use vtium_term::UnderlineStyle;
+use vtium_term::{LineSize, UnderlineStyle};
 
 use crate::renderer::double::{self, Piece, SPRITE_SETS};
 use crate::stored::Stored;
@@ -336,6 +338,64 @@ impl Line {
 #[derive(Debug)]
 pub(crate) struct Sprites {
     sprites: Vec<Stored>,
+    /// Every line of the normal set, upright and unturned, which a cell of
+    /// a sized run cuts its scaled piece from.
+    upright: Vec<Vec<u8>>,
+    /// The cell's size, the display's orientation, and whether the
+    /// sprites are stored at 1 bit.
+    w: u32,
+    h: u32,
+    o: Orientation,
+    bits: bool,
+    /// The scaled pieces the cells of sized runs draw, by [`RunLine`]:
+    /// `None` for a piece the line leaves empty.
+    runs: BTreeMap<RunLine, Option<Stored>>,
+}
+
+/// The piece of a decoration that a cell of a sized run of scale `scale`
+/// draws: the cell at `row` and `column` of the line scaled by `scale`, a
+/// block `scale` cells on a side, with the column counted within one
+/// scaled cell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct RunLine {
+    line: usize,
+    scale: u8,
+    row: u8,
+    column: u8,
+}
+
+/// The most scaled pieces [`Sprites`] keeps. Each piece is a function of
+/// its key alone, so forgetting them all changes no pixel.
+const RUN_LINES: usize = 512;
+
+/// The piece of `mask`, a decoration `w` by `h`, that the cell at `row`
+/// and `column` of the decoration scaled by `scale` holds, with each pixel
+/// of `mask` repeated `scale` times across and down. The column is counted
+/// within one scaled cell, so it is below `scale`. The GPU path's cell
+/// shader reads the same pixels from the normal sprite.
+pub(crate) fn scaled(
+    mask: &[u8],
+    (w, h): (u32, u32),
+    scale: u32,
+    (row, column): (u32, u32),
+) -> Vec<u8> {
+    let scale = scale.max(1);
+    let (x0, y0) = (column.saturating_mul(w), row.saturating_mul(h));
+    (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let sx = x0.saturating_add(x).checked_div(scale).unwrap_or(0);
+            let sy = y0.saturating_add(y).checked_div(scale).unwrap_or(0);
+            let at = u64::from(sy)
+                .saturating_mul(u64::from(w))
+                .saturating_add(u64::from(sx));
+            usize::try_from(at)
+                .ok()
+                .and_then(|i| mask.get(i))
+                .copied()
+                .unwrap_or(0)
+        })
+        .collect()
 }
 
 impl Sprites {
@@ -367,7 +427,62 @@ impl Sprites {
                 })
             })
             .collect();
-        Sprites { sprites }
+        Sprites {
+            sprites,
+            upright: drawn,
+            w,
+            h,
+            o,
+            bits,
+            runs: BTreeMap::new(),
+        }
+    }
+
+    /// The scaled piece of `line` that a cell drawing `piece` draws, when
+    /// `piece` is a cell of a sized run of scale 2 or more on a line of
+    /// the normal size: its key among the scaled pieces.
+    fn run_line(line: Line, piece: Piece) -> Option<RunLine> {
+        let run = piece.run()?;
+        let scale = run.size.scale;
+        (run.line == LineSize::Single && scale >= 2).then(|| RunLine {
+            line: line.index(),
+            scale,
+            row: run.row.min(scale.saturating_sub(1)),
+            column: run.column.checked_rem(scale).unwrap_or(0),
+        })
+    }
+
+    /// Makes ready the scaled piece of `line` that a cell drawing `piece`
+    /// draws, so that [`Sprites::piece`] gives it. A sized run's
+    /// decorations scale with its text: each of its cells draws its piece
+    /// of the line scaled by the run's scale, so an underline lies under
+    /// the block's bottom row, a strike through its middle and an overline
+    /// over its top row, each as many times as thick as the scale.
+    ///
+    /// References:
+    /// - ADR-1308 D9, "Decorations scale with the text".
+    pub(crate) fn prepare(&mut self, line: Line, piece: Piece) {
+        let Some(key) = Sprites::run_line(line, piece) else {
+            return;
+        };
+        if self.runs.contains_key(&key) {
+            return;
+        }
+        if self.runs.len() >= RUN_LINES {
+            self.runs.clear();
+        }
+        let mask = self.upright.get(key.line).map(|m| {
+            scaled(
+                m,
+                (self.w, self.h),
+                u32::from(key.scale),
+                (u32::from(key.row), u32::from(key.column)),
+            )
+        });
+        let stored = mask
+            .filter(|m| m.iter().any(|&a| a != 0))
+            .map(|m| Stored::mask(&m, self.w, self.h, self.o, self.bits));
+        self.runs.insert(key, stored);
     }
 
     /// The sprite of `line` at the normal size.
@@ -377,9 +492,14 @@ impl Sprites {
     }
 
     /// The sprite of `line` that a cell drawing the piece `piece` of its
-    /// glyph draws: the normal sprite for the whole glyph, or the doubled
-    /// sprite's piece on a line of double size.
+    /// glyph draws: the normal sprite for the whole glyph, the doubled
+    /// sprite's piece on a line of double size, or for a cell of a sized
+    /// run its scaled piece, which [`Sprites::prepare`] made ready, or
+    /// `None` where that piece is empty.
     pub(crate) fn piece(&self, line: Line, piece: Piece) -> Option<&Stored> {
+        if let Some(key) = Sprites::run_line(line, piece) {
+            return self.runs.get(&key).and_then(Option::as_ref);
+        }
         let at = piece.sprite_set().saturating_mul(LINES);
         self.sprites.get(at.saturating_add(line.index()))
     }
@@ -742,6 +862,57 @@ mod tests {
                         draw(kind, w, h, &m),
                         "{kind:?}"
                     );
+                }
+            }
+        }
+    }
+
+    // A scaled piece repeats each pixel of the line `scale` times across
+    // and down: at scale 2, the bottom-right cell of a 2 by 2 line holds
+    // its bottom-right pixel four times
+    #[test]
+    fn a_scaled_piece_repeats_each_pixel_of_the_line() {
+        let mask = [1, 2, 3, 4];
+        assert_eq!(scaled(&mask, (2, 2), 2, (0, 0)), [1, 1, 1, 1]);
+        assert_eq!(scaled(&mask, (2, 2), 2, (1, 1)), [4, 4, 4, 4]);
+        // at scale 3, the second row of cells starts at the line's row 2 / 3
+        assert_eq!(scaled(&mask, (2, 2), 3, (1, 0)), [1, 1, 3, 3]);
+    }
+
+    // The scaled pieces of every line, scale, row and column stay within
+    // their bound, and the piece made ready last is always there
+    #[test]
+    fn the_scaled_pieces_never_pass_their_bound() {
+        use crate::renderer::sized::{RunPiece, RunSize};
+        let font = vtium_font::Font::new(vtium_font::Unifont::new(16));
+        let mut sprites = Sprites::new(
+            8,
+            16,
+            &SCRIPTS.map(|s| font.script_decorations(s)),
+            Orientation::Normal,
+            false,
+            false,
+        );
+        for line in Line::all() {
+            for scale in 2..=7u8 {
+                for (row, column) in (0..scale).flat_map(|r| (0..scale).map(move |c| (r, c))) {
+                    let piece = Piece::of_run(RunPiece {
+                        size: RunSize {
+                            scale,
+                            cols: scale,
+                            numerator: 0,
+                            denominator: 0,
+                            vertical: 0,
+                            horizontal: 0,
+                        },
+                        row,
+                        column,
+                        line: LineSize::Single,
+                    });
+                    sprites.prepare(line, piece);
+                    assert!(sprites.runs.len() <= RUN_LINES);
+                    let key = Sprites::run_line(line, piece).unwrap();
+                    assert!(sprites.runs.contains_key(&key));
                 }
             }
         }

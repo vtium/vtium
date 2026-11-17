@@ -192,3 +192,13 @@ line-size-reverse-wrap 10 4
 line-size-irm-wide 10 3
 line-size-irm-tall 10 3
 line-size-irm-widen 10 3
+osc66-scale 10 4
+osc66-width 14 3
+osc66-fraction 12 2
+osc66-margin 10 4
+osc66-overwrite 10 3
+osc66-erase 10 4
+osc66-edit 10 4
+osc66-bottom 6 3
+osc66-line-size 10 3
+osc66-reflow 10 6

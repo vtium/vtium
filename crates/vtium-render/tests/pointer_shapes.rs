@@ -243,3 +243,48 @@ mod gpu {
         }
     }
 }
+
+// A pointer file's picture serves each shape it holds in place of vtium's
+// own. `pointer-char` keeps the default shape where the font draws the
+// character, and a shape the file lacks keeps vtium's own picture; going
+// back to no file draws vtium's own pictures again.
+// covers: window.pointer-shape
+#[test]
+fn a_pointer_files_picture_comes_after_pointer_char_and_before_vtiums_own() {
+    use std::sync::Arc;
+    use vtium_render::{PictureSizes, PointerPictures};
+    let dot = Arrow::from_rgba(3, 3, (1, 1), &[255; 3 * 3 * 4]).unwrap();
+    let mut pictures = PointerPictures::new(PictureSizes::Theme { size: None });
+    pictures.insert(Shape::Default, 24, dot.clone());
+    pictures.insert(Shape::Text, 24, dot.clone());
+    let pictures = Arc::new(pictures);
+    let mut r = Renderer::new(unifont(), 48, 32, Config::default());
+    r.set_pointer_pictures(Some(Arc::clone(&pictures)));
+    assert_eq!(r.upright_arrow(), &dot);
+    r.set_pointer_shape(Shape::Text);
+    assert_eq!(r.upright_arrow(), &dot);
+    r.set_pointer_shape(Shape::Wait);
+    assert_eq!(r.upright_arrow(), &Arrow::upright_shape(Shape::Wait, 16));
+    r.set_pointer_pictures(None);
+    r.set_pointer_shape(Shape::Text);
+    assert_eq!(r.upright_arrow(), &Arrow::upright_shape(Shape::Text, 16));
+    // pointer-char keeps the default shape; the file still draws the rest
+    let glyph = Config {
+        pointer: PointerShape::Glyph('x'),
+        ..Config::default()
+    };
+    let mut g = Renderer::new(unifont(), 48, 32, glyph);
+    g.set_pointer_pictures(Some(Arc::clone(&pictures)));
+    assert_ne!(g.upright_arrow(), &dot);
+    assert_ne!(g.upright_arrow(), &Arrow::upright(16));
+    g.set_pointer_shape(Shape::Text);
+    assert_eq!(g.upright_arrow(), &dot);
+    // a character the font cannot draw gives the default shape the file's
+    let missing = Config {
+        pointer: PointerShape::Glyph('\u{10fffd}'),
+        ..Config::default()
+    };
+    let mut m = Renderer::new(unifont(), 48, 32, missing);
+    m.set_pointer_pictures(Some(pictures));
+    assert_eq!(m.upright_arrow(), &dot);
+}

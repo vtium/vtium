@@ -367,7 +367,7 @@ struct Answers {
 }
 
 /// The TUI's state.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct App {
     pub inputs: Inputs,
     pub cols: usize,
@@ -460,6 +460,9 @@ pub struct App {
     /// What the message line says once the draft holds the font the
     /// console shows, which `s` in a vtium console's Fonts view wrote.
     pub(crate) saving_tried: Option<String>,
+    /// The TUI leaves with this status once the install that `y` at the
+    /// leave question started ends well.
+    pub(crate) quit_after_install: Option<u8>,
     /// The changes made since the draft was last read or saved, which
     /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
     /// "Changes wait for Save").
@@ -479,8 +482,9 @@ pub enum Then {
     Change(DraftChange),
     Desk(Op),
     Install(Plan),
-    /// Leaves with this status, the pending frits lost; `i` installs
-    /// them instead.
+    /// Leaves with this status while new or removed frits wait for an
+    /// install: `y` installs them first, and `n` leaves them uninstalled.
+    /// Both save the unsaved changes.
     Leave(u8),
     /// Leaves with this status: `y` saves the unsaved changes first, `n`
     /// leaves without them.
@@ -555,6 +559,7 @@ impl App {
             flow_view: super::flowview::State::default(),
             live_said: false,
             saving_tried: None,
+            quit_after_install: None,
             unsaved: 0,
         };
         // the Flow view's highlight on its first box from the first frame,
@@ -930,6 +935,17 @@ impl App {
         if self.leaving.is_some() || self.installing {
             return Vec::new();
         }
+        // a question takes the next key wherever it is asked, the screen
+        // below the minimum size included, and Ctrl-C cancels it
+        if self.confirm.is_some() {
+            return self.confirm_key(key);
+        }
+        // Ctrl-C saves and leaves from every other state, the live trial,
+        // a value being typed and the screen below the minimum size
+        // included
+        if key == Key::Interrupt {
+            return self.save_and_leave(130);
+        }
         if self.trial.is_some() {
             return self.trial_key(key);
         }
@@ -945,13 +961,10 @@ impl App {
         {
             return self.type_key(key);
         }
-        if self.confirm.is_some() {
-            return self.confirm_key(key);
-        }
-        let modal = self.view == View::Flow && (self.pager.is_some() || self.restore.is_some());
         match key {
-            Key::Interrupt => return self.save_and_leave(130),
-            Key::Char('q') if !modal => return self.quit(0),
+            // `q` quits or asks from a view and from what is open over
+            // it, the file view and Restore's list included
+            Key::Char('q') => return self.quit(0),
             // Tab and Shift-Tab step the views wherever the selection is,
             // and the arrows move inside a view (#355)
             Key::Tab | Key::BackTab if self.holds_view() => return Vec::new(),
@@ -962,14 +975,19 @@ impl App {
             return self.flow_key(key);
         }
         match key {
-            Key::Char('i') if !self.typing() => return self.action('i'),
+            // Install acts where the tab bar shows it: not in Help, whose
+            // tab bar shows no action, nor in the new-frit form, which is
+            // open over the Fonts view
+            Key::Char('i') if !self.typing() && !matches!(self.view, View::Help | View::New) => {
+                return self.action('i');
+            }
             // Save in the views whose own keys leave `s` free (ADR-1403 D7)
             Key::Char('s')
                 if matches!(self.view, View::Looks | View::Settings) && !self.typing() =>
             {
                 return self.save();
             }
-            Key::Char('o') if self.live == Live::OpsOff => {
+            Key::Char('o') if self.live == Live::OpsOff && self.view != View::New => {
                 return self.top("allow-font-ops", Some("on"));
             }
             _ => {}
@@ -1010,12 +1028,17 @@ impl App {
     }
 
     /// A key below the TUI's minimum size, where no view is drawn: `q`
-    /// leaves, and `u` puts back the font the console had when the TUI
-    /// started, where a preview changed it (ADR-1201 D3).
+    /// quits, or asks the quit question first while changes are not
+    /// saved, and `u` puts back the font the console had when the TUI
+    /// started, where a preview changed it. Ctrl-C saves and leaves, as
+    /// it does everywhere.
+    ///
+    /// References:
+    /// - ADR-1201 D3: below the minimum size only `q`, `u` and Ctrl-C act.
+    /// - ADR-1403 D7: `q` asks before it drops changes that are not saved.
     fn small_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
-            Key::Interrupt => self.leave(130),
-            Key::Char('q') => self.leave(0),
+            Key::Char('q') => self.quit(0),
             Key::Char('u') => {
                 let Some(start) = self.start_font.clone() else {
                     return Vec::new();
@@ -1030,12 +1053,9 @@ impl App {
         }
     }
 
-    /// A key in the Flow view (ADR-1403 D7) while a question, the file
-    /// view or Restore's list is open over it.
+    /// A key in the Flow view (ADR-1403 D7) while the file view or
+    /// Restore's list is open over it.
     pub(crate) fn flow_open_key(&mut self, key: Key) -> Vec<Effect> {
-        if self.confirm.is_some() {
-            return self.confirm_key(key);
-        }
         if self.pager.is_some() {
             self.pager_key(key);
             return Vec::new();
@@ -1054,6 +1074,11 @@ impl App {
     fn click(&mut self, mouse: Mouse) -> Vec<Effect> {
         if self.trial.is_some() && self.leaving.is_none() && !self.installing {
             return self.put_back();
+        }
+        // a question takes only its answer keys, so a click or the wheel
+        // leaves it open and changes nothing under it
+        if self.confirm.is_some() {
+            return Vec::new();
         }
         if self.view != View::Flow
             || self.leaving.is_some()
@@ -1187,9 +1212,15 @@ impl App {
     /// key of a fixed set of words to its next word, and starts typing any
     /// other key's value, which a second Enter writes into the draft; an
     /// empty value goes back to the default, but a key binding's binds no
-    /// key and the word `default` returns it to its default. Moving away
-    /// drops what is typed.
+    /// key and the word `default` returns it to its default. Esc drops
+    /// what is typed.
     fn settings_key(&mut self, key: Key) -> Vec<Effect> {
+        // while a value is typed, only Enter and Esc act on it: Enter
+        // keeps the value and Esc drops it, and the arrows and the other
+        // moving keys do nothing
+        if self.editing.is_some() && !matches!(key, Key::Enter | Key::Escape) {
+            return Vec::new();
+        }
         let all = setting_keys();
         if let Some(typed) = self.editing.take() {
             return match all.get(self.setting_at) {
@@ -1256,12 +1287,18 @@ impl App {
         )
     }
 
-    /// A key in the new-frit view: Up and Down move between the fields,
-    /// Enter moves to the next, and Enter on the last row adds the frit to
-    /// the save, once the frit reader takes it, and shows the save.
+    /// A key in the new-frit view: on a field, Enter moves to the next
+    /// and every other key but Esc does nothing; on the last row, Up and
+    /// Down move back onto the fields, and Enter adds the frit to the
+    /// save, once the frit reader takes it, and shows the save.
     fn new_key(&mut self, key: Key) {
         let rows = NEW_FIELDS.saturating_add(1);
         let at = self.new_frit.at;
+        // while a field is typed, only Enter (keep, next field) and Esc
+        // act, as while a Settings value is typed
+        if at < NEW_FIELDS && key != Key::Enter {
+            return;
+        }
         self.new_frit.at = match key {
             Key::Enter if at < NEW_FIELDS => at.saturating_add(1),
             _ => step(at, rows, key),

@@ -552,6 +552,39 @@ impl<F: Face> Font<F> {
         }
     }
 
+    /// The sprite that `cluster` draws as in a cell `cell` whose line
+    /// spacing adds `band`, `width` cells wide in `style`, or `None` when
+    /// the font draws `cluster` from its face ([`Font::sprite_base`]). A
+    /// line of the normal size draws it in the face's cell
+    /// ([`Font::drawn`]), and a line of double size in the doubled cell
+    /// ([`sprite::doubled`]), so both choose the same way. The sprite fills
+    /// the whole cell, the rows line spacing adds included, unless the
+    /// face's fit for it keeps it to the text band. Its light lines take
+    /// the weight that [`sprite::light_line`] gives the cell's height.
+    ///
+    /// References:
+    /// - ADR-1302 D13: which sprites fill the rows that line spacing adds.
+    pub(crate) fn sprite_in(
+        &self,
+        cluster: &[char],
+        (cell, band): (Cell, Band),
+        (width, style): (Width, Style),
+    ) -> Option<Glyph> {
+        let c = self.sprite_base(cluster)?;
+        let fit = self.face.fit(c, style);
+        let height = match fit {
+            Fit::Fill => cell.height,
+            Fit::Natural | Fit::Room => cell.height.saturating_sub(band.added()),
+        };
+        let w = cell.width.checked_mul(width.cells())?;
+        let s = sprite::draw(c, w, height, sprite::light_line(cell.height))?;
+        let s = match height == cell.height {
+            true => s,
+            false => crate::spacing::place(&s, band, fit, true)?,
+        };
+        Some(s.with_cells(width))
+    }
+
     /// The glyph for `cluster`, exactly `width` cells wide and a cell high:
     /// [`Font::drawn`]'s glyph.
     pub fn glyph(&self, cluster: &[char], width: Width, style: Style) -> Option<Glyph> {
@@ -576,24 +609,8 @@ impl<F: Face> Font<F> {
         let &first = cluster.first()?;
         let cell = self.face.cell();
         let w = cell.width.saturating_mul(width.cells());
-        if let Some(c) = self.sprite_base(cluster) {
-            // a sprite fills the whole cell, the rows line spacing adds
-            // included, unless the face's fit for it keeps it to the text
-            // band (ADR-1302 D13)
-            let band = self.face.band();
-            let fit = self.face.fit(c, style);
-            let height = match fit {
-                Fit::Fill => cell.height,
-                Fit::Natural | Fit::Room => cell.height.saturating_sub(band.added()),
-            };
-            let thick = sprite::light_line(cell.height);
-            if let Some(s) = sprite::draw(c, w, height, thick) {
-                let s = match height == cell.height {
-                    true => s,
-                    false => crate::spacing::place(&s, band, fit, true)?,
-                };
-                return Some(Drawn::new(s.with_cells(width), 1, false));
-            }
+        if let Some(s) = self.sprite_in(cluster, (cell, self.face.band()), (width, style)) {
+            return Some(Drawn::new(s, 1, false));
         }
         let cells = width.cells();
         let own = |f: &F, c: &[char], s: Style| f.draw_cells(c, s, cells);

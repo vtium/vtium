@@ -219,6 +219,35 @@ const NS_RESIZE: Sprite = Sprite {
     ],
 };
 
+/// One part of a shape's picture as the pointer file's generator writes
+/// it, in the units of the shape's grid.
+pub(crate) enum PartOf {
+    Poly(&'static [(i64, i64)]),
+    Rect(i64, i64, i64, i64),
+    Disc(i64, i64, i64),
+    Ring(i64, i64, i64, i64),
+}
+
+/// The grid of `shape`'s picture, `(width, height)` in its units, its
+/// hotspot's unit, and its parts, as the compiled-in picture draws them:
+/// what the pointer file's generator writes as the shape's symbol.
+pub(crate) fn grid(shape: PointerShape) -> ((i64, i64), (i64, i64), Vec<PartOf>) {
+    let Some(sprite) = sprite(shape) else {
+        return ((SHAPE_WIDTH, UNITS), (0, 0), vec![PartOf::Poly(&SHAPE)]);
+    };
+    let parts = sprite
+        .parts
+        .iter()
+        .map(|p| match *p {
+            Part::Poly(poly) => PartOf::Poly(poly),
+            Part::Rect(l, t, r, b) => PartOf::Rect(l, t, r, b),
+            Part::Disc(x, y, r) => PartOf::Disc(x, y, r),
+            Part::Ring(x, y, o, i) => PartOf::Ring(x, y, o, i),
+        })
+        .collect();
+    ((sprite.w, sprite.h), sprite.hot, parts)
+}
+
 /// The picture of each shape but the default one, which is the arrow or
 /// the glyph `pointer-char` names.
 fn sprite(shape: PointerShape) -> Option<&'static Sprite> {
@@ -285,6 +314,56 @@ impl Arrow {
         Arrow::filled(gw, gh, thk, covered, (thk, thk))
     }
 
+    /// A picture the font helper drew from a pointer file, upright, as
+    /// `width` × `height` premultiplied RGBA bytes with its hotspot at
+    /// `hot`. The console never trusts the helper's answer unchecked, so
+    /// the picture is refused unless each side is 1 to
+    /// [`POINTER_SIDE_MAX`], the bytes hold exactly that many pixels, the
+    /// hotspot lies inside the picture, and no color exceeds its alpha.
+    /// The error says which check failed.
+    ///
+    /// References:
+    /// - ADR-1309 D5: the console's checks of each picture the helper sends.
+    pub fn from_rgba(
+        width: u32,
+        height: u32,
+        hot: (u32, u32),
+        rgba: &[u8],
+    ) -> Result<Arrow, String> {
+        let side = 1..=POINTER_SIDE_MAX;
+        if !side.contains(&width) || !side.contains(&height) {
+            return Err(format!(
+                "a picture of {width} × {height} pixels, outside 1 to {POINTER_SIDE_MAX} a side"
+            ));
+        }
+        let n = usize::try_from(width.saturating_mul(height)).unwrap_or(usize::MAX);
+        if rgba.len() != n.saturating_mul(4) {
+            return Err(format!(
+                "a picture of {width} × {height} pixels whose rows hold {} bytes",
+                rgba.len()
+            ));
+        }
+        if hot.0 >= width || hot.1 >= height {
+            return Err(format!(
+                "a picture whose hotspot {},{} lies outside its {width} × {height} pixels",
+                hot.0, hot.1
+            ));
+        }
+        let mut pixels = Vec::with_capacity(n);
+        for &[r, g, b, a] in rgba.as_chunks::<4>().0 {
+            if r > a || g > a || b > a {
+                return Err("a picture with a color above its alpha".to_owned());
+            }
+            pixels.push(u32::from_be_bytes([a, r, g, b]));
+        }
+        Ok(Arrow {
+            pixels,
+            width,
+            height,
+            hot,
+        })
+    }
+
     /// Whether it fills any pixel: a blank glyph's image fills none.
     pub(crate) fn covers(&self) -> bool {
         self.pixels.contains(&FILL)
@@ -344,7 +423,7 @@ impl Arrow {
     /// as the GPU path draws it into the upright frame. The default shape
     /// is the arrow, and every other shape is its own picture, drawn the
     /// same height as the arrow and outlined the same way, but never less
-    /// than [`SPRITE_HEIGHT_MIN`] pixels tall.
+    /// than `SPRITE_HEIGHT_MIN` pixels tall.
     pub fn upright_shape(shape: PointerShape, cell_height: u32) -> Arrow {
         let Some(sprite) = sprite(shape) else {
             return Arrow::upright(cell_height);
@@ -589,6 +668,19 @@ mod tests {
                     .collect()
             })
             .collect()
+    }
+
+    // A picture from the font helper keeps the hotspot the helper sent,
+    // on either axis and at either edge, so the plane and the renderer put
+    // the pointer's tip where the pointer file says it is.
+    #[test]
+    fn a_picture_from_the_helper_keeps_its_hotspot() {
+        for hot in [(0, 0), (1, 0), (0, 1), (4, 2), (2, 4), (4, 4)] {
+            let a = Arrow::from_rgba(5, 5, hot, &[0; 5 * 5 * 4]).expect("a valid picture");
+            assert_eq!(a.hot(), hot);
+        }
+        let a = Arrow::from_rgba(3, 7, (2, 6), &[0; 3 * 7 * 4]).expect("a valid picture");
+        assert_eq!((a.width(), a.height(), a.hot()), (3, 7, (2, 6)));
     }
 
     #[test]

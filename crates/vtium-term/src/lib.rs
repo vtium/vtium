@@ -93,7 +93,7 @@ pub use bounds::{
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
 pub use frame::{Cursor, CursorExtent, CursorShape, Frame, FrameCell, LinkHint, Overlay, dim};
-pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
+pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId, SizedRun, TextSize};
 #[cfg(feature = "bidi")]
 pub use order::{Joins, Order};
 pub use palette::{PALETTE_NAMES, Palette, Special};
@@ -110,7 +110,7 @@ pub use terminal::TextDirection;
 pub use terminal::{
     BlankRequest, BlankTimeout, CursorStyle, DisplayRequest, Extent, GridRequest, Key, KeyEvent,
     Mods, MouseButton, MouseEvent, MouseTracking, POINTER_QUERY_NAMES_MAX, POINTER_STACK_MAX,
-    PointerShape, Terminal, VersionError,
+    PointerShape, Terminal, VersionError, clipboard_len,
 };
 #[cfg(feature = "images")]
 pub use terminal::{ImageNote, ImageString};
@@ -123,3 +123,15 @@ pub use vtium_image as images;
 /// to the image store (ADR-1100, D13).
 #[cfg(feature = "images")]
 pub use vtium_image::PlaceholderRun;
+
+/// The page "Getting started" of the crates' interfaces,
+/// `docs/api/getting-started.md`, included here so that `cargo test` runs
+/// its code as doc tests. A change to vtium-term that breaks the page's
+/// code then fails the tests. The item exists only when rustdoc collects
+/// doc tests, so it adds nothing to the crate.
+///
+/// References:
+/// - ADR-1508 D1: vtium-term's doc tests compile and run the page's code.
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/api/getting-started.md")]
+pub struct GettingStarted;

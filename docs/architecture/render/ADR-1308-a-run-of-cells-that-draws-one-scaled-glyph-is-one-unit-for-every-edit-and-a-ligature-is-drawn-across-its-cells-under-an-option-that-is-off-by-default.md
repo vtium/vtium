@@ -78,6 +78,9 @@ considered:
   - operator: aaronsb
     said: "Screen column (Recommended)"
     via: "the steering session's question tool on 2026-11-14: which column a mouse report names on a double-width line"
+  - operator: aaronsb
+    said: "Scaled with the text"
+    via: the steering session's question tool on 2026-11-16, after the code review of the work that builds OSC 66 found a run's decorations drawn at the normal size on every row of its block
 status: accepted
 date: 2026-11-14
 deciders:
@@ -161,6 +164,9 @@ A sized run keeps ADR-1001's cell of 8 bytes. Each line that one of the run's ro
 - **Each cell of the run** is marked as part of a run with one of the content word's spare bits, bits 24 to 31 (ADR-1001, "The cell"). This record takes one of those bits.
 - **The first cell of each row** of the run holds the run's text, as a cluster in the line's cluster arena. Each row holds its own copy, so each line can draw its row on its own. The other cells of the row hold no text.
 - **The text's bound.** A run's text keeps as many whole grapheme clusters as fit two bounds: the line's cluster budget of 6 bytes for each of the row's cells, and the 32 codepoints that one cluster keeps (ADR-1001, "The line"). Clusters past that are dropped, as the protocol allows a terminal to truncate text that does not fit. A run keeps at least its first cluster.
+- **A line whose budget is nearly spent.** All the cells of a line share its cluster budget, so other cells that hold long clusters can leave a run less room than its own cells give. The run's text then keeps the whole clusters that fit the room its line has left, and every row of the run keeps the same text: what the row with the least room keeps. When not even the first cluster fits, the run keeps what printed text would keep of that cluster: its first codepoints that fit, and at least its first codepoint. The budget bounds the line's memory (ADR-1009 D1), so it comes before the rule that a run keeps its first cluster.
+
+> Edited 2026-11-15: the code review of the work that builds OSC 66 found that a line whose budget was nearly spent cut a run's text in the middle of a grapheme cluster. The record said only that a run keeps at least its first cluster, which the line's memory bound cannot always allow, and the bullet on a line whose budget is nearly spent is new.
 - **The style** of the run is the style that was current when the program wrote it, held in every cell of the run, as printed text holds it.
 
 ### D4: writing a sized run
@@ -187,18 +193,21 @@ This rule gives each of the protocol's rules for the editing controls:
 
 - **ICH, and printing in insert mode,** shift the cells from the cursor right. A run with a row on the cursor's line and other rows on other lines is erased, since only one of its rows would move. A run of one row that the insertion splits, or pushes partly past the right margin, is erased.
 - **DCH** shifts the cells after the cursor left, and the same two cases erase a run.
-- **ECH, EL and ED** erase each run that the erased cells touch. Mode 22 of ED (`CSI 22 J`) copies the screen into the scrollback first, runs included, as the protocol says.
+- **ECH, EL and ED** erase each run that the erased cells touch. vtium ignores mode 22 of ED (`CSI 22 J`), which kitty documents as copying the screen into the scrollback first, as ADR-1000's row `ctl.kitty-clear` decides.
 - **IL** erases a run whose second or later row is on the cursor's line, and a run that the bottom margin would cut. **DL** erases each run that a deleted line holds.
 
 The same rule covers the edits the protocol does not list:
 
 - **Scrolling** within a scrolling region, and a region bounded left and right by DECSLRM, erases a run that the region's edges cut, and moves a run that lies wholly inside the region.
 - **DECIC and DECDC,** which insert and delete columns, erase a run that the moved columns cut.
-- **The rectangle edits,** DECCRA, DECFRA, DECERA and DECSERA, erase each run that the rectangle touches. DECCRA copies a run only when the rectangle holds the whole run, and the copy is a run of its own.
+- **The rectangle edits,** DECCRA, DECFRA, DECERA and DECSERA, erase each run that the rectangle touches, on every row of it. DECCRA copies a run only when the source rectangle holds the whole run and the target holds the whole copy, and the copy is a run of its own. The cells of a run that DECCRA does not copy arrive as empty cells in their style, as half a wide character that the rectangle's edge cuts does.
+- **DECCARA and DECRARA** change the style of a run's cells and keep the run, since they move, clear and overwrite no cell.
 - **DECALN** fills the screen with E, which erases every run.
 - **Selective erase** (DECSED, DECSEL and DECSERA) erases a run only when the run's style is not protected, and then erases the whole run.
 
 A change to any cell of a run damages every cell of the run, on every row, so the renderer draws the whole run again (ADR-1302 D9).
+
+> Edited 2026-11-15: the code review of the work that builds OSC 66 found that the bullet on ED disagreed with ADR-1000, whose row `ctl.kitty-clear` marks `CSI 22 J` ignored, and ADR-1000's status is the decision. The bullet said "Mode 22 of ED (`CSI 22 J`) copies the screen into the scrollback first, runs included, as the protocol says." The review also found that the rectangle edits wrote over part of a run. The bullet on the rectangle edits said "erase each run that the rectangle touches. DECCRA copies a run only when the rectangle holds the whole run", and it did not say what DECCRA makes of a run it does not copy, or what DECCARA and DECRARA do.
 
 ### D6: the cursor, selection and reflow of a sized run
 
@@ -208,7 +217,9 @@ A change to any cell of a run damages every cell of the run, on every row, so th
 - **Selection and copy.** A selection that touches any cell of a run selects the whole run. Copying gives the run's text once, from its top row, and the run's other cells copy as nothing.
 - **Right-to-left text.** The bidirectional algorithm sees a run as one U+FFFC OBJECT REPLACEMENT CHARACTER, which is neutral. So a run moves as one block when its paragraph is reordered, and its text is drawn in the order its own shaping gives (ADR-1004).
 - **Reflow at a width change (ADR-1003).** A run of one row moves whole to the next row when the row no longer holds it, as a wide character does, and leaves pad cells behind it. A line that holds any row of a run taller than one row does not rewrap: it keeps its columns, as a line written while mode 2028 is reset keeps them. A narrower margin that cuts such a run erases the whole run.
-- **A resize that makes the screen too small** for a run, narrower than its columns or shorter than its rows, erases the run, as the protocol says a terminal may.
+- **A resize that makes the screen too small** for a run, narrower than its columns or shorter than its rows, erases the run, as the protocol says a terminal may. So does any resize after which the screen's last row cuts a run: a shorter screen, or a rewrap of the text above a run that moves the run down. vtium erases every row of such a run, the rows that a shorter screen keeps below its last row included, so a screen that grows again shows no part of it. A screen that grows and pulls rows back from the scrollback pushes its lines down, and the lines that would come into view at the bottom go: vtium first erases each run with a row on those lines.
+
+> Edited 2026-11-15: the code review of the work that builds OSC 66 found that a shorter screen cut a run and kept part of it, on the screen or on the lines below it. The bullet ended at "as the protocol says a terminal may", and it did not name a rewrap that moves a run down, the rows below the screen, or a screen that grows.
 
 > Edited 2026-11-14: the maintainer chose to cut such lines, the rule ADR-1003 gives double-size rows, after research on what other terminals publish found no rule for rewrapping them (`considered`, `basis`). The bullet was marked open, with a note that it waited on that research, and the Summary's Trades away line said the choice stayed open.
 
@@ -216,6 +227,9 @@ A change to any cell of a run damages every cell of the run, on every row, so th
 
 - **OSC 66 on a double-size line** takes only its width: vtium writes the text as a run of s = 1 with the width w gives, in the line's half-width columns, and ignores s, n, d, v and h. A block of several rows across lines of different sizes has no meaning that the protocol or the VT510 gives.
 - **A line's size change erases the runs on it.** `ESC # 3`, `# 4`, `# 5` and `# 6` erase every run that crosses the line whose size changes, on all its rows, before the line takes its new size.
+- **A run that would reach a double-size line.** When any row that a run of several rows would cover is double size, vtium writes the text as it writes OSC 66 on a double-size line: one row high, with the width w gives, on the cursor's line, and with w = 0 as printed text. So a run taller than one row never lies on a double-size line. The protocol does not cover a block across lines of different sizes, and this is vtium's reading.
+
+> Edited 2026-11-15: the code review of the work that builds OSC 66 found that a run whose top row was single size wrote its lower rows onto double-size lines. The bullet on a run that would reach a double-size line is new.
 
 ### D8: ligatures
 
@@ -236,6 +250,9 @@ A ligature is a shape that a font draws in place of several characters. vtium dr
 - **A bitmap font doubles its pixels.** A bitmap source draws at s times its own size by whole factors, every pixel fully on or off, as the DEC terminals drew double-size text. A fraction draws the 1-bit glyph at n/d of that size, by ADR-1202's scaling of a bitmap glyph to a smaller size. A built-in font draws the same way in the console, while the helper has not answered and where no helper runs.
 - **A color glyph** is scaled smoothly to the block, as a color glyph is scaled elsewhere.
 - **Text wider than its block.** Where the text's advance at that size is wider than the block, the helper draws the text smaller, keeping its shape, until it fits, as the protocol allows. It stands on the block's baseline. With d = 0, text narrower than the block is centred across it.
+- **Decorations scale with the text.** An underline, a strike-through and an overline on a sized run draw at the run's scale s, as the cursor does (D6). The underline lies under the block's bottom row, the strike-through runs through the block's middle, and the overline lies over its top row, each s times as thick as on a cell of the normal size. Each cell of the run draws its own piece of the scaled line, so a curly, dotted or dashed underline keeps its shape at the larger size. A run on a line of double size draws its decorations at the line's size, as the line's other cells do (D7).
+
+> Edited 2026-11-16: the code review of the work that builds OSC 66 found that a run's decorations drew at the normal size on every row of its block, so an underline at s = 2 crossed the middle of the letters as well as lying under them. The record said nothing about a run's decorations. The maintainer chose "Scaled with the text" (`considered`), and the bullet on decorations is new.
 
 ### D10: the records this amends
 

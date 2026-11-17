@@ -83,6 +83,15 @@ SIL Open Font License 1.1, whose text is crates/vtium-font/data/OFL-1.1.txt in
 vtium's source. An installed vtium console carries the same text as
 OFL-1.1.txt beside this file.
 
+Terminus Font 4.49.1 (crates/vtium-font/data/ter-u16n.bdf and ter-u32n.bdf),
+from which vtium-font cuts the 8x16 and 16x32 strikes of its built-in font,
+"vtium built-in": Copyright (C) 2020 Dimitar Toshkov Zhekov, with Reserved
+Font Name "Terminus Font", licensed under the SIL Open Font License 1.1, whose
+text is crates/vtium-font/data/OFL-1.1.txt in vtium's source and OFL-1.1.txt
+beside this file in an installed console. The strikes are a modified version
+of the font, so they carry vtium's name and not the reserved name. The 8x8
+strike is cut from Unscii-8, by Viznut, which is in the public domain.
+
 The geometry of vtium-font's sprites (crates/vtium-font/src/sprite.rs) is
 adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under
 the MIT licence: Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors.
@@ -205,6 +214,15 @@ crates/vtium-platform/tests/keymaps/xkeyboard-config-COPYING, unchanged, and
 the fixtures' README says how the files are made. vtium's tests read them; no
 vtium binary includes them, and no vtium package installs them.
 
+resvg's rasterizer, built into vtium-config, the font helper that draws the
+pictures of a pointer file: tiny-skia 0.12.0 and tiny-skia-path 0.12.0,
+Copyright (c) 2011 Google Inc. and Copyright (c) 2020 Yevhenii Reizner, under
+the BSD-3-Clause license. The license's text is
+crates/vtium-config/licenses/tiny-skia-LICENSE in the source tree, and a
+package installs it as tiny-skia-LICENSE beside this file. tiny-skia uses
+arrayref 0.3.9, Copyright (c) 2015 David Roundy, under the BSD-2-Clause
+license, whose text is at the end of this file.
+
 The panic screen's drawing of Tux, the Linux penguin, panicked inside a
 computer monitor (crates/vtium/art/), built into vtium: the maintainer's
 drawing in 7-bit ASCII, panic-penguin-aaron.txt and its small version
@@ -259,3 +277,34 @@ https://www.unicode.org/license.txt:
 	not be used in advertising or otherwise to promote the sale, use or other
 	dealings in these Data Files or Software without prior written
 	authorization of the copyright holder.
+
+= arrayref's License, BSD-2-Clause =
+
+The license of arrayref above, as its crate publishes it in its LICENSE file:
+
+	Copyright (c) 2015 David Roundy <roundyd@physics.oregonstate.edu>
+	All rights reserved.
+
+	Redistribution and use in source and binary forms, with or without
+	modification, are permitted provided that the following conditions are
+	met:
+
+	1. Redistributions of source code must retain the above copyright
+	   notice, this list of conditions and the following disclaimer.
+
+	2. Redistributions in binary form must reproduce the above copyright
+	   notice, this list of conditions and the following disclaimer in the
+	   documentation and/or other materials provided with the
+	   distribution.
+
+	THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+	"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+	LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+	A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+	HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+	SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+	LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+	DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+	THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+	(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

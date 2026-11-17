@@ -8,6 +8,8 @@ use vtium_term::{
     Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, LineSize, Palette, Rgb, Width, dim,
 };
 
+use std::sync::Arc;
+
 use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
 use crate::bounds::{MISSING_CHARS, ROW_SCRATCH_MAX};
@@ -19,16 +21,19 @@ use crate::link_row::LinkRow;
 use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, PictureCounts, Under};
+use crate::pointer_file::PointerPictures;
 use crate::reach::{Bound, Reach};
 #[cfg(feature = "bidi")]
-use crate::syllable::Syllable;
+use crate::syllable::{Runs, Syllable};
 use crate::target::{Orientation, Rect, Target};
+use sized::RunPiece;
 #[cfg(feature = "bidi")]
 use vtium_font::syllable::Piece;
 
 pub(crate) mod double;
 #[cfg(feature = "gpu")]
 mod gpu;
+pub(crate) mod sized;
 mod testing;
 #[cfg(test)]
 mod wider;
@@ -380,6 +385,9 @@ struct Pass<'p, 'f> {
     /// there, when the cursor shows on a pair of double-height lines
     /// ([`Pass::pair_cells`]).
     at_pair: Option<(usize, core::ops::Range<usize>)>,
+    /// The rows and columns of the sized run the cursor stands on, when it
+    /// shows on one: the cursor covers the whole block ([`Pass::run_block`]).
+    at_run: Option<(core::ops::Range<usize>, core::ops::Range<usize>)>,
     /// Where the visible cursor stands, in either phase of its blink: the
     /// letter there keeps its ink beside it inside its cells (ADR-1302 D8).
     held: Option<(usize, usize)>,
@@ -395,9 +403,33 @@ struct Pass<'p, 'f> {
     /// cells into syllables and ligatures, so only that build reads it.
     #[cfg(feature = "bidi")]
     ligatures: bool,
+    /// The syllables and ligature runs found on the row read last, so that
+    /// the scan and the drawing of a row walk each run once and decide once
+    /// whether it draws joined.
+    #[cfg(feature = "bidi")]
+    runs: core::cell::RefCell<Runs>,
 }
 
 impl<'f> Pass<'_, 'f> {
+    /// The share of the sized run that the cell at `col`, `row` belongs
+    /// to, if any: the block of cells that one OSC 66 sequence writes.
+    fn run_at(&self, row: usize, col: usize) -> Option<vtium_term::SizedRun> {
+        self.frame
+            .sized_runs(row)
+            .iter()
+            .copied()
+            .find(|r| r.span().contains(&col))
+    }
+
+    /// The piece of its sized run that the cell at `col`, `row` draws,
+    /// and the run's first cell on that row, which holds the run's text;
+    /// `None` for a cell of no run.
+    fn run_piece(&self, row: usize, col: usize) -> Option<(RunPiece, FrameCell<'f>)> {
+        let run = self.run_at(row, col)?;
+        let first = self.frame.cell(row, run.col())?;
+        Some((RunPiece::at(run, col)?, first))
+    }
+
     /// Whether the cell at `col`, `row` draws the cursor: the cursor's own
     /// cell, and on a pair of double-height lines the cells of the pair's
     /// other line under the columns the cursor covers.
@@ -407,6 +439,31 @@ impl<'f> Pass<'_, 'f> {
                 .at_pair
                 .as_ref()
                 .is_some_and(|(r, cols)| *r == row && cols.contains(&col))
+            || self
+                .at_run
+                .as_ref()
+                .is_some_and(|(rows, cols)| rows.contains(&row) && cols.contains(&col))
+    }
+
+    /// The rows and columns of the sized run whose cell `at` is, as the
+    /// screen shows them: the cursor that stands on any cell of a run
+    /// covers the whole block. Rows of the run that have scrolled above
+    /// the screen are left out. `None` off a run.
+    ///
+    /// References:
+    /// - ADR-1308 D6, "The cursor's drawing": the cursor covers every cell
+    ///   of the run.
+    fn run_block(
+        &self,
+        at: Option<(usize, usize)>,
+    ) -> Option<(core::ops::Range<usize>, core::ops::Range<usize>)> {
+        let (col, row) = at?;
+        let run = self.run_at(row, col)?;
+        // the run's rows below this one; its top may lie above the screen
+        let below = run.rows().saturating_sub(run.row());
+        let top = row.saturating_sub(run.row());
+        let bottom = row.saturating_add(below).min(self.g.rows);
+        Some((top..bottom, run.span()))
     }
 
     /// The other row of a pair of double-height lines that draws the
@@ -640,6 +697,9 @@ pub struct Renderer<F> {
     /// without reading reaches, as the GPU path scans and as every path
     /// scans while the font has drawn no glyph whose ink passes its cells.
     reaches_kept: bool,
+    /// Whether the row being drawn holds any cell of a sized run, decided
+    /// once for the row, so a row with no run spends nothing on runs.
+    row_runs: bool,
     /// How far a glyph's ink may reach past its cells.
     bound: Bound,
     /// A cell's text, read for its glyph's reach.
@@ -647,6 +707,10 @@ pub struct Renderer<F> {
     /// The text of the cell being pushed, as it draws (ADR-1004 D6).
     #[cfg(feature = "bidi")]
     drawn: Vec<char>,
+    /// The syllables and ligature runs of the row being drawn, which each
+    /// frame's [`Pass`] borrows, kept here so that their memory is reused.
+    #[cfg(feature = "bidi")]
+    runs: Runs,
     /// The blocks of cells the reach of the row being scanned stamped.
     reached: Vec<crate::reach::Block>,
     /// The size each row of the grid last drew at (DECDWL, DECDHL and
@@ -661,6 +725,9 @@ pub struct Renderer<F> {
     /// The shape a program asked the pointer to take with OSC 22, which
     /// the pointer's image shows ([`Renderer::set_pointer_shape`]).
     shape: vtium_term::PointerShape,
+    /// A pointer file's pictures, which come before vtium's own
+    /// ([`Renderer::set_pointer_pictures`]).
+    pictures: Option<Arc<PointerPictures>>,
     pointer: Option<Pointer>,
     /// The line a run under the pointer is blended in.
     pointer_line: Vec<u32>,
@@ -706,24 +773,36 @@ pub struct Renderer<F> {
 /// arrow stands in for a character the font lacks, which would draw as a
 /// fallback (the missing box, U+FFFD or `?`), and for a blank one, whose
 /// glyph covers no pixel.
+///
+/// With a pointer file's pictures, the file's picture of the shape comes
+/// before vtium's own. `pointer-char` names one shape and the file names
+/// all ten, so the narrower key wins where they overlap: the glyph draws
+/// the default shape, and the file's picture draws it only when the font
+/// cannot draw the character. A shape the file lacks, and a height an SVG
+/// file was not drawn at yet, draw vtium's own picture.
+///
+/// References:
+/// - ADR-1309 D1: `pointer-char` keeps the default shape, then the file's picture, then vtium's arrow.
 fn pointer_image<F: Face>(
     font: &Font<F>,
     cell_height: u32,
     config: Config,
     shape: vtium_term::PointerShape,
+    pictures: Option<&PointerPictures>,
 ) -> Arrow {
-    if shape != vtium_term::PointerShape::Default {
-        return Arrow::upright_shape(shape, cell_height);
-    }
-    match config.pointer {
-        PointerShape::Glyph(c) if font.has_glyph(c) => {
+    let glyph = match config.pointer {
+        PointerShape::Glyph(c)
+            if shape == vtium_term::PointerShape::Default && font.has_glyph(c) =>
+        {
             font.glyph(&[c], FontWidth::Narrow, Style::default())
         }
         _ => None,
     }
     .map(|g| Arrow::upright_glyph(&g))
-    .filter(Arrow::covers)
-    .unwrap_or_else(|| Arrow::upright(cell_height))
+    .filter(Arrow::covers);
+    glyph
+        .or_else(|| pictures.and_then(|p| p.pick(shape, cell_height)).cloned())
+        .unwrap_or_else(|| Arrow::upright_shape(shape, cell_height))
 }
 
 /// The font's lines in each of [`SCRIPTS`] in turn: the normal lines, and
@@ -785,11 +864,15 @@ fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<us
     }
 }
 
-/// The syllable `fc` at `col`, `row` belongs to when it draws joined
-/// (ADR-1203 D4), and the piece the cell draws: not while the cursor
-/// stands on any of its cells, while its cells differ in color, style or
-/// script, or while the link overlay covers one of them, and only while
-/// `font` holds every piece. `out` is scratch.
+/// The syllable `fc` at `col`, `row` belongs to when it draws joined, and
+/// the piece the cell draws. A syllable draws joined only while the rules
+/// of [`Syllable::joined`] allow it and `font` holds every piece. The
+/// pass's [`Runs`] finds the syllable and remembers whether it draws
+/// joined, so each run is walked and judged once for its row. `out` is
+/// scratch.
+///
+/// References:
+/// - ADR-1203 D4: when a syllable draws split.
 #[cfg(feature = "bidi")]
 fn joined_syllable<F: Face>(
     font: &Font<F>,
@@ -798,24 +881,26 @@ fn joined_syllable<F: Face>(
     fc: &FrameCell<'_>,
     out: &mut Vec<char>,
 ) -> Option<(Syllable, Piece)> {
-    let (s, index) = Syllable::find(p.frame, (col, row), fc, p.ligatures)?;
+    // a cell under the link overlay draws the overlay's text, so it joins
+    // nothing, and its text stays out of the row's runs
     let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
-    if !s.joined(row, p.held, covered) {
+    if covered(col) {
         return None;
     }
-    let variant = s.variant();
-    let mut own = None;
-    for i in 0..s.len() {
-        out.clear();
-        let piece = s.key(i, out)?;
-        if !font.holds(out, variant) {
-            return None;
-        }
-        if i == index {
-            own = Some(piece);
-        }
+    let mut runs = p.runs.borrow_mut();
+    let (run, index) = runs.find(p.frame, (col, row), fc, p.ligatures)?;
+    let joined = runs.verdict(run, |s| {
+        s.joined(row, p.held, covered)
+            && (0..s.len()).all(|i| {
+                out.clear();
+                s.key(i, out).is_some() && font.holds(out, s.variant())
+            })
+    });
+    if !joined {
+        return None;
     }
-    own.map(|piece| (s, piece))
+    let s = runs.get(run)?;
+    Some((s.clone(), s.piece(index)?))
 }
 
 /// Appends to `out` the text the cell `fc` at `col`, `row` draws: its
@@ -892,7 +977,7 @@ impl<F: Face> Renderer<F> {
             .unwrap_or_else(|| Budgets::for_profile(config.profile, cells, width, height));
         let lines = line_sets(&font);
         let shape = vtium_term::PointerShape::Default;
-        let upright_arrow = pointer_image(&font, ch, config, shape);
+        let upright_arrow = pointer_image(&font, ch, config, shape, None);
         let arrow = upright_arrow.clone().turned(config.orientation);
         #[cfg(feature = "gpu")]
         let gpu = gpu::State::new(
@@ -924,16 +1009,20 @@ impl<F: Face> Renderer<F> {
             cursor_at: None,
             held_at: None,
             reaches_kept: true,
+            row_runs: false,
             bound: Bound::DRAWN,
             chars: Vec::new(),
             #[cfg(feature = "bidi")]
             drawn: Vec::new(),
+            #[cfg(feature = "bidi")]
+            runs: Runs::default(),
             reached: Vec::new(),
             sizes: Vec::new(),
             doubled: Vec::new(),
             arrow,
             upright_arrow,
             shape,
+            pictures: None,
             pointer: None,
             pointer_line: Vec::new(),
             mono_line: Vec::new(),
@@ -986,7 +1075,7 @@ impl<F: Face> Renderer<F> {
     ///
     /// When the font's underline and strike-through lines changed too, as
     /// an outline font's do once the glyph helper has measured them, the
-    /// renderer takes the new lines ([`Renderer::lines_changed`]).
+    /// renderer takes the new lines (`Renderer::lines_changed`).
     pub fn glyphs_changed(&mut self, chars: &[char]) {
         self.lines_changed();
         let arrived = sorted(chars);
@@ -1137,8 +1226,38 @@ impl<F: Face> Renderer<F> {
             return;
         }
         self.shape = shape;
-        let ch = u32::try_from(self.layout.ch).unwrap_or(0);
-        self.upright_arrow = pointer_image(&self.font, ch, self.config, shape);
+        self.redraw_pointer_image();
+    }
+
+    /// Takes `pictures`, a pointer file's, in place of those it held, and
+    /// shows the pointer with them from the next frame on. `None` goes back
+    /// to vtium's own pictures.
+    pub fn set_pointer_pictures(&mut self, pictures: Option<Arc<PointerPictures>>) {
+        self.pictures = pictures;
+        self.redraw_pointer_image();
+    }
+
+    /// The pointer file's pictures this renderer draws with, if any.
+    pub fn pointer_pictures(&self) -> Option<&Arc<PointerPictures>> {
+        self.pictures.as_ref()
+    }
+
+    /// The cell height the pointer's pictures are picked at: the height an
+    /// SVG pointer file is drawn for.
+    pub fn pointer_cell_height(&self) -> u32 {
+        u32::try_from(self.layout.ch).unwrap_or(0)
+    }
+
+    /// The pointer's image again, for the shape and the pictures held.
+    fn redraw_pointer_image(&mut self) {
+        let ch = self.pointer_cell_height();
+        self.upright_arrow = pointer_image(
+            &self.font,
+            ch,
+            self.config,
+            self.shape,
+            self.pictures.as_deref(),
+        );
         self.arrow = self.upright_arrow.clone().turned(self.config.orientation);
     }
 
@@ -1436,17 +1555,24 @@ impl<F: Face> Renderer<F> {
             cursor,
             at,
             at_pair: None,
+            at_run: None,
             held,
             plain: core::cell::OnceCell::new(),
             link_row,
             #[cfg(feature = "bidi")]
             ligatures: self.config.ligatures,
+            #[cfg(feature = "bidi")]
+            runs: core::cell::RefCell::new(core::mem::take(&mut self.runs)),
         };
         pass.at_pair = pass.pair_cells(at);
+        pass.at_run = pass.run_block(at);
         // the rows that draw the cursor, or drew it last frame, as the
         // other line of a pair of double-height lines
         let pairs = [at, last_cursor, held, last_held]
             .map(|c| pass.pair_cells(c).map(|(row, cols)| (cols.start, row)));
+        // and as the other rows of a sized run
+        let run_rows =
+            [at, last_cursor, held, last_held].map(|c| pass.run_block(c).map(|(rows, _)| rows));
         self.resize_rows(&pass);
         let on = |c: Option<(usize, usize)>, row: usize| c.is_some_and(|(_, r)| r == row);
         let (mut drawn, mut scanned) = (0u32, 0u32);
@@ -1461,11 +1587,17 @@ impl<F: Face> Renderer<F> {
                 || [at, last_cursor, held, last_held]
                     .into_iter()
                     .chain(pairs)
-                    .any(|c| on(c, row));
+                    .any(|c| on(c, row))
+                || run_rows.iter().flatten().any(|rows| rows.contains(&row));
             if scan {
                 scanned = scanned.saturating_add(1);
                 drawn = drawn.saturating_add(self.draw_row(&pass, row, back));
             }
+        }
+        #[cfg(feature = "bidi")]
+        {
+            self.runs = pass.runs.into_inner();
+            self.runs.clear();
         }
         (drawn, scanned)
     }
@@ -1537,7 +1669,15 @@ impl<F: Face> Renderer<F> {
     ) -> bool {
         // a cell that joins or leaves a wide pair draws differently
         let role = u8::try_from(ncells).unwrap_or(1);
-        let mut changed = fc.changed || self.shows_changed(&fc.glyph);
+        // each cell of a sized run draws a piece of the run's text, which
+        // the run's first cell holds, and its ink stays in its cell
+        let run = match self.row_runs {
+            true => p.run_piece(row, col).map(|(_, first)| first),
+            false => None,
+        };
+        let mut changed = fc.changed
+            || self.shows_changed(&fc.glyph)
+            || run.is_some_and(|first| self.shows_changed(&first.glyph));
         if let Some(s) = self.cells.get_mut(col, row) {
             changed |= s.replace_span(role) != role;
         }
@@ -1589,9 +1729,15 @@ impl<F: Face> Renderer<F> {
         }
         if reread {
             #[cfg(not(feature = "bidi"))]
-            let reach = self.cell_reach(fc, held, back);
+            let reach = match run {
+                Some(_) => Reach::NONE,
+                None => self.cell_reach(fc, held, back),
+            };
             #[cfg(feature = "bidi")]
-            let reach = self.cell_reach(fc, (p, (col, row), ncells), held, back);
+            let reach = match run {
+                Some(_) => Reach::NONE,
+                None => self.cell_reach(fc, (p, (col, row), ncells), held, back),
+            };
             self.reach_to(col, row, role, (ink_changed, reach));
         }
         true
@@ -1704,10 +1850,17 @@ impl<F: Face> Renderer<F> {
         self.reaches_kept &= reads;
         let mut count = 0u32;
         let mut before = None;
+        let runs = !p.frame.sized_runs(row).is_empty();
+        self.row_runs = runs;
         for (here, fc) in p.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
+            // each cell of a sized run draws its own piece of the run
+            let ncells = match runs && p.run_at(row, here).is_some() {
+                true => 1,
+                false => ncells,
+            };
             before = Some(fc.width);
             if !self.scan_cell(p, (here, row), &fc, (ncells, reads), back) {
                 continue;
@@ -1732,6 +1885,7 @@ impl<F: Face> Renderer<F> {
                 continue;
             }
             let mut first = true;
+            self.row_runs = !p.frame.sized_runs(above).is_empty();
             for b in reached.iter().filter(|b| meets(b, above)) {
                 if core::mem::take(&mut first) {
                     self.compose.jobs.clear();
@@ -1779,23 +1933,78 @@ impl<F: Face> Renderer<F> {
     ) {
         let is_cursor = p.shows_cursor(col, row);
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
+        // a cell of a sized run draws as a narrow cell that holds the
+        // run's text, and its job draws its piece of the run's block
+        let run = match self.row_runs {
+            true => p.run_piece(row, col),
+            false => None,
+        };
+        let own = fc;
+        let in_run;
+        let fc = match run {
+            Some((_, first)) => {
+                in_run = FrameCell {
+                    glyph: first.glyph,
+                    width: Width::Narrow,
+                    ..*fc
+                };
+                &in_run
+            }
+            None => fc,
+        };
         #[cfg(feature = "bidi")]
         let mut drawn = core::mem::take(&mut self.drawn);
         #[cfg(feature = "bidi")]
         {
             drawn.clear();
-            drawn_text(&self.font, p, (col, row), fc, &mut drawn);
+            match (run, fc.glyph) {
+                (None, _) => drawn_text(&self.font, p, (col, row), fc, &mut drawn),
+                (Some(_), Glyph::Char(c)) => drawn.push(c),
+                (Some(_), Glyph::Cluster(t)) => drawn.extend(t.chars()),
+                (Some(_), Glyph::Empty) => {}
+            }
         }
+        let lit = self.one_bit_lit(p, own, row, col);
+        let jobs = self.compose.jobs.len();
+        // on a run, a block cursor covers every cell and a bar stands along
+        // the block's left edge. An underline cursor is the cell's
+        // underline, which scales with the run, so every cell of the run
+        // draws its piece of it, and the scaled line lies under the block's
+        // bottom row whichever of the block's rows its pixels fall in.
+        let draws_cursor = is_cursor
+            && run.is_none_or(|(piece, _)| match p.cursor.shape {
+                CursorShape::Block | CursorShape::Underline => true,
+                CursorShape::Bar => piece.column == 0,
+            });
         self.push_jobs(
             &p.g,
             fc,
             Place { col, row, ncells },
-            is_cursor.then_some(&p.cursor),
+            draws_cursor.then_some(&p.cursor),
             off,
-            self.one_bit_lit(p, fc, row, col),
+            lit,
             #[cfg(feature = "bidi")]
             &drawn,
         );
+        if let Some((piece, _)) = run {
+            let scale = i64::from(piece.size.scale);
+            for job in self.compose.jobs.get_mut(jobs..).unwrap_or_default() {
+                job.piece = double::Piece::of_run(piece);
+                // the decorations scale with the run's text
+                for (line, _) in job.underline.into_iter().chain(job.over) {
+                    self.compose.sprites.prepare(line, job.piece);
+                }
+                // the bar scales with the run's glyph
+                job.bar = job.bar.map(|b| {
+                    let w = b.w.saturating_mul(scale);
+                    Bar {
+                        area: self.layout.bar_area(&p.g, (col, row, 1), w, b.right),
+                        w,
+                        ..b
+                    }
+                });
+            }
+        }
         #[cfg(feature = "bidi")]
         {
             self.drawn = drawn;
@@ -1874,10 +2083,17 @@ impl<F: Face> Renderer<F> {
         let mut doubled = core::mem::take(&mut self.doubled);
         doubled.clear();
         let mut before = None;
+        let runs = !p.frame.sized_runs(row).is_empty();
+        self.row_runs = runs;
         for (here, fc) in p.cells(row).take(g.cols).enumerate() {
             let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
+            // each cell of a sized run draws its own piece of the run
+            let ncells = match runs && p.run_at(row, here).is_some() {
+                true => 1,
+                false => ncells,
+            };
             before = Some(fc.width);
             // the row keeps no reach, so the scan reads none
             if self.scan_cell(p, (here, row), &fc, (ncells, false), back)
@@ -1947,7 +2163,7 @@ impl<F: Face> Renderer<F> {
                     r,
                     g: r,
                     tiles: [r, l.cells_area(g, col.saturating_add(1), row, 1)],
-                    piece: double::Piece::of(size, column),
+                    piece: job.piece.on_line(size, column),
                     bar,
                     ..*job
                 });
@@ -2403,6 +2619,10 @@ impl<F: Face> Renderer<F> {
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);
+            // each cell of a sized run draws its own piece of the run, as
+            // the row's scan draws it
+            let in_run = self.row_runs && p.run_at(row, here).is_some();
+            let ncells = if in_run { 1 } else { ncells };
             if ncells == 0 {
                 continue;
             }
@@ -2412,6 +2632,11 @@ impl<F: Face> Renderer<F> {
                 .iter()
                 .any(|j| here >= j.posx && here < j.posx.saturating_add(j.ncells));
             if covered {
+                continue;
+            }
+            if in_run {
+                self.cells.mark_drawn(here, row, 1);
+                self.push_cell_jobs(p, (here, row), &fc, 1);
                 continue;
             }
             let is_cursor = p.shows_cursor(here, row);

@@ -7,7 +7,7 @@
 //! device's identity is the monitor's ([`InputIdentity`]): udev's classes
 //! where its database has them, else udev's rule applied to the bitmaps
 //! sysfs shows, with the properties the kernel's `uevent` gives and those
-//! udev recorded, as libudev builds them ([`properties`]). A card's
+//! udev recorded, as libudev builds them (`properties`). A card's
 //! `ID_PATH` is its database entry's, and it is primary by the monitor's
 //! rule. A display is a connector whose sysfs `status` is `connected` and
 //! whose `modes` lists a mode, named as the kernel names it, with the

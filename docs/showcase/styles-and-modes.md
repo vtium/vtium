@@ -2,11 +2,11 @@
 
 # Styles and modes
 
-These screens are part of [vtium's showcase](README.md), which says how they are made.
+These screens and figures are part of [vtium's showcase](README.md), which says how they are made.
 
 ![A console screen in a smooth monospaced font: a paragraph about vtium, a short Rust function with colored keywords, strings and comments beside line numbers, words underlined in single, double, curly, dotted and dashed lines in several colors, words in italic, struck through, dim, reversed and in 24-bit color, raised and lowered small text such as E = mc² and H₂O with an underlined footnote mark and struck small text, an overlined word, and rows of arrows, mathematical symbols and typographic marks.](text.png)
 
-vtium draws outline fonts smoothly at any size: Iosevka Term at 30 points on a 1920x1080 display, prose, a code listing in 24-bit color, every underline style a program can ask for, the other text styles, and the symbols of mathematics and typography. Iosevka Term has no italic face, so vtium slants the regular face for italic. Raised and lowered text (SGR 73 and 74) draws at two thirds of the size, and an underline or a strike on it follows the small glyph.
+vtium draws outline fonts smoothly at any size, here Iosevka Term at 30 points on a 1920×1080 display. The screen shows prose, a code listing in 24-bit color, and every underline style a program can ask for. It also shows the other text styles and the symbols of mathematics and typography. Iosevka Term has no italic face, so vtium slants the regular face for italic. Raised and lowered text (SGR 73 and 74) draws at two thirds of the size, and an underline or a strike on it follows the small glyph.
 
 ## How it behaves
 

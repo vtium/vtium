@@ -14,13 +14,16 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use vtium_settings::fonts_report::Named;
 use vtium_settings::keys::{self, Default as KeyDefault, Kind, Scope};
-use vtium_settings::{Edit, setting, switch};
+use vtium_settings::{Edit, fonts_report, setting, switch};
 
 use crate::draft::{FileEdit, Plan, Removal};
-use crate::frit::{FRIT_BYTES_MAX, Frit, RESERVED, valid_name};
-use crate::specimen::Sources;
+use crate::frit::{FRIT_BYTES_MAX, Frit, Origin, RESERVED, valid_name};
+use crate::needs::{Differ, Differs};
+use crate::specimen::{Found, Sources};
 use crate::tui::{Paths, model::FontState};
+use vtium_font::set::layer;
 
 /// The usage error `why`, as every command reports one.
 fn usage(err: &mut dyn Write, why: &str) -> u8 {
@@ -43,9 +46,19 @@ fn conf(paths: &Paths) -> Result<(PathBuf, Option<String>), String> {
 }
 
 /// `fonts`: each frit and built-in font, one line each, tab-separated: its
-/// name, its state, and the sources this machine lacks or refuses, which
-/// the glyph helper finds under its own sandbox, so this process parses
-/// no font (ADR-1201 D3).
+/// name, its state, and the sources this machine lacks or refuses. The
+/// glyph helper finds those sources under its own sandbox, so this process
+/// parses no font. After the list, a report in sentences names each font a
+/// set needs and this machine lacks, also for a set with no font left,
+/// each installed font of a lower version than the set asks for, and each
+/// font file whose SHA-256 differs, with the font's upstream page where
+/// the set gives one. A last line points to the help page on installing
+/// fonts. A line of the report holds no tab, so it never reads as a font's
+/// line.
+///
+/// References:
+/// - ADR-1201 D3: vtium-config reads a font only through the sandboxed helper.
+/// - ADR-1204 D7: what the report names, and the page it points to.
 pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     if !words.is_empty() {
         return usage(err, "fonts takes no argument");
@@ -55,31 +68,157 @@ pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
         Err(why) => return failed(err, why),
     };
     let fonts = crate::tui::fonts(frits);
-    let reading: Vec<String> = fonts
+    // each frit that reads, with its layers in place, as the helper is
+    // handed it; the parsed frit names what each source needs
+    let read: Vec<(String, Result<Frit, String>)> = fonts
         .iter()
         .filter(|f| f.state == FontState::Reads)
-        .map(|f| f.name.clone())
+        .map(|f| {
+            let path = frits.join(format!("{}.vtfrit", f.name));
+            (f.name.clone(), Frit::load(&path).map_err(|e| e.to_string()))
+        })
+        .collect();
+    let texts: Vec<crate::serve::FritText> = read
+        .iter()
+        .filter_map(|(name, frit)| {
+            frit.as_ref().ok().map(|f| crate::serve::FritText {
+                name: name.clone(),
+                text: f.text.clone(),
+            })
+        })
         .collect();
     // one helper answers for every frit, under one wait
-    let mut found = crate::tui::find_sources(frits, &paths.helper, &reading).into_iter();
+    let mut answers = crate::specimen::found_of(&paths.helper, texts).into_iter();
+    let mut found = read.into_iter().map(|(name, frit)| match frit {
+        Ok(frit) => {
+            let found = answers.next().unwrap_or_else(|| Found {
+                sources: Sources::Unknown("the font helper did not answer".to_owned()),
+                left_out: Vec::new(),
+                differs: Vec::new(),
+            });
+            (name, Some(frit), found)
+        }
+        Err(why) => (
+            name,
+            None,
+            Found {
+                sources: Sources::DrawsNothing(why),
+                left_out: Vec::new(),
+                differs: Vec::new(),
+            },
+        ),
+    });
+    let mut report = Vec::new();
     for font in fonts {
         let (state, left_out) = match &font.state {
             FontState::BuiltIn => ("built in".to_owned(), String::new()),
             FontState::Refused(why) => (format!("cannot be read: {why}"), String::new()),
-            FontState::Reads => match found.next().map(|(_, f)| f) {
-                Some(Sources::LeftOut(left)) => ("reads".to_owned(), left_out_text(&left)),
-                Some(Sources::DrawsNothing(why)) => {
-                    (format!("no font file found: {why}"), String::new())
+            FontState::Reads => match found.next() {
+                Some((name, frit, found)) => {
+                    // a set with no font left names the fonts it lacks
+                    // as a set with some left does
+                    if let Some(frit) = &frit {
+                        report.extend(needs_report(&name, frit, &found.left_out, &found.differs));
+                    }
+                    match found.sources {
+                        Sources::LeftOut(left) => ("reads".to_owned(), left_out_text(&left)),
+                        Sources::DrawsNothing(why) => {
+                            (format!("no font file found: {why}"), String::new())
+                        }
+                        // no answer came: nothing is known of its sources,
+                        // and it is not said to draw nothing
+                        Sources::Unknown(why) => ("reads".to_owned(), format!("unknown: {why}")),
+                    }
                 }
-                // no answer came: nothing is known of its sources, and it
-                // is not said to draw nothing
-                Some(Sources::Unknown(why)) => ("reads".to_owned(), format!("unknown: {why}")),
                 None => ("reads".to_owned(), String::new()),
             },
         };
         let _ = writeln!(out, "{}\t{state}\t{left_out}", font.name);
     }
+    if !report.is_empty() {
+        report.push(fonts_report::how_to_install());
+    }
+    for line in report {
+        let _ = writeln!(out, "{line}");
+    }
     0
+}
+
+/// The report's lines for the frit `set`: one for each font the helper
+/// left out as missing, and for each font that differs from what its
+/// source needs, each followed by the font's upstream page where the
+/// source gives one. `left` and `differs` are the helper's answer, and
+/// `frit` the frit with its layers in place, which says what each source
+/// needs. A source the helper refused is not a font to install, so it is
+/// not reported here.
+fn needs_report(
+    set: &str,
+    frit: &Frit,
+    left: &[crate::serve::LeftOut],
+    differs: &[Differs],
+) -> Vec<String> {
+    // the source a line of the answer names: its line in the frit's own
+    // text, where a layer's source names its layer= line, and its spelling
+    let source_of = |line: usize, spelling: &str| {
+        frit.sources
+            .iter()
+            .find(|s| frit.place(s.line).own == line && s.spelling == spelling)
+    };
+    let mut out = Vec::new();
+    let mut with_page = |text: String, source: &crate::frit::Source| {
+        out.push(text);
+        if let Some(url) = &source.needs.url {
+            out.push(fonts_report::page(url));
+        }
+    };
+    for l in left.iter().filter(|l| l.missing) {
+        let Some(source) = source_of(l.line, &l.spelling) else {
+            continue;
+        };
+        let Some(font) = source.font_name() else {
+            continue;
+        };
+        let version = source.needs.version.as_ref().map(|v| v.spelling.as_str());
+        let lacks = differs.iter().find_map(|d| match d.what {
+            Differ::Lacks(c) if d.line == l.line && d.spelling == l.spelling => {
+                Some(format!("U+{c:04X}"))
+            }
+            _ => None,
+        });
+        // a font named by its path is a file this machine lacks, not a font
+        // it has not installed
+        let named = match source.origin {
+            Origin::File(_) | Origin::Bdf(_) | Origin::Outline(_) => Named::ByPath,
+            _ => Named::ByName,
+        };
+        let text = match (version, lacks) {
+            (None, None) => fonts_report::missing(set, &font, named),
+            (Some(v), None) => fonts_report::missing_version(set, &font, v, named),
+            (None, Some(c)) => fonts_report::lacks(set, &font, &c, named),
+            (Some(v), Some(c)) => fonts_report::lacks_version(set, &font, v, &c, named),
+        };
+        with_page(text, source);
+    }
+    for d in differs {
+        let Some(source) = source_of(d.line, &d.spelling) else {
+            continue;
+        };
+        let Some(font) = source.font_name() else {
+            continue;
+        };
+        let text = match &d.what {
+            Differ::Lacks(_) => continue,
+            Differ::Older(found) => {
+                let Some(version) = &source.needs.version else {
+                    continue;
+                };
+                fonts_report::older(set, &font, &version.spelling, found)
+            }
+            Differ::OtherHash(_) => fonts_report::other_file(set, &font),
+        };
+        with_page(text, source);
+    }
+    out
 }
 
 /// The sources left out, as `fonts` lists them: each source's spelling, a
@@ -108,7 +247,13 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     };
     let path = Path::new(file);
     if path.extension().is_some_and(|e| e == "vtfrit") {
-        return match Frit::load(path) {
+        // a frit's layers are in the layers' folder of the frits'
+        // directory, wherever the frit being checked is
+        let frits = paths
+            .frits
+            .clone()
+            .unwrap_or_else(|_| path.parent().unwrap_or(Path::new("/")).to_owned());
+        return match Frit::load_in(path, &frits.join(layer::DIR)) {
             Ok(frit) => {
                 for warning in &frit.warnings {
                     let _ = writeln!(out, "warning\t{warning}");
@@ -392,6 +537,17 @@ pub const TEMPLATE: &str = "\
 source=font:DejaVu Sans Mono
 #source=builtin:unifont
 #
+# A layer: the sources of /etc/vtium/fonts/layers/NAME.vtlayer, put in place
+# of this line. A layer brings a script, symbols, emoji or the fallback, and
+# a font set holds one symbols, one emoji and one fallback layer at most.
+#layer=noto-emoji
+#
+# A bitmap file of the same design as the outline font on the source= line
+# above it. A cell up to the tallest such file's height draws the tallest
+# one that fits it, and the outline draws larger cells. Write it as kbd:NAME,
+# file:PATH or bdf:PATH, and repeat the line for each file.
+#strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
+#
 # A smaller size of the bitmap font on the source= line above it, which
 # draws that font's superscripts and subscripts. Its characters must be
 # from half to three quarters as high as the font's own. Write it as kbd:NAME,
@@ -455,6 +611,8 @@ pub fn name_from(font: &str) -> String {
 /// What `new`'s words ask for.
 struct NewArgs {
     fonts: Vec<String>,
+    /// `--layer`'s names, in the order the flags came in.
+    layers: Vec<String>,
     name: Option<String>,
     cell: Option<String>,
     size: Option<String>,
@@ -465,6 +623,7 @@ struct NewArgs {
 fn new_args(words: &[String]) -> Result<NewArgs, String> {
     let mut a = NewArgs {
         fonts: Vec::new(),
+        layers: Vec::new(),
         name: None,
         cell: None,
         size: None,
@@ -484,6 +643,7 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
             "--name" => a.name = Some(value("--name")?),
             "--cell" => a.cell = Some(value("--cell")?),
             "--size" => a.size = Some(value("--size")?),
+            "--layer" => a.layers.push(value("--layer")?),
             w if w.starts_with("--") => return Err(format!("new-frit has no option {w}")),
             w => a.fonts.push(w.to_owned()),
         }
@@ -491,11 +651,26 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
     Ok(a)
 }
 
-/// A new frit's text from `new`'s fonts and options.
+/// A new frit's text from `new`'s fonts and options, with no layer.
 pub fn frit_from(name: &str, fonts: &[String], cell: Option<&str>, size: Option<&str>) -> String {
+    layered_frit(name, fonts, &[], cell, size)
+}
+
+/// A new frit's text from `new`'s fonts, its `layers` in the order they
+/// go in the set ([`layer_order`]), and its options.
+pub fn layered_frit(
+    name: &str,
+    fonts: &[String],
+    layers: &[String],
+    cell: Option<&str>,
+    size: Option<&str>,
+) -> String {
     let mut text = format!("# {name}: made by vtium-config new-frit\nname={name}\n");
     for font in fonts {
         text.push_str(&format!("source={}\n", source_spelling(font)));
+    }
+    for layer in layers {
+        text.push_str(&format!("layer={layer}\n"));
     }
     if let Some(cell) = cell {
         text.push_str(&format!("cell={cell}\n"));
@@ -504,6 +679,83 @@ pub fn frit_from(name: &str, fonts: &[String], cell: Option<&str>, size: Option<
         text.push_str(&format!("size={size}\n"));
     }
     text
+}
+
+/// The layers `names` in the order a set holds them: script layers, then
+/// the symbols layer, then the emoji layer, then the fallback layer, each
+/// role's layers in the order they were named. Each layer is read from
+/// the `layers/` folder of `frits`, strictly, for its role. A name with no
+/// layer file, a layer the reader refuses, a name given twice and a
+/// second layer of a role a set holds once are refused.
+///
+/// References:
+/// - ADR-1204 D5: `new-frit --layer`.
+/// - ADR-1204 D6: the roles' order, and one symbols, emoji and fallback
+///   layer in a set at most.
+pub fn layer_order(frits: &Path, names: &[String]) -> Result<Vec<String>, String> {
+    let dir = frits.join(layer::DIR);
+    let mut roles: Vec<(layer::Role, &str)> = Vec::new();
+    for name in names {
+        if !layer::valid_name(name) {
+            return Err(format!(
+                "{name:?} cannot be a layer's name. {}",
+                layer::NAME_RULE
+            ));
+        }
+        if roles.iter().any(|&(_, n)| n == name) {
+            return Err(format!("--layer {name} is named twice"));
+        }
+        let file = dir.join(format!("{name}{}", layer::SUFFIX));
+        if !file.exists() {
+            return Err(format!(
+                "there is no layer {name}: {} does not exist",
+                file.display()
+            ));
+        }
+        let bytes = read_bounded(&file)?;
+        let role = Frit::parse_layer(&bytes, &file, name).map_err(|e| e.to_string())?;
+        if let Some(&(_, other)) = roles.iter().find(|&&(r, _)| r == role && role.single()) {
+            return Err(format!(
+                "{other} and {name} are both {role} layers, and a font set holds one {role} layer"
+            ));
+        }
+        roles.push((role, name));
+    }
+    // a stable sort keeps each role's layers in the order they were named
+    roles.sort_by_key(|&(role, _)| role);
+    Ok(roles.into_iter().map(|(_, n)| n.to_owned()).collect())
+}
+
+/// Checks the frit `text`, to be installed at `path` in the frits'
+/// directory, with the layers of that directory in place, as the console
+/// will hand it to the helper. A layer that this machine lacks or cannot
+/// read passes, since the console draws the set without it until it is
+/// there. Any other `layer=` line that would add nothing is refused, such
+/// as a layer that would take the set past its 16 sources, and so is a
+/// value in a layer that the helper would refuse.
+///
+/// References:
+/// - ADR-1204 D5: the splice the console makes, and `new-frit --layer`.
+fn check_layers(text: &str, path: &Path, name: &str) -> Result<(), String> {
+    let layers = path.parent().unwrap_or(Path::new("/")).join(layer::DIR);
+    let expanded = layer::expand(text, &mut |n| crate::frit::read_layer(&layers, n));
+    if let Some(note) = expanded.notes.iter().find(|note| {
+        !matches!(
+            note.problem,
+            layer::Problem::Missing | layer::Problem::Unread(_)
+        )
+    }) {
+        let file = crate::frit::layer_file(&layers, &note.layer);
+        return Err(format!(
+            "{}:{}: {}",
+            path.display(),
+            note.line,
+            crate::frit::layer_why(&file, note)
+        ));
+    }
+    Frit::parse_spliced(expanded.text.as_bytes(), path, name, &layers)
+        .map(drop)
+        .map_err(|e| e.to_string())
 }
 
 /// The plan that installs the frit `text` as `name` in `paths`' frits,
@@ -520,6 +772,9 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
         .map_err(Clone::clone)?
         .join(format!("{name}.vtfrit"));
     let frit = Frit::parse(text.as_bytes(), &path, name).map_err(|e| e.to_string())?;
+    if !frit.layers.is_empty() {
+        check_layers(text, &path, name)?;
+    }
     if frit.name != name {
         return Err(format!(
             "the font set says name={}, but it would be installed as {name}. Make the two names the same.",
@@ -553,22 +808,23 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
 /// `new`'s non-interactive forms (ADR-1200 D4, ADR-1201 D9): `new
 /// --template` prints a frit to edit; `new --from FILE [--name NAME]`
 /// installs the frit in FILE; `new FONT... [--name NAME] [--cell WxH]
-/// [--size POINTS]` makes a frit of the fonts, in order, each a family or
-/// a source as a frit spells it.
+/// [--size POINTS] [--layer NAME]...` makes a frit of the fonts, in
+/// order, each a family or a source as a frit spells it, and the layers
+/// in the order of their roles ([`layer_order`]).
 pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let a = match new_args(words) {
         Ok(a) => a,
         Err(why) => return usage(err, &why),
     };
     if a.template {
-        if !a.fonts.is_empty() || a.from.is_some() || a.name.is_some() {
+        if !a.fonts.is_empty() || a.from.is_some() || a.name.is_some() || !a.layers.is_empty() {
             return usage(err, "new-frit --template takes no other argument");
         }
         let _ = write!(out, "{TEMPLATE}");
         return 0;
     }
     let (name, text) = match (&a.from, a.fonts.is_empty()) {
-        (Some(file), true) if a.cell.is_none() && a.size.is_none() => {
+        (Some(file), true) if a.cell.is_none() && a.size.is_none() && a.layers.is_empty() => {
             let bytes = match read_bounded(Path::new(file)) {
                 Ok(bytes) => bytes,
                 Err(why) => return failed(err, &why),
@@ -591,13 +847,28 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
                 .name
                 .clone()
                 .unwrap_or_else(|| a.fonts.first().map(|f| name_from(f)).unwrap_or_default());
-            let text = frit_from(&name, &a.fonts, a.cell.as_deref(), a.size.as_deref());
+            let layers = match &paths.frits {
+                _ if a.layers.is_empty() => Ok(Vec::new()),
+                Ok(frits) => layer_order(frits, &a.layers),
+                Err(why) => Err(why.clone()),
+            };
+            let layers = match layers {
+                Ok(layers) => layers,
+                Err(why) => return failed(err, &why),
+            };
+            let text = layered_frit(
+                &name,
+                &a.fonts,
+                &layers,
+                a.cell.as_deref(),
+                a.size.as_deref(),
+            );
             (name, text)
         }
         _ => {
             return usage(
                 err,
-                "new-frit takes FONT... with --name, --cell and --size, or --from FILE with --name, or --template",
+                "new-frit takes FONT... with --name, --cell, --size and --layer, or --from FILE with --name, or --template",
             );
         }
     };

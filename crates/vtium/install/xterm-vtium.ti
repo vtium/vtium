@@ -120,7 +120,7 @@ xterm-vtium|vtium|VTium terminal for the Linux console,
   civis=\E[?25l, cnorm=\E[?25h,
 
 # Cursor shape, DECSCUSR (user-defined capabilities): cursor.style
-  Se=\E[0 q, Ss=\E[%p1%d q,
+  Se=\E[7 q, Ss=\E[%p1%d q,
 
 # Cursor color with OSC 12 and its reset with OSC 112 (user-defined
 # capabilities, as kitty's entry writes them): color.dynamic.set

@@ -15,7 +15,7 @@ use vtium_platform::display::Event;
 use vtium_platform::event_loop::Loop;
 
 use super::App;
-use super::tests::{Still, no_fonts, seat_with, settle, shown};
+use super::tests::{Still, no_fonts, seat_with, settle, shown_at};
 
 /// The seat under `options` on one display, shown and settled at `t`.
 fn seat_at(options: &[&str], t: Instant) -> (Loop<App>, App) {
@@ -25,7 +25,7 @@ fn seat_at(options: &[&str], t: Instant) -> (Loop<App>, App) {
         PathBuf::from("/dev/mem0"),
         Box::new(Still::new(&[(1, "A")])),
     );
-    shown(&mut app);
+    shown_at(&mut app, t);
     settle(&mut lp, &mut app, t);
     (lp, app)
 }
@@ -78,20 +78,23 @@ fn rapid_blink_flips_every_200_ms_while_a_cell_carries_it() {
     }
     // five phases in a second: 2.5 blinks, 150 a minute
     assert_eq!(flips, 5);
-    // SGR 5's text keeps its own 500 ms phase
-    let blink = &app.term().unwrap().blink;
-    assert!(
-        !blink.text_shown(),
-        "the text timer flipped once, at 500 ms"
-    );
+    // SGR 5's text keeps its own 500 ms phase: it flipped at 500 ms and
+    // again at 1000 ms, and is next due at 1500 ms
+    assert!(app.term().unwrap().blink.text_shown());
+    assert_eq!(app.heads.first().unwrap().text_due, Some(ms(1500)));
 }
 
 // The rapid timer stops when no cell carries SGR 6, its phase shown, and
-// starts again when one does.
+// starts again when one does. The test's time starts 400 ms before the
+// seat is set up, as on a loaded machine, so the test also shows that the
+// seat's blink phases start at the test's time and not at the host's
+// clock.
 // covers: sgr.rapid-blink
 #[test]
 fn the_rapid_timer_stops_when_no_cell_carries_sgr_6() {
-    let t = Instant::now();
+    let t = Instant::now()
+        .checked_sub(Duration::from_millis(400))
+        .unwrap();
     let ms = |n: u64| t + Duration::from_millis(n);
     let (_lp, mut app) = seat_at(&[], t);
     output(&mut app, b"\x1b[6mfast\x1b[0m", t);
@@ -101,17 +104,16 @@ fn the_rapid_timer_stops_when_no_cell_carries_sgr_6() {
     output(&mut app, b"\r\x1b[2K", ms(250));
     assert_eq!(rapid(&app), (None, true));
     assert!(!hidden_in_frame(&app));
-    for n in [400, 600, 800] {
+    for n in [400, 600, 800, 1000] {
         app.turn(ms(n));
         assert_eq!(rapid(&app), (None, true), "stopped at {n} ms");
     }
-    // only the 500 ms timers wake the loop now
-    assert!(
-        app.next_wake(ms(800))
-            .is_some_and(|d| d > Duration::from_millis(200))
-    );
-    output(&mut app, b"\x1b[6magain", ms(900));
-    assert_eq!(rapid(&app), (Some(ms(1100)), true));
+    // only the 500 ms timers wake the loop now: the text and cursor timers
+    // flipped at 1000 ms and are next due at 1500 ms, where a rapid timer
+    // still running would be due at 1200 ms
+    assert_eq!(app.next_wake(ms(1000)), Some(Duration::from_millis(500)));
+    output(&mut app, b"\x1b[6magain", ms(1100));
+    assert_eq!(rapid(&app), (Some(ms(1300)), true));
 }
 
 // What stops SGR 5's blink stops SGR 6's: `blink` off, `blink-text=off`,

@@ -245,7 +245,12 @@ fn fitted(
 ) -> Result<(u32, u32, Vec<u8>), Failure> {
     let source = vtium_image::login::Source::Rgba(&pic.rgba);
     let (width, height, pixels) = vtium_image::login::fit(fitting, (pic.width, pic.height), source)
-        .ok_or_else(|| Failure::new(Status::TooLarge, "the screen has no room for the picture"))?;
+        .ok_or_else(|| {
+            Failure::new(
+                Status::TooLarge,
+                "the picture cannot be fitted to the screen",
+            )
+        })?;
     let rgba = pixels
         .iter()
         .flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, (p >> 24) as u8])
@@ -640,7 +645,11 @@ mod tests {
         assert_eq!((o.status, o.shm), (Status::TooShort, None));
     }
 
-    // ADR-1100 D17: the helper hands back only the pixels the screen shows
+    // The helper hands back only the pixels the screen shows.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it": the helper
+    //   returns only the fitted picture.
     #[test]
     fn a_login_picture_comes_back_fitted_to_the_screen() {
         use vtium_image::login::{Fit, Fitting, Form, Geometry, Position};
@@ -648,7 +657,8 @@ mod tests {
             form: Form {
                 fit: Fit::Cover,
                 rows: None,
-                position: Position::Left,
+                position: Some(Position::Left),
+                scale: 100,
             },
             geometry: Geometry {
                 display: (80, 48),
@@ -666,10 +676,14 @@ mod tests {
         assert_eq!(fit, Ok((80, 48, [0x10, 0x20, 0x30, 0xff].repeat(80 * 48))));
     }
 
-    // ADR-1100 D17: a request that carries a fit, through the job's entry
-    // point as the serve loop calls it, comes back fitted: a PNG of 160×96
-    // under cover on a grid of 80×48 pixels is answered with 80×48 pixels,
-    // never with the picture at its decoded size
+    // A request that carries a fit, through the job's entry point as the
+    // serve loop calls it, comes back fitted: a PNG of 160×96 under cover
+    // on a grid of 80×48 pixels is answered with 80×48 pixels, never with
+    // the picture at its decoded size.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it": the helper
+    //   returns only the fitted picture.
     #[test]
     fn a_request_with_a_fit_is_answered_with_the_fitted_picture() {
         use vtium_image::login::{Fit, Fitting, Form, Geometry, Position};
@@ -693,7 +707,8 @@ mod tests {
             form: Form {
                 fit: Fit::Cover,
                 rows: None,
-                position: Position::Left,
+                position: Some(Position::Left),
+                scale: 100,
             },
             geometry: Geometry {
                 display: (80, 48),

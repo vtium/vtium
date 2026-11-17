@@ -22,9 +22,17 @@ Then it runs that generator through cargo:
 TEST is coverage_map_matches_the_capability_list_and_adr_1000, the test that
 fails when COVERAGE.md is stale. With the variable set, it writes the file.
 
-So docs/scripts/coverage --update brings both generated files up to date.
+The reference pages of the escape sequences, under docs/sequences/, list
+each row's tests too (ADR-1507 D3). Their generator is a test in vtium-term,
+and --update runs it the same way, after COVERAGE.md:
+
+    VTIUM_TERM_BLESS=1 cargo test -p vtium-term --lib TEST
+
+TEST is generated_documents_of_the_sequences_match_the_tables.
+
+So docs/scripts/coverage --update brings every generated file up to date.
 Without --update, the script reads files only and never runs cargo, so it
-does not check COVERAGE.md. cargo test -p vtium-conformance checks it.
+does not check COVERAGE.md or the pages. cargo test checks them.
 
 Ids:
     A mode's id is its kind and number: ANSI-4, DEC-2026.
@@ -90,7 +98,8 @@ Checks (exit 1 on any failure):
 
 Options:
     --update         rewrite the `tests` columns from the tags, then
-                     regenerate tools/conformance/COVERAGE.md through cargo
+                     regenerate tools/conformance/COVERAGE.md and the pages
+                     under docs/sequences/ through cargo
     --layer LAYER    select the rows whose layer column names LAYER
                      (minspec, text, bidi, images, gpu, seat or top)
     --require        fail while a selected row that needs a test has none
@@ -365,27 +374,52 @@ def write_tables(tables, tests_for):
             print(f'coverage: rewrote {table.path.relative_to(ROOT)}')
 
 
+class Generator:
+    """A file or a folder that a Rust test writes from the tests columns. With
+    its bless variable set, the test writes the file before it compares it."""
+
+    def __init__(self, path, variable, crate, test):
+        self.path = path
+        self.variable = variable
+        self.test = test
+        self.cargo = ['cargo', 'test', '-p', crate, '--lib', test]
+
+
 # The one generator of COVERAGE.md is this test in tools/conformance/src/coverage.rs.
-# With VTIUM_CONFORMANCE_BLESS set, the test writes the file before it compares it.
-COVERAGE_MAP = 'tools/conformance/COVERAGE.md'
-COVERAGE_TEST = 'coverage_map_matches_the_capability_list_and_adr_1000'
-COVERAGE_CARGO = ['cargo', 'test', '-p', 'vtium-conformance', '--lib', COVERAGE_TEST]
+COVERAGE = Generator('tools/conformance/COVERAGE.md', 'VTIUM_CONFORMANCE_BLESS',
+                     'vtium-conformance', 'coverage_map_matches_the_capability_list_and_adr_1000')
+COVERAGE_MAP = COVERAGE.path
+COVERAGE_TEST = COVERAGE.test
+COVERAGE_CARGO = COVERAGE.cargo
+# The one generator of the sequence pages is this test in
+# crates/vtium-term/src/terminal/sequences.rs.
+SEQUENCES = Generator('docs/sequences', 'VTIUM_TERM_BLESS', 'vtium-term',
+                      'generated_documents_of_the_sequences_match_the_tables')
 # cargo prints this line when the filter ran exactly one test and it passed.
 ONE_PASSED = re.compile(r'^test result: ok\. 1 passed;', re.MULTILINE)
 
 
-def write_coverage_map(root=ROOT, cargo=COVERAGE_CARGO):
-    """Regenerate COVERAGE.md under root by running its Rust test there with
-    VTIUM_CONFORMANCE_BLESS=1. Returns 0, or 1 after printing cargo's output when cargo
-    fails or runs no test. The tests of this script pass a stand-in for cargo."""
-    rel = COVERAGE_MAP
-    path = root / COVERAGE_MAP
-    before = path.read_bytes() if path.is_file() else None
-    command = ' '.join(COVERAGE_CARGO)
-    print(f'coverage: regenerating {rel} with VTIUM_CONFORMANCE_BLESS=1 {command}', flush=True)
-    env = dict(os.environ, VTIUM_CONFORMANCE_BLESS='1')
+def snapshot(path):
+    """A file's bytes, or each file of a folder with its bytes, so that a run
+    can tell whether the generator changed anything."""
+    if path.is_dir():
+        return sorted((f.name, f.read_bytes()) for f in path.iterdir() if f.is_file())
+    return path.read_bytes() if path.is_file() else None
+
+
+def write_generated(generator, root=ROOT, cargo=None):
+    """Regenerate a generator's file or folder under root by running its Rust
+    test there with its bless variable set. Returns 0, or 1 after printing
+    cargo's output when cargo fails or runs no test. The tests of this script
+    pass a stand-in for cargo."""
+    rel = generator.path
+    path = root / rel
+    before = snapshot(path)
+    command = ' '.join(generator.cargo)
+    print(f'coverage: regenerating {rel} with {generator.variable}=1 {command}', flush=True)
+    env = dict(os.environ, **{generator.variable: '1'})
     try:
-        run = subprocess.run(cargo, cwd=root, env=env, capture_output=True,
+        run = subprocess.run(cargo or generator.cargo, cwd=root, env=env, capture_output=True,
                              text=True, errors='replace', check=False)
     except OSError as err:
         print(f'coverage: cannot run cargo, so {rel} was not regenerated: {err}', file=sys.stderr)
@@ -394,15 +428,24 @@ def write_coverage_map(root=ROOT, cargo=COVERAGE_CARGO):
     if run.returncode != 0 or not ONE_PASSED.search(run.stdout):
         sys.stderr.write(output)
         why = (f'cargo exited with status {run.returncode}' if run.returncode != 0
-               else f'cargo ran no test named {COVERAGE_TEST}')
+               else f'cargo ran no test named {generator.test}')
         print(f'coverage: {rel} was not regenerated, because {why}. '
               f'The tables are up to date. Fix the error above and run '
               f'docs/scripts/coverage --update again.', file=sys.stderr)
         return 1
-    after = path.read_bytes() if path.is_file() else None
-    if after != before:
+    if snapshot(path) != before:
         print(f'coverage: rewrote {rel}')
     return 0
+
+
+def write_coverage_map(root=ROOT, cargo=None):
+    """Regenerate COVERAGE.md under root."""
+    return write_generated(COVERAGE, root, cargo)
+
+
+def write_sequence_pages(root=ROOT, cargo=None):
+    """Regenerate the pages under docs/sequences/ under root."""
+    return write_generated(SEQUENCES, root, cargo)
 
 
 # ADR-1000, "The target set": a mode whose note says this has no row in vtium's mode
@@ -448,7 +491,7 @@ def main():
         prog='coverage', description="Tie ADR-1000's tables to the tests that cover each row.")
     parser.add_argument('--update', action='store_true',
                         help='rewrite the tests columns from the tags, then regenerate '
-                             'tools/conformance/COVERAGE.md through cargo')
+                             'tools/conformance/COVERAGE.md and docs/sequences/ through cargo')
     parser.add_argument('--layer', help='select the rows whose layer column names LAYER')
     parser.add_argument('--require', action='store_true',
                         help='fail while a selected row that needs a test has none')
@@ -477,7 +520,7 @@ def main():
         if errors:
             return fail(errors, '; the tables were not rewritten')
         write_tables(tables, tests_for)
-        if write_coverage_map() != 0:
+        if write_coverage_map() != 0 or write_sequence_pages() != 0:
             return 1
     else:
         errors += stale_cells(tables, tests_for)

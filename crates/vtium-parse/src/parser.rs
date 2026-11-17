@@ -153,6 +153,13 @@ fn apc_run_byte(b: u8) -> bool {
     (0x20..0x7f).contains(&b)
 }
 
+/// A byte that ground state prints as it stands, in every input mode, so
+/// a run of them reaches the consumer without the state machine: SP to
+/// `~`.
+fn print_run_byte(b: u8) -> bool {
+    (0x20..0x7f).contains(&b)
+}
+
 /// The events that may occur in any state, vt100.net's `anywhere`
 /// transitions.
 fn any_state(c: u32) -> Option<(State, Action)> {
@@ -300,8 +307,8 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
 /// The escape-sequence parser: bytes in, [`Consumer`] calls out.
 ///
 /// It holds every buffer it uses inline (about 1.7 KiB) but the OSC
-/// string's, which grows by doubling from [`OSC_FLOOR`] to at most
-/// [`OSC_MAX`], is released after a string past [`OSC_KEEP`], and is
+/// string's, which grows by doubling from `OSC_FLOOR` to at most
+/// [`OSC_MAX`], is released after a string past `OSC_KEEP`, and is
 /// emptied as each string ends. Its `Debug` shows only the bytes its
 /// buffers hold.
 #[derive(Clone)]
@@ -424,6 +431,21 @@ impl Parser {
                 _ => None,
             };
             match run_of.filter(|is_run| is_run(b)) {
+                None if self.prints_as_itself(between, b) => {
+                    // In ground state each printable ASCII byte prints as
+                    // itself in every input mode, so a run of them skips
+                    // the state machine. The consumer may pause after any
+                    // print, as it may after any byte.
+                    let mut taken: usize = 0;
+                    for &b in rest.iter().take_while(|&&b| print_run_byte(b)) {
+                        consumer.print(char::from(b));
+                        taken = taken.saturating_add(1);
+                        if consumer.paused() {
+                            break;
+                        }
+                    }
+                    rest = rest.get(taken..).unwrap_or_default();
+                }
                 Some(is_run) => {
                     let n = rest.iter().take_while(|&&b| is_run(b)).count();
                     let (run, after) = rest.split_at_checked(n).unwrap_or((rest, &[]));
@@ -466,6 +488,13 @@ impl Parser {
             }
         }
         bytes.len().saturating_sub(rest.len())
+    }
+
+    /// Whether the byte `b` prints as itself with no work by the state
+    /// machine: a printable ASCII byte in ground state, between UTF-8
+    /// characters, with no `\` of an APC's ST waiting to be dropped.
+    fn prints_as_itself(&self, between: bool, b: u8) -> bool {
+        self.state == State::Ground && between && !self.drop_backslash && print_run_byte(b)
     }
 
     /// In 8-bit mode, a GR byte (A0-FF) inside a sequence acts as its GL

@@ -64,6 +64,63 @@ A kbd console font from `/usr/share/kbd/consolefonts` needs no frit. When no fri
 font-name=eurlatgr
 ```
 
+## Layers that frits share
+
+Several frits often want the same extra fonts, such as a symbol font for the icons in prompts and color emoji. A layer holds those fonts once, so each frit can add them by name. A layer is a file `/etc/vtium/fonts/layers/NAME.vtlayer`. Its first line says the layer's role: `script`, `symbols`, `emoji` or `fallback`. Its other lines are `source=` lines, each with the lines that describe that source, such as `cover=`. Save this layer as `/etc/vtium/fonts/layers/noto-emoji.vtlayer`:
+
+```
+role=emoji
+source=font:Noto Color Emoji
+```
+
+A frit adds the layer with a `layer=` line. The layer's sources take the place of that line, so this frit tries Monoid first and then Noto Color Emoji:
+
+```
+source=font:Monoid Nerd Font Mono
+layer=noto-emoji
+```
+
+A layer holds sources alone. A frit's own lines, such as `cell=` and `size=`, apply to the layer's sources too, and a layer cannot hold them. A frit holds one `symbols`, one `emoji` and one `fallback` layer at most, and as many `script` layers as you need. vtium reads a layer under the same ownership check as a frit. When a layer is missing or vtium does not read it, vtium draws the frit without that layer and logs why. `vtium check-config` reports it too.
+
+`vtium-config new-frit` adds layers with `--layer`. It writes them in the order of their roles, whatever order you give them in: scripts, then symbols, then emoji, then the fallback.
+
+```
+$ vtium-config new-frit "Iosevka Term" --layer noto-emoji --layer nerd-symbols
+```
+
+## A bitmap font with an outline for larger cells
+
+Some fonts come both as bitmap files, drawn pixel by pixel for a few sizes, and as an outline font of the same design. A `strike=` line under the outline font's `source=` line names one bitmap file. The bitmap files draw the small cells, and the outline draws the larger ones:
+
+```
+source=outline:/usr/share/fonts/terminus/TerminusTTF-4.49.3.ttf
+strike=bdf:/usr/share/fonts/terminus/ter-u14n.bdf
+strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
+```
+
+A cell up to 16 pixels high, the tallest bitmap file's height, draws the tallest bitmap file that fits it. So a 15-pixel cell draws the 14-pixel file, and a 16-pixel cell draws the 16-pixel file. A cell of 17 pixels or more draws the outline. A character that the bitmap files lack, such as a Nerd Fonts icon, comes from the outline at every size.
+
+## Outline fonts behind a bitmap font
+
+A bitmap font often lacks characters you need, such as Chinese characters or icons. You can list an outline font after it to supply them. This frit uses Terminus, and takes the characters Terminus lacks from Noto Sans CJK:
+
+```
+source=kbd:ter-v16n
+source=font:Noto Sans CJK SC
+```
+
+When a frit's first source is a bitmap font, vtium renders the outline fonts after it the way it renders the bitmap font. It fits each character to the pixel grid, and each pixel is either fully on or fully off. The added characters then have the same sharp edges as the bitmap font's own. Color emoji keep their color.
+
+A `render=` line under an outline font's `source=` line chooses how vtium renders that font. With `render=smooth`, vtium renders it antialiased, with soft edges, as it renders outline fonts elsewhere:
+
+```
+source=kbd:ter-v16n
+source=font:Noto Sans CJK SC
+render=smooth
+```
+
+With `render=bitmap`, vtium renders an outline font with sharp edges even when it comes first in the frit. A bitmap font always has sharp edges, so vtium refuses a frit with a `render=` line under a bitmap font's `source=` line. See [the issue about outline fonts behind a bitmap font](https://github.com/vtium/vtium/issues/311).
+
 ## Superscripts and subscripts in a bitmap font
 
 A program can ask for superscript and subscript text. For example, it can write x2 or H2O with ordinary digits and ask for the digit to be raised or lowered, as in x² or H₂O. vtium renders each superscript and subscript character smaller, against the top or the bottom of its row.
@@ -86,6 +143,44 @@ The smaller font's characters must be from half to three quarters as high as the
 A bitmap font with no smaller size shows its superscripts and subscripts scaled to two thirds. An outline font renders them at two thirds of its size.
 
 `vtium-config preview FONT` ends its preview with a line of superscripts and subscripts, and so does the font view of `vtium-config`. That line shows x2 + y2 = z2 and H2O with the digits small. Both also say how the font makes them. See [the superscript and subscript issue](https://github.com/vtium/vtium/issues/37).
+
+## Install a missing font
+
+A frit can say which font each source needs, so that vtium-config can name the font when it is missing. Four lines can follow a `source=` line:
+
+- `version=` gives the lowest version of the font that the frit was written for, such as `3.4.0`.
+- `check=` names a character that only the right font holds, such as `U+E0B0`. A Nerd Fonts build holds that character, and the plain font of a similar name does not.
+- `sha256=` gives the SHA-256 of a font file that the frit names by its path.
+- `url=` gives the font's page on the web, where you can get it.
+
+For example, this frit names the Nerd Fonts build of Fira Code precisely:
+
+```
+name=fira-code-nerd
+source=font:FiraCode Nerd Font Mono
+version=3.4.0
+check=U+E0B0
+url=https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0
+```
+
+When a font is missing, vtium renders its characters from the next font in the frit that has them. A font that lacks the `check=` character counts as missing too. vtium logs one line for each missing font, once a boot. An older version of a font, or a font file with another SHA-256, still renders.
+
+To see which fonts your frits need, run:
+
+```
+$ vtium config fonts
+```
+
+After the list of frits, the command names each missing font, with the version the frit asks for and the font's page. It also names each installed font that is older than the frit asks for, and each font file whose SHA-256 differs.
+
+To install a missing font, use one of these two ways:
+
+- Search your distribution's packages for the font's name, and install the package that provides it. Many distributions package common fonts, such as JetBrains Mono, Noto Color Emoji and the Nerd Fonts builds.
+- Download the font from its page, and copy its files into `/usr/local/share/fonts`. The font helper looks for fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. See [An outline font](#an-outline-font) for details.
+
+vtium uses the font from its next start. You don't need to change the frit. Run `vtium config fonts` again to check that the font is found.
+
+[crates/vtium-config/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md#what-a-source-needs) describes each of the four lines in full.
 
 ## Size
 

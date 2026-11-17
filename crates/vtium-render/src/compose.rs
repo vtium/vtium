@@ -371,7 +371,9 @@ impl Composer {
                 }
                 match glyph {
                     // the common cell, a bitmap glyph on its background
-                    Some(g) if !job.layered() && !received && g.is_bits() => {
+                    Some(g)
+                        if !job.layered() && !received && g.is_bits() && g.layer().is_none() =>
+                    {
                         let gx = job.r.x.saturating_sub(job.g.x);
                         let rows = Rows {
                             out,
@@ -555,7 +557,7 @@ fn cell_line(
     let prem = lines.prem.get_mut(..w).unwrap_or_default();
     let src = lines.src.get_mut(..w).unwrap_or_default();
     let (gx, gy) = (x0.saturating_sub(job.g.x), y.saturating_sub(job.g.y));
-    if !job.layered() && ink.is_none() {
+    if !job.layered() && ink.is_none() && glyph.is_none_or(|g| g.layer().is_none()) {
         match glyph {
             None => out.fill(pixel(job.bg)),
             Some(g) if g.is_bits() => {
@@ -607,6 +609,7 @@ fn cell_line(
             for (p, &a) in prem.iter_mut().zip(cov.iter()) {
                 *p = tint_over(*p, a, job.fg);
             }
+            color_layer_over(job, g, (gx, gy), (prem, src));
         }
         None => {}
     }
@@ -615,6 +618,26 @@ fn cell_line(
     }
     for (o, &p) in out.iter_mut().zip(prem.iter()) {
         *o = over_bg(job.bg, p);
+    }
+}
+
+/// The color layer of the glyph `g`, if it has one, over the premultiplied
+/// line `prem`, its line at `gx`, `gy` read through `src`: the color glyphs
+/// of a sized run that mixes them with text, in their own colors over the
+/// text.
+fn color_layer_over(
+    job: &Job,
+    g: &Stored,
+    (gx, gy): (i64, i64),
+    (prem, src): (&mut [u32], &mut [u32]),
+) {
+    let Some(layer) = g.layer() else {
+        return;
+    };
+    layer.argb_line(gx, gy, src);
+    silhouette(job, src);
+    for (p, &s) in prem.iter_mut().zip(src.iter()) {
+        *p = argb_over(*p, s);
     }
 }
 
@@ -629,7 +652,8 @@ fn received_over(prem: &mut [u32], ink: Option<&[u32]>) {
 /// What [`pictured`] did with a cell.
 #[cfg(feature = "images")]
 enum Pictured {
-    /// No picture reaches it, or its mark covers them: it draws as any cell.
+    /// No picture reaches it, its mark covers them, or its own background
+    /// hides every one: it draws as any cell.
     No,
     /// It is drawn, with its pictures.
     Drawn,
@@ -694,19 +718,27 @@ fn pictured(
         return Pictured::No;
     }
     pictures.meeting(&job.r, meeting);
-    if meeting.is_empty() {
+    // A picture below backgrounds shows only where a cell's background is
+    // the default, so a cell with a background color of its own hides it.
+    // When every picture that meets the cell is hidden that way, the cell
+    // draws as a cell with no picture does. The picture path would give
+    // the same colors, but it composes the text over the background in two
+    // roundings instead of one, so partly covered text pixels would come
+    // out a level off from the same text on a plain cell.
+    let shows = |l: Layer| l != Layer::BelowBackground || job.under.default_bg;
+    if !meeting
+        .iter()
+        .any(|&i| pictures.pic(i).is_some_and(|p| shows(p.layer())))
+    {
         return Pictured::No;
     }
-    // the last opaque picture over the whole cell hides what lies under it,
-    // but for one below backgrounds that the cell's own background hides;
+    // the last opaque picture over the whole cell hides what lies under it;
     // finding it needs no pixels, and only it and what lies over it are
     // made ready, so a hidden picture is never scaled
     let top = meeting.iter().rposition(|&i| {
-        pictures.pic(i).is_some_and(|p| {
-            p.opaque()
-                && p.covers(&job.r)
-                && (p.layer() != Layer::BelowBackground || job.under.default_bg)
-        })
+        pictures
+            .pic(i)
+            .is_some_and(|p| p.opaque() && p.covers(&job.r) && shows(p.layer()))
     });
     for &i in meeting.get(top.unwrap_or(0)..).unwrap_or_default() {
         pictures.ready(i);
@@ -747,12 +779,9 @@ fn pictured(
         // the background is the default, the layer below text, the text,
         // the layer above it, and last vtium's mark
         for &i in rest {
-            let Some(layer) = pictures.pic(i).map(|p| p.layer()) else {
+            let Some(layer) = pictures.pic(i).map(|p| p.layer()).filter(|&l| shows(l)) else {
                 continue;
             };
-            if layer == Layer::BelowBackground && !job.under.default_bg {
-                continue;
-            }
             if !text && layer == Layer::AboveText {
                 text_over(job, (glyph, ink), sprites, lines, y, line);
                 text = true;
@@ -814,6 +843,7 @@ fn glyph_over(job: &Job, g: &Stored, y: i64, lines: (&mut [u32], &mut [u8], &mut
         for (p, &a) in prem.iter_mut().zip(cov.iter()) {
             *p = tint_over(*p, a, job.fg);
         }
+        color_layer_over(job, g, (gx, gy), (prem, src));
     }
 }
 

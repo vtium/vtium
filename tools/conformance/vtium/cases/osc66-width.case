@@ -1,0 +1,16 @@
+# OSC 66's width key: w=3 writes abc as one block of 3 columns, its text in
+# the first. With w=0 and s=2, each grapheme cluster of xy is a block of its
+# own, 2 columns wide. A block of one cell whose width w set keeps it after
+# a VS16, so Z follows it in the next column. A sequence that sizes
+# nothing prints its text as it is, a width out of range discards the
+# sequence, and an unknown key is ignored.
+# spec: kitty's text sizing protocol, w: "When zero, the terminal should calculate the width as it would for normal text, splitting it up into scaled cells."; "a cell whose width was set explicitly is never re-sized by a variation selector or a spacing mark."; ADR-1308 D2: a sequence with s = 1, w = 0 and d = 0 writes its text as ordinary printed text, a known key out of its range discards the sequence, and an unknown key is ignored
+# covers: text.kitty-sizing
+size 14 3
+send "\e]66;w=3;abc\e\\"
+send "\e]66;s=2;xy\e\\"
+send "\e]66;w=1;\u{2764}\e\\\u{FE0F}Z"
+send "\e]66;w=0;q\e\\"
+send "\e]66;w=8;X\e\\"
+send "\e]66;w=1:foo=bar;k\e\\"
+dump

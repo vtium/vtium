@@ -77,7 +77,10 @@
 <text x="528" y="43" font-size="13" fill="#1f2933">the word</text>
 <text x="504" y="62" font-size="11" fill="#1f2933">the program sends</text>
 <rect x="504" y="68" width="192" height="24" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
-<text x="512" y="85" font-size="12" fill="#1f2933">ל ו ם</text>
+<text x="512" y="85" font-size="12" fill="#1f2933">ל</text>
+<text x="528" y="85" font-size="12" fill="#1f2933">ו</text>
+<text x="544" y="85" font-size="12" fill="#1f2933">ם</text>
+<text x="568" y="85" font-size="11" fill="#1f2933">lamed, vav, mem</text>
 <text x="504" y="122" font-size="11" fill="#1f2933">the row vtium draws</text>
 <rect x="500" y="128" width="200" height="32" rx="3" fill="#1f2933"/>
 <rect x="504.5" y="132.5" width="11" height="23" fill="#3e4c59"/>

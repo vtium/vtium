@@ -52,7 +52,7 @@ pub struct Joins {
 }
 
 /// How each row of a frame is drawn: in logical order, or in the order its
-/// paragraph's [`RowOrder`] gives. The screen builds it with each frame, and
+/// paragraph's `RowOrder` gives. The screen builds it with each frame, and
 /// a holder of a frame's parts, such as a snapshot a render thread reads,
 /// hands it back with [`Frame::with_order`](crate::Frame::with_order).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

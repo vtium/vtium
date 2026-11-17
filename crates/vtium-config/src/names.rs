@@ -4,7 +4,7 @@
 //! table directory and its `name` table are read, each with a bound, and
 //! read-fonts, the table reader under swash, parses the table. The search
 //! among installed fonts and the rasteriser's choice of a face both decide
-//! with [`faces`] and [`matches`], so a face the search finds is a face the
+//! with [`faces`] and [`matches`](fn@matches), so a face the search finds is a face the
 //! rasteriser takes. The fuzz target `names` feeds [`faces`] any bytes
 //! (`fuzz/README.md`).
 
@@ -37,6 +37,9 @@ pub struct Face {
     /// Whether its style is Regular: its typographic subfamily (name ID
     /// 17) where it has one, else its subfamily (name ID 2).
     pub regular: bool,
+    /// The version the face states (name ID 5), in English where the
+    /// table holds it, which `version=` is matched against.
+    pub version: Option<String>,
 }
 
 /// Where a font's bytes are read from, a piece at a time: an open font
@@ -138,20 +141,21 @@ pub fn faces<S: Source + ?Sized>(src: &S) -> Result<Vec<Face>, String> {
             continue;
         };
         let names = tables.entry(place).or_insert_with(|| names_in(src, place));
-        if let Some((families, regular)) = names {
+        if let Some((families, regular, version)) = names {
             out.push(Face {
                 index,
                 families: families.clone(),
                 regular: *regular,
+                version: version.clone(),
             });
         }
     }
     Ok(out)
 }
 
-/// What a `name` table gives a face: its families, and whether its style
-/// is Regular.
-type Names = (Vec<String>, bool);
+/// What a `name` table gives a face: its families, whether its style is
+/// Regular, and its version.
+type Names = (Vec<String>, bool, Option<String>);
 
 /// Where the `name` table of the face whose table directory starts at
 /// `offset` lies, its offset and length, or `None` when the face lists more
@@ -211,7 +215,8 @@ fn names_in<S: Source + ?Sized>(src: &S, (at, len): (u32, u32)) -> Option<Names>
     let regular = style
         .iter()
         .any(|s| s.trim().eq_ignore_ascii_case("regular"));
-    Some((families, regular))
+    let version = strings(NameId::VERSION_STRING).into_iter().next();
+    Some((families, regular, version))
 }
 
 /// A font file for the tests: one face, or with several a collection,
@@ -314,6 +319,7 @@ mod tests {
 
     fn face(index: u32, families: &[&str], regular: bool) -> Face {
         Face {
+            version: None,
             index,
             families: families.iter().map(|s| (*s).to_owned()).collect(),
             regular,

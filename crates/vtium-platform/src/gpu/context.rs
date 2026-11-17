@@ -482,7 +482,7 @@ impl Context {
 
     /// Reads GL's errors since the last check, those a call set aside first,
     /// and the context's reset status where the driver reports one, sorted
-    /// as [`sort`] sorts them.
+    /// as `sort` sorts them.
     pub fn check(&mut self) -> Result<(), Error> {
         self.current()?;
         let mut errors = std::mem::take(&mut self.pending);

@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use vtium_platform::display::DisplayId;
 use vtium_platform::event_loop::Loop;
 use vtium_platform::vt::FakeVt;
 
@@ -31,6 +32,13 @@ const SCRIPT: &str = "echo \"ct:${COLORTERM:-none}\"; read a";
 /// vtium's own environment `env`, on one display that the device reports
 /// as color.
 fn told(options: &[&str], env: &[(&str, &str)]) -> Option<String> {
+    started(options, env).2
+}
+
+/// The seat under `options` with vtium's own environment `env`, on one
+/// display that the device reports as color, and the line the session
+/// printed, once it has.
+fn started(options: &[&str], env: &[(&str, &str)]) -> (Loop<App>, App, Option<String>) {
     let args: Vec<OsString> = ["--font-size=16"]
         .iter()
         .chain(options)
@@ -64,13 +72,13 @@ fn told(options: &[&str], env: &[(&str, &str)]) -> Option<String> {
     };
     for _ in 0..500 {
         if let Some(line) = line(&app) {
-            return Some(line);
+            return (lp, app, Some(line));
         }
         lp.dispatch(Some(Duration::from_millis(10)), &mut app)
             .unwrap();
         app.turn(Instant::now());
     }
-    None
+    (lp, app, None)
 }
 
 // Each value of `display-depth` gives the program the `COLORTERM` that
@@ -112,4 +120,28 @@ fn an_inherited_colorterm_never_says_more_than_the_display_shows() {
         told(&["--no-reset-env"], &env).as_deref(),
         Some("ct:truecolor")
     );
+}
+
+// A black-and-white display that a device announces while a program told
+// `truecolor` runs is named in the log, once vtium has set the display up
+// on the program's head.
+//
+// References:
+// - ADR-1301 D10: a display that joins or leaves later.
+#[test]
+fn a_black_and_white_display_that_joins_the_session_is_logged() {
+    let (_lp, mut app, line) = started(&[], &[("PATH", "/usr/bin:/bin")]);
+    assert_eq!(line.as_deref(), Some("ct:truecolor"));
+    let named = |app: &App| app.heads.first().unwrap().black_and_white_named();
+    assert!(named(&app).is_empty());
+    let mut still = Still::new(&[(1, "B")]);
+    still.levels = Some(2);
+    app.add_video(PathBuf::from("/dev/mem1"), Box::new(still));
+    shown(&mut app);
+    let key = (PathBuf::from("/dev/mem1"), DisplayId(1));
+    assert!(
+        app.heads.first().unwrap().views.contains_key(&key),
+        "set up"
+    );
+    assert_eq!(named(&app).into_iter().collect::<Vec<_>>(), [key]);
 }

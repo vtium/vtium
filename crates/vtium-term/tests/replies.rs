@@ -290,6 +290,29 @@ fn decrqss_reports_settings_and_refuses_with_no_echo() {
     assert_eq!(reply(&mut t, b"\x1bP$qm\x18"), b"");
 }
 
+// ctlseqs, DECRQSS for DECSCUSR: the cursor a session starts with is a
+// block that blinks as the host says, so DECRQSS reports it as the style
+// the console shows, 1 for a blinking block and 2 for a steady one. A
+// program that sends the answer back gets the cursor it saw.
+// covers: query.decrqss
+#[test]
+fn decrqss_reports_the_starting_cursor_as_the_style_it_shows() {
+    for (host, want) in [
+        (true, &b"\x1bP1$r1 q\x1b\\"[..]),
+        (false, b"\x1bP1$r2 q\x1b\\"),
+    ] {
+        let mut t = term(8, 2, b"");
+        t.set_cursor_blink(host);
+        assert_eq!(reply(&mut t, b"\x1bP$q q\x1b\\"), want, "host {host}");
+        t.input(b"\x1b[4 q\x1b[!p");
+        assert_eq!(
+            reply(&mut t, b"\x1bP$q q\x1b\\"),
+            want,
+            "host {host}, DECSTR"
+        );
+    }
+}
+
 // ctlseqs and xterm, DECRQSS: DECSCA reports 1 while the pen protects and 0
 // otherwise; DECSACE reports 2 for the rectangle and 0 for the stream.
 // covers: query.decrqss
@@ -517,13 +540,16 @@ fn xtmodkeys_sets_and_reports_the_level() {
     assert_eq!(reply(&mut t, b"\x1b[?1m"), b"");
 }
 
-// ctlseqs and VT510, DECSCUSR: 0 the host's style, 1 to 6 a shape that
-// blinks or stays steady; a value past 6 is ignored, as xterm ignores it.
-// DECSC does not save the style.
+// ctlseqs and VT510, DECSCUSR: 0, 1 and an omitted parameter a blinking
+// block, 2 to 6 a shape that blinks or stays steady, and 7 the style the
+// host configured, which a session starts with (ctlseqs: "Ps = 7 ⇒
+// initial resources"). A value past 7 changes nothing. DECSC does not
+// save the style.
 // covers: cursor.style
 #[test]
 fn decscusr_sets_the_cursor_style() {
     let mut t = term(8, 2, b"");
+    assert_eq!(t.cursor_style(), CursorStyle::Default);
     for (ps, style) in [
         (1, CursorStyle::BlockBlink),
         (2, CursorStyle::BlockSteady),
@@ -531,15 +557,17 @@ fn decscusr_sets_the_cursor_style() {
         (4, CursorStyle::UnderlineSteady),
         (5, CursorStyle::BarBlink),
         (6, CursorStyle::BarSteady),
-        (0, CursorStyle::Default),
+        (0, CursorStyle::BlockBlink),
     ] {
         t.input(format!("\x1b[{ps} q").as_bytes());
         assert_eq!(t.cursor_style(), style, "DECSCUSR {ps}");
     }
     t.input(b"\x1b[4 q\x1b[7 q");
+    assert_eq!(t.cursor_style(), CursorStyle::Default);
+    t.input(b"\x1b[4 q\x1b[8 q\x1b[99 q");
     assert_eq!(t.cursor_style(), CursorStyle::UnderlineSteady);
     t.input(b"\x1b[ q");
-    assert_eq!(t.cursor_style(), CursorStyle::Default);
+    assert_eq!(t.cursor_style(), CursorStyle::BlockBlink);
     t.input(b"\x1b[6 q\x1b7\x1b[2 q\x1b8");
     assert_eq!(t.cursor_style(), CursorStyle::BlockSteady);
 }

@@ -1,32 +1,5 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
-lines-emoji	color emoji on double-size lines, drawn on 2026-11-14 from the color glyphs the font helper draws at the line's size: on a double-height pair in the doubled cell, and on a double-width line from the double-height glyph with each pair of rows averaged; not reviewed yet
-lines-marks	letters with combining marks on double-size lines, drawn on 2026-11-14 from the clusters the font helper shapes at the line's size, made half as tall on a double-width line; not reviewed yet
-lines-arabic	Arabic on double-size lines, drawn on 2026-11-14 from the joined forms and the lam-alef ligature the font helper shapes at the line's size, made half as tall on a double-width line; not reviewed yet
-lines-indic	Hindi and Bengali syllables on double-size lines in the scripts font set, drawn on 2026-11-14 from the syllables the font helper shapes at the line's size, made half as tall on a double-width line; not reviewed yet
-lines-graphics	DEC special graphics, box drawing and blocks on double-size lines, drawn on 2026-11-14 by vtium's sprites in the doubled cell, a light line as thin as a normal cell's on a double-width line and twice as thick on a double-height pair; not reviewed yet
-lines-graphics-unifont	DEC special graphics, box drawing and blocks on double-size lines in unifont, drawn on 2026-11-14 by vtium's sprites in the doubled cell, a light line as thin as a normal cell's on a double-width line and twice as thick on a double-height pair; not reviewed yet
-lines-powerline	Powerline separators on double-size lines in the merged font set, drawn on 2026-11-14 from the symbols the font helper fits to the doubled cell at 16 and 32 pixels; not reviewed yet
-ligatures	programming ligatures (ADR-1308 D8), drawn on 2026-11-14 in Iosevka Term at 40 pixels with font-ligatures on, as written and with the cursor on the ! of !=; not reviewed yet
-ligatures-off	the ligatures text with font-ligatures off, drawn on 2026-11-14 in Iosevka Term at 40 pixels; not reviewed yet
-pointer-default	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-text	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-pointer	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-crosshair	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-wait	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-progress	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-not-allowed	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-move	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-ew-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-ns-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-pointer-change	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
-link-hints-unifont	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
-link-hints-unifont-1bit	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
-link-hints-typed-unifont	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
-bitmap-outline	new: outline glyphs behind a bitmap first source drawn 1-bit by default (vtium/vtium#311), for the maintainer to review
-bitmap-outline-smooth	new: the same font set with render=smooth under each outline source (vtium/vtium#311), for the maintainer to review
-login-cover	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-contain	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-rotated	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-banner	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+runs-decorations	sized runs (OSC 66) with decorations, drawn on 2026-11-16 by tier2 render from fix/w1-render at e457a392; decorations scale with the text (ADR-1308 D9), and a color emoji in a run with text keeps its colors; the outline set draws each glyph at the normal size scaled up, since the font helper does not yet draw a run at true size
+runs-decorations-unifont	sized runs (OSC 66) with decorations, drawn on 2026-11-16 by tier2 render from fix/w1-render at e457a392; decorations scale with the text (ADR-1308 D9), and unifont's pixels and the decorations' pixels multiply by whole factors

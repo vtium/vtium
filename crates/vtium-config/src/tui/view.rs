@@ -632,16 +632,22 @@ fn view_keys(app: &App) -> &'static str {
     }
 }
 
-/// The view's keys in rows of at most the screen's width less its margin,
-/// each key and what it does kept whole on one row.
-fn key_rows(app: &App) -> Vec<String> {
-    // a question's keys on every view, since it takes the next key
-    let keys = match &app.confirm {
+/// Every key the key line lists for the state `app` is in, each key and
+/// what it does two spaces apart: a question's keys on every view, since
+/// the question takes the next key, else the view's.
+pub fn key_line(app: &App) -> &'static str {
+    match &app.confirm {
         Some(c) if matches!(c.then, Then::Leave(_)) => words::KEYS_LEAVE,
         Some(c) if matches!(c.then, Then::Quit(_)) => words::KEYS_QUIT,
         Some(_) => words::KEYS_CONFIRM,
         None => view_keys(app),
-    };
+    }
+}
+
+/// The view's keys in rows of at most the screen's width less its margin,
+/// each key and what it does kept whole on one row.
+fn key_rows(app: &App) -> Vec<String> {
+    let keys = key_line(app);
     let width = app.cols.saturating_sub(2).max(1);
     // the Flow view's key line shows the keys that fit on one row, and
     // always its last, the key that leaves
@@ -738,10 +744,36 @@ fn small(canvas: &mut Canvas, app: &App) {
         }
         lines.push(format!("  vtium-config {}", c.name()));
     }
-    lines.push(String::new());
-    lines.extend(wrap(words::TOO_SMALL_KEYS, cols, usize::MAX));
-    // the keys stay on the screen however few its rows
-    let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);
+    // a question asked here comes first, what it says and its keys
+    // wrapped to the width, so it shows whole however narrow the screen;
+    // while it is open the screen's own keys give way to the question's,
+    // since q does nothing under a question
+    let question: Vec<String> = match app.confirm.as_ref().map(|c| &c.then) {
+        None => Vec::new(),
+        Some(Then::Quit(_)) => wrap(
+            &format!("{}  {}", words::small_question(app.unsaved), key_line(app)),
+            cols,
+            usize::MAX,
+        ),
+        // the leave question's keys fill a row, so what it says goes on
+        // the row above them
+        Some(Then::Leave(_)) => wrap(&words::small_leave(app.unsaved), cols, usize::MAX)
+            .into_iter()
+            .chain(wrap(key_line(app), cols, usize::MAX))
+            .collect(),
+        Some(_) => wrap(key_line(app), cols, usize::MAX),
+    };
+    // the keys that stay on the screen however few its rows: the
+    // question's, at the top, or the screen's own, at the bottom
+    let keys = if question.is_empty() {
+        lines.push(String::new());
+        let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);
+        lines.extend(keys.clone());
+        keys
+    } else {
+        Vec::new()
+    };
+    let mut lines: Vec<String> = question.into_iter().chain(lines).collect();
     if lines.len() > app.rows {
         let room = app.rows.saturating_sub(keys.len());
         lines.truncate(room);

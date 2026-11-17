@@ -13,6 +13,8 @@
 //! the vitrified set the color glyph screen draws with, [`notices`] the
 //! words of the screens of vtium's notices and on-screen display, and
 //! [`pictures`] the sixel and kitty strings of the picture screens.
+//! [`pointers`] makes the pointer pictures of the pointer file screens,
+//! from vtium's own `pointers.svg` and from a pinned cursor file.
 //! With the `gpu` feature, `gpu` draws the screens on the GPU path and
 //! judges them against the CPU path's drawing.
 
@@ -27,6 +29,7 @@ pub mod gpu;
 pub mod inkfont;
 pub mod notices;
 pub mod pictures;
+pub mod pointers;
 pub mod ppm;
 pub mod report;
 pub mod runner;

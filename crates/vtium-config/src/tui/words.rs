@@ -340,7 +340,7 @@ pub const KEYS_SETTINGS: &str = "Enter change  Tab next view  i install  q quit 
 pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next view  q quit";
 pub const KEYS_NEW: &str =
     "type into a field  Enter next field  Esc back  Ctrl-C quit without installing";
-pub const KEYS_EDITING: &str = "Enter keep  ↑↓ cancel  Ctrl-C quit without installing";
+pub const KEYS_EDITING: &str = "Enter keep  Esc cancel  Ctrl-C quit without installing";
 
 /// The screen below the TUI's minimum size (ADR-1201 D3).
 pub fn too_small(cols: usize, rows: usize) -> String {
@@ -454,7 +454,7 @@ pub const HELP_VIEWS: [(&str, &str, &str); 5] = [
 /// What the Help view says of the Fonts view in a vtium console, which
 /// previews as text (ADR-1201 D4).
 pub const HELP_FONTS_LIVE: &str = "lists the font sets (frits) and the built-in fonts, with any font files each is missing. Below the list, the console draws every character of the preview in the font it uses now. Press t to try the highlighted font on the console, k to keep it, and s to save it in the draft. Press n to make a new font set.";
-pub const HELP_TABS: &str = "Tab moves to the next view, and Shift-Tab moves to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, the draft's text, the form for a new font set, or a value you are typing is open, Tab does nothing until you close it with Esc. While a question waits for your answer, Tab answers no.";
+pub const HELP_TABS: &str = "Tab moves to the next view, and Shift-Tab moves to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, the draft's text, the form for a new font set, or a value you are typing is open, Tab does nothing until you close it with Esc. While a question waits for your answer, Tab does nothing: y answers yes, and Esc goes back.";
 pub const HELP_COMMANDS: &str = "Commands, which work in a terminal of any size:";
 
 /// What leaving shows while the console's font comes back.
@@ -609,12 +609,32 @@ pub fn came_went(came: &[String], went: &[String]) -> String {
     }
 }
 pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc cancel";
-pub const KEYS_CONFIRM: &str = "y yes  any other key no";
-pub const KEYS_LEAVE: &str = "i install  l quit anyway  any other key back";
-pub const KEYS_PAGER: &str =
-    "s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back";
-pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  q back";
-pub fn leave_question(added: &[String], removed: &[String]) -> String {
+pub const KEYS_CONFIRM: &str = "y yes  Esc no";
+pub const KEYS_LEAVE: &str = "y install and quit  n quit without installing  Esc back";
+/// The leave question below the minimum size, on the row above its keys:
+/// that font sets wait to be installed, and that both answers save the
+/// `unsaved` changes first.
+pub fn small_leave(unsaved: usize) -> String {
+    match unsaved {
+        0 => "Font sets wait to be installed.".to_owned(),
+        1 => "Font sets wait to be installed; y and n save 1 change first.".to_owned(),
+        n => format!("Font sets wait to be installed; y and n save {n} changes first."),
+    }
+}
+
+/// The quit question below the minimum size, on one row before its keys:
+/// the changes quitting loses.
+pub fn small_question(unsaved: usize) -> String {
+    match unsaved {
+        1 => "1 change is not saved.".to_owned(),
+        n => format!("{n} changes are not saved."),
+    }
+}
+pub const KEYS_PAGER: &str = "Esc back  s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q quit";
+pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  Esc back  q quit";
+/// The question `q` asks while font sets wait for an install: what
+/// leaving loses, and the `unsaved` changes that `y` saves first.
+pub fn leave_question(added: &[String], removed: &[String], unsaved: usize) -> String {
     let mut lost = Vec::new();
     if !added.is_empty() {
         lost.push(format!("the new font sets {}", list(added.iter().cloned())));
@@ -622,10 +642,15 @@ pub fn leave_question(added: &[String], removed: &[String]) -> String {
     if !removed.is_empty() {
         lost.push(format!("the removal of {}", list(removed.iter().cloned())));
     }
-    format!(
-        "Quit without installing? You will lose {}. Press i to install, l to quit anyway, or any other key to go back.",
-        list(lost.into_iter())
-    )
+    let lost = list(lost.into_iter());
+    let ask = format!(
+        "Install before you quit? Quitting without installing loses {lost}. y installs and quits, n quits without installing, and Esc goes back."
+    );
+    match unsaved {
+        0 => ask,
+        1 => format!("{ask} Both y and n first save the 1 change that is not saved."),
+        n => format!("{ask} Both y and n first save the {n} changes that are not saved."),
+    }
 }
 pub const NOT_LEFT: &str = "Nothing is lost.";
 /// The short form of [`frits_waiting`], for a status line too narrow for

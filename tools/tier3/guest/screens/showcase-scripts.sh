@@ -5,15 +5,13 @@
 # Chinese, Japanese and Korean are two cells wide. Thai stacks its vowel and
 # tone marks above and below its letters. Hindi and Bengali join their
 # consonants and place each vowel sign before, after, above or below its
-# letter. Arabic and Hebrew run right to left: each of those two lines starts
-# at the right edge, and the Arabic letters join into words. Two lines mix
-# the directions in one paragraph: a Hebrew line that carries the Latin name
-# vtium and a version number, which read left to right inside it, and an
-# English sentence that quotes Hebrew with a number, which read right to
-# left inside it.
-# Amharic is
-# written in the Ethiopic script, and Armenian, Georgian, Latin, Greek and
-# Cyrillic carry their own letters and accents.
+# letter. Arabic and Hebrew run right to left: each of those two lines
+# starts at the right edge, and the Arabic letters join into words. Two
+# lines mix the directions in one paragraph. A Hebrew line carries the Latin
+# name vtium and a version number, which read left to right inside it. An
+# English sentence quotes Hebrew with a number, which read right to left
+# inside it. Amharic is written in the Ethiopic script, and Armenian,
+# Georgian, Latin, Greek and Cyrillic carry their own letters and accents.
 # alt: A console screen listing the first sentence of the Universal
 # alt: Declaration of Human Rights under the English sentence, each beside the
 # alt: name of its language: Chinese, Japanese and Korean; Thai and

@@ -37,7 +37,7 @@
 //! | 72 | the name's length, `u32` |
 //! | 76 | `max_frames`, `u32`, 0 without [`FRAMES`] |
 //! | 80 | `max_frame_bytes`, `u64`, 0 without [`FRAMES`] |
-//! | 88 | the login picture's fit, `u8`: 0 for none, 1 `cover`, 2 `contain`, 3 `stretch`, 4 `none`, 5 `banner`; its position, `u8`: 0 left, 1 center, 2 right; two reserved bytes |
+//! | 88 | the login picture's fit, `u8`: 0 for none, 1 `cover`, 2 `contain`, 3 `stretch`, 4 `none`, 5 `banner`; its position, `u8`: 0 unset, then 1 to 9 for `top-left`, `top`, `top-right`, `left`, `center`, `right`, `bottom-left`, `bottom` and `bottom-right`; its scale, `u8`, 1 to 100; a reserved byte |
 //! | 92 | the banner's rows, `u32`, 0 for its own size |
 //! | 96 | the display's width and height, the cell's, and the grid's columns and rows, `u32` each |
 //! | 120 | the name |
@@ -55,7 +55,7 @@ use super::{Alpha, Description, FrameLimits, Layout, Medium, Request};
 use crate::login::{Fit, Fitting, Form, Geometry, Position};
 
 /// The wire's version, which both ends of one build share.
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 
 /// The helper's first packet.
 pub const KIND_HELLO: u32 = 1;
@@ -410,12 +410,15 @@ fn put_fitting(out: &mut Vec<u8>, fit: Option<&Fitting>) {
         Fit::Natural => 4,
         Fit::Banner => 5,
     };
-    let position = match f.form.position {
-        Position::Left => 0,
-        Position::Center => 1,
-        Position::Right => 2,
-    };
-    out.extend_from_slice(&[kind, position, 0, 0]);
+    // 0 for no anchor, then the nine anchors from 1 in the key's order
+    let position = f.form.position.map_or(0, |p| {
+        Position::ALL
+            .iter()
+            .position(|&q| q == p)
+            .and_then(|i| u8::try_from(i).ok())
+            .map_or(0, |i| i.saturating_add(1))
+    });
+    out.extend_from_slice(&[kind, position, f.form.scale, 0]);
     put32(out, f.form.rows.unwrap_or(0));
     let g = &f.geometry;
     for v in [
@@ -432,7 +435,7 @@ fn put_fitting(out: &mut Vec<u8>, fit: Option<&Fitting>) {
 
 /// The login picture's fitting at offsets 88 to 120: `None` when its kind
 /// is 0 and every byte is 0, and refused with an unknown kind or position,
-/// or a reserved byte that is not 0.
+/// a scale outside 1 to 100, or a reserved byte that is not 0.
 fn fitting(packet: &[u8]) -> Result<Option<Fitting>, Malformed> {
     let fit = match get8(packet, 88) {
         0 => {
@@ -451,12 +454,18 @@ fn fitting(packet: &[u8]) -> Result<Option<Fitting>, Malformed> {
         _ => return Err(Malformed("a request with an unknown fit")),
     };
     let position = match get8(packet, 89) {
-        0 => Position::Left,
-        1 => Position::Center,
-        2 => Position::Right,
-        _ => return Err(Malformed("a request with an unknown position")),
+        0 => None,
+        n => Some(
+            *Position::ALL
+                .get(usize::from(n).saturating_sub(1))
+                .ok_or(Malformed("a request with an unknown position"))?,
+        ),
     };
-    if get8(packet, 90) != 0 || get8(packet, 91) != 0 {
+    let scale = get8(packet, 90);
+    if !(1..=crate::login::SCALE_FULL).contains(&scale) {
+        return Err(Malformed("a request with a scale outside 1 to 100"));
+    }
+    if get8(packet, 91) != 0 {
         return Err(Malformed("a request with a reserved byte set"));
     }
     let rows = get32(packet, 92);
@@ -466,6 +475,7 @@ fn fitting(packet: &[u8]) -> Result<Option<Fitting>, Malformed> {
             fit,
             rows: (rows > 0).then_some(rows),
             position,
+            scale,
         },
         geometry: Geometry {
             display: (at(96), at(100)),
@@ -960,7 +970,12 @@ mod tests {
         assert!(decode_hello(&packet).is_err());
     }
 
-    // ADR-1100 D17: the login picture's fitting travels with its request
+    // The login picture's fitting travels with its request, and a fit
+    // beside anything but one inline picture is refused.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it": the helper
+    //   fits the picture it decodes.
     #[test]
     fn a_login_pictures_fitting_round_trips_and_an_unknown_fit_is_refused() {
         use crate::login::{Fit, Fitting, Form, Geometry, Position};
@@ -968,7 +983,8 @@ mod tests {
             form: Form {
                 fit: Fit::Banner,
                 rows: Some(3),
-                position: Position::Center,
+                position: Some(Position::Center),
+                scale: 100,
             },
             geometry: Geometry {
                 display: (1920, 1080),
@@ -1002,8 +1018,109 @@ mod tests {
         // a fit beside a named file is refused
         let file = Request {
             medium: Medium::File(b"/a".to_vec()),
-            ..request
+            ..request.clone()
         };
         assert!(encode_request(8, &file).is_err());
+        // so is a fit beside a pixel description, a PNG's flag, zlib, an
+        // exact length or a discard: the helper fits only a decoded picture
+        let described = Request {
+            pixels: Some(Description {
+                layout: Layout::Rgba,
+                alpha: Alpha::Straight,
+                width: 1,
+                height: 1,
+                compressed: false,
+            }),
+            min: 4,
+            ..request.clone()
+        };
+        let png = Request {
+            png: true,
+            ..request.clone()
+        };
+        let inflated = Request {
+            inflate: true,
+            ..request.clone()
+        };
+        let exact = Request {
+            inflate: true,
+            exact: true,
+            ..request.clone()
+        };
+        let discard = Request {
+            discard: true,
+            ..request
+        };
+        for (what, r) in [
+            ("pixels", described),
+            ("png", png),
+            ("inflate", inflated),
+            ("exact", exact),
+            ("discard", discard),
+        ] {
+            assert!(encode_request(9, &r).is_err(), "{what}");
+        }
+    }
+
+    // The position byte carries the nine anchors and unset, and a
+    // reserved byte carries the scale, so the request keeps its length. A
+    // scale of 0 or past 100, or a tenth anchor, is malformed.
+    //
+    // References:
+    // - ADR-1100 D17, "The keys": the nine anchors and the scale from 1 to
+    //   100.
+    #[test]
+    fn each_anchor_and_scale_crosses_the_wire_and_a_bad_scale_is_refused() {
+        use crate::login::{Fit, Fitting, Form, Geometry, Position};
+        let request = |position, scale| Request {
+            medium: Medium::Direct(Vec::new()),
+            offset: 0,
+            max: 0,
+            min: 0,
+            inflate: false,
+            png: false,
+            exact: false,
+            discard: false,
+            any_image: true,
+            frames: None,
+            pixels: None,
+            largest: (8192, 8192),
+            largest_bytes: 256 << 20,
+            fit: Some(Fitting {
+                form: Form {
+                    fit: Fit::Contain,
+                    rows: None,
+                    position,
+                    scale,
+                },
+                geometry: Geometry {
+                    display: (1920, 1080),
+                    cell: (8, 16),
+                    grid: (240, 67),
+                },
+            }),
+        };
+        let unset = encode_request(1, &request(None, 100)).unwrap();
+        assert_eq!(unset.len(), REQUEST_FIXED);
+        let anchors = Position::ALL.into_iter().map(Some);
+        for position in std::iter::once(None).chain(anchors) {
+            for scale in [1, 30, 99, 100] {
+                let sent = request(position, scale);
+                let packet = encode_request(2, &sent).unwrap();
+                assert_eq!(packet.len(), REQUEST_FIXED);
+                assert_eq!(
+                    decode_request(&packet),
+                    Ok((2, sent)),
+                    "{position:?} {scale}"
+                );
+            }
+        }
+        for (at, byte) in [(90, 0), (90, 101), (90, 255), (89, 10), (91, 1)] {
+            let mut bad = unset.clone();
+            if let Some(b) = bad.get_mut(at) {
+                *b = byte;
+            }
+            assert!(decode_request(&bad).is_err(), "byte {at} at {byte}");
+        }
     }
 }

@@ -1,16 +1,19 @@
 //! The blink timers: text with SGR 5, text with SGR 6 and the blinking
 //! cursor.
 //!
-//! With `blink` on, two timers run while the terminal is active. The text
-//! timer fires every [`TEXT_PERIOD`]. The cursor timer fires at the
-//! cursor's own rate, [`cursor_period`]: the interval a program set with
-//! the Linux console's `CSI 16 ; n ]`, or [`TEXT_PERIOD`] while none did.
-//! A key holds the cursor shown for [`TYPING_PAUSE`], and the timer goes on
-//! at the cursor's rate from there. Each firing while the
-//! terminal is awake flips that timer's phase and redraws every display; a
-//! key shows the cursor at once. With `blink` off there are no timers and
-//! both phases stay shown. With `blink-text=off` there is no text timer,
-//! and the text's phase stays shown.
+//! Two timers run while the terminal is active. The text timer runs while
+//! `blink` is on and `blink-text` is not `off`, and fires every
+//! [`TEXT_PERIOD`]. The cursor timer runs while the terminal's cursor
+//! blinks ([`Terminal::cursor_blinks`]), and fires at the cursor's own
+//! rate, [`cursor_period`]: the interval a program set with the Linux
+//! console's `CSI 16 ; n ]`, or [`TEXT_PERIOD`] while none did. `blink`
+//! decides only whether the cursor a session starts with blinks. A style a
+//! program chooses with DECSCUSR blinks or stays steady as that style
+//! says, whatever `blink` says. A key holds the cursor shown for
+//! [`TYPING_PAUSE`], and the timer goes on at the cursor's rate from
+//! there. Each firing while the terminal is awake flips that timer's phase
+//! and redraws every display; a key shows the cursor at once. A timer that
+//! does not run leaves its phase shown.
 //!
 //! A third timer, the rapid timer, blinks the text SGR 6 marks. ECMA-48
 //! §8.3.117 defines SGR 5 as "slowly blinking (less than 150 per minute)"
@@ -37,7 +40,8 @@ use vtium_term::{Age, Attrs, Terminal};
 use crate::config::Config;
 use crate::config::keys::{BLINK, BLINK_DECORATIONS, BLINK_TEXT};
 
-/// The text timer's period, and the cursor timer's until the first key.
+/// The text timer's period, and the cursor timer's while no program has
+/// set an interval with the Linux console's `CSI 16 ; n ]`.
 pub const TEXT_PERIOD: Duration = Duration::from_millis(500);
 
 /// The rapid timer's period: each phase of SGR 6's blink, 150 blinks a
@@ -103,6 +107,9 @@ pub fn cursor_period(terminal: &Terminal) -> Duration {
 /// The blink phases.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Blink {
+    /// The `blink` key: blinking text blinks. The cursor's blink is the
+    /// terminal's, which reads the key for the cursor a session starts
+    /// with.
     enabled: bool,
     /// The text timer runs: `blink-text` is not `off`.
     text: bool,
@@ -199,10 +206,15 @@ impl Blink {
         self.cursor_shown
     }
 
-    /// The timers to arm when the terminal activates, the cursor's with
-    /// phases of `cursor` ([`cursor_period`]): none with `blink` off, and
-    /// no text timer with `blink-text` off.
-    pub fn activate(&self, cursor: Duration) -> Option<impl Iterator<Item = (Timer, Arm)> + use<>> {
+    /// The timers to arm when the terminal activates: the text timer
+    /// while `blink` is on and `blink-text` is not `off`, and the cursor
+    /// timer, with phases of `cursor` ([`cursor_period`]), while the
+    /// terminal's cursor `blinks`.
+    pub fn activate(
+        &self,
+        cursor: Duration,
+        blinks: bool,
+    ) -> impl Iterator<Item = (Timer, Arm)> + use<> {
         let text_arm = Arm {
             first: TEXT_PERIOD,
             every: TEXT_PERIOD,
@@ -211,17 +223,34 @@ impl Blink {
             first: cursor,
             every: cursor,
         };
-        let text = self.text;
-        self.enabled.then(|| {
-            [(Timer::Text, text_arm), (Timer::Cursor, cursor_arm)]
-                .into_iter()
-                .filter(move |&(t, _)| text || t == Timer::Cursor)
-        })
+        let text = self.enabled && self.text;
+        [(Timer::Text, text_arm), (Timer::Cursor, cursor_arm)]
+            .into_iter()
+            .filter(move |&(t, _)| match t {
+                Timer::Text => text,
+                Timer::Cursor => blinks,
+            })
+    }
+
+    /// The cursor's turn: whether its timer runs, for a terminal whose
+    /// cursor `blinks` while the terminal is `awake`. When the cursor
+    /// stops blinking, its phase returns to shown. A program changes the
+    /// cursor's style at any moment, so the loop calls this each turn and
+    /// arms or stops the timer by the answer.
+    pub fn cursor_runs(&mut self, blinks: bool, awake: bool) -> bool {
+        if !(blinks && awake) {
+            self.cursor_shown = true;
+        }
+        blinks && awake
     }
 
     /// `timer` fired. Returns whether every display redraws.
     pub fn fired(&mut self, timer: Timer, awake: bool) -> bool {
-        if !self.enabled || !awake || (timer == Timer::Text && !self.text) {
+        let runs = match timer {
+            Timer::Text => self.enabled && self.text,
+            Timer::Cursor => true,
+        };
+        if !runs || !awake {
             return false;
         }
         let phase = match timer {
@@ -232,14 +261,12 @@ impl Blink {
         true
     }
 
-    /// A key reached the terminal, whose cursor blinks at `rate`: the
-    /// cursor shows, and its timer is armed again; none with `blink` off.
-    pub fn key(&mut self, rate: Duration) -> Option<Arm> {
-        if !self.enabled {
-            return None;
-        }
+    /// A key reached the terminal, whose cursor blinks at `rate` while it
+    /// `blinks`: the cursor shows, and its timer is armed again; none for
+    /// a steady cursor.
+    pub fn key(&mut self, rate: Duration, blinks: bool) -> Option<Arm> {
         self.cursor_shown = true;
-        Some(Arm {
+        blinks.then_some(Arm {
             first: TYPING_PAUSE,
             every: rate,
         })
@@ -261,16 +288,38 @@ mod tests {
     }
 
     fn armed(b: &Blink) -> Vec<(Timer, Arm)> {
-        b.activate(TEXT_PERIOD).into_iter().flatten().collect()
+        b.activate(TEXT_PERIOD, true).collect()
     }
 
     #[test]
-    fn blink_off_has_no_timer_and_shows_both() {
+    fn blink_off_has_no_text_timer_and_shows_the_text() {
         let mut b = Blink::new(false);
-        assert_eq!(armed(&b), []);
-        assert_eq!(b.key(Duration::from_millis(530)), None);
+        assert_eq!(armed(&b), [(Timer::Cursor, EVERY_500)]);
         assert!(!b.fired(Timer::Text, true));
         assert!(b.text_shown() && b.cursor_shown());
+    }
+
+    // The cursor timer runs while the terminal's cursor blinks, whatever
+    // `blink` says, and a steady cursor stops it with the cursor shown.
+    #[test]
+    fn the_cursor_timer_runs_while_the_cursor_blinks() {
+        for enabled in [true, false] {
+            let mut b = Blink::new(enabled);
+            let rate = Duration::from_millis(530);
+            let steady: Vec<_> = b.activate(TEXT_PERIOD, false).collect();
+            assert!(steady.iter().all(|&(t, _)| t == Timer::Text), "{enabled}");
+            assert_eq!(b.key(rate, false), None);
+            assert!(b.cursor_runs(true, true));
+            assert!(b.fired(Timer::Cursor, true));
+            assert!(!b.cursor_shown());
+            assert!(!b.cursor_runs(false, true));
+            assert!(b.cursor_shown(), "a steady cursor shows");
+            b.fired(Timer::Cursor, true);
+            assert!(!b.cursor_runs(true, false), "asleep");
+            assert!(b.cursor_shown());
+            let first = TYPING_PAUSE;
+            assert_eq!(b.key(rate, true), Some(Arm { first, every: rate }));
+        }
     }
 
     #[test]
@@ -291,9 +340,9 @@ mod tests {
         assert!(b.text_shown());
         assert!(b.fired(Timer::Cursor, true));
         assert!(!b.cursor_shown());
-        // blink off stops both whatever blink-text says
+        // blink off stops the text timer whatever blink-text says
         let b = Blink::configured(&config(&["--no-blink", "--blink-text=partial"]));
-        assert_eq!(armed(&b), []);
+        assert_eq!(armed(&b), [(Timer::Cursor, EVERY_500)]);
         let b = Blink::configured(&config(&["--blink-text=partial"]));
         assert_eq!(armed(&b).len(), 2);
     }
@@ -408,8 +457,8 @@ mod tests {
     // console_codes(4): `CSI 16 ; n ]` sets the cursor blink interval in
     // milliseconds. The cursor timer runs at the program's 250 ms from the
     // terminal's activation and after a key. The text timer keeps the
-    // `blink` key's 500 ms. RIS returns the cursor to 500 ms, and with
-    // `blink` off nothing blinks whatever the program set.
+    // `blink` key's 500 ms. RIS returns the cursor to 500 ms, and a steady
+    // cursor runs no timer whatever the program set.
     // covers: ctl.linux-blink-interval
     #[test]
     fn the_cursor_timer_runs_at_the_interval_a_program_set() {
@@ -423,21 +472,18 @@ mod tests {
         assert_eq!(cursor_period(&t), every_250.every);
         let mut b = Blink::new(true);
         assert_eq!(
-            b.activate(cursor_period(&t))
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>(),
+            b.activate(cursor_period(&t), true).collect::<Vec<_>>(),
             [(Timer::Text, EVERY_500), (Timer::Cursor, every_250)]
         );
         assert_eq!(
-            b.key(cursor_period(&t)),
+            b.key(cursor_period(&t), true),
             Some(Arm {
                 first: TYPING_PAUSE,
                 every: every_250.every
             })
         );
         let off = Blink::new(false);
-        assert_eq!(off.activate(cursor_period(&t)).map(Iterator::count), None);
+        assert_eq!(off.activate(cursor_period(&t), false).count(), 0);
         t.input(b"\x1bc");
         assert_eq!(cursor_period(&t), TEXT_PERIOD);
     }
@@ -449,7 +495,7 @@ mod tests {
         assert!(!b.cursor_shown());
         let rate = Duration::from_millis(530);
         assert_eq!(
-            b.key(rate),
+            b.key(rate, true),
             Some(Arm {
                 first: TYPING_PAUSE,
                 every: rate
@@ -458,7 +504,7 @@ mod tests {
         assert!(b.cursor_shown());
         // The text's phase is the text timer's alone.
         b.fired(Timer::Text, true);
-        b.key(rate);
+        b.key(rate, true);
         assert!(!b.text_shown());
     }
 }

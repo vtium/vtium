@@ -1,6 +1,6 @@
 //! The help text: the usage `--help` prints, and the help `--help TOPIC`
 //! prints for one command. Each command's text is written once, in
-//! [`TOPICS`], and both read it.
+//! `TOPICS`, and both read it.
 
 use crate::banner;
 
@@ -175,7 +175,7 @@ const TOPICS: &[Topic] = &[
             "install [--force]",
             "check the draft and install it as /etc/vtium/vtium.conf",
         )],
-        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. --force installs it without asking. Without a terminal and without --force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back. vtium reads vtium.conf only when it starts on a VT. So after it installs /etc/vtium/vtium.conf, install enables vtium with sudo vtium console enable on each VT a head names where vtium is not enabled, and shows what vtium console says, refusals included. At a terminal, it then asks whether to start vtium on those VTs and restart it where it runs, so the new file applies now. Each session keeps running through a restart, but its screen is cleared. Without a terminal, install prints those commands instead.",
+        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). When the check exits 6, because its only warnings are about fonts that a font set needs and this machine lacks, install shows the warnings and installs the draft anyway. It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. --force installs it without asking. Without a terminal and without --force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back. vtium reads vtium.conf only when it starts on a VT. So after it installs /etc/vtium/vtium.conf, install enables vtium with sudo vtium console enable on each VT a head names where vtium is not enabled, and shows what vtium console says, refusals included. At a terminal, it then asks whether to start vtium on those VTs and restart it where it runs, so the new file applies now. Each session keeps running through a restart, but its screen is cleared. Without a terminal, install prints those commands instead.",
         example: "vtium-config install",
     },
     Topic {
@@ -248,12 +248,12 @@ const TOPICS: &[Topic] = &[
                 "add a look",
             ),
             form(
-                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P]",
+                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P] [--login-image-scale PCT]",
                 "change a look's settings",
             ),
             form("look rm NAME [--force]", "delete a look"),
         ],
-        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows and --login-image-position set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
+        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows, --login-image-position and --login-image-scale set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
         example: "vtium-config look add big --frit monoid --size 14",
     },
     Topic {
@@ -311,7 +311,7 @@ const TOPICS: &[Topic] = &[
             "edit [--install]",
             "edit the draft in your editor, as visudo does",
         )],
-        detail: "Opens a copy of the current draft in your editor ($VISUAL, else $EDITOR, else vi). When you save and quit, the copy becomes the draft and vtium check-config checks it. If the check finds errors or warnings, vtium-config prints them and asks whether to edit again. With --install, it then installs the draft, but only if the check passes.",
+        detail: "Opens a copy of the current draft in your editor ($VISUAL, else $EDITOR, else vi). When you save and quit, the copy becomes the draft and vtium check-config checks it. If the check finds errors or warnings, vtium-config prints them and asks whether to edit again. When the check exits 6, because it warns only of missing fonts, vtium-config shows the warnings and does not ask. With --install, it then installs the draft, but only if the check exits 0 or 6.",
         example: "vtium-config edit --install",
     },
     Topic {
@@ -336,7 +336,7 @@ const TOPICS: &[Topic] = &[
         command: Command::NewFrit,
         forms: &[
             form(
-                "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS]",
+                "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS] [--layer NAME]...",
                 "make a font set from fonts",
             ),
             form(
@@ -352,7 +352,7 @@ const TOPICS: &[Topic] = &[
                 "open the full-screen tool at its new font set page",
             ),
         ],
-        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. --from installs a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. Run as a user, it writes a draft and prints the command that installs it.",
+        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. Each --layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. --from installs a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. Run as a user, it writes a draft and prints the command that installs it.",
         example: "vtium-config new-frit unifont --name my-font --size 14",
     },
     Topic {
@@ -452,6 +452,7 @@ Options:
   --udev-data DIR       udev's database, instead of /run/udev/data
   --helper PROGRAM      the font helper to start, instead of this program's serve
   --root DIR            the root directory report reads the machine under, instead of /
+  --locale LOCALE       the console's locale, which serve picks the built-in font by, instead of C
   --help [TOPIC], --version
 ";
 

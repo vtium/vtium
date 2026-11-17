@@ -10,7 +10,7 @@
 #
 #   sudo tools/vt/run-vt.sh --bin=PATH [--helper=PATH] [--image=PATH] [--dry-run] [--label=TEXT] [--features=TEXT]
 #        [--render-path=gpu|cpu] [--pages=LIST] [--passes=DIR] [--debug=DIR] [--login |
-#        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
+#        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [--config=FILE] [N] [-- vtium-option...]
 #
 # --bin names the vtium binary, which runs as root: a regular file owned by
 # root or the invoking user, writable by nobody else. N is the VT, 2-12,
@@ -69,7 +69,14 @@
 # --configdir naming that directory. vtium reads a vtium.conf only when root
 # owns it and no one else can write it or a directory above it (ADR-1403
 # D3), which a file in the checkout never is, so the run reads the copy and
-# never the system's /etc/vtium/vtium.conf.
+# never the system's /etc/vtium/vtium.conf. With --login, --shell or
+# --guide, --config=FILE names a vtium.conf that takes the place of the
+# review's for this run, under the same rules, such as
+# config/login-picture.conf, which names a login picture, or a conf beside a
+# guide, such as checks/pointer-file-svg.conf. Its copy is readable by group
+# and others only where the file itself is, so a private file stays private
+# while the run lasts. The acceptance pass always
+# reads the review's file, since its pages expect the review's settings.
 # /run/vtium-vt/ is removed when the run ends.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
@@ -116,6 +123,7 @@ steps=
 shell=
 transcript=
 debug=
+config=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--dry-run) dry=1 ;;
@@ -133,6 +141,7 @@ while [ $# -gt 0 ]; do
 	--shell) shell=1 ;;
 	--transcript=*) transcript=${1#*=}; [ -n "$transcript" ] || die "--transcript needs the file's path" ;;
 	--debug=*) debug=${1#*=}; [ -n "$debug" ] || die "--debug needs the directory the DRM state goes in" ;;
+	--config=*) config=${1#*=}; [ -n "$config" ] || die "--config needs the vtium.conf's path" ;;
 	-h | --help) usage ;;
 	--) shift; extra=("$@"); break ;;
 	[0-9]*) [ -z "$vt" ] || usage; vt=$1 ;;
@@ -164,6 +173,7 @@ if [ -n "$standins" ]; then
 	run_user=$standins/run-user
 	dri=$standins/debugfs-dri
 	stage=$standins/run-vtium-vt
+	hold_sock=$standins/run-vtium/tty$vt/hold
 	system_frits=$standins/vtium-fonts
 	system_terminfo=$standins/terminfo
 	# The tests run without root, so the staged files stay theirs.
@@ -182,6 +192,7 @@ else
 	run_user=/run/user
 	dri=/sys/kernel/debug/dri
 	stage=/run/vtium-vt
+	hold_sock=/run/vtium/tty$vt/hold
 	system_frits=/etc/vtium/fonts
 	system_terminfo=/usr/share/terminfo
 	own=(-o root -g root)
@@ -290,6 +301,9 @@ esac
 [ -z "$login" ] || [ -z "$guide" ] || die "--guide runs the guided checks, with no login"
 [ -z "$shell" ] || [ -z "$login$guide" ] || die "--shell runs your shell, with no login and no guide"
 [ -z "$transcript" ] || [ -n "$shell" ] || die "--transcript goes with --shell"
+[ -z "$config" ] || [ -n "$login$shell$guide" ] || die "--config goes with --login, --shell or --guide"
+# Absolute, and not resolved: a symlink is refused below.
+[ -z "$config" ] || [[ $config == /* ]] || config=$PWD/$config
 if [ -n "$guide" ]; then
 	# The guide is read by the session, as the user, from this absolute path.
 	guide=$(readlink -m -- "$guide")
@@ -476,8 +490,9 @@ for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
 done
 # The review's vtium.conf, which root copies into a directory of root's for
 # vtium to read, is held to the frits' rules: a regular file of root's or the
-# user's with one link, writable by no one else.
-config_src=$here/config/vtium.conf
+# user's with one link, writable by no one else. The file --config names
+# takes its place.
+config_src=${config:-$here/config/vtium.conf}
 [ ! -L "$config_src" ] || die "$config_src is a symlink; the run copies only the file it checked"
 [ -f "$config_src" ] || die "no $config_src, the configuration the review's vtium reads"
 fetch "$config_src" || die "$user cannot read $config_src"
@@ -485,6 +500,12 @@ fetch "$config_src" || die "$user cannot read $config_src"
 check_file "$config_src" "vtium, as root, would read it"
 [ "$flinks" -eq 1 ] || die "$config_src has $flinks hard links; the run copies only a file of its own"
 config_copy=$fetched
+# The copy of the review's file is readable by everyone, since the acceptance
+# pass reads it as the user. The copy of a file --config names is readable by
+# group and others only where the file itself is, so a private file stays
+# private while the run lasts.
+config_mode=0644
+[ -z "$config" ] || config_mode=$(printf '%04o' $((8#$fmode & 8#0644)))
 # vtium names itself TERM=xterm-vtium; the run compiles that entry from the
 # checkout, as the package does, for the sessions it starts itself.
 terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
@@ -623,6 +644,47 @@ running() {
 watching() {
 	[ -n "$watcher" ] && jobs -rp | grep -x -- "$watcher" >/dev/null
 }
+# Ends the holder on this VT, if one runs, and removes its socket. Under this
+# script vtium runs as root, and sudo gives it no systemd file-descriptor
+# store, so vtium starts its holder, `vtium hold`. The holder keeps a copy of
+# every session's pty after vtium exits, so that the next vtium on the VT can
+# take the sessions back. A review run keeps nothing past its end. A holder
+# left behind would keep the run's login or shell running on a pty that
+# nothing shows, and the next run's vtium would show that session in place of
+# its own. Ending the holder hangs up the sessions it keeps. The holder is
+# the process whose standard input is the socket listening at $hold_sock,
+# which /proc/net/unix and each process's descriptor 0 name. A holder that
+# SIGTERM has not ended after 5 s gets SIGKILL. A dry run shows the kill and
+# runs nothing.
+end_holder() {
+	local inodes pids=() p pid
+	[ -S "$hold_sock" ] || return 0
+	# Each line of /proc/net/unix is seven fields, the seventh the socket's
+	# inode, and then the path the socket is bound to.
+	inodes=$(awk -v path="$hold_sock" 'NR > 1 { p = $0; sub(/^ *([^ ]+ +){7}/, "", p); if (p == path) print "socket:[" $7 "]" }' /proc/net/unix)
+	if [ -n "$inodes" ]; then
+		for p in /proc/[0-9]*; do
+			if grep -qxF -- "$(readlink "$p/fd/0" 2>/dev/null)" <<<"$inodes"; then
+				pids+=("${p#/proc/}")
+			fi
+		done
+	fi
+	local ending=ending
+	[ -z "$dry" ] || ending="would end"
+	for pid in "${pids[@]}"; do
+		echo "run-vt: $ending vtium hold (PID $pid), which keeps sessions of vtium on VT $vt; they hang up"
+		act kill -TERM "$pid" || true
+	done
+	[ -z "$dry" ] || return 0
+	for pid in "${pids[@]}"; do
+		for _ in $(seq 50); do
+			kill -0 "$pid" 2>/dev/null || continue 2
+			sleep 0.1
+		done
+		kill -KILL "$pid" 2>/dev/null || true
+	done
+	rm -f -- "$hold_sock"
+}
 # shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
 # A second signal, or a closed terminal or pipe, must not cut it short before
 # the units are started again, so it ignores them while it runs, and no failed
@@ -645,10 +707,12 @@ restore() {
 		fi
 		wait "$child" 2>/dev/null || true
 	fi
+	end_holder
 	# Under --debug, vtium's last lines reach the log before the state at the
-	# end is copied, and the console unit starts after it. Something vtium
-	# started may still hold its output open: after 5 s watch_log is stopped,
-	# so no root process outlives the run and the output closes.
+	# end is copied, and the console unit starts after it. Something else
+	# vtium started may still hold its output open, such as a program a
+	# session left running in the background: after 5 s watch_log is
+	# stopped, so the run's log closes and the run goes on to restore the VT.
 	if [ -n "$watcher" ]; then
 		exec 8>&-
 		for _ in $(seq 50); do
@@ -727,6 +791,9 @@ else
      q quits the acceptance pass, and the next run resumes the pass"
 fi
 users_shell="$user's shell"
+config_note=
+[ -z "$config" ] || config_note="
+  vtium reads $config in place of the review's configuration"
 term_note=
 [ ${#term_opt[@]} -eq 0 ] ||
 	term_note="  The system has no xterm-vtium terminfo entry, which /bin/login's session
@@ -735,7 +802,7 @@ term_note=
 "
 cat <<EOF
 
-vtium $label on VT $vt${login:+, with a login prompt}${guide:+, with guided checks}${shell:+, with $users_shell}
+vtium $label on VT $vt${login:+, with a login prompt}${guide:+, with guided checks}${shell:+, with $users_shell}$config_note
   1. switch with Ctrl-Alt-F$vt
   2. $what
   $last. $after;
@@ -757,8 +824,8 @@ EOF
 # first logout instead, below. vtium is started in the background so that it
 # ignores Ctrl-C (bash does that for background jobs in a script) and this
 # script decides how it stops: SIGTERM from restore(). --configdir names the
-# stage's copy of config/vtium.conf, the review's own configuration, so the
-# system's is never read.
+# stage's copy of the run's configuration, config/vtium.conf or the file
+# --config names, so the system's is never read.
 terminfo=(TERMINFO="$stage/terminfo")
 # The acceptance pass records the build it judges: the VT, the binary and its
 # features, beside the label (ADR-1501 D5).
@@ -820,7 +887,7 @@ stage_made=1
 	umask 022
 	act rm -rf -- "$stage"
 	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo" "$stage/frits" "$stage/config"
-	copy 0644 "$config_copy" "$config_src" "$stage/config/vtium.conf"
+	copy "$config_mode" "$config_copy" "$config_src" "$stage/config/vtium.conf"
 	for i in "${!frit_files[@]}"; do
 		copy 0644 "${frit_srcs[i]}" "${frit_files[i]}" "$stage/frits/${frit_files[i]##*/}"
 	done
@@ -848,6 +915,9 @@ if [ -n "$debug" ]; then
 	rm -rf -- "$fifo_dir"
 	fifo_dir=
 fi
+# A holder an earlier run left on this VT, one that ended before it could end
+# its holder, would hand its sessions to this run's vtium.
+end_holder
 # A signal in the moment between starting vtium and setting child finds child
 # still empty, so restore() starts the units again without stopping vtium. The
 # window is a few microseconds and is left open.

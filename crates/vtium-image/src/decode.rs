@@ -105,7 +105,11 @@ pub struct Request {
     /// For the login picture, what the helper makes of the decoded picture
     /// before it answers: fitted to the form and the screen, so the reply
     /// holds only the pixels the screen shows; `None` for every other
-    /// request (ADR-1100 D17).
+    /// request.
+    ///
+    /// References:
+    /// - ADR-1100 D17: the helper scales the login picture and returns
+    ///   only that.
     pub fit: Option<crate::login::Fitting>,
 }
 

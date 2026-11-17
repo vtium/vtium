@@ -45,6 +45,15 @@ ifneq ($(filter environment%,$(origin VTIUM_IMAGE_BIN)),)
 $(error VTIUM_IMAGE_BIN is set in the environment; make vt-install installs it for vtium, which starts it from root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_IMAGE_BIN=PATH)
 endif
 endif
+# CONF names the vtium.conf that vtium, as root, reads in a review run, and
+# that file's login line is a command vtium runs. Other tools export a
+# variable of that name too, so the targets that read CONF take it only from
+# make's command line.
+ifneq ($(filter vt-login vt-shell vt-check,$(MAKECMDGOALS)),)
+ifneq ($(filter environment%,$(origin CONF)),)
+$(error CONF is set in the environment; the review run gives the file to vtium, which runs as root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) CONF=PATH)
+endif
+endif
 # Simply expanded, so the recipes' $(value VTIUM_BIN) is the path itself.
 ifeq ($(origin VTIUM_BIN),undefined)
 VTIUM_BIN := $(if $(filter vt-install,$(MAKECMDGOALS)),$(VTIUM_DEV),$(VTIUM_MINSPEC))
@@ -72,6 +81,58 @@ help: ## Show this help
 # to the vtium binary's link alone, so the default dev build, cargo test and
 # the other crates' links stay as they are.
 RELR_LINK := -C link-arg=-Wl,-z,pack-relative-relocs
+
+# The minspec console binary also links with identical code folding: the
+# linker keeps one copy of each set of functions whose machine code and
+# relocations are the same, and points every caller at that copy. Generic
+# code instantiated for types of the same layout folds this way, and the
+# binary shrinks by about 42 KB, which keeps it under the 4,259,840-byte
+# budget that tier 3 holds the minspec binary to. The mode is all, not safe:
+# safe folds only functions whose address no code takes, and rustc emits no
+# address-significance table to tell the linker which those are, so safe
+# folds nothing. Folding gives two functions one address, so code that
+# compares function addresses could see two functions as one; no code in the
+# minspec binary or the crates it links compares them. The flag needs lld,
+# which the tools/arm wrappers link through, so it goes to the minspec
+# builds that link through those wrappers: make minspec, make install-tree,
+# make vt-dev-console and make arm. make install-build links with the host's
+# linker, which may be GNU ld, and GNU ld has no --icf, so it links without
+# folding.
+#
+# References:
+# - ADR-1200 D19: the minspec binary's size budget.
+ICF_LINK := -C link-arg=-Wl,--icf=all
+
+# The minspec builds also shorten the source paths that rustc writes into
+# the binary. A panic message names the file and line it comes from, so the
+# binary holds the path of each dependency's source file that can panic,
+# such as ~/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/calloop-0.14.4/src/sys.rs.
+# The first --remap-path-prefix writes the cargo home, such as a git
+# checkout of a dependency, under /cargo. The second writes the crates.io
+# sources as cargo's own trim-paths option does, from the crate's directory
+# on, as calloop-0.14.4/src/sys.rs. rustc applies the last prefix that
+# matches a path, so the crates.io prefix, the more specific one, comes
+# last and wins over the cargo home's. The binary shrinks
+# by about 2.6 KB, which counts against the 4,259,840-byte budget that tier
+# 3 holds the minspec binary to, and its size no longer depends on where
+# the cargo home is. vtium's own sources already appear as paths relative
+# to the workspace, such as crates/vtium/src/main.rs. The flags go to every
+# crate of the build through cargo's build.rustflags, which a RUSTFLAGS in
+# the environment replaces, so check-paths fails a build that lost them.
+# The directory name of the crates.io sources is the hash cargo gives
+# crates.io, so check-paths also fails when a new cargo names it otherwise.
+#
+# References:
+# - ADR-1200 D19: the minspec binary's size budget.
+CARGO_HOME_DIR := $(or $(CARGO_HOME),$(HOME)/.cargo)
+CRATES_IO_SRC := $(CARGO_HOME_DIR)/registry/src/index.crates.io-1949cf8c6b5b557f
+REMAP_PATHS := --config 'build.rustflags = ["--remap-path-prefix=$(CARGO_HOME_DIR)=/cargo", "--remap-path-prefix=$(CRATES_IO_SRC)/="]'
+
+# check-paths FILE fails when FILE holds the path of a crate's source in a
+# cargo registry, so the shortened paths cannot drop silently.
+define check-paths
+! grep -qaF '/registry/src/' $(1) || { echo "$(1) holds the path of a crate's source in the cargo registry: the minspec build lost --remap-path-prefix (is RUSTFLAGS set?), or cargo names the crates.io sources' directory otherwise than $(CRATES_IO_SRC)" >&2; exit 1; }
+endef
 
 # check-relr FILE fails unless the dynamic section of FILE carries DT_RELR, so
 # the flag cannot drop silently.
@@ -148,8 +209,9 @@ endif
 .PHONY: minspec
 minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	$(build_settings)VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
 	$(call check-relr,$(VTIUM_MINSPEC))
+	$(call check-paths,$(VTIUM_MINSPEC))
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
 # vtium as a system installs it, staged under DESTDIR: the console binary,
@@ -246,6 +308,7 @@ install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-rele
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
@@ -297,8 +360,9 @@ PKGNAME := vtium
 # license texts COPYING points to, the SIL Open Font License of the Unifont
 # font and the license of X.Org's color names. make install-terminfo stages
 # LICENSE and COPYING alone, because the terminfo entry holds neither the
-# font nor the color names.
-LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt
+# font nor the color names. tiny-skia's BSD-3-Clause notice goes with the
+# font helper, which draws SVG pointer files with it (ADR-1309).
+LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt crates/vtium-config/licenses/tiny-skia-LICENSE
 INSTALL_TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)/install
 CARGO_BUILD_FLAGS :=
 UNITDIR := $(PREFIX)/lib/systemd/system
@@ -388,6 +452,7 @@ endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)$(PREFIX)/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
@@ -428,19 +493,19 @@ vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the 
 # an ARM machine uses its own toolchain.
 ARM_TARGETS      ?= aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf
 ARM_TEST_TARGETS ?= aarch64-unknown-linux-gnu
-arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-cc
-arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-run
-arm arm-test: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-unknown-linux-gnu-pkg-config
-arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-cc
-arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-run
-arm arm-test: export PKG_CONFIG_armv7_unknown_linux_gnueabihf = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-pkg-config
+arm arm-test arm-memory: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-cc
+arm arm-test arm-memory: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-run
+arm arm-test arm-memory: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-unknown-linux-gnu-pkg-config
+arm arm-test arm-memory: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-cc
+arm arm-test arm-memory: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-run
+arm arm-test arm-memory: export PKG_CONFIG_armv7_unknown_linux_gnueabihf = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-pkg-config
 # Each target's sysroot directory, which moves when its pins change. The
 # pkg-config crate reruns a build script when this changes, so libudev-sys
 # never keeps a search path into a sysroot the pins have left. It is
 # expanded once, when make reads the line: a recursively expanded variable
 # re-expands inside its own $(shell) and overflows make's stack.
-arm arm-test: export PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu := $(shell tools/arm/sysroot dir arm64)
-arm arm-test: export PKG_CONFIG_SYSROOT_DIR_armv7_unknown_linux_gnueabihf := $(shell tools/arm/sysroot dir armhf)
+arm arm-test arm-memory: export PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu := $(shell tools/arm/sysroot dir arm64)
+arm arm-test arm-memory: export PKG_CONFIG_SYSROOT_DIR_armv7_unknown_linux_gnueabihf := $(shell tools/arm/sysroot dir armhf)
 
 .PHONY: arm-sysroot
 arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link against (VTIUM_ARM_SYSROOTS=DIR)
@@ -488,16 +553,53 @@ msrv: ## Build the workspace, its tests and the minspec profile with the oldest 
 
 .PHONY: arm
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
-	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(addprefix --target ,$(ARM_TARGETS))
+	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(REMAP_PATHS) $(addprefix --target ,$(ARM_TARGETS))
 	for t in $(ARM_TARGETS); do \
-		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $$t -- $(RELR_LINK) || exit 1; \
+		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $$t -- $(RELR_LINK) $(ICF_LINK) || exit 1; \
 		$(call check-relr,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
+		$(call check-paths,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
 		$(call check-glibc,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
 	done
 
 .PHONY: arm-test
 arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qemu-user (ARM_TEST_TARGETS='...'; needs clang, qemu-user)
 	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
+
+# vtium-term's memory bounds on a 32-bit target, a gate: tests/memory.rs pins
+# the 32-bit figures beside the 64-bit ones, so a change that moves either
+# fails on its own target. aarch64 runs the whole suite natively in CI's
+# arm-native job. Only the library's tests and tests/memory.rs run, in a
+# release build, because vtium-term's whole debug suite under qemu-user takes
+# more than ten minutes. They run once without images and once with every
+# feature, and the second run goes ahead when the first fails.
+.PHONY: arm-memory
+arm-memory: arm-sysroot ## Run vtium-term's library tests and tests/memory.rs for armv7 under qemu-user, in a release build, without images and with every feature (needs clang, qemu-user)
+	@status=0; for features in '' --all-features; do \
+		echo "arm-memory: vtium-term $${features:-without images}"; \
+		cargo test --release -p vtium-term --target armv7-unknown-linux-gnueabihf $$features --no-fail-fast --lib --test memory || status=1; \
+	done; exit $$status
+
+# vtium-term's standing write benchmarks (crates/vtium-term/examples/
+# write_bench.rs): the CPU time the terminal takes to interpret a full-screen
+# redraw, a scroll flood, a run of clusters and plain text, with no renderer.
+# It is no gate. BENCH='redraw cat' picks benchmarks, BENCH_REPS sets the
+# repetitions, and BENCH_FEATURES passes features, for example images.
+BENCH          ?=
+BENCH_REPS     ?= 15
+BENCH_FEATURES ?=
+.PHONY: bench
+bench: ## Time vtium-term's write benchmarks: ms a frame and a MiB, median with the fastest and slowest of BENCH_REPS runs (BENCH='redraw tui scroll clusters cat')
+	cargo run --release -p vtium-term --example write_bench $(if $(BENCH_FEATURES),--features $(BENCH_FEATURES)) -- --reps $(BENCH_REPS) $(BENCH)
+
+# vtium-render's drawing benchmark (crates/vtium-render/examples/
+# draw_bench.rs): the CPU time the renderer takes to redraw a whole screen of
+# text into memory, with font-ligatures off and on. It is no gate.
+# DRAW_BENCH='text spaced' picks benchmarks, and BENCH_REPS sets the
+# repetitions.
+DRAW_BENCH ?=
+.PHONY: draw-bench
+draw-bench: ## Time a full CPU redraw of a 240×67 screen of text with font-ligatures off and on (DRAW_BENCH='text equals arrows spaced')
+	cargo run --release -p vtium-render --features bidi --example draw_bench -- --reps $(BENCH_REPS) $(DRAW_BENCH)
 
 # Tier 1 and the capability probes, against the goldens and probes in
 # tools/conformance/.
@@ -527,7 +629,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the Cullet Mono build's checks without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -547,6 +649,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
 	cargo test -q -p vtium-site
+	cargo test -q --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
@@ -587,6 +690,8 @@ $(VT_GOALS): export VTIUM_VT_IMAGE = $(if $(IMAGES),$(value VTIUM_IMAGE_BIN))
 # not reach the others.
 $(VT_GOALS): export VTIUM_VT_GUIDE =
 $(VT_GOALS): export VTIUM_VT_STEPS =
+# CONF is make vt-login's, make vt-shell's and make vt-check's.
+$(VT_GOALS): export VTIUM_VT_CONF =
 # RENDER_PATH is make vt-accept's; the others run vtium as DEMO_ARGS says.
 $(VT_GOALS): export VTIUM_VT_RENDER_PATH =
 
@@ -599,12 +704,14 @@ vt-accept: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run the acceptanc
 
 .PHONY: vt-login
 vt-login: export VTIUM_VT_SESSION = login
-vt-login: $(vt_build) $(vt_helper_build) ## Run vtium with a login prompt on the development VT or a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-login: export VTIUM_VT_CONF = $(value CONF)
+vt-login: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run vtium with a login prompt on the development VT or a free VT, until the first logout, with the image helper when FEATURES has images and CONF in place of the review's vtium.conf when named (VT=N, CONF=PATH, FEATURES='...', DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-shell
 vt-shell: export VTIUM_VT_SESSION = shell
-vt-shell: $(vt_build) $(vt_helper_build) ## Run your login shell, as you, in vtium on the development VT or a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-shell: export VTIUM_VT_CONF = $(value CONF)
+vt-shell: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run your login shell, as you, in vtium on the development VT or a free VT; exit it to end the run; with the image helper when FEATURES has images and CONF in place of the review's vtium.conf when named (VT=N, CONF=PATH, FEATURES='...', DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Without GUIDE it fails before the build, naming the guides.
@@ -617,7 +724,8 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) $(vt_helper_build) ## Run a guide's checks on the development VT or a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
+vt-check: export VTIUM_VT_CONF = $(value CONF)
+vt-check: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run a guide's checks on the development VT or a free VT, with the image helper when FEATURES has images and CONF in place of the review's vtium.conf when named; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', CONF=PATH, FEATURES='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # A development build of vtium as the console of one VT, across reboots,
@@ -656,8 +764,9 @@ $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 .PHONY: vt-dev-console
 vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec $(REMAP_PATHS) -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
 	$(call check-relr,$(VTIUM_DEV))
+	$(call check-paths,$(VTIUM_DEV))
 	$(call check-glibc,$(VTIUM_DEV))
 ifneq ($(IMAGES),)
 	grep -qaF '$(VTIUM_DEV_IMAGE)' $(VTIUM_DEV) || { echo "$(VTIUM_DEV) does not start its image helper at $(VTIUM_DEV_IMAGE)" >&2; exit 1; }
@@ -689,14 +798,15 @@ tier2 arm-test test-tools gates: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/$
 
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
-# with into $XDG_CACHE_HOME/vtium/tier2/fonts and checks each against its SHA-256; once they are cached,
-# it fetches nothing.
+# with into $XDG_CACHE_HOME/vtium/tier2/fonts, and Adwaita's default cursor file the pointer-file-adwaita
+# screen draws into $XDG_CACHE_HOME/vtium/tier2/pointers, and checks each against its SHA-256; once they
+# are cached, it fetches nothing.
 .PHONY: tier2 tier2-fonts
 tier2: tier2-fonts ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --features gpu --bins
 	T2_VTIUM_REV=$(T3_REV) $(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
-tier2-fonts: ## Fetch tier 2's pinned outline fonts into the cache, checking each SHA-256
+tier2-fonts: ## Fetch tier 2's pinned outline fonts and its pinned Adwaita cursor file into the cache, checking each SHA-256
 	cargo build --release -p vtium-tier2 --features gpu --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier2 fetch-fonts
 
@@ -716,6 +826,24 @@ specimens-check: ## Draw the specimens again: an accepted profile that moved fai
 specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, checking each SHA-256
 	cargo build --release -p vtium-specimens --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
+
+# Cullet Mono, vtium's outline Terminus with Nerd Fonts' icons, built from
+# the sources that tools/cullet-mono/pins.tsv pins. Not a gate: it needs
+# FontForge, Python and, once, the network, which fetches the sources into
+# $XDG_CACHE_HOME/vtium/cullet-mono. The build fails unless each face has
+# the SHA-256 that pins.tsv pins. cullet-mono-check checks the faces that
+# cullet-mono built, without building them again.
+#
+# References:
+# - ADR-1204 D2: the sources, the name and the icon sets.
+CULLET_MONO := cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool --
+CULLET_MONO_OUT := $(or $(CARGO_TARGET_DIR),target)/cullet-mono
+.PHONY: cullet-mono cullet-mono-check
+cullet-mono: ## Build Cullet Mono from its pinned sources into target/cullet-mono, and check each face against its pinned SHA-256 (needs FontForge, Python and the network once)
+	$(CULLET_MONO) build --out $(CULLET_MONO_OUT)
+
+cullet-mono-check: ## Check the Cullet Mono faces in target/cullet-mono against pins.tsv, without building them again
+	$(CULLET_MONO) check $(CULLET_MONO_OUT)
 
 # What the maintainer reviews tier 1's goldens on (ADR-1505, V3); not a
 # gate. tier1-shots replays every case of the corpus and of vtium's own
@@ -766,7 +894,7 @@ $(SITE_VENV)/installed: tools/site/requirements.txt
 	$(SITE_VENV)/bin/pip install --quiet --require-hashes -r tools/site/requirements.txt
 	touch $@
 
-.PHONY: docs docs-serve showcase
+.PHONY: docs docs-serve showcase showcase-grid
 docs: $(SITE_VENV)/installed ## Build the documentation site into target/site in strict mode, which fails on a broken link or anchor
 	$(SITE_VENV)/bin/zensical build --strict --clean
 
@@ -776,24 +904,33 @@ docs-serve: $(SITE_VENV)/installed ## Serve the documentation site at http://loc
 showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
 
+showcase-grid: ## Make docs/showcase/grid.png again from the screens already in docs/showcase, with no VM; make showcase makes it too
+	python3 -I -B tools/tier3/t3_showcase.py grid
+
 # The crates' interfaces (ADR-1508 D1): rustdoc for each crate under crates/
 # that has a library, on the pinned toolchain, written to target/doc. The
 # flags turn every rustdoc warning into an error, a broken intra-doc link
 # included, so the build is the check of rustdoc's links, which the site's
-# strict build cannot see. make site-api copies the reference into the built
-# site under /api/, beside the pages Zensical builds from docs/api/, and make
-# site builds the whole site that way. The docs workflow runs make site-api
-# after its own strict build.
+# strict build cannot see. make api first removes target/doc, so the
+# reference holds only what this build writes, and no page that an earlier
+# cargo doc left there. make site-api copies the reference into the built
+# site under /api/, and make site builds the whole site that way.
+#
+# make api is a gate of the gate line. The docs workflow runs make site-api
+# after Zensical builds the site, so the published site serves the reference
+# under /api/, beside the pages Zensical builds from docs/api/.
 API_DOC_DIR = $(or $(CARGO_TARGET_DIR),target)/doc
 API_PACKAGES = $(foreach c,$(patsubst crates/%/src/lib.rs,%,$(wildcard crates/*/src/lib.rs)),-p $(c))
 API_RUSTDOCFLAGS = -D warnings -D rustdoc::broken_intra_doc_links
 
 .PHONY: api site-api site release-notes
 api: ## Build the crates' interfaces with rustdoc into target/doc, failing on any rustdoc warning or broken intra-doc link
+	rm -rf $(API_DOC_DIR)
 	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" cargo doc --no-deps --all-features --lib $(API_PACKAGES)
 
 site-api: api ## Copy the crates' interfaces into the built site under target/site/api (run make docs first)
-	@test -f target/site/api/index.html || { echo "target/site/api has no index page: run make docs first" >&2; exit 1; }
+	@test -f target/site/index.html || { echo "target/site has no built site: run make docs first" >&2; exit 1; }
+	mkdir -p target/site/api
 	cp -R $(API_DOC_DIR)/. target/site/api/
 
 site: docs ## Build the documentation site with the crates' interfaces under /api/
@@ -802,10 +939,12 @@ site: docs ## Build the documentation site with the crates' interfaces under /ap
 # A release's notes (ADR-1508 D3): docs/releases/VERSION.md is the one text,
 # and this writes the GitHub release's body from it, with each link to a page
 # of the site turned into the page's full address. The release's steps pass
-# the file to gh release create --notes-file.
+# the file to gh release create --notes-file. The file goes to
+# target/release-notes/ in the checkout even when CARGO_TARGET_DIR points
+# elsewhere, because the release's steps name that path.
 release-notes: ## Write the GitHub release body for VERSION=V from docs/releases/V.md to target/release-notes/V.md
 	@test -n "$(VERSION)" || { echo "name the release: make release-notes VERSION=0.1.0-alpha.9" >&2; exit 1; }
-	cargo run -q -p vtium-site --bin release-notes -- --out $(or $(CARGO_TARGET_DIR),target)/release-notes/$(VERSION).md $(VERSION)
+	cargo run -q -p vtium-site --bin release-notes -- --out target/release-notes/$(VERSION).md $(VERSION)
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the goldens in
@@ -860,8 +999,8 @@ tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or
 	$(T3_RUN) --tree-target install-tree $(VARIANTS)
 
 .PHONY: tier3-minimal
-tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, and the 320x240 and 640x480 displays
-	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held)
+tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, the 320x240 and 640x480 displays, and vtium with nothing installed
+	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held builtin-font)
 
 # vtium's pictures on tier 3: the tree's console built with images, and with
 # any other features FEATURES names, then the images variants, which draw
@@ -924,12 +1063,14 @@ docs/scripts/fork-refs
 docs/scripts/claims
 docs/scripts/prose --check
 docs/scripts/coverage
+make api
 make test-tools
 make conformance
 make conformance-probes
 make conformance-issues
 make tier2
 make arm
+make arm-memory
 endef
 export GATE_LINE
 
@@ -954,6 +1095,16 @@ GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
 .PHONY: gates
 gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed
 	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR)
+
+# make ci-local runs the tests in a container with the userland of CI's
+# runner, Ubuntu 24.04, so a test that only fails there shows up before a
+# push; tools/ci-local/run describes the run. It caches under
+# $XDG_CACHE_HOME/vtium/ci-local, never in target/.
+BUILDS ?= all-features default
+
+.PHONY: ci-local
+ci-local: ## Run cargo test --workspace, with every feature and with the default build, in a container matching CI's Ubuntu 24.04 runner (needs podman or docker; BUILDS='all-features default', TEST_ARGS='-p CRATE ...')
+	@tools/ci-local/run --builds '$(BUILDS)' $(TEST_ARGS)
 
 # The steering session runs this before it moves stage to a commit of
 # integration (AGENTS.md, "The working loop", step 7). It fetches main from

@@ -2,17 +2,21 @@
 
 # Showcase
 
-These screens are vtium's own drawing on a Linux VT at 1920x1080. Tier 3, vtium's test harness in a virtual machine, ran vtium on a VT of its guest and captured each screen from the guest's display, and nothing in them is mocked up or edited. Each scene is a shell script that writes fixed bytes, so every run draws the same screen. Some categories also show how vtium behaves over time, in figures drawn by hand. The screens are made again once per wave of work and before each release. They judge nothing, and [How vtium is judged](../concepts/how-vtium-is-judged.md) explains how vtium's output is judged.
+These screens are vtium's own drawing on a Linux VT at 1920×1080. Tier 3, vtium's test harness in a virtual machine, ran vtium on a VT of its guest and captured each screen from the guest's display. Nothing in them is mocked up or edited. Each scene is a shell script that writes fixed bytes, so every run draws the same screen. Some categories also show how vtium behaves over time, in figures drawn by hand. The screens are made again once per wave of work and before each release. They judge nothing, and [How vtium is judged](../concepts/how-vtium-is-judged.md) explains how vtium's output is judged.
 
 ![A console screen showing a shell session in a smooth monospaced font: prompts in blue, gray and green segments, a colored listing of the vtium source tree, a git log with a branch graph and yellow commit hashes, the crates of vtium, then a row of six pictures, each with its file name under it: the Earth rising over the Moon, hexagonal tiles in teal, gold and coral, a Julia set glowing violet and orange, a rainbow plasma, a sun setting behind purple hills, and the whole Earth. Below them are three lines of greetings and thanks in English, Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German with emoji, the first also in Hindi, Arabic and Hebrew, the Arabic and Hebrew reading right to left, and a line of words each drawn in the style it names: underline, double, curly, dotted, dashed, a red curly underline, strike, inverse and dim.](hero.png)
 
-vtium draws a shell session on a 1920x1080 display in Iosevka Term, 28 rows of 128 columns: prompts in powerline segments with an icon from Symbols Nerd Font Mono, a colored directory listing, a git history with its branch graph, a gallery of six pictures in kitty graphics with their file names, greetings in several scripts with emoji, and a line of text styles: straight, double, curly, dotted and dashed underlines, a curly underline in a color of its own, strike, inverse and dim. vtium's own gallery tool, tools/gallery/gallery, draws the gallery: four pictures computed from a few lines of arithmetic, and two photographs NASA's astronauts took, Earthrise and the Blue Marble. The scene writes the rest of the session byte for byte, and the last prompt is the shell's own, with its cursor.
+vtium draws a shell session on a 1920×1080 display in Iosevka Term, 28 rows of 128 columns. The prompts are powerline segments with an icon from Symbols Nerd Font Mono. Below them are a colored directory listing, a git history with its branch graph, and a gallery of six pictures in kitty graphics with their file names. Then come greetings in several scripts with emoji, and a line of text styles. The styles are straight, double, curly, dotted and dashed underlines, a curly underline in a color of its own, strike, inverse and dim. vtium's own gallery tool, tools/gallery/gallery, draws the gallery. It shows four pictures computed from a few lines of arithmetic, and two photographs NASA's astronauts took, Earthrise and the Blue Marble. The scene writes the rest of the session byte for byte, and the last prompt is the shell's own, with its cursor.
+
+![Nine parts of vtium's showcase screens, in three rows of three. The first row shows a title in letters of double size, rows of color emoji, and the Mandelbrot set drawn in sixel. The second row shows Tamil, Hindi and Kannada syllables, a shell prompt above a gallery of pictures, and three cubes of the 256 colors. The third row shows Rust code with programming ligatures and a bar graph in a box. Last comes one sentence in Chinese, Japanese, Korean, Thai, Vietnamese, Hindi and Bengali.](grid.png)
+
+Nine parts of the screens on this page, each cropped at full size with no scaling.
 
 ## Text and fonts
 
 ![A console screen in a smooth monospaced font: a gold title twice as tall and twice as wide reading Lines of double size, a gray normal line under it, a light blue heading twice as wide, words twice as wide in single, double, curly, dotted and dashed underlines, struck and overlined, a blue badge reading READY twice as tall beside the words in 24-bit color, Greek and Russian words twice as wide, and two rulers of digits, one twice as wide, both ending at the right edge.](double-size.png)
 
-vtium draws lines of double size, as the DEC terminals did: a line twice as tall and twice as wide for a title, and a line twice as wide for a heading. The font helper renders each character of Iosevka Term at twice its size from the outline itself, so the large letters stay as smooth as the small ones. A double-width line holds 60 characters, half of a normal line's 120, and its ruler ends at the right edge as the normal ruler under it does. Colors, reverse video and every underline style follow the doubled letters.
+vtium draws lines of double size when a program asks for them. A title line is twice as tall and twice as wide, and a heading line is twice as wide. vtium's font helper renders each character of Iosevka Term at twice its size from the outline, so the large letters stay as smooth as the small ones. A double-width line holds 60 characters, half of a normal line's 120. Its ruler ends at the right edge, as the normal ruler under it does. Colors and every underline style follow the doubled letters.
 
 [Every screen of text and fonts](text-and-fonts.md)
 
@@ -20,17 +24,17 @@ vtium draws lines of double size, as the DEC terminals did: a line twice as tall
 
 ![A console screen with three rows of syllables on colored tiles, in Tamil, Hindi and Kannada, the tiles one or two cells wide; two rows of Kannada and Tamil conjuncts, each drawn as one joined shape across tiles of alternating shades; and a sentence in Tamil and one in Kannada, each beside the name of its language.](syllables.png)
 
-vtium draws the syllables of South Asian scripts whole. The upper rows show how many character cells a syllable takes: each sits on a colored tile as wide as its cells, and a syllable with a spacing vowel sign, such as Tamil கொ or Hindi का, takes two, as the shell's line editor counts it. In the lower rows each Kannada and Tamil conjunct is several clusters, each on a shade of its own, as Unicode cuts it. vtium keeps those cells and shapes the syllable once, so the joined form stretches across them: ra under ka, the reph over ka, and five consonants stacked in one syllable. Under them, the first sentence of the Universal Declaration of Human Rights in Tamil and in Kannada.
+vtium draws the syllables of South Asian scripts whole. The upper rows show how many character cells each syllable takes, on a colored tile as wide as its cells. A syllable with a vowel sign that takes space of its own, such as Tamil கொ or Hindi का, takes two cells, as the shell's line editor counts it. Unicode splits text into clusters, the units a terminal normally gives one cell each. In the lower rows, each Kannada and Tamil conjunct, consonants joined into one shape, spans several clusters, each on a shade of its own. vtium keeps those cells and shapes the syllable once, so the joined form stretches across them. The examples include ra written under ka, ra written as a mark after ka, and five consonants stacked in one syllable. Under them is the first sentence of the Universal Declaration of Human Rights, in Tamil and in Kannada.
 
-[Every screen of scripts and emoji](scripts-and-emoji.md)
+[Every screen and figure of scripts and emoji](scripts-and-emoji.md)
 
 ## Styles and modes
 
 ![A console screen in a smooth monospaced font: a paragraph about vtium, a short Rust function with colored keywords, strings and comments beside line numbers, words underlined in single, double, curly, dotted and dashed lines in several colors, words in italic, struck through, dim, reversed and in 24-bit color, raised and lowered small text such as E = mc² and H₂O with an underlined footnote mark and struck small text, an overlined word, and rows of arrows, mathematical symbols and typographic marks.](text.png)
 
-vtium draws outline fonts smoothly at any size: Iosevka Term at 30 points on a 1920x1080 display, prose, a code listing in 24-bit color, every underline style a program can ask for, the other text styles, and the symbols of mathematics and typography. Iosevka Term has no italic face, so vtium slants the regular face for italic. Raised and lowered text (SGR 73 and 74) draws at two thirds of the size, and an underline or a strike on it follows the small glyph.
+vtium draws outline fonts smoothly at any size, here Iosevka Term at 30 points on a 1920×1080 display. The screen shows prose, a code listing in 24-bit color, and every underline style a program can ask for. It also shows the other text styles and the symbols of mathematics and typography. Iosevka Term has no italic face, so vtium slants the regular face for italic. Raised and lowered text (SGR 73 and 74) draws at two thirds of the size, and an underline or a strike on it follows the small glyph.
 
-[Every screen of styles and modes](styles-and-modes.md)
+[Every screen and figure of styles and modes](styles-and-modes.md)
 
 ## Color
 
@@ -44,7 +48,7 @@ vtium draws every color a program can ask for: the 256 colors of xterm's palette
 
 ![A console dashboard of five framed panels with rounded and double borders: a bar chart of block elements, a sine wave plotted in Braille dots, disk gauges, a table of services with colored status marks, and a filled area chart drawn in sextants.](boxes.png)
 
-vtium draws box drawing, block elements, Braille and sextants itself, edge to edge in every cell, so lines join and bars stack without gaps whatever the font: here a dashboard a script draws.
+vtium draws box drawing, block elements, Braille and sextants itself, edge to edge in every cell. So lines join and bars stack without gaps, whatever the font. Here a script draws a dashboard with them.
 
 [Every screen of lines and blocks](lines-and-blocks.md)
 
@@ -52,35 +56,45 @@ vtium draws box drawing, block elements, Braille and sextants itself, edge to ed
 
 ![A console screen with two pictures side by side under short captions: the Mandelbrot set, black, edged in white, gold and sky blue on deep blue, and an orange sphere lit from the upper left over a background that fades from violet to teal.](pictures.png)
 
-vtium shows pictures in the console as desktop terminals do: on the left a sixel picture of the Mandelbrot set in 201 colors, on the right a kitty graphics picture of a lit sphere in 24-bit color. tools/tier3/t3_showcase.py computes both from a few lines of arithmetic.
+vtium shows pictures in the console. On the left is a sixel picture of the Mandelbrot set in 201 colors, and on the right a kitty graphics picture of a lit sphere in 24-bit color. tools/tier3/t3_showcase.py computes both from a few lines of arithmetic.
 
 [Every screen of pictures](pictures.md)
 
 ## Input and pointer
 
-![Four numbered panels. 1: a program on a remote host sends OSC 52 with the word hello in base64. 2: vtium holds hello as its selection. 3: Shift+Insert or the middle button pastes hello into the shell. 4: a program sends OSC 52 with a question mark to read the selection, and vtium sends nothing back.](../figures/showcase-osc52-copy.svg)
+![A console screen in a smooth monospaced font: a heading, a list of four web addresses, and a line that names the ten pointer shapes vtium draws. The mouse pointer, a white hand with a raised finger and a dark outline, points at the second address, which has a dashed underline while the pointer is over it.](pointer.png)
 
-A program copies text with OSC 52, even over SSH or inside tmux, where it shares no clipboard with you. vtium decodes the text and keeps it as its selection, the one a paste sends. Shift+Insert or the middle button pastes it into the console you are using. A program that asks to read the selection back gets no reply, so no program can read what you copied.
+A program changes the mouse pointer's shape with OSC 22, and vtium draws the shape itself. Here a program shows a list of links and sets the pointer to the hand that marks something to click. vtium has a picture of its own for each of ten shapes. They are the arrow, an I-beam over text, the hand, a crosshair, an hourglass, and the arrow with a small hourglass. The others are a circle with a slash, four arrows for a move, and double arrows for resizing sideways and up and down.
 
-[Every screen of input and pointer](input-and-pointer.md)
+[Every screen and figure of input and pointer](input-and-pointer.md)
+
+## Displays and VTs
+
+![One head and its parts, inside vtium on one VT. On the left, a keyboard and a mouse on USB port 3.1 have solid arrows to the head desk, because a rule sends port 3.1 to desk. Below them, a roaming keyboard, which no head owns, has a dashed arrow to desk, which it types into while desk is the active head. The head desk comes from its [head desk] section. It holds a look, which is a font set and its size, and a stack of consoles. Console 1 is shown, with its own login, screen and scrollback, and consoles 2 and 3 run unseen behind it. Ctrl-Super-Right or Left shows another console. On the right, arrows go from desk to two displays, DP-1 and HDMI-A-1, because a rule sends each display to desk. Both displays show the console shown.](../figures/concepts-heads-parts.svg)
+
+vtium drives every display of the machine from one VT, as a set of heads. A head is a terminal for one or more displays, with its own keyboards, its own look and its own consoles. Rules in vtium.conf send each display and each keyboard to a head, and vtium checks each device against the rules from the top. The first rule that matches decides where the device goes. Here one rule sends a keyboard and a mouse to the head desk, and another sends two displays to it.
+
+[Every figure of displays and VTs](displays-and-vts.md)
 
 ## Small machines
 
-The same console runs on a machine with 512 MB of memory and no GPU. These screens are tier 3 goldens of vtium's smallest build, minspec.
+The same console runs on a machine with 512 MB of memory and no GPU. These screens come from vtium's smallest build, minspec. They are tier 3 goldens: saved screens that vtium's tests in a virtual machine compare its output against.
 
-![vtium on a 320x240 display: a ruler of 40 columns, a colored directory listing, the 16 background colors, six color names, bold, faint, underlined, reversed and struck words, a box of sprite lines around cpu, mem and load figures, a line of Latin-1, four underline styles, a progress bar at 50%, and a prompt](small/small-console.png)
+![vtium on a 320×240 display: a ruler of 40 columns, a colored directory listing, the 16 background colors, six color names, bold, faint, underlined, reversed and struck words, a box of sprite lines around cpu, mem and load figures, a line of Latin-1, four underline styles, a progress bar at 50%, and a prompt](small/small-console.png)
 
-The same build draws this in the same guest on a 320x240 display, the smallest vtium supports, in vtium's 8x8 PSF test font made from Unifont's glyphs folded to half height, 40 by 30 cells. It is also a tier 3 golden. The maintainer reviewed and accepted it.
+vtium's minspec build draws this on a 320×240 display, the smallest vtium supports, in a tier 3 virtual machine with 1 vCPU and 512 MB of memory. The font is vtium's 8×8 PSF test font, made from Unifont's glyphs folded to half height, and the grid is 40 by 30 cells. The maintainer reviewed and accepted this screen.
 
 [Every screen of small machines](small-machines.md)
 
 ## How these screens are made
 
-`tools/tier3/showcase.sh` built vtium at commit `be0aeb42`, whose console logged itself as vtium v0.1.0-alpha.8-210-gbe0aeb42, ran tier 3's variant `showcase-1920x1080` on 2026-11-15, and wrote these pages. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer. The console starts in a cell of 16x40 pixels, and the shell scene, the hero, switches to its own frit, `showcase-shell`, in a cell of 15x38 pixels, so the hero holds 28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
+`tools/tier3/showcase.sh` built vtium at commit `783fe28f+dirty`, whose console logged itself as vtium v0.1.0-alpha.8-645-g783fe28f-dirty. It ran tier 3's variant `showcase-1920x1080` on 2026-11-16 and wrote these pages. The variant's machine has 4 virtual CPUs, 4096 MB of memory, a virtio-vga display at 1920×1080 and Linux 7.2.11-arch1-1. It runs vtium built with the `images` and `bidi` features, drawing on its CPU renderer. The console starts in a character cell of 16×40 pixels. The shell scene, the hero, switches to a font set of its own, `showcase-shell`, with a cell of 15×38 pixels, so the hero holds 28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
 
-Each figure under "How it behaves" is drawn by hand, as the other figures of these pages are. A claim file beside each figure names the code that each step rests on, and `docs/scripts/claims` checks that the code is still there.
+`t3_showcase.py grid` cuts the grid at the top of this page out of nine of these screens. It lays the nine panes out in three rows, with a gray line of one pixel between them.
 
-Every font may be redistributed. vtium carries no font file but GNU Unifont, so `t3_showcase.py` pins each other font by its address and SHA-256 and fetches it into a cache, and the run carries it into the guest.
+Each figure under "How it behaves" is an SVG drawn by hand and kept in `docs/figures/`. Where a claim file lies beside a figure, it names the code that each step rests on, and `docs/scripts/claims` checks that the code is still there.
+
+Every font may be redistributed. vtium carries no font file but GNU Unifont. `t3_showcase.py` pins each other font by its address and SHA-256 and fetches it into a cache, and the run carries it into the guest.
 
 | Font | Version | License | Used for | Source | SHA-256 of the file |
 |---|---|---|---|---|---|

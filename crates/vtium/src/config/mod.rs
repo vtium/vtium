@@ -698,8 +698,11 @@ impl Config {
 
     /// `font-ligatures`: whether a run of ASCII symbols draws as the font's
     /// ligature across its cells, `on`; `off`, the default, draws each
-    /// character alone (ADR-1308 D8). In a head's configuration, the one
+    /// character alone. In a head's configuration, the one
     /// [`Config::for_head`] gives, a look's value wins over the top level's.
+    ///
+    /// References:
+    /// - ADR-1308 D8: the programming ligatures and their setting.
     pub fn font_ligatures(&self) -> bool {
         self.text(&keys::FONT_LIGATURES) == Some("on")
     }
@@ -776,14 +779,14 @@ pub fn file(dir: &Path) -> PathBuf {
     dir.join("vtium.conf")
 }
 
-/// The vtium.conf the console reads under `config`: [`file`] in the
+/// The vtium.conf the console reads under `config`: [`file`](fn@file) in the
 /// configuration directory `config` names.
 pub fn path(config: &Config) -> PathBuf {
     file(Path::new(config.text(&keys::CONFIGDIR).unwrap_or_default()))
 }
 
 /// Reads the configuration: `args` (the command line after the program's
-/// name), then the top level of vtium.conf, the file [`file`] names in the
+/// name), then the top level of vtium.conf, the file [`file`](fn@file) names in the
 /// configuration directory `args` may set, or the candidate `check-config`
 /// is given. `read` gives a file's bytes, or `None` when it does not
 /// exist, and needs to give no more than [`FILE_MAX`] and one; an error

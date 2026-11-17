@@ -24,8 +24,9 @@ fn reply(t: &mut Terminal, bytes: &[u8]) -> String {
 }
 
 // kitty's pointer-shapes: the prefix `=`, or none, sets the shape to the
-// name, and an empty name resets the pointer to the default. ctlseqs: an
-// empty name or one xterm does not know gives the default shape.
+// name, and an empty name resets the pointer to the default. ctlseqs
+// likewise has an empty name, or one xterm does not know, give xterm's own
+// default shape. vtium's default shape is the arrow.
 // covers: window.pointer-shape
 #[test]
 fn a_set_names_the_shape_with_or_without_its_prefix() {
@@ -46,10 +47,11 @@ fn a_set_names_the_shape_with_or_without_its_prefix() {
     }
 }
 
-// A name vtium has no shape for gives the default shape, as ctlseqs says
-// of xterm. A list falls back from name to name, as a CSS `cursor` list
-// does, and the X cursor font's names that xterm takes name the same
-// shapes. Names are matched exactly.
+// A name vtium has no shape for gives vtium's default shape, the arrow, as
+// a name xterm does not know gives xterm's own default shape. A list falls
+// back from name to name, as a CSS `cursor` list does, and the X cursor
+// font's names that xterm takes name the same shapes. Names are matched
+// exactly.
 // covers: window.pointer-shape
 #[test]
 fn an_unknown_name_gives_the_default_shape() {
@@ -103,6 +105,30 @@ fn push_and_pop_keep_a_stack_of_shapes() {
     assert_eq!(t.pointer_shape(), PointerShape::Default);
     t.input(b"\x1b]22;<\x1b\\");
     assert_eq!(t.pointer_shape(), PointerShape::Crosshair);
+}
+
+// kitty's pointer-shapes: a push adds each name it lists to the stack. An
+// empty name, as in `>` alone or between two commas, is no name, so it
+// pushes nothing, and a program that pops once for each name it pushed
+// gets back to where it started.
+// covers: window.pointer-shape
+#[test]
+fn a_push_skips_empty_names() {
+    let mut t = term(8, 2, b"\x1b]22;>wait\x1b\\");
+    t.input(b"\x1b]22;>\x1b\\");
+    assert_eq!(
+        reply(&mut t, b"\x1b]22;?__current__\x1b\\"),
+        "\x1b]22;wait\x1b\\"
+    );
+    t.input(b"\x1b]22;>text,,pointer,\x1b\\");
+    assert_eq!(t.pointer_shape(), PointerShape::Pointer);
+    t.input(b"\x1b]22;<\x1b\\\x1b]22;<\x1b\\");
+    assert_eq!(t.pointer_shape(), PointerShape::Wait);
+    t.input(b"\x1b]22;<\x1b\\");
+    assert_eq!(
+        reply(&mut t, b"\x1b]22;?__current__\x1b\\"),
+        "\x1b]22;0\x1b\\"
+    );
 }
 
 // kitty's pointer-shapes: when the stack is full, a push evicts the entry
@@ -160,7 +186,13 @@ fn a_query_answers_each_name_in_turn() {
         reply(&mut t, b"\x1b]22;?__current__,hand2,grab\x1b\\"),
         "\x1b]22;ew-resize,1,0\x1b\\"
     );
+    // an empty name is a name vtium has no shape for: it answers 0, so
+    // each name keeps its place in the reply
     assert_eq!(reply(&mut t, b"\x1b]22;?\x1b\\"), "\x1b]22;0\x1b\\");
+    assert_eq!(
+        reply(&mut t, b"\x1b]22;?text,,wait\x1b\\"),
+        "\x1b]22;1,0,1\x1b\\"
+    );
     // a query changes nothing
     assert_eq!(t.pointer_shape(), PointerShape::EwResize);
 }

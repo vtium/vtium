@@ -76,6 +76,7 @@ mod route;
 #[cfg(test)]
 mod scratch;
 mod split;
+pub mod translation;
 mod write;
 
 pub use bounds::{
@@ -91,10 +92,12 @@ pub use error::{
     At, AtStart, Drops, Error, Fate, Mend, Note, PolicyFault, Problem, Quoted, Reason, Refusal,
     Rejected, Remark, Renamed, Shown, Stating, Syntax, Warning, at,
 };
-pub use file::{CONF_FILE, Inspected, Trust, Untrusted, inspect, read, text};
+pub use file::{CONF_FILE, Inspected, Trust, Untrusted, inspect, read, read_limited, text};
 pub use findings::{Against, remarks, warnings};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};
+/// The report of `vtium config fonts` on the fonts each font set needs.
+pub use messages::fonts as fonts_report;
 pub use outcome::{
     DisplayWait, Fallback, Kept, Line, Lit, Outcome, Policy, PolicyLine, Read, Rescue, Rest, Runs,
     Scope, Stated, Switch, SwitchKey, Trusted, Unplaced, Within, resolve, scope,
@@ -107,3 +110,19 @@ pub use write::{
     Of, SectionEdit, add_rule, add_section, install_file, move_rule, placement, remove_rule,
     remove_section, rename_section, rule_lines, set_key, set_rule,
 };
+
+/// The exit status of `vtium check-config` when the only problems it
+/// found are fonts that a font set needs and this machine lacks: a font
+/// that is not installed, or an installed font that lacks a character the
+/// set's `check=` names. vtium draws the set without such a font, so
+/// vtium-config installs and saves a file whose check ends with this
+/// status, and shows the warnings. Any other problem makes the status 1.
+/// The status is not 0, so a script that takes any other status as a
+/// failure still fails. It is 6 because `vtium config`'s own fixed exit
+/// statuses run from 1 to 5, and each status of the `vtium` commands
+/// then means one thing.
+///
+/// References:
+/// - ADR-1204 D7: check-config names each missing font.
+/// - ADR-1403 D8: `vtium config`'s fixed exit statuses.
+pub const CHECK_MISSING_FONTS: u8 = 6;

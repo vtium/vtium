@@ -1,6 +1,6 @@
 //! The catalog of what vtium shows a person on its own screen: every
-//! notice (ADR-1401 D7, D8, D9) and the on-screen display's full line
-//! (D5), in one place, so they can be reviewed and reworded together, and
+//! notice (ADR-1401 D7, D8, D9), the on-screen display's full line (D5)
+//! and the overlay row's lines for link hints, in one place, so they can be reviewed and reworded together, and
 //! tier 2 and the specimens draw the same words the console shows. The head
 //! file's own errors come from vtium-settings's catalog, `messages`.
 //!
@@ -261,12 +261,42 @@ pub fn osd_line(active: bool, head: &str, console: usize, of: usize) -> String {
     format!("{dot} {head} \u{b7} console {console} of {of}")
 }
 
+/// The overlay row's line while link hints are on: the link hints key,
+/// Ctrl+Shift+O by default, has put a label of letters on each link on the
+/// screen, and typing a label copies that link's address. Escape always ends
+/// hints, whatever vtium.conf binds, so the line names Escape itself instead
+/// of a key built from a binding.
+///
+/// References:
+/// - ADR-1002, section 7: the hint line, the keys read while hints are on,
+///   and how hints end.
+pub const LINK_HINTS: &str = "Type a link's label to copy its address. Press Escape to stop.";
+
+/// The overlay row's line when the link hints key finds no link on the
+/// screen to label, so hints do not start.
+pub const NO_LINKS: &str = "No links are on the screen.";
+
+/// The overlay row's line after typing a link's label copied the link's
+/// address `uri`.
+pub fn link_copied(uri: &str) -> String {
+    format!("Copied: {uri}")
+}
+
 /// What `vtium check-config` prints (ADR-1401 D7, D12; ADR-1403 D3): its
 /// help, and the lines of its report that it writes itself. The errors of
 /// vtium.conf's sections come from vtium-settings's catalog, and the
 /// reports of its top level from the configuration's reader.
 pub mod check_config {
     use std::fmt::Display;
+
+    /// The sentences on a font that a font set needs and that is missing
+    /// or differs. vtium-config's `fonts` report says the same, so both
+    /// take them from vtium-settings' catalog.
+    ///
+    /// References:
+    /// - ADR-1204 D7: `vtium check-config` prints the same lines as
+    ///   `vtium config fonts`.
+    pub use vtium_settings::fonts_report as font_needs;
 
     /// The subcommand's help.
     pub const HELP: &str = "Usage: vtium check-config [OPTION]... [--no-devices] [FILE]\n\n\
@@ -282,7 +312,11 @@ It also checks that at least one display that is connected reaches a\n\
 head that a keyboard reaches, and says what is missing if not. With no\n\
 display or keyboard connected, or with --no-devices, it checks the rules\n\
 alone and says so.\n\n\
-It exits 1 when it finds an error or warning, and 0 when it finds none.\n\
+It exits 0 when it finds no error or warning. It exits 6 when the only\n\
+warnings are fonts that a font set needs and this machine lacks: a font\n\
+that is not installed, or one that lacks a character the set checks for.\n\
+vtium-config installs such a file anyway, because vtium draws the set\n\
+without those fonts. Any other error or warning makes it exit 1.\n\
 Notes, printed on standard output, do not count: for example a weak\n\
 match, a rule that needs udev, a head no rule uses, a device no rule\n\
 places, a head whose VTs have no vtium enabled, a font helper vtium\n\

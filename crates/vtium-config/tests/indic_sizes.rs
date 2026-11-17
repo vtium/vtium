@@ -169,6 +169,7 @@ fn measure_indic_sizes() {
         font_dirs: vec![dir.clone()],
         vconsole_conf: dir.join("none"),
         kernel_cmdline: dir.join("none"),
+        ..Paths::default()
     };
     let frit = FritText {
         name: "indic".to_owned(),

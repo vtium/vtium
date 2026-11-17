@@ -6,9 +6,9 @@
 //! not built.
 //!
 //! In a build with `images`, each console's terminal gets the sixel and
-//! kitty graphics handlers when it is made ([`install`]). At each turn of
+//! kitty graphics handlers when it is made (`install`). At each turn of
 //! the loop the head gives each of its consoles what the head's state
-//! decides ([`crate::head::Head::image_turn`]):
+//! decides (`Head::image_turn`):
 //!
 //! - **The budget.** `image-storage-limit`, or under `auto` four frames
 //!   of the head's displays, which the head works out again whenever a
@@ -54,7 +54,7 @@
 //! of ten, so a program that sends a bad picture every frame costs the
 //! journal a line for each tenfold. At each image turn the head writes
 //! each console's notes to vtium's log under the target `image`, with the
-//! head's name and the console's id ([`log_notes`]). A note whose reason
+//! head's name and the console's id (`log_notes`). A note whose reason
 //! the operator can act on, a setting, a bound, the budget, memory or the
 //! image helper refusing a picture that then never draws, goes out at info
 //! level, which vtium shows by default. A note about what the program sent
@@ -129,12 +129,12 @@ pub use built::*;
 #[cfg(feature = "images")]
 mod login;
 #[cfg(feature = "images")]
-pub(crate) use login::Login;
+pub(crate) use login::{DENIED as LOGIN_IMAGE_DENIED, Login, unusable as login_image_unusable};
 
 /// Logs, in a build without image support, that it ignores the login
 /// picture `config` names: such a build carries no picture code, and
 /// still reads the keys, so one vtium.conf serves every build. It reads
-/// the picture's fit, rows and position as well and ignores them, as a
+/// the picture's fit, rows, position and scale as well and ignores them, as a
 /// build with images reads them for each head.
 ///
 /// References:
@@ -145,6 +145,7 @@ pub(crate) fn login_unsupported(config: &Config) {
         config.text(&keys::LOGIN_IMAGE_FIT),
         config.number(&keys::LOGIN_IMAGE_ROWS),
         config.text(&keys::LOGIN_IMAGE_POSITION),
+        config.number(&keys::LOGIN_IMAGE_SCALE),
     );
     if config.text(&keys::LOGIN_IMAGE).is_some() {
         log::warn!(

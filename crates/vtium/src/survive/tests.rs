@@ -464,6 +464,43 @@ fn the_holder_keeps_masters_from_one_vtium_for_the_next() {
     assert!(holder.join().unwrap().is_ok(), "the holder exits empty");
 }
 
+// The holder gets /dev/null for its standard output and standard error,
+// never vtium's. A review run reads vtium's output from a pipe until the
+// pipe closes, and a holder that kept that pipe open kept the run waiting
+// after vtium had ended. The stand-in holder writes where its two outputs
+// lead and exits. It reads the links in a command substitution first, so
+// the redirection to the file it writes never touches the outputs it reads:
+// a shell such as dash runs the script's last command in place of itself,
+// and the redirection would then apply to the shell's own descriptor 1.
+// A process of its own writes the stand-in, so that no child another test
+// thread forks meanwhile holds it open for writing when the test runs it.
+#[test]
+fn the_holder_holds_none_of_vtiums_output() {
+    let dir = Scratch::new("survive-hold-output");
+    let seen = dir.join("seen");
+    let exe = dir.join("holder");
+    vtium_testscript::executable(
+        &exe,
+        &format!(
+            "#!/bin/sh\nlinks=$(readlink /proc/$$/fd/1 /proc/$$/fd/2)\nprintf '%s\\n' \"$links\" >'{}'\n",
+            seen.display()
+        ),
+    );
+    let listener = socket_with(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let status = hold::spawn(&exe, listener).unwrap().wait().unwrap();
+    assert!(status.success());
+    assert_eq!(
+        std::fs::read_to_string(&seen).unwrap(),
+        "/dev/null\n/dev/null\n"
+    );
+}
+
 // A keeper that fails, here a store whose socket is gone, is given up
 // after one failure: the ledger holds nothing and tells it nothing more.
 #[test]

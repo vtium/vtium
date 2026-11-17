@@ -61,7 +61,9 @@ jobs:
 
   # minspec's ARM targets (tools/arm/README.md). The tests run natively on
   # an aarch64 runner, which judges what qemu-user cannot; the cross build
-  # takes both targets through the sysroots and wrappers `make arm` uses.
+  # takes both targets through the sysroots and wrappers `make arm` uses,
+  # and runs vtium-term's memory tests for armv7 under qemu-user, where the
+  # 32-bit figures are pinned.
   arm-native:
     runs-on: ubuntu-24.04-arm
     steps:
@@ -87,6 +89,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # qemu-arm, which runs the armv7 tests of make arm-memory.
+      - run: sudo apt-get update && sudo apt-get install -y qemu-user
       # The toolchain rust-toolchain.toml pins.
       - id: toolchain
         run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
@@ -110,6 +114,7 @@ jobs:
           key: arm-debs-${{ hashFiles('tools/arm/pin.tsv') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: arm-debs-${{ hashFiles('tools/arm/pin.tsv') }}-
       - run: make arm
+      - run: make arm-memory
       # A passing run that restored an entry adds nothing new, so it saves
       # no copy of it.
       - uses: actions/cache/save@v4
@@ -285,6 +290,13 @@ jobs:
         with:
           path: ~/.cache/vtium/tier2/fonts
           key: tier2-fonts-${{ hashFiles('vtium/tools/tier2/src/fonts.rs') }}
+      # Adwaita's default cursor file, which the pointer-file-adwaita screen
+      # draws and tools/tier2/src/pointers.rs names by URL and SHA-256. `make
+      # tier2-fonts` fetches it with the fonts, into a cache of its own.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vtium/tier2/pointers
+          key: tier2-pointers-${{ hashFiles('vtium/tools/tier2/src/pointers.rs') }}
       - run: make tier2
         working-directory: vtium
       - uses: actions/upload-artifact@v4

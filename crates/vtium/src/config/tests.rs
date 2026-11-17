@@ -1715,7 +1715,10 @@ fn display_buffers_takes_one_two_or_three() {
 
 /// `font-ligatures` is off unless a source sets it `on`, and a look's
 /// value wins over the top level's in the configuration of a head that
-/// uses the look (ADR-1308 D8).
+/// uses the look.
+///
+/// References:
+/// - ADR-1308 D8: the programming ligatures and their setting.
 #[test]
 #[expect(clippy::expect_used, reason = "a test's set-up fails loudly")]
 fn font_ligatures_is_off_unless_set_on_and_a_look_wins() {

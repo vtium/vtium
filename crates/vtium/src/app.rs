@@ -44,7 +44,7 @@
 //!   head's grid. While the program tracks it, its events are reported,
 //!   but a button pressed, a move without a button and the wheel with
 //!   Shift held, as xterm's are. The others select, copy, paste and scroll
-//!   ([`Head::pointer_event`]).
+//!   (`Head::pointer_event`).
 //! - **The blank** is the seat's. Each key press and pointer action (a
 //!   move, a button or the wheel) goes to every device's `input`, which
 //!   retries a failed wake-up, and to [`Blank::input`]; a device's `Awake`
@@ -421,6 +421,15 @@ pub struct App {
     /// The glyph helper's program, opened at the start, which every helper
     /// starts from; why not, when it cannot be.
     launcher: Result<helper::Launcher, String>,
+    /// Whether the pointer file `pointer-theme` names has started loading
+    /// ([`App::pointer_turn`]).
+    pointer_file_started: bool,
+    /// The pointer file while it loads, with the font helper that draws
+    /// its pictures.
+    pointer_file: Option<(crate::pointer_file::Loader, Helper)>,
+    /// The pointer file's pictures and the heights its displays ask for,
+    /// which the loader shares with every display's view.
+    pointer_store: crate::pointer_file::Store,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
     /// The kernel's font, read from the VT at start for a frit's
@@ -611,7 +620,11 @@ impl App {
             font_sources: font::Sources::configured(&config),
             gpu_source: None,
             reread: None,
-            launcher: helper::Launcher::configured(&config),
+            launcher: helper::Launcher::configured(&config)
+                .map(|l| l.with_locale(&locale(&inherited))),
+            pointer_file_started: false,
+            pointer_file: None,
+            pointer_store: crate::pointer_file::Store::default(),
             frits: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
@@ -813,7 +826,8 @@ impl App {
     /// again at its next display.
     pub fn set_font_sources(&mut self, sources: font::Sources) {
         if let Some(command) = &sources.helper {
-            self.launcher = helper::Launcher::open(command.clone());
+            self.launcher =
+                helper::Launcher::open(command.clone()).map(|l| l.with_locale(&self.locale));
         }
         self.font_sources = sources;
         for head in &mut self.heads {
@@ -933,8 +947,12 @@ impl App {
         }
         let since = now.saturating_duration_since(self.epoch);
         for h in 0..self.heads.len() {
-            // ADR-1100 D17: the first login prompt waits for the login
-            // picture, which the head asks for at its first display
+            // The first login prompt waits for the login picture, which the
+            // head asks for at its first display, so that a banner is in
+            // place before the prompt's first line.
+            //
+            // References:
+            // - ADR-1100 D17, "When vtium places the picture": the wait.
             #[cfg(feature = "images")]
             if self.heads.get(h).is_some_and(Head::login_image_waits) {
                 continue;
@@ -1120,8 +1138,12 @@ impl App {
         let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
             return Ok(());
         };
-        // ADR-1100 D17: the login picture is placed before the program
-        // starts, so a banner is in place before its first line
+        // The login picture is placed before the program starts, so a
+        // banner is in place before its first line.
+        //
+        // References:
+        // - ADR-1100 D17, "When vtium places the picture": one placement
+        //   for each login prompt.
         #[cfg(feature = "images")]
         if let Some(head) = self.heads.get_mut(h) {
             head.place_login_image(id);
@@ -1591,6 +1613,7 @@ impl App {
                 ..head.render_config(&self.config)
             },
             self.measure(),
+            self.pointer_store.clone(),
         );
         if self.config.switch(&keys::SOFT_CURSOR) {
             view.pointer = crate::pointer::Pointer::software();
@@ -1901,34 +1924,19 @@ impl App {
         let frit = self.frits.get(name)?;
         if frit.helper.is_none() && !frit.refused {
             let launcher = self.launcher.clone();
-            let wake = vtium_platform::calloop::ping::make_ping()
-                .map_err(|e| format!("cannot make its wake-up: {e}"))
-                .and_then(|(ping, source)| {
-                    self.handle
-                        .insert_source(source, |(), (), _: &mut App| {})
-                        .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
-                    Ok(ping)
-                });
-            let started = match launcher.and_then(|l| wake.map(|w| (l, w))) {
-                Ok((launcher, ping)) => {
-                    let wake = std::sync::Mutex::new(ping);
-                    Ok(Helper::new(
-                        launcher,
-                        std::sync::Arc::new(move || {
-                            if let Ok(p) = wake.lock() {
-                                p.ping();
-                            }
-                        }),
-                        self.epoch,
-                        frit.frit.clone(),
-                        self.console_font.clone(),
-                        std::sync::Arc::clone(&frit.generated),
-                        crate::head::frit_store(
-                            crate::deferred::store_limit(physical_memory()),
-                            self.heads.len(),
-                        ),
-                    ))
-                }
+            let started = match launcher.and_then(|l| self.helper_wake().map(|w| (l, w))) {
+                Ok((launcher, wake)) => Ok(Helper::new(
+                    launcher,
+                    wake,
+                    self.epoch,
+                    frit.frit.clone(),
+                    self.console_font.clone(),
+                    std::sync::Arc::clone(&frit.generated),
+                    crate::head::frit_store(
+                        crate::deferred::store_limit(physical_memory()),
+                        self.heads.len(),
+                    ),
+                )),
                 Err(why) => {
                     log::warn!(
                         "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
@@ -1943,6 +1951,89 @@ impl App {
             }
         }
         self.frits.get_mut(name)?.helper.as_mut()
+    }
+
+    /// A wake-up into the loop for a helper's answers, which the helper's
+    /// reader calls after each frame.
+    fn helper_wake(&self) -> Result<std::sync::Arc<dyn Fn() + Send + Sync>, String> {
+        let (ping, source) = vtium_platform::calloop::ping::make_ping().map_err(|e| {
+            format!("vtium cannot make a wake-up for the font helper's answers: {e}")
+        })?;
+        self.handle
+            .insert_source(source, |(), (), _: &mut App| {})
+            .map_err(|e| format!("vtium cannot watch for the font helper's answers: {e}"))?;
+        let ping = std::sync::Mutex::new(ping);
+        Ok(std::sync::Arc::new(move || {
+            if let Ok(p) = ping.lock() {
+                p.ping();
+            }
+        }))
+    }
+
+    /// Loads the pointer file `pointer-theme` names, from the first turn
+    /// on: takes the font helper's answer to the last pointer ask, sends
+    /// the next ask, and draws every head once the pictures change, so
+    /// that each display's pointer takes them. The loader and its helper
+    /// go once the loader asks for nothing more. A helper that cannot
+    /// start leaves vtium's own pictures.
+    ///
+    /// References:
+    /// - ADR-1309 D5: the compiled-in pictures draw until the font helper answers.
+    fn pointer_turn(&mut self, now: Instant) {
+        if !self.pointer_file_started {
+            self.pointer_file_started = true;
+            let size = self
+                .config
+                .number(&crate::config::keys::POINTER_SIZE)
+                .and_then(|n| u32::try_from(n).ok());
+            if let Some(path) = self.config.text(&crate::config::keys::POINTER_THEME) {
+                let path = PathBuf::from(path);
+                if let Some(loader) = crate::pointer_file::Loader::start(
+                    &path,
+                    size,
+                    font::trust(),
+                    &self.pointer_store,
+                ) {
+                    match self
+                        .launcher
+                        .clone()
+                        .and_then(|l| self.helper_wake().map(|w| (l, w)))
+                    {
+                        Ok((launcher, wake)) => {
+                            self.pointer_store.set_wake(std::sync::Arc::clone(&wake));
+                            let helper = Helper::for_pointers(launcher, wake, self.epoch);
+                            self.pointer_file = Some((loader, helper));
+                        }
+                        Err(why) => log::warn!("{}", crate::pointer_file::lost_line(&path, &why)),
+                    }
+                }
+            }
+        }
+        let Some((loader, helper)) = &mut self.pointer_file else {
+            return;
+        };
+        helper.poll(now);
+        loop {
+            if let Some(answer) = helper.pointer_answer() {
+                loader.take(answer);
+            }
+            if helper.busy() {
+                break;
+            }
+            match loader.next_ask() {
+                Some(ask) => helper.pointer(&ask, now),
+                None => break,
+            }
+        }
+        loader.emit();
+        if !helper.busy() && loader.publish() {
+            for head in &mut self.heads {
+                head.draw_now = true;
+            }
+        }
+        if loader.ended() && !helper.busy() {
+            self.pointer_file = None;
+        }
     }
 
     /// Takes each helper's answers: each display at a set's cell, of every
@@ -2109,14 +2200,16 @@ impl App {
         self.awake = true;
         for head in &mut self.heads {
             head.set_visible(true);
-            let cursor = crate::blink::cursor_period(&head.console.term.terminal);
-            if let Some(arms) = head.console.term.blink.activate(cursor) {
-                for (timer, arm) in arms {
-                    match timer {
-                        Timer::Text => head.text_due = Some(after(now, arm.first)),
-                        Timer::Cursor => {
-                            head.cursor_due = Some((after(now, arm.first), arm.every));
-                        }
+            // The cursor's first phase lasts the interval its program set,
+            // so a phase longer than 500 ms is not cut short.
+            let terminal = &head.console.term.terminal;
+            let cursor = crate::blink::cursor_period(terminal);
+            let blinks = terminal.cursor_blinks();
+            for (timer, arm) in head.console.term.blink.activate(cursor, blinks) {
+                match timer {
+                    Timer::Text => head.text_due = Some(after(now, arm.first)),
+                    Timer::Cursor => {
+                        head.cursor_due = Some((after(now, arm.first), arm.every));
                     }
                 }
             }
@@ -3811,7 +3904,8 @@ impl App {
             }
         }
         let rate = crate::blink::cursor_period(&head.console.term.terminal);
-        if let Some(arm) = head.console.term.blink.key(rate) {
+        let blinks = head.console.term.terminal.cursor_blinks();
+        if let Some(arm) = head.console.term.blink.key(rate, blinks) {
             head.cursor_due = Some((after(now, arm.first), arm.every));
         }
         head.draw_now = true;
@@ -4457,6 +4551,7 @@ impl App {
         }
         self.timers(now);
         self.helper_turn(now);
+        self.pointer_turn(now);
         if self.awake {
             self.draw(now);
         }
@@ -4552,12 +4647,33 @@ impl App {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
             }
-            // A program that set another cursor blink interval with
-            // `CSI 16 ; n ]` gets it from the next phase, which starts now.
+            // The cursor's interval can differ from the one its timer was
+            // armed with: a program set another with `CSI 16 ; n ]`, or
+            // another console of the head is shown now. The phase that is
+            // running keeps its end, so a program that keeps changing the
+            // interval never stops the blink, and a longer interval never
+            // stretches that phase. A shorter interval ends the phase
+            // within the new interval. Each later phase lasts the new
+            // interval.
             let every = crate::blink::cursor_period(&head.console.term.terminal);
+            // A program changes the cursor's style at any moment: a style
+            // that blinks starts the timer from now, and a steady one
+            // stops it with the cursor shown.
+            let blinks = head.console.term.terminal.cursor_blinks();
+            match (
+                head.console.term.blink.cursor_runs(blinks, awake),
+                head.cursor_due,
+            ) {
+                (true, None) => head.cursor_due = Some((after(now, every), every)),
+                (false, Some(_)) => {
+                    head.cursor_due = None;
+                    head.draw_now = true;
+                }
+                _ => {}
+            }
             if let Some((due, armed)) = head.cursor_due {
-                if armed != every {
-                    head.cursor_due = Some((after(now, every), every));
+                if armed != every && due > now {
+                    head.cursor_due = Some((due.min(after(now, every)), every));
                 } else if due <= now {
                     head.draw_now |= head.console.term.blink.fired(Timer::Cursor, awake);
                     head.cursor_due = Some((after(due, every), every));
@@ -4915,6 +5031,7 @@ impl App {
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
         }
+        due.extend(self.pointer_file.as_ref().and_then(|(_, h)| h.deadline()));
         // A notice's time runs out while the displays draw, and its screen
         // has no other timer, since its cursor is hidden (ADR-1401 D3).
         if self.awake {
@@ -5480,6 +5597,9 @@ mod tests {
         /// Set during each scan, as when the kernel asks for the VT while
         /// a slow probe holds the loop.
         pub(super) asks_for_vt: Option<Rc<std::cell::Cell<bool>>>,
+        /// The levels it reports for each of its displays: `None` for
+        /// color, and 2 for black and white.
+        pub(super) levels: Option<u8>,
     }
 
     impl Still {
@@ -5506,6 +5626,7 @@ mod tests {
                 waits_for_flip: false,
                 hotplugs: 0,
                 asks_for_vt: None,
+                levels: None,
             }
         }
 
@@ -5549,6 +5670,9 @@ mod tests {
         }
         fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
             Some((72.0, 72.0))
+        }
+        fn levels(&self, _: DisplayId) -> Option<u8> {
+            self.levels
         }
         fn identity(&self, id: DisplayId) -> Option<Identity> {
             Some(Identity {
@@ -5676,6 +5800,44 @@ mod tests {
         (lp, app)
     }
 
+    // The console starts the font helper with its own locale, read from
+    // the environment it inherited, so that the helper picks the built-in
+    // font the console draws. A test's stand-in helper starts with it too.
+    //
+    // References:
+    // - ADR-1200 D7: the built-in font for a cell height and locale.
+    // - ADR-1204 D5: the built-in font draws the text of a set whose text
+    //   font is missing.
+    #[test]
+    fn the_font_helper_starts_with_the_consoles_locale() {
+        let shell = crate::helper::stand_in_shell();
+        let args: Vec<OsString> = [
+            format!("--font-helper={}", shell.display()).as_str(),
+            "--login",
+            "--",
+            "/bin/true",
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect();
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            vec![("LANG".into(), "ja_JP.UTF-8".into())],
+        );
+        let started = |app: &App| app.launcher.as_ref().unwrap().args().to_vec();
+        assert_eq!(started(&app), ["serve", "--locale", "ja_JP.UTF-8"]);
+        app.set_font_sources(font::Sources {
+            helper: Some(crate::helper::Command::system(shell).unwrap()),
+            ..font::Sources::default()
+        });
+        assert_eq!(started(&app), ["serve", "--locale", "ja_JP.UTF-8"]);
+    }
+
     /// What the start runs for a trusted head file holding `text`.
     fn start(text: &str) -> Start {
         Start::trusted(Path::new("heads.conf"), text.as_bytes())
@@ -5715,8 +5877,32 @@ mod tests {
 
     /// Shows the VT and runs a turn, which sets every device up.
     pub(super) fn shown(app: &mut App) {
+        shown_at(app, Instant::now());
+    }
+
+    /// [`shown`] with its turn at `t`. The turn that shows the VT starts
+    /// the blink timers, so a test that counts turns at times measured from
+    /// `t` shows the VT at `t` too. A turn at the host's clock would start
+    /// the phases however long after `t` the seat took to set up, and the
+    /// test's timers would then depend on how loaded the machine is.
+    pub(super) fn shown_at(app: &mut App, t: Instant) {
         app.vt.activate().unwrap();
-        app.turn(Instant::now());
+        app.turn(t);
+    }
+
+    // Each display's view asks for its pointer's cell height through the
+    // console's own pointer file store, the store the loader of an SVG
+    // pointer file reads, so the file is drawn at that height.
+    #[test]
+    fn a_display_asks_the_consoles_pointer_file_store_for_its_height() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.pointer_store.take_heights();
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        assert_eq!(app.pointer_store.asked(), [16]);
     }
 
     // ADR-1401 D9 and vtium-settings's Identity: a display's order is its

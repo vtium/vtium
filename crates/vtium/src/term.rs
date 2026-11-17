@@ -34,6 +34,7 @@ use crate::config::keys::{OVERLAY_COLORS, Scheme};
 use crate::font::DisplayFace;
 use crate::head::DrawHook;
 use crate::pointer::Pointer;
+use crate::pointer_file::Store as PointerFile;
 use crate::sync::{Action, Coalesce, Draw, Sync, Wait};
 use crate::video::Video;
 
@@ -229,6 +230,8 @@ pub struct Snapshot {
     overlay: Option<(usize, String)>,
     /// The labels of link hints, while they are on.
     link_hints: Vec<vtium_term::LinkHint>,
+    /// The links that have a label, sorted.
+    labelled: Vec<LinkId>,
     #[cfg(feature = "images")]
     placements: Vec<vtium_image::FramePlacement>,
     /// The order each row is drawn in, which the frame the snapshot
@@ -254,6 +257,7 @@ impl Snapshot {
         let (cursor, hovered) = (frame.cursor(), frame.hovered());
         let overlay = frame.overlay().map(|o| (o.row, o.uri.to_owned()));
         let link_hints = frame.link_hints().to_vec();
+        let labelled = frame.labelled_links().to_vec();
         #[cfg(feature = "images")]
         let placements = frame.placements().to_vec();
         Snapshot {
@@ -265,6 +269,7 @@ impl Snapshot {
             hovered,
             overlay,
             link_hints,
+            labelled,
             palette,
             #[cfg(feature = "images")]
             placements,
@@ -288,7 +293,7 @@ impl Snapshot {
             self.hovered,
             self.overlay.as_ref().map(|(row, uri)| (*row, uri.as_str())),
         )
-        .with_link_hints(&self.link_hints);
+        .with_link_hints(&self.link_hints, &self.labelled);
         #[cfg(feature = "images")]
         let frame = frame.with_placements(self.placements.clone());
         // the cursor came from the screen's frame already drawn where its
@@ -424,11 +429,16 @@ impl Overlay {
 
     /// Draws the overlay into `target`, a display buffer of `size` that is
     /// only written, as [`Overlay::draw`] does. Every character of a notice
-    /// and the mark comes from the built-in fonts in the renderer's cell
-    /// (ADR-1401 D5, D7): from the face's [`Face::builtins`] where it draws
-    /// a font set's glyphs over them, as a frit's face does, and otherwise
-    /// from the renderer's face, a built-in font itself. The renderer's
-    /// sprite policy and missing glyph hold for either.
+    /// and the mark comes from vtium's built-in font in the renderer's cell
+    /// ([`crate::font::own_face`]), whatever font the terminal draws in.
+    /// The renderer's sprite policy holds for it. A character the built-in
+    /// font lacks draws as a hollow box, and the mark as its square. An
+    /// overlay with no notice and no mark draws nothing, so the frames
+    /// that show neither build no face for it.
+    ///
+    /// References:
+    /// - ADR-1204 D1: vtium's own messages always draw in the built-in
+    ///   font.
     pub fn draw_into<F: Face>(
         &self,
         renderer: &Renderer<F>,
@@ -437,13 +447,14 @@ impl Overlay {
         size: (u32, u32),
         target: &mut impl Target,
     ) -> Vec<DisplayRect> {
+        if self.notice.is_none() && self.mark.is_none() {
+            return Vec::new();
+        }
         let own = renderer.font();
         let depth = renderer.depth();
-        match own.face().builtins() {
+        match crate::font::own_face(own.face().cell()) {
             Some(face) => {
-                let font = Font::new(face)
-                    .with_policy(own.policy())
-                    .with_missing(own.missing());
+                let font = Font::new(face).with_policy(own.policy());
                 self.draw_with(&font, depth, grid, orientation, size, target)
             }
             None => self.draw_with(own, depth, grid, orientation, size, target),
@@ -815,6 +826,9 @@ pub struct View {
     pub orientation: vtium_render::Orientation,
     /// Who draws the pointer: the display's cursor plane or the renderer.
     pub pointer: Pointer,
+    /// The console's pointer file store: the pictures the pointer draws in
+    /// place of vtium's own, and where it asks for its cell height.
+    pointer_file: PointerFile,
     /// The drawing's font cell, the rows line spacing adds to it, arrow,
     /// depth and font policy, read while the render thread holds it.
     cell: vtium_font::Cell,
@@ -844,6 +858,7 @@ impl View {
         refresh_mhz: Option<u32>,
         config: RenderConfig,
         measure: bool,
+        pointer_file: PointerFile,
     ) -> View {
         let renderer = Renderer::new(font, size.0, size.1, config);
         let mut view = View {
@@ -870,6 +885,7 @@ impl View {
             size,
             refresh: refresh(refresh_mhz),
             pointer: Pointer::default(),
+            pointer_file,
             forgotten: Vec::new(),
             arrived: Vec::new(),
             overlaid: Vec::new(),
@@ -1163,8 +1179,12 @@ impl View {
         let tip = state.pointer;
         if let Some(drawing) = self.drawing.as_mut() {
             let shape = term.terminal.pointer_shape();
-            self.pointer
-                .follow(&mut drawing.renderer, &mut self.arrow, shape);
+            self.pointer.follow(
+                &mut drawing.renderer,
+                &mut self.arrow,
+                shape,
+                &self.pointer_file,
+            );
         }
         let state = DrawState {
             pointer: self.pointer.before_draw(video, self.id, &self.arrow, tip),
@@ -1726,6 +1746,7 @@ mod tests {
             None,
             RenderConfig::default(),
             false,
+            PointerFile::default(),
         );
         (term, view)
     }
@@ -1952,6 +1973,22 @@ mod tests {
         }
     }
 
+    /// An overlay with no notice and no mark builds no face of the
+    /// built-in font, so the frames of a head that shows neither cost no
+    /// allocation for it.
+    #[test]
+    fn an_empty_overlay_builds_no_face() {
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        term.terminal.input(b"AB");
+        crate::font::OWN_FACES.set(0);
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(crate::font::OWN_FACES.get(), 0, "no notice, no mark");
+        view.overlay = Overlay::new(None, &["a notice"], None, OverlayColors::default());
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(crate::font::OWN_FACES.get(), 1, "a notice");
+    }
+
     // A notice drawn over the frame and gone is gone from every buffer: the
     // renderer draws the cells under it again in the buffer two frames old
     // too, so both equal a display that never showed it.
@@ -2013,6 +2050,7 @@ mod tests {
             None,
             RenderConfig::default(),
             false,
+            PointerFile::default(),
         );
         let clock: Clock = Rc::new(Instant::now);
         let mut term = Term::new(
@@ -2153,6 +2191,7 @@ mod tests {
             None,
             RenderConfig::default(),
             false,
+            PointerFile::default(),
         );
         let cell = new.cell();
         let shown = new.present(
@@ -2328,7 +2367,15 @@ mod tests {
             depth: vtium_render::Depth::One,
             ..RenderConfig::default()
         };
-        let mut view = View::new(ID, Font::new(face), SIZE, None, one, false);
+        let mut view = View::new(
+            ID,
+            Font::new(face),
+            SIZE,
+            None,
+            one,
+            false,
+            PointerFile::default(),
+        );
         let face: DisplayFace = Box::new(Unifont::new(16));
         view.rebuild(Font::new(face), 32, RenderConfig::default());
         assert_eq!(view.depth(), vtium_render::Depth::One);

@@ -4,7 +4,7 @@
 //! A seat manager, seatd or logind, owns the seat's display devices and its
 //! VT switching, and vtium is one of its clients. [`LibseatVt`] is the
 //! [`Vt`] backend that asks it through libseat. libseat calls
-//! vtium back from [`Seat::dispatch`] with two messages:
+//! vtium back from `Seat::dispatch` with two messages:
 //!
 //! - **enable**: the seat is vtium's. vtium reports [`VtEvent::Acquired`],
 //!   and puts its VT, when it has one, in graphics mode with the keyboard
@@ -18,26 +18,26 @@
 //! Nothing here waits on the loop. vtium waits for the events that end a
 //! wait where the kernel or the seat manager sends one. Where neither
 //! sends one, vtium keeps the seat or the device pending and tries again
-//! from a timer in the loop every [`crate::bounds::SEAT_RETRY_MS`], so
+//! from a timer in the loop every `SEAT_RETRY_MS`, so
 //! signals, timers and the other sources are served in between:
 //!
-//! - **The seat** is tried up to [`crate::bounds::SEAT_OPENS_MAX`] times
+//! - **The seat** is tried up to `SEAT_OPENS_MAX` times
 //!   while libseat's answer says the seat is still held by its previous
 //!   client: `EBUSY` or `EBADF`, and while seatd listens also `ENOSYS`,
 //!   `EPIPE` or `EIO`, since seatd refuses such a client by hanging up
-//!   ([`busy`]). seatd sends nothing to a process that is not its client,
+//!   (`busy`). seatd sends nothing to a process that is not its client,
 //!   so no event says when the previous client is gone. With seatd, a try
 //!   comes only while vtium's VT is shown; otherwise vtium waits for its VT
 //!   again, as below. Past the tries, or
 //!   on any other failure once vtium has chosen the seat, vtium logs an
 //!   error and reports [`VtEvent::Hangup`].
-//! - **A device** is tried up to [`crate::bounds::DEVICE_OPENS_MAX`] times
+//! - **A device** is tried up to `DEVICE_OPENS_MAX` times
 //!   while libseat fails with `EBUSY`, as logind's open of a card does
 //!   while another process holds the card's DRM master. The kernel sends no
 //!   event when that master is dropped. [`Vt::open_device`] answers
 //!   [`io::ErrorKind::WouldBlock`] meanwhile, and [`Vt::settled`] names the
 //!   device once it has opened or failed. `ENODEV` and `EACCES` are final
-//!   ([`retryable`]). A device asked for before the seat is enabled, or
+//!   (`retryable`). A device asked for before the seat is enabled, or
 //!   refused `EPERM` while the seat manager disables vtium, waits for the
 //!   next enable.
 //!
@@ -45,7 +45,7 @@
 //! vtium's VT is not shown at the start and seatd listens, vtium opens the
 //! seat only once its VT is shown. vtium learns that from tty0's `active`
 //! attribute, which the kernel notifies at each switch
-//! ([`Console::watch_shown`]), and opens the seat at the loop's turn that
+//! (`Console::watch_shown`), and opens the seat at the loop's turn that
 //! reads the notification. [`Vt::activate`] asks the kernel to show the VT.
 //! logind takes the session from vtium's login session instead, so the
 //! seat opens at once.
@@ -55,7 +55,7 @@
 //! without the feature does.
 //!
 //! libseat is reached through the `libseat` crate ([`Libseat`]); the tests
-//! stand in for it through the [`Manager`] and [`Seat`] traits.
+//! stand in for it through the `Manager` and `Seat` traits.
 
 mod binding;
 #[cfg(test)]
@@ -188,7 +188,7 @@ pub(crate) fn pin_needed(named: Option<&OsStr>, own_session: bool) -> bool {
 static PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Pins libseat to seatd when vtium is in no logind session of its own and
-/// `LIBSEAT_BACKEND` names no backend ([`pin_needed`]), so that no open of
+/// `LIBSEAT_BACKEND` names no backend (`pin_needed`), so that no open of
 /// the seat, the first, a retry or one that waits for the VT to be shown,
 /// reaches logind's backend. Call it once at the start, while vtium has
 /// one thread, and after reading the environment that sessions inherit, so
@@ -1215,8 +1215,8 @@ type MakeDevice<E> = Box<dyn Fn(&Path, OwnedFd) -> io::Result<E>>;
 ///   manager, which gives vtium a descriptor of it; logind revokes that
 ///   descriptor when it takes the seat away, and seatd does too.
 /// - A device refused `EBUSY` is tried again from the input's timer every
-///   [`crate::bounds::SEAT_RETRY_MS`], up to
-///   [`crate::bounds::DEVICE_OPENS_MAX`] tries, as a display device is.
+///   `SEAT_RETRY_MS`, up to
+///   `DEVICE_OPENS_MAX` tries, as a display device is.
 /// - A device asked for while the seat is not vtium's, or refused `EPERM`
 ///   while the seat manager takes the seat away, waits for the input's
 ///   next wake-up, which follows the next enable.

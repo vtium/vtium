@@ -66,28 +66,32 @@ vtium-term decodes an OSC 52 write strictly as base64 and reads the result as UT
 ### D2: what copy does
 
 1. **It reads the text.** With FILE it reads that file, and without FILE it reads its standard input to the end. It reads at most `CLIPBOARD_MAX` bytes and one more, so it can tell when the text is too large.
-2. **It checks the size.** Text larger than `CLIPBOARD_MAX`, 524,288 bytes, is refused before anything is written, because vtium would drop it whole. The program says so and exits 1. Empty text is copied, and leaves the clipboard empty.
+2. **It checks the size.** Text larger than `CLIPBOARD_MAX`, 524,288 bytes, is refused before anything is written, because vtium would drop it whole. vtium also puts U+FFFD, which takes 3 bytes, in place of each maximal subpart that is not valid UTF-8, and drops a copy whose text then passes the bound. The program counts the text's length the same way, and refuses a text that passes the bound once replaced. For example, 200,000 bytes of 0xFF fit the bound as they are, but become 600,000 bytes once replaced. In either case the program says why and exits 1. Empty text is copied, and leaves the clipboard empty.
 3. **It checks the encoding.** The program copies the bytes as they are. When they are not valid UTF-8, it still copies them, and it says on standard error that vtium shows U+FFFD in place of the bytes that are not valid UTF-8.
 4. **It opens its terminal.** The program writes to its controlling terminal, `/dev/tty`, and never to its standard output, so `vticlip copy < notes.txt > log` still reaches the console. With no controlling terminal, as under cron, it says so and exits 1.
-5. **It writes the sequence.** The program writes `ESC ] 52 ; c ; BASE64 ESC \`, where BASE64 is the text in standard base64 with padding (RFC 4648, section 4). The target `c` is the clipboard target that ctlseqs gives, which vtium takes into its one selection, and which multiplexers and other terminals take too. The program writes plain OSC 52 and never wraps it in a multiplexer's own passthrough sequence.
-6. **It asks who answered.** After the sequence, the program writes XTVERSION's query, `CSI > 0 q`, and then DA1's, `CSI c`. It reads the replies with the terminal in noncanonical mode, and then puts the terminal's mode back as it was. Every terminal answers DA1, so the DA1 reply marks the end of the replies, and the program waits for nothing else. A terminal that answers neither within 1 second, a named constant, counts as not vtium. vtium answers in the order it reads, so a reply from vtium also shows that vtium has read the OSC 52 sequence before it.
+5. **It writes the sequence.** The program writes `ESC ] 52 ; c ; BASE64 ESC \`, where BASE64 is the text in standard base64 with padding (RFC 4648, section 4). The target `c` is the clipboard target that ctlseqs gives, which vtium takes into its one selection, and which multiplexers and other terminals take too. The program writes plain OSC 52 and never wraps it in a multiplexer's own passthrough sequence. It writes the sequence with the terminal's mode as it found it, so Ctrl+C still ends a copy that the terminal is slow to take. Each write gives up once the terminal has taken no byte for 5 seconds, a named constant, as over a stalled ssh connection or after Ctrl+S stopped the output. The program then says that the terminal did not take the copy and exits 1, because it cannot tell how much of the copy was sent.
+6. **It asks who answered.** After the sequence, the program sets the terminal to noncanonical mode with echo and signal keys off, and writes XTVERSION's query, `CSI > 0 q`, and then DA1's, `CSI c`. With echo off the replies never show on the screen, and with signal keys off Ctrl+C cannot end the program while the mode is changed. Every terminal answers DA1, so the DA1 reply marks the end of the replies, and the program waits for nothing else. A terminal that answers neither within 1 second, a named constant, counts as not vtium. The program keeps at most 4,096 bytes of replies, also a named constant. When the wait ends without a DA1 reply, the program discards the input left unread, which may be the rest of a reply. None of it then reaches the shell as if it had been typed. It then puts the terminal's mode back as it was. vtium answers in the order it reads, so a reply from vtium also shows that vtium has read the OSC 52 sequence before it.
+7. **Keys typed meanwhile are lost.** While the program waits for the replies, it reads every byte that reaches the terminal and keeps only the replies. Keys typed before the copy ends, even those typed ahead during an earlier command on the same command line, are therefore lost, and the help page says so. The kernel offers no way to give the keys back to the shell.
+8. **In a background job it asks nothing.** The kernel stops a background job that changes its terminal's mode or reads from it, until the shell brings the job to the foreground. When the terminal's foreground process group is not the program's own, the program writes the sequence, asks nothing, says that it could not wait for an answer, and exits 3.
 
 ### D3: what the program says and how it exits
 
 | Exit status | What happened | Message on standard error |
 |---|---|---|
 | 0 | The copy was written, and the terminal answered XTVERSION as vtium | none |
-| 1 | Nothing was written: the text was too large, the file could not be read, or there was no terminal | the reason, such as "The text is 600000 bytes, and vtium's clipboard holds at most 524288 bytes. Nothing was copied." |
+| 1 | Nothing was copied: the text was too large, the file could not be read, there was no terminal, or the terminal did not take the copy | the reason, such as "The text is more than 524288 bytes, and vtium's clipboard holds at most 524288 bytes. Nothing was copied." |
 | 2 | The command line was wrong, or the command was `paste` | the usage, or for `paste`: "Paste is not available yet: vtium does not let programs read the clipboard. Paste with Shift+Insert or the middle mouse button." |
-| 3 | The copy was written, but the terminal did not answer as vtium | "The copy was sent, but this terminal did not answer as vtium, so the text may not have reached a clipboard." |
+| 3 | The copy was written, but the terminal did not answer as vtium, or the program ran in a background job and could not ask | "The copy was sent, but this terminal did not answer as vtium, so the text may not have reached a clipboard." In a background job: "The copy was sent, but vtium-clipboard runs in a background job, so it cannot wait for this terminal's answer. It cannot tell whether the terminal is vtium, so the text may not have reached a clipboard." |
 
 The program cannot see whether vtium kept the text: OSC 52 has no answer, and `clipboard-write` off in vtium.conf makes vtium ignore program copies. The help page says so.
+
+> Edited 2026-11-15: the fix round of the code review of the work that builds vtium-clipboard added these rules. It found that the program exited 0 for text that vtium drops once it has replaced what is not valid UTF-8, that Ctrl+C did nothing while a stalled terminal held the write, that the write had no time limit, that a reply cut off by the 4,096-byte limit reached the shell, that a copy in a background job stopped before it wrote anything, and that keys typed meanwhile were lost without a word. D2's second, fifth and sixth steps gained the size check after replacement, the bounded write and the discard; the seventh and eighth steps are new. D3's rows for 1 and 3 gained the stalled write and the background job, and the example message for 1 now quotes the program's own. The earlier text is in git at 7eef1c4e.
 
 ### D4: how it is judged
 
 - **The bytes.** A unit test of the program checks the exact bytes it writes for each of a set of inputs. The inputs are empty text, ASCII, multibyte UTF-8, bytes that are not UTF-8, and text of exactly `CLIPBOARD_MAX` bytes. A test with one byte more checks that nothing is written and the exit status is 1.
 - **Tier 1.** A scenario feeds those same bytes to vtium through the replay interface and reads the result with the `clipboard` command, so tier 1 judges what a copy does in vtium. Its expected results are written from ctlseqs and vtium-term's OSC 52 rules, not from vtium's output.
-- **The exit status.** A test runs the program on a pty whose other end answers as vtium, then as another terminal, then not at all, and checks 0, 3 and 3.
+- **The exit status.** A test runs the program on a pty whose other end answers as vtium, then as another terminal, then not at all, and checks 0, 3 and 3. Further pty tests check a terminal that stops taking the copy, Ctrl+C during the write and during the wait, a flood of replies, and a copy in a background job.
 - **The VT tour** gains a step: `echo hello | vticlip copy`, then Shift+Insert pastes `hello`.
 
 ## Consequences
@@ -101,6 +105,7 @@ The program cannot see whether vtium kept the text: OSC 52 has no answer, and `c
 ### Negative
 
 - The program cannot confirm that vtium kept the text.
+- Keys typed before a copy ends are lost.
 - A copy through tmux exits 3, though it may have worked.
 - Scripts still have no paste.
 

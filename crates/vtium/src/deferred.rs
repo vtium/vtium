@@ -132,28 +132,35 @@ pub struct Shown {
 }
 
 /// Adds to `all` what `frame` shows, as the console reads it to ask the
-/// helper for the glyphs a display draws, in each variant a cell draws its
-/// glyph in, bold, italic, both or neither, and normal, superscript or
-/// subscript (ADR-1200 D21, ADR-1202 D11): each character,
-/// every character of a cluster among them, and each cluster whole, and
-/// what a right-to-left row draws ([`vtium_render::joined`]): each joined
+/// helper for the glyphs a display draws. It reads each variant a cell
+/// draws its glyph in: bold, italic, both or neither, and normal,
+/// superscript or subscript. It adds each character, every character of a
+/// cluster among them, and each cluster whole. It adds what a
+/// right-to-left row draws ([`vtium_render::joined`]): each joined
 /// letter's key, each lam-alef ligature's, a mirrored cluster as it draws,
 /// and the presentation form each key draws where no font holds the joined
-/// form (ADR-1004 D6, D7). Each syllable whose clusters join is asked for
-/// too, piece by piece, in the variant of its first cell
-/// ([`vtium_render::syllable`], ADR-1203 D3), whatever the cursor and the
-/// cells' colors, which only decide whether it draws joined; with
-/// `ligatures`, each run of ASCII symbols too (ADR-1308 D8). A variant
-/// `all` lacks is added after the others.
-/// A build without the bidi feature reads the frame in `Head::visible`
+/// form. It asks for each syllable whose clusters join too, piece by
+/// piece, in the variant of its first cell ([`vtium_render::syllable`]),
+/// whatever the cursor and the cells' colors, which only decide whether it
+/// draws joined. With `ligatures`, it asks for each run of ASCII symbols
+/// in the same way. A variant `all` lacks is added after the others. A
+/// build without the bidi feature reads the frame in `Head::visible`
 /// alone, so the minspec build carries none of this.
+///
+/// References:
+/// - ADR-1200 D21 and ADR-1202 D11: the variants the helper is asked for.
+/// - ADR-1004 D6 and D7: the joined letters, the lam-alef ligature and
+///   mirroring.
+/// - ADR-1203 D3: a syllable's pieces.
+/// - ADR-1308 D8: the programming ligatures.
 #[cfg(feature = "bidi")]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures: bool) {
     use vtium_render::joined;
-    use vtium_render::syllable::Syllable;
+    use vtium_render::syllable::Runs;
     use vtium_term::Glyph;
     let shown_in = |all: &mut Vec<Shown>, variant: Variant| shown_index(all, variant, None);
     let mut drawn = Vec::new();
+    let mut runs = Runs::default();
     read_doubled(frame, all);
     for row in 0..frame.rows() {
         // a line of double size asks for what it draws at its size too
@@ -165,7 +172,9 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures
         };
         for (col, cell) in frame.cells(row).enumerate() {
             // a syllable's pieces, once, from its first cell
-            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell, ligatures) {
+            if let Some((run, 0)) = runs.find(frame, (col, row), &cell, ligatures)
+                && let Some(s) = runs.get(run)
+            {
                 let mut keys = Vec::new();
                 for index in 0..s.len() {
                     let mut key = Vec::new();
@@ -1028,7 +1037,7 @@ impl Generated {
     /// `runs` and the clusters its cluster map holds at the cell in that
     /// variant, and taking `bytes`, without the glyphs the store holds at
     /// `at` in `variant` (ADR-1200 D18): a set that carries some is written again without them, as
-    /// compaction writes one ([`rewrite`]), and counts the bytes written.
+    /// compaction writes one (`rewrite`), and counts the bytes written.
     /// It adds nothing when it carries nothing new, or when it cannot be
     /// written again. `None` when `set` has no face at the cell.
     pub fn fresh(
@@ -1178,7 +1187,7 @@ impl Generated {
     /// Frees at least `overrun` bytes for an ask at a full store: drops
     /// the glyphs least recently shown, across every set, until their
     /// share of their sets' bytes covers it, and writes each set they
-    /// leave again without them ([`rewrite`]). When the rewritten sets
+    /// leave again without them (`rewrite`). When the rewritten sets
     /// free less than their share, the next least recently shown glyphs
     /// go too. The texts no longer held, by cell, band, variant and double
     /// size; nothing is redrawn, and each is asked for again when the
@@ -1810,7 +1819,7 @@ impl Face for DeferredFace {
     /// cluster `c` begins: the renderer asks by a cluster's first
     /// character before it draws the cluster.
     /// In a build with the bidi feature U+200D counts as held too: a key
-    /// that starts with it is a joined letter's ([`joined`]), which draws
+    /// that starts with it is a joined letter's (`joined`), which draws
     /// at least the letter's own glyph.
     fn has_glyph(&self, c: char) -> bool {
         #[cfg(feature = "bidi")]
@@ -1875,14 +1884,14 @@ impl Face for DeferredFace {
     }
 
     /// The frit's `fit=` for `c`, else `c`'s default ([`FritFits`]), which
-    /// places a sprite as [`DeferredFace::built_in`] places a built-in
+    /// places a sprite as `DeferredFace::built_in` places a built-in
     /// glyph.
     fn fit(&self, c: char, style: Style) -> Fit {
         self.fits.fit(u32::from(c), style)
     }
 
     /// For a character the store lacks, and for the last resort, the
-    /// built-in font's origin, moved where [`DeferredFace::fit`] puts the
+    /// built-in font's origin, moved where `DeferredFace::fit` puts the
     /// built-in glyph in the text band (ADR-1202 D1, D4). The store's
     /// glyphs come from the helper, and a longer cluster draws from several
     /// glyphs, so their origin is the default, a smooth glyph over the text
@@ -4552,9 +4561,12 @@ mod tests {
         assert!(!lock(&generated).held(AT, Variant::default(), &key));
     }
 
-    // issue #61, ADR-1203 D3: a syllable on a double-height pair is asked
-    // for piece by piece at the pair's size as well as at the normal size,
-    // since the line draws its pieces from the helper's glyphs at that size
+    // issue #61: a syllable on a double-height pair is asked for piece by
+    // piece at the pair's size as well as at the normal size, since the
+    // line draws its pieces from the helper's glyphs at that size
+    //
+    // References:
+    // - ADR-1203 D3: a syllable is asked for piece by piece.
     #[cfg(feature = "bidi")]
     #[test]
     fn a_syllable_on_a_line_of_double_size_is_asked_for_at_that_size() {
@@ -4581,6 +4593,43 @@ mod tests {
             tall.clusters.contains(&text[..2].to_vec()),
             "ka with its virama"
         );
+    }
+
+    // issue #61: an Arabic word on a line of double width and on a
+    // double-height pair asks for its joined letters and its lam-alef
+    // ligature at the line's size, since the line draws them from the
+    // helper's glyphs at that size. In salam (seen, lam, alef, meem) seen
+    // joins the letter after it, lam joins both sides, alef joins only the
+    // letter before it, as a right-joining letter does, and lam with alef
+    // makes the ligature, with lam joining seen. Meem stands alone, so it
+    // is asked for as a character, not a key
+    //
+    // References:
+    // - ADR-1004 D6: the keys of joined letters and of the lam-alef
+    //   ligature.
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn joined_letters_on_a_line_of_double_size_are_asked_for_at_that_size() {
+        const ZWJ: char = '\u{200d}';
+        let (seen, lam, alef) = ('\u{633}', '\u{644}', '\u{627}');
+        let mut t = vtium_term::Terminal::new(10, 3, 0);
+        t.input("\x1b#6سلام\r\n\x1b#3سلام\r\n\x1b#4سلام".as_bytes());
+        let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
+        let mut all = vec![Shown::default()];
+        read_shown(&frame, &mut all, false);
+        settle(&mut all);
+        let keys = [
+            vec![seen, ZWJ],
+            vec![ZWJ, lam, ZWJ],
+            vec![ZWJ, alef],
+            vec![ZWJ, lam, alef],
+        ];
+        for doubled in [Doubled::Width, Doubled::Height] {
+            let shown = all.iter().find(|s| s.doubled == Some(doubled)).unwrap();
+            for key in &keys {
+                assert!(shown.clusters.contains(key), "{key:?} in {shown:?}");
+            }
+        }
     }
 
     // ADR-1203 D3: a row of Kannada asks the helper for each piece of the

@@ -19,7 +19,9 @@
 //! character cell, from the cell where the frame places the label, in the
 //! inverted default colors, and the cursor and the selection are not
 //! drawn under it. A label that the letters typed no longer begin draws
-//! nothing. Every visible cell of a labelled link takes the dashed
+//! nothing. The screen places labels so that they do not overlap, unless a
+//! row is too short for its labels; then a later label draws over an
+//! earlier one. Every visible cell of a labelled link takes the dashed
 //! underline that the pointer's hover gives a link, shown label or not.
 //!
 //! The frame marks the overlay's row changed when the overlay appears,
@@ -32,10 +34,24 @@
 //! - ADR-1002, section 7 ("Keyboard link hints"): how labels are drawn,
 //!   and the dashed underline of every labelled link.
 
-use vtium_term::{Attrs, Frame, FrameCell, Glyph, LinkHint, Rgb, Width};
+use vtium_term::{Attrs, Frame, FrameCell, Glyph, LinkHint, LinkId, Rgb, Width};
 
 /// The character that ends an address cut at the row's end.
 pub(crate) const CUT: char = '\u{2026}';
+
+#[cfg(test)]
+std::thread_local! {
+    /// The labels and labelled links that drawing has looked at on this
+    /// thread, which a test counts to check that a cell costs little
+    /// however many labels the screen holds.
+    static PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Counts one label or labelled link looked at, in a test build.
+fn probe() {
+    #[cfg(test)]
+    PROBES.with(|p| p.set(p.get().saturating_add(1)));
+}
 
 /// The overlay row and the labels of link hints of one frame, fitted to
 /// the grid's columns.
@@ -53,8 +69,13 @@ pub(crate) struct LinkRow<'f> {
     /// Reverse video is set, under which a cell written inverted shows the
     /// default background, which an image below the cells shows through.
     reverse: bool,
-    /// The labels of link hints.
+    /// The labels of link hints, in the order they lie in the view.
     hints: &'f [LinkHint],
+    /// The links that have a label, sorted.
+    labelled: &'f [LinkId],
+    /// The letters of the longest label, so a cell looks back over only
+    /// the labels that start close enough to reach it.
+    reach: usize,
     /// The grid's columns, where every label ends at the latest.
     cols: usize,
 }
@@ -91,6 +112,8 @@ impl<'f> LinkRow<'f> {
             bg,
             reverse: frame.reverse(),
             hints,
+            labelled: frame.labelled_links(),
+            reach: hints.iter().map(|h| h.label.len()).max().unwrap_or(0),
             cols,
         })
     }
@@ -108,23 +131,39 @@ impl<'f> LinkRow<'f> {
 
     /// The letter a shown label draws at `col` of `row`, if one does. The
     /// overlay row draws above the labels.
+    ///
+    /// The labels come in the order they lie in the view, so a binary
+    /// search finds the last label that starts at or before the cell. The
+    /// labels before it on the row are read back from there, only as far
+    /// as one could still reach the cell. The first shown label that
+    /// covers the cell draws there, so a later label draws over an earlier
+    /// one, and a hidden label lets the one under it show.
     fn label_at(&self, col: usize, row: usize) -> Option<char> {
         if col >= self.cols {
             return None;
         }
+        let end = self
+            .hints
+            .partition_point(|h| (h.at.1, h.at.0) <= (row, col));
         self.hints
+            .get(..end)?
             .iter()
-            .filter(|h| h.shown && h.at.1 == row)
-            .find_map(|h| {
-                let i = col.checked_sub(h.at.0)?;
-                h.label.chars().nth(i)
+            .rev()
+            .take_while(|h| {
+                probe();
+                h.at.1 == row && h.at.0.saturating_add(self.reach) > col
             })
+            .filter(|h| h.shown)
+            .find_map(|h| h.label.chars().nth(col.saturating_sub(h.at.0)))
     }
 
     /// Whether `link` has a label, so each of its cells takes the hover's
     /// dashed underline.
-    fn labelled(&self, link: Option<vtium_term::LinkId>) -> bool {
-        link.is_some_and(|l| self.hints.iter().any(|h| h.link == l))
+    fn labelled(&self, link: Option<LinkId>) -> bool {
+        link.is_some_and(|l| {
+            probe();
+            self.labelled.binary_search(&l).is_ok()
+        })
     }
 
     /// The character the overlay shows at `col`, inside the cells it
@@ -253,16 +292,20 @@ mod tests {
         assert!(!row.covers(2, 0));
     }
 
-    // ADR-1002, section 7: vtium's note on the overlay row draws from the
-    // row's first column, above any label on that row.
+    // ADR-1002, section 7: an overlay row draws from the row's first
+    // column, above any label on that row. The screen never puts its note
+    // over a label, so the frame here is given the overlay directly, to
+    // check what the renderer draws if a frame holds both.
     #[test]
-    fn the_note_draws_on_the_overlay_row_above_a_label() {
+    fn the_overlay_row_draws_above_a_label() {
         let mut t = Terminal::new(8, 1, 0);
         t.input(b"\x1b]8;;x:a\x1b\\abc\x1b]8;;\x1b\\");
         label(&mut t, "s");
-        t.screen_mut().set_overlay_note(Some("Copied".to_owned()));
         let palette = Palette::default();
-        let frame = t.screen().frame(&palette, Age::NEVER);
+        let frame = t
+            .screen()
+            .frame(&palette, Age::NEVER)
+            .with_hover(None, Some((0, "Copied")));
         let row = LinkRow::new(&frame, 8, 1);
         assert!(row.is_some(), "no link row");
         let Some(row) = row else { return };
@@ -277,5 +320,80 @@ mod tests {
         let palette = Palette::default();
         let frame = t.screen().frame(&palette, Age::NEVER);
         assert!(LinkRow::new(&frame, 8, 3).is_none());
+    }
+
+    // Drawing reads every cell through the link row, so finding a cell's
+    // label and whether its link has one costs a few lookups, not one for
+    // each label on the screen.
+    #[test]
+    fn a_cell_looks_up_few_labels_on_a_screen_full_of_them() {
+        let (cols, rows) = (40, 20);
+        let mut t = Terminal::new(cols, rows, 0);
+        let mut bytes = String::new();
+        for y in 0..rows {
+            bytes.push_str(&format!("\x1b[{};1H", y + 1));
+            // links of four cells, so the labels of three letters leave a
+            // cell of each link uncovered
+            for x in 0..cols / 4 {
+                bytes.push_str(&format!("\x1b]8;;x:{x},{y}\x1b\\abcd\x1b]8;;\x1b\\"));
+            }
+        }
+        t.input(bytes.as_bytes());
+        let links = t.screen().view_links();
+        let labels = (0..links.len()).map(|i| format!("{i:03}"));
+        let hints = links.into_iter().zip(labels).collect();
+        t.screen_mut().set_link_hints(hints);
+        let palette = Palette::default();
+        let frame = t.screen().frame(&palette, Age::NEVER);
+        let row = LinkRow::new(&frame, cols, rows);
+        assert!(row.is_some(), "no link row");
+        let Some(row) = row else { return };
+        PROBES.with(|p| p.set(0));
+        for y in 0..rows {
+            for x in 0..cols {
+                let _ = drawn(&row, &frame, x, y);
+                let _ = row.covers(x, y);
+            }
+        }
+        let probes = PROBES.with(core::cell::Cell::get);
+        assert!(
+            probes <= 8 * cols * rows,
+            "{probes} lookups for {} cells",
+            cols * rows
+        );
+    }
+
+    // ADR-1002, section 7, as the maintainer decided on 2026-11-15: labels
+    // that a row is too short for lie over each other at its end, and the
+    // later one draws on top. Once the letters typed hide the later one,
+    // the earlier one shows.
+    #[test]
+    fn a_later_label_draws_over_an_earlier_one_until_it_hides() {
+        let mut t = Terminal::new(5, 1, 0);
+        for uri in ["x:a", "x:b", "x:c", "x:d"] {
+            t.input(format!("\x1b]8;;{uri}\x1b\\a\x1b]8;;\x1b\\").as_bytes());
+        }
+        let links = t.screen().view_links();
+        let hints = links
+            .into_iter()
+            .zip(["as", "sd", "df", "fg"])
+            .map(|(l, s)| (l, s.to_owned()))
+            .collect();
+        t.screen_mut().set_link_hints(hints);
+        let palette = Palette::default();
+        let read = |t: &Terminal| {
+            let frame = t.screen().frame(&palette, Age::NEVER);
+            let row = LinkRow::new(&frame, 5, 1);
+            (0..5)
+                .map(|x| row.map_or(' ', |r| drawn(&r, &frame, x, 0).0))
+                .collect::<String>()
+        };
+        assert_eq!(
+            read(&t),
+            "assfg",
+            "fg draws over df, and over the end of sd"
+        );
+        t.screen_mut().show_link_hints(|l| l.starts_with('d'));
+        assert_eq!(read(&t), "aaadf", "only df shows");
     }
 }

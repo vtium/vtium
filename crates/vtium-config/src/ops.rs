@@ -198,7 +198,7 @@ pub fn head_add(text: &str, name: &str, look: Option<&str>) -> Result<String, Fa
 /// it to `vtium config look add` and `look set`, in the order the TUI's
 /// look card lists them. Those two commands and the look card read this
 /// one table, and a test holds it to the key table's keys of a look.
-pub const LOOK_KEYS: [(&str, &str); 13] = [
+pub const LOOK_KEYS: [(&str, &str); 14] = [
     ("font-name", "--frit"),
     ("font-size", "--size"),
     ("cell", "--cell"),
@@ -212,6 +212,7 @@ pub const LOOK_KEYS: [(&str, &str); 13] = [
     ("login-image-fit", "--login-image-fit"),
     ("login-image-rows", "--login-image-rows"),
     ("login-image-position", "--login-image-position"),
+    ("login-image-scale", "--login-image-scale"),
 ];
 
 /// The option of [`LOOK_KEYS`] that names the look key `key`.
@@ -355,7 +356,7 @@ pub fn new_text(top: &str) -> String {
 /// D7). A change to a section must first write that flow into the file:
 /// a section alone, such as `[labels]`, would make the file one with
 /// sections, no `version` line and no rules, which turns every display
-/// off. vtium-config writes the flow as [`shipped_flow`] has it: the
+/// off. vtium-config writes the flow as `shipped_flow` has it: the
 /// `version` line, the head and the rules, with none of the template's
 /// comments. A draft with sections is returned as it is.
 pub fn with_flow(text: &str) -> String {

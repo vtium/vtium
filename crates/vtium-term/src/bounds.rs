@@ -22,7 +22,7 @@ const COLUMNS: Bound = Bound {
     value: 8192,
     what: "Cells a line holds, and columns a screen and its damage have",
     past: "A line is made or widened to at most this many cells, and a screen and its damage to at most this many columns; the grid's width comes from the display and the font, never from the stream",
-    cite: "vtium's own: a line's style and link tables are indexed in 16 bits and compact at `TABLE_GROWTH` times the line's cells, which this keeps inside 65535; a 15360-pixel display in a 4-pixel font is 3840 columns",
+    cite: "vtium's own: a line's style and link tables are indexed in 16 bits and compact at one and a half times the line's cells, which this keeps inside 65535; a 15360-pixel display in a 4-pixel font is 3840 columns",
 };
 
 const ROWS: Bound = Bound {
@@ -302,21 +302,43 @@ pub(crate) const PLACEHOLDER_MARKS: usize = PLACEHOLDER.value;
 /// codepoints of up to 4 bytes each.
 pub(crate) const PLACEHOLDER_BYTES_MAX: usize = 1 + 4 + PLACEHOLDER_MARKS * 4;
 
-/// A line's tables compact once they reach this many times what the line
-/// can name: its cells, or for clusters, its cluster bytes.
-pub(crate) const TABLE_GROWTH: usize = 2;
+/// The most a line's table holds before the line compacts it, for a
+/// table whose entries the line's cells can name `n` of: one and a half
+/// times `n`, rounded up. For the style and link tables `n` is the line's
+/// cells, and for the cluster arena it is the bytes the cells may name.
+///
+/// References:
+/// - ADR-1009 D3: the tables compact at one and a half times what the
+///   line's cells can name, where they compacted at twice.
+pub(crate) const fn compaction_limit(n: usize) -> usize {
+    n.saturating_add(n.div_ceil(2))
+}
+
+/// The most entries a line of `cells` cells holds in its style table, and
+/// in its link table, before it compacts the table: one and a half times
+/// its cells, and at least two more than its cells. Right after a
+/// compaction a table may still hold an entry for each cell and one for
+/// the line's fill, and the write that compacted it adds one more.
+///
+/// References:
+/// - ADR-1009 D3: the floor of two more than the cells.
+pub(crate) const fn table_limit(cells: usize) -> usize {
+    let limit = compaction_limit(cells);
+    let floor = cells.saturating_add(2);
+    if limit > floor { limit } else { floor }
+}
 
 // A style or link index is 16 bits, 0 reserved: a full table at the widest
 // line must fit.
-const _: () = assert!(COLUMNS_MAX * TABLE_GROWTH < u16::MAX as usize);
+const _: () = assert!(table_limit(COLUMNS_MAX) < u16::MAX as usize);
 // A cluster's offset in its line's arena is 21 bits of the cell: a full
 // arena at the widest line, plus the cluster that triggers compaction,
 // must fit.
 // A line of placeholder cells names up to `PLACEHOLDER_BYTES_MAX` a cell
-// beside its budget (ADR-1001, "Placeholder cells"): 376,961 bytes at the
+// beside its budget (ADR-1001, "Placeholder cells"): 282,753 bytes at the
 // widest line.
 const _: () = assert!(
-    COLUMNS_MAX * TABLE_GROWTH * (CLUSTER_BYTES_PER_CELL + PLACEHOLDER_BYTES_MAX)
+    compaction_limit(COLUMNS_MAX * (CLUSTER_BYTES_PER_CELL + PLACEHOLDER_BYTES_MAX))
         + CLUSTER_BYTES_MAX
         < 1 << 21
 );

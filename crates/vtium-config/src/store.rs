@@ -78,7 +78,7 @@ pub fn named(name: &str) -> Result<&str, Fail> {
 }
 
 /// `name` made into a draft's name: each character a name cannot hold
-/// becomes `-`, and a name left empty is [`NAME_FALLBACK`].
+/// becomes `-`, and a name left empty is `NAME_FALLBACK`.
 pub fn name_from(name: &str) -> String {
     let made: String = name
         .trim()
@@ -259,7 +259,7 @@ impl Store {
     }
 
     /// The draft `name`'s file. Every path the store builds from a draft's
-    /// name is built here or in [`Store::base_path`],
+    /// name is built here or in `Store::base_path`,
     /// [`Store::edit_copy`] and [`Store::save_history`], each through
     /// [`named`], so no name can reach outside the store.
     pub fn draft_path(&self, name: &str) -> Result<PathBuf, Fail> {

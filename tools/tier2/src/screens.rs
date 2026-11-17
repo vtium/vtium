@@ -22,6 +22,7 @@ use crate::draw::{
 };
 use crate::notices;
 use crate::pictures;
+use crate::pointers::PointerFile;
 
 /// A screen, whose golden is `tools/tier2/goldens/<name>.ppm`.
 #[derive(Clone, Copy, Debug)]
@@ -1634,6 +1635,33 @@ const POINTER_NS_DESC: &str = "The ns-resize shape, OSC 22 ns-resize. See pointe
 
 const POINTER_CHANGE_DESC: &str = "A change of shape between frames: the program sets wait, two frames are drawn, then it sets pointer and two more frames are drawn into the same two buffers. See pointer-default for the screen. Correct: the same picture as pointer-pointer, the hand with its tip at pixel 48,16, with no part of the hourglass left. Tier 2 also checks that both buffers and a fresh draw end equal.";
 
+/// The `pointer_shape!` screen `$name` with its pointer drawn from
+/// `$file`, the pointer file whose checked pictures the renderer holds, as
+/// the console's renderer holds them once the font helper answers.
+macro_rules! pointer_file_shape {
+    ($name:literal, $desc:expr, $shape:literal, $file:expr) => {
+        Case {
+            screen: Screen {
+                pointer_file: Some($file),
+                ..pointer_shape!($name, $desc, $shape).screen
+            },
+        }
+    };
+}
+
+const POINTER_FILE_DEFAULT_DESC: &str = "The default shape from vtium's own pointer file, crates/vtium/install/pointers.svg, which vtium installs as /usr/share/vtium/pointers.svg. The font helper's SVG code draws each of the file's ten shapes for cells 16 pixels tall, each picture is checked as the console checks the helper's answer, and the renderer draws the default one. See pointer-default for the screen. Correct: the arrow, 11×16 pixels, white with a black outline, pointing up and left, its hotspot on its top left pixel and so its tip on pixel 48,16, over the light second row. It is the picture of pointer-default within a pixel at each edge: the file's outline is thinner in places and its tip starts a pixel further up and left, since the file's outline scales smoothly where the compiled-in outline grows by whole pixels.";
+const POINTER_FILE_TEXT_DESC: &str = "The text shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: an I-beam 8×16 pixels, a white stem with a bar across each end, outlined in black, its centre on pixel 48,16, so its top half lies over the dark first row and its bottom half over the light second row. It is the picture of pointer-text within a pixel at each edge of the outline.";
+const POINTER_FILE_HAND_DESC: &str = "The pointer shape from vtium's pointer file, the hand over a link. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white hand 12×16 pixels with a black outline, its index finger raised with its tip at pixel 48,16, the palm and the three folded fingers below and to the right, and the thumb at the left, over the light row. It is the picture of pointer-pointer within a pixel at each edge: the file's hand is one pixel narrower, and its fingertip starts a pixel higher.";
+const POINTER_FILE_CROSSHAIR_DESC: &str = "The crosshair shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white cross 16×16 pixels, each arm one pixel wide inside a black outline, its centre on pixel 48,16, half over the dark first row and half over the light second row, pixel for pixel the picture of pointer-crosshair.";
+const POINTER_FILE_WAIT_DESC: &str = "The wait shape from vtium's pointer file, an hourglass. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white hourglass 12×16 pixels with a black outline and a bar across its top and its bottom, its waist on pixel 48,16, its top half over the dark first row and its bottom half over the light second row. It is the picture of pointer-wait within a pixel at each edge of the outline.";
+const POINTER_FILE_PROGRESS_DESC: &str = "The progress shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: the arrow with a small white hourglass at its lower right, 16×16 pixels together, outlined in black, the arrow's tip at pixel 48,16, over the light second row. It is the picture of pointer-progress within a pixel at each edge: the file's arrow starts a pixel further up and left, and the outline of its small hourglass differs by a pixel in places.";
+const POINTER_FILE_NOT_ALLOWED_DESC: &str = "The not-allowed shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white ring 16×16 pixels with a black outline and a white slash from its upper left to its lower right, its centre on pixel 48,16, half over the dark first row and half over the light second row. It is the picture of pointer-not-allowed within a pixel at each edge of the outline.";
+const POINTER_FILE_MOVE_DESC: &str = "The move shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white cross of four arrows 16×16 pixels, each arrowhead pointing outwards, outlined in black, its centre on pixel 48,16, half over the dark first row and half over the light second row. It is the picture of pointer-move within a pixel at each edge of the outline.";
+const POINTER_FILE_EW_DESC: &str = "The ew-resize shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white double arrow pointing left and right, 16 pixels wide and 8 tall, outlined in black, its centre on pixel 48,16, across the boundary of the first two rows. It is the picture of pointer-ew-resize within a pixel at each edge of the outline.";
+const POINTER_FILE_NS_DESC: &str = "The ns-resize shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white double arrow pointing up and down, 9 pixels wide and 16 tall, outlined in black, its centre on pixel 48,16, its upper head over the dark first row and its lower head over the light second row. It is the picture of pointer-ns-resize within a pixel at each edge of the outline.";
+const POINTER_FILE_ADWAITA_DESC: &str = "The default shape from a cursor theme: Adwaita 51.0's default cursor file, which tier 2 fetches by its pinned URL and SHA-256. The font helper's Xcursor code reads the file at nominal size 24, as pointer-size=24 asks, the picture is checked as the console checks the helper's answer, and the renderer draws it at its own size, never scaled. See pointer-default for the screen. Correct: Adwaita's arrow, 24×24 pixels, black with a white outline, pointing up and left, with a soft grey shadow below and to the right of it. Its hotspot, the picture's pixel 3,1, lies on pixel 48,16, so the arrow's white tip starts just below that pixel, over the light second row. The half-transparent shadow blends over the text and the rows it covers.";
+const POINTER_FILE_TURNED_DESC: &str = "The default shape from vtium's pointer file, as pointer-file-default draws it, on a display turned right, 48×96 pixels. The text reads from top to bottom, with the first row along the right edge. Correct: the arrow of pointer-file-default turned a quarter turn clockwise with the screen, white with a black outline, its tip on display pixel 31,48, where the grid's pixel 48,16 lands. The arrow's body lies below and to the left of its tip, over the light middle column.";
+
 /// Every case, in the order the report lists them: the screens below,
 /// then the ink screens, then the right-to-left screens.
 pub const CASES: &[Case] =
@@ -1876,6 +1904,84 @@ const BASE: &[Case] = &[
         screen: Screen {
             next: Some(b"\x1b]22;pointer\x1b\\"),
             ..pointer_shape!("pointer-change", POINTER_CHANGE_DESC, "wait").screen
+        },
+    },
+    pointer_file_shape!(
+        "pointer-file-default",
+        POINTER_FILE_DEFAULT_DESC,
+        "default",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-text",
+        POINTER_FILE_TEXT_DESC,
+        "text",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-pointer",
+        POINTER_FILE_HAND_DESC,
+        "pointer",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-crosshair",
+        POINTER_FILE_CROSSHAIR_DESC,
+        "crosshair",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-wait",
+        POINTER_FILE_WAIT_DESC,
+        "wait",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-progress",
+        POINTER_FILE_PROGRESS_DESC,
+        "progress",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-not-allowed",
+        POINTER_FILE_NOT_ALLOWED_DESC,
+        "not-allowed",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-move",
+        POINTER_FILE_MOVE_DESC,
+        "move",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-ew-resize",
+        POINTER_FILE_EW_DESC,
+        "ew-resize",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-ns-resize",
+        POINTER_FILE_NS_DESC,
+        "ns-resize",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-adwaita",
+        POINTER_FILE_ADWAITA_DESC,
+        "default",
+        PointerFile::Adwaita
+    ),
+    Case {
+        screen: Screen {
+            orientation: Orientation::Right,
+            ..pointer_file_shape!(
+                "pointer-file-turned",
+                POINTER_FILE_TURNED_DESC,
+                "default",
+                PointerFile::Shipped
+            )
+            .screen
         },
     },
     Case {
@@ -3088,6 +3194,45 @@ const BASE: &[Case] = &[
         b"\x1b[2;5H\x1b[4 q\x1b[?25h",
         LINES_OUTLINE,
     ),
+    // the sized run screens (kitty's text sizing protocol, OSC 66), each in
+    // unifont, a bitmap font whose pixels multiply by whole factors, and in
+    // the outline test font set
+    Case {
+        screen: Screen::new("runs-scale-unifont", RUNS_SCALE_DESC, RUNS_SCALE, 40, 10),
+    },
+    Case {
+        screen: outline("runs-scale", RUNS_SCALE_DESC, RUNS_SCALE, 40, 10),
+    },
+    Case {
+        screen: Screen::new(
+            "runs-fraction-unifont",
+            RUNS_FRACTION_DESC,
+            RUNS_FRACTION,
+            40,
+            6,
+        ),
+    },
+    Case {
+        screen: outline("runs-fraction", RUNS_FRACTION_DESC, RUNS_FRACTION, 40, 6),
+    },
+    Case {
+        screen: Screen::new(
+            "runs-decorations-unifont",
+            RUNS_DECORATIONS_DESC,
+            RUNS_DECORATIONS,
+            40,
+            10,
+        ),
+    },
+    Case {
+        screen: outline(
+            "runs-decorations",
+            RUNS_DECORATIONS_DESC,
+            RUNS_DECORATIONS,
+            40,
+            10,
+        ),
+    },
     // the line size screens for the characters that are not plain text:
     // color emoji, marks, Arabic, Indic syllables, the sprites vtium draws
     // itself, and Powerline's symbols, each on a line of the normal size, a
@@ -3168,6 +3313,86 @@ const BASE: &[Case] = &[
         pictures: Some(login_banner),
         display: Some(LOGIN_WIDE),
         ..outline("login-banner", LOGIN_BANNER_DESC, b"", 64, 12)
+    }),
+    picture(Screen {
+        pictures: Some(login_contain_top_left),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-top-left",
+            LOGIN_CONTAIN_TOP_LEFT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_contain_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-right",
+            LOGIN_CONTAIN_RIGHT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_contain_bottom),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-bottom",
+            LOGIN_CONTAIN_BOTTOM_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_cover_top),
+        ..outline("login-cover-top", LOGIN_COVER_TOP_DESC, LOGIN_TEXT, 40, 8)
+    }),
+    picture(Screen {
+        pictures: Some(login_none_bottom_left),
+        ..outline(
+            "login-none-bottom-left",
+            LOGIN_NONE_BOTTOM_LEFT_DESC,
+            b"login: ",
+            10,
+            3,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_scale_bottom_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-scale-bottom-right",
+            LOGIN_SCALE_BOTTOM_RIGHT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_banner_bottom_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-banner-bottom-right",
+            LOGIN_BANNER_BOTTOM_RIGHT_DESC,
+            b"",
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_rotated_scale),
+        orientation: Orientation::Right,
+        ..outline(
+            "login-rotated-scale",
+            LOGIN_ROTATED_SCALE_DESC,
+            LOGIN_TEXT,
+            40,
+            8,
+        )
     }),
 ];
 
@@ -3342,7 +3567,7 @@ const fn ligatures(
     }
 }
 
-const LIGATURES_DESC: &str = "With font-ligatures on, Iosevka Term at 40 pixels in its 16x40 cell draws ->, =>, !=, <= and >= as its ligatures, each across the cells of its characters, so every character keeps its column, and it draws ===, &&, || and /* as their own characters, as the font designs them. The runs ,- and >, which the font does not join, draw each character alone, and so does an arrow whose two characters differ in color. The second drawing shows the cursor on the ! of !=, which then draws as its two characters while the other ligatures stay joined (ADR-1308 D8).";
+const LIGATURES_DESC: &str = "With font-ligatures on, Iosevka Term at 40 pixels in its 16×40 cell draws ->, =>, !=, ===, <=, >=, ||, /* and */ as its ligatures, each across the cells of its characters, so every character keeps its column. The font does not join &&, ,- or >,, so each of their characters draws alone, and so does an arrow whose two characters differ in color. The second drawing shows the cursor on the ! of !=, which then draws as its two characters while the other ligatures stay joined (ADR-1308 D8).";
 
 const LIGATURES_OFF_DESC: &str = "The ligatures screen's text with font-ligatures off, vtium's default: Iosevka Term at 40 pixels draws every character on its own, so ->, !=, === and the other operators show as their separate characters (ADR-1308 D8).";
 
@@ -3556,6 +3781,57 @@ const LINES_DWL: &[u8] = concat!(
 
 const LINES_DWL_DESC: &str = "Two double-width lines (DECDWL, ESC # 6) between two lines of the normal size, 32 by 4 cells. The second line reads Double wide AaGg. The third reads red, green on a green background, rev in reverse video, and the wide character 中. Correct: each character on the two middle lines twice as wide as on the normal lines and as tall, each pixel of its glyph doubled sideways; the wide character across four cells; colors and reverse video covering both cells of each character; the normal lines unchanged.";
 
+/// The `runs-scale` screens: sized runs (OSC 66) at scales 2, 3 and 7,
+/// a wide character and a word in one block, and a run in colors. The
+/// run of scale 7 starts on the fourth row, so its block fits the screen.
+const RUNS_SCALE: &[u8] = concat!(
+    "Scale 1 \x1b]66;s=2;Ag\x07 \x1b]66;s=3;Ag\x07 \x1b]66;s=2;\u{4e2d}\x07",
+    "\x1b]66;s=2:w=3;Big\x07",
+    "\x1b[4;1H\x1b]66;s=7;R\x07 ",
+    "\x1b[31;47m\x1b]66;s=2;Red\x07\x1b[0m done",
+)
+.as_bytes();
+
+const RUNS_SCALE_DESC: &str = "Sized runs (kitty's text sizing protocol, OSC 66), 40 by 10 cells. The top row reads Scale 1 at the normal size, then A and g at scale 2, each across 2 by 2 cells, A and g at scale 3, each across 3 by 3 cells, the wide character 中 at scale 2 across 4 by 2 cells, and the word Big at scale 2 in one block of 6 by 2 cells. From the fourth row, R at scale 7 across 7 by 7 cells, then Red at scale 2 in red on a light gray background, then done at the normal size. Correct: each run's letters s times as wide and as tall as at the normal size, filling their blocks; in unifont each pixel of the glyph repeated as a square of s by s pixels; Big as wide as its 6 cells; the colors covering every cell of the red run; the normal text unchanged.";
+
+/// The `runs-fraction` screens: text at a fraction of its run's scale,
+/// at each vertical and horizontal alignment, half-size text that fits
+/// two letters in a cell, and text wider than its block.
+const RUNS_FRACTION: &[u8] = concat!(
+    "\x1b]66;s=2:n=1:d=2:v=0:h=0;T\x07|",
+    "\x1b]66;s=2:n=1:d=2:v=2:h=2;M\x07|",
+    "\x1b]66;s=2:n=1:d=2:v=1:h=1;B\x07|",
+    "\x1b]66;s=3:n=2:d=3:v=1:h=0;b\x07|",
+    "\x1b]66;s=3:n=1:d=3:v=2:h=2:w=2;mid\x07|",
+    "\x1b[4;1H",
+    "\x1b]66;n=1:d=2:w=1;Ha\x07\x1b]66;n=1:d=2:w=1;lf\x07 half; ",
+    "\x1b]66;n=1:d=2:v=1:w=1;sb\x07 sub; ",
+    "\x1b]66;w=2;Squeezed\x07 fits",
+)
+.as_bytes();
+
+const RUNS_FRACTION_DESC: &str = "Sized runs drawn at a fraction of their scale (OSC 66 with n and d), 40 by 6 cells, each block followed by a bar. The top rows hold T, M and B at half of scale 2, each the normal size inside a block of 2 by 2 cells: T at the top left, M in the middle, B at the bottom right. Then b at two thirds of scale 3, twice the normal size at the bottom left of a 3 by 3 block, and mid at a third of scale 3, the normal size, in the middle of a block of 6 by 3 cells. On the fourth row, Half at half size, two letters in each of two cells along the top of the row, then the word half; sb at half size in one cell along the bottom of the row, then the word sub; and Squeezed in a block of 2 cells, drawn smaller until it fits. At that size its letters cannot be read, so Squeezed is a minimum alignment check: it stands on the row's baseline. Correct: each fraction's text at n/d of its scale, placed in its block where v and h say; half-size letters two to a cell; Squeezed narrow, inside its 2 cells, standing on the row's baseline.";
+
+/// The `runs-decorations` screens: sized runs (OSC 66) under each
+/// underline style, a strike-through and an overline, which scale with the
+/// run's text; a run that mixes text with a color emoji; and a run with a
+/// curly underline across three cells of a double-width line.
+const RUNS_DECORATIONS: &[u8] = concat!(
+    "\x1b[4m\x1b]66;s=2;Ag\x07\x1b[m ",
+    "\x1b[4:3;58:5:1m\x1b]66;s=2;Ag\x07\x1b[m ",
+    "\x1b[9m\x1b]66;s=2;Ag\x07\x1b[m ",
+    "\x1b[53m\x1b]66;s=2;Ag\x07\x1b[m",
+    "\x1b[3;1H\x1b[4:2m\x1b]66;s=3;D\x07\x1b[m ",
+    "\x1b[4:4m\x1b]66;s=3;o\x07\x1b[m ",
+    "\x1b[4:5m\x1b]66;s=3;d\x07\x1b[m",
+    "\x1b[3;14H\x1b]66;s=2:w=4;Hi \u{1f389}\x07",
+    "\x1b[7;1H\x1b#6\x1b[4:3m\x1b]66;w=3;abc\x07\x1b[m",
+    "\x1b[8;1H\x1b[4;9;53;31m\x1b]66;s=2:w=3;All\x07\x1b[m",
+)
+.as_bytes();
+
+const RUNS_DECORATIONS_DESC: &str = "Sized runs (OSC 66) with decorations, 40 by 10 cells. The top two rows hold Ag at scale 2 four times: underlined, with a red curly underline, struck through, and overlined. From the third row, D, o and d at scale 3 with a double, a dotted and a dashed underline, and beside them Hi and a party popper emoji at scale 2 in one block of 8 by 2 cells. The seventh row is a double-width line holding abc in a run 3 cells wide with a curly underline. The last two rows hold All at scale 2 in red, underlined, struck through and overlined. Correct: each decoration as thick as the scale times its normal thickness, the underline under the block's bottom row, the strike through the block's middle and the overline over its top row, with no line across the middle of any letter; the curly, dotted and dashed underlines keeping their shape at the larger size; the emoji in its own colors beside the text; the curly underline on the double-width line unbroken under all three cells.";
+
 /// The `lines-dhl` screens: two double-height pairs (DECDHL, `ESC # 3`
 /// on the top line and `ESC # 4` on the bottom line), the second with
 /// colors and a wide character.
@@ -3715,10 +3991,13 @@ const LINES_POWERLINE: &[u8] = concat!(
 .as_bytes();
 
 const LINES_POWERLINE_DESC: &str = "Powerline separators on lines of double size, 32 by 4 cells, in the merged font set, DejaVu Sans Mono with the symbol test font behind it for the Private Use Area, drawn at 16 and at 32 pixels and stacked. Each line is a prompt of two colored segments, vt and src, each closed by a solid separator, then a thin separator. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: the font helper fits each separator to its doubled cell, so on every line a separator runs from the cell's top to its bottom and its point meets the next segment's color with no gap. The separators are twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, split across its two lines.";
-// The login picture's screens (ADR-1100 D17): the picture made by
-// vtium-image's login module, as the console makes it, and placed as the
-// console places it, a kitty placement with no id at the lowest z, before
-// or below a login prompt's text.
+// The login picture's screens: the picture made by vtium-image's login
+// module, as the console makes it, and placed as the console places it, a
+// kitty placement with no id at the lowest z, before or below a login
+// prompt's text.
+//
+// References:
+// - ADR-1100 D17: the login picture's forms and its placement.
 
 /// The text of a login prompt over a background: a cell with a background
 /// color of its own, which covers the picture, and reverse video.
@@ -3782,8 +4061,9 @@ fn login_base64(bytes: &[u8]) -> String {
 
 /// The picture `form` makes on a screen of `grid` cells of `f`'s cell and
 /// a display of `display`, placed as the console places it: a kitty
-/// transmission with no id at the lowest z that keeps the cursor, and for
-/// a banner a cursor move to the row below it.
+/// transmission with no id at the lowest z that keeps the cursor, at the
+/// top left of the placement's box, and for a banner a cursor move to the
+/// row where the login prompt starts.
 fn login_place(
     f: &mut Feed,
     form: vtium_term::images::login::Form,
@@ -3820,7 +4100,7 @@ fn login_place(
         .chunks(4096)
         .map(|c| std::str::from_utf8(c).unwrap_or(""))
         .collect();
-    let mut out = format!("\x1b[1;{}H", made.place.col + 1).into_bytes();
+    let mut out = format!("\x1b[{};{}H", made.place.row + 1, made.place.col + 1).into_bytes();
     for (i, chunk) in chunks.iter().enumerate() {
         let more = u8::from(i + 1 < chunks.len());
         let keys = if i == 0 {
@@ -3859,21 +4139,86 @@ fn login_rotated(f: &mut Feed) -> Result<(), String> {
 /// `login-banner`: a banner at its own size, centered, and the login
 /// prompt below it.
 fn login_banner(f: &mut Feed) -> Result<(), String> {
-    let form = vtium_term::images::login::Form {
-        position: vtium_term::images::login::Position::Center,
-        ..login_form(Fit::Banner)
-    };
+    let form = login_at(Fit::Banner, Position::Center, SCALE_FULL);
     login_place(f, form, (64, 12), Some(LOGIN_WIDE))?;
     f.bytes(LOGIN_TEXT)
 }
 
-use vtium_term::images::login::Fit;
+/// `login-contain-top-left`: `login-contain` at `top-left`.
+fn login_contain_top_left(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::TopLeft, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
 
+/// `login-contain-right`: `login-contain` at `right`.
+fn login_contain_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::Right, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-contain-bottom`: `login-contain` at `bottom`.
+fn login_contain_bottom(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::Bottom, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-cover-top`: `login-cover` at `top`.
+fn login_cover_top(f: &mut Feed) -> Result<(), String> {
+    login_place(
+        f,
+        login_at(Fit::Cover, Position::Top, SCALE_FULL),
+        (40, 8),
+        None,
+    )
+}
+
+/// `login-none-bottom-left`: the picture at its own size at `bottom-left`
+/// on a grid of 10×3 cells, smaller than the picture.
+fn login_none_bottom_left(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Natural, Position::BottomLeft, SCALE_FULL);
+    login_place(f, form, (10, 3), None)
+}
+
+/// `login-scale-bottom-right`: `login-contain` at 30% and `bottom-right`.
+fn login_scale_bottom_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::BottomRight, 30);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-banner-bottom-right`: a banner at its own size at
+/// `bottom-right`, and the login prompt above it.
+fn login_banner_bottom_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Banner, Position::BottomRight, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))?;
+    f.bytes(LOGIN_TEXT)
+}
+
+/// `login-rotated-scale`: `login-rotated` under contain at 50% and
+/// `bottom-right`.
+fn login_rotated_scale(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::BottomRight, 50);
+    login_place(f, form, (40, 8), None)
+}
+
+use vtium_term::images::login::{Fit, Position, SCALE_FULL};
+
+/// The form of `fit` with no anchor and the scale at 100, as vtium.conf
+/// gives it when it names only the fit.
 fn login_form(fit: Fit) -> vtium_term::images::login::Form {
     vtium_term::images::login::Form {
         fit,
         rows: None,
-        position: vtium_term::images::login::Position::Left,
+        position: None,
+        scale: SCALE_FULL,
+    }
+}
+
+/// The form of `fit` at `position` and `scale`.
+fn login_at(fit: Fit, position: Position, scale: u8) -> vtium_term::images::login::Form {
+    vtium_term::images::login::Form {
+        position: Some(position),
+        scale,
+        ..login_form(fit)
     }
 }
 
@@ -3899,4 +4244,52 @@ const LOGIN_BANNER_DESC: &str = concat!(
     "A login picture as a banner at its own size, centered, above a login prompt, on a grid of 64 by 12 cells of 9 by 16 pixels: the banner is 96 by 64 pixels, so its box is 11 columns by 4 rows, and the 53 spare columns put 26 on its left and 27 on its right. ",
     "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
     "Correct: the whole picture, drawn one to one, starting 26 columns from the left at the top of the screen, its frame on all four sides; the login prompt starts in the first column of the fifth row, below the banner, and its text covers no part of the picture."
+);
+
+const LOGIN_CONTAIN_TOP_LEFT_DESC: &str = concat!(
+    "login-contain with login-image-position=top-left: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's top and left edges (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, 5 pixel rows taller than the grid of 192. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture starts at the grid's first pixel column and first pixel row, its frame along the left edge and the top edge of the grid; its last 5 pixel rows, the bottom of its frame, are cut off; the default background shows to its right and in the strip outside the grid; the disc is round; the text draws over the picture and the background alike."
+);
+
+const LOGIN_CONTAIN_RIGHT_DESC: &str = concat!(
+    "login-contain with login-image-position=right: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's right edge and centered down the display (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture ends at the grid's last pixel column, its frame along the grid's right edge, and starts 280 pixels into the grid; down the screen it is placed as in login-contain, its first 2 and last 3 pixel rows in the strips outside the grid; the default background shows to its left; the disc is round; the text draws over the picture and the background alike."
+);
+
+const LOGIN_CONTAIN_BOTTOM_DESC: &str = concat!(
+    "login-contain with login-image-position=bottom: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's bottom edge and centered across the display (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, 5 pixel rows taller than the grid of 192. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: across the screen the picture is placed as in login-contain, centered, with bands of the default background left and right; its last pixel row lies on the grid's last pixel row, so the bottom of its frame shows along the grid's bottom edge, and its first 5 pixel rows, the top of its frame, are cut off; the disc is round; the text draws over the picture and the bands alike."
+);
+
+const LOGIN_COVER_TOP_DESC: &str = concat!(
+    "login-cover with login-image-position=top: a login prompt over a login picture as a background under cover, on a grid of 40 by 8 cells of 9 by 16 pixels on a display of 360 by 128 pixels (ADR-1100 D17). Cover scales the picture to 360 by 240 pixels, and the anchor keeps its top. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture's full width fills the screen, its frame at the left and right edges and along the top edge; its bottom 112 pixel rows are cut off, so the frame does not show at the bottom, and the bottom edge cuts the disc just below its middle; the text draws over the picture, the blue cells and the reversed word cover it, and the picture shows through every other cell."
+);
+
+const LOGIN_NONE_BOTTOM_LEFT_DESC: &str = concat!(
+    "A login picture at its own size, login-image-fit=none, at login-image-position=bottom-left, on a grid of 10 by 3 cells of 9 by 16 pixels, 90 by 48 pixels, smaller than the picture (ADR-1100 D17). ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture drawn one to one, its left edge on the grid's left edge and its bottom edge on the grid's bottom edge; its frame shows along the left and the bottom; its rightmost 6 pixel columns and its top 16 pixel rows are cut off, so the frame shows neither on the right nor at the top; the disc sits a little right of the middle and above it, nearly reaching the top; the word login draws over the picture."
+);
+
+const LOGIN_SCALE_BOTTOM_RIGHT_DESC: &str = concat!(
+    "login-contain at login-image-scale=30 and login-image-position=bottom-right: a login prompt over a login picture as a background, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, and 30% of that is 89 by 59 pixels. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, small, its frame on all four sides, its right edge on the grid's last pixel column and its bottom edge on the grid's last pixel row, in the bottom right corner of the screen; the default background everywhere else; the disc is round; the text, which ends near the top of the screen, does not reach the picture."
+);
+
+const LOGIN_BANNER_BOTTOM_RIGHT_DESC: &str = concat!(
+    "A login picture as a banner at its own size at login-image-position=bottom-right, below a login prompt, on a grid of 64 by 12 cells of 9 by 16 pixels: the banner is 96 by 64 pixels, so its box is 11 columns by 4 rows, in the last 4 rows and against the right margin, starting in the 54th column (ADR-1100 D17). ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, drawn one to one, its frame on all four sides, at the top left of its box in the last 4 rows, so 3 pixel columns of the box's last cell column stay empty at the screen's right edge; the login prompt starts in the first column of the first row and its text ends above the banner."
+);
+
+const LOGIN_ROTATED_SCALE_DESC: &str = concat!(
+    "A login picture under contain at login-image-scale=50 and login-image-position=bottom-right, on a display turned a quarter clockwise, so the text reads from top to bottom: the picture is made for the screen as the text sees it, a grid of 40 by 8 cells of 9 by 16 pixels, 360 by 128 pixels (ADR-1100 D17). Contain scales the picture to 192 by 128 pixels, and 50% of that is 96 by 64 pixels, the picture's own size. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, its frame on all four sides, at the end of the grid's last row as the text reads, its right edge on the grid's last pixel column and its bottom edge on the grid's last pixel row, turned a quarter clockwise with the text; on the panel that is the bottom left corner; the default background everywhere else; the text draws over the picture where they meet."
 );

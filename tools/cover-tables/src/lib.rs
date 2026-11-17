@@ -140,7 +140,7 @@ pub fn module(sets: &[Generated<'_>]) -> String {
         let r = ranges(&set.codepoints);
         let _ = write!(
             out,
-            "\n/// `{}`: {} codepoints in {} ranges, from {}.\n#[rustfmt::skip]\npub const {}: &[(u32, u32)] = &[\n",
+            "\n/// `{}`: {} codepoints in {} ranges, from <{}>.\n#[rustfmt::skip]\npub const {}: &[(u32, u32)] = &[\n",
             set.source.name,
             set.codepoints.len(),
             r.len(),
@@ -260,7 +260,7 @@ mod tests {
         };
         let m = module(std::slice::from_ref(&set));
         assert!(m.contains(
-            "/// `jis-x-0208`: 6 codepoints in 5 ranges, from https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT.\n"
+            "/// `jis-x-0208`: 6 codepoints in 5 ranges, from <https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT>.\n"
         ));
         assert!(m.contains(
             "    (0x000ac, 0x000ac), (0x03000, 0x03001), (0x03003, 0x03003), (0x03005, 0x03005),\n    (0x03007, 0x03007),\n];\n"

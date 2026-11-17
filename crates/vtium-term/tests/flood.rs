@@ -3,8 +3,8 @@
 //! path, and after every step, for every line of the screen and the
 //! scrollback, the bytes its cells' clusters take, counted from the cells,
 //! equal what the line accounts for, stay inside the budget of
-//! `CLUSTER_BYTES_PER_CELL` a cell, and its heap stays inside the bound its
-//! tables compact at. The budget is the width the line was written at: a
+//! `CLUSTER_BYTES_PER_CELL` a cell, and its heap stays inside
+//! `heap_bound`. The budget is the width the line was written at: a
 //! line trimmed for the scrollback keeps the clusters its cells name, which
 //! may pass the budget of its fewer cells but never that of the widest
 //! screen.
@@ -39,8 +39,8 @@
 //! In a build with images, a placeholder cluster, one that starts with
 //! U+10EEEE, sits outside the budget (ADR-1001, "Placeholder cells"): it keeps up to
 //! `PLACEHOLDER_BYTES_MAX` bytes whatever the other clusters take, and a
-//! line's arena compacts at twice its budget and that much for each cell
-//! that names one. So every bound above gains `PLACEHOLDER_BYTES_MAX` a
+//! line's arena compacts at one and a half times its budget, which grows by
+//! that much for each cell that names one. So every bound above gains `PLACEHOLDER_BYTES_MAX` a
 //! cell of placeholders: a row names at most that many bytes of them a
 //! cell, and `row_bound` adds it for every cell of the widest screen.
 
@@ -81,9 +81,19 @@ fn placeholder_bytes(line: &Line) -> (usize, usize) {
 }
 
 /// The heap a line of `len` cells, `placeholders` of which name a
-/// placeholder cluster, may hold: its cells, and tables that compact at
-/// twice what the line can name, each in a vector that may have doubled
-/// its capacity.
+/// placeholder cluster, may hold: its cells, and its style table, link
+/// table and cluster arena at twice what the line can name, each in a
+/// vector that may have doubled its capacity. Links count 4 bytes each.
+///
+/// The bound is looser than the line's own. A line compacts its tables at
+/// one and a half times what its cells can name and keeps each link in 2
+/// bytes, and `tests/memory.rs` holds a row to `Line::bytes_max` exactly.
+/// The bound leaves out the run table, because no flood here writes a
+/// sized run.
+///
+/// References:
+/// - ADR-1009 D3: the tables compact at one and a half times.
+/// - ADR-1009 D5: a line keeps each link in 16 bits.
 fn heap_bound(len: usize, placeholders: usize) -> usize {
     let cells = len.max(1);
     let styles = 2 * cells * 14;

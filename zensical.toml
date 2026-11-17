@@ -46,8 +46,10 @@ nav = [
       { "What vtium does" = "features.md" },
       { "Keys" = "keys.md" },
       { "Configuration keys" = "config.md" },
+      { "The pointer file" = "reference/pointer-file.md" },
       { "The sections of vtium.conf" = "head-file.md" },
       { "Modes" = "modes.md" },
+      { "Escape sequences" = "sequences/index.md" },
       { "systemd, logind and PID 1" = "systemd.md" },
       { "Specimens" = "specimens/README.md" },
   ] },
@@ -58,6 +60,7 @@ nav = [
           "concepts/index.md",
           { "What vtium is" = "concepts/what-vtium-is.md" },
           { "How vtium works" = "concepts/how-vtium-works.md" },
+          { "Escape sequences" = "concepts/escape-sequences.md" },
           { "The suite" = "concepts/suite.md" },
           { "Deployment and start-up" = "concepts/start-up.md" },
           { "Seats and sessions" = "concepts/seats-and-sessions.md" },
@@ -79,8 +82,8 @@ nav = [
       { "The Linux console's unverified rows" = "vt-review-linux.md" },
       { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
       { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },
+      { "The crates' interfaces" = ["api/index.md"] },
       { "The crates" = "https://github.com/vtium/vtium/tree/main/crates" },
-      { "The crates' interfaces" = "api/index.md" },
   ] },
 ]
 
@@ -99,20 +102,35 @@ exclude_docs = """
 # Pages reached by a link and not from the menu: the decision records, which
 # architecture/INDEX.md links, the acceptance passes, which ADR-1501 and
 # vt-review.md describe, the specimen profiles, which specimens/README.md
-# links, and the tutorial Your first frit, which joins the menu once it is
-# written.
-# The pages under api/ and releases/, other than their index pages, are
-# reached from those index pages.
+# links, the showcase's category pages, which showcase/README.md links, one
+# line for each of t3_showcase.CATEGORIES as ShowcaseTest checks, and the
+# tutorial Your first frit, which joins the menu once it is written.
+# The release pages, other than their index, are reached from the index, and
+# so are the pages of the escape sequences (ADR-1507 D1).
+# The crates' interfaces: Getting started and Conventions are reached from
+# the index under api/, which the menu lists. The index sits in a
+# sub-section of its own because the theme's navigation.indexes makes an
+# index.md listed straight in a section that section's landing page, and
+# For contributors opens on Architecture.
 not_in_nav = """
 /tutorial-first-frit.md
 /architecture/*/ADR-*.md
 /acceptance/*.md
 /specimens/*/README.md
 /specimens/simulated/*/README.md
-/showcase/*.md
+/showcase/text-and-fonts.md
+/showcase/scripts-and-emoji.md
+/showcase/styles-and-modes.md
+/showcase/color.md
+/showcase/lines-and-blocks.md
+/showcase/pictures.md
+/showcase/input-and-pointer.md
+/showcase/displays-and-vts.md
+/showcase/small-machines.md
+/releases/*.md
 /api/getting-started.md
 /api/conventions.md
-/releases/*.md
+/sequences/*.md
 """
 
 [project.theme]

@@ -424,6 +424,73 @@ considered:
   - operator: aaronsb
     said: "toggling around to 'try different fonts' tends to just accumulate unnecessary configuration lines … only what's set"
     via: quoted by the steering session, 2026-11-12, in the fix round of the card that adds switch-on-enter to vtium-config
+  - operator: aaronsb
+    said: "(3) `q` always quits or asks, and Esc always goes back; the file view and Restore's list keep Esc alone. (4) Every question takes `y` for yes, and Esc or any other key for no; the leave question names its unsaved changes and saves them on `y`, like the quit question. (5) The action keys act only in the views whose tab bar shows them. (6) Every key line shows every key it lists, and wraps onto a second row before it drops a key."
+    via: the maintainer's answers of 2026-11-16 to the decisions that the work on scripted scenarios for vtium-config's TUI put to the maintainer, recorded in that work's issue; the maintainer took each lean as proposed, and the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "o keeps one meaning, Restore, in the Flow view; the notice about font operations names allow-font-ops in the Settings view."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The quit question's n quits without saving, and the question says so in words."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Ctrl-C at a question cancels the question, like Esc; everywhere else Ctrl-C saves and leaves."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "q on the screen below 80×25 asks the quit question on one row."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The action keys do nothing while a card, detail, part maker, picker or form is open."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Up and Down do nothing while a Settings value is typed; Enter commits, and Esc cancels."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The answer rule for questions: y answers yes; n answers no where the question offers it; Esc and Ctrl-C cancel; every other key does nothing, and the question stays."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The rule that every key line wraps rather than drop a key stands."
+    via: the maintainer's answer of 2026-11-16, after research by the steering session into the keys of terminal programs (nano, vim, mcedit, yazi, huh, lazygit, htop, btop, Textual, Bubble Tea, Debian's console-setup) and into CUA and the Windows, Apple, GNOME and KDE guidelines; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "if there's any unsaved changes q at least gets an 'there are unsaved changes'. tools that are passive tui tools (like btop, for example) don't need to offer that friction"
+    via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "The leave question offers n as the quit question does: y installs and leaves, n leaves without installing and the question says the pending changes stay uninstalled, and Esc and Ctrl-C go back."
+    via: the maintainer's answer of 2026-11-16 to the points the second amendment left open, relayed by the steering session; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "Wherever vtium-config shows a set of items or asks the person to pick one, it uses one shared list component, a list box inside a card or a pop-up list over the view, never a comma-joined list that wraps across rows: Settings values, the Flow cards' lists of displays, devices and VTs, the filter picker's device lists, font set choices, font sizes, font set file choices, and the defined terminals."
+    via: the maintainer's answer of 2026-11-16 to the points the second amendment left open, relayed by the steering session; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "for certain elements we need to stop providing long serialized lists that end up taking a whole row or two, and offer a consistent list box or pop up list dialog"
+    via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "before we begin building, I'd like to make sure we have keypresses mapped to the application interface tree. I think this is the thing we earlier said would be derived from walking the code, but I also think that 'hand building' this allows the walk and the hand build to meet in the middle and compromise"
+    via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "the result of this compromise is the contract that we can then use moving forward. altering the contract allows us to 'break' the code, allowing us to update the code to again be conforming of the contract"
+    via: relayed by the steering session, 2026-11-16, with the interface tree of vtium-config's TUI
+  - operator: aaronsb
+    said: "this also makes it possible to offer a help interface that is honest"
+    via: relayed by the steering session, 2026-11-16, with the interface tree of vtium-config's TUI
+  - operator: aaronsb
+    said: "The tree and its diagram go into vtium-config's ongoing docs, not only the record: the site's reference page on vtium-config's screens and keys is generated from the tree and the key table, with a test that fails when it is stale, and docs/configure.md links to it."
+    via: relayed by the steering session, 2026-11-16; the wording is the steering session's
+    paraphrase: true
+  - operator: aaronsb
+    said: "From the review of the walk against the hand-built tree: Home, End, PgUp and PgDn move in the part maker and the new-font-set form; the form's typed fields follow the Settings typing rule, where only Enter and Esc act; a part's narrowing choices are a node of their own under its detail; mouse clicks and the wheel join the contract wherever the TUI reads them; and the leave question is met by the code."
+    via: relayed by the steering session, 2026-11-16; the wording is the steering session's
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -587,7 +654,7 @@ Blocks in braces, as sway writes them, TOML and dotted flat keys were weighed an
 The maintainer accepted these rules on 2026-11-04 as this record drafted them (`considered`):
 
 - **Three levels, and the most specific wins:** a head's section, then the section of the look the head names, then the top level. The command line sets top-level keys and wins over the file's top level, as it does today, and a section still wins over both, as a head's look wins over vtium.conf's `font-name` today (ADR-1200 D16). A key the head and its look leave unset takes the top level's value, and a key the top level leaves unset takes its default.
-- **Each section kind takes a fixed list of keys.** A head takes ADR-1401 D3's head keys, `look`, which names its look, `consoles`, `login`, `when-display-lost`, `isolated` and `switch-on-enter`, and `vt`, the VTs it runs on (D4; edited 2026-11-10, when the maintainer added `vt`; edited 2026-11-12, when ADR-1401 added `switch-on-enter`, which the list did not name until then). A look takes the keys ADR-1200 D16 gives a look that the key table has: `font-name`, which names the look's frit, `font-engine`, `font-size`, `font-hinting`, `font-line-spacing`, `display-depth` and `display-dpi`, `cell`, the cell in pixels as a frit's `cell=` line writes it, and `vtlook`, which names the vtlook file of ADR-1304 that holds its filters (the maintainer, 2026-11-05). The key table gains `cell`, which only a look sets; within one look, `font-size` wins over its `cell`, as ADR-1200 D16 has a level's size win over its cell. `vtlook` is also a top-level key, the vtlook of every look that names none (ADR-1304 D5). A look also takes the login picture's four keys, `login-image`, `login-image-fit`, `login-image-rows` and `login-image-position`, which are top-level keys as well, so a head shows the picture of the look it names and a look that sets none takes the top level's (ADR-1100 D17).
+- **Each section kind takes a fixed list of keys.** A head takes ADR-1401 D3's head keys, `look`, which names its look, `consoles`, `login`, `when-display-lost`, `isolated` and `switch-on-enter`, and `vt`, the VTs it runs on (D4; edited 2026-11-10, when the maintainer added `vt`; edited 2026-11-12, when ADR-1401 added `switch-on-enter`, which the list did not name until then). A look takes the keys ADR-1200 D16 gives a look that the key table has: `font-name`, which names the look's frit, `font-engine`, `font-size`, `font-hinting`, `font-line-spacing`, `display-depth` and `display-dpi`, `cell`, the cell in pixels as a frit's `cell=` line writes it, and `vtlook`, which names the vtlook file of ADR-1304 that holds its filters (the maintainer, 2026-11-05). The key table gains `cell`, which only a look sets; within one look, `font-size` wins over its `cell`, as ADR-1200 D16 has a level's size win over its cell. `vtlook` is also a top-level key, the vtlook of every look that names none (ADR-1304 D5). A look also takes the login picture's five keys, `login-image`, `login-image-fit`, `login-image-rows`, `login-image-position` and `login-image-scale`, which are top-level keys as well, so a head shows the picture of the look it names and a look that sets none takes the top level's (ADR-1100 D17; edited 2026-11-15, when ADR-1100 D17 added `login-image-scale`, and the list named four keys).
 - **A head that names a look with no section** uses the default look, and `vtium check-config` warns, as ADR-1200 D16 has a head that names a missing look use the default. This record's agent makes that call from ADR-1200 D16.
 - **A value out of bounds in a section** is an error in that section under ADR-1401 D7's strict reading, as D3 says the sections are read, and never clamped as a top-level value is. This record's agent makes that call from D3. A head sets no font key of its own, since a head's font has one path, from the head to its look to the look's frit (ADR-1401 D3).
 - **A key in a section has the top level's name, values and bounds** where the top level has the key too, as `login` and the font keys do. Inside one section a key given twice is an error, as in heads.conf today.
@@ -613,7 +680,9 @@ There is no migration, as the maintainer decided on 2026-11-04 (`considered`). W
 
 The figure shows the view 120 cells wide, with the `console` color set, on a machine like D4's example. It draws the whole document, as the person scrolls through it under the fixed lines at the top and the bottom. CONFIGURATION holds the path of the terminal desk, which runs on VT 3, the path of the roaming inputs, and a path to Nowhere. NEW PATH holds a path being built for a terminal on VT 4, which shares the display DP-8 with desk. PARTS shows its four groups, each led by its template.
 
-![vtium-config's Flow view on a black console background, drawn whole, 120 cells wide. The top line holds the tabs Flow (selected), Looks, Fonts, Settings and Help, and at the right the Flow view's actions: v View file, s Save, i Install, r Revert, n New. The status line reads draft workstation, then 1 keyboard and 1 display in no path yet in amber, then 2 changes, no problems. A grey line under it reads policy open: a keyboard that no rule names types into the active terminal. The first section, CONFIGURATION, has three column titles, DISPLAYS in cyan, TERMINALS in yellow and INPUTS in green, and three rows. The first row is the path of the terminal desk: a white-bordered box DP-8, LARGE00001 by EDID, with a cyan title, joined by a solid arrow to a white-bordered box desk, font set monoid · VT 3, with a yellow title. A solid arrow from the right joins the green-titled box Left keyboard, whose second line is the system's name, Logitech USB Receiver. A grey dotted line branches from that arrow and ends in the grey italic words roaming inputs. The second row is the roaming path: the word ROAMING in green and the grey sentence These inputs type into whichever terminal is active., then a box with a dotted border, Whichever terminal is active, whichever is in use, which a dotted arrow joins to the box All mice and touchpads, mouse, touchpad, trackball. The third row is the path to Nowhere: a grey-bordered box in grey italic, Nowhere, off and set aside, which a solid arrow joins to the grey box All input devices, what no other rule names. The second section, NEW PATH, has the amber status This path is complete. Press a to add it. and one row drawn with dashed borders and dotted arrows: DP-8, LARGE00001 by EDID, to terminal-1, default font set · VT 4, from 8BitDo Keyboard, USB 3.4. The display DP-8 is in both paths, because desk runs on VT 3 and terminal-1 on VT 4. The third section, PARTS, has four groups, each led by its template, which has a double border. DISPLAYS: the template Display, Add display… [Enter]; DP-8, in desk, and the new path, with a check mark and a bright magenta border; and HDMI-A-2, in no path, with an amber border. TERMINALS: the template Terminal, Add terminal… [Enter]; and Whichever terminal is active. INPUTS: the template Input, Add input… [Enter]; Left keyboard, Logitech USB Receiver, highlighted with a heavy white border and a bold underlined title; 8BitDo Keyboard, USB 3.4, in the new path, with a check mark and a bright magenta border; All mice and touchpads, roaming; and, in grey, 046d:c52b:0, Not connected; 3 other inputs, media keys, power and sleep buttons; and All input devices, in Nowhere. FONT SETS: the template Font set, Add font set… [Enter]; monoid, in the terminal desk; and dejavu, in no path. The grey key line at the bottom reads arrows move, Space pick, Enter open, a add path, e revise, v view file, Esc clear, i install, o restore, n new, q quit.](figures/ADR-1403-flow-view.svg)
+![vtium-config's Flow view on a black console background, drawn whole, 120 cells wide. The top line holds the tabs Flow (selected), Looks, Settings and Help, and at the right the Flow view's actions: v View file, s Save, i Install, r Revert, n New. The status line reads draft workstation, then 1 keyboard and 1 display in no path yet in amber, then 2 changes, no problems. A grey line under it reads policy open: a keyboard that no rule names types into the active terminal. The first section, CONFIGURATION, has three column titles, DISPLAYS in cyan, TERMINALS in yellow and INPUTS in green, and three rows. The first row is the path of the terminal desk: a white-bordered box DP-8, LARGE00001 by EDID, with a cyan title, joined by a solid arrow to a white-bordered box desk, font set monoid · VT 3, with a yellow title. A solid arrow from the right joins the green-titled box Left keyboard, whose second line is the system's name, Logitech USB Receiver. A grey dotted line branches from that arrow and ends in the grey italic words roaming inputs. The second row is the roaming path: the word ROAMING in green and the grey sentence These inputs type into whichever terminal is active., then a box with a dotted border, Whichever terminal is active, whichever is in use, which a dotted arrow joins to the box All mice and touchpads, mouse, touchpad, trackball. The third row is the path to Nowhere: a grey-bordered box in grey italic, Nowhere, off and set aside, which a solid arrow joins to the grey box All input devices, what no other rule names. The second section, NEW PATH, has the amber status This path is complete. Press a to add it. and one row drawn with dashed borders and dotted arrows: DP-8, LARGE00001 by EDID, to terminal-1, default font set · VT 4, from 8BitDo Keyboard, USB 3.4. The display DP-8 is in both paths, because desk runs on VT 3 and terminal-1 on VT 4. The third section, PARTS, has four groups, each led by its template, which has a double border. DISPLAYS: the template Display, Add display… [Enter]; DP-8, in desk, and the new path, with a check mark and a bright magenta border; and HDMI-A-2, in no path, with an amber border. TERMINALS: the template Terminal, Add terminal… [Enter]; and Whichever terminal is active. INPUTS: the template Input, Add input… [Enter]; Left keyboard, Logitech USB Receiver, highlighted with a heavy white border and a bold underlined title; 8BitDo Keyboard, USB 3.4, in the new path, with a check mark and a bright magenta border; All mice and touchpads, roaming; and, in grey, 046d:c52b:0, Not connected; 3 other inputs, media keys, power and sleep buttons; and All input devices, in Nowhere. FONT SETS: the template Font set, Add font set… [Enter]; monoid, in the terminal desk; and dejavu, in no path. The grey key line at the bottom reads arrows move, Space pick, Enter open, a add path, e revise, v view file, Esc clear, i install, o restore, n new, q quit.](figures/ADR-1403-flow-view.svg)
+
+> Edited 2026-11-16: the Fonts view went into the Looks view (ADR-1201 D3), so the figure's tab bar and its description name four tabs, Flow, Looks, Settings and Help. They named Fonts between Looks and Settings. The same edit took Fonts out of the tab bar's list and the list of views in **What carries over**.
 
 #### Three stages: parts, paths and the configuration
 
@@ -788,7 +857,7 @@ vtium-config takes these colors by role from a file of the person's own, `$XDG_C
 
 #### The keys
 
-The key line shows only the keys that fit what the person is doing now (the maintainer, 2026-11-09). With nothing open, it reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit`, and it adds `p preview` where a preview can run and `PgUp PgDn scroll` where there is room.
+The key line shows only the keys that fit what the person is doing now (the maintainer, 2026-11-09). With nothing open, it reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit`, and it adds `p preview` where a preview can run, and `PgUp PgDn scroll`. When the keys do not fit on one row, the key line wraps onto a second row (below).
 
 - **Moving.** The arrow keys move the highlight from box to box in reading order. Left and Right move along a line of boxes and on to the next line. Up and Down move to the box above or below that is nearest in column. Home and End go to the first and the last box. PgUp and PgDn scroll by a window. Tab moves to the next view of the TUI and Shift-Tab to the view before, wherever the highlight is, as in every other view (the maintainer, 2026-11-07). While a detail, a part maker, a picker, the file view or a question is open, Tab and Shift-Tab do nothing, and Esc closes it. Coming back to the Flow view keeps the box that was highlighted.
 - **Space** picks the highlighted part into NEW PATH, or takes it out.
@@ -797,13 +866,161 @@ The key line shows only the keys that fit what the person is doing now (the main
 - **`v`** views the file (below).
 - **`s`** saves, **`i`** installs, **`r`** reverts, **`o`** restores and **`n`** starts a new configuration (below). **`d`** reads the devices again.
 - **`p`** previews a complete path (above), and **`t`** tries a font on the live console (ADR-1201 D4). The notice that the live trial is off shows only when the person presses `t`.
-- **`q`** quits.
+- **`q`** quits, or asks first (below).
 
 The mouse selects a box with a click and opens it with a second click, and a click on a view's name in the tab bar switches to that view while nothing is open (the maintainer, 2026-11-04). The view turns on mouse reporting, modes 1000 and 1006, which vtium supports (ADR-1000 `DEC-1000`, `DEC-1006`), and turns it off when the TUI leaves the view. In a terminal without mouse reporting, the keys do everything.
 
+#### The same keys in every view
+
+> Edited 2026-11-16: the maintainer set four rules for the keys of every view (`considered`, 2026-11-16), in answer to the work that drives vtium-config's TUI by script and checks how it responds after each key. That work found the same key doing different things in different places: `q` quit from a card but went back from the file view, and the three questions took three sets of answer keys. This subsection and the key table were added. The key line's paragraph above ended "and `PgUp PgDn scroll` where there is room.", the bullet on `q` read "**`q`** quits.", and the file view's paragraph read "and `q` or Esc go back to the configuration with the same box highlighted."
+
+> Edited 2026-11-16: the maintainer answered the questions that the first amendment of this subsection left open, after research into the keys of other terminal programs and of the desktop guidelines (`considered`, 2026-11-16). The answer rule for questions changed: Esc and Ctrl-C cancel a question, and a key a question does not offer does nothing, where every key but `y` answered no. `q` never quits without asking while changes are not saved, the screen below the minimum size included. The action keys do nothing while something is open over a view, `o` means only Restore, and Up and Down do nothing while a Settings value is typed. The second rule read: "- **Every question takes `y` for yes, and Esc or any other key for no.** No closes the question and changes nothing. The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does. The font set changes it names are then lost. `i` and `l` no longer answer it. The quit question also offers `n`, which quits without saving. Whether `n` keeps that meaning, or answers no as every other key does, is open, and the maintainer settles it." The paragraph on Ctrl-C began "Ctrl-C and the signals keep the meaning that **What carries over** gives them in every state", and ended "where only `q`, `u` and Ctrl-C act (ADR-1201 D3)."
+
+These rules hold in every view of the TUI (the maintainer, 2026-11-16):
+
+- **`q` always quits or asks, and Esc always goes back.** `q` quits from a view and from anything open over it: a card, a detail, a part maker, a picker, the new-frit form, the file view and Restore's list. Where changes are not saved, it asks the quit question first. While new or removed font sets wait in memory for an install, it asks the leave question instead. The TUI asks that question until it keeps font set changes in the draft's folder, as D8 decides. Esc closes what is open and goes back to what is under it. The file view and Restore's list go back on Esc alone, where `q` closed them before. A value being typed takes `q` as a letter, as it takes every letter. `q` never quits without asking while changes are not saved, in any state, and with nothing unsaved it quits at once, without a question. The maintainer: "if there's any unsaved changes q at least gets an 'there are unsaved changes'. tools that are passive tui tools (like btop, for example) don't need to offer that friction".
+- **At a question, `y` answers yes, and `n` answers no where the question offers it.** Esc and Ctrl-C cancel the question: it closes, and nothing changes. Every other key does nothing, and the question stays until it is answered or cancelled. The quit question offers `n`, which quits without saving, and the question says so in words. The leave question offers `n` as the quit question does. Its `y` installs the draft, which saves the changes that are not saved first, and then leaves. Its `n` saves the changes that are not saved into the draft and leaves without installing. Until a draft keeps its font set changes (D8), the question says in words that the new and removed font sets are lost. Once a draft keeps them, they stay in the draft, uninstalled. Esc and Ctrl-C go back. `i` and `l` no longer answer it.
+
+  > Edited 2026-11-16: the steering session decided what the leave question's `n` does with the changes that are not saved, and what the question says while font set changes live only in memory. The sentence read: "Its `n` leaves without installing, and the question says that the font set changes stay uninstalled."
+
+  > Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). The leave question's sentences read: "The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does, and the font set changes it names are then lost. `i` and `l` no longer answer it."
+- **The action keys act only in the views whose tab bar shows them.** `s` saves only where the tab bar shows Save, and `i` installs only where it shows Install. Help's tab bar shows no action, so neither key acts there. The file view saves and installs as the Flow view does (below). Restore, on `o`, belongs to the Flow view, whose key line names it beside the tab bar's actions. A view's own key on the same letter is that view's, as `r` marks a font set for removal in the Looks view, and the view's key line names it. `o` has the one meaning, Restore, and does nothing in the other views. While a card, a detail, a part maker, a picker or a form is open, the action keys do nothing. The file view is the one exception, where `s` and `i` act.
+- **Every key line shows every key it lists.** When the keys do not fit on one row, the key line wraps onto a second row before it drops a key. This holds at the minimum size of 80×25 too.
+- **While a Settings value is typed,** Enter keeps the value and Esc drops it. Up and Down do nothing. A field of the new-frit form follows the same rule: Enter keeps the value and goes to the next field, Esc closes the form, and the keys that move do nothing.
+
+  > Edited 2026-11-16: the maintainer reviewed the differences between the walk of the code and the hand-built tree (`considered`, 2026-11-16). The new-frit form's fields were added to this rule. Until then Up and Down moved to another field while a value was typed.
+
+Ctrl-C and the signals keep the meaning that **What carries over** gives them: they save the changes that are not saved and leave, without a question. At a question, Ctrl-C cancels the question instead, as Esc does. The live trial's countdown keeps its own keys, which ADR-1201 D4 decides: `k` keeps the font, and any other key puts it back. So does the screen below the minimum size, where only `q`, `u` and Ctrl-C act (ADR-1201 D3). There `q` asks the quit question on one row while changes are not saved, and `u` puts back both the start font and the start grid.
+
+#### One list for every set of items
+
+> Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). This subsection was added.
+
+The maintainer asked on 2026-11-16 for one kind of list wherever the TUI shows a set of items. The maintainer's words: "for certain elements we need to stop providing long serialized lists that end up taking a whole row or two, and offer a consistent list box or pop up list dialog". This decision holds the rule because D7 already decides what opens over a view, the picker among them, and the key table that says what each key does there.
+
+- **One shared list.** Wherever vtium-config shows a set of items or asks the person to pick one, it uses one list component. The list is either a list box inside a card or a pop-up list over the view. vtium-config never shows such a set as items joined with commas that wrap across rows.
+- **Its keys** are the keys of the Flow view's picker today. Up and Down move the highlight by one item, Home and End go to the first and the last item, and PgUp and PgDn move by a page. Enter picks the highlighted item and closes the list. Esc closes the list without picking. Where a list also takes a typed value, its last item is `Other…`, and Enter on it opens the value for typing. The rules above hold in a list as in every layer: `q` quits or asks, Tab does nothing, and the action keys do nothing.
+- **Where it is used.** The maintainer named these sets, and the key table has a row for each:
+  - a key's allowed values in the Settings view;
+  - the lists in the Flow view's cards, such as a terminal's or a display's displays, devices and VTs;
+  - the device lists in the filter picker;
+  - the font set choices and the font sizes in the Looks tab;
+  - the font set files to choose from;
+  - the defined terminals.
+
+The list's look is the picker's, and this decision designs no other.
+
+#### The key table
+
+The key table, `ADR-1403-keys.tsv` beside this record, says what each key means in each kind of state, and names each exception. It is laid out as ADR-1000's tables are, one row for a key in a state:
+
+| Column | What it holds |
+|---|---|
+| `id` | the key and the state, such as `q.layer.file-view`. An id does not change once it is committed. |
+| `key` | the key or the mouse action, or `key line` for a row about the key line |
+| `state` | the kind of state, below |
+| `means` | what the key does in that state |
+| `status` | `supported` where vtium-config does this now; `planned` where it will, and the issue says how; `weighed` where the issue decides what the key does |
+| `note` | what vtium-config does today where that differs, or why the row is an exception |
+| `decided` | the decisions that set the meaning |
+| `issue` | the issue that carries a planned or weighed row |
+| `label` | the short word or two a key line shows for the key, or `-` where the key does nothing and the key line leaves it out |
+
+The kinds of state:
+
+- `view`: a view with nothing open over it.
+- `layer`: something open over a view that Esc closes, such as a card, a picker, a list, the new-frit form, the file view or Restore's list. `layer:list` is the shared list of **One list for every set of items**.
+- `typing`: a value being typed.
+- `question`: a question that waits for an answer.
+- `trial`: the live trial's countdown (ADR-1201 D4).
+- `too-small`: the screen below 80×25 (ADR-1201 D3).
+- `any`: every state.
+
+A name after a colon narrows a state to one view, layer or question, as in `view:flow`, `layer:file-view` or `question:leave`. Where several rows match, the row with the narrowest state decides.
+
+A change to what a key means edits this record and the table in one commit. The scenarios that drive the TUI by script read the table and check every key against it. They check a planned row in reverse: they expect what vtium-config does today, so the check fails once the work lands and the row still says `planned`.
+
+#### The interface tree
+
+> Edited 2026-11-16: the maintainer asked for the TUI's keys to be mapped to its interface tree before the build starts (`considered`, 2026-11-16), and this subsection and the tree were added.
+
+The maintainer asked for the tree to be built by hand as well as walked from the code (2026-11-16): "before we begin building, I'd like to make sure we have keypresses mapped to the application interface tree. I think this is the thing we earlier said would be derived from walking the code, but I also think that 'hand building' this allows the walk and the hand build to meet in the middle and compromise".
+
+The interface tree, `ADR-1403-tree.tsv` beside this record, lists every place the person can be in the TUI as decided: the views, what opens over them, the typing fields, the questions, the live trial and the screen below the minimum size. Each row is one node:
+
+| Column | What it holds |
+|---|---|
+| `id` | the node's id, dotted by its parent, such as `flow.card.list`. The views use the views table's ids, and an id does not change once it is committed. |
+| `parent` | the node it opens from |
+| `node` | what the node is, in plain words |
+| `reach` | the keys that open it from its parent |
+| `leave` | the keys that leave it, and where each one goes |
+| `keys` | the ids of the key table's rows that apply there |
+| `status` | `supported` where the code has the node now, and `planned` where it will |
+| `issue` | the issue that carries a planned node |
+| `now` | on a planned node, what the code does today |
+
+Every row of the key table applies to at least one node, and every key a node names is a row of the key table. A script checks both directions. The contract covers the mouse as well as the keys: a click and the wheel have rows in each node where the TUI reads them. The TUI reads the mouse only while the Flow view is in front, where mouse reporting is on.
+
+> Edited 2026-11-16: the maintainer reviewed the differences between the walk of the code and the hand-built tree (`considered`, 2026-11-16). A part's narrowing choices became a node of their own under a part's detail, and the mouse joined the contract. The paragraph ended at "A script checks both directions."
+
+The diagram shows the tree's top levels, with the Flow, Looks and Settings views opened one level or more:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> flow
+    flow --> looks: Tab
+    looks --> settings: Tab
+    settings --> help: Tab
+    help --> flow: Tab
+    state flow {
+        [*] --> overview
+        overview --> detail: Enter on a box
+        detail --> detail_typing: Enter on the label
+        overview --> card: Enter on a terminal
+        card --> card_list: Enter on a set
+        card --> card_typing: Enter on the name
+        overview --> maker: Enter on a template
+        maker --> picker: Enter on a filter
+        picker --> picker_typing: Enter on Other…
+        overview --> others: Enter on other inputs
+        overview --> file: v
+        overview --> restore: o
+    }
+    state looks {
+        [*] --> looks_view
+        looks_view --> looks_list: Enter on font set or size
+        looks_view --> new_frit: n
+    }
+    state settings {
+        [*] --> sections
+        sections --> section: Enter
+        section --> section_typing: Enter on a key
+        section --> section_list: Enter on a key with fixed values
+    }
+    state any {
+        question
+        trial
+        too_small
+    }
+```
+
+The tree is the hand-built half of the map. The scenarios that drive the TUI by script explore the code from its start states and name each state they reach with a tree id. A test checks both directions. Every state the explorer reaches is a node of the tree. Every supported node is reached by the keys its `reach` column gives. A planned node is checked in reverse, against its `now` column. A difference is either a defect in the code or a change to the tree, and the maintainer decides which.
+
+**The contract.** Once the maintainer has decided the differences between the walk and the hand-built tree, the tree, the key table and the views table are the TUI's contract, and the scenario test enforces it. The maintainer: "the result of this compromise is the contract that we can then use moving forward. altering the contract allows us to 'break' the code, allowing us to update the code to again be conforming of the contract". So a change to the TUI starts as a change to the contract. The work's first commit moves the rows it delivers to `supported`, or edits a supported row, and the scenario test turns red. The code then changes until the test passes again. A planned row records what the code does today and is checked in reverse, so the contract can describe future work while the test stays green, until a change claims the row.
+
+**Help that matches the code.** The Help tab and every view's key line are generated from the contract. The maintainer: "this also makes it possible to offer a help interface that is honest". For the node the person is on, the tree and the key table give the keys that act there and what each does. So help says only what the contract says, and the scenario test proves that the code does the same. The key table's `means` column is therefore the help text a person reads: whole short sentences that follow the rules for strings on screen. Its `label` column is the shorter name a key line shows. The hand-written help and key lines in vtium-config's word catalog go once the generated ones are built, which the key table's row `help.generated` tracks.
+
+The site's reference page for people who use vtium-config, "vtium-config's screens and keys", is generated from the tree and the key table too (the maintainer, 2026-11-16). The page opens with the tree as a Mermaid diagram. Then it has one section for each node, with how you reach and leave the node, and each key's label and meaning. A test fails when the page is stale, as ADR-1507 decides for the reference pages on escape sequences. docs/configure.md keeps a short introduction to the TUI and links to that page, where it listed keys by hand before. The row `help.generated` tracks this page with the generated help.
+
+> Edited 2026-11-16: the maintainer asked that the tree and its diagram go into vtium-config's docs for its users, not only into this record (`considered`, 2026-11-16). The paragraph above was added. In the same round every key that acts gained a row in the key table: the Flow view's movement keys, Enter, Space, `a`, `e`, `d`, `p` and `t`; the movement keys of the other views, of each card, detail, part maker and form, and of the file view, `j`, `k`, `h`, `l`, `g`, `G`, Ctrl-D and Ctrl-U included; and the keys of typing. Every row's `label` is filled, with `-` where the key does nothing.
+
+> Edited 2026-11-16: the maintainer made the tree and the two tables the TUI's contract, and had help and the key lines generated from it (`considered`, 2026-11-16). The two paragraphs above were added, and the key table gained its `label` column. Its `means` column was rewritten as text a person reads on screen, with the same meaning in each row.
+
 #### `v` views the file
 
-`v` shows the draft's vtium.conf as text, read-only, with the unsaved changes applied, exactly what Install would write (the maintainer, 2026-11-10: "we could drop the rules view and use the same key (v) to view the configuration file. (I don't see an obvious way to just view the file as it is configured)"). It opens at the line of the highlighted box's rule and marks each line the check complains about. `j` and `k` or Up and Down scroll by lines, `h` and `l` or Left and Right scroll sideways, `g` and `G` go to the top and the bottom, Ctrl-d and Ctrl-u move half a page, and `q` or Esc go back to the configuration with the same box highlighted. The file view saves and installs too (the maintainer, 2026-11-10: "in the viewing config file, we should allow to install/save as well."): `s` and `i` act as they do in the configuration, and the file view then stays open and shows the file as it now stands. The view of six columns, which drew each rule as an item, is gone. The rule order shows in the file, and vtium-config sets that order itself (D8).
+`v` shows the draft's vtium.conf as text, read-only, with the unsaved changes applied, exactly what Install would write (the maintainer, 2026-11-10: "we could drop the rules view and use the same key (v) to view the configuration file. (I don't see an obvious way to just view the file as it is configured)"). It opens at the line of the highlighted box's rule and marks each line the check complains about. `j` and `k` or Up and Down scroll by lines, `h` and `l` or Left and Right scroll sideways, `g` and `G` go to the top and the bottom, Ctrl-d and Ctrl-u move half a page, and Esc goes back to the configuration with the same box highlighted. `q` quits or asks, as it does everywhere (above). The file view saves and installs too (the maintainer, 2026-11-10: "in the viewing config file, we should allow to install/save as well."): `s` and `i` act as they do in the configuration, and the file view then stays open and shows the file as it now stands. The view of six columns, which drew each rule as an item, is gone. The rule order shows in the file, and vtium-config sets that order itself (D8).
 
 #### Editing an added path, and Revise
 
@@ -830,9 +1047,9 @@ On a configuration with no terminal and no rule, the first path's inputs roam, a
   - **Save**, on `s`, runs `vtium check-config` on the draft with the unsaved changes applied, and writes the result into the draft, and the font set changes into the draft's font set folder (D8). It writes whatever the check finds, since a draft may be unfinished, and asks nothing (the maintainer, 2026-11-09: "Accept all").
   - **Moving to another view** keeps the unsaved changes.
   - **Quitting with `q`** while changes are unsaved asks `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.` (the maintainer, 2026-11-09: "As proposed").
-  - **When the TUI stops for another reason,** by Ctrl-C, by SIGINT, SIGTERM, SIGQUIT or SIGHUP, or because its terminal closed, it saves the unsaved changes into the draft before it leaves (the maintainer, 2026-11-09: "As proposed"). A panic and SIGKILL lose them.
+  - **When the TUI stops for another reason,** by Ctrl-C, by SIGINT, SIGTERM, SIGQUIT or SIGHUP, or because its terminal closed, it saves the unsaved changes into the draft before it leaves (the maintainer, 2026-11-09: "As proposed"). A panic and SIGKILL lose them. At a question, Ctrl-C cancels the question instead, as **The same keys in every view** says.
   - **Revert, Restore and New** throw the unsaved changes away with what they replace, and their questions count the unsaved changes among what is lost.
-- **Each view shows its own controls** (the maintainer, 2026-11-09: "this sounds like contextual controls (by tab) and I think it makes more sense to declutter"). Beside the views' names, the tab bar shows only the actions of the view in front, each with its key. In the Flow view they are View file (`v`), Save (`s`), Install (`i`), Revert (`r`) and New (`n`), and Restore is on `o`. In the Looks, Fonts and Settings views they are Save and Install, and Help shows none (the maintainer, 2026-11-09: "Accept all"). The view has no Delete draft: `vtium config draft rm` deletes a draft (D8). Each action but View file and Save asks before it acts:
+- **Each view shows its own controls** (the maintainer, 2026-11-09: "this sounds like contextual controls (by tab) and I think it makes more sense to declutter"). Beside the views' names, the tab bar shows only the actions of the view in front, each with its key. In the Flow view they are View file (`v`), Save (`s`), Install (`i`), Revert (`r`) and New (`n`), and Restore is on `o`. In the Looks and Settings views they are Save and Install, and Help shows none (the maintainer, 2026-11-09: "Accept all"; the Fonts view went into the Looks view on 2026-11-11, ADR-1201 D3). The view has no Delete draft: `vtium config draft rm` deletes a draft (D8). Each action but View file and Save asks before it acts:
   - **Install** saves first, then installs the draft, as `vtium config install` does (D8). When the check finds a problem other than a missing complete route, Install refuses and lists what fails. When the only problem is that no complete route exists (D3), it asks `This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. After the install, nobody at this machine may be able to type into vtium. Install it anyway? 3 lines added, 1 removed.` and installs only on yes (the maintainer, 2026-11-09: "Ask, then allow it"). When the check passes, it asks `Install the draft? 3 lines added, 1 removed.` and installs only on yes.
   - **Revert** asks `Throw away the draft's changes? 3 lines added and 1 removed are lost.`, then copies the installed file back over the draft. The installed file is untouched.
   - **Restore** lists the installed history (D8), newest first, and copies the chosen file into the draft after asking `Replace the draft with installed file 3? 2 lines added and 5 removed are lost.` Nothing but Install writes `/etc/vtium/vtium.conf` (the maintainer, 2026-11-05).
@@ -843,7 +1060,7 @@ On a configuration with no terminal and no rule, the first path's inputs roam, a
 - **A draft with no sections** runs the shipped rules (D3), and the view shows them as the shipped default. The first change to such a draft first adds the shipped sections to the draft's unsaved changes, written as the fewest lines that run them: `version = 1`, the template's head and its rules, with none of the template's comments. Then it makes the change (the steering session's call, 2026-11-09; the maintainer, 2026-11-11: a vtium.conf that vtium-config writes holds a short header, then only what is set).
 - **This screen** (the maintainer, 2026-11-09: "we need to be able to remain on the display we're editing ( like a, 'this screen' or 'this display path')"). vtium-config learns the head it runs on from `VTIUM_HEAD` (ADR-1401 D5, D12). The view writes the words `this screen` on the box of that head's terminal and on the box of each display the head shows, and it opens with the highlight on the first of those displays. The highlight stays there while devices come and go and while vtium-config identifies a device (ADR-1401 D12), until the person moves it. When `VTIUM_HEAD` is unset, as over ssh or in a terminal that is not a vtium console, the view marks no terminal, says nothing about it, and opens with the highlight on the first box of CONFIGURATION (the maintainer, 2026-11-09: "As proposed").
 - **The terminal's minimum size** is 80 by 25 cells (the maintainer, 2026-11-05). It stays 80×25 now that the view is one document that reflows (the steering session's call, 2026-11-10). The minimum applies to the terminal vtium-config runs in, not to the machine or its console: a minspec board with a 40-column console is configured over ssh from a terminal at 80 by 25 or larger, with the commands of D8 at any size, or with a draft built on another machine and copied over, since a draft is a complete vtium.conf (D8). Below the minimum, the TUI draws no view: it shows one screen with the size it needs, the `vtium config` commands, and the keys to leave and to undo a font preview that made the grid too small.
-- **How to reach it.** Flow is the first of vtium-config's views, Flow, Looks, Fonts, Settings and Help, and the one vtium-config opens on (ADR-1201 D3). `vtium config flow` prints the flow as text, or as JSON with `--json`, and exits. Every change the view makes is also a command (D8), and the view is a front end over the same operations. The view reads vtium.conf, the frits and the devices as the user, with no privilege; only Install asks for sudo.
+- **How to reach it.** Flow is the first of vtium-config's views, Flow, Looks, Settings and Help, and the one vtium-config opens on (ADR-1201 D3). `vtium config flow` prints the flow as text, or as JSON with `--json`, and exits. Every change the view makes is also a command (D8), and the view is a front end over the same operations. The view reads vtium.conf, the frits and the devices as the user, with no privilege; only Install asks for sudo.
 
 #### The words
 

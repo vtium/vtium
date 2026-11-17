@@ -1487,19 +1487,23 @@ mod tests {
     }
 
     // What 16 MiB leaves after the rest of the process, the minspec grid's
-    // two screens at their worst and a full link store: 5 MiB without
-    // images, and 4,653,056 bytes (4.44 MiB) with them, whose screen rows
-    // may hold placeholder cells; a smaller grid leaves more.
+    // two screens at their worst and a full link store: 5,373,952 bytes
+    // (5.13 MiB) without images, and 4,915,200 bytes (4.69 MiB) with them,
+    // whose screen rows may hold placeholder cells; a smaller grid leaves
+    // more.
+    //
+    // References:
+    // - ADR-1009 D6: the figures.
     #[test]
     fn the_default_budget_is_what_the_minspec_peak_leaves() {
         #[cfg(target_pointer_width = "64")]
         {
-            assert_eq!(SB_MEMORY_DEFAULT_MINSPEC, 5_242_880);
-            assert_eq!(SB_MEMORY_DEFAULT_IMAGES, 4_653_056);
+            assert_eq!(SB_MEMORY_DEFAULT_MINSPEC, 5_373_952);
+            assert_eq!(SB_MEMORY_DEFAULT_IMAGES, 4_915_200);
             #[cfg(feature = "images")]
-            assert_eq!(SB_MEMORY_DEFAULT, 4_653_056);
+            assert_eq!(SB_MEMORY_DEFAULT, 4_915_200);
             #[cfg(not(feature = "images"))]
-            assert_eq!(SB_MEMORY_DEFAULT, 5_242_880);
+            assert_eq!(SB_MEMORY_DEFAULT, 5_373_952);
         }
         let screens = screens_bytes_max(MINSPEC_GRID.0, MINSPEC_GRID.1);
         let rest = MINSPEC_PEAK - MINSPEC_REST - screens - LINKS_BYTES_MAX;

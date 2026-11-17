@@ -2,8 +2,9 @@
 //!
 //! A glyph is cached under its text (the cluster's codepoints), its
 //! variant (bold, italic, and superscript or subscript), its width in
-//! cells and its piece: the glyph itself, or one cell of it doubled for a
-//! line of double size (`crate::renderer::double`). So the same text in the same variant is drawn by the font once however often the screen re-creates it. Glyphs
+//! cells and its piece: the glyph itself, one cell of it doubled for a
+//! line of double size (`crate::renderer::double`), or one cell of a sized
+//! run's block (`crate::renderer::sized`). So the same text in the same variant is drawn by the font once however often the screen re-creates it. Glyphs
 //! live in four pools, masks and color glyphs each one or two cells wide,
 //! and each pool has its own least-recently-used order, a glyph count and a
 //! byte ceiling. Recency is the drawn frame. A glyph that would evict one
@@ -23,12 +24,13 @@
 //! arrival empties the table. A glyph refused
 //! for room is not remembered: the next frame may have the room.
 
-use vtium_font::{Drawn, Face, Font, Script, Variant, Width};
+use vtium_font::{Doubled, Drawn, Face, Font, Glyph, Script, Variant, Width};
 
 use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
 use crate::mono::Fallback;
 use crate::reach::Reach;
 use crate::renderer::double::{self, Piece};
+use crate::renderer::sized::{Block, RunPiece, RunSize};
 use crate::stored::Stored;
 use crate::target::Orientation;
 
@@ -251,6 +253,32 @@ pub struct CacheCounts {
     pub uncached: u32,
 }
 
+/// The glyph a line of double size last drew at its double size, for its
+/// text, width, variant and size, or `None` where the line doubles the
+/// pixels of the glyph at the normal size.
+#[derive(Debug)]
+struct LastDoubled {
+    text: Text,
+    width: Width,
+    variant: Variant,
+    size: Doubled,
+    glyph: Option<Glyph>,
+}
+
+/// The block a sized run last drew, for its text, variant and size, which
+/// each cell's piece of the run is cut from. A run's cells on one row draw
+/// one after the other, so the block is drawn once for each row of the run
+/// whose pieces are not yet cached, not once for each cell. Runs side by
+/// side take turns on each row, so each of them draws its block again on
+/// each of its rows.
+#[derive(Debug)]
+struct LastSized {
+    text: Text,
+    variant: Variant,
+    size: RunSize,
+    block: Option<Block>,
+}
+
 /// A glyph the font drew nothing for: its text, variant, width and piece.
 #[derive(Debug)]
 struct Failed {
@@ -288,6 +316,13 @@ pub(crate) struct GlyphCache<T = Stored> {
     missing: Vec<char>,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
+    /// The glyph last drawn at a double size, which each piece of it is
+    /// cut from. A line of double size draws the pieces of one cell one
+    /// after the other, so the font draws the glyph once for them, not
+    /// once for each piece. An arrival forgets it.
+    last_doubled: Option<LastDoubled>,
+    /// The block a sized run last drew. An arrival forgets it.
+    last_sized: Option<LastSized>,
     /// The font has drawn a glyph whose ink passes its cells.
     reaching: bool,
     /// How far the glyph of each ASCII character in each variant reaches,
@@ -348,6 +383,8 @@ impl<T: Held> GlyphCache<T> {
             counts: CacheCounts::default(),
             missing: Vec::new(),
             fallback: None,
+            last_doubled: None,
+            last_sized: None,
             reaching: false,
             reaches: Vec::new(),
         }
@@ -370,6 +407,8 @@ impl<T: Held> GlyphCache<T> {
         }
         self.failed.clear();
         self.reaches.clear();
+        self.last_doubled = None;
+        self.last_sized = None;
         // eviction frees an entry in place, so the indices ahead stand
         for i in 0..self.entries.len() {
             let Ok(i) = u32::try_from(i) else { break };
@@ -458,6 +497,19 @@ impl<T: Held> GlyphCache<T> {
             return None;
         }
         self.counts.misses = self.counts.misses.saturating_add(1);
+        if let Some(run) = piece.run() {
+            let ((glyph, color), missing) = self.run_piece(font, (text, variant), run)?;
+            if missing {
+                self.missing.extend_from_slice(text);
+            }
+            let (o, bits) = (self.orientation, self.storage.bits);
+            let stored = Stored::new(&glyph, 1, o, bits);
+            let stored = match color {
+                Some(c) => stored.with_layer(Stored::new(&c, 1, o, bits)),
+                None => stored,
+            };
+            return Some((stored, missing));
+        }
         let drawn = if self.storage.unscaled {
             font.glyph_unscaled_variant(text, width, variant)
         } else {
@@ -498,13 +550,72 @@ impl<T: Held> GlyphCache<T> {
             Some(bitmap) => (bitmap, 1),
             None => (glyph, scale),
         };
-        let (glyph, scale) = if piece.is_whole() {
-            (glyph, scale)
-        } else {
-            double::piece_glyph(font, (text, width, variant), (&glyph, scale), piece)?
+        let (glyph, scale) = match piece.doubled() {
+            None => (glyph, scale),
+            Some(size) => {
+                let drawn = self.doubled_glyph(font, (text, width, variant), size);
+                double::piece_glyph(drawn, (&glyph, scale), (font.cell(), width), piece)?
+            }
         };
         let stored = Stored::new(&glyph, scale, self.orientation, self.storage.bits);
         Some((stored, missing))
+    }
+
+    /// The glyph for `text` drawn at the double size `size`
+    /// ([`double::doubled_glyph`]): the one last drawn when it is for the
+    /// same text, width, variant and size, else drawn now and kept in its
+    /// place.
+    fn doubled_glyph<F: Face>(
+        &mut self,
+        font: &Font<F>,
+        (text, width, variant): (&[char], Width, Variant),
+        size: Doubled,
+    ) -> Option<&Glyph> {
+        let same = self.last_doubled.as_ref().is_some_and(|d| {
+            d.text.chars() == text && d.width == width && d.variant == variant && d.size == size
+        });
+        if !same {
+            self.last_doubled = Some(LastDoubled {
+                text: Text::of(text),
+                width,
+                variant,
+                size,
+                glyph: double::doubled_glyph(
+                    font,
+                    (text, width, variant),
+                    size,
+                    self.fallback.as_ref(),
+                ),
+            });
+        }
+        self.last_doubled.as_ref().and_then(|d| d.glyph.as_ref())
+    }
+
+    /// The piece `run` of the sized run whose text is `text`, cut from the
+    /// run's block ([`Block::draw`]): the block last drawn when it is for
+    /// the same text, variant and size, else drawn now and kept in its
+    /// place. Gives whether any of the run's clusters drew the font's
+    /// missing glyph.
+    fn run_piece<F: Face>(
+        &mut self,
+        font: &Font<F>,
+        (text, variant): (&[char], Variant),
+        run: RunPiece,
+    ) -> Option<((Glyph, Option<Glyph>), bool)> {
+        let same = self
+            .last_sized
+            .as_ref()
+            .is_some_and(|l| l.text.chars() == text && l.variant == variant && l.size == run.size);
+        if !same {
+            self.last_sized = Some(LastSized {
+                text: Text::of(text),
+                variant,
+                size: run.size,
+                block: Block::draw(font, (text, variant), run.size, self.fallback.as_ref()),
+            });
+        }
+        let block = self.last_sized.as_ref()?.block.as_ref()?;
+        Some((block.piece(font.cell(), run)?, block.missing))
     }
 
     /// Whether the font has drawn a glyph whose ink passes its cells: until
@@ -1137,6 +1248,198 @@ mod tests {
             }
         }
         assert!(c.live <= 37);
+    }
+
+    /// The coverage of each pixel of the piece `piece` of `text` that the
+    /// cache `c` draws in `f`, row by row.
+    fn piece_pixels<F: Face>(
+        c: &mut GlyphCache,
+        f: &Font<F>,
+        text: &[char],
+        piece: Piece,
+    ) -> Vec<u8> {
+        let cell = f.cell();
+        let g = c
+            .get_piece(f, (text, Width::Narrow, Variant::default()), piece)
+            .unwrap();
+        assert!(!g.is_rgba(), "the piece is a color glyph");
+        let (w, h) = (cell.width as usize, cell.height as usize);
+        let mut out = vec![0u8; w.checked_mul(h).unwrap()];
+        for (y, row) in out.chunks_mut(w).enumerate() {
+            g.mask_line(0, i64::try_from(y).unwrap(), row);
+        }
+        out
+    }
+
+    // On a 1-bit display a light shade is its 1-bit ordered pattern, one
+    // pixel in four lit, on a line of double size as on a line of the
+    // normal size: the sprite drawn at the doubled cell takes its pattern
+    // too, so no pixel is a gray that the cut at half would light or blank
+    // whole. The operator decided the pattern on 2026-10-28.
+    // covers: text.line-size
+    #[test]
+    fn a_shade_on_a_line_of_double_size_keeps_its_1_bit_pattern() {
+        use crate::mono::{Depth, Fallback};
+        use vtium_term::LineSize;
+        let f = font();
+        let shade = ['\u{2591}'];
+        assert!(!f.face().has_glyph(shade[0]), "the shade is a sprite");
+        let mut c = GlyphCache::new(Budgets::glyphs(16), Storage::default(), Orientation::Normal)
+            .with_fallback(Fallback::new(Depth::One, f.cell()));
+        for size in [
+            LineSize::Single,
+            LineSize::DoubleWidth,
+            LineSize::DoubleHeightTop,
+            LineSize::DoubleHeightBottom,
+        ] {
+            for column in [0, 1] {
+                let px = piece_pixels(&mut c, &f, &shade, Piece::of(size, column));
+                assert!(
+                    px.iter().all(|&p| p == 0 || p == 0xff),
+                    "{size:?} {column}: {px:?}"
+                );
+                let lit = px.iter().filter(|&&p| p == 0xff).count();
+                assert_eq!(lit, px.len() / 4, "{size:?} {column}");
+            }
+        }
+    }
+
+    /// A face of unifont's 8×16 cell that draws ☺ as a color glyph, at the
+    /// normal size and at each double size, as the font helper renders a
+    /// color font's glyphs.
+    struct Smiley;
+
+    impl Face for Smiley {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 16,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, c: char) -> bool {
+            c == '\u{263a}'
+        }
+        fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            (cluster == ['\u{263a}'])
+                .then(|| vtium_font::Glyph::rgba(8, 16))
+                .flatten()
+        }
+        fn doubled(
+            &self,
+            cluster: &[char],
+            _: Variant,
+            doubled: vtium_font::Doubled,
+        ) -> Option<vtium_font::Glyph> {
+            let cell = doubled.cell(self.cell())?;
+            (cluster == ['\u{263a}'])
+                .then(|| vtium_font::Glyph::rgba(cell.width, cell.height))
+                .flatten()
+        }
+    }
+
+    // On a gray display a color glyph is unifont's bitmap of the same
+    // character, the operator's decision on vtium/vtium#135, on a line of
+    // double size as on a line of the normal size: the color glyph the
+    // face holds at the double size is not drawn, and each piece is
+    // unifont's bitmap with each pixel doubled.
+    // covers: text.line-size
+    #[test]
+    fn a_color_glyph_on_a_line_of_double_size_takes_unifonts_bitmap_off_color() {
+        use crate::mono::{Depth, Fallback};
+        use vtium_term::LineSize;
+        let f = Font::new(Smiley);
+        let smiley = ['\u{263a}'];
+        let unifont = Font::new(vtium_font::Unifont::new(16));
+        let mut want =
+            GlyphCache::new(Budgets::glyphs(16), Storage::default(), Orientation::Normal);
+        for depth in [Depth::Gray(4), Depth::One] {
+            let mut c =
+                GlyphCache::new(Budgets::glyphs(16), Storage::default(), Orientation::Normal)
+                    .with_fallback(Fallback::new(depth, f.cell()));
+            for size in [
+                LineSize::DoubleWidth,
+                LineSize::DoubleHeightTop,
+                LineSize::DoubleHeightBottom,
+            ] {
+                for column in [0, 1] {
+                    let piece = Piece::of(size, column);
+                    assert_eq!(
+                        piece_pixels(&mut c, &f, &smiley, piece),
+                        piece_pixels(&mut want, &unifont, &smiley, piece),
+                        "{depth:?} {size:?} {column}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A face of an 8×16 cell that holds `A` rendered at each double size,
+    /// as the font helper renders an outline font's glyphs, and counts how
+    /// often the cache asks it for one.
+    struct Counted(std::rc::Rc<core::cell::Cell<u32>>);
+
+    impl Face for Counted {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 16,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, c: char) -> bool {
+            c == 'A'
+        }
+        fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            (cluster == ['A'])
+                .then(|| vtium_font::Glyph::mask(8, 16))
+                .flatten()
+        }
+        fn doubled(
+            &self,
+            cluster: &[char],
+            _: Variant,
+            doubled: vtium_font::Doubled,
+        ) -> Option<vtium_font::Glyph> {
+            self.0.set(self.0.get().saturating_add(1));
+            let cell = doubled.cell(self.cell())?;
+            (cluster == ['A'])
+                .then(|| vtium_font::Glyph::mask(cell.width, cell.height))
+                .flatten()
+        }
+    }
+
+    // The pieces of one cell on a line of double size are cut from one
+    // glyph drawn at the double size, which the face renders once for all
+    // of them: once for the two pieces of a line of double width, and once
+    // for the four pieces of a double-height pair, whose top and bottom
+    // pieces cut one glyph. An arrival makes the face render it again.
+    // covers: text.line-size
+    #[test]
+    fn the_pieces_of_a_cell_of_double_size_are_cut_from_one_drawn_glyph() {
+        use vtium_term::LineSize;
+        let asked = std::rc::Rc::new(core::cell::Cell::new(0));
+        let f = Font::new(Counted(asked.clone()));
+        let mut c = GlyphCache::new(Budgets::glyphs(16), Storage::default(), Orientation::Normal);
+        let key = (&['A'][..], Width::Narrow, Variant::default());
+        let mut pieces = |sizes: &[LineSize]| {
+            asked.set(0);
+            for &size in sizes {
+                for column in [0, 1] {
+                    assert!(c.get_piece(&f, key, Piece::of(size, column)).is_some());
+                }
+            }
+            c.forget(&['A']);
+            asked.get()
+        };
+        assert_eq!(pieces(&[LineSize::DoubleWidth]), 1);
+        let pair = [LineSize::DoubleHeightTop, LineSize::DoubleHeightBottom];
+        assert_eq!(pieces(&pair), 1);
+        assert_eq!(pieces(&pair), 1, "drawn again after an arrival");
     }
 
     /// A face that draws nothing at all.
