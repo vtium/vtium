@@ -806,7 +806,23 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
 fn settings_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
     m.insert(
         "enter.view.settings",
-        (|s| s.goes_to("settings.section"), None),
+        (
+            |s| {
+                s.goes_to("settings.section")?;
+                let (want, got) = (
+                    s.before.app.settings.sections.at,
+                    s.after.app.settings.open.map(|(at, list)| (at, list.at)),
+                );
+                if got == Some((want, 0)) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Enter on section {want} opened {got:?}, not its first key"
+                    ))
+                }
+            },
+            None,
+        ),
     );
     m.insert(
         "enter.layer.settings-section",
@@ -818,14 +834,66 @@ fn settings_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
             None,
         ),
     );
+    // the list opens on the value the key has now
     m.insert(
         "list.settings-values",
-        (|s| s.goes_to("settings.section.list"), None),
+        (
+            |s| {
+                s.goes_to("settings.section.list")?;
+                let app = &s.after.app;
+                let key = app.settings.key().ok_or("no key is highlighted")?;
+                let words = vtium_config::tui::settings::fixed_values(key)
+                    .ok_or("the key has no fixed values")?;
+                let now = app.value(key).0;
+                let at = app.settings.values.map(|l| l.at);
+                match words.iter().position(|w| *w == now) {
+                    Some(i) if at != Some(i) => Err(format!(
+                        "the list highlights {at:?}, and the key's value {now} is item {i}"
+                    )),
+                    _ => Ok(()),
+                }
+            },
+            None,
+        ),
     );
     m.insert(
         "esc.layer.settings-section",
-        (|s| s.goes_to("settings"), None),
+        (
+            |s| {
+                s.goes_to("settings")?;
+                let open = s.before.app.settings.open.map(|(at, _)| at);
+                if open == Some(s.after.app.settings.sections.at) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Esc from section {open:?} highlights section {}",
+                        s.after.app.settings.sections.at
+                    ))
+                }
+            },
+            None,
+        ),
     );
+    // Up and Down move the highlight by one key and stay in the section
+    fn moved(s: &Seen<'_>, by: isize) -> Result<(), String> {
+        s.goes_to("settings.section")?;
+        let at = |sim: &Sim| sim.app.settings.open.map(|(_, list)| list.at);
+        let (a, b) = (at(s.before), at(s.after));
+        let len = s
+            .before
+            .app
+            .settings
+            .section()
+            .map_or(0, |sec| sec.keys().len());
+        let want = a.map(|a| a.saturating_add_signed(by).min(len.saturating_sub(1)));
+        if b == want {
+            Ok(())
+        } else {
+            Err(format!("the highlight went from {a:?} to {b:?}"))
+        }
+    }
+    m.insert("up.layer.settings-section", (|s| moved(s, -1), None));
+    m.insert("down.layer.settings-section", (|s| moved(s, 1), None));
 }
 
 fn step_view(s: &Seen<'_>, forward: bool) -> Result<(), String> {

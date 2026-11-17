@@ -189,6 +189,11 @@ pub fn of(sim: &Sim) -> Abs {
     if abs.narrow == "new-frit" {
         abs.focus = format!("row {}", app.new_frit.at);
     }
+    // a Settings key's kind decides what Enter opens on it: its typing,
+    // or its values as a list
+    if abs.narrow == "settings-section" {
+        abs.focus = key_kind(app.settings.key());
+    }
     if abs.kind == StateKind::View {
         abs.focus = focus(app);
         abs.narrow = abs.view.to_owned();
@@ -242,6 +247,12 @@ fn open(app: &App) -> (StateKind, &'static str) {
     if app.view == View::New {
         return (StateKind::Layer, "new-frit");
     }
+    if app.view == View::Settings && app.settings.values.is_some() {
+        return (StateKind::Layer, "settings-list");
+    }
+    if app.view == View::Settings && app.settings.open.is_some() {
+        return (StateKind::Layer, "settings-section");
+    }
     if app.view != View::Flow {
         return (StateKind::View, "");
     }
@@ -284,16 +295,6 @@ fn focus(app: &App) -> String {
                 FontState::Reads => "frit".into(),
                 FontState::BuiltIn => "builtin".into(),
                 FontState::Refused(_) => "refused".into(),
-            }
-        }
-        View::Settings => {
-            let keys = vtium_config::tui::model::setting_keys();
-            match keys.get(app.setting_at).map(|k| k.kind) {
-                Some(Kind::Switch) => "switch".into(),
-                Some(Kind::Choice(_)) => "choice".into(),
-                Some(Kind::KeyBinding) => "binding".into(),
-                Some(_) => "value".into(),
-                None => "none".into(),
             }
         }
         View::Help => if app.about { "about" } else { "help" }.into(),
@@ -340,6 +341,20 @@ fn focus(app: &App) -> String {
             };
             format!("{place} {slot}")
         }
-        View::Looks | View::New => String::new(),
+        View::Looks | View::New | View::Settings => String::new(),
     }
+}
+
+/// The kind of a Settings key, as far as Enter on it differs: a switch or
+/// a choice opens its values as a list, and a key binding or any other
+/// key starts typing.
+fn key_kind(key: Option<&vtium_settings::keys::Key>) -> String {
+    match key.map(|k| k.kind) {
+        Some(Kind::Switch) => "switch",
+        Some(Kind::Choice(_)) => "choice",
+        Some(Kind::KeyBinding) => "binding",
+        Some(_) => "value",
+        None => "none",
+    }
+    .into()
 }

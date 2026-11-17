@@ -14,7 +14,8 @@
 
 use super::canvas::{Canvas, Row, Span, span, wrap};
 use super::color::{Style, palette};
-use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Then, View, setting_keys};
+use super::listbox::{self, Item, Marks};
+use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Then, View};
 use super::words;
 use crate::specimen::Sources;
 use vtium_settings::keys::Kind as KeyKind;
@@ -221,60 +222,7 @@ fn body(app: &App) -> Body {
                 tail: tail(&sentence, cols),
             }
         }
-        View::Settings => {
-            let all = setting_keys();
-            let items: Vec<(String, String)> = all
-                .iter()
-                .enumerate()
-                .map(|(i, key)| {
-                    let value = match &app.editing {
-                        Some(typed) if i == app.setting_at => format!("{typed}_"),
-                        _ => match app.value(key) {
-                            (v, true) => words::default_value(v),
-                            (v, false) if v.is_empty() && key.kind == KeyKind::KeyBinding => {
-                                words::NO_KEY.to_owned()
-                            }
-                            (v, false) => v,
-                        },
-                    };
-                    let value = if app.changed(key.name) {
-                        format!("{value}, {}", words::TO_SAVE)
-                    } else {
-                        value
-                    };
-                    (key.name.to_owned(), value)
-                })
-                .collect();
-            // the key's column takes at most half the screen
-            let width = all
-                .iter()
-                .map(|k| k.name.chars().count())
-                .max()
-                .unwrap_or(0)
-                .min(24)
-                .min((cols / 2).saturating_sub(4));
-            let (list, keep) = list(&items, app.setting_at, width, cols);
-            let binding = all
-                .get(app.setting_at)
-                .is_some_and(|k| k.kind == KeyKind::KeyBinding);
-            let hint = if app.editing.is_some() && binding {
-                words::EDITING_BINDING
-            } else if app.editing.is_some() {
-                words::EDITING
-            } else {
-                words::SETTINGS_HINT
-            };
-            let what = all
-                .get(app.setting_at)
-                .map_or(String::new(), |k| k.what_line());
-            let mut tail = tail(hint, cols);
-            tail.extend(
-                wrap(&what, cols.saturating_sub(2), WHAT_ROWS)
-                    .into_iter()
-                    .map(|l| plain(format!(" {l}"))),
-            );
-            Body { list, keep, tail }
-        }
+        View::Settings => settings_body(app),
         View::New => {
             let mut items: Vec<(String, String)> = words::NEW_FIELD_NAMES
                 .iter()
@@ -304,6 +252,132 @@ fn body(app: &App) -> Body {
             keep: 0,
             tail: Vec::new(),
         },
+    }
+}
+
+/// The Settings view's body, in the shared list: the sections, with the
+/// highlighted section's description under them; or the open section's
+/// keys in their titled groups, each with its value, and the highlighted
+/// key's description under them; or the highlighted key's allowed values.
+///
+/// References:
+/// - ADR-1201 D3, the Settings bullet: sections, then groups of keys.
+/// - ADR-1403 D7, "One list for every set of items": the list's look.
+fn settings_body(app: &App) -> Body {
+    let cols = app.cols;
+    let sections = super::settings::sections();
+    let bold = Style {
+        bold: true,
+        ..Style::PLAIN
+    };
+    let Some((at, keys_list)) = app.settings.open else {
+        let items: Vec<Item> = sections
+            .iter()
+            .map(|s| Item::new(s.title, words::settings_count(s.keys().len())))
+            .collect();
+        let (list, keep) = listbox::rows(&items, app.settings.sections.at, Marks::None, cols);
+        let about = sections
+            .get(app.settings.sections.at)
+            .map_or("", |s| s.about);
+        let mut tail = tail(words::SECTIONS_HINT, cols);
+        tail.extend(
+            wrap(about, cols.saturating_sub(2), WHAT_ROWS)
+                .into_iter()
+                .map(|l| plain(format!(" {l}"))),
+        );
+        return Body { list, keep, tail };
+    };
+    let Some(section) = sections.get(at) else {
+        return Body {
+            list: Vec::new(),
+            keep: 0,
+            tail: Vec::new(),
+        };
+    };
+    let keys = section.keys();
+    let key = keys.get(keys_list.at).copied();
+    let what = key.map_or(String::new(), |k| k.what_line());
+    let tail_of = |hint: &str| {
+        let mut rows = tail(hint, cols);
+        rows.extend(
+            wrap(&what, cols.saturating_sub(2), WHAT_ROWS)
+                .into_iter()
+                .map(|l| plain(format!(" {l}"))),
+        );
+        rows
+    };
+    // a key's allowed values, open over the section
+    if let (Some(values), Some(k)) = (app.settings.values, key) {
+        let now = app.value(k).0;
+        let default = crate::commands::value_text(k, None).0;
+        let items: Vec<Item> = super::settings::fixed_values(k)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|w| Item {
+                on: w == now,
+                ..Item::new(
+                    w,
+                    if w == default {
+                        words::VALUE_DEFAULT
+                    } else {
+                        ""
+                    },
+                )
+            })
+            .collect();
+        let title = words::settings_title(&[section.title, k.name]);
+        let mut list = vec![vec![span(format!(" {title}"), bold)], plain("")];
+        let (rows, keep) = listbox::rows(&items, values.at, Marks::Choice, cols);
+        let keep = keep.saturating_add(list.len());
+        list.extend(rows);
+        return Body {
+            list,
+            keep,
+            tail: tail_of(words::VALUES_HINT),
+        };
+    }
+    let mut items = Vec::new();
+    for (group, group_keys) in &section.groups {
+        for (n, k) in group_keys.iter().enumerate() {
+            let typed = app
+                .editing
+                .as_ref()
+                .filter(|_| key.is_some_and(|h| h.name == k.name));
+            let value = match typed {
+                Some(t) => format!("{t}_"),
+                None => match app.value(k) {
+                    (v, true) => words::default_value(v),
+                    (v, false) if v.is_empty() && k.kind == KeyKind::KeyBinding => {
+                        words::NO_KEY.to_owned()
+                    }
+                    (v, false) => v,
+                },
+            };
+            let value = if app.changed(k.name) {
+                format!("{value}, {}", words::TO_SAVE)
+            } else {
+                value
+            };
+            items.push(Item {
+                heading: (n == 0).then(|| (*group).to_owned()),
+                ..Item::new(k.name, value)
+            });
+        }
+    }
+    let title = words::settings_title(&[section.title]);
+    let mut list = vec![vec![span(format!(" {title}"), bold)], plain("")];
+    let (rows, keep) = listbox::rows(&items, keys_list.at, Marks::None, cols);
+    let keep = keep.saturating_add(list.len());
+    list.extend(rows);
+    let hint = match (&app.editing, key) {
+        (Some(_), Some(k)) if k.kind == KeyKind::KeyBinding => words::EDITING_BINDING,
+        (Some(_), _) => words::EDITING,
+        (None, _) => words::SETTINGS_HINT,
+    };
+    Body {
+        list,
+        keep,
+        tail: tail_of(hint),
     }
 }
 
@@ -673,7 +747,7 @@ fn status(canvas: &mut Canvas, app: &App) {
 const MESSAGE_ROWS: usize = 3;
 
 /// The hand-written keys of a view whose node of the interface tree is
-/// still planned: Looks, Fonts, the new-frit form and Settings. Their work
+/// still planned: Looks, Fonts and the new-frit form. Their work
 /// rebuilds them and moves their nodes to supported, and the key line then
 /// comes from the contract, as everywhere else.
 fn planned_keys(app: &App) -> &'static str {
@@ -681,10 +755,8 @@ fn planned_keys(app: &App) -> &'static str {
         View::Looks => words::KEYS_LOOKS,
         View::Fonts if app.text_preview() => words::KEYS_FONTS_LIVE,
         View::Fonts => words::KEYS_FONTS,
-        View::Settings if app.editing.is_some() => words::KEYS_EDITING,
-        View::Settings => words::KEYS_SETTINGS,
         View::New => words::KEYS_NEW,
-        View::Flow | View::Help => "",
+        View::Flow | View::Settings | View::Help => "",
     }
 }
 
