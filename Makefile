@@ -82,6 +82,27 @@ help: ## Show this help
 # the other crates' links stay as they are.
 RELR_LINK := -C link-arg=-Wl,-z,pack-relative-relocs
 
+# The minspec console binary also links with identical code folding: the
+# linker keeps one copy of each set of functions whose machine code and
+# relocations are the same, and points every caller at that copy. Generic
+# code instantiated for types of the same layout folds this way, and the
+# binary shrinks by about 42 KB, which keeps it under the 4,259,840-byte
+# budget that tier 3 holds the minspec binary to. The mode is all, not safe:
+# safe folds only functions whose address no code takes, and rustc emits no
+# address-significance table to tell the linker which those are, so safe
+# folds nothing. Folding gives two functions one address, so code that
+# compares function addresses could see two functions as one; no code in the
+# minspec binary or the crates it links compares them. The flag needs lld,
+# which the tools/arm wrappers link through, so it goes to the minspec
+# builds that link through those wrappers: make minspec, make install-tree,
+# make vt-dev-console and make arm. make install-build links with the host's
+# linker, which may be GNU ld, and GNU ld has no --icf, so it links without
+# folding.
+#
+# References:
+# - ADR-1200 D19: the minspec binary's size budget.
+ICF_LINK := -C link-arg=-Wl,--icf=all
+
 # check-relr FILE fails unless the dynamic section of FILE carries DT_RELR, so
 # the flag cannot drop silently.
 define check-relr
@@ -157,7 +178,7 @@ endif
 .PHONY: minspec
 minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, target/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	$(build_settings)VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
 	$(call check-relr,$(VTIUM_MINSPEC))
 	$(call check-glibc,$(VTIUM_MINSPEC))
 
@@ -502,7 +523,7 @@ msrv: ## Build the workspace, its tests and the minspec profile with the oldest 
 arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE/minspec (ARM_TARGETS='...'; needs clang)
 	VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo build --profile minspec $(addprefix --target ,$(ARM_TARGETS))
 	for t in $(ARM_TARGETS); do \
-		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $$t -- $(RELR_LINK) || exit 1; \
+		VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $$t -- $(RELR_LINK) $(ICF_LINK) || exit 1; \
 		$(call check-relr,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
 		$(call check-glibc,$(or $(CARGO_TARGET_DIR),target)/$$t/minspec/vtium) || exit 1; \
 	done
@@ -710,7 +731,7 @@ $(VT_INSTALL_GOALS): export VTIUM_VT_DRY_RUN = $(value DRY_RUN)
 .PHONY: vt-dev-console
 vt-dev-console: ## Build the console make vt-install installs, target/vt-dev/x86_64-unknown-linux-gnu/minspec/vtium, with FEATURES='...', HWACCEL=on|off and DISPLAY_BUFFERS=1|2|3 when named (needs clang)
 	tools/arm/sysroot fetch amd64
-	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)VTIUM_FONT_HELPER=$(VTIUM_DEV_HELPER) $(if $(IMAGES),VTIUM_IMAGE=$(VTIUM_DEV_IMAGE)) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc --profile minspec -p vtium --bin vtium --target $(X86_TARGET) --target-dir $(VTIUM_DEV_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK) $(ICF_LINK)
 	$(call check-relr,$(VTIUM_DEV))
 	$(call check-glibc,$(VTIUM_DEV))
 ifneq ($(IMAGES),)
