@@ -2139,10 +2139,13 @@ impl Engine {
                 }),
             });
         }
-        // the coverage holds what the frit draws at every height, so an
-        // outline source counts its own characters and not those that only
-        // its strikes hold, which draw only up to the tallest strike's
-        // height
+        // the coverage holds each source's own characters within its
+        // cover= lines, and never the characters that only its strikes
+        // hold. An outline source draws its own characters at every
+        // height. A bitmap source with strikes draws them only where its
+        // own font is the tallest that fits the cell, and elsewhere draws
+        // the strike's characters, so at those heights the coverage can
+        // name a character the frit does not draw.
         let mut coverage: Vec<u32> = sources
             .iter()
             .flat_map(|(source, l)| {
@@ -5741,6 +5744,33 @@ mod tests {
             "{:?}",
             engine.warnings()
         );
+    }
+
+    // A hex: source draws only the characters its cover= lines let it
+    // give. With the unifont layer's two cover= lines, the source draws
+    // A and leaves out its glyphs in both private-use areas, where Nerd
+    // Fonts puts its icons, so an icon that no other source holds draws
+    // nothing from it. The test reads what is drawn, not the coverage, so
+    // it fails when the drawing path stops checking cover=.
+    //
+    // References:
+    // - ADR-1204 D5: the unifont layer's two cover= lines leave both
+    //   private-use areas out.
+    #[test]
+    fn a_hex_source_draws_only_what_its_cover_lines_give() {
+        let dir = scratch("hex-cover");
+        let file = dir.join("u.hex");
+        let glyph = "00000000182424427E42424242000000";
+        let text = format!("0041:{glyph}\nE0B0:{glyph}\nF0001:{glyph}\n");
+        std::fs::write(&file, &text).unwrap();
+        let chars = ['A', '\u{e0b0}', '\u{f0001}'];
+        let bare = frit(&format!("source=hex:{}\n", file.display()));
+        assert_eq!(drawn_chars(&bare, CELL, &chars), chars);
+        let covered = frit(&format!(
+            "source=hex:{}\ncover=U+0000-U+DFFF\ncover=U+F900-U+EFFFF\n",
+            file.display()
+        ));
+        assert_eq!(drawn_chars(&covered, CELL, &chars), ['A']);
     }
 
     // A zstd font whose window is past ZSTD_WINDOW_MAX is refused with a
