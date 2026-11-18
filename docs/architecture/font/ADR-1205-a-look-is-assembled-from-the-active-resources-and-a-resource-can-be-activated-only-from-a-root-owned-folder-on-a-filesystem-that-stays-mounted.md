@@ -81,8 +81,15 @@ considered:
     via: the maintainer's answers to the steering session's questions, 2026-11-18
     paraphrase: true
     covers: [what is active on a fresh install]
+  - operator: aaronsb
+    said: "Two resource tabs. The Fonts tab manages fonts only: their paths, which are available, previews of what each covers, activation, and the install-as-system-font step. An Effects tab manages effects (color maps and shaders, later filters) the same way: discovery, the trust marks, activation, and a preview of the effect. The two tabs share the controls for activation, trust and user-installed rows that are not usable, because effects and filters would make the Fonts tab too busy and each kind previews differently. The tabs read Fonts, Effects, Looks, Flow, Settings and Help, following the graph from resources to looks to terminals, and vtium-config still opens on Flow. Pointer themes get no tab of their own: Looks lists the installed pointer themes, each look picks one, and pointer themes follow the same trust rule and activation as other resources."
+    via: the maintainer's answers to the steering session's questions, 2026-11-18
+    paraphrase: true
+    covers: [the tab order]
 observable:
-  - "vtium-config's tabs read Fonts, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
+  - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
+  - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
+  - "The Looks tab lists the installed pointer themes, and each look picks one; a pointer theme that is not active cannot be picked"
   - "The Fonts tab lists a font from ~/.local/share/fonts, marked as installed by the user and not usable, previews it in vtium-config's own window, and offers to install it as a system font"
   - "A font file in /usr/share/fonts that is a symbolic link, or that sits on a USB stick or an NFS mount, cannot be activated; vtium draws without it, logs one line, and vtium check-config names the reason"
   - "Deactivating Cullet Mono warns, lists each look that uses it, and those looks then draw as when Cullet Mono is missing; the built-in font cannot be deactivated"
@@ -109,12 +116,11 @@ related:
 
 ## Summary
 
-- **Decided:** vtium's configuration is a graph from resources to screens. Font files, color maps and shaders are resources. A look is assembled from the active resources, a terminal in the Flow view takes a look, and the terminal is wired to its displays and inputs. vtium-config's tabs follow the graph: Fonts, Looks, Flow, then Settings and Help. The Fonts tab returns as a tab of its own. It finds fonts in well-known folders and sorts them with simple filters, so nobody types a raw path. A resource can be activated only from a root-owned folder on a filesystem that stays mounted for the system's life. A file that fails that rule counts as a file that does not exist. A user's own fonts are listed and can be previewed in vtium-config's window, but cannot be activated. vtium-config can install such a font as a system font, in an explicit step that the person confirms each time. A look fills the roles of ADR-1204, now split finer: text, box drawing, symbols and icons, each script by name, emoji, and fallback. A look offers only the sizes its fonts supply. In the records, a resource is a cullet, and the batch is the file that lists the active resources. On screen, vtium says font, effect, font set and look, and a font or effect is active or not. A fresh install starts with the built-in font, Cullet Mono, Terminus, Unifont and the system's console font active, so the default font set draws with no setup.
+- **Decided:** vtium's configuration is a graph from resources to screens. Font files, color maps, shaders and pointer themes are resources. A look is assembled from the active resources, a terminal in the Flow view takes a look, and the terminal is wired to its displays and inputs. vtium-config's tabs follow the graph: Fonts, Effects, Looks, Flow, then Settings and Help. Fonts and Effects are the two resource tabs, and they share one set of controls for activation, trust and the rows a user installed. The Fonts tab returns as a tab of its own, and finds fonts in well-known folders and sorts them with simple filters, so nobody types a raw path. The Effects tab does the same for color maps and shaders. Pointer themes have no tab of their own: the Looks tab lists them, and each look picks one. A resource can be activated only from a root-owned folder on a filesystem that stays mounted for the system's life. A file that fails that rule counts as a file that does not exist. A user's own fonts are listed and can be previewed in vtium-config's window, but cannot be activated. vtium-config can install such a font as a system font, in an explicit step that the person confirms each time. A look fills the roles of ADR-1204, now split finer: text, box drawing, symbols and icons, each script by name, emoji, and fallback. A look offers only the sizes its fonts supply. In the records, a resource is a cullet, and the batch is the file that lists the active resources. On screen, vtium says font, effect, font set and look, and a font or effect is active or not. A fresh install starts with the built-in font, Cullet Mono, Terminus, Unifont and the system's console font active, so the default font set draws with no setup.
 - **Trades away:** A font that the person put in their home folder no longer draws on the console, even when a folder of `font-paths` names it. A font installed as a symbolic link, or on removable, network or automounted storage, never draws. A frit that names a font by its path draws that font only while the batch holds it, so a font now passes two gates, being installed and being active. The Flow view no longer makes a look from a font set and a size, so a person who wants a new look goes to the Looks tab first.
 - **One-way?** No. The batch is one root-owned file, the trust rule is a check before a file is read, and the tabs are vtium-config's layout. A session of work can change any of them. The words cullet, batch and active are the costly part to change once code and pages use them.
 - **Probes:**
-  - *Confident (the tab order):* the tabs read Fonts, Looks, Flow, Settings and Help, in the order of the graph, and vtium-config still opens on Flow. Lean: yes, since your decision lists them in that order.
-  - *Settled:* the maintainer answered four probes on 2026-11-18. *The words:* a chosen font or effect is active, and the actions are Activate and Deactivate (D2). *A font installed twice:* the package's copy is active, and vtium-config points out the local copy as a duplicate (D5). *Pointer themes:* a pointer theme's symbolic links pass the trust rule while every link stays inside the theme's own root-owned folder (D4). *What is active on a fresh install:* the built-in font, Cullet Mono, Terminus, Unifont, and the console font that vconsole.conf's `FONT=` names (D4).
+  - *Settled:* every probe is settled. The maintainer answered five probes on 2026-11-18. *The tab order:* two resource tabs, Fonts and Effects, and the tabs read Fonts, Effects, Looks, Flow, Settings and Help, with vtium-config still opening on Flow (D1, D3, D8). Pointer themes are picked in the Looks tab (D6). *The words:* a chosen font or effect is active, and the actions are Activate and Deactivate (D2). *A font installed twice:* the package's copy is active, and vtium-config points out the local copy as a duplicate (D5). *Pointer themes:* a pointer theme's symbolic links pass the trust rule while every link stays inside the theme's own root-owned folder (D4). *What is active on a fresh install:* the built-in font, Cullet Mono, Terminus, Unifont, and the console font that vconsole.conf's `FONT=` names (D4).
 - **Inversion:** The decision sits between two ends. At one end, vtium draws any font that any folder holds, and a person types paths to name them. At the other, vtium draws only what it ships. vtium draws from a curated batch of resources that the system installed and the person activated, finds those resources by itself, and lets the person install a missing one as a system font.
 
 ## Context
@@ -133,16 +139,21 @@ vtium's configuration is a graph from resources to screens:
 
 | Stage | What it is | Where vtium-config edits it |
 |---|---|---|
-| Resources | font files, color maps such as `.cube` tables, and shaders | the Fonts tab, for fonts; the Looks tab, for color maps and shaders |
-| A look | a font set assembled from active fonts, its sizes, and the active effects (D6, D7) | the Looks tab |
+| Resources | font files, effects (color maps such as `.cube` tables, and shaders), and pointer themes | the Fonts tab, for fonts; the Effects tab, for effects; the Looks tab, for pointer themes |
+| A look | a font set assembled from active fonts, its sizes, the active effects, and an active pointer theme (D6, D7) | the Looks tab |
 | A terminal | a head, which takes one look (ADR-1401 D1) | the Flow view |
 | Displays and inputs | the devices wired to the terminal by rules (ADR-1403 D7) | the Flow view |
 
-vtium-config's tabs follow the graph, in this order: Fonts, Looks, Flow, then Settings and Help. vtium-config still opens on Flow, where most configuration work happens (ADR-1201 D3).
+vtium-config's tabs follow the graph from resources to looks to terminals, in this order: Fonts, Effects, Looks, Flow, then Settings and Help. vtium-config still opens on Flow, where most configuration work happens (ADR-1201 D3).
 
-- **Fonts** manages the font resources: it finds them, filters them, shows what each covers, activates or deactivates each, and installs a user's font as a system font (D3, D5, D8). The Fonts tab returns as a tab of its own.
-- **Looks** assembles each look by role from the active fonts, offers the sizes those fonts supply, and adds the active effects (D6, D7). It keeps its form for a new font set.
+- **Fonts** manages the font resources: it finds them, filters them, shows what each covers, activates or deactivates each, and installs a user's font as a system font (D3, D5, D8). The Fonts tab returns as a tab of its own, and it holds fonts only.
+- **Effects** manages the effects, color maps and shaders today and the filters that later records add, in the same way: it finds them, shows each one's trust mark, activates or deactivates each, and previews an effect (D3, D8).
+- **Looks** assembles each look by role from the active fonts, offers the sizes those fonts supply, adds the active effects, and picks the look's pointer theme (D6, D7). It keeps its form for a new font set.
 - **Flow** wires terminals to displays and inputs. A terminal takes a look from the Looks tab. The Flow view no longer makes a look itself.
+
+**The two resource tabs share their controls.** Fonts and Effects activate and deactivate a row with the same keys, show the same trust marks, and mark a row the user installed as not usable in the same way. They differ in what they find and how they preview it. The maintainer split them on 2026-11-18 because effects and filters would crowd the Fonts tab, and because a font and an effect each need a preview of their own kind.
+
+Pointer themes have no tab of their own. The Looks tab lists the installed pointer themes, and each look picks one (D6).
 
 ### D2: the words
 
@@ -150,7 +161,7 @@ The backend and the records keep the glassmaking words of [Why VTium](../../why-
 
 | In the records and the code | On screen and in pages for users | What it means |
 |---|---|---|
-| cullet | font, effect, color map, shader | one resource: a font file, a color map such as a `.cube` table, or a shader |
+| cullet | font, effect, color map, shader, pointer theme | one resource: a font file, a color map such as a `.cube` table, a shader, or a pointer theme |
 | batch | the active fonts and effects | the file that lists the resources vtium may draw from (D4) |
 | activate, deactivate | Activate, Deactivate | the actions that add a resource to the batch or remove it |
 | frit | font set | a font set file, as ADR-1200 D1 defines it |
@@ -163,7 +174,7 @@ The batch of this record is not the batch of ADR-1200 D18, which is a group of 1
 
 The maintainer chose the words on screen on 2026-11-18. A chosen font or effect is active, on screen and in `vtium check-config`'s messages, and the actions are Activate and Deactivate. Font managers such as Adobe Fonts, Extensis Suitcase and FontBase use the same words for the same toggle. The maintainer dislikes "tag", which ADR-1403 once used for picking items with Space in the Flow view and has retired.
 
-### D3: vtium-config finds the fonts
+### D3: vtium-config finds the fonts and the effects
 
 vtium-config finds fonts in well-known folders, so nobody types a raw path:
 
@@ -175,7 +186,7 @@ The Fonts tab sorts what it finds with simple filters: bitmap or outline, monosp
 
 **A user's own fonts** are listed and marked as not usable, because the user installed them and the system did not. The Fonts tab says so, so the person knows to install the font as a system font (D5) before activating it. vtium-config may preview such a font in its own window, because the font helper parses it in the sandbox (ADR-1201 D3, ADR-1301). Trying a font live on the console, with ADR-1201 D4's live trial, needs an active system font.
 
-Color maps and shaders keep the folders that ADR-1304 gives them, and the Looks tab lists them (D6).
+**The Effects tab** finds color maps and shaders in the folders that ADR-1304 gives them: `/etc/vtium/looks` for `.cube` tables, and `/usr/share/vtium/shaders` and `/etc/vtium/shaders` for shaders. The tab lists each one with its trust mark, and activates or deactivates it with the Fonts tab's controls. A color map or shader that the person keeps in their own folders is listed as not usable, as a user's font is. The person installs it through the draft's Install step, which ADR-1304 D11 already gives shaders and `.cube` tables, and then activates it.
 
 ### D4: activating a resource is an act of trust
 
@@ -229,17 +240,21 @@ One font may fill every role, or several fonts may share them. The fonts keep AD
 
 A look also takes active effects: the color maps and shaders that its vtlook names (ADR-1304 D4, D11).
 
+**A look picks its pointer theme.** The Looks tab lists the installed pointer themes: vtium's own `/usr/share/vtium/pointers.svg`, and each desktop cursor theme in `/usr/share/icons` or `/usr/local/share/icons` whose folder holds a `cursors` folder (ADR-1309 D2). Those two folders are this record's agent's call. Each look picks one of them, or none for vtium's own pictures. A pointer theme follows D4's rule and is activated like any other resource, so the Looks tab offers only active themes and marks the others as not active. How a look's choice sits beside the top-level `pointer-theme` key of ADR-1309 D1 is left to the work that builds the Looks tab.
+
 ### D7: sizes come from the look
 
 A look offers only the sizes its fonts supply. A bitmap font supplies its strikes, and an outline font supplies its range of sizes. The Looks tab lists those sizes and no others.
 
 A `font-size` written in vtium.conf still works, and vtium draws it as ADR-1200 D17 decides. `vtium check-config` warns when the look's fonts cannot supply that size.
 
-### D8: viewing a font shows what works
+### D8: viewing a resource shows what works
 
 The Fonts tab shows what a font covers and the sizes it supplies. Within a look, it shows what the look would still be missing, by role.
 
-Deactivating a font warns, and the warning lists the looks that use the font. Those looks then draw without it, as for a missing font (ADR-1204 D7).
+The Effects tab previews an effect as a picture of the console with the effect applied, as ADR-1201 D4 previews other changes. The preview leaves the live console alone.
+
+Deactivating a font or an effect warns, and the warning lists the looks that use it. Those looks then draw without it: a font as a missing font (ADR-1204 D7), and an effect as a file that does not exist (D4).
 
 ### D9: what this record changes in other records
 
@@ -249,20 +264,21 @@ Each record below carries a dated note at the passage this record changes. No re
 |---|---|
 | ADR-1200 D25 | vtium-config lists fonts in a user's folders but never activates them, and a user's folder in `font-paths` yields no active font. The helper's sandbox keeps reads open for a new reason. |
 | ADR-1200 D17 | A look offers only the sizes its fonts supply. A configured `font-size` still works, and the check warns when the fonts cannot supply it. |
-| ADR-1201 D3 and its views table | The tabs read Fonts, Looks, Flow, Settings and Help. The Fonts tab returns, its row of `ADR-1201-views.tsv` goes back to planned, and the Looks tab assembles looks by role. |
+| ADR-1201 D3 and its views table | The tabs read Fonts, Effects, Looks, Flow, Settings and Help. The Fonts tab returns, its row of `ADR-1201-views.tsv` goes back to planned, and a planned Effects row joins it. The Looks tab assembles looks by role and picks each look's pointer theme. |
 | ADR-1201 D5 | The install bundle carries the batch file, and the install step for a system font runs through the same privileged step. |
 | ADR-1204 D6 | The roles split finer: box drawing joins, Symbols becomes symbols and icons, and each script has a role by name. |
 | ADR-1204 D8 | A font reaches the machine from the person's side in the three ways of D5, and draws once it is active. A fresh install starts with the default set's fonts active. |
-| ADR-1304 D11 | A look's effects come from the active color maps and shaders. |
+| ADR-1304 D11 | The Effects tab finds, activates and previews the color maps and shaders, and a look's effects come from the active ones. |
 | ADR-1403 D7 and D8 | A terminal takes a look from the Looks tab, and the Flow view makes and prunes no look. |
-| ADR-1309 D5 | A pointer theme passes D4's rule. Its walk follows a symbolic link only while the link stays inside the same root-owned theme folder. |
+| ADR-1309 D5 | A pointer theme passes D4's rule. Its walk follows a symbolic link only while the link stays inside the same root-owned theme folder. The Looks tab lists the installed pointer themes, and each look picks an active one. |
 | ADR-1401 D10 | D4's rule sits beside D10, which keeps its scope. |
 
 ## Consequences
 
 ### Positive
 
-- One screen holds the fonts, one the looks, and one the wiring, in the order the parts depend on each other.
+- The tabs follow the order in which the parts depend on each other: two tabs hold the resources, one the looks, and one the wiring.
+- Fonts and effects share one set of controls, so a person who has activated a font knows how to activate an effect. Each tab keeps a preview that suits its kind.
 - A person picks fonts from what the system holds instead of typing paths, and sees what a look still lacks before choosing it.
 - Every file vtium draws from passes one trust rule. A font that another user, a removable disk or a network share supplies never reaches the console.
 - The batch installs with the draft, so a draft carries its active fonts to another machine as it carries its font sets.
@@ -277,7 +293,7 @@ Each record below carries a dated note at the passage this record changes. No re
 ### Neutral
 
 - vtium-config gains the batch file, its folder of draft changes, and the install step for a system font. `vtium check-config` gains the trust rule's reasons and the size warning.
-- The views table, the Fonts tab's scenarios, and the Looks tab's form follow the new tab order and roles.
+- The views table, the Fonts tab's scenarios, and the Looks tab's form follow the new tab order and roles. The Effects tab is a new view with scenarios of its own.
 
 ## Alternatives Considered
 
@@ -286,4 +302,6 @@ Each record below carries a dated note at the passage this record changes. No re
 - **Install a font as a side effect of activating it.** Not taken: the maintainer asked for an explicit step that shows its command and is confirmed each time.
 - **Keep the Fonts view inside the Looks tab,** as ADR-1201 D3 decided on 2026-11-16. Not taken: the maintainer decided that the tabs follow the composition graph, with the fonts as resources of their own.
 - **Call the selection "tags", or picking "tagging".** Not taken: the maintainer dislikes the word, and ADR-1403 retired it.
+- **Manage fonts and effects on one Fonts tab.** Not taken: the maintainer decided that effects and filters would make the Fonts tab too busy, and that each kind previews differently.
+- **Give pointer themes a tab of their own.** Not taken: the maintainer decided that each look picks its pointer theme in the Looks tab.
 - **Say "in use" on screen, toggled with Use.** Not taken: the maintainer chose active, with Activate and Deactivate, the words that font managers already use.
