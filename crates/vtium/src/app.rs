@@ -5387,8 +5387,13 @@ fn draw_head(
         }
     }
     // The output after a synchronized update's end goes on once every
-    // display has taken the finished frame. A display that waits for its
-    // flip takes the frame at the flip's end.
+    // display that can draw has taken the finished frame. A display that
+    // waits for its flip takes the frame at the flip's end. A display that
+    // cannot take a frame by itself, such as one on a card handed to
+    // another program, owes none.
+    for (key, view) in &mut head.views {
+        view.settle(videos.get(&key.0).map(|v| &**v));
+    }
     term.drawn(head.views.values());
 }
 
