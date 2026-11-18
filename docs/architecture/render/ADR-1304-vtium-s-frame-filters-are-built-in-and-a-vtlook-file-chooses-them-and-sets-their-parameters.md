@@ -378,7 +378,9 @@ strength = 0.3
 
 **Decided by the maintainer (2026-11-03):** the built-in look is named `default`, and its description says it is a pure passthrough vtlook, which changes no pixel. `look = default` names it, and a `look` left unset means the same. A user's file cannot take the name `default`.
 
-**Proposed, the built-in default look:** vtium refuses a file named `default.vtlook` as an error (D6), so the look every failure falls back to is always the built-in one and can never fail itself. Its text is a template, `crates/vtium-settings/templates/default.vtlook`, compiled into vtium, as vtium's compiled-in head configuration is parsed from heads.conf's template (ADR-1401 D6). The template holds `version = 1`; a live `[requires]` section with every requirement key at `any` (D7); and, commented out, a section for every filter the declarations name with every parameter at its default and its help as a comment. A file written from it changes nothing until a filter's section is uncommented or a requirement set. The template is generated from the declarations, and a check fails when the committed file differs from what they give, as the key table's check fails when docs/config.md or the example vtium.conf differs (docs/architecture.md). vtium-config writes the template out as the start of a new look (D11). vtium's log and vtium-config's listing name the default look `default (built in)`, as vtium-config lists the built-in fonts with the state `built in`. Its description, "a pure passthrough vtlook, which changes no pixel", shows in three places: on its line of vtium-config's `vtlooks` listing and in `vtlook-show default`; in vtium-config's `--help` for the look commands and beside it in the TUI's looks view; and in the comment that heads the template, so a file written from it says what it started as.
+**Proposed, the built-in default look:** vtium refuses a file named `default.vtlook` as an error (D6), so the look every failure falls back to is always the built-in one and can never fail itself. Its text is a template, `crates/vtium-settings/templates/default.vtlook`, compiled into vtium, as vtium's compiled-in head configuration is parsed from heads.conf's template (ADR-1401 D6). The template holds `version = 1`; a live `[requires]` section with every requirement key at `any` (D7); and, commented out, a section for every filter the declarations name with every parameter at its default and its help as a comment. A file written from it changes nothing until a filter's section is uncommented or a requirement set. The template is generated from the declarations, and a check fails when the committed file differs from what they give, as the key table's check fails when docs/config.md or the example vtium.conf differs (docs/architecture.md). vtium-config writes the template out as the start of a new look (D11). vtium-config's listing names the default look `default (built in)`, as vtium-config lists the built-in fonts with the state `built in`, and vtium's log calls it the built-in vtlook. Its description, "a pure passthrough vtlook, which changes no pixel", shows in three places: on its line of vtium-config's `vtlooks` listing and in `vtlook-show default`; in vtium-config's `--help` for the look commands and beside it in the TUI's looks view; and in the comment that heads the template, so a file written from it says what it started as.
+
+> Edited 2026-11-18: the name `default` always chooses the built-in vtlook, so vtium never opens a file named `default.vtlook`, and the refusal above has its place in `vtium check-config`, which reports such a file in the looks folder as an error of the reading stage. vtium's log names the built-in vtlook "the built-in vtlook" (D6), and vtium-config's listing keeps `default (built in)`. This paragraph read "vtium's log and vtium-config's listing name the default look `default (built in)`".
 
 **A vtlook is tied to no frit.** A head names a look section of vtium.conf, and the look section names both its frit, with `font-name`, and its vtlook, with `vtlook =` (ADR-1403 D1, D5). A vtlook names no frit and a frit names no vtlook, so one vtlook can serve looks with any frit.
 
@@ -420,10 +422,12 @@ vtium reads the look when it starts, and again when it rereads its configuration
 An example, as vtium's log writes it:
 
 ```text
-look amber (/etc/vtium/looks/amber.vtlook:14): spatial filter 1 of 1, scanlines: checking: period = 12, needs an integer from 2 to 8; 1 more error; head console draws the default look (built in)
+vtlook amber (/etc/vtium/looks/amber.vtlook:14): spatial filter 1 of 1, scanlines: checking: period = 12, needs an integer from 2 to 8; 1 more error; head console draws the built-in vtlook instead
 ```
 
 `vtium check-config` and vtium-config list every error, each report whole. vtium's log line at run time names the first error and says how many more there are, and is written once each time vtium reads the look or sets a display up, never once a frame. A driver's compile log can run to many lines; in the log line its line breaks are written as `\n` and it is cut at 4 KiB, a row of vtium-render's bounds table, with the cut marked.
+
+> Edited 2026-11-18: the code review of the vtlook reader found that the log lines this record gave as examples opened with the word look, which since ADR-1403 names a section of vtium.conf, and closed on a phrase that read awkwardly. Every log line in this record now opens with `vtlook NAME (FILE:LINE)`, as vtium writes it, and closes with "head console draws the built-in vtlook instead"; the per-display lines of D7 and D16 open with `vtlook NAME:` and say "draws the built-in vtlook". These lines opened with `look NAME (` or `look NAME:` and said "draws the default look (built in)". The same review bounded what a check lists: `vtium check-config` lists the first 64 errors of each vtlook, `ERRORS_MAX` of vtium-settings's bounds table, and counts the rest, as it does for vtium.conf, and each piece of the file a report quotes is cut at `QUOTE_MAX` characters and has its control and formatting characters escaped. The reader's messages about the file as a whole, such as a missing file or one too large, are whole sentences, while a message about a line keeps the "found X, needs Y" shape these examples show.
 
 **Proposed, how long the fallback lasts:** the head stays on the default look until vtium next reads its configuration or the head's look changes, through a reload once ADR-1401 builds it, vtium-config's live preview (D11) or the end of that preview. vtium never retries a failed look on a timer, as ADR-1303 D9 never retries within a run. A reread that meets the same error falls back again and logs it again.
 
@@ -467,7 +471,7 @@ gpu = yes
 
 A malformed `[requires]` section is an error of the checking stage, with D6's one outcome: an unknown key, a key twice, a value that is neither `any` nor of the key's kind and range, `refresh` being of `min-fps`'s kind, a pair whose minimum exceeds its maximum, on either side for the sizes, or a second `[requires]` section. Its report names `requires` in place of a layer, the key, the value it got and what it needed, which always begins with `any`, as in "min-depth = 12, needs any, 1, 8, 16 or 24"; for a pair out of order it names both keys and both values, as in "min-size = 1920x1080 exceeds max-size = 1280x800", and `vtium check-config` reports it before the file is installed.
 
-vtium checks each display against the requirements when it reads the look, when the display joins the head, and at each change of the display's mode or depth, as ADR-1303 D9 checks a display against the GPU's limits; it checks `gpu` when the head's path is chosen or changes. A display that meets the requirements again takes the look back, with no reread. A display drawing `default` has no color step and no spatial step, and keeps its arrow on its cursor plane where it has one, while the head's other displays draw the look. Its log line reads, for example: `look amber: display DP-1 (1280x800, 1 bit) draws the default look (built in): requires min-depth 24`.
+vtium checks each display against the requirements when it reads the look, when the display joins the head, and at each change of the display's mode or depth, as ADR-1303 D9 checks a display against the GPU's limits; it checks `gpu` when the head's path is chosen or changes. A display that meets the requirements again takes the look back, with no reread. A display drawing `default` has no color step and no spatial step, and keeps its arrow on its cursor plane where it has one, while the head's other displays draw the look. Its log line reads, for example: `vtlook amber: display DP-1 (1280x800, 1 bit) draws the built-in vtlook: requires min-depth 24`.
 
 On a display that meets the requirements, a 1-bit panel included, the order ADR-1303 D6 sets holds: the spatial step, the turn, the color step, then the depth reduction. On a 1-bit display vtium lights each cell by its colors and cuts each pixel's coverage at half (`crates/vtium-render/src/mono.rs`), so a look's filters run before that cut; a filter that darkens white below the cut of 128 blanks every lit pixel there, and a look's author who does not mean the look for such panels writes `min-depth = 8` or more.
 
@@ -756,13 +760,13 @@ vtium refuses a `.cube` file at the checking stage, with D6's report naming the 
 
 | Fault | The report |
 |---|---|
-| A keyword vtium does not read | `look film (/etc/vtium/looks/panel.cube:3): color filter 1 of 3, cube: checking: found LUT_3D_INPUT_RANGE, needs TITLE, LUT_3D_SIZE, LUT_1D_SIZE, DOMAIN_MIN or DOMAIN_MAX; head console draws the default look (built in)` |
-| A size out of range | `look film (/etc/vtium/looks/panel.cube:2): color filter 1 of 3, cube: checking: found LUT_3D_SIZE 129, needs 2 to 65; head console draws the default look (built in)` |
-| A 1D size out of range | `look film (/etc/vtium/looks/panel.cube:2): color filter 1 of 3, cube: checking: found LUT_1D_SIZE 8192, needs 2 to 4096; head console draws the default look (built in)` |
-| Both sizes in one file | `look film (/etc/vtium/looks/panel.cube:3): color filter 1 of 3, cube: checking: found LUT_1D_SIZE after LUT_3D_SIZE, needs one of the two; head console draws the default look (built in)` |
-| A number vtium cannot read | `look film (/etc/vtium/looks/panel.cube:17): color filter 1 of 3, cube: checking: found "0.5,0.2,0.1", needs three numbers separated by blanks; head console draws the default look (built in)` |
-| The wrong count of data lines | `look film (/etc/vtium/looks/panel.cube:8195): color filter 1 of 3, cube: checking: found 8192 data lines, needs 35937, LUT_3D_SIZE 33 cubed; head console draws the default look (built in)` |
-| A domain other than 0 to 1 | `look film (/etc/vtium/looks/panel.cube:4): color filter 1 of 3, cube: checking: found DOMAIN_MAX 1 1 1.2, needs DOMAIN_MAX 1 1 1; head console draws the default look (built in)` |
+| A keyword vtium does not read | `vtlook film (/etc/vtium/looks/panel.cube:3): color filter 1 of 3, cube: checking: found LUT_3D_INPUT_RANGE, needs TITLE, LUT_3D_SIZE, LUT_1D_SIZE, DOMAIN_MIN or DOMAIN_MAX; head console draws the built-in vtlook instead` |
+| A size out of range | `vtlook film (/etc/vtium/looks/panel.cube:2): color filter 1 of 3, cube: checking: found LUT_3D_SIZE 129, needs 2 to 65; head console draws the built-in vtlook instead` |
+| A 1D size out of range | `vtlook film (/etc/vtium/looks/panel.cube:2): color filter 1 of 3, cube: checking: found LUT_1D_SIZE 8192, needs 2 to 4096; head console draws the built-in vtlook instead` |
+| Both sizes in one file | `vtlook film (/etc/vtium/looks/panel.cube:3): color filter 1 of 3, cube: checking: found LUT_1D_SIZE after LUT_3D_SIZE, needs one of the two; head console draws the built-in vtlook instead` |
+| A number vtium cannot read | `vtlook film (/etc/vtium/looks/panel.cube:17): color filter 1 of 3, cube: checking: found "0.5,0.2,0.1", needs three numbers separated by blanks; head console draws the built-in vtlook instead` |
+| The wrong count of data lines | `vtlook film (/etc/vtium/looks/panel.cube:8195): color filter 1 of 3, cube: checking: found 8192 data lines, needs 35937, LUT_3D_SIZE 33 cubed; head console draws the built-in vtlook instead` |
+| A domain other than 0 to 1 | `vtlook film (/etc/vtium/looks/panel.cube:4): color filter 1 of 3, cube: checking: found DOMAIN_MAX 1 1 1.2, needs DOMAIN_MAX 1 1 1; head console draws the built-in vtlook instead` |
 
 For the wrong count, the line is the last line of the file. A file vtium may not read at all, for its owner, its mode or its size, fails at the reading stage, with the same report.
 
@@ -829,14 +833,14 @@ vtium refuses a shader file at the checking stage, with D6's report naming the f
 
 | Fault | The report |
 |---|---|
-| No version line | `look crt (/etc/vtium/shaders/mask.vtshader:3): spatial filter 1 of 1, mask: checking: found #pragma vtium help before #pragma vtium shader 1, needs #pragma vtium shader 1 first; head console draws the default look (built in)` |
-| A keyword vtium does not read | `look crt (/etc/vtium/shaders/mask.vtshader:6): spatial filter 1 of 1, mask: checking: found #pragma vtium blend, needs shader, help, license, reach, reads, requires, param, time or feedback; head console draws the default look (built in)` |
-| A default outside its range | `look crt (/etc/vtium/shaders/mask.vtshader:10): spatial filter 1 of 1, mask: checking: found param strength number 0 1 1.5, needs a default from 0 to 1; head console draws the default look (built in)` |
-| No reach | `look crt (/etc/vtium/shaders/mask.vtshader:11): spatial filter 1 of 1, mask: checking: found the header's end with no #pragma vtium reach, needs a reach; head console draws the default look (built in)` |
-| A reach naming no parameter | `look crt (/etc/vtium/shaders/mask.vtshader:6): spatial filter 1 of 1, mask: checking: found reach 2 * pitch, needs parameters, width or height in a reach, and pitch is none of them; head console draws the default look (built in)` |
-| Reads past what the code does | `look crt (/etc/vtium/shaders/mask.vtshader:14): spatial filter 1 of 1, mask: checking: found 3 calls to SPATIAL_IN, needs at most the declared reads, 1; head console draws the default look (built in)` |
-| A loop with no constant bound | `look crt (/etc/vtium/shaders/mask.vtshader:18): spatial filter 1 of 1, mask: checking: found a for loop bounded by size, needs a constant bound; head console draws the default look (built in)` |
-| No `apply` function | `look crt (/etc/vtium/shaders/mask.vtshader:12): spatial filter 1 of 1, mask: checking: found no vec4 apply(vec2 at), needs one; head console draws the default look (built in)` |
+| No version line | `vtlook crt (/etc/vtium/shaders/mask.vtshader:3): spatial filter 1 of 1, mask: checking: found #pragma vtium help before #pragma vtium shader 1, needs #pragma vtium shader 1 first; head console draws the built-in vtlook instead` |
+| A keyword vtium does not read | `vtlook crt (/etc/vtium/shaders/mask.vtshader:6): spatial filter 1 of 1, mask: checking: found #pragma vtium blend, needs shader, help, license, reach, reads, requires, param, time or feedback; head console draws the built-in vtlook instead` |
+| A default outside its range | `vtlook crt (/etc/vtium/shaders/mask.vtshader:10): spatial filter 1 of 1, mask: checking: found param strength number 0 1 1.5, needs a default from 0 to 1; head console draws the built-in vtlook instead` |
+| No reach | `vtlook crt (/etc/vtium/shaders/mask.vtshader:11): spatial filter 1 of 1, mask: checking: found the header's end with no #pragma vtium reach, needs a reach; head console draws the built-in vtlook instead` |
+| A reach naming no parameter | `vtlook crt (/etc/vtium/shaders/mask.vtshader:6): spatial filter 1 of 1, mask: checking: found reach 2 * pitch, needs parameters, width or height in a reach, and pitch is none of them; head console draws the built-in vtlook instead` |
+| Reads past what the code does | `vtlook crt (/etc/vtium/shaders/mask.vtshader:14): spatial filter 1 of 1, mask: checking: found 3 calls to SPATIAL_IN, needs at most the declared reads, 1; head console draws the built-in vtlook instead` |
+| A loop with no constant bound | `vtlook crt (/etc/vtium/shaders/mask.vtshader:18): spatial filter 1 of 1, mask: checking: found a for loop bounded by size, needs a constant bound; head console draws the built-in vtlook instead` |
+| No `apply` function | `vtlook crt (/etc/vtium/shaders/mask.vtshader:12): spatial filter 1 of 1, mask: checking: found no vec4 apply(vec2 at), needs one; head console draws the built-in vtlook instead` |
 
 A fault the driver's compiler finds is reported at the compiling stage with the driver's log carried word for word (D6).
 
@@ -897,10 +901,10 @@ The faults these lines bring, with the report each gives. A use without its line
 
 | Fault | The report |
 |---|---|
-| `vtTime` used without `#pragma vtium time` | ``look crt (/etc/vtium/shaders/roll.vtshader:14): spatial filter 1 of 1, roll: compiling: 0:14(22): error: `vtTime' undeclared; head console draws the default look (built in)`` |
-| `SPATIAL_PREV()` used without `#pragma vtium feedback` | `look crt (/etc/vtium/shaders/glow.vtshader:12): spatial filter 1 of 1, glow: compiling: 0:12(17): error: no function with name 'SPATIAL_PREV'; head console draws the default look (built in)` |
-| `#pragma vtium time` with an argument | `look crt (/etc/vtium/shaders/roll.vtshader:7): spatial filter 1 of 1, roll: checking: found #pragma vtium time 2, needs #pragma vtium time with no argument; head console draws the default look (built in)` |
-| A look naming two feedback shaders | `look ghost (/etc/vtium/looks/ghost.vtlook:9): spatial filters 1 and 2, glow and trail: checking: found two shaders that read their previous frame, needs at most one; head console draws the default look (built in)` |
+| `vtTime` used without `#pragma vtium time` | ``vtlook crt (/etc/vtium/shaders/roll.vtshader:14): spatial filter 1 of 1, roll: compiling: 0:14(22): error: `vtTime' undeclared; head console draws the built-in vtlook instead`` |
+| `SPATIAL_PREV()` used without `#pragma vtium feedback` | `vtlook crt (/etc/vtium/shaders/glow.vtshader:12): spatial filter 1 of 1, glow: compiling: 0:12(17): error: no function with name 'SPATIAL_PREV'; head console draws the built-in vtlook instead` |
+| `#pragma vtium time` with an argument | `vtlook crt (/etc/vtium/shaders/roll.vtshader:7): spatial filter 1 of 1, roll: checking: found #pragma vtium time 2, needs #pragma vtium time with no argument; head console draws the built-in vtlook instead` |
+| A look naming two feedback shaders | `vtlook ghost (/etc/vtium/looks/ghost.vtlook:9): spatial filters 1 and 2, glow and trail: checking: found two shaders that read their previous frame, needs at most one; head console draws the built-in vtlook instead` |
 
 #### Malformed vtlooks and their errors
 
@@ -917,7 +921,7 @@ period = 12
 ```
 
 ```text
-look crt (/etc/vtium/looks/crt.vtlook:5): spatial filter 1 of 1, scanlines: checking: period = 12, needs an integer from 2 to 8; head console draws the default look (built in)
+vtlook crt (/etc/vtium/looks/crt.vtlook:5): spatial filter 1 of 1, scanlines: checking: period = 12, needs an integer from 2 to 8; head console draws the built-in vtlook instead
 ```
 
 A missing version and a filter vtium does not have, two errors:
@@ -929,7 +933,7 @@ amount = 0.5
 ```
 
 ```text
-look old (/etc/vtium/looks/old.vtlook:2): reading: found [color sepia] before version = 1, needs version = 1 first; 1 more error; head console draws the default look (built in)
+vtlook old (/etc/vtium/looks/old.vtlook:2): reading: found [color sepia] before version = 1, needs version = 1 first; 1 more error; head console draws the built-in vtlook instead
 ```
 
 `vtium check-config` prints both:
@@ -954,7 +958,7 @@ gamma = 1.2
 ```
 
 ```text
-look big (/etc/vtium/looks/big.vtlook:5): requires: checking: min-size = 1920x1080 exceeds max-size = 1280x800; head console draws the default look (built in)
+vtlook big (/etc/vtium/looks/big.vtlook:5): requires: checking: min-size = 1920x1080 exceeds max-size = 1280x800; head console draws the built-in vtlook instead
 ```
 
 ### D15: spatial filters are shader files
@@ -1034,7 +1038,7 @@ The maintainer frames the check as one more guard against a failing display. The
 **Proposed, the measurement.** When a head loads a look, at each change of a display's mode or of the head's displays, and in vtium-config's preview, vtium draws a run of 8 frames, a row of vtium-render's bounds table, of the display's whole present with the look's pieces, off-screen at the display's own size, over the frame the head shows. It times each frame on the GPU, through GL timer queries where the driver has `EXT_disjoint_timer_query`, and otherwise through `glFinish` around each frame. The measured rate is one second over the median frame's time. A shader that reads the time gets the ticks that drawing at the display's refresh from time 0 would give, and a feedback look runs its frames in sequence from an empty history (ADR-1305 D4). The run's cost is bounded: at 3840x2160 with sharpen, 8 frames read about 330 million texels, a few tens of milliseconds on a desktop GPU, once for each change. The log line reads, for example:
 
 ```text
-look film: display DP-1 (3840x2160) draws the default look (built in): measuring: measured 41 fps at 3840x2160, needs 60 (refresh)
+vtlook film: display DP-1 (3840x2160) draws the built-in vtlook: measuring: measured 41 fps at 3840x2160, needs 60 (refresh)
 ```
 
 **Decided by the maintainer (2026-11-03):** the watch while running. Where the driver has timer queries, vtium also times each frame's present while the look runs, at the cost of one query a frame. A run of 30 frames running over the floor's budget, half a second at 60 Hz, puts that display on `default` the same way, which catches a shader that is cheap on the measured frame and slow on a busier one. One slow frame does nothing. Without timer queries there is no watch, since `glFinish` every frame would stall the pipeline. While a display draws on the frame clock, the watch sees a present every refresh (ADR-1305).
@@ -1071,7 +1075,7 @@ A shader of vtium's own dialect blends encoded color, as GL_LINEAR on an RGBA8 t
 
 **Proposed, the cap.** The cap stays a row of vtium-render's bounds table at 25 reads, and a chain past it is still refused at the checking stage (D6), until the measurement below gives the maintainer numbers to set it from. At 25, the shaders surveyed for Ghostty's dialect (`basis`) fit as follows: negative (1), vhs (5), crt with plain reads (8) and bloom with plain reads (25) fit; crt with smooth reads (32), bloom with smooth reads (97), glow-rgbsplit-twitchy (27), in-game-crt (31) and smoke-and-ghost (40 to 46) do not. Read counts predict cost poorly: neighbouring reads mostly come from the GPU's texture cache, and a shader that reads one pixel but runs a 64-step raymarch for it can cost more than bloom (`basis`). So the declared reads also become a figure that vtium reports beside the measured rate, in `vtium check-config`, in `vtium-config shader-check` and in the floor's log line (D16). The declared reads still prove that every loop ends (D15). The reach cap of 256 pixels stays a hard limit, because it comes from tiling and not from cost: ADR-1303 D3 keeps the reach under half a tile, and OpenGL ES 3.0's smallest largest texture is 2048 pixels.
 
-**Proposed, measuring first.** Before slice 4 finishes (D13), a small harness times real shaders: an OpenGL ES 3.0 program on a render node, through EGL's surfaceless platform, that draws ported shaders off-screen and takes no DRM master. llvmpipe gives a lower bound bound by the CPU, and real numbers come from the maintainer's desktop GPU, a laptop's integrated GPU and an ARM board's GPU. For each shader the harness records its reads, its rough arithmetic for each pixel, its milliseconds a frame at 1920×1080 and 3840×2160, its rate against the display's refresh, nearest reads against smooth reads, and a two-filter chain against the same filters run alone. The shaders run from cheap to expensive: negative; tft and dither; cubes, galaxy, fireworks-rockets, just-snow and inside-the-matrix; drunkard and glitchy; vhs; crt; bloom; glow-rgbsplit-twitchy; in-game-crt; smoke-and-ghost; and crt then bloom, 200 reads in one pass. The maintainer sets the cap from these numbers, and that change edits this section with a dated note.
+**Proposed, measuring first.** Before slice 4 finishes (D13), a small harness times real shaders: an OpenGL ES 3.0 program on a render node, through EGL's surfaceless platform, that draws ported shaders off-screen and takes no DRM master. llvmpipe gives a lower bound, limited by the CPU, and real numbers come from the maintainer's desktop GPU, a laptop's integrated GPU and an ARM board's GPU. For each shader the harness records its reads, its rough arithmetic for each pixel, its milliseconds a frame at 1920×1080 and 3840×2160, its rate against the display's refresh, nearest reads against smooth reads, and a two-filter chain against the same filters run alone. The shaders run from cheap to expensive: negative; tft and dither; cubes, galaxy, fireworks-rockets, just-snow and inside-the-matrix; drunkard and glitchy; vhs; crt; bloom; glow-rgbsplit-twitchy; in-game-crt; smoke-and-ghost; and crt then bloom, 200 reads in one pass. The maintainer sets the cap from these numbers, and that change edits this section with a dated note.
 
 **Verification.** Under llvmpipe in tier 2, a shader that returns `SPATIAL_SMOOTH(at + vec2(0.5, 0.0))` draws each pixel as the even mix of itself and its right neighbour, within ADR-1303's tolerance of tier 2's own Rust version of the blend; a smooth read at a pixel's center returns the pixel exactly. A piece that declares a reach of 1 and asks for a smooth read 3 pixels away reads within its reach, and its two-tile frame matches its one-tile frame. The checker counts 2 calls of `SPATIAL_SMOOTH` as 8 reads, and refuses them under a declared 7.
 

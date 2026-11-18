@@ -53,7 +53,7 @@ A minimum above its maximum is an error. vtium reads and checks the requirements
 
 ## The built-in vtlook
 
-The built-in vtlook is named `default`. A head that names no vtlook draws it, and so does `vtlook = default`. The built-in vtlook changes no pixel, and no file can take its name. vtium refuses a file named `default.vtlook`.
+The built-in vtlook is named `default`. A head that names no vtlook draws it, and so does `vtlook = default`. The built-in vtlook changes no pixel, and no file can take its name. vtium never reads a file named `default.vtlook`, and `vtium check-config` reports one it finds in `/etc/vtium/looks` as an error.
 
 vtium carries the built-in vtlook's text as a template. To start a vtlook of your own, copy the template under another name and set its requirements:
 
@@ -83,10 +83,10 @@ gpu = any           # any; yes for the GPU path only; no for the CPU path only
 Any error in a vtlook makes the whole vtlook fail. The heads that take it draw the built-in vtlook instead. vtium logs one line for each such head, naming the first error and counting the rest:
 
 ```text
-vtlook old (/etc/vtium/looks/old.vtlook:2): reading: found [color sepia] before version = 1, needs version = 1 first; 1 more error; head console draws the vtlook default (built in)
+vtlook old (/etc/vtium/looks/old.vtlook:2): reading: found [color sepia] before version = 1, needs version = 1 first; 1 more error; head console draws the built-in vtlook instead
 ```
 
-vtium reads the vtlook again only when it reads its configuration again. `vtium check-config` lists every error of every vtlook that vtium.conf names, one a line. Each line gives the file and line, the section, the stage and what vtium needs there. The examples below show a vtlook and the lines `vtium check-config` prints for it.
+vtium reads the vtlook again only when it reads its configuration again. `vtium check-config` lists the errors of every vtlook that vtium.conf names, one a line. Each line gives the file and line, the section, the stage and what vtium needs there. A vtlook can hold thousands of errors, so the check lists the first 64 and counts the rest. After a vtlook's errors, the check names each line of vtium.conf that chooses it. The examples below show a vtlook and the errors `vtium check-config` prints for it.
 
 A missing version and a filter vtium does not have are two errors:
 
