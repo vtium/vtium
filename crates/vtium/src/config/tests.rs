@@ -2012,7 +2012,12 @@ fn an_osd_line_vtium_cannot_read_keeps_osd_silent_from_applying() {
 /// - ADR-1304 D5: a vtlook's name, and the top level's `vtlook`.
 #[test]
 fn a_vtlook_name_that_could_hold_a_path_is_reported_at_its_line() {
-    for (text, value) in [("vtlook = \"\"\n", ""), ("vtlook = \"a/b\"\n", "a/b")] {
+    // vtium.conf's top level keeps quotes as part of the value.
+    for (text, value) in [
+        ("vtlook = \"\"\n", "\"\""),
+        ("vtlook = \"a/b\"\n", "\"a/b\""),
+        ("vtlook = a/b\n", "a/b"),
+    ] {
         let l = main_file(&format!("# a vtlook\n{text}"));
         assert_eq!(
             l.reports,
