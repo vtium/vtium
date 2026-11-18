@@ -255,13 +255,14 @@ PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter 
 # in /etc/vtium/fonts/layers (ADR-1204 D9, ADR-1500 D8). Each set is
 # NAME.vtfrit in a category folder of crates/vtium-config/frits, and each
 # layer NAME.vtlayer in its layers folder. The default is the vtium
-# package's: terminus, jetbrains-mono and the small panels' two sets, and
+# package's: the two sets for text, terminus and cullet-mono, then
+# jetbrains-mono and the small panels' two sets, and
 # FRIT_LAYERS names the layers those sets add. A set names its fonts, and
 # no vtium install ships a font.
 FRIT_ROOT := crates/vtium-config/frits
 FRIT_CATEGORIES := console classic code nerd scripts small
 FRIT_DIRS := $(addprefix $(FRIT_ROOT)/,$(FRIT_CATEGORIES))
-FRITS := terminus jetbrains-mono unifont-icons unscii-icons
+FRITS := terminus cullet-mono jetbrains-mono unifont-icons unscii-icons
 FRIT_LAYERS := nerd-symbols nerd-symbols-small noto-emoji noto-emoji-small unifont
 # The sets and layers the optional vtium-fonts package ships beside the
 # fonts they name, which make install-fonts stages: the whole catalog
@@ -489,7 +490,7 @@ endif
 	$(build_settings)cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
-install: font-files-check install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus jetbrains-mono unifont-icons unscii-icons), with the font files make font-files and make cullet-mono stage: make install DESTDIR=DIR PREFIX=/usr
+install: font-files-check install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus cullet-mono jetbrains-mono unifont-icons unscii-icons), with the font files make font-files and make cullet-mono stage: make install DESTDIR=DIR PREFIX=/usr
 	install -Dm755 $(INSTALL_TARGET_DIR)/minspec/vtium $(DESTDIR)$(PREFIX)/bin/vtium
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-config $(DESTDIR)$(PREFIX)/bin/vtium-config
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-clipboard $(DESTDIR)$(PREFIX)/bin/vtium-clipboard

@@ -3793,6 +3793,7 @@ class Package(Case):
     # PREFIX=/usr, with no FEATURES and the default FRITS.
     STAGED = sorted([
         "etc/vtium/fonts/code/jetbrains-mono.vtfrit",
+        "etc/vtium/fonts/console/cullet-mono.vtfrit",
         "etc/vtium/fonts/console/terminus.vtfrit",
         "etc/vtium/fonts/layers/nerd-symbols-small.vtlayer",
         "etc/vtium/fonts/layers/nerd-symbols.vtlayer",
@@ -3833,6 +3834,7 @@ class Package(Case):
     # Where each staged file that vtium's tree holds as it is comes from.
     SOURCES = {
         "etc/vtium/fonts/console/terminus.vtfrit": "crates/vtium-config/frits/console/terminus.vtfrit",
+        "etc/vtium/fonts/console/cullet-mono.vtfrit": "crates/vtium-config/frits/console/cullet-mono.vtfrit",
         "etc/vtium/fonts/code/jetbrains-mono.vtfrit": "crates/vtium-config/frits/code/jetbrains-mono.vtfrit",
         "etc/vtium/fonts/small/unifont-icons.vtfrit": "crates/vtium-config/frits/small/unifont-icons.vtfrit",
         "etc/vtium/fonts/small/unscii-icons.vtfrit": "crates/vtium-config/frits/small/unscii-icons.vtfrit",
@@ -4074,7 +4076,7 @@ class Package(Case):
         # sets, with the layers.
         self.built("/usr/bin/vtium-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
-                      "FRITS=terminus unifont-icons unscii-icons", "HWACCEL=off", "DISPLAY_BUFFERS=2")
+                      "FRITS=terminus cullet-mono unifont-icons unscii-icons", "HWACCEL=off", "DISPLAY_BUFFERS=2")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.staged(), [f for f in self.STAGED if f != "etc/vtium/fonts/code/jetbrains-mono.vtfrit"])
         self.assertEqual([c.split(" rustc ")[0].split(" build ")[0] for c in self.s.calls_of("cargo")], [
@@ -4115,7 +4117,7 @@ class Package(Case):
         # them. The check runs once, on both folders, before anything else.
         self.built("/usr/bin/vtium-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
-                      "FRITS=terminus unifont-icons unscii-icons")
+                      "FRITS=terminus cullet-mono unifont-icons unscii-icons")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.s.calls_of("fonts"), [f"check {self.fonts} {self.cullet}"])
         for name in FONT_FILE_NAMES:
@@ -4264,7 +4266,7 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         catalog = os.path.join(ROOT, "crates/vtium-config/frits")
         files = sorted(os.path.join(d, f) for d in os.listdir(catalog) for f in os.listdir(os.path.join(catalog, d)))
-        self.assertEqual(len(files), 50)
+        self.assertEqual(len(files), 51)
         self.assertEqual(self.staged(), ["etc/vtium/fonts/" + f for f in files])
         for f in files:
             self.assertEqual(read(os.path.join(self.dest, "etc/vtium/fonts", f)), read(os.path.join(catalog, f)), f)
