@@ -150,7 +150,7 @@ other flow(doc display)	Click tab	other looks	mouse off
 other flow(doc display)	Ctrl-C	other left	mouse off, exit 130
 other flow(doc display)	Down	other flow(doc terminal)	
 other flow(doc display)	End	other flow(parts font)	
-other flow(doc display)	Enter	other flow.detail	
+other flow(doc display)	Enter	other flow.info	
 other flow(doc display)	PgDn	other flow(parts template)	
 other flow(doc display)	Right	other flow(doc terminal)	
 other flow(doc display)	Shift-Tab	other help(help)	mouse off
@@ -170,7 +170,7 @@ other flow(doc display) +pending	Click tab	other looks +pending	mouse off
 other flow(doc display) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(doc display) +pending	Down	other flow(doc terminal) +pending	
 other flow(doc display) +pending	End	other flow(parts font) +pending	
-other flow(doc display) +pending	Enter	other flow.detail +pending	
+other flow(doc display) +pending	Enter	other flow.info +pending	
 other flow(doc display) +pending	PgDn	other flow(parts template) +pending	
 other flow(doc display) +pending	Right	other flow(doc terminal) +pending	
 other flow(doc display) +pending	Shift-Tab	other help(help) +pending	mouse off
@@ -190,7 +190,7 @@ other flow(doc display) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(doc display) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(doc display) +unsaved	Down	other flow(doc terminal) +unsaved	
 other flow(doc display) +unsaved	End	other flow(parts font) +unsaved	
-other flow(doc display) +unsaved	Enter	other flow.detail +unsaved	
+other flow(doc display) +unsaved	Enter	other flow.info +unsaved	
 other flow(doc display) +unsaved	PgDn	other flow(parts template) +unsaved	
 other flow(doc display) +unsaved	Right	other flow(doc terminal) +unsaved	
 other flow(doc display) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
@@ -211,7 +211,7 @@ other flow(doc display) +unsaved +pending	Click tab	other looks +unsaved +pendin
 other flow(doc display) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(doc display) +unsaved +pending	Down	other flow(doc terminal) +unsaved +pending	
 other flow(doc display) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
-other flow(doc display) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
+other flow(doc display) +unsaved +pending	Enter	other flow.info +unsaved +pending	
 other flow(doc display) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
 other flow(doc display) +unsaved +pending	Right	other flow(doc terminal) +unsaved +pending	
 other flow(doc display) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
@@ -501,12 +501,12 @@ other flow(new empty) +unsaved +pending	q	other any.question.leave +unsaved +pen
 other flow(new empty) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(new empty) +unsaved +pending	s	other flow(new empty) +pending	save
 other flow(new empty) +unsaved +pending	v	other flow.file +unsaved +pending	
-other flow(new terminal)	Click box	other flow.card	
+other flow(new terminal)	Click box	other flow.new-card	
 other flow(new terminal)	Click tab	other looks	mouse off
 other flow(new terminal)	Ctrl-C	other left	mouse off, exit 130
 other flow(new terminal)	Down	other flow(parts display)	
 other flow(new terminal)	End	other flow(parts font)	
-other flow(new terminal)	Enter	other flow.card	
+other flow(new terminal)	Enter	other flow.new-card	
 other flow(new terminal)	Esc	other flow(doc terminal) +unsaved	check
 other flow(new terminal)	Home	other flow(doc terminal)	
 other flow(new terminal)	Left	other flow(new display)	
@@ -526,12 +526,12 @@ other flow(new terminal)	o	other flow.restore	history
 other flow(new terminal)	q	other left	mouse off, exit 0
 other flow(new terminal)	r	other any.question.confirm	
 other flow(new terminal)	v	other flow.file	
-other flow(new terminal) +pending	Click box	other flow.card +pending	
+other flow(new terminal) +pending	Click box	other flow.new-card +pending	
 other flow(new terminal) +pending	Click tab	other looks +pending	mouse off
 other flow(new terminal) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(new terminal) +pending	Down	other flow(parts display) +pending	
 other flow(new terminal) +pending	End	other flow(parts font) +pending	
-other flow(new terminal) +pending	Enter	other flow.card +pending	
+other flow(new terminal) +pending	Enter	other flow.new-card +pending	
 other flow(new terminal) +pending	Esc	other flow(doc terminal) +unsaved +pending	check
 other flow(new terminal) +pending	Home	other flow(doc terminal) +pending	
 other flow(new terminal) +pending	Left	other flow(new display) +pending	
@@ -551,12 +551,12 @@ other flow(new terminal) +pending	o	other flow.restore +pending	history
 other flow(new terminal) +pending	q	other any.question.leave +pending	
 other flow(new terminal) +pending	r	other any.question.confirm +pending	
 other flow(new terminal) +pending	v	other flow.file +pending	
-other flow(new terminal) +unsaved	Click box	other flow.card +unsaved	
+other flow(new terminal) +unsaved	Click box	other flow.new-card +unsaved	
 other flow(new terminal) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(new terminal) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(new terminal) +unsaved	Down	other flow(parts display) +unsaved	
 other flow(new terminal) +unsaved	End	other flow(parts font) +unsaved	
-other flow(new terminal) +unsaved	Enter	other flow.card +unsaved	
+other flow(new terminal) +unsaved	Enter	other flow.new-card +unsaved	
 other flow(new terminal) +unsaved	Esc	other flow(doc terminal) +unsaved	check
 other flow(new terminal) +unsaved	Home	other flow(doc terminal) +unsaved	
 other flow(new terminal) +unsaved	Left	other flow(new display) +unsaved	
@@ -577,12 +577,12 @@ other flow(new terminal) +unsaved	q	other any.question.quit +unsaved
 other flow(new terminal) +unsaved	r	other any.question.confirm +unsaved	
 other flow(new terminal) +unsaved	s	other flow(new terminal)	save
 other flow(new terminal) +unsaved	v	other flow.file +unsaved	
-other flow(new terminal) +unsaved +pending	Click box	other flow.card +unsaved +pending	
+other flow(new terminal) +unsaved +pending	Click box	other flow.new-card +unsaved +pending	
 other flow(new terminal) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(new terminal) +unsaved +pending	Down	other flow(parts display) +unsaved +pending	
 other flow(new terminal) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
-other flow(new terminal) +unsaved +pending	Enter	other flow.card +unsaved +pending	
+other flow(new terminal) +unsaved +pending	Enter	other flow.new-card +unsaved +pending	
 other flow(new terminal) +unsaved +pending	Esc	other flow(doc terminal) +unsaved +pending	check
 other flow(new terminal) +unsaved +pending	Home	other flow(doc terminal) +unsaved +pending	
 other flow(new terminal) +unsaved +pending	Left	other flow(new display) +unsaved +pending	
@@ -702,7 +702,7 @@ other flow(parts any input)	Click tab	other looks	mouse off
 other flow(parts any input)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts any input)	Down	other flow(parts pointer)	
 other flow(parts any input)	End	other flow(parts font)	
-other flow(parts any input)	Enter	other flow.detail.choices	
+other flow(parts any input)	Enter	other flow.detail	
 other flow(parts any input)	Home	other flow(doc display)	
 other flow(parts any input)	Left	other flow(parts keyboard)	
 other flow(parts any input)	PgUp	other flow(parts display)	
@@ -725,7 +725,7 @@ other flow(parts any input) +pending	Click tab	other looks +pending	mouse off
 other flow(parts any input) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts any input) +pending	Down	other flow(parts pointer) +pending	
 other flow(parts any input) +pending	End	other flow(parts font) +pending	
-other flow(parts any input) +pending	Enter	other flow.detail.choices +pending	
+other flow(parts any input) +pending	Enter	other flow.detail +pending	
 other flow(parts any input) +pending	Home	other flow(doc display) +pending	
 other flow(parts any input) +pending	Left	other flow(parts keyboard) +pending	
 other flow(parts any input) +pending	PgUp	other flow(parts display) +pending	
@@ -748,7 +748,7 @@ other flow(parts any input) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts any input) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts any input) +unsaved	Down	other flow(parts pointer) +unsaved	
 other flow(parts any input) +unsaved	End	other flow(parts font) +unsaved	
-other flow(parts any input) +unsaved	Enter	other flow.detail.choices +unsaved	
+other flow(parts any input) +unsaved	Enter	other flow.detail +unsaved	
 other flow(parts any input) +unsaved	Home	other flow(doc display) +unsaved	
 other flow(parts any input) +unsaved	Left	other flow(parts keyboard) +unsaved	
 other flow(parts any input) +unsaved	PgUp	other flow(parts display) +unsaved	
@@ -772,7 +772,7 @@ other flow(parts any input) +unsaved +pending	Click tab	other looks +unsaved +pe
 other flow(parts any input) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts any input) +unsaved +pending	Down	other flow(parts pointer) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
-other flow(parts any input) +unsaved +pending	Enter	other flow.detail.choices +unsaved +pending	
+other flow(parts any input) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
 other flow(parts any input) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	Left	other flow(parts keyboard) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	PgUp	other flow(parts display) +unsaved +pending	
@@ -795,7 +795,7 @@ other flow(parts display)	Click tab	other looks	mouse off
 other flow(parts display)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts display)	Down	other flow(parts template)	
 other flow(parts display)	End	other flow(parts font)	
-other flow(parts display)	Enter	other flow.detail.choices	
+other flow(parts display)	Enter	other flow.detail	
 other flow(parts display)	Home	other flow(doc display)	
 other flow(parts display)	PgDn	other flow(parts template)	
 other flow(parts display)	PgUp	other flow(new empty)	
@@ -817,7 +817,7 @@ other flow(parts display) +pending	Click tab	other looks +pending	mouse off
 other flow(parts display) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts display) +pending	Down	other flow(parts template) +pending	
 other flow(parts display) +pending	End	other flow(parts font) +pending	
-other flow(parts display) +pending	Enter	other flow.detail.choices +pending	
+other flow(parts display) +pending	Enter	other flow.detail +pending	
 other flow(parts display) +pending	Home	other flow(doc display) +pending	
 other flow(parts display) +pending	PgDn	other flow(parts template) +pending	
 other flow(parts display) +pending	PgUp	other flow(new empty) +pending	
@@ -839,7 +839,7 @@ other flow(parts display) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts display) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts display) +unsaved	Down	other flow(parts template) +unsaved	
 other flow(parts display) +unsaved	End	other flow(parts font) +unsaved	
-other flow(parts display) +unsaved	Enter	other flow.detail.choices +unsaved	
+other flow(parts display) +unsaved	Enter	other flow.detail +unsaved	
 other flow(parts display) +unsaved	Home	other flow(doc display) +unsaved	
 other flow(parts display) +unsaved	PgDn	other flow(parts template) +unsaved	
 other flow(parts display) +unsaved	PgUp	other flow(new empty) +unsaved	
@@ -862,7 +862,7 @@ other flow(parts display) +unsaved +pending	Click tab	other looks +unsaved +pend
 other flow(parts display) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts display) +unsaved +pending	Down	other flow(parts template) +unsaved +pending	
 other flow(parts display) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
-other flow(parts display) +unsaved +pending	Enter	other flow.detail.choices +unsaved +pending	
+other flow(parts display) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
 other flow(parts display) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
 other flow(parts display) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
 other flow(parts display) +unsaved +pending	PgUp	other flow(new empty) +unsaved +pending	
@@ -943,7 +943,7 @@ other flow(parts input)	Click tab	other looks	mouse off
 other flow(parts input)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts input)	Down	other flow(parts any input)	
 other flow(parts input)	End	other flow(parts font)	
-other flow(parts input)	Enter	other flow.detail.choices	
+other flow(parts input)	Enter	other flow.detail	
 other flow(parts input)	Home	other flow(doc display)	
 other flow(parts input)	Left	other flow(parts template)	
 other flow(parts input)	PgDn	other flow(parts keyboard)	
@@ -965,7 +965,7 @@ other flow(parts input) +pending	Click tab	other looks +pending	mouse off
 other flow(parts input) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts input) +pending	Down	other flow(parts any input) +pending	
 other flow(parts input) +pending	End	other flow(parts font) +pending	
-other flow(parts input) +pending	Enter	other flow.detail.choices +pending	
+other flow(parts input) +pending	Enter	other flow.detail +pending	
 other flow(parts input) +pending	Home	other flow(doc display) +pending	
 other flow(parts input) +pending	Left	other flow(parts template) +pending	
 other flow(parts input) +pending	PgDn	other flow(parts keyboard) +pending	
@@ -987,7 +987,7 @@ other flow(parts input) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts input) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts input) +unsaved	Down	other flow(parts any input) +unsaved	
 other flow(parts input) +unsaved	End	other flow(parts font) +unsaved	
-other flow(parts input) +unsaved	Enter	other flow.detail.choices +unsaved	
+other flow(parts input) +unsaved	Enter	other flow.detail +unsaved	
 other flow(parts input) +unsaved	Home	other flow(doc display) +unsaved	
 other flow(parts input) +unsaved	Left	other flow(parts template) +unsaved	
 other flow(parts input) +unsaved	PgDn	other flow(parts keyboard) +unsaved	
@@ -1010,7 +1010,7 @@ other flow(parts input) +unsaved +pending	Click tab	other looks +unsaved +pendin
 other flow(parts input) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts input) +unsaved +pending	Down	other flow(parts any input) +unsaved +pending	
 other flow(parts input) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
-other flow(parts input) +unsaved +pending	Enter	other flow.detail.choices +unsaved +pending	
+other flow(parts input) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
 other flow(parts input) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
 other flow(parts input) +unsaved +pending	Left	other flow(parts template) +unsaved +pending	
 other flow(parts input) +unsaved +pending	PgDn	other flow(parts keyboard) +unsaved +pending	
@@ -1032,7 +1032,7 @@ other flow(parts input) +unsaved +pending	v	other flow.file +unsaved +pending
 other flow(parts keyboard)	Click tab	other looks	mouse off
 other flow(parts keyboard)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts keyboard)	End	other flow(parts font)	
-other flow(parts keyboard)	Enter	other flow.detail.choices	
+other flow(parts keyboard)	Enter	other flow.detail	
 other flow(parts keyboard)	Home	other flow(doc display)	
 other flow(parts keyboard)	Left	other flow(parts input)	
 other flow(parts keyboard)	PgUp	other flow(parts special)	
@@ -1052,7 +1052,7 @@ other flow(parts keyboard)	v	other flow.file
 other flow(parts keyboard) +pending	Click tab	other looks +pending	mouse off
 other flow(parts keyboard) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts keyboard) +pending	End	other flow(parts font) +pending	
-other flow(parts keyboard) +pending	Enter	other flow.detail.choices +pending	
+other flow(parts keyboard) +pending	Enter	other flow.detail +pending	
 other flow(parts keyboard) +pending	Home	other flow(doc display) +pending	
 other flow(parts keyboard) +pending	Left	other flow(parts input) +pending	
 other flow(parts keyboard) +pending	PgUp	other flow(parts special) +pending	
@@ -1072,7 +1072,7 @@ other flow(parts keyboard) +pending	v	other flow.file +pending
 other flow(parts keyboard) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts keyboard) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts keyboard) +unsaved	End	other flow(parts font) +unsaved	
-other flow(parts keyboard) +unsaved	Enter	other flow.detail.choices +unsaved	
+other flow(parts keyboard) +unsaved	Enter	other flow.detail +unsaved	
 other flow(parts keyboard) +unsaved	Home	other flow(doc display) +unsaved	
 other flow(parts keyboard) +unsaved	Left	other flow(parts input) +unsaved	
 other flow(parts keyboard) +unsaved	PgUp	other flow(parts special) +unsaved	
@@ -1093,7 +1093,7 @@ other flow(parts keyboard) +unsaved	v	other flow.file +unsaved
 other flow(parts keyboard) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts keyboard) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
-other flow(parts keyboard) +unsaved +pending	Enter	other flow.detail.choices +unsaved +pending	
+other flow(parts keyboard) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Left	other flow(parts input) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	PgUp	other flow(parts special) +unsaved +pending	
@@ -1116,7 +1116,7 @@ other flow(parts pointer)	Click tab	other looks	mouse off
 other flow(parts pointer)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts pointer)	Down	other flow(parts font)	
 other flow(parts pointer)	End	other flow(parts font)	
-other flow(parts pointer)	Enter	other flow.detail.choices	
+other flow(parts pointer)	Enter	other flow.detail	
 other flow(parts pointer)	Home	other flow(doc display)	
 other flow(parts pointer)	Left	other flow(parts keyboard)	
 other flow(parts pointer)	PgUp	other flow(parts display)	
@@ -1139,7 +1139,7 @@ other flow(parts pointer) +pending	Click tab	other looks +pending	mouse off
 other flow(parts pointer) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts pointer) +pending	Down	other flow(parts font) +pending	
 other flow(parts pointer) +pending	End	other flow(parts font) +pending	
-other flow(parts pointer) +pending	Enter	other flow.detail.choices +pending	
+other flow(parts pointer) +pending	Enter	other flow.detail +pending	
 other flow(parts pointer) +pending	Home	other flow(doc display) +pending	
 other flow(parts pointer) +pending	Left	other flow(parts keyboard) +pending	
 other flow(parts pointer) +pending	PgUp	other flow(parts display) +pending	
@@ -1162,7 +1162,7 @@ other flow(parts pointer) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts pointer) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts pointer) +unsaved	Down	other flow(parts font) +unsaved	
 other flow(parts pointer) +unsaved	End	other flow(parts font) +unsaved	
-other flow(parts pointer) +unsaved	Enter	other flow.detail.choices +unsaved	
+other flow(parts pointer) +unsaved	Enter	other flow.detail +unsaved	
 other flow(parts pointer) +unsaved	Home	other flow(doc display) +unsaved	
 other flow(parts pointer) +unsaved	Left	other flow(parts keyboard) +unsaved	
 other flow(parts pointer) +unsaved	PgUp	other flow(parts display) +unsaved	
@@ -1186,7 +1186,7 @@ other flow(parts pointer) +unsaved +pending	Click tab	other looks +unsaved +pend
 other flow(parts pointer) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts pointer) +unsaved +pending	Down	other flow(parts font) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
-other flow(parts pointer) +unsaved +pending	Enter	other flow.detail.choices +unsaved +pending	
+other flow(parts pointer) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	Left	other flow(parts keyboard) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	PgUp	other flow(parts display) +unsaved +pending	
@@ -1426,60 +1426,92 @@ other flow.card.typing +unsaved +pending	Enter	other flow.card +unsaved +pending
 other flow.card.typing +unsaved +pending	Esc	other flow.card +unsaved +pending	
 other flow.card.typing +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.detail	Ctrl-C	other left	mouse off, exit 130
-other flow.detail	Esc	other flow(doc display)	
+other flow.detail	Down	other flow.detail.choices	
+other flow.detail	End	other flow.detail.choices	
+other flow.detail	Enter	other flow.detail.typing	
+other flow.detail	Esc	other flow(parts display)	
+other flow.detail	PgDn	other flow.detail.choices	
 other flow.detail	Shrink	other any.too-small	
-other flow.detail	e	other flow(new terminal)	
+other flow.detail	Wheel down	other flow.detail.choices	
 other flow.detail	q	other left	mouse off, exit 0
 other flow.detail +pending	Ctrl-C	other left	mouse off, exit 130
-other flow.detail +pending	Esc	other flow(doc display) +pending	
+other flow.detail +pending	Down	other flow.detail.choices +pending	
+other flow.detail +pending	End	other flow.detail.choices +pending	
+other flow.detail +pending	Enter	other flow.detail.typing +pending	
+other flow.detail +pending	Esc	other flow(parts display) +pending	
+other flow.detail +pending	PgDn	other flow.detail.choices +pending	
 other flow.detail +pending	Shrink	other any.too-small +pending	
-other flow.detail +pending	e	other flow(new terminal) +pending	
+other flow.detail +pending	Wheel down	other flow.detail.choices +pending	
 other flow.detail +pending	q	other any.question.leave +pending	
 other flow.detail +unsaved	Ctrl-C	other left	save, mouse off, exit 130
-other flow.detail +unsaved	Esc	other flow(doc display) +unsaved	
+other flow.detail +unsaved	Down	other flow.detail.choices +unsaved	
+other flow.detail +unsaved	End	other flow.detail.choices +unsaved	
+other flow.detail +unsaved	Enter	other flow.detail.typing +unsaved	
+other flow.detail +unsaved	Esc	other flow(parts display) +unsaved	
+other flow.detail +unsaved	PgDn	other flow.detail.choices +unsaved	
 other flow.detail +unsaved	Shrink	other any.too-small +unsaved	
-other flow.detail +unsaved	e	other flow(new terminal) +unsaved	
+other flow.detail +unsaved	Wheel down	other flow.detail.choices +unsaved	
 other flow.detail +unsaved	q	other any.question.quit +unsaved	
 other flow.detail +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
-other flow.detail +unsaved +pending	Esc	other flow(doc display) +unsaved +pending	
+other flow.detail +unsaved +pending	Down	other flow.detail.choices +unsaved +pending	
+other flow.detail +unsaved +pending	End	other flow.detail.choices +unsaved +pending	
+other flow.detail +unsaved +pending	Enter	other flow.detail.typing +unsaved +pending	
+other flow.detail +unsaved +pending	Esc	other flow(parts display) +unsaved +pending	
+other flow.detail +unsaved +pending	PgDn	other flow.detail.choices +unsaved +pending	
 other flow.detail +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow.detail +unsaved +pending	e	other flow(new terminal) +unsaved +pending	
+other flow.detail +unsaved +pending	Wheel down	other flow.detail.choices +unsaved +pending	
 other flow.detail +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other flow.detail.choices	Ctrl-C	other left	mouse off, exit 130
-other flow.detail.choices	Enter	other flow.detail.typing	
-other flow.detail.choices	Esc	other flow(parts display)	
+other flow.detail.choices	Enter	other flow(new display)	
+other flow.detail.choices	Esc	other flow(new display)	
+other flow.detail.choices	Home	other flow.detail	
+other flow.detail.choices	PgUp	other flow.detail	
 other flow.detail.choices	Shrink	other any.too-small	
+other flow.detail.choices	Up	other flow.detail	
+other flow.detail.choices	Wheel up	other flow.detail	
 other flow.detail.choices	q	other left	mouse off, exit 0
 other flow.detail.choices +pending	Ctrl-C	other left	mouse off, exit 130
-other flow.detail.choices +pending	Enter	other flow.detail.typing +pending	
-other flow.detail.choices +pending	Esc	other flow(parts display) +pending	
+other flow.detail.choices +pending	Enter	other flow(new display) +pending	
+other flow.detail.choices +pending	Esc	other flow(new display) +pending	
+other flow.detail.choices +pending	Home	other flow.detail +pending	
+other flow.detail.choices +pending	PgUp	other flow.detail +pending	
 other flow.detail.choices +pending	Shrink	other any.too-small +pending	
+other flow.detail.choices +pending	Up	other flow.detail +pending	
+other flow.detail.choices +pending	Wheel up	other flow.detail +pending	
 other flow.detail.choices +pending	q	other any.question.leave +pending	
 other flow.detail.choices +unsaved	Ctrl-C	other left	save, mouse off, exit 130
-other flow.detail.choices +unsaved	Enter	other flow.detail.typing +unsaved	
-other flow.detail.choices +unsaved	Esc	other flow(parts display) +unsaved	
+other flow.detail.choices +unsaved	Enter	other flow(new display) +unsaved	
+other flow.detail.choices +unsaved	Esc	other flow(new display) +unsaved	
+other flow.detail.choices +unsaved	Home	other flow.detail +unsaved	
+other flow.detail.choices +unsaved	PgUp	other flow.detail +unsaved	
 other flow.detail.choices +unsaved	Shrink	other any.too-small +unsaved	
+other flow.detail.choices +unsaved	Up	other flow.detail +unsaved	
+other flow.detail.choices +unsaved	Wheel up	other flow.detail +unsaved	
 other flow.detail.choices +unsaved	q	other any.question.quit +unsaved	
 other flow.detail.choices +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
-other flow.detail.choices +unsaved +pending	Enter	other flow.detail.typing +unsaved +pending	
-other flow.detail.choices +unsaved +pending	Esc	other flow(parts display) +unsaved +pending	
+other flow.detail.choices +unsaved +pending	Enter	other flow(new display) +unsaved +pending	
+other flow.detail.choices +unsaved +pending	Esc	other flow(new display) +unsaved +pending	
+other flow.detail.choices +unsaved +pending	Home	other flow.detail +unsaved +pending	
+other flow.detail.choices +unsaved +pending	PgUp	other flow.detail +unsaved +pending	
 other flow.detail.choices +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other flow.detail.choices +unsaved +pending	Up	other flow.detail +unsaved +pending	
+other flow.detail.choices +unsaved +pending	Wheel up	other flow.detail +unsaved +pending	
 other flow.detail.choices +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other flow.detail.typing	Ctrl-C	other left	mouse off, exit 130
-other flow.detail.typing	Enter	other flow.detail.choices	
-other flow.detail.typing	Esc	other flow.detail.choices	
+other flow.detail.typing	Enter	other flow.detail	
+other flow.detail.typing	Esc	other flow.detail	
 other flow.detail.typing	Shrink	other any.too-small	
 other flow.detail.typing +pending	Ctrl-C	other left	mouse off, exit 130
-other flow.detail.typing +pending	Enter	other flow.detail.choices +pending	
-other flow.detail.typing +pending	Esc	other flow.detail.choices +pending	
+other flow.detail.typing +pending	Enter	other flow.detail +pending	
+other flow.detail.typing +pending	Esc	other flow.detail +pending	
 other flow.detail.typing +pending	Shrink	other any.too-small +pending	
 other flow.detail.typing +unsaved	Ctrl-C	other left	save, mouse off, exit 130
-other flow.detail.typing +unsaved	Enter	other flow.detail.choices +unsaved	
-other flow.detail.typing +unsaved	Esc	other flow.detail.choices +unsaved	
+other flow.detail.typing +unsaved	Enter	other flow.detail +unsaved	
+other flow.detail.typing +unsaved	Esc	other flow.detail +unsaved	
 other flow.detail.typing +unsaved	Shrink	other any.too-small +unsaved	
 other flow.detail.typing +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
-other flow.detail.typing +unsaved +pending	Enter	other flow.detail.choices +unsaved +pending	
-other flow.detail.typing +unsaved +pending	Esc	other flow.detail.choices +unsaved +pending	
+other flow.detail.typing +unsaved +pending	Enter	other flow.detail +unsaved +pending	
+other flow.detail.typing +unsaved +pending	Esc	other flow.detail +unsaved +pending	
 other flow.detail.typing +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.file	Ctrl-C	other left	mouse off, exit 130
 other flow.file	Esc	other flow(doc display)	
@@ -1503,6 +1535,26 @@ other flow.file +unsaved +pending	Shrink	other any.too-small +unsaved +pending
 other flow.file +unsaved +pending	i	other flow.file +pending	save, prepare
 other flow.file +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other flow.file +unsaved +pending	s	other flow.file +pending	save
+other flow.info	Ctrl-C	other left	mouse off, exit 130
+other flow.info	Esc	other flow(doc display)	
+other flow.info	Shrink	other any.too-small	
+other flow.info	e	other flow(new terminal)	
+other flow.info	q	other left	mouse off, exit 0
+other flow.info +pending	Ctrl-C	other left	mouse off, exit 130
+other flow.info +pending	Esc	other flow(doc display) +pending	
+other flow.info +pending	Shrink	other any.too-small +pending	
+other flow.info +pending	e	other flow(new terminal) +pending	
+other flow.info +pending	q	other any.question.leave +pending	
+other flow.info +unsaved	Ctrl-C	other left	save, mouse off, exit 130
+other flow.info +unsaved	Esc	other flow(doc display) +unsaved	
+other flow.info +unsaved	Shrink	other any.too-small +unsaved	
+other flow.info +unsaved	e	other flow(new terminal) +unsaved	
+other flow.info +unsaved	q	other any.question.quit +unsaved	
+other flow.info +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
+other flow.info +unsaved +pending	Esc	other flow(doc display) +unsaved +pending	
+other flow.info +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other flow.info +unsaved +pending	e	other flow(new terminal) +unsaved +pending	
+other flow.info +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other flow.maker(line 0)	Ctrl-C	other left	mouse off, exit 130
 other flow.maker(line 0)	Down	other flow.maker(line 1)	
 other flow.maker(line 0)	End	other flow.maker(line 4)	
@@ -1815,6 +1867,26 @@ other flow.maker.picker.typing +unsaved	Shrink	other any.too-small +unsaved
 other flow.maker.picker.typing +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow.maker.picker.typing +unsaved +pending	Esc	other flow.maker.picker(line 1) +unsaved +pending	
 other flow.maker.picker.typing +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other flow.new-card	Ctrl-C	other left	mouse off, exit 130
+other flow.new-card	Enter	other flow.card.typing	
+other flow.new-card	Esc	other flow(new terminal)	
+other flow.new-card	Shrink	other any.too-small	
+other flow.new-card	q	other left	mouse off, exit 0
+other flow.new-card +pending	Ctrl-C	other left	mouse off, exit 130
+other flow.new-card +pending	Enter	other flow.card.typing +pending	
+other flow.new-card +pending	Esc	other flow(new terminal) +pending	
+other flow.new-card +pending	Shrink	other any.too-small +pending	
+other flow.new-card +pending	q	other any.question.leave +pending	
+other flow.new-card +unsaved	Ctrl-C	other left	save, mouse off, exit 130
+other flow.new-card +unsaved	Enter	other flow.card.typing +unsaved	
+other flow.new-card +unsaved	Esc	other flow(new terminal) +unsaved	
+other flow.new-card +unsaved	Shrink	other any.too-small +unsaved	
+other flow.new-card +unsaved	q	other any.question.quit +unsaved	
+other flow.new-card +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
+other flow.new-card +unsaved +pending	Enter	other flow.card.typing +unsaved +pending	
+other flow.new-card +unsaved +pending	Esc	other flow(new terminal) +unsaved +pending	
+other flow.new-card +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other flow.new-card +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other flow.others	Ctrl-C	other left	mouse off, exit 130
 other flow.others	Esc	other flow(others)	
 other flow.others	Shrink	other any.too-small	

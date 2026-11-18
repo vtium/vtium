@@ -145,189 +145,369 @@ vtium any.too-small +unsaved	q	vtium any.question.quit below 80×25 +unsaved
 vtium any.too-small +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium any.too-small +unsaved +pending	Grow	vtium fonts(marked) +unsaved +pending	
 vtium any.too-small +unsaved +pending	q	vtium any.question.leave below 80×25 +unsaved +pending	
+vtium any.trial	.	vtium flow.new-card	switch
 vtium any.trial	.	vtium fonts(frit)	switch
+vtium any.trial	Backspace	vtium flow.new-card	switch
 vtium any.trial	Backspace	vtium fonts(frit)	switch
+vtium any.trial	Click box	vtium flow.new-card	switch
 vtium any.trial	Click box	vtium fonts(frit)	switch
+vtium any.trial	Click tab	vtium flow.new-card	switch
 vtium any.trial	Click tab	vtium fonts(frit)	switch
+vtium any.trial	Ctrl-C	vtium left	mouse off, switch, exit 130
 vtium any.trial	Ctrl-C	vtium left	switch, exit 130
+vtium any.trial	Ctrl-D	vtium flow.new-card	switch
 vtium any.trial	Ctrl-D	vtium fonts(frit)	switch
+vtium any.trial	Ctrl-U	vtium flow.new-card	switch
 vtium any.trial	Ctrl-U	vtium fonts(frit)	switch
+vtium any.trial	Down	vtium flow.new-card	switch
 vtium any.trial	Down	vtium fonts(frit)	switch
+vtium any.trial	End	vtium flow.new-card	switch
 vtium any.trial	End	vtium fonts(frit)	switch
+vtium any.trial	Enter	vtium flow.new-card	switch
 vtium any.trial	Enter	vtium fonts(frit)	switch
+vtium any.trial	Esc	vtium flow.new-card	switch
 vtium any.trial	Esc	vtium fonts(frit)	switch
+vtium any.trial	G	vtium flow.new-card	switch
 vtium any.trial	G	vtium fonts(frit)	switch
+vtium any.trial	Home	vtium flow.new-card	switch
 vtium any.trial	Home	vtium fonts(frit)	switch
+vtium any.trial	Left	vtium flow.new-card	switch
 vtium any.trial	Left	vtium fonts(frit)	switch
+vtium any.trial	PgDn	vtium flow.new-card	switch
 vtium any.trial	PgDn	vtium fonts(frit)	switch
+vtium any.trial	PgUp	vtium flow.new-card	switch
 vtium any.trial	PgUp	vtium fonts(frit)	switch
+vtium any.trial	Right	vtium flow.new-card	switch
 vtium any.trial	Right	vtium fonts(frit)	switch
+vtium any.trial	Shift-Tab	vtium flow.new-card	switch
 vtium any.trial	Shift-Tab	vtium fonts(frit)	switch
 vtium any.trial	Shrink	vtium any.trial below 80×25	
+vtium any.trial	Space	vtium flow.new-card	switch
 vtium any.trial	Space	vtium fonts(frit)	switch
+vtium any.trial	Tab	vtium flow.new-card	switch
 vtium any.trial	Tab	vtium fonts(frit)	switch
+vtium any.trial	Up	vtium flow.new-card	switch
 vtium any.trial	Up	vtium fonts(frit)	switch
+vtium any.trial	Wheel down	vtium flow.new-card	switch
 vtium any.trial	Wheel down	vtium fonts(frit)	switch
+vtium any.trial	Wheel up	vtium flow.new-card	switch
 vtium any.trial	Wheel up	vtium fonts(frit)	switch
+vtium any.trial	a	vtium flow.new-card	switch
 vtium any.trial	a	vtium fonts(frit)	switch
+vtium any.trial	d	vtium flow.new-card	switch
 vtium any.trial	d	vtium fonts(frit)	switch
+vtium any.trial	e	vtium flow.new-card	switch
 vtium any.trial	e	vtium fonts(frit)	switch
+vtium any.trial	g	vtium flow.new-card	switch
 vtium any.trial	g	vtium fonts(frit)	switch
+vtium any.trial	h	vtium flow.new-card	switch
 vtium any.trial	h	vtium fonts(frit)	switch
+vtium any.trial	i	vtium flow.new-card	switch
 vtium any.trial	i	vtium fonts(frit)	switch
+vtium any.trial	j	vtium flow.new-card	switch
 vtium any.trial	j	vtium fonts(frit)	switch
+vtium any.trial	k	vtium flow.new-card	
 vtium any.trial	k	vtium fonts(frit)	
+vtium any.trial	l	vtium flow.new-card	switch
 vtium any.trial	l	vtium fonts(frit)	switch
+vtium any.trial	n	vtium flow.new-card	switch
 vtium any.trial	n	vtium fonts(frit)	switch
+vtium any.trial	o	vtium flow.new-card	switch
 vtium any.trial	o	vtium fonts(frit)	switch
+vtium any.trial	p	vtium flow.new-card	switch
 vtium any.trial	p	vtium fonts(frit)	switch
+vtium any.trial	q	vtium flow.new-card	switch
 vtium any.trial	q	vtium fonts(frit)	switch
+vtium any.trial	r	vtium flow.new-card	switch
 vtium any.trial	r	vtium fonts(frit)	switch
+vtium any.trial	s	vtium flow.new-card	switch
 vtium any.trial	s	vtium fonts(frit)	switch
+vtium any.trial	t	vtium flow.new-card	switch
 vtium any.trial	t	vtium fonts(frit)	switch
+vtium any.trial	u	vtium flow.new-card	switch
 vtium any.trial	u	vtium fonts(frit)	switch
+vtium any.trial	v	vtium flow.new-card	switch
 vtium any.trial	v	vtium fonts(frit)	switch
+vtium any.trial	w	vtium flow.new-card	switch
 vtium any.trial	w	vtium fonts(frit)	switch
+vtium any.trial	x	vtium flow.new-card	switch
 vtium any.trial	x	vtium fonts(frit)	switch
+vtium any.trial	y	vtium flow.new-card	switch
 vtium any.trial	y	vtium fonts(frit)	switch
+vtium any.trial	z	vtium flow.new-card	switch
 vtium any.trial	z	vtium fonts(frit)	switch
+vtium any.trial +pending	.	vtium flow.new-card +pending	switch
 vtium any.trial +pending	.	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Backspace	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Backspace	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Click box	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Click box	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Click tab	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Click tab	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Ctrl-C	vtium left	mouse off, switch, exit 130
 vtium any.trial +pending	Ctrl-C	vtium left	switch, exit 130
+vtium any.trial +pending	Ctrl-D	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Ctrl-D	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Ctrl-U	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Ctrl-U	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Down	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Down	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	End	vtium flow.new-card +pending	switch
 vtium any.trial +pending	End	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Enter	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Enter	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Esc	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Esc	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	G	vtium flow.new-card +pending	switch
 vtium any.trial +pending	G	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Home	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Home	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Left	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Left	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	PgDn	vtium flow.new-card +pending	switch
 vtium any.trial +pending	PgDn	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	PgUp	vtium flow.new-card +pending	switch
 vtium any.trial +pending	PgUp	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Right	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Right	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Shift-Tab	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Shift-Tab	vtium fonts(marked) +pending	switch
 vtium any.trial +pending	Shrink	vtium any.trial below 80×25 +pending	
+vtium any.trial +pending	Space	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Space	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Tab	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Tab	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Up	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Up	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Wheel down	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Wheel down	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	Wheel up	vtium flow.new-card +pending	switch
 vtium any.trial +pending	Wheel up	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	a	vtium flow.new-card +pending	switch
 vtium any.trial +pending	a	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	d	vtium flow.new-card +pending	switch
 vtium any.trial +pending	d	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	e	vtium flow.new-card +pending	switch
 vtium any.trial +pending	e	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	g	vtium flow.new-card +pending	switch
 vtium any.trial +pending	g	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	h	vtium flow.new-card +pending	switch
 vtium any.trial +pending	h	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	i	vtium flow.new-card +pending	switch
 vtium any.trial +pending	i	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	j	vtium flow.new-card +pending	switch
 vtium any.trial +pending	j	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	k	vtium flow.new-card +pending	
 vtium any.trial +pending	k	vtium fonts(marked) +pending	
+vtium any.trial +pending	l	vtium flow.new-card +pending	switch
 vtium any.trial +pending	l	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	n	vtium flow.new-card +pending	switch
 vtium any.trial +pending	n	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	o	vtium flow.new-card +pending	switch
 vtium any.trial +pending	o	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	p	vtium flow.new-card +pending	switch
 vtium any.trial +pending	p	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	q	vtium flow.new-card +pending	switch
 vtium any.trial +pending	q	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	r	vtium flow.new-card +pending	switch
 vtium any.trial +pending	r	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	s	vtium flow.new-card +pending	switch
 vtium any.trial +pending	s	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	t	vtium flow.new-card +pending	switch
 vtium any.trial +pending	t	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	u	vtium flow.new-card +pending	switch
 vtium any.trial +pending	u	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	v	vtium flow.new-card +pending	switch
 vtium any.trial +pending	v	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	w	vtium flow.new-card +pending	switch
 vtium any.trial +pending	w	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	x	vtium flow.new-card +pending	switch
 vtium any.trial +pending	x	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	y	vtium flow.new-card +pending	switch
 vtium any.trial +pending	y	vtium fonts(marked) +pending	switch
+vtium any.trial +pending	z	vtium flow.new-card +pending	switch
 vtium any.trial +pending	z	vtium fonts(marked) +pending	switch
+vtium any.trial +unsaved	.	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	.	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Backspace	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Backspace	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Click box	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Click box	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Click tab	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Click tab	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Ctrl-C	vtium left	save, mouse off, switch, exit 130
 vtium any.trial +unsaved	Ctrl-C	vtium left	save, switch, exit 130
+vtium any.trial +unsaved	Ctrl-D	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Ctrl-D	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Ctrl-U	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Ctrl-U	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Down	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Down	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	End	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	End	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Enter	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Enter	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Esc	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Esc	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	G	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	G	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Home	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Home	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Left	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Left	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	PgDn	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	PgDn	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	PgUp	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	PgUp	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Right	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Right	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Shift-Tab	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Shift-Tab	vtium fonts(frit) +unsaved	switch
 vtium any.trial +unsaved	Shrink	vtium any.trial below 80×25 +unsaved	
+vtium any.trial +unsaved	Space	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Space	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Tab	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Tab	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Up	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Up	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Wheel down	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Wheel down	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	Wheel up	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	Wheel up	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	a	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	a	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	d	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	d	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	e	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	e	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	g	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	g	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	h	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	h	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	i	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	i	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	j	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	j	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	k	vtium flow.new-card +unsaved	
 vtium any.trial +unsaved	k	vtium fonts(frit) +unsaved	
+vtium any.trial +unsaved	l	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	l	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	n	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	n	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	o	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	o	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	p	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	p	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	q	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	q	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	r	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	r	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	s	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	s	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	t	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	t	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	u	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	u	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	v	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	v	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	w	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	w	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	x	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	x	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	y	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	y	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved	z	vtium flow.new-card +unsaved	switch
 vtium any.trial +unsaved	z	vtium fonts(frit) +unsaved	switch
+vtium any.trial +unsaved +pending	.	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	.	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Backspace	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Backspace	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Click box	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Click box	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Click tab	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Click tab	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Ctrl-C	vtium left	save, mouse off, switch, exit 130
 vtium any.trial +unsaved +pending	Ctrl-C	vtium left	save, switch, exit 130
+vtium any.trial +unsaved +pending	Ctrl-D	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Ctrl-D	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Ctrl-U	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Ctrl-U	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Down	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Down	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	End	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	End	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Enter	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Enter	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Esc	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Esc	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	G	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	G	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Home	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Home	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Left	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Left	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	PgDn	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	PgDn	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	PgUp	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	PgUp	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Right	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Right	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Shift-Tab	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Shrink	vtium any.trial below 80×25 +unsaved +pending	
+vtium any.trial +unsaved +pending	Space	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Space	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Tab	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Tab	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Up	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Up	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Wheel down	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Wheel down	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	Wheel up	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	Wheel up	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	a	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	a	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	d	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	d	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	e	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	e	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	g	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	g	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	h	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	h	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	i	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	i	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	j	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	j	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	k	vtium flow.new-card +unsaved +pending	
 vtium any.trial +unsaved +pending	k	vtium fonts(marked) +unsaved +pending	
+vtium any.trial +unsaved +pending	l	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	l	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	n	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	n	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	o	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	o	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	p	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	p	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	q	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	q	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	r	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	r	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	s	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	s	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	t	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	t	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	u	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	u	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	v	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	v	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	w	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	w	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	x	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	x	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	y	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	y	vtium fonts(marked) +unsaved +pending	switch
+vtium any.trial +unsaved +pending	z	vtium flow.new-card +unsaved +pending	switch
 vtium any.trial +unsaved +pending	z	vtium fonts(marked) +unsaved +pending	switch
 vtium any.trial below 80×25	.	vtium any.too-small	switch
 vtium any.trial below 80×25	Backspace	vtium any.too-small	switch
@@ -518,7 +698,7 @@ vtium flow(doc display)	Click tab	vtium looks	mouse off
 vtium flow(doc display)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc display)	Down	vtium flow(doc terminal)	
 vtium flow(doc display)	End	vtium flow(parts font)	
-vtium flow(doc display)	Enter	vtium flow.detail	
+vtium flow(doc display)	Enter	vtium flow.info	
 vtium flow(doc display)	PgDn	vtium flow(parts template)	
 vtium flow(doc display)	Right	vtium flow(doc terminal)	
 vtium flow(doc display)	Shift-Tab	vtium help(help)	mouse off
@@ -538,7 +718,7 @@ vtium flow(doc display) +pending	Click tab	vtium looks +pending	mouse off
 vtium flow(doc display) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc display) +pending	Down	vtium flow(doc terminal) +pending	
 vtium flow(doc display) +pending	End	vtium flow(parts font) +pending	
-vtium flow(doc display) +pending	Enter	vtium flow.detail +pending	
+vtium flow(doc display) +pending	Enter	vtium flow.info +pending	
 vtium flow(doc display) +pending	PgDn	vtium flow(parts template) +pending	
 vtium flow(doc display) +pending	Right	vtium flow(doc terminal) +pending	
 vtium flow(doc display) +pending	Shift-Tab	vtium help(help) +pending	mouse off
@@ -558,7 +738,7 @@ vtium flow(doc display) +unsaved	Click tab	vtium looks +unsaved	mouse off
 vtium flow(doc display) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc display) +unsaved	Down	vtium flow(doc terminal) +unsaved	
 vtium flow(doc display) +unsaved	End	vtium flow(parts font) +unsaved	
-vtium flow(doc display) +unsaved	Enter	vtium flow.detail +unsaved	
+vtium flow(doc display) +unsaved	Enter	vtium flow.info +unsaved	
 vtium flow(doc display) +unsaved	PgDn	vtium flow(parts template) +unsaved	
 vtium flow(doc display) +unsaved	Right	vtium flow(doc terminal) +unsaved	
 vtium flow(doc display) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
@@ -579,7 +759,7 @@ vtium flow(doc display) +unsaved +pending	Click tab	vtium looks +unsaved +pendin
 vtium flow(doc display) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc display) +unsaved +pending	Down	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
-vtium flow(doc display) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
+vtium flow(doc display) +unsaved +pending	Enter	vtium flow.info +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	Right	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
@@ -869,12 +1049,12 @@ vtium flow(new empty) +unsaved +pending	q	vtium any.question.leave +unsaved +pen
 vtium flow(new empty) +unsaved +pending	r	vtium any.question.confirm +unsaved +pending	
 vtium flow(new empty) +unsaved +pending	s	vtium flow(new empty) +pending	save
 vtium flow(new empty) +unsaved +pending	v	vtium flow.file +unsaved +pending	
-vtium flow(new terminal)	Click box	vtium flow.card	
+vtium flow(new terminal)	Click box	vtium flow.new-card	
 vtium flow(new terminal)	Click tab	vtium looks	mouse off
 vtium flow(new terminal)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new terminal)	Down	vtium flow(parts display)	
 vtium flow(new terminal)	End	vtium flow(parts font)	
-vtium flow(new terminal)	Enter	vtium flow.card	
+vtium flow(new terminal)	Enter	vtium flow.new-card	
 vtium flow(new terminal)	Esc	vtium flow(doc terminal) +unsaved	check
 vtium flow(new terminal)	Home	vtium flow(doc terminal)	
 vtium flow(new terminal)	Left	vtium flow(new display)	
@@ -894,12 +1074,12 @@ vtium flow(new terminal)	o	vtium flow.restore	history
 vtium flow(new terminal)	q	vtium left	mouse off, exit 0
 vtium flow(new terminal)	r	vtium any.question.confirm	
 vtium flow(new terminal)	v	vtium flow.file	
-vtium flow(new terminal) +pending	Click box	vtium flow.card +pending	
+vtium flow(new terminal) +pending	Click box	vtium flow.new-card +pending	
 vtium flow(new terminal) +pending	Click tab	vtium looks +pending	mouse off
 vtium flow(new terminal) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new terminal) +pending	Down	vtium flow(parts display) +pending	
 vtium flow(new terminal) +pending	End	vtium flow(parts font) +pending	
-vtium flow(new terminal) +pending	Enter	vtium flow.card +pending	
+vtium flow(new terminal) +pending	Enter	vtium flow.new-card +pending	
 vtium flow(new terminal) +pending	Esc	vtium flow(doc terminal) +unsaved +pending	check
 vtium flow(new terminal) +pending	Home	vtium flow(doc terminal) +pending	
 vtium flow(new terminal) +pending	Left	vtium flow(new display) +pending	
@@ -919,12 +1099,12 @@ vtium flow(new terminal) +pending	o	vtium flow.restore +pending	history
 vtium flow(new terminal) +pending	q	vtium any.question.leave +pending	
 vtium flow(new terminal) +pending	r	vtium any.question.confirm +pending	
 vtium flow(new terminal) +pending	v	vtium flow.file +pending	
-vtium flow(new terminal) +unsaved	Click box	vtium flow.card +unsaved	
+vtium flow(new terminal) +unsaved	Click box	vtium flow.new-card +unsaved	
 vtium flow(new terminal) +unsaved	Click tab	vtium looks +unsaved	mouse off
 vtium flow(new terminal) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new terminal) +unsaved	Down	vtium flow(parts display) +unsaved	
 vtium flow(new terminal) +unsaved	End	vtium flow(parts font) +unsaved	
-vtium flow(new terminal) +unsaved	Enter	vtium flow.card +unsaved	
+vtium flow(new terminal) +unsaved	Enter	vtium flow.new-card +unsaved	
 vtium flow(new terminal) +unsaved	Esc	vtium flow(doc terminal) +unsaved	check
 vtium flow(new terminal) +unsaved	Home	vtium flow(doc terminal) +unsaved	
 vtium flow(new terminal) +unsaved	Left	vtium flow(new display) +unsaved	
@@ -945,12 +1125,12 @@ vtium flow(new terminal) +unsaved	q	vtium any.question.quit +unsaved
 vtium flow(new terminal) +unsaved	r	vtium any.question.confirm +unsaved	
 vtium flow(new terminal) +unsaved	s	vtium flow(new terminal)	save
 vtium flow(new terminal) +unsaved	v	vtium flow.file +unsaved	
-vtium flow(new terminal) +unsaved +pending	Click box	vtium flow.card +unsaved +pending	
+vtium flow(new terminal) +unsaved +pending	Click box	vtium flow.new-card +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new terminal) +unsaved +pending	Down	vtium flow(parts display) +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
-vtium flow(new terminal) +unsaved +pending	Enter	vtium flow.card +unsaved +pending	
+vtium flow(new terminal) +unsaved +pending	Enter	vtium flow.new-card +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	Esc	vtium flow(doc terminal) +unsaved +pending	check
 vtium flow(new terminal) +unsaved +pending	Home	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	Left	vtium flow(new display) +unsaved +pending	
@@ -1070,7 +1250,7 @@ vtium flow(parts any input)	Click tab	vtium looks	mouse off
 vtium flow(parts any input)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts any input)	Down	vtium flow(parts pointer)	
 vtium flow(parts any input)	End	vtium flow(parts font)	
-vtium flow(parts any input)	Enter	vtium flow.detail.choices	
+vtium flow(parts any input)	Enter	vtium flow.detail	
 vtium flow(parts any input)	Home	vtium flow(doc display)	
 vtium flow(parts any input)	Left	vtium flow(parts keyboard)	
 vtium flow(parts any input)	PgUp	vtium flow(parts display)	
@@ -1093,7 +1273,7 @@ vtium flow(parts any input) +pending	Click tab	vtium looks +pending	mouse off
 vtium flow(parts any input) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts any input) +pending	Down	vtium flow(parts pointer) +pending	
 vtium flow(parts any input) +pending	End	vtium flow(parts font) +pending	
-vtium flow(parts any input) +pending	Enter	vtium flow.detail.choices +pending	
+vtium flow(parts any input) +pending	Enter	vtium flow.detail +pending	
 vtium flow(parts any input) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts any input) +pending	Left	vtium flow(parts keyboard) +pending	
 vtium flow(parts any input) +pending	PgUp	vtium flow(parts display) +pending	
@@ -1116,7 +1296,7 @@ vtium flow(parts any input) +unsaved	Click tab	vtium looks +unsaved	mouse off
 vtium flow(parts any input) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts any input) +unsaved	Down	vtium flow(parts pointer) +unsaved	
 vtium flow(parts any input) +unsaved	End	vtium flow(parts font) +unsaved	
-vtium flow(parts any input) +unsaved	Enter	vtium flow.detail.choices +unsaved	
+vtium flow(parts any input) +unsaved	Enter	vtium flow.detail +unsaved	
 vtium flow(parts any input) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(parts any input) +unsaved	Left	vtium flow(parts keyboard) +unsaved	
 vtium flow(parts any input) +unsaved	PgUp	vtium flow(parts display) +unsaved	
@@ -1140,7 +1320,7 @@ vtium flow(parts any input) +unsaved +pending	Click tab	vtium looks +unsaved +pe
 vtium flow(parts any input) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts any input) +unsaved +pending	Down	vtium flow(parts pointer) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
-vtium flow(parts any input) +unsaved +pending	Enter	vtium flow.detail.choices +unsaved +pending	
+vtium flow(parts any input) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	Left	vtium flow(parts keyboard) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	PgUp	vtium flow(parts display) +unsaved +pending	
@@ -1163,7 +1343,7 @@ vtium flow(parts display)	Click tab	vtium looks	mouse off
 vtium flow(parts display)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts display)	Down	vtium flow(parts template)	
 vtium flow(parts display)	End	vtium flow(parts font)	
-vtium flow(parts display)	Enter	vtium flow.detail.choices	
+vtium flow(parts display)	Enter	vtium flow.detail	
 vtium flow(parts display)	Home	vtium flow(doc display)	
 vtium flow(parts display)	PgDn	vtium flow(parts template)	
 vtium flow(parts display)	PgUp	vtium flow(new empty)	
@@ -1185,7 +1365,7 @@ vtium flow(parts display) +pending	Click tab	vtium looks +pending	mouse off
 vtium flow(parts display) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts display) +pending	Down	vtium flow(parts template) +pending	
 vtium flow(parts display) +pending	End	vtium flow(parts font) +pending	
-vtium flow(parts display) +pending	Enter	vtium flow.detail.choices +pending	
+vtium flow(parts display) +pending	Enter	vtium flow.detail +pending	
 vtium flow(parts display) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts display) +pending	PgDn	vtium flow(parts template) +pending	
 vtium flow(parts display) +pending	PgUp	vtium flow(new empty) +pending	
@@ -1207,7 +1387,7 @@ vtium flow(parts display) +unsaved	Click tab	vtium looks +unsaved	mouse off
 vtium flow(parts display) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts display) +unsaved	Down	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	End	vtium flow(parts font) +unsaved	
-vtium flow(parts display) +unsaved	Enter	vtium flow.detail.choices +unsaved	
+vtium flow(parts display) +unsaved	Enter	vtium flow.detail +unsaved	
 vtium flow(parts display) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(parts display) +unsaved	PgDn	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	PgUp	vtium flow(new empty) +unsaved	
@@ -1230,7 +1410,7 @@ vtium flow(parts display) +unsaved +pending	Click tab	vtium looks +unsaved +pend
 vtium flow(parts display) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts display) +unsaved +pending	Down	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
-vtium flow(parts display) +unsaved +pending	Enter	vtium flow.detail.choices +unsaved +pending	
+vtium flow(parts display) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	PgUp	vtium flow(new empty) +unsaved +pending	
@@ -1311,7 +1491,7 @@ vtium flow(parts input)	Click tab	vtium looks	mouse off
 vtium flow(parts input)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts input)	Down	vtium flow(parts any input)	
 vtium flow(parts input)	End	vtium flow(parts font)	
-vtium flow(parts input)	Enter	vtium flow.detail.choices	
+vtium flow(parts input)	Enter	vtium flow.detail	
 vtium flow(parts input)	Home	vtium flow(doc display)	
 vtium flow(parts input)	Left	vtium flow(parts template)	
 vtium flow(parts input)	PgDn	vtium flow(parts keyboard)	
@@ -1333,7 +1513,7 @@ vtium flow(parts input) +pending	Click tab	vtium looks +pending	mouse off
 vtium flow(parts input) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts input) +pending	Down	vtium flow(parts any input) +pending	
 vtium flow(parts input) +pending	End	vtium flow(parts font) +pending	
-vtium flow(parts input) +pending	Enter	vtium flow.detail.choices +pending	
+vtium flow(parts input) +pending	Enter	vtium flow.detail +pending	
 vtium flow(parts input) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts input) +pending	Left	vtium flow(parts template) +pending	
 vtium flow(parts input) +pending	PgDn	vtium flow(parts keyboard) +pending	
@@ -1355,7 +1535,7 @@ vtium flow(parts input) +unsaved	Click tab	vtium looks +unsaved	mouse off
 vtium flow(parts input) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts input) +unsaved	Down	vtium flow(parts any input) +unsaved	
 vtium flow(parts input) +unsaved	End	vtium flow(parts font) +unsaved	
-vtium flow(parts input) +unsaved	Enter	vtium flow.detail.choices +unsaved	
+vtium flow(parts input) +unsaved	Enter	vtium flow.detail +unsaved	
 vtium flow(parts input) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(parts input) +unsaved	Left	vtium flow(parts template) +unsaved	
 vtium flow(parts input) +unsaved	PgDn	vtium flow(parts keyboard) +unsaved	
@@ -1378,7 +1558,7 @@ vtium flow(parts input) +unsaved +pending	Click tab	vtium looks +unsaved +pendin
 vtium flow(parts input) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts input) +unsaved +pending	Down	vtium flow(parts any input) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
-vtium flow(parts input) +unsaved +pending	Enter	vtium flow.detail.choices +unsaved +pending	
+vtium flow(parts input) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Left	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	PgDn	vtium flow(parts keyboard) +unsaved +pending	
@@ -1400,7 +1580,7 @@ vtium flow(parts input) +unsaved +pending	v	vtium flow.file +unsaved +pending
 vtium flow(parts keyboard)	Click tab	vtium looks	mouse off
 vtium flow(parts keyboard)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts keyboard)	End	vtium flow(parts font)	
-vtium flow(parts keyboard)	Enter	vtium flow.detail.choices	
+vtium flow(parts keyboard)	Enter	vtium flow.detail	
 vtium flow(parts keyboard)	Home	vtium flow(doc display)	
 vtium flow(parts keyboard)	Left	vtium flow(parts input)	
 vtium flow(parts keyboard)	PgUp	vtium flow(parts special)	
@@ -1420,7 +1600,7 @@ vtium flow(parts keyboard)	v	vtium flow.file
 vtium flow(parts keyboard) +pending	Click tab	vtium looks +pending	mouse off
 vtium flow(parts keyboard) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts keyboard) +pending	End	vtium flow(parts font) +pending	
-vtium flow(parts keyboard) +pending	Enter	vtium flow.detail.choices +pending	
+vtium flow(parts keyboard) +pending	Enter	vtium flow.detail +pending	
 vtium flow(parts keyboard) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts keyboard) +pending	Left	vtium flow(parts input) +pending	
 vtium flow(parts keyboard) +pending	PgUp	vtium flow(parts special) +pending	
@@ -1440,7 +1620,7 @@ vtium flow(parts keyboard) +pending	v	vtium flow.file +pending
 vtium flow(parts keyboard) +unsaved	Click tab	vtium looks +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts keyboard) +unsaved	End	vtium flow(parts font) +unsaved	
-vtium flow(parts keyboard) +unsaved	Enter	vtium flow.detail.choices +unsaved	
+vtium flow(parts keyboard) +unsaved	Enter	vtium flow.detail +unsaved	
 vtium flow(parts keyboard) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(parts keyboard) +unsaved	Left	vtium flow(parts input) +unsaved	
 vtium flow(parts keyboard) +unsaved	PgUp	vtium flow(parts special) +unsaved	
@@ -1461,7 +1641,7 @@ vtium flow(parts keyboard) +unsaved	v	vtium flow.file +unsaved
 vtium flow(parts keyboard) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts keyboard) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
-vtium flow(parts keyboard) +unsaved +pending	Enter	vtium flow.detail.choices +unsaved +pending	
+vtium flow(parts keyboard) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Left	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	PgUp	vtium flow(parts special) +unsaved +pending	
@@ -1484,7 +1664,7 @@ vtium flow(parts pointer)	Click tab	vtium looks	mouse off
 vtium flow(parts pointer)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts pointer)	Down	vtium flow(parts font)	
 vtium flow(parts pointer)	End	vtium flow(parts font)	
-vtium flow(parts pointer)	Enter	vtium flow.detail.choices	
+vtium flow(parts pointer)	Enter	vtium flow.detail	
 vtium flow(parts pointer)	Home	vtium flow(doc display)	
 vtium flow(parts pointer)	Left	vtium flow(parts keyboard)	
 vtium flow(parts pointer)	PgUp	vtium flow(parts display)	
@@ -1507,7 +1687,7 @@ vtium flow(parts pointer) +pending	Click tab	vtium looks +pending	mouse off
 vtium flow(parts pointer) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts pointer) +pending	Down	vtium flow(parts font) +pending	
 vtium flow(parts pointer) +pending	End	vtium flow(parts font) +pending	
-vtium flow(parts pointer) +pending	Enter	vtium flow.detail.choices +pending	
+vtium flow(parts pointer) +pending	Enter	vtium flow.detail +pending	
 vtium flow(parts pointer) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts pointer) +pending	Left	vtium flow(parts keyboard) +pending	
 vtium flow(parts pointer) +pending	PgUp	vtium flow(parts display) +pending	
@@ -1530,7 +1710,7 @@ vtium flow(parts pointer) +unsaved	Click tab	vtium looks +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts pointer) +unsaved	Down	vtium flow(parts font) +unsaved	
 vtium flow(parts pointer) +unsaved	End	vtium flow(parts font) +unsaved	
-vtium flow(parts pointer) +unsaved	Enter	vtium flow.detail.choices +unsaved	
+vtium flow(parts pointer) +unsaved	Enter	vtium flow.detail +unsaved	
 vtium flow(parts pointer) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(parts pointer) +unsaved	Left	vtium flow(parts keyboard) +unsaved	
 vtium flow(parts pointer) +unsaved	PgUp	vtium flow(parts display) +unsaved	
@@ -1554,7 +1734,7 @@ vtium flow(parts pointer) +unsaved +pending	Click tab	vtium looks +unsaved +pend
 vtium flow(parts pointer) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts pointer) +unsaved +pending	Down	vtium flow(parts font) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
-vtium flow(parts pointer) +unsaved +pending	Enter	vtium flow.detail.choices +unsaved +pending	
+vtium flow(parts pointer) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	Left	vtium flow(parts keyboard) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	PgUp	vtium flow(parts display) +unsaved +pending	
@@ -1793,60 +1973,92 @@ vtium flow.card.typing +unsaved +pending	Enter	vtium flow.card +unsaved +pending
 vtium flow.card.typing +unsaved +pending	Esc	vtium flow.card +unsaved +pending	
 vtium flow.card.typing +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow.detail	Ctrl-C	vtium left	mouse off, exit 130
-vtium flow.detail	Esc	vtium flow(doc display)	
+vtium flow.detail	Down	vtium flow.detail.choices	
+vtium flow.detail	End	vtium flow.detail.choices	
+vtium flow.detail	Enter	vtium flow.detail.typing	
+vtium flow.detail	Esc	vtium flow(parts display)	
+vtium flow.detail	PgDn	vtium flow.detail.choices	
 vtium flow.detail	Shrink	vtium any.too-small	
-vtium flow.detail	e	vtium flow(new terminal)	
+vtium flow.detail	Wheel down	vtium flow.detail.choices	
 vtium flow.detail	q	vtium left	mouse off, exit 0
 vtium flow.detail +pending	Ctrl-C	vtium left	mouse off, exit 130
-vtium flow.detail +pending	Esc	vtium flow(doc display) +pending	
+vtium flow.detail +pending	Down	vtium flow.detail.choices +pending	
+vtium flow.detail +pending	End	vtium flow.detail.choices +pending	
+vtium flow.detail +pending	Enter	vtium flow.detail.typing +pending	
+vtium flow.detail +pending	Esc	vtium flow(parts display) +pending	
+vtium flow.detail +pending	PgDn	vtium flow.detail.choices +pending	
 vtium flow.detail +pending	Shrink	vtium any.too-small +pending	
-vtium flow.detail +pending	e	vtium flow(new terminal) +pending	
+vtium flow.detail +pending	Wheel down	vtium flow.detail.choices +pending	
 vtium flow.detail +pending	q	vtium any.question.leave +pending	
 vtium flow.detail +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
-vtium flow.detail +unsaved	Esc	vtium flow(doc display) +unsaved	
+vtium flow.detail +unsaved	Down	vtium flow.detail.choices +unsaved	
+vtium flow.detail +unsaved	End	vtium flow.detail.choices +unsaved	
+vtium flow.detail +unsaved	Enter	vtium flow.detail.typing +unsaved	
+vtium flow.detail +unsaved	Esc	vtium flow(parts display) +unsaved	
+vtium flow.detail +unsaved	PgDn	vtium flow.detail.choices +unsaved	
 vtium flow.detail +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow.detail +unsaved	e	vtium flow(new terminal) +unsaved	
+vtium flow.detail +unsaved	Wheel down	vtium flow.detail.choices +unsaved	
 vtium flow.detail +unsaved	q	vtium any.question.quit +unsaved	
 vtium flow.detail +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
-vtium flow.detail +unsaved +pending	Esc	vtium flow(doc display) +unsaved +pending	
+vtium flow.detail +unsaved +pending	Down	vtium flow.detail.choices +unsaved +pending	
+vtium flow.detail +unsaved +pending	End	vtium flow.detail.choices +unsaved +pending	
+vtium flow.detail +unsaved +pending	Enter	vtium flow.detail.typing +unsaved +pending	
+vtium flow.detail +unsaved +pending	Esc	vtium flow(parts display) +unsaved +pending	
+vtium flow.detail +unsaved +pending	PgDn	vtium flow.detail.choices +unsaved +pending	
 vtium flow.detail +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow.detail +unsaved +pending	e	vtium flow(new terminal) +unsaved +pending	
+vtium flow.detail +unsaved +pending	Wheel down	vtium flow.detail.choices +unsaved +pending	
 vtium flow.detail +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium flow.detail.choices	Ctrl-C	vtium left	mouse off, exit 130
-vtium flow.detail.choices	Enter	vtium flow.detail.typing	
-vtium flow.detail.choices	Esc	vtium flow(parts display)	
+vtium flow.detail.choices	Enter	vtium flow(new display)	
+vtium flow.detail.choices	Esc	vtium flow(new display)	
+vtium flow.detail.choices	Home	vtium flow.detail	
+vtium flow.detail.choices	PgUp	vtium flow.detail	
 vtium flow.detail.choices	Shrink	vtium any.too-small	
+vtium flow.detail.choices	Up	vtium flow.detail	
+vtium flow.detail.choices	Wheel up	vtium flow.detail	
 vtium flow.detail.choices	q	vtium left	mouse off, exit 0
 vtium flow.detail.choices +pending	Ctrl-C	vtium left	mouse off, exit 130
-vtium flow.detail.choices +pending	Enter	vtium flow.detail.typing +pending	
-vtium flow.detail.choices +pending	Esc	vtium flow(parts display) +pending	
+vtium flow.detail.choices +pending	Enter	vtium flow(new display) +pending	
+vtium flow.detail.choices +pending	Esc	vtium flow(new display) +pending	
+vtium flow.detail.choices +pending	Home	vtium flow.detail +pending	
+vtium flow.detail.choices +pending	PgUp	vtium flow.detail +pending	
 vtium flow.detail.choices +pending	Shrink	vtium any.too-small +pending	
+vtium flow.detail.choices +pending	Up	vtium flow.detail +pending	
+vtium flow.detail.choices +pending	Wheel up	vtium flow.detail +pending	
 vtium flow.detail.choices +pending	q	vtium any.question.leave +pending	
 vtium flow.detail.choices +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
-vtium flow.detail.choices +unsaved	Enter	vtium flow.detail.typing +unsaved	
-vtium flow.detail.choices +unsaved	Esc	vtium flow(parts display) +unsaved	
+vtium flow.detail.choices +unsaved	Enter	vtium flow(new display) +unsaved	
+vtium flow.detail.choices +unsaved	Esc	vtium flow(new display) +unsaved	
+vtium flow.detail.choices +unsaved	Home	vtium flow.detail +unsaved	
+vtium flow.detail.choices +unsaved	PgUp	vtium flow.detail +unsaved	
 vtium flow.detail.choices +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium flow.detail.choices +unsaved	Up	vtium flow.detail +unsaved	
+vtium flow.detail.choices +unsaved	Wheel up	vtium flow.detail +unsaved	
 vtium flow.detail.choices +unsaved	q	vtium any.question.quit +unsaved	
 vtium flow.detail.choices +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
-vtium flow.detail.choices +unsaved +pending	Enter	vtium flow.detail.typing +unsaved +pending	
-vtium flow.detail.choices +unsaved +pending	Esc	vtium flow(parts display) +unsaved +pending	
+vtium flow.detail.choices +unsaved +pending	Enter	vtium flow(new display) +unsaved +pending	
+vtium flow.detail.choices +unsaved +pending	Esc	vtium flow(new display) +unsaved +pending	
+vtium flow.detail.choices +unsaved +pending	Home	vtium flow.detail +unsaved +pending	
+vtium flow.detail.choices +unsaved +pending	PgUp	vtium flow.detail +unsaved +pending	
 vtium flow.detail.choices +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium flow.detail.choices +unsaved +pending	Up	vtium flow.detail +unsaved +pending	
+vtium flow.detail.choices +unsaved +pending	Wheel up	vtium flow.detail +unsaved +pending	
 vtium flow.detail.choices +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium flow.detail.typing	Ctrl-C	vtium left	mouse off, exit 130
-vtium flow.detail.typing	Enter	vtium flow.detail.choices	
-vtium flow.detail.typing	Esc	vtium flow.detail.choices	
+vtium flow.detail.typing	Enter	vtium flow.detail	
+vtium flow.detail.typing	Esc	vtium flow.detail	
 vtium flow.detail.typing	Shrink	vtium any.too-small	
 vtium flow.detail.typing +pending	Ctrl-C	vtium left	mouse off, exit 130
-vtium flow.detail.typing +pending	Enter	vtium flow.detail.choices +pending	
-vtium flow.detail.typing +pending	Esc	vtium flow.detail.choices +pending	
+vtium flow.detail.typing +pending	Enter	vtium flow.detail +pending	
+vtium flow.detail.typing +pending	Esc	vtium flow.detail +pending	
 vtium flow.detail.typing +pending	Shrink	vtium any.too-small +pending	
 vtium flow.detail.typing +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
-vtium flow.detail.typing +unsaved	Enter	vtium flow.detail.choices +unsaved	
-vtium flow.detail.typing +unsaved	Esc	vtium flow.detail.choices +unsaved	
+vtium flow.detail.typing +unsaved	Enter	vtium flow.detail +unsaved	
+vtium flow.detail.typing +unsaved	Esc	vtium flow.detail +unsaved	
 vtium flow.detail.typing +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium flow.detail.typing +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
-vtium flow.detail.typing +unsaved +pending	Enter	vtium flow.detail.choices +unsaved +pending	
-vtium flow.detail.typing +unsaved +pending	Esc	vtium flow.detail.choices +unsaved +pending	
+vtium flow.detail.typing +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
+vtium flow.detail.typing +unsaved +pending	Esc	vtium flow.detail +unsaved +pending	
 vtium flow.detail.typing +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow.file	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow.file	Esc	vtium flow(doc display)	
@@ -1870,6 +2082,26 @@ vtium flow.file +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending
 vtium flow.file +unsaved +pending	i	vtium flow.file +pending	save, prepare
 vtium flow.file +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium flow.file +unsaved +pending	s	vtium flow.file +pending	save
+vtium flow.info	Ctrl-C	vtium left	mouse off, exit 130
+vtium flow.info	Esc	vtium flow(doc display)	
+vtium flow.info	Shrink	vtium any.too-small	
+vtium flow.info	e	vtium flow(new terminal)	
+vtium flow.info	q	vtium left	mouse off, exit 0
+vtium flow.info +pending	Ctrl-C	vtium left	mouse off, exit 130
+vtium flow.info +pending	Esc	vtium flow(doc display) +pending	
+vtium flow.info +pending	Shrink	vtium any.too-small +pending	
+vtium flow.info +pending	e	vtium flow(new terminal) +pending	
+vtium flow.info +pending	q	vtium any.question.leave +pending	
+vtium flow.info +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
+vtium flow.info +unsaved	Esc	vtium flow(doc display) +unsaved	
+vtium flow.info +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium flow.info +unsaved	e	vtium flow(new terminal) +unsaved	
+vtium flow.info +unsaved	q	vtium any.question.quit +unsaved	
+vtium flow.info +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
+vtium flow.info +unsaved +pending	Esc	vtium flow(doc display) +unsaved +pending	
+vtium flow.info +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium flow.info +unsaved +pending	e	vtium flow(new terminal) +unsaved +pending	
+vtium flow.info +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium flow.maker(line 0)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow.maker(line 0)	Down	vtium flow.maker(line 1)	
 vtium flow.maker(line 0)	End	vtium flow.maker(line 4)	
@@ -2182,6 +2414,30 @@ vtium flow.maker.picker.typing +unsaved	Shrink	vtium any.too-small +unsaved
 vtium flow.maker.picker.typing +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow.maker.picker.typing +unsaved +pending	Esc	vtium flow.maker.picker(line 1) +unsaved +pending	
 vtium flow.maker.picker.typing +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium flow.new-card	Ctrl-C	vtium left	mouse off, exit 130
+vtium flow.new-card	Enter	vtium flow.card.typing	
+vtium flow.new-card	Esc	vtium flow(new terminal)	
+vtium flow.new-card	Shrink	vtium any.too-small	
+vtium flow.new-card	q	vtium left	mouse off, exit 0
+vtium flow.new-card	t	vtium any.trial	switch
+vtium flow.new-card +pending	Ctrl-C	vtium left	mouse off, exit 130
+vtium flow.new-card +pending	Enter	vtium flow.card.typing +pending	
+vtium flow.new-card +pending	Esc	vtium flow(new terminal) +pending	
+vtium flow.new-card +pending	Shrink	vtium any.too-small +pending	
+vtium flow.new-card +pending	q	vtium any.question.leave +pending	
+vtium flow.new-card +pending	t	vtium any.trial +pending	switch
+vtium flow.new-card +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
+vtium flow.new-card +unsaved	Enter	vtium flow.card.typing +unsaved	
+vtium flow.new-card +unsaved	Esc	vtium flow(new terminal) +unsaved	
+vtium flow.new-card +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium flow.new-card +unsaved	q	vtium any.question.quit +unsaved	
+vtium flow.new-card +unsaved	t	vtium any.trial +unsaved	switch
+vtium flow.new-card +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
+vtium flow.new-card +unsaved +pending	Enter	vtium flow.card.typing +unsaved +pending	
+vtium flow.new-card +unsaved +pending	Esc	vtium flow(new terminal) +unsaved +pending	
+vtium flow.new-card +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium flow.new-card +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium flow.new-card +unsaved +pending	t	vtium any.trial +unsaved +pending	switch
 vtium flow.others	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow.others	Esc	vtium flow(others)	
 vtium flow.others	Shrink	vtium any.too-small	
