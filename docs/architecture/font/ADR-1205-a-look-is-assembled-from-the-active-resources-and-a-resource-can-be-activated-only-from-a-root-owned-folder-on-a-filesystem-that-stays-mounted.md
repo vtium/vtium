@@ -92,6 +92,18 @@ considered:
   - operator: aaronsb
     said: "I'm in agreement with that adr"
     via: the steering session, 2026-11-18, after reading the record at 01886728
+  - operator: aaronsb
+    said: "When /etc/vtium/batch.conf is missing, as on a machine upgraded from an earlier vtium, vtium treats the batch as the fresh-install list: the built-in font, Cullet Mono, Terminus, Unifont, and the console font that vconsole.conf's FONT= names. vtium check-config says that the file is missing and how to create it."
+    via: the maintainer's answers to the steering session's questions, 2026-11-18
+    paraphrase: true
+  - operator: aaronsb
+    said: "When vtium-config installs a user's font as a system font and /usr/local/share/fonts already holds a file of that name, vtium-config shows both files, with each one's size, date, and the font's own family name and version, and asks whether to replace the existing file or cancel. When the two files are identical, vtium-config says the font is already installed and does nothing."
+    via: the maintainer's answers to the steering session's questions, 2026-11-18
+    paraphrase: true
+  - operator: aaronsb
+    said: "Pointer themes are activated in the Looks tab. The Looks tab lists every installed pointer theme, marks the inactive ones, and offers Activate and Deactivate there, with the same trust marks as the Fonts and Effects tabs."
+    via: the maintainer's answers to the steering session's questions, 2026-11-18
+    paraphrase: true
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -103,6 +115,9 @@ observable:
   - "A look whose only font is bitmap Terminus offers the sizes of Terminus's strikes and no other; font-size = 13 in vtium.conf still draws, and vtium check-config warns that the look's fonts do not supply it"
   - "On a fresh install, the Fonts tab shows the built-in font, Cullet Mono, Terminus, Unifont and the console font that vconsole.conf's FONT= names as active, and the default terminus set draws with no setup"
   - "With the same font installed by a package in /usr/share/fonts and by hand in /usr/local/share/fonts, the package's copy is active and the Fonts tab marks the local copy as a duplicate"
+  - With /etc/vtium/batch.conf missing, the built-in font, Cullet Mono, Terminus, Unifont and the console font that vconsole.conf's FONT= names are active, and vtium check-config says that the file is missing and how to create it
+  - Installing a font as a system font when /usr/local/share/fonts already holds a different file of that name shows both files, with size, date, family name and version, and asks to replace or cancel; with an identical file, vtium-config says the font is already installed and writes nothing
+  - The Looks tab lists every installed pointer theme, marks the inactive ones, shows their trust marks, and activates or deactivates a pointer theme with the same controls as the Fonts and Effects tabs
 status: accepted
 date: 2026-11-18
 deciders:
@@ -215,6 +230,8 @@ The program that reads a resource checks the rule on the file it opened, so the 
 
 **Where the batch lives.** The batch is a root-owned file under `/etc/vtium`. The name `/etc/vtium/batch.conf`, with one path to a resource on each line, is this record's agent's call. vtium-config writes the batch through its sudo-backed install, as it writes vtium.conf (ADR-1201 D5). A draft keeps its changes to the batch beside the draft, as it keeps its font set changes (ADR-1403 D8), so the changes install with the draft.
 
+> Note 2026-11-18: the maintainer decided what vtium does when the batch file is missing (`considered`, 2026-11-18). A machine upgraded from an earlier vtium has no `/etc/vtium/batch.conf`. vtium then treats the batch as the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, and the console font that vconsole.conf's `FONT=` names. So the default set `terminus` still draws after the upgrade. `vtium check-config` says that the file is missing and how to create it.
+
 **This rule sits beside ADR-1401 D10.** D10 keeps its scope: vtium.conf and the frits, which route input and choose login commands. This rule covers the resources a look draws from.
 
 ### D5: how a font reaches the machine
@@ -226,6 +243,8 @@ A font reaches the machine as a system font in one of three ways:
 - **vtium-config's "install as a system font" step,** for a font the Fonts tab lists from a user's folder.
 
 The install step copies one font file into `/usr/local/share/fonts`, and never into `/usr/share/fonts`, which the packages own. It runs through vtium-config's existing sudo-backed install (ADR-1201 D5). The copy is owned by root with mode 0644, and vtium-config checks it afterwards against D4's rule. vtium-config shows the exact command before it runs it, and asks the person to confirm each time. Activating a font never installs it as a side effect. A user's font is first installed as a system font, then activated.
+
+> Note 2026-11-18: the maintainer decided what the install step does when `/usr/local/share/fonts` already holds a file of the same name (`considered`, 2026-11-18). vtium-config shows both files, each with its size, its date, and the font's own family name and version. vtium-config then asks the person whether to replace the existing file or to cancel. When the two files are identical, vtium-config says that the font is already installed and does nothing.
 
 **A font installed twice.** A package may later install the same font in `/usr/share/fonts` that the person installed by hand in `/usr/local/share/fonts`. The package's copy is then the active one, and the Fonts tab points out the local copy as a duplicate that the person can remove.
 
@@ -247,6 +266,8 @@ One font may fill every role, or several fonts may share them. The fonts keep AD
 A look also takes active effects: the color maps and shaders that its vtlook names (ADR-1304 D4, D11).
 
 **A look picks its pointer theme.** The Looks tab lists the installed pointer themes: vtium's own `/usr/share/vtium/pointers.svg`, and each desktop cursor theme in `/usr/share/icons` or `/usr/local/share/icons` whose folder holds a `cursors` folder (ADR-1309 D2). Those two folders are this record's agent's call. Each look picks one of them, or none for vtium's own pictures. A pointer theme follows D4's rule and is activated like any other resource, so the Looks tab offers only active themes and marks the others as not active. A look's choice takes priority over the `pointer-theme` key in vtium.conf (ADR-1309 D1). That key stays the default for a look that picks no theme, so an existing configuration keeps its pointers.
+
+> Note 2026-11-18: the maintainer decided where a pointer theme is activated (`considered`, 2026-11-18). The Looks tab lists every installed pointer theme and marks the ones that are not active. The person activates or deactivates a pointer theme there, with Activate and Deactivate. The Looks tab shows the same trust marks as the Fonts and Effects tabs, and a look still picks only an active theme.
 
 ### D7: sizes come from the look
 
