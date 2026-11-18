@@ -89,6 +89,9 @@ considered:
   - operator: aaronsb
     said: "Yes that makes sense a look takes priority over what is defined in settings"
     via: the steering session, 2026-11-18, on how a look's pointer theme sits beside vtium.conf's pointer-theme key
+  - operator: aaronsb
+    said: "I'm in agreement with that adr"
+    via: the steering session, 2026-11-18, after reading the record at 01886728
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -100,7 +103,7 @@ observable:
   - "A look whose only font is bitmap Terminus offers the sizes of Terminus's strikes and no other; font-size = 13 in vtium.conf still draws, and vtium check-config warns that the look's fonts do not supply it"
   - "On a fresh install, the Fonts tab shows the built-in font, Cullet Mono, Terminus, Unifont and the console font that vconsole.conf's FONT= names as active, and the default terminus set draws with no setup"
   - "With the same font installed by a package in /usr/share/fonts and by hand in /usr/local/share/fonts, the package's copy is active and the Fonts tab marks the local copy as a duplicate"
-status: proposed
+status: accepted
 date: 2026-11-18
 deciders:
   - aaronsb
