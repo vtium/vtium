@@ -673,8 +673,8 @@ fn vtiums_own_frits_name_no_built_in_font() {
         "console", "classic", "code", "nerd", "scripts", "small", "layers",
     ]
     .map(count);
-    assert_eq!(counts, [7, 3, 8, 7, 9, 3, 13], "{seen:?}");
-    assert_eq!(seen.len(), 50, "no file outside the folders: {seen:?}");
+    assert_eq!(counts, [8, 3, 8, 7, 9, 3, 13], "{seen:?}");
+    assert_eq!(seen.len(), 51, "no file outside the folders: {seen:?}");
 }
 
 /// Each shipped small panel set, drawn here from stand-ins of the fonts it
@@ -685,15 +685,17 @@ fn vtiums_own_frits_name_no_built_in_font() {
 /// take it from, in the set's cell.
 #[test]
 fn the_small_panel_sets_take_each_chosen_symbol_from_its_font() {
-    for (frit, text_font, at) in [
+    // a text font named as hex: stands in as a .hex font of A alone
+    let hex_of_a = format!("0041:{}\n", "FF".repeat(15) + "00");
+    for (frit, (kind, text_font), at) in [
         (
             "unifont-icons",
-            "/usr/share/vtium/fonts/unifont-17.0.03.bdf",
+            ("hex", "/usr/share/vtium/fonts/unifont_all-17.0.03.hex"),
             cell(8, 16),
         ),
         (
             "unscii-icons",
-            "/usr/share/fonts/vtium/unscii-8.bdf",
+            ("bdf", "/usr/share/fonts/vtium/unscii-8.bdf"),
             cell(8, 8),
         ),
     ] {
@@ -711,8 +713,12 @@ fn the_small_panel_sets_take_each_chosen_symbol_from_its_font() {
             nerd.build(),
         )
         .expect("font");
-        let bdf = w.path("fonts/text.bdf");
-        fs::write(&bdf, bdf_of_a(at)).expect("the text font");
+        let bdf = w.path(&format!("fonts/text.{kind}"));
+        let stand_in = match kind {
+            "hex" => hex_of_a.clone(),
+            _ => bdf_of_a(at),
+        };
+        fs::write(&bdf, stand_in).expect("the text font");
         let text = shipped(frit);
         assert!(
             text.lines()
@@ -720,7 +726,7 @@ fn the_small_panel_sets_take_each_chosen_symbol_from_its_font() {
             "{frit} states its cell"
         );
         assert!(
-            text.contains(&format!("source=bdf:{text_font}\n")),
+            text.contains(&format!("source={kind}:{text_font}\n")),
             "{frit}"
         );
         let text = text.replace(text_font, &bdf.display().to_string());
@@ -739,6 +745,102 @@ fn the_small_panel_sets_take_each_chosen_symbol_from_its_font() {
                 "{frit} {c:?} draws in 1 bit behind a bitmap text font"
             );
         }
+    }
+}
+
+/// The shipped terminus set, drawn from stand-ins of its eighteen Terminus
+/// files and its Unifont file at the paths it names. Each stand-in holds A
+/// as a block one row short of its cell, at Terminus's own cell for that
+/// height, and the Unifont stand-in holds the Han character U+4E00 and two
+/// private-use characters, which the unifont layer's two cover= lines leave
+/// out. The set names only the unifont layer, so it needs no outline font.
+///
+/// With no cell set, the set gives the cell of its tallest strike no taller
+/// than the height asked: none under 12 pixels, where the built-in font
+/// draws, Terminus's own cell at each of its heights, the next smaller
+/// strike's between two heights, and the 32-pixel strike's above 32
+/// pixels. Unifont draws U+4E00 from 16 pixels up, and nothing in a
+/// 12-pixel cell, where its 16-pixel glyphs do not fit.
+///
+/// References:
+/// - ADR-1204 D2: the terminus set, its strikes and the cell they give.
+/// - ADR-1204 D5: the unifont layer's hex: file.
+#[test]
+fn the_terminus_set_takes_its_cell_and_glyphs_from_the_strike_for_each_height() {
+    let w = World::new("shipped-terminus");
+    let shipped_text = shipped("terminus");
+    let mut text = shipped_text.clone();
+    let cells = [
+        (12, 6),
+        (14, 8),
+        (16, 8),
+        (18, 10),
+        (20, 10),
+        (22, 11),
+        (24, 12),
+        (28, 14),
+        (32, 16),
+    ];
+    for (height, width) in cells {
+        for weight in ['n', 'b'] {
+            let name = format!("ter-u{height}{weight}.bdf.gz");
+            let shipped_path = format!("/usr/share/vtium/fonts/{name}");
+            assert!(
+                shipped_text.contains(&format!("bdf:{shipped_path}\n")),
+                "terminus names {name}"
+            );
+            let stand_in = w.path(&format!("fonts/{name}"));
+            fs::write(&stand_in, gzip(bdf_of_a(cell(width, height)).as_bytes())).expect("a strike");
+            text = text.replace(&shipped_path, &stand_in.display().to_string());
+        }
+    }
+    let unifont = "/usr/share/vtium/fonts/unifont_all-17.0.03.hex";
+    assert!(shipped_text.contains(&format!("source=hex:{unifont}\n")));
+    let hex = w.path("fonts/unifont.hex");
+    // Unifont holds private-use glyphs too, which the layer's two cover=
+    // lines leave out
+    let wide = "FF".repeat(32);
+    fs::write(&hex, format!("4E00:{wide}\nE0B0:{wide}\nF0001:{wide}\n")).expect("unifont");
+    let text = text.replace(unifont, &hex.display().to_string());
+    assert!(!text.contains("source=outline:") && !text.contains("source=font:"));
+    let engine = w.engine(&text).expect("the set loads");
+    assert_eq!(engine.warnings(), [] as [String; 0], "every file reads");
+    assert!(engine.coverage().contains(&0x4e00));
+    assert!(
+        !engine.coverage().contains(&0xe0b0),
+        "the BMP's private-use area"
+    );
+    assert!(!engine.coverage().contains(&0xf0001), "plane 15's");
+    // the stand-ins' hashes differ from the shipped files', and they still
+    // draw
+    assert_eq!(engine.differs().len(), 19, "{:?}", engine.differs());
+    let own = |height: u32| match engine.own_cell(height) {
+        Ok(OwnCell::Bitmap(c)) => Some((c.width, c.height)),
+        _ => None,
+    };
+    assert_eq!(own(8), None, "the built-in font draws under 12 pixels");
+    for (height, want) in [
+        (12, (6, 12)),
+        (13, (6, 12)),
+        (16, (8, 16)),
+        (17, (8, 16)),
+        (24, (12, 24)),
+        (26, (12, 24)),
+        (31, (14, 28)),
+        (32, (16, 32)),
+        (40, (16, 32)),
+    ] {
+        assert_eq!(own(height), Some(want), "at {height} pixels");
+    }
+    for (at, han) in [
+        (cell(6, 12), false),
+        (cell(8, 16), true),
+        (cell(12, 24), true),
+        (cell(16, 40), true),
+    ] {
+        let face = SetFace::new(w.drawn(&text, at), at.height).expect("a face");
+        assert!(face.has_glyph('A'), "A at {at:?}");
+        assert_eq!(face.has_glyph('\u{4e00}'), han, "U+4E00 at {at:?}");
     }
 }
 
@@ -788,7 +890,10 @@ fn the_jetbrains_mono_set_takes_the_font_logos_from_an_installed_nerd_font() {
 /// A BDF font of the cell `at` that holds only `A`, a block one row short
 /// of the cell, as a small panel set's text font stands in.
 fn bdf_of_a(at: Cell) -> String {
-    let row = format!("{:02X}\n", 0xffu8 << (8 - at.width.min(8)));
+    // a row of whole bytes, its first `at.width` bits set
+    let bytes = at.width.div_ceil(8);
+    let bits = (u64::MAX << (64 - at.width)) >> (64 - bytes * 8);
+    let row = format!("{bits:0digits$X}\n", digits = (bytes * 2) as usize);
     format!(
         "STARTFONT 2.1\nFONT -test-a-medium-r-normal--{h}-{h}-75-75-c-{w}0-iso10646-1\n\
          SIZE {h} 75 75\nFONTBOUNDINGBOX {w} {h} 0 -1\nSTARTPROPERTIES 2\n\
