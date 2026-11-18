@@ -64,22 +64,24 @@ pub const FONTS: [Pinned; 3] = [
 pub const FRIT: &str =
     include_str!("../../../crates/vtium-config/frits/code/jetbrains-mono.vtfrit");
 
-/// GNU Unifont 17.0.03's BDF file, the file the catalog's fallback layer
-/// `unifont` names. Unifoundry publishes it gzipped, at 1,259,456 bytes,
-/// and the font helper reads a gzipped font of 1 MiB at most, so the layer
-/// names the decompressed file, which the cache holds.
+/// GNU Unifont 17.0.03's `.hex` file of every plane, the file the
+/// catalog's fallback layer `unifont` names. Unifoundry publishes it
+/// gzipped, at 1,687,539 bytes. The font helper reads a `.hex` file only
+/// uncompressed, so the cache holds the decompressed file, which is the
+/// same file as the tree's `crates/vtium-font/data/unifont.hex`.
 ///
 /// References:
 /// - ADR-1204 D2: the Unifont version and where vtium installs the file.
+/// - ADR-1204 D5: the layer's `.hex` file and its two `cover=` lines.
 pub const UNIFONT: Pinned = Pinned {
-    file: "unifont-17.0.03.bdf",
-    url: "https://unifoundry.com/pub/unifont/unifont-17.0.03/font-builds/unifont-17.0.03.bdf.gz",
-    sha256: "3dbf3ed14e63f69dcc36663092269b312494429ce5a4ddc3adab042b5a0909c2",
-    gzipped: Some("30d50302daca631e2cf454d9747117d98c9f35c0b18af4f67d2fa5e116992033"),
+    file: "unifont_all-17.0.03.hex",
+    url: "https://unifoundry.com/pub/unifont/unifont-17.0.03/font-builds/unifont_all-17.0.03.hex.gz",
+    sha256: "90a5d4dd44a5ef8d3fd02a3f397926b2f9d98640f0b86a3f050faef7bb2683b2",
+    gzipped: Some("dd9e15729a1450c4f5e7f634ffcade4c84ee3d172291c67d39f1d747ad1be1f6"),
 };
 
-/// The path the layer `unifont` names its BDF file at.
-const UNIFONT_SOURCE: &str = "source=bdf:/usr/share/vtium/fonts/unifont-17.0.03.bdf";
+/// The path the layer `unifont` names its `.hex` file at.
+const UNIFONT_SOURCE: &str = "source=hex:/usr/share/vtium/fonts/unifont_all-17.0.03.hex";
 
 /// Unifont's character cell. A set whose cell is smaller gets no glyph
 /// from the layer `unifont`, and the console draws those characters in its
@@ -140,7 +142,7 @@ fn spliced_in(text: &str, fonts: &Path) -> Result<String, String> {
     if text.lines().filter(|l| *l == UNIFONT_SOURCE).count() != 1 {
         return Err(format!("the set names no line {UNIFONT_SOURCE}"));
     }
-    let here = format!("source=bdf:{}", fonts.join(UNIFONT.file).display());
+    let here = format!("source=hex:{}", fonts.join(UNIFONT.file).display());
     Ok(text.replace(UNIFONT_SOURCE, &here))
 }
 
@@ -427,10 +429,10 @@ mod tests {
     fn a_cell_smaller_than_unifonts_draws_without_its_layer() {
         let dir = Scratch::new("small");
         let whole = spliced_in(TINY5_FRIT, &dir).unwrap();
-        let unifont = format!("source=bdf:{}", dir.join(UNIFONT.file).display());
+        let unifont = format!("source=hex:{}", dir.join(UNIFONT.file).display());
         assert!(whole.lines().any(|l| l == unifont), "{whole}");
         let small = spliced_without_unifont(TINY5_FRIT);
-        assert!(!small.contains("unifont-17.0.03"), "{small}");
+        assert!(!small.contains(UNIFONT.file), "{small}");
         assert!(small.contains("source=font:Noto Color Emoji"), "{small}");
     }
 
