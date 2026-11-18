@@ -387,7 +387,7 @@ The frit draws without that layer. `vtium check-config` reports each such line f
 
 ### Strikes
 
-`strike=` names a bitmap file of the same design as the `source=` line above it, at another height, as `kbd:NAME`, `file:PATH` or `bdf:PATH`, once for each file. Each strike file states its own height, so the frit needs no other number to choose among them. A strike this machine lacks is left out quietly, and one the helper refuses is left out with a warning naming its line. A built-in font, `vconsole` and `console:` take no strikes, because a frit cannot name their design at other heights.
+`strike=` names a bitmap file of the same design as the `source=` line above it, at another height, as `kbd:NAME`, `file:PATH` or `bdf:PATH`, once for each file. Each strike file states its own height, so the frit needs no other number to choose among them. A strike this machine lacks is left out, and vtium reports it as a missing font. The console logs it once a boot, and `vtium-config fonts` names its file. A strike the helper refuses is left out with a warning naming its line. A built-in font, `vconsole` and `console:` take no strikes, because a frit cannot name their design at other heights.
 
 Under an outline source, a cell up to the tallest strike's height draws the tallest strike that fits it, placed as a bitmap source is placed. Its baseline and lines are the strike's. Above the tallest strike's height, and in a cell that no strike fits, the outline draws. The outline also draws, at every height, each character that the strikes lack, such as a Nerd Fonts icon.
 
