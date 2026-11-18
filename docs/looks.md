@@ -74,7 +74,7 @@ min-size = any      # any, or WxH: the mode's own pixels
 max-size = any
 min-dpi = any       # any, or 1 to 1000: the density fonts are sized at
 max-dpi = any
-min-fps = any       # any, refresh or 1 to 1000: frames a second the filters must keep
+min-fps = any       # any, refresh or 1 to 1000: the frame rate to keep
 gpu = any           # any; yes for the GPU path only; no for the CPU path only
 ```
 
