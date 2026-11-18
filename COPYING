@@ -94,6 +94,31 @@ strike is cut from Unscii-8, by Viznut, which is in the public domain, with
 four glyphs of vtium's own under vtium's MIT license
 (crates/vtium-font/data/vtium-8x8.hex).
 
+The font files every vtium build installs in /usr/share/vtium/fonts, which
+tools/fonts/README.md describes:
+
+- Terminus Font 4.49.1's eighteen BDF files, ter-u12n.bdf.gz to
+  ter-u32b.bdf.gz, unchanged apart from the gzip compression: Copyright (C)
+  2020 Dimitar Toshkov Zhekov, with Reserved Font Name "Terminus Font",
+  licensed under the SIL Open Font License 1.1. Each file states the same in
+  its COPYRIGHT and NOTICE properties.
+- GNU Unifont 17.0.03's all-planes file, unifont_all-17.0.03.hex, unchanged:
+  Copyright (C) 1998-2025 Roman Czyborra, Paul Hardy, Qianqian Fang, Andrew
+  Miller, Johnnie Weaver, David Corbett, Ælla Chiana Moskopp, Rebecca
+  Bettencourt, Minseo Lee, Ho-Seok Ee, et al. vtium takes it under the SIL
+  Open Font License 1.1, and Unifont reserves no font name.
+- Cullet Mono, CulletMono-Regular.ttf and CulletMono-Bold.ttf, which vtium
+  builds from Terminus (TTF) 4.49.3 and Nerd Fonts' icons with
+  tools/cullet-mono: derived from Terminus Font by Dimitar Toshkov Zhekov
+  and Terminus (TTF) by Tilman Blumenbach, licensed under the SIL Open Font
+  License 1.1, with the Reserved Font Names "Terminus Font" and "Terminus
+  (TTF)", so it carries a name of its own. Its icons keep their own
+  licenses. Its notices, NOTICES.txt and the license texts it names, are in
+  cullet-mono/ beside this file in an installed vtium.
+
+The SIL Open Font License's text is OFL-1.1.txt beside this file in an
+installed vtium.
+
 The geometry of vtium-font's sprites (crates/vtium-font/src/sprite.rs) is
 adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under
 the MIT licence: Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors.

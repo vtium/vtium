@@ -282,6 +282,33 @@ endif
 ifneq ($(filter install-fonts,$(MAKECMDGOALS)),)
 _fonts_frits := $(call frit_paths,$(FONTS_FRITS)) $(call layer_paths,$(FONTS_LAYERS))
 endif
+# The font files every build installs in /usr/share/vtium/fonts, minspec
+# builds included: bitmap Terminus 4.49.1's eighteen BDF files, gzipped,
+# GNU Unifont's all-planes .hex file, and Cullet Mono's two faces, with
+# Cullet Mono's notices and the license texts they name in the package's
+# license directory. make font-files stages the Terminus and Unifont files
+# in FONT_FILES from a pinned archive, and make cullet-mono builds the
+# faces in CULLET_MONO_OUT. make install and make install-tree check every
+# file against its pin first, and stop with a line that names the target
+# that stages a missing file. tools/fonts/README.md describes the files and
+# their pins.
+#
+# References:
+# - ADR-1204 D2: every build installs the Terminus, Unifont and Cullet Mono
+#   files, and make install writes the package's prefix into the paths
+#   the font sets name.
+# - ADR-1204 D8: vtium installs these fonts itself.
+FONT_FILES := $(or $(CARGO_TARGET_DIR),target)/font-files
+FONT_FILE_NAMES := $(foreach h,12 14 16 18 20 22 24 28 32,ter-u$(h)n.bdf.gz ter-u$(h)b.bdf.gz) unifont_all-17.0.03.hex
+CULLET_MONO_FACES := CulletMono-Regular.ttf CulletMono-Bold.ttf
+CULLET_MONO_NOTICES := $(sort $(wildcard tools/cullet-mono/notices/*))
+# install-font-files,FONTS,LICENSES stages the font files in FONTS and
+# Cullet Mono's notices in LICENSES/cullet-mono.
+define install-font-files
+install -Dm644 -t $(1) $(addprefix $(FONT_FILES)/,$(FONT_FILE_NAMES)) $(addprefix $(CULLET_MONO_OUT)/,$(CULLET_MONO_FACES))
+install -Dm644 -t $(2)/cullet-mono $(CULLET_MONO_NOTICES)
+endef
+
 # The picture gallery tool, which a console with images ships as
 # vtium-gallery (ADR-1500 D8).
 GALLERY := tools/gallery/gallery
@@ -312,7 +339,7 @@ install -Dm644 -t $(1)/man5 $(MAN_DIR)/vtium.conf.5
 endef
 
 .PHONY: install-tree
-install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-release) ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' and its frits FRITS='...' when named (needs tic)
+install-tree: font-files-check minspec config-release clipboard-release $(if $(IMAGES),image-release) ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' and its frits FRITS='...' when named (needs tic, and the font files make font-files and make cullet-mono stage)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
 	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
@@ -329,6 +356,7 @@ install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-rele
 	$(if $(strip $(FRITS)),$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS))))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
+	$(call install-font-files,$(DESTDIR)/usr/share/vtium/fonts,$(DESTDIR)/usr/share/licenses/vtium)
 	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
 	$(call install-man,$(DESTDIR)/usr/share/man)
 ifneq ($(IMAGES),)
@@ -459,7 +487,7 @@ endif
 	$(build_settings)cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
-install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus jetbrains-mono unifont-icons unscii-icons): make install DESTDIR=DIR PREFIX=/usr
+install: font-files-check install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus jetbrains-mono unifont-icons unscii-icons), with the font files make font-files and make cullet-mono stage: make install DESTDIR=DIR PREFIX=/usr
 	install -Dm755 $(INSTALL_TARGET_DIR)/minspec/vtium $(DESTDIR)$(PREFIX)/bin/vtium
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-config $(DESTDIR)$(PREFIX)/bin/vtium-config
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-clipboard $(DESTDIR)$(PREFIX)/bin/vtium-clipboard
@@ -477,8 +505,12 @@ ifneq ($(PAM_SESSION),)
 endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS))))
+ifneq ($(PREFIX),/usr)
+	find $(DESTDIR)/etc/vtium/fonts -type f \( -name '*.vtfrit' -o -name '*.vtlayer' \) -exec sed -i 's|/usr/share/vtium/fonts/|$(PREFIX)/share/vtium/fonts/|g' {} +
+endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)$(PREFIX)/share/vtium/pointers.svg
+	$(call install-font-files,$(DESTDIR)$(PREFIX)/share/vtium/fonts,$(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
@@ -655,7 +687,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the Cullet Mono build's checks without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest, the font files' staging and check, and the Cullet Mono build's checks without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -672,6 +704,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/arm/test_sysroot.py
 	python3 -I -B tools/stage/test_check.py
 	python3 -I -B tools/vendor/test_manifest.py
+	python3 -I -B tools/fonts/test_files.py
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
 	cargo test -q -p vtium-site
@@ -679,7 +712,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/t3-novt tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/t3-novt tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive tools/fonts/files && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The key table's crates' unit tests, built as the vtium package builds
 # them, with VTIUM_HWACCEL=on, VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8) and
@@ -864,6 +897,13 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 # - ADR-1204 D2: the sources, the name and the icon sets.
 CULLET_MONO := cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool --
 CULLET_MONO_OUT := $(or $(CARGO_TARGET_DIR),target)/cullet-mono
+.PHONY: font-files font-files-check
+font-files: ## Stage the Terminus and Unifont files every build installs in target/font-files: Terminus 4.49.1's archive fetched once into the cache, and each file checked against tools/fonts/pins.tsv (needs curl and the network once)
+	tools/fonts/files fetch $(FONT_FILES)
+
+font-files-check: ## Check the font files make install stages, in target/font-files and target/cullet-mono, against their pins
+	tools/fonts/files check $(FONT_FILES) $(CULLET_MONO_OUT)
+
 .PHONY: cullet-mono cullet-mono-check
 cullet-mono: ## Build Cullet Mono from its pinned sources into target/cullet-mono, and check each face against its pinned SHA-256 (needs FontForge, Python and the network once)
 	$(CULLET_MONO) build --out $(CULLET_MONO_OUT)
