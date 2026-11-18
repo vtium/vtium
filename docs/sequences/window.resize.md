@@ -35,6 +35,7 @@ These tests check what vtium does with the sequences on this page.
 - `a_programs_request_for_a_grid_takes_the_zoom_path` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_request_with_allow_window_ops_off_changes_nothing` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
 - `a_size_the_display_cannot_hold_takes_what_it_holds_at_the_smallest_size` in [crates/vtium/tests/heads.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/heads.rs)
+- `a_text_area_request_draws_the_strike_whose_grid_holds_it` in [crates/vtium/tests/strike_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/tests/strike_size.rs)
 
 ## Where to read more
 
