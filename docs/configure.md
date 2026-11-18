@@ -340,7 +340,7 @@ Ctrl-C saves the changes that are not saved and quits, without a question. At a 
 
 #### The keys
 
-The key line lists the keys of the Flow view and of what you open over it, such as a card or the file view. Esc closes what is open, and while something is open the action keys, such as `s` and `i`, do nothing. `q` quits from anywhere, and asks first when changes are not saved. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists what each key does on each screen.
+The key line lists the keys of the Flow view and of what you open over it, such as a card or the file view. Esc closes what is open, and while something is open the action keys, such as `s` and `i`, do nothing. `q` quits from any screen, except while you type a value, and asks first when changes are not saved. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists what each key does on each screen.
 
 The mouse selects a box with a click and opens it with a second click.
 

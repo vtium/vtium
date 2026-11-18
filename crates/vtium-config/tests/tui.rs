@@ -777,8 +777,16 @@ fn a_grid_too_small_draws_the_way_out() {
         joined.starts_with(&vtium_config::tui::words::too_small(30, 8)),
         "{screen}"
     );
+    // the generated key line of the screen below the minimum size, and
+    // the sentence about u under it
+    let keys = vtium_config::tui::contract::key_pages("any.too-small")
+        .and_then(|p| p.first())
+        .expect("the key line below the minimum size");
     assert!(
-        joined.ends_with(vtium_config::tui::words::TOO_SMALL_KEYS),
+        joined.ends_with(&format!(
+            "{keys} {}",
+            vtium_config::tui::words::TOO_SMALL_UNDO
+        )),
         "{screen}"
     );
     assert!(rows.iter().all(|r| r.chars().count() <= 30), "{screen}");
@@ -2678,7 +2686,11 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
         );
         assert!(joined.contains("vtium-config fonts"), "{screen}");
         assert!(joined.contains("vtium-config set"), "{screen}");
-        assert!(joined.contains(words::TOO_SMALL_KEYS), "{screen}");
+        let keys = vtium_config::tui::contract::key_pages("any.too-small")
+            .and_then(|p| p.first())
+            .expect("the key line below the minimum size");
+        assert!(joined.contains(keys), "{screen}");
+        assert!(joined.contains(words::TOO_SMALL_UNDO), "{screen}");
         // keys that would move are ignored below the minimum; u gives the
         // console its start font back, and the views come back
         let mut c = Console::vtium(80, 25, true, "unifont")
@@ -3148,6 +3160,87 @@ mod flow_view {
             "{}",
             text(&a)
         );
+    }
+
+    /// The Help page is generated from the contract: it shows, for each
+    /// supported node of the interface tree, what the node is, then every
+    /// key of the node's help with what the key does, in the contract's
+    /// order, at each width the TUI draws.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The contract": the Help tab is generated from the
+    ///   key table and the tree.
+    #[test]
+    fn the_help_page_shows_every_key_of_every_node_the_contract_gives() {
+        use vtium_config::tui::contract::NODES;
+        let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+        for (cols, rows) in [(80, 25), (100, 30)] {
+            let mut a = app(cols, rows);
+            press(&mut a, Key::BackTab);
+            assert_eq!(a.view, View::Help);
+            let page = words(
+                &view::help_rows(&a)
+                    .iter()
+                    .map(view::text)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+            let mut shown = 0;
+            for node in NODES.iter().filter(|n| n.supported && !n.help.is_empty()) {
+                let what = words(node.what);
+                let mut at = page
+                    .find(&what)
+                    .unwrap_or_else(|| panic!("{cols}: the page leaves out {what:?}"));
+                for (keys, does) in node.help {
+                    let entry = words(&format!("{keys} {does}"));
+                    let found = page.get(at..).and_then(|rest| rest.find(&entry));
+                    let Some(i) = found else {
+                        panic!("{cols}: {}'s help leaves out {entry:?}", node.id);
+                    };
+                    at = at.saturating_add(i).saturating_add(entry.len());
+                    shown += 1;
+                }
+            }
+            assert!(shown > 100, "{cols}: only {shown} keys");
+        }
+    }
+
+    /// Help's page scrolls by a line with Up and Down, and by the rows the
+    /// screen shows with PgUp and PgDn. Its top row stops where the page's
+    /// last row is at the bottom of the screen, so Up moves the page at
+    /// once after End.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The contract": the key table's rows for the Help
+    ///   view's keys.
+    #[test]
+    fn the_help_page_scrolls_by_its_window_and_up_moves_it_at_once_from_the_bottom() {
+        let mut a = app(80, 25);
+        press(&mut a, Key::BackTab);
+        let (len, room) = view::help_window(&a);
+        assert!(len > room.saturating_mul(2), "{len} rows, {room} shown");
+        // the screen's first row of the page, the row under the tab bar's
+        // rule, is the page's row `at`
+        let top = |a: &App, at: usize| {
+            let rows = view::help_rows(a);
+            let want = rows.get(at).map(view::text).unwrap_or_default();
+            let got = text(a).lines().nth(3).unwrap_or_default().to_owned();
+            assert_eq!(got.trim_end(), want.trim_end(), "row {at}");
+        };
+        press(&mut a, Key::PageDown);
+        top(&a, room);
+        press(&mut a, Key::PageDown);
+        top(&a, room.saturating_mul(2));
+        press(&mut a, Key::PageUp);
+        top(&a, room);
+        press(&mut a, Key::End);
+        top(&a, len.saturating_sub(room));
+        press(&mut a, Key::Down);
+        top(&a, len.saturating_sub(room));
+        press(&mut a, Key::Up);
+        top(&a, len.saturating_sub(room).saturating_sub(1));
+        press(&mut a, Key::Home);
+        top(&a, 0);
     }
 }
 
