@@ -57,7 +57,7 @@ t.view.looks	t	view:looks	Tries the highlighted font set on this console for 10 
 enter.view.looks	Enter	view:looks	On a font set, chooses it for the look. On a size, tries the size on this console for 10 seconds: k keeps it, and any other key puts the size back.	planned	today Enter on a size writes the top-level font-size	ADR-1201 D4	#379	choose	
 p.view.looks	p	view:looks	Switches the preview between the sample characters and the picture of the console.	planned	today s does this in the Fonts view; the label names the preview p switches to, picture or sample	ADR-1201 D4	#379	picture | sample	
 window-ops.view.looks	w	view:looks	Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing.	planned	the notice line shows w	ADR-1201 D4	#379	resize grid	
-t.layer.flow-card	t	layer:flow-card	Tries a font set on this console for 10 seconds: on the font set line the choice under the cursor, and elsewhere the card's own font set.	supported		ADR-1201 D4		try live	
+t.layer.flow-card	t	layer:flow-card	Tries the card's font set on this console for 10 seconds.	planned	today t does nothing on a card	ADR-1201 D4	#379	try live	
 o.view.looks	o	view:looks	Does nothing here.	planned	the notice that the live trial is off names allow-font-ops in the Settings view; today o turns on allow-font-ops in every view but Flow	ADR-1201 D4; ADR-1403 D7	#412	-	
 o.view	o	view	Does nothing here.	planned	o opens Restore in the Flow view alone; today o turns on allow-font-ops in Help and Settings too	ADR-1403 D7	#412	-	
 up.layer.list	Up	layer:list	Moves to the item above.	supported	the Flow view's picker does this today	ADR-1403 D7		move	1

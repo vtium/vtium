@@ -307,7 +307,7 @@ The `Switch on Enter` line sets the terminal's `switch-on-enter` key. With `on`,
 
 While the cursor is on the line, the card says when one of these cases applies, such as `It has no effect now, because this terminal runs on every VT. Press e and choose a VT on the line VTs.` See [The sections of vtium.conf](head-file.md) for details.
 
-Under its settings, the card shows WHAT THIS TERMINAL DRAWS: the terminal's font set, then its look, then its displays, joined left to right. In a vtium console, `t` tries a font set on the console for 10 seconds. On the `Font set` line it tries the font set under the cursor, and on any other line the card's own font set.
+Under its settings, the card shows WHAT THIS TERMINAL DRAWS: the terminal's font set, then its look, then its displays, joined left to right.
 
 A path's card in CONFIGURATION changes only the settings above. The card says how to change the rest: `Which displays and inputs this path joins change only when you revise it: press e.` In NEW PATH, the terminal's card has two more kinds of line. The line `VTs` is where you choose `every VT`, or one VT from `VT 1` to `VT 12`. Each part of the path also has a line, where Enter disconnects that part.
 

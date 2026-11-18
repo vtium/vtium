@@ -132,7 +132,7 @@ pub const NODES: &[Node] = &[
         supported: true,
         key_pages: &[
             "↑↓ move  ←→ choose  Enter set  Esc back  q quit  . more 1/2",
-            "t try live  e revise this path  Ctrl-C save and quit  . more 2/2",
+            "e revise this path  Ctrl-C save and quit  . more 2/2",
         ],
         help: &[
             ("↑", "Moves to the field above."),
@@ -140,7 +140,6 @@ pub const NODES: &[Node] = &[
             ("←", "Steps the highlighted field to its choice before."),
             ("→", "Steps the highlighted field to its next choice."),
             ("Enter", "Sets the highlighted field to the choice under the cursor, or lets you type a value where that choice is typed, such as the new terminal's name or a login command."),
-            ("t", "Tries a font set on this console for 10 seconds: on the font set line the choice under the cursor, and elsewhere the card's own font set."),
             (".", "Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row."),
             ("e", "Takes this path out of the configuration into NEW PATH, to change it."),
             ("Esc", "Goes back, with the same item highlighted."),
@@ -175,8 +174,7 @@ pub const NODES: &[Node] = &[
         what: "NEW PATH's terminal card: the new terminal's name, its settings, and the displays and inputs it takes",
         supported: true,
         key_pages: &[
-            "↑↓ move  ←→ choose  Enter set  Esc back  q quit  . more 1/2",
-            "t try live  Ctrl-C save and quit  . more 2/2",
+            "↑↓ move  ←→ choose  Enter set  Esc back  Ctrl-C save and quit  q quit",
         ],
         help: &[
             ("↑", "Moves to the field above."),
@@ -184,8 +182,6 @@ pub const NODES: &[Node] = &[
             ("←", "Steps the highlighted field to its choice before."),
             ("→", "Steps the highlighted field to its next choice."),
             ("Enter", "Sets the highlighted field to the choice under the cursor, or lets you type a value where that choice is typed, such as the new terminal's name or a login command."),
-            ("t", "Tries a font set on this console for 10 seconds: on the font set line the choice under the cursor, and elsewhere the card's own font set."),
-            (".", "Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row."),
             ("Esc", "Goes back, with the same item highlighted."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
             ("q", "Quits vtium-config, and asks first if changes are not saved."),

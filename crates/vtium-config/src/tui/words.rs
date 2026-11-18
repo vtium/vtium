@@ -1004,9 +1004,6 @@ pub const IN_DOCUMENT: &str =
     "This part is in a path in the configuration. Press e to revise the path.";
 pub const OTHERS_CANNOT: &str =
     "These inputs are neither keyboards nor pointers, so they cannot be part of a path.";
-/// `t` on a terminal's card whose font set is the default one, which has
-/// no name of its own to try on the console.
-pub const TRY_DEFAULT_FONT_SET: &str = "The default font set has no name to try. Choose a font set on the card's Font set line, and press t to try it.";
 pub const DEFAULT_FONT_PREVIEW: &str = "The default font set is the font vtium.conf sets. The Fonts view shows each font set's preview.";
 pub const PREVIEW_PATH_NOT_HERE: &str =
     "Previewing a path needs a vtium console, and this terminal is not one.";

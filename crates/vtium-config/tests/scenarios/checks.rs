@@ -758,7 +758,8 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 }
                 Ok(())
             },
-            no_today,
+            // today t does nothing on a card
+            Some(nothing),
         ),
     );
     m.insert(
