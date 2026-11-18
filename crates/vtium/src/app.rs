@@ -4173,12 +4173,9 @@ impl App {
     /// A zoom of head `h` whose frit's first source is a bitmap font with
     /// strikes: the head draws at the next height in the zoom's direction
     /// whose cell differs, the height of a strike or a whole multiple of
-    /// the tallest. The console reads no font, so it does not know the
-    /// strikes' heights. It asks the helper for the cell one pixel at a
-    /// time, and keeps each answer, so each height is asked once. A height
-    /// that no strike is short enough for stops a zoom out, with a line
-    /// naming the smallest height. An ask with no answer in time stops the
-    /// zoom, so a helper that does not answer holds up only one frame.
+    /// the tallest, which `strike_step` finds by asking the helper one pixel
+    /// at a time. A zoom out that the helper refuses, because no strike is
+    /// that short, stops with a line naming the smallest height.
     ///
     /// References:
     /// - ADR-1204 D2: the cell of the tallest strike no taller than each
@@ -4188,52 +4185,31 @@ impl App {
         let Some(size) = self.heads.get(h).map(|head| head.font_size) else {
             return;
         };
-        if dir == Zoom::In && size > font::ZOOM_IN_MAX {
+        if let Some(next) = self.strike_step(h, size, dir) {
+            self.take_size(h, next, None);
             return;
         }
-        let mut at = size;
-        let next = loop {
-            let step = match dir {
-                Zoom::In => at
-                    .checked_add(1)
-                    .filter(|&a| a <= vtium_font::CELL_SIDE_MAX),
-                Zoom::Out => at.checked_sub(1).filter(|&a| a > 0),
-            };
-            let Some(step) = step else {
-                break None;
-            };
-            at = step;
-            self.own_cell(h, at);
-            let Some(head) = self.heads.get(h) else {
-                return;
-            };
-            if let Some(strike) = head.chosen().strike_at(at) {
-                let whole = font::whole_height(strike, at);
-                if dir == Zoom::Out || whole > size {
-                    break Some(whole);
-                }
-                continue;
-            }
-            let answer = head
-                .frit()
-                .and_then(|name| self.frits.get(name))
-                .and_then(|frit| frit.own.get(&at));
-            match answer {
-                // a refusal says no strike is this short: a zoom in goes on
-                // to the next height, and a zoom out stops
-                Some(Err(no)) if !no.late && dir == Zoom::In => {}
-                Some(Err(no)) if !no.late => {
-                    log::info!(
-                        "the set {} draws no smaller than {size} pixels: zoom stops there",
-                        head.chosen().name(size, &self.locale)
-                    );
-                    break None;
-                }
-                _ => break None,
-            }
+        if dir != Zoom::Out {
+            return;
+        }
+        let Some(head) = self.heads.get(h) else {
+            return;
         };
-        if let Some(next) = next {
-            self.take_size(h, next, None);
+        // strike_step stops a zoom out at the first height below `size`, so
+        // a refusal there is why it found no step
+        let refused = size
+            .checked_sub(1)
+            .and_then(|at| {
+                head.frit()
+                    .and_then(|name| self.frits.get(name))
+                    .and_then(|frit| frit.own.get(&at))
+            })
+            .is_some_and(|answer| matches!(answer, Err(no) if !no.late));
+        if refused {
+            log::info!(
+                "the set {} draws no smaller than {size} pixels: zoom stops there",
+                head.chosen().name(size, &self.locale)
+            );
         }
     }
 
