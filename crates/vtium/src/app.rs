@@ -1295,8 +1295,8 @@ impl App {
 
     /// A frit that states no cell takes the cell its first source gives at
     /// `height`, the height head `h` draws at, which the helper is asked
-    /// for and waited for at most [`helper::OWN_CELL_MS`], the one wait on
-    /// the helper (ADR-1200 D17): a bitmap source's own cell, where no
+    /// for and waited for at most [`helper::OWN_CELL_MS`] (ADR-1200 D17):
+    /// a bitmap source's own cell, where no
     /// `font-size` is configured, so a bitmap font draws at its own size
     /// (the operator, 2026-10-28), or an outline source's cell at
     /// `height` (the maintainer, 2026-11-01). Each answer is kept for the
@@ -1312,6 +1312,11 @@ impl App {
     /// - ADR-1204 D2: the strike for the automatic height, for a configured
     ///   font size and for each zoom step.
     fn own_cell(&mut self, h: usize, height: u32) {
+        self.own_cell_within(h, height, Duration::from_millis(helper::OWN_CELL_MS));
+    }
+
+    /// [`App::own_cell`], waiting at most `wait` for the helper's answer.
+    fn own_cell_within(&mut self, h: usize, height: u32, wait: Duration) {
         let Some(head) = self.heads.get(h) else {
             return;
         };
@@ -1342,11 +1347,13 @@ impl App {
                 let Some(helper) = self.helper(&name) else {
                     return;
                 };
-                let wait = Duration::from_millis(helper::OWN_CELL_MS);
                 let own = helper.own_cell(height, wait, &*clock);
-                match (&own, outline) {
+                // A font set with strikes, like an outline one, draws a
+                // cell at each height, as wide as the built-in font where
+                // the helper gives none.
+                match (&own, outline || struck) {
                     (Ok(helper::OwnCell::Bitmap(cell)), _) if struck => log::info!(
-                        "the frit {name} draws its {}x{} strike at {height} pixels",
+                        "the font set {name} draws its {}x{} strike at {height} pixels",
                         cell.width,
                         cell.height
                     ),
@@ -4151,17 +4158,15 @@ impl App {
             self.zoom_struck(h, dir);
             return;
         }
-        let Some(head) = self.heads.get_mut(h) else {
+        let Some(head) = self.heads.get(h) else {
             return;
         };
         let chosen = head.chosen();
         let Some(size) = chosen.zoom(head.font_size, dir, &self.locale, dpi) else {
             if dir == Zoom::Out {
                 let smallest = chosen.smallest(&self.locale);
-                log::info!(
-                    "the set {} draws no smaller than {smallest} pixels: zoom stops there",
-                    chosen.name(smallest, &self.locale)
-                );
+                let name = chosen.name(smallest, &self.locale).to_owned();
+                self.zoom_stops(h, smallest, None, &name);
             }
             return;
         };
@@ -4173,9 +4178,10 @@ impl App {
     /// A zoom of head `h` whose frit's first source is a bitmap font with
     /// strikes: the head draws at the next height in the zoom's direction
     /// whose cell differs, the height of a strike or a whole multiple of
-    /// the tallest, which `strike_step` finds by asking the helper one pixel
-    /// at a time. A zoom out that the helper refuses, because no strike is
-    /// that short, stops with a line naming the smallest height.
+    /// the tallest, which `strike_step` finds by asking the helper. A zoom
+    /// out stops where the helper says that no strike is that short, with
+    /// a line naming the smallest height, and where the helper could not
+    /// answer, with a line saying why.
     ///
     /// References:
     /// - ADR-1204 D2: the cell of the tallest strike no taller than each
@@ -4185,7 +4191,8 @@ impl App {
         let Some(size) = self.heads.get(h).map(|head| head.font_size) else {
             return;
         };
-        if let Some(next) = self.strike_step(h, size, dir) {
+        let end = after((self.clock)(), Duration::from_millis(helper::OWN_CELL_MS));
+        if let Some(next) = self.strike_step(h, size, dir, end) {
             self.take_size(h, next, None);
             return;
         }
@@ -4195,21 +4202,43 @@ impl App {
         let Some(head) = self.heads.get(h) else {
             return;
         };
-        // strike_step stops a zoom out at the first height below `size`, so
-        // a refusal there is why it found no step
-        let refused = size
-            .checked_sub(1)
-            .and_then(|at| {
-                head.frit()
-                    .and_then(|name| self.frits.get(name))
-                    .and_then(|frit| frit.own.get(&at))
-            })
-            .is_some_and(|answer| matches!(answer, Err(no) if !no.late));
-        if refused {
-            log::info!(
-                "the set {} draws no smaller than {size} pixels: zoom stops there",
-                head.chosen().name(size, &self.locale)
-            );
+        // strike_step asks one pixel below `size` for a step out, so its
+        // answer there says why there is no step.
+        let answer = size.checked_sub(1).and_then(|at| {
+            head.frit()
+                .and_then(|name| self.frits.get(name))
+                .and_then(|frit| frit.own.get(&at))
+                .cloned()
+        });
+        let name = head.chosen().name(size, &self.locale).to_owned();
+        match answer {
+            Some(Err(no)) if no.from_frit => self.zoom_stops(h, size, None, &name),
+            Some(Err(no)) if !no.late => self.zoom_stops(h, size, Some(&no.why), &name),
+            _ => {}
+        }
+    }
+
+    /// Logs that a zoom out of head `h` stops at `size`, the smallest
+    /// height of the font set `name`, or with `why`, because the font
+    /// helper could not answer. A head logs the stop once for each height,
+    /// however often a key asks for it.
+    fn zoom_stops(&mut self, h: usize, size: u32, why: Option<&str>, name: &str) {
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        if head.zoom_stop_logged == Some(size) {
+            return;
+        }
+        head.zoom_stop_logged = Some(size);
+        match why {
+            None => log::info!(
+                "head {}: the font set {name} draws no smaller than {size} pixels, so a zoom out stops there",
+                head.name()
+            ),
+            Some(why) => log::warn!(
+                "head {}: the font helper could not say which strike of the font set {name} draws below {size} pixels ({why}), so a zoom out stops there",
+                head.name()
+            ),
         }
     }
 
@@ -6897,6 +6926,128 @@ mod tests {
     /// time, and each head still wants its frit's cell.
     /// The seat is shown, and the frits' directory kept for the test,
     /// which removes it when the test ends.
+    /// A seat whose one head draws the font set `t`, whose first source
+    /// is a bitmap font with strikes, through a stand-in helper that never
+    /// answers. The first ask, at the head's height, had no answer in time.
+    fn struck_seat(test: &str) -> (Loop<App>, App, Scratch) {
+        let dir = Scratch::new(&format!("app-{test}"));
+        std::fs::write(
+            dir.join("t.vtfrit"),
+            "source=bdf:/nonexistent/16.bdf\nstrike=bdf:/nonexistent/12.bdf\n",
+        )
+        .unwrap();
+        let fonts = font::Sources {
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
+            helper: Some(helper::Command {
+                program: helper::stand_in_shell().to_path_buf(),
+                args: vec!["-c".into(), "exec sleep 30".into()],
+                account: None,
+            }),
+            ..no_fonts()
+        };
+        let (lp, mut app) = seat_with(&["--font-name=t"], None, fonts);
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        assert!(
+            app.heads.first().unwrap().chosen().struck(),
+            "the set has strikes"
+        );
+        (lp, app, dir)
+    }
+
+    // ADR-1204 D2: a font set with strikes draws a cell at each height,
+    // so where the helper gives no cell at the head's height, the set
+    // draws as wide as the built-in font at that height, and the log says
+    // so, as it does for an outline font.
+    #[test]
+    fn a_struck_set_with_no_cell_logs_that_it_draws_as_wide_as_the_built_in_font() {
+        crate::getty::tests::logged();
+        let (_lp, app, _dir) = struck_seat("struck-late");
+        let size = app.heads.first().unwrap().font_size;
+        let lines: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.contains("is not known"))
+            .collect();
+        assert_eq!(
+            lines,
+            [format!(
+                "the frit t's cell at {size} pixels is not known (the helper gave no answer in 100 ms): it draws as wide as the built-in font"
+            )]
+        );
+    }
+
+    // ADR-1204 D2: a zoom out of a font set with strikes stops at its
+    // shortest strike, where the font helper says that no strike is
+    // shorter, and the log says so once however often a key asks. A helper
+    // that could not answer stops the zoom too, and the log then gives the
+    // helper's reason, not the set's smallest height. Each case puts the
+    // answer below the head's height in the frit's answers, as the
+    // helper's answer would.
+    #[test]
+    fn a_zoom_out_at_the_shortest_strike_logs_why_it_stops_once() {
+        for (from_frit, why) in [
+            (true, "no strike is that short"),
+            (false, "the helper ended"),
+        ] {
+            let (_lp, mut app, _dir) = struck_seat(&format!("zoom-stop-{from_frit}"));
+            let size = app.heads.first().unwrap().font_size;
+            let refusal = Err(helper::NoCell {
+                why: why.to_owned(),
+                late: false,
+                from_frit,
+            });
+            app.frits
+                .get_mut("t")
+                .unwrap()
+                .own
+                .insert(size - 1, refusal);
+            crate::getty::tests::logged();
+            app.zoom(0, Zoom::Out);
+            app.zoom(0, Zoom::Out);
+            assert_eq!(app.heads.first().unwrap().font_size, size, "the zoom stops");
+            let name = app.heads.first().unwrap().name().to_owned();
+            let want = if from_frit {
+                format!(
+                    "head {name}: the font set t draws no smaller than {size} pixels, so a zoom out stops there"
+                )
+            } else {
+                format!(
+                    "head {name}: the font helper could not say which strike of the font set t draws below {size} pixels ({why}), so a zoom out stops there"
+                )
+            };
+            let stops: Vec<String> = crate::getty::tests::logged()
+                .into_iter()
+                .filter(|l| l.contains("zoom out stops"))
+                .collect();
+            assert_eq!(stops, [want]);
+        }
+    }
+
+    // ADR-1204 D2: a helper that could not answer at the head's height,
+    // because it failed or ended, stops a zoom in at once. vtium asks it at
+    // no other height, so a helper that refuses every ask cannot send the
+    // step up through every height to the largest cell.
+    #[test]
+    fn a_zoom_in_through_a_helper_that_cannot_answer_asks_no_further() {
+        let (_lp, mut app, _dir) = struck_seat("zoom-in-ended");
+        let size = app.heads.first().unwrap().font_size;
+        let ended = Err(helper::NoCell {
+            why: "the helper ended".to_owned(),
+            late: false,
+            from_frit: false,
+        });
+        app.frits.get_mut("t").unwrap().own.insert(size, ended);
+        let asked: Vec<u32> = app.frits.get("t").unwrap().own.keys().copied().collect();
+        app.zoom(0, Zoom::In);
+        assert_eq!(app.heads.first().unwrap().font_size, size, "no step");
+        let now: Vec<u32> = app.frits.get("t").unwrap().own.keys().copied().collect();
+        assert_eq!(now, asked, "no other height asked");
+    }
+
     fn late_seat(test: &str) -> (Loop<App>, App, Scratch) {
         let dir = Scratch::new(&format!("app-{test}"));
         std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
@@ -7063,6 +7214,7 @@ mod tests {
         let refused = Err(helper::NoCell {
             why: "no such font".to_owned(),
             late: false,
+            from_frit: true,
         });
         if let Some(frit) = app.frits.get_mut("t") {
             frit.own.insert(at, in_time.clone());
@@ -7076,6 +7228,7 @@ mod tests {
         let late_refusal = Err(helper::NoCell {
             why: "late".to_owned(),
             late: false,
+            from_frit: true,
         });
         app.late_cell("t", at + 2, late_refusal.clone());
         let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
@@ -7098,6 +7251,7 @@ mod tests {
         let refused = Err(helper::NoCell {
             why: "no such font".to_owned(),
             late: false,
+            from_frit: true,
         });
         if let Some(frit) = app.frits.get_mut("t") {
             assert!(
@@ -7148,10 +7302,12 @@ mod tests {
             Err(helper::NoCell {
                 why: "no answer in time".to_owned(),
                 late: true,
+                from_frit: false,
             }),
             Err(helper::NoCell {
                 why: "no such font".to_owned(),
                 late: false,
+                from_frit: true,
             }),
         ];
         let frit = app.frits.get_mut("t").unwrap();

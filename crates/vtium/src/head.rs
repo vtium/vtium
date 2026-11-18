@@ -237,6 +237,9 @@ pub struct Head {
     /// until a zoom or its session's end; `None` while the grid fills the
     /// displays.
     pub(crate) asked: Option<(usize, usize)>,
+    /// The height at which the log last said that a zoom out stops at the
+    /// font's smallest height, so a key held there logs the stop once.
+    pub(crate) zoom_stop_logged: Option<u32>,
     /// A `font-size` other than 0 is configured, and the head's look
     /// states no cell.
     sized: bool,
@@ -549,6 +552,7 @@ impl Head {
             points,
             auto_size,
             asked: None,
+            zoom_stop_logged: None,
             sized,
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),
