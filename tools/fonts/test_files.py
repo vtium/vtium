@@ -178,6 +178,26 @@ class Script(unittest.TestCase):
             "make cullet-mono builds it",
         ])
 
+    def test_check_reads_the_digest_of_a_file_whose_path_holds_a_backslash(self):
+        # GNU sha256sum starts its line with a backslash when the file's
+        # name holds one, so the digest is read from the file's contents.
+        self.pins()
+        self.cache_archive(self.archive)
+        out = os.path.join(self.t, "o\\ut")
+        self.run_files("fetch", out)
+        made = {}
+        for name in ("a.bdf.gz", "b.bdf.gz"):
+            with open(os.path.join(out, name), "rb") as f:
+                made[name] = f.read()
+        self.pins(made)
+        cullet = os.path.join(self.t, "cul\\let")
+        os.makedirs(cullet)
+        for name, data in self.faces.items():
+            with open(os.path.join(cullet, name), "wb") as f:
+                f.write(data)
+        p = self.run_files("check", out, cullet)
+        self.assertEqual((p.returncode, p.stdout), (0, "fonts: the 5 font files match their pins\n"), p.stderr)
+
     def test_a_usage_error_is_refused(self):
         for args in ([], ["fetch"], ["check", "x"], ["other", "x"]):
             p = self.run_files(*args)
