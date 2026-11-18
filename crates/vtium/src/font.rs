@@ -2,7 +2,8 @@
 //! height, its zoom steps and the automatic size, with the lookup's
 //! fallback.
 //!
-//! The font is `font-name`, else vconsole's (ADR-1200 D9). A name is a
+//! The font is `font-name`, else vconsole's (ADR-1200 D9), else the
+//! default set `terminus` where it is installed (ADR-1204 D2). A name is a
 //! frit's (`NAME.vtfrit` in the frits' directory), else a kbd name, a path
 //! or vconsole's font becomes a one-source frit made on the fly
 //! ([`frit_named`]). A frit is generated at run time (ADR-1301 D2), in
@@ -140,12 +141,55 @@ pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
     }
     let by_width = width.saturating_mul(2) / 120;
     let size = by_width.min(height / 40).max(16);
-    if width < 80 * 8 || height < 25 * 16 {
+    if small_display(width, height) {
         size.min(smallest.max(1))
     } else {
         size
     }
 }
+
+/// Whether a display `width` by `height` is small: 16-pixel cells, 8
+/// pixels wide, would leave it fewer than 80 columns or 25 rows. There
+/// [`auto_size`] takes the font's own smallest height, and with no font
+/// named vtium draws the built-in font's 8×8 strike in place of the
+/// default set, so a 320×240 panel shows 40 columns by 30 rows. A display
+/// whose size is not known yet, 0 by 0, is not small.
+///
+/// References:
+/// - ADR-1200 D17: the small-display rule.
+/// - ADR-1204 D2: an 8-pixel cell draws the built-in font's 8×8 strike,
+///   because Terminus has no strike under 12 pixels.
+pub fn small_display(width: u32, height: u32) -> bool {
+    width != 0 && height != 0 && (width < 80 * 8 || height < 25 * 16)
+}
+
+/// Whether vtium draws the default set on a head whose displays have
+/// `sizes`, each a width and height in pixels. The head counts as small
+/// when its smallest width and its smallest height make a small display
+/// ([`small_display`]), as the automatic size takes them, and there vtium
+/// draws the built-in font's 8×8 strike instead. With no display known yet
+/// the default set draws.
+///
+/// References:
+/// - ADR-1204 D2: on a display where the small-display rule picks 8-pixel
+///   rows, vtium draws the built-in font's 8×8 strike in place of
+///   `terminus`, which has no strike under 12 pixels.
+pub fn default_set_fits(sizes: impl IntoIterator<Item = (u32, u32)>) -> bool {
+    let smallest = sizes
+        .into_iter()
+        .reduce(|(w, h), (w2, h2)| (w.min(w2), h.min(h2)));
+    smallest.is_none_or(|(w, h)| !small_display(w, h))
+}
+
+/// The font set vtium draws when no font is named: bitmap Terminus at
+/// every strike from 12 to 32 pixels, then GNU Unifont, which every vtium
+/// build installs. It sits in the catalog's `console` folder.
+///
+/// References:
+/// - ADR-1204 D2: `terminus` is the default set, after the font that a
+///   head's look, `font-name` or vconsole names, and before the built-in
+///   font.
+pub const DEFAULT_SET: &str = "terminus";
 
 /// The frits' directory vtium is built with, `font-frits`'s default, set
 /// at build time with `VTIUM_FONT_FRITS`: the key table's, which
@@ -735,6 +779,10 @@ pub enum Came {
     /// `vconsole.font=` on the kernel command line, or `FONT=` in
     /// vconsole.conf.
     Vconsole,
+    /// No font is named, so the name is the default set's,
+    /// [`DEFAULT_SET`]. vtium draws it only where a set of that name is
+    /// installed, and never makes a set on the fly for it.
+    Default,
 }
 
 /// The font a name asks for, and where the name came from.
@@ -748,12 +796,14 @@ impl Wanted {
     /// The one source of the frit made on the fly for the name (ADR-1200
     /// D9): `vconsole` for vconsole's font, `font:` for an outline family,
     /// `file:` for a path, else `kbd:`.
+    /// The default set's name never reaches this, because [`frit_named`]
+    /// refuses it when no set bears it; it reads as a kbd name.
     fn source(&self) -> String {
         match self.came {
             Came::Vconsole => "vconsole".to_owned(),
             Came::Family => format!("font:{}", self.name),
             Came::Config if self.name.starts_with('/') => format!("file:{}", self.name),
-            Came::Config => format!("kbd:{}", self.name),
+            Came::Config | Came::Default => format!("kbd:{}", self.name),
         }
     }
 }
@@ -795,9 +845,12 @@ pub fn vconsole_font(conf: &str, cmdline: &str) -> Option<String> {
 }
 
 /// The font the configuration asks for (ADR-1200 D9): `font-name`, set in
-/// a file or on the command line, unless `font-engine` names the built-in
-/// unifont or the 8x16 font; unset, vconsole's font; else none,
-/// and vtium draws its built-in font.
+/// a file or on the command line; unset, vconsole's font; else the
+/// default set, [`DEFAULT_SET`]. When `font-engine` names the built-in
+/// unifont or the 8x16 font, none, and vtium draws its built-in font.
+///
+/// References:
+/// - ADR-1204 D2: the default set comes after vconsole's font.
 pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wanted> {
     if matches!(config.text(&FONT_ENGINE), Some("unifont" | "8x16")) {
         return None;
@@ -811,20 +864,34 @@ pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wan
                 _ => Came::Config,
             },
         }),
-        _ => vconsole_font(vconsole_conf, cmdline).map(|name| Wanted {
-            name,
-            came: Came::Vconsole,
-        }),
+        _ => Some(vconsole_font(vconsole_conf, cmdline).map_or_else(
+            || Wanted {
+                name: DEFAULT_SET.to_owned(),
+                came: Came::Default,
+            },
+            |name| Wanted {
+                name,
+                came: Came::Vconsole,
+            },
+        )),
     }
 }
 
 /// The frit `wanted` names (ADR-1200 D9): the frit of that name in the
 /// frits' directory, read under the sources' ownership check; else a kbd name, a path, an outline family or vconsole's font
 /// as a one-source frit made on the fly, named as it was named. The error
-/// is why the frit of that name cannot be read.
+/// is why the frit of that name cannot be read, or, for the default set,
+/// that no set of its name is installed: vtium then draws its built-in
+/// font.
 pub fn frit_named(sources: &Sources, wanted: &Wanted) -> Result<FritText, String> {
     if let Some(path) = frit(&sources.frits, &wanted.name) {
         return FritText::read(&path, &sources.frits, &sources.trust);
+    }
+    if wanted.came == Came::Default {
+        return Err(format!(
+            "No font is named, and the default font set {} is not installed.",
+            wanted.name
+        ));
     }
     Ok(FritText {
         name: wanted.name.clone(),
@@ -1369,9 +1436,15 @@ mod tests {
             Canvas, Config as RenderConfig, Notice, Orientation, Renderer, Surface,
         };
         // an empty vtium.conf, an empty vconsole.conf and an empty kernel
-        // command line name no font, so vtium draws its built-in fonts
+        // command line name no font, so vtium asks for the default set;
+        // with no font sets installed it draws its built-in fonts
         let config = crate::config::load(&[], &mut |_: &Path| Ok(None)).config;
-        assert!(wanted(&config, "", "").is_none());
+        let default = wanted(&config, "", "").expect("the default set");
+        let none = Sources {
+            frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+            ..Sources::default()
+        };
+        assert!(frit_named(&none, &default).is_err());
         let text = "Keyboard /dev/input/event0 was not found.";
         let overlay = Overlay::new(None, &[text], None, OverlayColors::default());
         for (height, grid) in [(8, (40, 30)), (16, (40, 15))] {
@@ -2319,7 +2392,14 @@ mod tests {
                 came: Came::Vconsole
             })
         );
-        assert_eq!(wanted(&config(&[]), "", ""), None, "the built-ins");
+        assert_eq!(
+            wanted(&config(&[]), "", ""),
+            Some(Wanted {
+                name: "terminus".into(),
+                came: Came::Default
+            }),
+            "with no font named, the default set"
+        );
         let path = "/usr/share/kbd/consolefonts/ter-v16n.psf.gz";
         let named = wanted(
             &config(&["--font-engine=psf", &format!("--font-name={path}")]),
@@ -2385,6 +2465,65 @@ mod tests {
                 "source=font:DejaVu Sans Mono\n".into()
             ))
         );
+    }
+
+    /// With no font named, vtium draws the default set `terminus` from the
+    /// catalog's console folder. Where no set of that name is installed,
+    /// vtium makes no set on the fly for the name, as it does for a kbd
+    /// font's name: the read is refused with a line that names the set,
+    /// and vtium draws its built-in font.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the order in which vtium chooses a font, with
+    ///   `terminus` after vconsole's font and before the built-in font.
+    #[test]
+    fn with_no_font_named_vtium_draws_terminus_where_it_is_installed() {
+        let dir = Scratch::new("font-default");
+        let default = wanted(&config(&[]), "", "").expect("the default set");
+        assert_eq!(default.name, DEFAULT_SET);
+        let sources = Sources {
+            frits: dir.to_path_buf(),
+            trust: trust().below(&dir),
+            ..Sources::default()
+        };
+        let why = frit_named(&sources, &default).expect_err("no terminus is installed");
+        assert_eq!(
+            why,
+            "No font is named, and the default font set terminus is not installed."
+        );
+        std::fs::create_dir_all(dir.join("console")).expect("the folder");
+        let text = "source=bdf:/usr/share/vtium/fonts/ter-u16n.bdf.gz\n";
+        std::fs::write(dir.join("console/terminus.vtfrit"), text).expect("the set");
+        let frit = frit_named(&sources, &default).expect("terminus");
+        assert_eq!((frit.name.as_str(), frit.text.as_str()), ("terminus", text));
+    }
+
+    /// A display where 16-pixel rows leave fewer than 80 columns by 25 rows
+    /// is small. On a small display vtium draws the built-in font's 8×8
+    /// strike in place of the default set, so a 320×240 panel keeps 40
+    /// columns by 30 rows.
+    ///
+    /// References:
+    /// - ADR-1204 D2: an 8-pixel cell draws the built-in font's 8×8 strike.
+    /// - ADR-1200 D17: the small-display rule.
+    #[test]
+    fn a_small_display_keeps_the_built_in_font_with_no_font_named() {
+        for (w, h) in [(320, 240), (480, 320), (632, 480), (640, 384)] {
+            assert!(small_display(w, h), "{w}x{h}");
+            assert_eq!(auto_size(w, h, 8), 8, "{w}x{h}");
+            assert!(!default_set_fits([(w, h)]), "{w}x{h}");
+        }
+        for (w, h) in [(640, 400), (640, 480), (1920, 1080), (0, 0)] {
+            assert!(!small_display(w, h), "{w}x{h}");
+            assert!(default_set_fits([(w, h)]), "{w}x{h}");
+        }
+        // a head's displays count by the smallest width and the smallest
+        // height among them, as the automatic size takes them
+        assert!(!default_set_fits([(1920, 1080), (320, 240)]));
+        assert!(!default_set_fits([(1920, 240), (320, 1080)]));
+        assert!(default_set_fits([(1920, 1080), (640, 480)]));
+        // with no display known yet, the default set draws
+        assert!(default_set_fits([]));
     }
 
     // A set is found by its name in the frits' directory itself, where a
