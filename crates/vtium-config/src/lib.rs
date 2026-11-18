@@ -16,7 +16,7 @@
 //! range or a named set of [`cover`]; [`sources`] finds and reads them;
 //! [`decode`]'s decoders parse a bitmap font into the bounded [`glyphs`]
 //! form, which [`font`] holds at its own cell, as [`bdf`] reads a BDF font
-//! into it, and [`outline`] rasterises an outline font. [`serve`] is the helper the console starts, which
+//! and [`hex`] a `.hex` font into it, and [`outline`] rasterises an outline font. [`serve`] is the helper the console starts, which
 //! draws a frit's glyphs at a cell and sends them in the glyph chunk
 //! format, under the seccomp filters of [`seccomp`]; [`child`] is the parser's child process. [`switch`]
 //! switches the running console among the frits. [`cli`] is the command
@@ -49,6 +49,7 @@ pub mod font;
 pub mod frit;
 pub mod glyphs;
 pub mod help;
+pub mod hex;
 pub mod kitty;
 pub mod library;
 pub mod made;

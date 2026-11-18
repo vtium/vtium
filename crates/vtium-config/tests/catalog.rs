@@ -67,7 +67,7 @@ fn every_catalog_set_gets_an_answer() {
             std::fs::copy(&file, into.join(file.file_name().expect("a name"))).expect("a copy");
         }
     }
-    assert_eq!(sets, 37);
+    assert_eq!(sets, 38);
     let out = fonts(&frits, &dir.join("no-fonts"));
     assert_eq!(unanswered(&out), [] as [&str; 0], "{out}");
 }
