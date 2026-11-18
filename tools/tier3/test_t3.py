@@ -3608,7 +3608,8 @@ class DevicesTest(unittest.TestCase):
             return r.stdout.splitlines()
         lines = make_n()
         frits = "crates/vtium-config/frits"
-        self.assertIn(f"install -Dm644 -t /D/etc/vtium/fonts/console {frits}/console/terminus.vtfrit && "
+        self.assertIn(f"install -Dm644 -t /D/etc/vtium/fonts/console {frits}/console/terminus.vtfrit "
+                      f"{frits}/console/cullet-mono.vtfrit && "
                       f"install -Dm644 -t /D/etc/vtium/fonts/code {frits}/code/jetbrains-mono.vtfrit && "
                       f"install -Dm644 -t /D/etc/vtium/fonts/small {frits}/small/unifont-icons.vtfrit "
                       f"{frits}/small/unscii-icons.vtfrit && "
@@ -3633,7 +3634,10 @@ class DevicesTest(unittest.TestCase):
         r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D"],
                            cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
         lines = [l for l in r.stdout.splitlines() if "/D/usr/share/licenses" in l]
-        self.assertEqual(lines, ["install -Dm644 -t /D/usr/share/licenses/vtium LICENSE COPYING "
+        notices = sorted(os.listdir(os.path.join(t3_common.ROOT, "tools", "cullet-mono", "notices")))
+        self.assertEqual(lines, ["install -Dm644 -t /D/usr/share/licenses/vtium/cullet-mono "
+                                 + " ".join(f"tools/cullet-mono/notices/{n}" for n in notices),
+                                 "install -Dm644 -t /D/usr/share/licenses/vtium LICENSE COPYING "
                                  "crates/vtium-font/data/OFL-1.1.txt "
                                  "crates/vtium-term/gen-color-names/src/rgb-license.txt "
                                  "crates/vtium-config/licenses/tiny-skia-LICENSE"])
