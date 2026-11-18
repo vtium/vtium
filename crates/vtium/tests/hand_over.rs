@@ -466,7 +466,8 @@ const B2: DisplayId = DisplayId(2);
 /// Each console's session: it echoes each line typed, and it acts on the
 /// files the test makes, each named for its head and console: `.bg` sends
 /// setBackground, `.fg` setForeground, `.focus` turns on focus reporting
-/// (mode 1004) and `.exit` ends the session. Where the seat boots with
+/// (mode 1004), `.sync` writes `S` in a synchronized update (mode 2026) and
+/// then `sent:sync`, and `.exit` ends the session. Where the seat boots with
 /// `F` set, the session reads its input three bytes at a time instead of
 /// by lines, and prints each read as hex after `k:`, so a focus report
 /// shows as `k: 1b 5b 49` (in) or `k: 1b 5b 4f` (out). Where it boots
@@ -478,6 +479,7 @@ const SESSION: &str = r#"P="$D/$VTIUM_HEAD-$VTIUM_CONSOLE"
     if [ -e "$P.bg" ]; then rm -f "$P.bg"; printf '\033]setBackground\007'; echo sent:bg; fi
     if [ -e "$P.fg" ]; then rm -f "$P.fg"; printf '\033]setForeground\007'; echo sent:fg; fi
     if [ -e "$P.focus" ]; then rm -f "$P.focus"; printf '\033[?1004h'; echo focus:on; fi
+    if [ -e "$P.sync" ]; then rm -f "$P.sync"; printf '\033[?2026hS\033[?2026l'; echo sent:sync; fi
     if [ -e "$P.exit" ]; then rm -f "$P.exit"; kill $$; fi
     sleep 0.02
   done ) &
@@ -1399,4 +1401,36 @@ fn the_focus_out_goes_in_the_turn_that_takes_set_background() {
     s.app.turn(now());
     assert_eq!(s.master_a.borrow().holder, None, "the turn gave card A up");
     assert_eq!(slave.take(), b"\x1b[O", "and wrote the focus-out");
+}
+
+/// D16 and D2: a head that is paused on one card and draws on another
+/// takes its program's output after a synchronized update ends. The
+/// update's end stops the terminal until the head's displays take the
+/// finished frame. Display A-2 sits on card A, which vtium gave up, so A-2
+/// takes no frame until the hand-over ends, and only B-2 owes the frame.
+// covers: platform.hand-back
+#[test]
+fn a_head_paused_on_one_card_takes_output_after_a_synchronized_update() {
+    let mut s = Seat::boot("hand-over-sync", &[], false);
+    s.tell("right", 1, "sync");
+    assert!(
+        s.until(|a| console_shows(a, "right", 1, "sent:sync")),
+        "before the hand-over, right's update ends and its output goes on"
+    );
+    s.left_sends_background();
+    s.tell("right", 1, "sync");
+    assert!(
+        s.until(|a| consoles(a, "right")[0]
+            .iter()
+            .filter(|r| r.contains("sent:sync"))
+            .count()
+            >= 2),
+        "during the hand-over, right's output goes on after the update: {:?}",
+        consoles(&s.app, "right")
+    );
+    s.type_on(KBD_RIGHT, "after\r");
+    assert!(
+        s.until(|a| console_shows(a, "right", 1, "got:after")),
+        "right's console takes a key and its echo while card A is given up"
+    );
 }

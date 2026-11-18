@@ -118,7 +118,7 @@ fn write(dir: &Path, marker: &Path) -> io::Result<()> {
 
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "a test's set-up fails loudly")]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// A stand-in for `/run/vtium`, `run-vtium` in a directory of its own
@@ -210,8 +210,10 @@ mod tests {
         assert_eq!(logged(), Vec::<String>::new(), "nothing to keep off");
     }
 
-    /// The log lines this thread wrote since the last call.
-    fn logged() -> Vec<String> {
+    /// The log lines this thread wrote since the last call. Every unit test
+    /// of the crate that reads the log uses this one logger, since a
+    /// process sets its logger once.
+    pub(crate) fn logged() -> Vec<String> {
         use std::cell::RefCell;
         use std::sync::Once;
         thread_local! {
