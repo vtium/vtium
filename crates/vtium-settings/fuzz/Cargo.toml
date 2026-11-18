@@ -18,6 +18,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 vtium-settings = { path = "..", features = ["filters"] }
+vtium-render = { path = "../../vtium-render", features = ["filters"] }
 
 [[bin]]
 name = "reading"
