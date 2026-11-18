@@ -545,7 +545,7 @@ endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
-install-fonts: ## Stage the font sets and layers the vtium-fonts package ships, FONTS_FRITS='...' and FONTS_LAYERS='...' (default the whole catalog), in /etc/vtium/fonts under DESTDIR=DIR
+install-fonts: ## Stage the font sets and layers the vtium-fonts package ships, FONTS_FRITS='...' and FONTS_LAYERS='...' (default the catalog but the sets and layers a console package ships), in /etc/vtium/fonts under DESTDIR=DIR
 	$(call install_frits,$(call frit_paths,$(FONTS_FRITS)),$(call layer_paths,$(FONTS_LAYERS)))
 
 .PHONY: install-terminfo
