@@ -34,7 +34,7 @@ mod template;
 #[cfg(feature = "filters")]
 pub use read::{Filter, Value, Vtlook, read, read_text, read_text_with};
 #[cfg(feature = "filters")]
-pub use report::{Part, Report, Stage, log_line};
+pub use report::{Failure, Part, Report, Stage, log_line};
 #[cfg(feature = "filters")]
 pub use requires::{Depth, Fps, Gpu, Requires, Size};
 #[cfg(feature = "filters")]
@@ -64,13 +64,21 @@ pub fn chosen(vtlook: Option<&str>) -> Option<&str> {
     vtlook.filter(|name| *name != DEFAULT)
 }
 
+/// Whether `name` can name a vtlook: 1 to 64 of the characters
+/// `A-Z a-z 0-9 . _ + -`, the rule for a head's name, so it never holds
+/// a path. A look's `vtlook =` passes it when vtium.conf's sections are
+/// read, and `vtium check-config` holds the top level's `vtlook` to it.
+pub fn named(name: &str) -> bool {
+    crate::parse::good_name(name)
+}
+
 /// What vtium logs once for head `head` when its look names the vtlook
 /// `vtlook` and this build has no frame filters. The build draws every
 /// head with the built-in vtlook by design, so this is a note and not an
 /// error of the vtlook.
 pub fn no_filters(head: &str, vtlook: &str) -> String {
     format!(
-        "This build of vtium has no frame filters, so head {head} draws the vtlook {BUILT_IN} and not vtlook {vtlook}."
+        "This build of vtium has no frame filters, so head {head} draws the built-in vtlook instead of vtlook {vtlook}."
     )
 }
 

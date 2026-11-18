@@ -18,14 +18,15 @@ use std::path::{Path, PathBuf};
 
 use vtium_render::filter::{self, Declaration, Fixed, Given, Kind, Layer};
 
-use super::report::{Part, Report, Stage};
+use super::report::{Failure, Part, Report, Stage, keep_first, quoted};
 use super::requires::{Requires, list};
-use super::{DEFAULT, LOOKS, SUFFIX};
-use crate::bounds::{VTLOOK_FILE_MAX, VTLOOK_SECTIONS_MAX};
+use super::{DEFAULT, LOOKS, SUFFIX, named};
+use crate::bounds::{ERRORS_MAX, VTLOOK_FILE_MAX, VTLOOK_SECTIONS_MAX};
 use crate::conf::comment;
 use crate::error::Problem;
 use crate::file::{Trust, read_limited};
 use crate::parse::good_name;
+use crate::split::BOM;
 
 /// A parameter's value, of its kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -72,61 +73,65 @@ impl Vtlook {
 }
 
 /// Reads the vtlook `name` from the folder `dir` under the ownership check
-/// `trust`, as vtium reads it at start. `Err` holds every error, in the
-/// file's order. The built-in vtlook's name is an error here, since no
-/// file may take it.
-pub fn read(name: &str, dir: &Path, trust: &Trust) -> Result<Vtlook, Vec<Report>> {
+/// `trust`, as vtium reads it at start. `Err` holds the first errors in
+/// the file's order and counts the rest. The built-in vtlook's name is an
+/// error here, since no file may take it.
+pub fn read(name: &str, dir: &Path, trust: &Trust) -> Result<Vtlook, Failure> {
     let file = dir.join(format!("{name}{SUFFIX}"));
-    let fail = |message: String| {
-        Err(vec![Report {
-            vtlook: name.to_owned(),
-            file: file.clone(),
+    let fail = |file: &Path, message: String| {
+        Err(Failure::one(Report {
+            vtlook: quoted(name),
+            file: file.to_path_buf(),
             line: None,
             part: None,
             stage: Stage::Reading,
             message,
-        }])
+        }))
     };
     if name == DEFAULT {
-        return fail(format!(
-            "found a vtlook named {DEFAULT}, needs another name, since {DEFAULT} is vtium's built-in vtlook and no file may take its name"
-        ));
+        return fail(
+            &file,
+            format!(
+                "vtium never reads a file named {DEFAULT}{SUFFIX}, because {DEFAULT} is the name of the built-in vtlook. Give the file another name."
+            ),
+        );
     }
-    if !good_name(name) {
-        return fail(format!(
-            "found the name {name:?}, needs 1 to 64 of the characters A-Z a-z 0-9 . _ + -"
-        ));
+    if !named(name) {
+        // the name is no file's, so the report names the folder
+        return fail(
+            dir,
+            format!(
+                "The name \"{}\" is not a vtlook's name. A vtlook's name is 1 to 64 of the characters A-Z a-z 0-9 . _ + -, with no path.",
+                quoted(name)
+            ),
+        );
     }
     match read_limited(&file, trust, VTLOOK_FILE_MAX) {
         Ok(Some(bytes)) => read_text(name, &file, &bytes),
-        Ok(None) => fail(format!(
-            "found no such file, needs {name}{SUFFIX} in {}",
-            dir.display()
-        )),
+        Ok(None) => fail(
+            &file,
+            format!("There is no file {name}{SUFFIX} in {}.", dir.display()),
+        ),
         Err(rejected) => {
             let message = match rejected.errors.first().map(|e| &e.problem) {
                 Some(Problem::Untrusted(why)) => {
                     format!("vtium does not read the file, because {}", why.reason())
                 }
-                Some(Problem::TooLarge) => {
-                    format!(
-                        "found more than {VTLOOK_FILE_MAX} bytes, needs at most {VTLOOK_FILE_MAX}"
-                    )
-                }
-                Some(Problem::NotAFile) => {
-                    "found something that is not a regular file, needs a regular file".to_owned()
-                }
-                Some(Problem::Unreadable(kind)) => format!("cannot read the file: {kind}"),
-                _ => "cannot read the file".to_owned(),
+                Some(Problem::TooLarge) => format!(
+                    "The file is larger than {VTLOOK_FILE_MAX} bytes, the most a vtlook may hold."
+                ),
+                Some(Problem::NotAFile) => "The vtlook is not a regular file.".to_owned(),
+                Some(Problem::Unreadable(kind)) => format!("vtium cannot read the file: {kind}."),
+                _ => "vtium cannot read the file.".to_owned(),
             };
-            fail(message)
+            fail(&file, message)
         }
     }
 }
 
 /// Reads a vtlook's bytes, `bytes`, as the file `file` of the vtlook
 /// `name`, against vtium's own filters.
-pub fn read_text(name: &str, file: &Path, bytes: &[u8]) -> Result<Vtlook, Vec<Report>> {
+pub fn read_text(name: &str, file: &Path, bytes: &[u8]) -> Result<Vtlook, Failure> {
     read_text_with(name, file, bytes, filter::COLOR)
 }
 
@@ -152,6 +157,8 @@ struct Reader<'a> {
     name: &'a str,
     file: &'a Path,
     reports: Vec<Report>,
+    /// The errors dropped, past the first [`ERRORS_MAX`] by line.
+    more: usize,
 }
 
 impl Reader<'_> {
@@ -164,6 +171,13 @@ impl Reader<'_> {
             stage,
             message,
         });
+        // The reader finds errors out of line order, since it checks the
+        // sections after it reads every line, so it keeps twice the bound
+        // and cuts back to the first by line. An error cut here lies after
+        // ERRORS_MAX that are kept, so it would never be among the first.
+        if self.reports.len() >= ERRORS_MAX.saturating_mul(2) {
+            self.more = self.more.saturating_add(keep_first(&mut self.reports));
+        }
     }
 }
 
@@ -175,11 +189,12 @@ pub fn read_text_with(
     file: &Path,
     bytes: &[u8],
     color: &[&'static Declaration],
-) -> Result<Vtlook, Vec<Report>> {
+) -> Result<Vtlook, Failure> {
     let mut r = Reader {
         name,
         file,
         reports: Vec::new(),
+        more: 0,
     };
     let sections = lines(&mut r, bytes);
     let mut look = Vtlook {
@@ -193,9 +208,7 @@ pub fn read_text_with(
     if r.reports.is_empty() {
         Ok(look)
     } else {
-        // a stable sort keeps a line's errors in the order they were found
-        r.reports.sort_by_key(|e| e.line.unwrap_or(0));
-        Err(r.reports)
+        Err(Failure::of(r.reports, r.more))
     }
 }
 
@@ -203,8 +216,12 @@ pub fn read_text_with(
 fn lines(r: &mut Reader, bytes: &[u8]) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
     let mut version = false;
+    // the line of the top's `version` line, once read
+    let mut version_line = None;
     let mut too_many = false;
     let mut n = 0_usize;
+    // a byte-order mark is not part of the first line, as in vtium.conf
+    let bytes = bytes.strip_prefix(BOM).unwrap_or(bytes);
     for raw in bytes.split(|&b| b == b'\n') {
         n = n.saturating_add(1);
         let raw = raw.strip_suffix(b"\r").unwrap_or(raw);
@@ -221,7 +238,7 @@ fn lines(r: &mut Reader, bytes: &[u8]) -> Vec<Section> {
                 Some(n),
                 None,
                 Stage::Reading,
-                "found bytes that are not UTF-8 text, needs UTF-8 text".to_owned(),
+                "This line holds bytes that are not UTF-8 text.".to_owned(),
             );
             continue;
         };
@@ -230,8 +247,7 @@ fn lines(r: &mut Reader, bytes: &[u8]) -> Vec<Section> {
                 Some(n),
                 None,
                 Stage::Reading,
-                "found a control character, needs text with no control character but tab"
-                    .to_owned(),
+                "This line holds a control character, and a vtlook allows none but tab.".to_owned(),
             );
             continue;
         }
@@ -245,7 +261,10 @@ fn lines(r: &mut Reader, bytes: &[u8]) -> Vec<Section> {
                     Some(n),
                     None,
                     Stage::Reading,
-                    format!("found {line} before version = 1, needs version = 1 first"),
+                    format!(
+                        "found {} before version = 1, needs version = 1 first",
+                        quoted(line)
+                    ),
                 );
                 version = true;
             }
@@ -255,7 +274,7 @@ fn lines(r: &mut Reader, bytes: &[u8]) -> Vec<Section> {
                         Some(n),
                         None,
                         Stage::Reading,
-                        format!("found more than {VTLOOK_SECTIONS_MAX} sections, needs at most {VTLOOK_SECTIONS_MAX}"),
+                        format!("The file has more than {VTLOOK_SECTIONS_MAX} sections, the most a vtlook may have."),
                     );
                     too_many = true;
                 }
@@ -274,7 +293,10 @@ fn lines(r: &mut Reader, bytes: &[u8]) -> Vec<Section> {
                 Some(n),
                 None,
                 Stage::Reading,
-                format!("found {line}, needs a section heading or key = value"),
+                format!(
+                    "found {}, needs a section heading or key = value",
+                    quoted(line)
+                ),
             );
             continue;
         };
@@ -287,22 +309,34 @@ fn lines(r: &mut Reader, bytes: &[u8]) -> Vec<Section> {
         }
         match sections.last_mut() {
             Some(section) => section.lines.push((n, key.to_owned(), value.to_owned())),
-            None if key == "version" && !version => {
-                version = true;
-                if value != "1" {
-                    r.error(
-                        Some(n),
-                        None,
-                        Stage::Reading,
-                        format!("version = {value}, needs version = 1"),
-                    );
+            None if key == "version" => match version_line {
+                Some(first) => r.error(
+                    Some(n),
+                    None,
+                    Stage::Reading,
+                    format!("version is set twice, needs it once; the first is on line {first}"),
+                ),
+                None => {
+                    version = true;
+                    version_line = Some(n);
+                    if value != "1" {
+                        r.error(
+                            Some(n),
+                            None,
+                            Stage::Reading,
+                            format!("version = {}, needs version = 1", quoted(value)),
+                        );
+                    }
                 }
-            }
+            },
             None => r.error(
                 Some(n),
                 None,
                 Stage::Reading,
-                format!("found {key} before the first section, needs version = 1 alone there"),
+                format!(
+                    "found {} before the first section, needs version = 1 alone there",
+                    quoted(key)
+                ),
             ),
         }
     }
@@ -311,7 +345,8 @@ fn lines(r: &mut Reader, bytes: &[u8]) -> Vec<Section> {
             None,
             None,
             Stage::Reading,
-            "found no version = 1, needs version = 1 before the first section".to_owned(),
+            "The file has no version = 1 line, which a vtlook needs before its first section."
+                .to_owned(),
         );
     }
     sections
@@ -335,7 +370,10 @@ fn heading(r: &mut Reader, n: usize, line: &str) -> Heading {
                 Some(n),
                 None,
                 Stage::Checking,
-                format!("found {line}, needs [requires], [color FILTER] or [spatial FILTER]"),
+                format!(
+                    "found {}, needs [requires], [color FILTER] or [spatial FILTER]",
+                    quoted(line)
+                ),
             );
             Heading::Unknown
         }
@@ -373,7 +411,7 @@ fn check(r: &mut Reader, sections: &[Section], color: &[&'static Declaration], l
                     .saturating_add(1);
                 let part = Part::Filter {
                     layer: *layer,
-                    name: name.clone(),
+                    name: quoted(name),
                     place,
                     of,
                 };
@@ -388,7 +426,7 @@ fn check(r: &mut Reader, sections: &[Section], color: &[&'static Declaration], l
                         Some(s.line),
                         Some(part),
                         Stage::Checking,
-                        format!("found {name} a second time, needs each filter once; the first is on line {first}"),
+                        format!("found {} a second time, needs each filter once; the first is on line {first}", quoted(name)),
                     );
                     continue;
                 }
@@ -453,11 +491,12 @@ fn filter_section(
         };
         let message = if names.is_empty() {
             format!(
-                "found {name}, but this build of vtium has no {} filters",
+                "found {}, but this build of vtium has no {} filters",
+                quoted(name),
                 layer.word()
             )
         } else {
-            format!("found {name}, needs {}", list(&names))
+            format!("found {}, needs {}", quoted(name), list(&names))
         };
         r.error(Some(s.line), Some(part), Stage::Checking, message);
         return None;
@@ -476,13 +515,15 @@ fn filter_section(
                 Some(*n),
                 Some(part.clone()),
                 Stage::Checking,
-                format!("found {key}, needs {needs}"),
+                format!("found {}, needs {needs}", quoted(key)),
             );
             continue;
         };
         if let Some((_, _, first)) = set.iter().find(|(k, _, _)| *k == param.name) {
-            let message =
-                format!("{key} is set twice, needs it once; the first is on line {first}");
+            let message = format!(
+                "{} is set twice, needs it once; the first is on line {first}",
+                quoted(key)
+            );
             r.error(Some(*n), Some(part.clone()), Stage::Checking, message);
             continue;
         }
@@ -492,7 +533,12 @@ fn filter_section(
                 Some(*n),
                 Some(part.clone()),
                 Stage::Checking,
-                format!("{key} = {value}, needs {}", needs(param.kind)),
+                format!(
+                    "{} = {}, needs {}",
+                    quoted(key),
+                    quoted(value),
+                    needs(param.kind)
+                ),
             ),
         }
     }
@@ -692,7 +738,11 @@ mod tests {
     fn errors(name: &str, text: &str) -> Vec<String> {
         match read_text_with(name, &file(name), text.as_bytes(), FILTERS) {
             Ok(_) => Vec::new(),
-            Err(reports) => reports.iter().map(|r| format!("{}: {r}", r.at())).collect(),
+            Err(failure) => failure
+                .reports
+                .iter()
+                .map(|r| format!("{}: {r}", r.at()))
+                .collect(),
         }
     }
 
@@ -762,7 +812,7 @@ mod tests {
     fn one_wrong_filter_fails_the_whole_vtlook() {
         let text = "version = 1\n[color tint]\n[color gamma]\ngamma = 9\n";
         let read = read_text_with("half", &file("half"), text.as_bytes(), FILTERS);
-        assert_eq!(read.map_err(|e| e.len()), Err(1));
+        assert_eq!(read.map_err(|e| e.reports.len()), Err(1));
     }
 
     #[test]
@@ -816,6 +866,7 @@ mod tests {
         );
         let said: Vec<String> = own
             .err()
+            .map(|e| e.reports)
             .unwrap_or_default()
             .iter()
             .map(ToString::to_string)
@@ -891,7 +942,7 @@ mod tests {
         assert_eq!(
             errors("none", ""),
             [
-                "/etc/vtium/looks/none.vtlook: reading: found no version = 1, needs version = 1 before the first section"
+                "/etc/vtium/looks/none.vtlook: reading: The file has no version = 1 line, which a vtlook needs before its first section."
             ]
         );
     }
@@ -906,7 +957,7 @@ mod tests {
         assert_eq!(said.len(), VTLOOK_SECTIONS_MAX, "{said:?}");
         assert!(
             said.last()
-                .is_some_and(|s| s.contains("found more than 32 sections")),
+                .is_some_and(|s| s.contains("The file has more than 32 sections")),
             "{said:?}"
         );
     }
@@ -926,21 +977,38 @@ mod tests {
         std::fs::write(&path, "version = 1\n").unwrap_or_default();
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
         assert!(read("plain", &dir, &trust).is_ok());
-        let first = |r: Result<Vtlook, Vec<Report>>| {
+        let first = |r: Result<Vtlook, Failure>| {
             r.err()
-                .and_then(|e| e.first().map(|e| (e.stage, e.message.clone())))
+                .and_then(|e| e.reports.first().map(|e| (e.stage, e.message.clone())))
                 .unwrap_or((Stage::Building, String::new()))
         };
         let (stage, said) = first(read("missing", &dir, &trust));
         assert_eq!(stage, Stage::Reading);
-        assert!(
-            said.starts_with("found no such file, needs missing.vtlook in"),
-            "{said}"
+        assert_eq!(
+            said,
+            format!("There is no file missing.vtlook in {}.", dir.display())
         );
         let (_, said) = first(read("default", &dir, &trust));
-        assert!(said.contains("vtium's built-in vtlook"), "{said}");
+        assert_eq!(
+            said,
+            "vtium never reads a file named default.vtlook, because default is the name of the built-in vtlook. Give the file another name."
+        );
+        // a name that is no vtlook's names the folder, not a made-up file
+        let bad = read("a/b", &dir, &trust).err().unwrap_or(Failure {
+            reports: Vec::new(),
+            more: 0,
+        });
+        assert_eq!(
+            bad.reports.first().map(Report::at),
+            Some(dir.display().to_string())
+        );
         let (_, said) = first(read("a/b", &dir, &trust));
-        assert!(said.starts_with("found the name \"a/b\""), "{said}");
+        assert!(
+            said.starts_with("The name \"a/b\" is not a vtlook's name."),
+            "{said}"
+        );
+        let (_, said) = first(read("\u{202e}", &dir, &trust));
+        assert!(said.starts_with("The name \"\\u{202e}\""), "{said}");
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o664));
         let (_, said) = first(read("plain", &dir, &trust));
         assert!(
@@ -950,7 +1018,97 @@ mod tests {
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
         std::fs::write(&path, vec![b'#'; VTLOOK_FILE_MAX.saturating_add(1)]).unwrap_or_default();
         let (_, said) = first(read("plain", &dir, &trust));
-        assert!(said.starts_with("found more than 65536 bytes"), "{said}");
+        assert_eq!(
+            said,
+            "The file is larger than 65536 bytes, the most a vtlook may hold."
+        );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A byte-order mark before the first line is not part of it, as in
+    // vtium.conf.
+    #[test]
+    fn a_byte_order_mark_is_not_part_of_the_first_line() {
+        let text = "\u{feff}version = 1\n[color gamma]\n";
+        assert_eq!(errors("bom", text), Vec::<String>::new());
+        // only at the very start: elsewhere it is text the line holds
+        let text = "version = 1\n\u{feff}[color gamma]\n";
+        assert_eq!(errors("bom", text).len(), 1);
+    }
+
+    // A second version line names the first, as a key set twice does.
+    #[test]
+    fn a_second_version_line_names_the_first() {
+        let f = "/etc/vtium/looks/twice.vtlook";
+        assert_eq!(
+            errors("twice", "version = 1\nversion = 1\n[color gamma]\n"),
+            [format!(
+                "{f}:2: reading: version is set twice, needs it once; the first is on line 1"
+            )]
+        );
+        // a wrong first version is the only error of the first line
+        assert_eq!(
+            errors("twice", "version = 2\nversion = 1\n"),
+            [
+                format!("{f}:1: reading: version = 2, needs version = 1"),
+                format!(
+                    "{f}:2: reading: version is set twice, needs it once; the first is on line 1"
+                ),
+            ]
+        );
+    }
+
+    // However many errors a file holds, a vtlook keeps the first
+    // ERRORS_MAX by line and counts the rest, and each quote from the
+    // file is cut and escaped, so a check's output and the log line stay
+    // small and hold nothing that acts on a screen.
+    #[test]
+    fn a_vtlook_s_errors_and_quotes_are_bounded() {
+        let many = "a\n".repeat(VTLOOK_FILE_MAX / 2);
+        let failure = read_text_with("many", &file("many"), many.as_bytes(), FILTERS)
+            .err()
+            .unwrap_or(Failure {
+                reports: Vec::new(),
+                more: 0,
+            });
+        assert_eq!(failure.reports.len(), ERRORS_MAX);
+        // every line is an error, and so is the missing version
+        assert_eq!(
+            failure.reports.len() + failure.more,
+            VTLOOK_FILE_MAX / 2 + 1
+        );
+        assert_eq!(failure.reports.first().and_then(|r| r.line), None);
+        assert_eq!(failure.reports.get(1).and_then(|r| r.line), Some(1));
+        // a checking error on an early line is kept ahead of later
+        // reading errors, though the reader finds it after them
+        let late = format!("version = 1\n[color gamma]\ngamma = 9\n{many}");
+        let failure = read_text_with("late", &file("late"), late.as_bytes(), FILTERS)
+            .err()
+            .unwrap_or(Failure {
+                reports: Vec::new(),
+                more: 0,
+            });
+        assert_eq!(failure.reports.first().and_then(|r| r.line), Some(3));
+        let long = format!("version = 1\n{}\n", "x".repeat(65_000));
+        let said = errors("long", &long);
+        assert_eq!(
+            said,
+            [format!(
+                "/etc/vtium/looks/long.vtlook:2: reading: found {}..., needs a section heading or key = value",
+                "x".repeat(crate::bounds::QUOTE_MAX)
+            )]
+        );
+        let said = errors("rlo", "version = 1\n[color \u{202e}kool]\n");
+        assert_eq!(
+            said,
+            [
+                "/etc/vtium/looks/rlo.vtlook:2: color filter 1 of 1, \\u{202e}kool: checking: found \\u{202e}kool, needs gamma, tint or cube"
+            ]
+        );
+        let said = errors("rlo", "version = 1\n[color gamma]\ngamma = \u{202e}1\n");
+        assert!(
+            said.iter().all(|s| !s.contains('\u{202e}')) && said.len() == 1,
+            "{said:?}"
+        );
     }
 }
