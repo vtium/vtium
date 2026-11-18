@@ -27,3 +27,48 @@ U+2500..U+259F
 # the circles of the focus mark, hollow and filled
 U+25CB
 U+25CF
+# the rest of IBM code page 437, so that the font draws the PC's whole
+# character set: ƒ, the Greek letters, the symbols that the PC's control
+# characters show, the mathematical signs, the arrows, the shapes, the
+# card suits and the notes; Unscii-8 lacks ∙ ⌂ ⌐ ☼, which vtium-8x8.hex
+# draws
+U+0192
+U+0393
+U+0398
+U+03A3
+U+03A6
+U+03A9
+U+03B1
+U+03B4..U+03B5
+U+03C0
+U+03C3..U+03C4
+U+03C6
+U+2022
+U+203C
+U+207F
+U+20A7
+U+2194..U+2195
+U+21A8
+U+2219..U+221A
+U+221E..U+221F
+U+2229
+U+2248
+U+2261
+U+2264..U+2265
+U+2302
+U+2310
+U+2320..U+2321
+U+25A0
+U+25AC
+U+25B2
+U+25BA
+U+25BC
+U+25C4
+U+25D8..U+25D9
+U+263A..U+263C
+U+2640
+U+2642
+U+2660
+U+2663
+U+2665..U+2666
+U+266A..U+266B

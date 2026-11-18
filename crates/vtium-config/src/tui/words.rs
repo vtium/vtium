@@ -279,7 +279,29 @@ pub const DPI_ASSUMED: &str = "assumed, because no display reports its size";
 pub fn default_value(value: impl Display) -> String {
     format!("{value} (default)")
 }
-pub const SETTINGS_HINT: &str = "Press Enter to turn a setting on or off, pick the next choice, or type a value. Leave a value empty to use the default.";
+/// Under the list of sections.
+pub const SECTIONS_HINT: &str = "Press Enter to open a section and change its settings.";
+/// Under a section's settings.
+pub const SETTINGS_HINT: &str = "Press Enter to type a setting's value, or to pick it from a list when the setting takes a fixed set of values. Leave a typed value empty to use the default.";
+/// Under a setting's list of values.
+pub const VALUES_HINT: &str = "Press Enter to pick the highlighted value, or Esc to close the list and leave the setting as it is.";
+/// The detail of a setting's default in its list of values.
+pub const VALUE_DEFAULT: &str = "the default";
+/// How many settings a section holds.
+pub fn settings_count(n: usize) -> String {
+    match n {
+        1 => "1 setting".to_owned(),
+        n => format!("{n} settings"),
+    }
+}
+/// The title over an open section, or over a setting's values: where the
+/// person is, from the view down.
+pub fn settings_title(parts: &[&str]) -> String {
+    std::iter::once(SETTINGS)
+        .chain(parts.iter().copied())
+        .collect::<Vec<_>>()
+        .join(" › ")
+}
 pub const EDITING: &str = "Type the value and press Enter. Leave it empty to use the default.";
 /// What a key binding's editor says (ADR-1005 D10): an empty value binds
 /// no key, so the program gets the key, and the word [`BINDING_DEFAULT`]
@@ -336,11 +358,8 @@ pub const KEYS_FONTS: &str =
 /// console shows (ADR-1201 D4).
 pub const KEYS_FONTS_LIVE: &str =
     "Enter choose  t try live  s save  n new  r remove  i install  q quit";
-pub const KEYS_SETTINGS: &str = "Enter change  Tab next view  i install  q quit without installing";
-pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next view  q quit";
 pub const KEYS_NEW: &str =
     "type into a field  Enter next field  Esc back  Ctrl-C quit without installing";
-pub const KEYS_EDITING: &str = "Enter keep  Esc cancel  Ctrl-C quit without installing";
 
 /// The screen below the TUI's minimum size (ADR-1201 D3).
 pub fn too_small(cols: usize, rows: usize) -> String {
@@ -388,7 +407,6 @@ pub fn quit_question(n: usize) -> String {
         "{changes} not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back."
     )
 }
-pub const KEYS_QUIT: &str = "y save and quit  n quit without saving  Esc back";
 /// A question that throws the draft away, with the unsaved changes it
 /// also throws away.
 pub fn losing_unsaved(question: String, n: usize) -> String {
@@ -424,37 +442,26 @@ pub fn shadowed(by: usize) -> String {
 pub const SENDS_TO: &str = "sends to";
 pub const MATCHES: &str = "matches";
 
-pub const HELP_VIEWS: [(&str, &str, &str); 5] = [
+/// What the Help view says of each view whose node of the interface tree
+/// is still planned: the node's id, the view's name, what it does and its
+/// keys. The Help view writes every other view's keys from the contract.
+pub const HELP_PLANNED: [(&str, &str, &str, &str); 2] = [
     (
-        FLOW,
-        "shows how the console is set up, from the displays to the input devices: each display, the rule that sends it to a head (a screen with its own consoles), the head and its look (its font and size), and each input device with the rule that sends its typing to a head.",
-        KEYS_FLOW,
-    ),
-    (
+        "looks",
         LOOKS,
         "lists the console's font sizes, automatic first, with a preview of each. Later it will manage the looks, each a font set and a size.",
         KEYS_LOOKS,
     ),
     (
+        "fonts",
         FONTS,
         "lists the font sets (frits) and the built-in fonts, with any font files each is missing. It shows each as an image of the console, or with s as a preview of every character it can display. On a vtium console, t tries a font live. Press n to make a new font set.",
         KEYS_FONTS,
-    ),
-    (
-        SETTINGS,
-        "lists every setting at the top of vtium.conf, with its value and what it does.",
-        KEYS_SETTINGS,
-    ),
-    (
-        HELP,
-        "shows this page, and About, with vtium-config's name and version.",
-        KEYS_HELP,
     ),
 ];
 /// What the Help view says of the Fonts view in a vtium console, which
 /// previews as text (ADR-1201 D4).
 pub const HELP_FONTS_LIVE: &str = "lists the font sets (frits) and the built-in fonts, with any font files each is missing. Below the list, the console draws every character of the preview in the font it uses now. Press t to try the highlighted font on the console, k to keep it, and s to save it in the draft. Press n to make a new font set.";
-pub const HELP_TABS: &str = "Tab moves to the next view, and Shift-Tab moves to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, the draft's text, the form for a new font set, or a value you are typing is open, Tab does nothing until you close it with Esc. While a question waits for your answer, Tab does nothing: y answers yes, and Esc goes back.";
 pub const HELP_COMMANDS: &str = "Commands, which work in a terminal of any size:";
 
 /// What leaving shows while the console's font comes back.
@@ -608,9 +615,6 @@ pub fn came_went(came: &[String], went: &[String]) -> String {
         (None, None) => "no device changes".to_owned(),
     }
 }
-pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc cancel";
-pub const KEYS_CONFIRM: &str = "y yes  Esc no";
-pub const KEYS_LEAVE: &str = "y install and quit  n quit without installing  Esc back";
 /// The leave question below the minimum size, on the row above its keys:
 /// that font sets wait to be installed, and that both answers save the
 /// `unsaved` changes first.
@@ -630,8 +634,6 @@ pub fn small_question(unsaved: usize) -> String {
         n => format!("{n} changes are not saved."),
     }
 }
-pub const KEYS_PAGER: &str = "Esc back  s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q quit";
-pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  Esc back  q quit";
 /// The question `q` asks while font sets wait for an install: what
 /// leaving loses, and the `unsaved` changes that `y` saves first.
 pub fn leave_question(added: &[String], removed: &[String], unsaved: usize) -> String {
@@ -775,8 +777,6 @@ pub fn picker_about(key: &str) -> String {
 }
 pub const PICKER_TYPE: &str = "Other\u{2026}";
 pub const PICKER_TYPE_DETAIL: &str = "type a value";
-/// The key line while a picker's value is typed.
-pub const KEYS_TYPING_VALUE: &str = "type a value  Enter add  Esc cancel";
 /// A typed value vtium.conf cannot read, by the picker's match key: what
 /// it is not, and what one looks like.
 pub fn typed_refused(key: &str) -> String {
@@ -994,12 +994,6 @@ pub const EDITOR_NOTE: &str =
     "Space on a part in PARTS connects it to this path. Enter on a part here disconnects it.";
 pub const BUILT_IN_DEFAULT: &str = "This is vtium's built-in default: all displays show the terminal console, and all keyboards, mice and touchpads type into it.";
 pub const ENTER_TO_TYPE: &str = "Enter types a new name";
-pub const KEYS_FLOW: &str = "↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  p preview  t trial  PgUp PgDn scroll  q quit";
-pub const KEYS_FLOW_EDITOR_CARD: &str = "↑↓ move  ←→ choose  Enter set  Esc back  q quit";
-pub const KEYS_FLOW_CARD: &str =
-    "↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit";
-pub const KEYS_FLOW_INFO: &str = "e revise  Esc back  q quit";
-pub const KEYS_FLOW_CHOOSE: &str = "↑↓ move  Enter choose  Esc back  q quit";
 pub const REVISE_WHERE: &str = "Highlight a path in CONFIGURATION, then press e to revise it.";
 pub const EDITOR_CLEARED: &str = "Cleared the new path.";
 pub const EDITOR_BUSY: &str = "The new path already holds parts. Add it with a, or clear it with Esc, before you revise another path.";

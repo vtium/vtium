@@ -1,0 +1,37 @@
+# noto-hebrew: a font set for Hebrew. Noto Sans Mono draws Latin text and
+# sets the character cell, and Noto Sans Hebrew draws the Hebrew script at
+# Noto Sans Mono's size.
+#
+# The set adds Nerd Fonts' icons and color emoji after the script, and
+# GNU Unifont last, which draws every other character. vtium ships this
+# font set, never the fonts. The font helper leaves out a font that the
+# machine lacks, and the next source that holds a character draws it.
+#
+# Niqqud, the vowel points, sit mostly under the letters, and the
+# cantillation marks of biblical text sit above and below them. Noto Sans
+# Hebrew draws its letters and marks inside the text's height, so a little
+# room is enough. Line spacing of 10 adds a twentieth of the text's height
+# above each row and a twentieth below it, so the points under one row
+# stay apart from the marks above the next.
+#
+# Licenses: Noto Sans Mono and the script's Noto fonts are under the SIL OFL
+# 1.1. The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the scripts and regions category.
+# - ADR-1302 D13: the line spacing.
+
+name=noto-hebrew
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# Latin text, setting the cell at each size.
+source=font:Noto Sans Mono
+version=2.014
+url=https://github.com/notofonts/latin-greek-cyrillic/releases/tag/NotoSansMono-v2.014
+
+layer=hebrew
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont
+
+line-spacing=10

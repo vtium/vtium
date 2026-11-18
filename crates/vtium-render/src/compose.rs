@@ -131,6 +131,9 @@ pub(crate) struct Source {
     /// A block cursor or the selection marks the receiving cell, so its
     /// ink takes the mark's text color there.
     pub(crate) marked: bool,
+    /// The piece of the glyph that sends the ink: the whole glyph, or on a
+    /// line of double size the one-cell piece that `cell` draws.
+    pub(crate) piece: Piece,
 }
 
 impl Job {
@@ -473,7 +476,7 @@ fn receive<F: Face>(
         let Some(chars) = text.get(start..start.saturating_add(len)) else {
             continue;
         };
-        let Some(g) = cache.get(font, chars, width, style) else {
+        let Some(g) = cache.get_piece(font, (chars, width, style), s.piece) else {
             continue;
         };
         let x0 = job.r.x.max(s.clip.x);

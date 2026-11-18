@@ -445,6 +445,11 @@ pub static NOTES: [Note; KEYS.len()] = [
         "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145)",
     ),
     note(
+        VTLOOK,
+        "vtium",
+        "[the frame filters issue](https://github.com/vtium/vtium/issues/219)",
+    ),
+    note(
         RENDER_TIMER,
         "vtium-render",
         "[the CPU compositor issue](https://github.com/vtium/vtium/issues/16)",

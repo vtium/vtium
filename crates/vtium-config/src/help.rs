@@ -1,23 +1,26 @@
 //! The help text: the usage `--help` prints, and the help `--help TOPIC`
 //! prints for one command. Each command's text is written once, in
-//! `TOPICS`, and both read it.
+//! `TOPICS`, and both read it. The options come from the parser's own
+//! table, [`crate::cli::VALUE_OPTIONS`], and the exit statuses from
+//! [`EXIT_STATUS`]. vtium-config(1), the man page that tools/man
+//! generates, reads the same lists.
 
 use crate::banner;
 
 /// One line of a command's usage: how it is written and what it does.
-struct Form {
-    synopsis: &'static str,
-    does: &'static str,
+pub struct Form {
+    pub synopsis: &'static str,
+    pub does: &'static str,
 }
 
 /// A command's help.
-struct Topic {
-    command: Command,
-    forms: &'static [Form],
+pub struct Topic {
+    pub command: Command,
+    pub forms: &'static [Form],
     /// What the command does, its arguments and its options, in whole
     /// sentences.
-    detail: &'static str,
-    example: &'static str,
+    pub detail: &'static str,
+    pub example: &'static str,
 }
 
 /// The commands: the one list that the dispatch in `cli.rs`, the usage and
@@ -329,7 +332,7 @@ const TOPICS: &[Topic] = &[
             "check FILE",
             "check a font set (NAME.vtfrit) or a vtium.conf",
         )],
-        detail: "Checks FILE as the console would read it. A file named NAME.vtfrit is checked as a font set, and any other file as a vtium.conf, settings and sections together. Each problem prints with the file's name and line number, and a good font set prints \"ok FILE\". It changes nothing and needs no root.",
+        detail: "Checks FILE as the console would read it. A file named NAME.vtfrit is checked as a font set, and any other file as a vtium.conf, settings and sections together. Each problem prints with the file's name and line number, and a good file prints \"ok FILE\". It changes nothing and needs no root. It exits 0 when it finds no problem and 1 when it finds one. It exits 6, as vtium check-config does, when a vtium.conf's only problems are fonts that a font set needs and this machine lacks.",
         example: "vtium-config check /etc/vtium/vtium.conf",
     },
     Topic {
@@ -420,41 +423,73 @@ const TOPICS: &[Topic] = &[
 /// The `about` topic's line in the usage.
 const ABOUT_LINE: &str = "about                              vtium-config's name, version and logo";
 
-const HEAD: &str = "\
-Usage: vtium-config [OPTION]... [COMMAND [ARG]...]
+/// How vtium-config's command line is written.
+pub const SYNOPSIS: &str = "vtium-config [OPTION]... [COMMAND [ARG]...]";
 
-Sets up the vtium console's fonts and settings, and can preview each font live on a vtium console.
+/// What vtium-config is, in paragraphs.
+pub const DESCRIPTION: [&str; 2] = [
+    "Sets up the vtium console's fonts and settings, and can preview each font live on a vtium console.",
+    "With no command, vtium-config prints its usage. To open the full-screen tool, run vtium-config tui.",
+];
 
-With no command, vtium-config prints this help. To open the full-screen tool, run vtium-config tui.
+/// What the commands change, after the list of commands.
+pub const DRAFTS: &str = "The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. The font set commands (new-frit, remove-frit) write a draft and print the command that installs it.";
 
-Commands:
-";
+/// The statuses vtium-config exits with, and what each means.
+pub const EXIT_STATUS: [(u8, &str); 7] = [
+    (0, "The command did what you asked."),
+    (
+        1,
+        "The command failed. For install, the draft failed vtium check-config. For check, FILE has an error, or a warning about something other than missing fonts.",
+    ),
+    (2, "The command line is wrong."),
+    (
+        3,
+        "install did not install the draft, because the installed vtium.conf changed after the draft was made.",
+    ),
+    (4, "sudo refused to run apply."),
+    (5, "A file could not be read or written."),
+    (
+        vtium_settings::CHECK_MISSING_FONTS,
+        "check found no problem in FILE but fonts that a font set needs and this machine lacks: a font that is not installed, or one that lacks a character the set checks for. vtium check-config exits 6 in the same case.",
+    ),
+];
 
-const TAIL: &str = "
-The commands from flow to edit change your draft, a copy of vtium.conf in
-~/.config/vtium/drafts/NAME.conf; only install writes
-/etc/vtium/vtium.conf. They exit 0 when done, 1 when the check fails at
-install, 2 on a usage error, 3 when the installed file changed after the
-draft was made, 4 when sudo refuses, and 5 when a file cannot be read or
-written. The font set commands (new-frit, remove-frit) write a draft and
-print the command that installs it.
+/// The options `--help` and `--version`, which the parser reads apart
+/// from [`crate::cli::VALUE_OPTIONS`].
+pub const HELP_OPTIONS: &str = "--help [TOPIC], --version";
 
-Options:
-  --configdir DIR       the directory of vtium.conf, instead of /etc/vtium
-  --frits DIR           the font set directory, instead of the one font-frits names
-  --sudo PROGRAM        the program that runs apply as root, instead of sudo
-  --vtium PROGRAM       the vtium binary apply checks files with, instead of /usr/bin/vtium
-  --kbd-dir DIR         a kbd data directory, instead of the built-in list (repeatable)
-  --font-dir DIR        an outline font directory, instead of the built-in list (repeatable)
-  --vconsole-conf FILE  vconsole.conf, instead of /etc/vconsole.conf
-  --kernel-cmdline FILE the kernel command line, instead of /proc/cmdline
-  --sys DIR             sysfs, where displays and input devices are read, instead of /sys
-  --udev-data DIR       udev's database, instead of /run/udev/data
-  --helper PROGRAM      the font helper to start, instead of this program's serve
-  --root DIR            the root directory report reads the machine under, instead of /
-  --locale LOCALE       the console's locale, which serve picks the built-in font by, instead of C
-  --help [TOPIC], --version
-";
+/// The widest line of the usage, in columns.
+const WIDTH: usize = 78;
+
+/// `text` wrapped into lines of at most [`WIDTH`] columns, the first
+/// starting with `first` and the others with `rest`.
+fn wrap(text: &str, first: &str, rest: &str) -> String {
+    let mut out = String::new();
+    let mut line = first.to_owned();
+    let mut empty = true;
+    for word in text.split_whitespace() {
+        if !empty && line.len() + 1 + word.len() > WIDTH {
+            out.push_str(&line);
+            out.push('\n');
+            line = rest.to_owned();
+            empty = true;
+        }
+        if !empty {
+            line.push(' ');
+        }
+        line.push_str(word);
+        empty = false;
+    }
+    out.push_str(&line);
+    out.push('\n');
+    out
+}
+
+/// Each command's help, in the order the usage lists them.
+pub fn topics() -> impl Iterator<Item = &'static Topic> {
+    Command::ALL.into_iter().filter_map(Command::topic)
+}
 
 /// Writes one form as a usage line: the synopsis in a column, then what it
 /// does, on the next line when the synopsis is too long for the column.
@@ -468,16 +503,31 @@ fn line(text: &mut String, f: &Form) {
 
 /// The usage `--help` and a bare `vtium-config` print.
 pub fn usage() -> String {
-    let mut text = String::from(HEAD);
-    for topic in Command::ALL.into_iter().filter_map(Command::topic) {
+    let mut text = format!("Usage: {SYNOPSIS}\n\n");
+    for paragraph in DESCRIPTION {
+        text.push_str(paragraph);
+        text.push_str("\n\n");
+    }
+    text.push_str("Commands:\n");
+    for topic in topics() {
         for f in topic.forms {
             line(&mut text, f);
         }
     }
     text.push_str("\nHelp on one command: vtium-config --help COMMAND. Also:\n  ");
     text.push_str(ABOUT_LINE);
-    text.push('\n');
-    text.push_str(TAIL);
+    text.push_str("\n\n");
+    text.push_str(&wrap(DRAFTS, "", ""));
+    text.push_str("\nExit status:\n");
+    for (code, means) in EXIT_STATUS {
+        text.push_str(&wrap(means, &format!("  {code}  "), "     "));
+    }
+    text.push_str("\nOptions:\n");
+    for o in crate::cli::VALUE_OPTIONS {
+        let option = format!("{} {}", o.name, o.value);
+        text.push_str(&format!("  {option:<21} {}\n", o.does));
+    }
+    text.push_str(&format!("  {HELP_OPTIONS}\n"));
     text
 }
 

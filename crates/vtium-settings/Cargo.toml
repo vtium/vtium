@@ -20,3 +20,12 @@ rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"
 # and vtium links them already.
 vtium-font.workspace = true
 vtium-term.workspace = true
+# The frame filters' declarations, which the vtlook reader checks a vtlook
+# against: constants only, and only with `filters` (ADR-1304 D10).
+vtium-render = { workspace = true, optional = true, features = ["filters"] }
+
+[features]
+# The vtlook reader, its error report and the built-in vtlook's template
+# (ADR-1304 D10). The `vtlook` key is read in every build; the minspec
+# build leaves the reader out.
+filters = ["dep:vtium-render"]

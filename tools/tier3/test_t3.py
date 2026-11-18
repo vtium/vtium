@@ -17,6 +17,7 @@ import argparse
 import base64
 import contextlib
 import csv
+import gzip
 import hashlib
 import io
 import json
@@ -44,6 +45,7 @@ import t3  # noqa: E402
 import t3_bench  # noqa: E402
 import t3_builtin  # noqa: E402
 import t3_devices  # noqa: E402
+import t3_fonts  # noqa: E402
 import t3_evaluate  # noqa: E402
 import t3_heads  # noqa: E402
 import t3_images  # noqa: E402
@@ -3607,9 +3609,15 @@ class DevicesTest(unittest.TestCase):
                                cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
             return r.stdout.splitlines()
         lines = make_n()
-        self.assertIn("install -Dm644 -t /D/etc/vtium/fonts tools/specimens/frits/desktop.vtfrit "
-                      "crates/vtium-config/frits/minspec-16.vtfrit "
-                      "crates/vtium-config/frits/minspec-8.vtfrit", lines)
+        frits = "crates/vtium-config/frits"
+        self.assertIn(f"install -Dm644 -t /D/etc/vtium/fonts/console {frits}/console/terminus.vtfrit "
+                      f"{frits}/console/cullet-mono.vtfrit && "
+                      f"install -Dm644 -t /D/etc/vtium/fonts/code {frits}/code/jetbrains-mono.vtfrit && "
+                      f"install -Dm644 -t /D/etc/vtium/fonts/small {frits}/small/unifont-icons.vtfrit "
+                      f"{frits}/small/unscii-icons.vtfrit && "
+                      f"install -Dm644 -t /D/etc/vtium/fonts/layers {frits}/layers/nerd-symbols.vtlayer "
+                      f"{frits}/layers/nerd-symbols-small.vtlayer {frits}/layers/noto-emoji.vtlayer "
+                      f"{frits}/layers/noto-emoji-small.vtlayer {frits}/layers/unifont.vtlayer", lines)
         self.assertFalse([l for l in lines if "heads.conf" in l], lines)
         self.assertIn("install -Dm644 crates/vtium/install/vtium.conf.example "
                       "/D/etc/vtium/vtium.conf.example", lines)
@@ -3628,7 +3636,10 @@ class DevicesTest(unittest.TestCase):
         r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D"],
                            cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
         lines = [l for l in r.stdout.splitlines() if "/D/usr/share/licenses" in l]
-        self.assertEqual(lines, ["install -Dm644 -t /D/usr/share/licenses/vtium LICENSE COPYING "
+        notices = sorted(os.listdir(os.path.join(t3_common.ROOT, "tools", "cullet-mono", "notices")))
+        self.assertEqual(lines, ["install -Dm644 -t /D/usr/share/licenses/vtium/cullet-mono "
+                                 + " ".join(f"tools/cullet-mono/notices/{n}" for n in notices),
+                                 "install -Dm644 -t /D/usr/share/licenses/vtium LICENSE COPYING "
                                  "crates/vtium-font/data/OFL-1.1.txt "
                                  "crates/vtium-term/gen-color-names/src/rgb-license.txt "
                                  "crates/vtium-config/licenses/tiny-skia-LICENSE"])
@@ -7793,6 +7804,342 @@ class RootChecksTest(unittest.TestCase):
                              ["VERSION", "libseat.so.1"])
             with open(os.path.join(disc, "builtin", "VERSION")) as f:
                 self.assertEqual(f.read(), "seatd 0.9.3\n")
+
+
+class FontSourcesTest(unittest.TestCase):
+    """The case of the two font sets every build installs (t3_fonts,
+    ADR-1204 D2): its variants, the sources' glyphs it reads, and its
+    verdict on which font drew each probe."""
+
+    def test_the_variants(self):
+        # One variant for each set and height, on the minspec machine, each
+        # logging in and running the check alone, which no golden judges.
+        potato = t3_scenario.VARIANTS["2d-potato-min"]
+        for size in t3_fonts.SIZES:
+            for name, font in (("default-font-%d" % size, None),
+                               ("cullet-mono-%d" % size, "cullet-mono")):
+                v = t3_scenario.VARIANTS[name]
+                for key in ("device", "cpus", "memory_mb", "renderer", "images"):
+                    self.assertEqual(v[key], potato[key], (name, key))
+                self.assertEqual(t3_scenario.variant_cases(name), [t3_fonts.CASE])
+                with open(os.path.join(t3_common.GUEST, v["conf"])) as f:
+                    conf = [line.strip() for line in f if not line.startswith("#")]
+                self.assertIn("display-dpi=72", conf)
+                self.assertIn("font-size=%d" % size, conf)
+                names = [line for line in conf if line.startswith("font-name")]
+                self.assertEqual(names, ["font-name=" + font] if font else [], name)
+                self.assertEqual(v["size"], size)
+                if font:
+                    self.assertEqual(v["features"], "bidi,gpu,images")
+                    self.assertEqual(v["deferred_frits"], ["cullet-alone.vtfrit"])
+                    self.assertTrue(os.path.isfile(os.path.join(
+                        t3_common.GUEST, "frits", "cullet-alone.vtfrit")))
+                else:
+                    self.assertNotIn("features", v)
+        self.assertIn(t3_fonts.CASE, t3_evaluate.NO_GOLDEN)
+        self.assertEqual(t3_evaluate.describe(t3_fonts.CASE),
+                         (t3_fonts.CHECKS[t3_fonts.CASE], None))
+        self.assertIs(t3_scenario.CHECK_RUNS[t3_fonts.CASE], t3_fonts.run)
+
+    def test_the_probe_screen_prints_each_probe_at_its_column(self):
+        out = subprocess.run(["bash", os.path.join(t3_common.GUEST, "screens", "font-probe.sh")],
+                             capture_output=True, check=True).stdout.decode()
+        row = out.split("\n")[t3_fonts.PROBE_ROW]
+        found, column = {}, 0
+        for c in row:
+            if c != " ":
+                found[c] = column
+            column += 2 if c in t3_fonts.WIDE else 1
+        self.assertEqual(found, t3_fonts.COLUMNS)
+
+    BDF = ("STARTFONT 2.1\nCHARS 2\nSTARTCHAR a\nENCODING 103\nBBX 3 2 0 0\nBITMAP\n"
+           "A0\n40\nENDCHAR\nSTARTCHAR b\nENCODING 104\nBBX 10 1 0 0\nBITMAP\n8040\n"
+           "ENDCHAR\nENDFONT\n")
+
+    def test_bdf_and_hex_glyphs_are_read(self):
+        self.assertEqual(t3_fonts.parse_bdf(self.BDF, {103, 104}),
+                         {103: (3, 2, {(0, 0), (2, 0), (1, 1)}), 104: (10, 1, {(0, 0), (9, 0)})})
+        self.assertEqual(t3_fonts.parse_bdf(self.BDF, {104}), {104: (10, 1, {(0, 0), (9, 0)})})
+        narrow = "0067:" + "80" + "00" * 14 + "01"
+        wide = "020000:" + "8001" + "0000" * 15
+        got = t3_fonts.parse_hex([narrow, wide, "0041:" + "00" * 16], {0x67, 0x20000})
+        self.assertEqual(got, {0x67: (8, 16, {(0, 0), (7, 15)}),
+                               0x20000: (16, 16, {(0, 0), (15, 0)})})
+
+    def test_a_hollow_box_is_told_from_a_filled_one(self):
+        frame = {(x, y) for x in range(2, 8) for y in range(3, 12)
+                 if x in (2, 7) or y in (3, 11)}
+        thick = {(x, y) for x in range(10) for y in range(14)
+                 if x < 2 or x > 7 or y < 2 or y > 11}
+        self.assertTrue(t3_fonts.hollow_box(frame))
+        self.assertTrue(t3_fonts.hollow_box(thick))
+        self.assertFalse(t3_fonts.hollow_box({(x, y) for x in range(4) for y in range(4)}))
+        self.assertFalse(t3_fonts.hollow_box(frame - {(2, 5)}))
+        # a box open at the top has no hollow inside
+        self.assertFalse(t3_fonts.hollow_box({(x, y) for x, y in thick if y > 1}))
+        self.assertFalse(t3_fonts.hollow_box(set()))
+
+    # Glyphs of made-up sources, each a different shape: a probe's ink is
+    # told apart by its shape alone.
+    @staticmethod
+    def glyph(width, height, seed):
+        return (width, height, {(x, y) for x in range(width) for y in range(height)
+                                if (x * 7 + y * 3 + seed) % 5 == 0})
+
+    def sources(self):
+        out = {}
+        for char in t3_fonts.COLUMNS:
+            code = ord(char)
+            entry = {"Terminus %d px" % s: self.glyph(s // 2, s, code + s)
+                     for s in t3_fonts.TERMINUS_STRIKES}
+            entry["Unifont"] = self.glyph(16 if char in t3_fonts.WIDE else 8, 16, code)
+            if char in t3_fonts.WIDE:
+                entry = {"Unifont": entry["Unifont"]}
+            out[code] = entry
+        return out
+
+    @staticmethod
+    def screen(cell):
+        width, height = 30 * cell[0], 3 * cell[1]
+        return t3img.Image(width, height, bytearray(b"\x10\x10\x10" * width * height))
+
+    @staticmethod
+    def paint(img, char, cell, on, color=b"\xe8\xe8\xe8", k=1, at=(0, 0)):
+        x0, y0, _, _ = t3_fonts.probe_box(char, cell)
+        for x, y in on:
+            for i in range(k):
+                for j in range(k):
+                    p = ((y0 + at[1] + y * k + j) * img.width + x0 + at[0] + x * k + i) * 3
+                    img.data[p:p + 3] = color
+
+    def terminus_screen(self, size, cell, glyphs, strike=None, grid=(0, 0)):
+        """The probes as terminus draws them, in a grid that starts `grid`
+        pixels right of and below the display's top left corner."""
+        img = self.screen(cell)
+        strike = strike or max(s for s in t3_fonts.TERMINUS_STRIKES if s <= size)
+        for char in (t3_fonts.LETTER, t3_fonts.POWERLINE):
+            self.paint(img, char, cell, glyphs[ord(char)]["Terminus %d px" % strike][2],
+                       at=(grid[0], grid[1] + (size - strike) // 2))
+        for char in (t3_fonts.HAN, t3_fonts.PLANE2, t3_fonts.EMOJI):
+            self.paint(img, char, cell, glyphs[ord(char)]["Unifont"][2], k=size // 16, at=grid)
+        self.paint(img, t3_fonts.ICON, cell, self.box(cell), at=grid)
+        return img
+
+    @staticmethod
+    def box(cell):
+        """A hollow box in a cell of `cell`, its sides two pixels thick and
+        its top and bottom one."""
+        return {(x, y) for x in range(1, cell[0] - 1) for y in range(2, cell[1] - 2)
+                if x < 3 or x > cell[0] - 4 or y in (2, cell[1] - 3)}
+
+    def test_terminus_is_judged_by_the_sources_glyphs(self):
+        glyphs = self.sources()
+        for size, cell in ((16, (8, 16)), (24, (12, 24)), (40, (20, 40))):
+            img = self.terminus_screen(size, cell, glyphs)
+            found, faults = t3_fonts.judge_terminus(img, cell, size, glyphs)
+            self.assertEqual(faults, [], size)
+            strike = "Terminus %d px" % min(size, 32)
+            unifont = "Unifont x2" if size == 40 else "Unifont"
+            self.assertEqual(found, {t3_fonts.LETTER: [strike], t3_fonts.POWERLINE: [strike],
+                                     t3_fonts.HAN: [unifont], t3_fonts.PLANE2: [unifont],
+                                     t3_fonts.EMOJI: [unifont], t3_fonts.ICON: ["a hollow box"]})
+        # a grid that vtium centres on the display, as 1366 pixels hold 170
+        # cells of 8 with 6 left over, and 768 pixels 19 rows of 40 with 8
+        for size, cell, grid in ((16, (8, 16), (3, 0)), (40, (20, 40), (3, 4))):
+            img = self.terminus_screen(size, cell, glyphs, grid=grid)
+            self.assertEqual(t3_fonts.judge_terminus(img, cell, size, glyphs)[1], [], size)
+        # the next smaller strike in a 24-pixel cell
+        img = self.terminus_screen(24, (12, 24), glyphs, strike=22)
+        _, faults = t3_fonts.judge_terminus(img, (12, 24), 24, glyphs)
+        self.assertEqual(len(faults), 2)
+        self.assertIn("the letter g matches Terminus 22 px, not Terminus 24 px alone", faults)
+        # a letter whose shape two sources share names no one source
+        same = self.sources()
+        same[ord(t3_fonts.LETTER)]["Unifont"] = same[ord(t3_fonts.LETTER)]["Terminus 16 px"]
+        img = self.terminus_screen(16, (8, 16), same)
+        _, faults = t3_fonts.judge_terminus(img, (8, 16), 16, same)
+        self.assertEqual(faults, ["the letter g matches Terminus 16 px and Unifont, not "
+                                  "Terminus 16 px alone"])
+        # Unifont at 1x where 2x fits
+        img = self.terminus_screen(40, (20, 40), glyphs)
+        x0, y0, w, h = t3_fonts.probe_box(t3_fonts.HAN, (20, 40))
+        for y in range(y0, y0 + h):
+            img.data[(y * img.width + x0) * 3:(y * img.width + x0 + w) * 3] = b"\x10" * 3 * w
+        self.paint(img, t3_fonts.HAN, (20, 40), glyphs[ord(t3_fonts.HAN)]["Unifont"][2])
+        _, faults = t3_fonts.judge_terminus(img, (20, 40), 40, glyphs)
+        self.assertEqual(faults, ["the Han character U+4E2D matches Unifont, not Unifont x2 "
+                                  "alone"])
+        # an emoji in two colors is not drawn in 1 bit, and an icon drawn
+        # from a font is no hollow box
+        img = self.terminus_screen(16, (8, 16), glyphs)
+        on = sorted(glyphs[ord(t3_fonts.EMOJI)]["Unifont"][2])
+        self.paint(img, t3_fonts.EMOJI, (8, 16), on[:1], color=b"\xff\x00\x00")
+        self.paint(img, t3_fonts.ICON, (8, 16), {(4, 8)})
+        _, faults = t3_fonts.judge_terminus(img, (8, 16), 16, glyphs)
+        self.assertEqual(faults, ["the emoji U+1F600 is drawn in 2 colors, not in 1 bit",
+                                  "the Nerd Fonts icon U+F121 is not a hollow box"])
+
+    def cullet_screens(self, cell, glyphs):
+        """A capture of cullet-mono and the reference's, as Cullet Mono,
+        Noto Color Emoji and Unifont would draw them."""
+        img, reference = self.screen(cell), self.screen(cell)
+        for char in (t3_fonts.LETTER, t3_fonts.ICON):
+            shape = {(x, y) for x in range(1, cell[0] - 1) for y in range(2, cell[1] - 2)
+                     if (x + y + ord(char)) % 3 == 0}
+            for shot in (img, reference):
+                self.paint(shot, char, cell, shape, color=b"\x80\x80\x80")
+        self.paint(img, t3_fonts.EMOJI, cell, {(x, 3) for x in range(10)}, color=b"\xf0\xc0\x10")
+        self.paint(img, t3_fonts.HAN, cell, glyphs[ord(t3_fonts.HAN)]["Unifont"][2],
+                   k=cell[1] // 16)
+        for shot in (img, reference):
+            self.paint(shot, t3_fonts.LOGO, cell, self.box(cell))
+        return img, reference
+
+    def test_cullet_mono_is_judged_against_cullet_mono_alone(self):
+        glyphs = self.sources()
+        cell = (8, 16)
+        img, reference = self.cullet_screens(cell, glyphs)
+        found, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
+        self.assertEqual(faults, [])
+        self.assertEqual(found, {t3_fonts.LETTER: ["Cullet Mono"], t3_fonts.ICON: ["Cullet Mono"],
+                                 t3_fonts.EMOJI: ["Noto Color Emoji"],
+                                 t3_fonts.HAN: ["Unifont"], t3_fonts.LOGO: ["a hollow box"]})
+        # a letter that the reference draws otherwise
+        img, reference = self.cullet_screens(cell, glyphs)
+        self.paint(reference, t3_fonts.LETTER, cell, {(0, 0)})
+        _, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
+        self.assertEqual(faults, ["the letter g differs from Cullet Mono's own glyph in "
+                                  "cullet-alone"])
+        # an icon drawn as a hollow box, an emoji in grey and a Font Logos
+        # icon drawn as a glyph
+        img, reference = self.cullet_screens(cell, glyphs)
+        for shot in (img, reference):
+            self.paint(shot, t3_fonts.ICON, cell, {(x, y) for x in range(8) for y in range(16)},
+                       color=b"\x10\x10\x10")
+            self.paint(shot, t3_fonts.ICON, cell, {(x, y) for x in (1, 6) for y in range(2, 14)}
+                       | {(x, y) for x in range(1, 7) for y in (2, 13)})
+        self.paint(img, t3_fonts.EMOJI, cell, {(x, 3) for x in range(10)}, color=b"\xa0\xa0\xa0")
+        self.paint(img, t3_fonts.LOGO, cell, {(4, 8)})
+        _, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
+        self.assertEqual(faults, ["the Nerd Fonts icon U+F121 is a hollow box, not Cullet "
+                                  "Mono's glyph",
+                                  "the emoji U+1F600 holds no color, so Noto Color Emoji did "
+                                  "not draw it",
+                                  "the Font Logos icon U+F303 is not a hollow box"])
+
+    def test_cullet_mono_draws_cjk_as_a_box_where_unifont_does_not_fit(self):
+        # Cullet Mono's cell at 16 pixels is 7x16, narrower than Unifont's
+        # 8-pixel glyphs, so the Han character draws as a hollow box
+        # (ADR-1204 D2, amended 2026-11-18).
+        glyphs = self.sources()
+        cell = (7, 16)
+        img, reference = self.cullet_screens(cell, glyphs)
+        wide = (2 * cell[0], cell[1])
+        # clear the probe and the columns Unifont's 16-pixel glyph spilled
+        # past it, then draw the box
+        x0, y0, w, h = t3_fonts.probe_box(t3_fonts.HAN, cell)
+        w += cell[0]
+        for y in range(y0, y0 + h):
+            img.data[(y * img.width + x0) * 3:(y * img.width + x0 + w) * 3] = b"\x10" * 3 * w
+        self.paint(img, t3_fonts.HAN, cell, self.box(wide))
+        found, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
+        self.assertEqual(faults, [])
+        self.assertEqual(found[t3_fonts.HAN], ["a hollow box"])
+        # a blank cell is not the hollow box
+        for y in range(y0, y0 + h):
+            img.data[(y * img.width + x0) * 3:(y * img.width + x0 + w) * 3] = b"\x10" * 3 * w
+        _, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
+        self.assertEqual(faults, ["the Han character U+4E2D is not a hollow box, though "
+                                  "Unifont's 8-pixel glyphs do not fit a 7-pixel cell"])
+
+    class FakeVm:
+        """The parts of a VM the check reads: the console log, the event
+        port, and the keys typed."""
+
+        def __init__(self, d, cell, events=()):
+            self.serial = os.path.join(d, "serial.log")
+            self.events = os.path.join(d, "events.log")
+            self.typed = []
+            with open(self.serial, "w") as f:
+                f.write("vtium[7]: Display Virtual-1 with backend [drm2d] text renderer [cpu], "
+                        "cell size %dx%d\n" % cell)
+            with open(self.events, "w") as f:
+                f.write("".join(e + "\n" for e in events))
+
+        def type(self, text):
+            self.typed.append(text)
+
+        def wait_event(self, marker, timeout):
+            return marker
+
+    def check(self, variant, shots, cell, events=()):
+        """(caps, errors, the keys typed) of the check on a console whose
+        screens are `shots`, the screen before the probes first."""
+        glyphs = self.sources()
+        with tempfile.TemporaryDirectory() as d:
+            vm = self.FakeVm(d, cell, events)
+            caps, errors = {}, {}
+            with mock.patch.object(t3_fonts, "wait_stable", side_effect=shots), \
+                    mock.patch.object(t3_fonts, "source_glyphs", return_value=glyphs):
+                t3_fonts.run(t3_scenario.VARIANTS[variant], vm, d, caps, errors, LOG)
+            return caps, errors, vm.typed
+
+    def test_the_check_keeps_its_capture_only_when_it_passes(self):
+        # A check without a golden passes whenever its capture is kept, so
+        # a fault must leave the capture out.
+        glyphs = self.sources()
+        cell = (8, 16)
+        good = self.terminus_screen(16, cell, glyphs)
+        caps, errors, typed = self.check("default-font-16", [self.screen(cell), good], cell)
+        self.assertEqual((list(caps), errors, typed), ([t3_fonts.CASE], {}, ["t3 font-probe\n"]))
+        wrong = self.terminus_screen(16, cell, glyphs, strike=14)
+        caps, errors, _ = self.check("default-font-16", [self.screen(cell), wrong], cell)
+        self.assertEqual(caps, {})
+        self.assertRegex(errors[t3_fonts.CASE], r"^in a 8x16 cell, the letter g matches "
+                                                r"Terminus 14 px, not Terminus 16 px alone; ")
+        # a cell of another height than the variant's
+        caps, errors, _ = self.check("default-font-24", [self.screen(cell), good], cell)
+        self.assertEqual((caps, errors), ({}, {t3_fonts.CASE: "RuntimeError: the console's cell "
+                                                              "is 8x16, not 24 pixels high"}))
+        # cullet-mono, with and without the switch to the reference set
+        img, reference = self.cullet_screens(cell, glyphs)
+        shots = [self.screen(cell), img, reference]
+        caps, errors, typed = self.check("cullet-mono-16", shots, cell,
+                                         ["T3-USE-FRIT set\tcullet-alone "])
+        self.assertEqual((list(caps), errors), ([t3_fonts.CASE], {}))
+        self.assertEqual(typed, ["t3 font-probe\n", "t3 font-probe-alone\n"])
+        caps, errors, _ = self.check("cullet-mono-16", shots, cell,
+                                     ["T3-USE-FRIT vtium-config: no font set cullet-alone "])
+        self.assertEqual(caps, {})
+        self.assertEqual(errors, {t3_fonts.CASE: "RuntimeError: vtium-config use-frit "
+                                                 "cullet-alone did not switch the console: "
+                                                 "T3-USE-FRIT vtium-config: no font set "
+                                                 "cullet-alone "})
+
+    def test_the_sources_are_read_from_the_install_tree(self):
+        glyph = "0067:" + "80" + "00" * 15 + "\n"
+        with tempfile.TemporaryDirectory() as d:
+            tree = os.path.join(d, "tree.tar")
+            with tarfile.open(tree, "w") as tar:
+                def add(name, data):
+                    info = tarfile.TarInfo("./" + t3_fonts.FONTS + name)
+                    info.size = len(data)
+                    tar.addfile(info, io.BytesIO(data))
+                for strike in t3_fonts.TERMINUS_STRIKES:
+                    add("ter-u%dn.bdf.gz" % strike, gzip.compress(self.BDF.encode()))
+                add("unifont_all-17.0.03.hex", glyph.encode())
+            got = t3_fonts.source_glyphs(tree, "gh")
+            self.assertEqual(sorted(got), [0x67, 0x68])
+            self.assertEqual(got[0x67]["Unifont"], (8, 16, {(0, 0)}))
+            self.assertEqual(got[0x67]["Terminus 32 px"], (3, 2, {(0, 0), (2, 0), (1, 1)}))
+            self.assertEqual(sorted(got[0x68]), ["Terminus %d px" % s
+                                                 for s in t3_fonts.TERMINUS_STRIKES])
+            os.unlink(tree)
+            with tarfile.open(tree, "w"):
+                pass
+            with self.assertRaisesRegex(RuntimeError, "the install tree holds no "
+                                        "usr/share/vtium/fonts/ter-u12n.bdf.gz"):
+                t3_fonts.source_glyphs(tree, "g")
 
 
 if __name__ == "__main__":

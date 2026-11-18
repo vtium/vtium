@@ -1,0 +1,16 @@
+## NAME
+vtium-clipboard, vticlip - copy text to the clipboard of the vtium console
+
+## SYNOPSIS
+@SYNOPSIS@
+
+## DESCRIPTION
+@DESCRIPTION@
+
+`vticlip` is a shorter name for the same program, and the help and the messages use the name it was run as.
+
+## EXIT STATUS
+@EXIT STATUS@
+
+## SEE ALSO
+vtium(8)

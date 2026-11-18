@@ -1,0 +1,34 @@
+# unifont-icons: GNU Unifont at 8x16 cells for the small panels of the
+# minspec build, with a chosen list of Nerd Fonts' icons and color emoji.
+# Unifont draws the text, from the .hex file of every plane that every
+# vtium build installs, and the two small layers add the icons that shell
+# prompts and file listers draw and the emoji that terminals show most. The
+# two cover= lines leave Unifont's private-use glyphs out, so the icons in
+# those areas come from the symbols layer.
+#
+# When the Unifont file is missing, vtium's built-in font draws the text in
+# the same 8x16 cell. vtium ships this font set, never the fonts. The font
+# helper leaves out a font that the machine lacks, and the next source that
+# holds a character draws it.
+#
+# Licenses: GNU Unifont is under the SIL OFL 1.1, the option vtium takes of
+# its two licenses. The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the small panels category.
+
+name=unifont-icons
+cell=8x16
+license=OFL-1.1 AND MIT
+
+# The text, GNU Unifont's .hex file, the file that the unifont layer names.
+source=hex:/usr/share/vtium/fonts/unifont_all-17.0.03.hex
+version=17.0.03
+sha256=90a5d4dd44a5ef8d3fd02a3f397926b2f9d98640f0b86a3f050faef7bb2683b2
+url=https://unifoundry.com/pub/unifont/unifont-17.0.03/
+cover=U+0000-U+DFFF
+cover=U+F900-U+EFFFF
+
+layer=nerd-symbols-small
+layer=noto-emoji-small
+layer=unifont

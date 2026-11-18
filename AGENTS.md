@@ -102,6 +102,7 @@ cargo fmt --all --check \
   && docs/scripts/prose --check \
   && docs/scripts/coverage \
   && make api \
+  && make man-check \
   && make test-tools \
   && make conformance \
   && make conformance-probes \

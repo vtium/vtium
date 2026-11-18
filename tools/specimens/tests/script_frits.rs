@@ -11,17 +11,35 @@ use std::path::{Path, PathBuf};
 use vtium_config::frit::{Frit, Origin};
 use vtium_font::spacing::Fit;
 
-/// The directory the frits ship from: the Makefile's `FRIT_DIRS` names
-/// it, and `make install-fonts` stages all nine into /etc/vtium/fonts for
-/// the vtium-fonts package (ADR-1500 D8).
-fn dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("frits")
+/// The catalog's frits' directory, whose `scripts/` category folder holds
+/// these sets and whose `layers/` folder holds the layers they add; `make
+/// install-fonts` stages them for the vtium-fonts package (ADR-1204 D9).
+fn catalog() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../crates/vtium-config/frits")
 }
 
-/// The frit `name`, read from its file as `vtium-config check` reads it.
+/// The layers every catalog set adds after its script: icons, emoji and
+/// the fallback, which the tests below leave out.
+const SHARED: [&str; 3] = ["nerd-symbols", "noto-emoji", "unifont"];
+
+/// The script set `noto-NAME`, read with its layers in place as `vtium-config
+/// check` reads it, less the sources of the shared layers.
 fn read(name: &str) -> Frit {
-    let path = dir().join(format!("{name}.vtfrit"));
-    Frit::load(&path).unwrap_or_else(|e| panic!("{e}"))
+    let path = catalog().join(format!("scripts/noto-{name}.vtfrit"));
+    let mut frit =
+        Frit::load_in(&path, &catalog().join("layers")).unwrap_or_else(|e| panic!("{e}"));
+    let shared: Vec<String> = frit
+        .sources
+        .iter()
+        .filter_map(|s| s.layer.clone())
+        .collect();
+    assert!(
+        SHARED.iter().all(|l| shared.iter().any(|s| s == l)),
+        "{name}: {shared:?}"
+    );
+    frit.sources
+        .retain(|s| !s.layer.as_deref().is_some_and(|l| SHARED.contains(&l)));
+    frit
 }
 
 /// Each script frit's name, its fonts' families in its order, and its
@@ -73,7 +91,7 @@ fn is_cjk(name: &str) -> bool {
 fn each_script_frit_reads_and_names_its_fonts_by_family() {
     for (name, families, spacing) in SCRIPT_FRITS {
         let frit = read(name);
-        assert_eq!(frit.name, name);
+        assert_eq!(frit.name, format!("noto-{name}"));
         assert_eq!(frit.warnings, [], "{name}");
         let named: Vec<String> = frit
             .sources
@@ -87,7 +105,11 @@ fn each_script_frit_reads_and_names_its_fonts_by_family() {
         assert_eq!(frit.line_spacing, Some(spacing), "{name}");
         assert_eq!(frit.cell, None, "{name}");
         assert_eq!(frit.size, None, "{name}");
-        assert_eq!(frit.license.as_deref(), Some("OFL-1.1"), "{name}");
+        assert_eq!(
+            frit.license.as_deref(),
+            Some("OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0"),
+            "{name}"
+        );
     }
 }
 

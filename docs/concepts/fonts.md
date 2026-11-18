@@ -44,6 +44,29 @@ vtium reads a frit only when it passes the same ownership check as vtium.conf. R
 
 Later, vtium-config may find installed fonts that match the looks people choose, without a frit written for each. A look is a named set of font settings in vtium.conf, such as a font and its size. That direction is not decided yet. See [the issue about matching installed fonts](https://github.com/vtium/vtium/issues/117).
 
+## The catalog of font sets
+
+vtium ships a catalog of font sets, each named after the font it is based on. You can name any of them in vtium.conf or choose one with `vtium config`. The sets come in six categories:
+
+| Category | What its sets are for | Examples |
+|---|---|---|
+| Console fonts | The bitmap fonts of the Linux console: kbd's, Terminus, and the Linux kernel's own | `terminus`, `default8x16`, `linux-vga-8x16` |
+| Classic hardware fonts | The look of a historic terminal or workstation | `ibm-vga`, `sun-gallant`, `dec-vt220` |
+| Code-friendly fonts | Outline fonts designed for code | `jetbrains-mono`, `fira-code`, `hack` |
+| Nerd Fonts | Code fonts in their Nerd Fonts build, with the icons inside the font | `jetbrains-mono-nerd`, `caskaydia-cove` |
+| Scripts and regions | A writing system beside Latin text | `noto-arabic`, `noto-cjk-jp` |
+| Small panels | Cells of 8×8 to 8×16 on the smallest build | `unifont-icons`, `unscii-icons`, `tiny5` |
+
+Each set is ready to use. Its own font draws the text, and shared parts called layers add the rest: Nerd Fonts' icons, color emoji, and GNU Unifont for every other character. vtium draws box drawing, blocks and Braille itself. A layer is a file in `/etc/vtium/fonts/layers/`, and a set adds it with a `layer=` line. You can build your own set from the same layers. See [Layers that frits share](../fonts.md#layers-that-frits-share).
+
+vtium ships the sets, not the fonts. Each set names every font it needs, with its version and its web page. When a font is missing, vtium draws those characters from the next font in the set that has them. `vtium config fonts` names each missing font and where to get it. See [Install a missing font](../fonts.md#install-a-missing-font).
+
+The Linux kernel's own console fonts are under the GPL, so vtium ships none of them. Each set named `linux-` uses a console font file from kbd or Terminus whose glyphs match the kernel's font. For example, `linux-ter-16x32` uses Terminus's `ter-i32b`, which holds the same glyphs as the kernel's Terminus 16×32.
+
+### Nerd Fonts icons and the Font Logos
+
+No vtium package carries a Nerd Fonts file. Every Nerd Fonts build includes the Font Logos icons, such as the Arch Linux logo in a shell prompt. Nerd Fonts lists those icons with no license grant. To get the logos and every other Nerd Fonts icon, install your distribution's Nerd Fonts package. For example, Arch's `ttf-nerd-fonts-symbols-mono` installs Symbols Nerd Font Mono. Each set that adds the `nerd-symbols` layer then draws every Nerd Fonts icon from that font, the logos included. A set in the Nerd Fonts category draws them from its own font once you install that build. Until then, each icon draws as a hollow box. See [the font catalog issue](https://github.com/vtium/vtium/issues/413).
+
 ## Drawing at run time
 
 When vtium starts, it draws the first frame at once in the built-in font, in the character cell that the frit states. The frit's glyphs then replace the built-in ones, character by character, as the font helper sends them. The font helper sends the characters on the screen first. While the console asks for nothing else, it goes on to printable Latin characters and box-drawing characters. After those, it sends the rest of the characters the frit covers.

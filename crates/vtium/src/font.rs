@@ -2,7 +2,8 @@
 //! height, its zoom steps and the automatic size, with the lookup's
 //! fallback.
 //!
-//! The font is `font-name`, else vconsole's (ADR-1200 D9). A name is a
+//! The font is `font-name`, else vconsole's (ADR-1200 D9), else the
+//! default set `terminus` where it is installed (ADR-1204 D2). A name is a
 //! frit's (`NAME.vtfrit` in the frits' directory), else a kbd name, a path
 //! or vconsole's font becomes a one-source frit made on the fly
 //! ([`frit_named`]). A frit is generated at run time (ADR-1301 D2), in
@@ -140,12 +141,55 @@ pub fn auto_size(width: u32, height: u32, smallest: u32) -> u32 {
     }
     let by_width = width.saturating_mul(2) / 120;
     let size = by_width.min(height / 40).max(16);
-    if width < 80 * 8 || height < 25 * 16 {
+    if small_display(width, height) {
         size.min(smallest.max(1))
     } else {
         size
     }
 }
+
+/// Whether a display `width` by `height` is small: 16-pixel cells, 8
+/// pixels wide, would leave it fewer than 80 columns or 25 rows. There
+/// [`auto_size`] takes the font's own smallest height, and with no font
+/// named vtium draws the built-in font's 8×8 strike in place of the
+/// default set, so a 320×240 panel shows 40 columns by 30 rows. A display
+/// whose size is not known yet, 0 by 0, is not small.
+///
+/// References:
+/// - ADR-1200 D17: the small-display rule.
+/// - ADR-1204 D2: an 8-pixel cell draws the built-in font's 8×8 strike,
+///   because Terminus has no strike under 12 pixels.
+pub fn small_display(width: u32, height: u32) -> bool {
+    width != 0 && height != 0 && (width < 80 * 8 || height < 25 * 16)
+}
+
+/// Whether vtium draws the default set on a head whose displays have
+/// `sizes`, each a width and height in pixels. The head counts as small
+/// when its smallest width and its smallest height make a small display
+/// ([`small_display`]), as the automatic size takes them, and there vtium
+/// draws the built-in font's 8×8 strike instead. With no display known yet
+/// the default set draws.
+///
+/// References:
+/// - ADR-1204 D2: on a display where the small-display rule picks 8-pixel
+///   rows, vtium draws the built-in font's 8×8 strike in place of
+///   `terminus`, which has no strike under 12 pixels.
+pub fn default_set_fits(sizes: impl IntoIterator<Item = (u32, u32)>) -> bool {
+    let smallest = sizes
+        .into_iter()
+        .reduce(|(w, h), (w2, h2)| (w.min(w2), h.min(h2)));
+    smallest.is_none_or(|(w, h)| !small_display(w, h))
+}
+
+/// The font set vtium draws when no font is named: bitmap Terminus at
+/// every strike from 12 to 32 pixels, then GNU Unifont, which every vtium
+/// build installs. It sits in the catalog's `console` folder.
+///
+/// References:
+/// - ADR-1204 D2: `terminus` is the default set, after the font that a
+///   head's look, `font-name` or vconsole names, and before the built-in
+///   font.
+pub const DEFAULT_SET: &str = "terminus";
 
 /// The frits' directory vtium is built with, `font-frits`'s default, set
 /// at build time with `VTIUM_FONT_FRITS`: the key table's, which
@@ -172,11 +216,28 @@ fn frit_name(name: &str) -> bool {
 /// refuses a request naming any other (ADR-1200 D1).
 pub const GENERATED: &str = "generated";
 
-/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, for a
-/// frit's name, so no name reaches outside the directory.
+/// The category folders of the catalog of font sets, in the order vtium
+/// searches them. vtium-config searches the same folders.
+///
+/// References:
+/// - ADR-1204 D3 and D9: the six categories and their folders.
+pub const CATEGORIES: [&str; 6] = ["console", "classic", "code", "nerd", "scripts", "small"];
+
+/// The frit `name` names in `frits`: `NAME.vtfrit`, a regular file, in the
+/// frits' directory itself, where a person's own sets live, else in the
+/// first category folder that holds it. Only a frit's name is looked up,
+/// so no name reaches outside the directory.
+///
+/// References:
+/// - ADR-1204 D9: the directory itself first, then each category folder.
 pub fn frit(frits: &Path, name: &str) -> Option<PathBuf> {
-    let path = frits.join(format!("{name}.vtfrit"));
-    (frit_name(name) && std::fs::metadata(&path).is_ok_and(|m| m.is_file())).then_some(path)
+    if !frit_name(name) {
+        return None;
+    }
+    let file = format!("{name}.vtfrit");
+    std::iter::once(frits.join(&file))
+        .chain(CATEGORIES.iter().map(|c| frits.join(c).join(&file)))
+        .find(|path| std::fs::metadata(path).is_ok_and(|m| m.is_file()))
 }
 
 /// The smallest and largest side of a frit's `cell=` and a look's
@@ -492,6 +553,28 @@ fn frit_outline(text: &str) -> bool {
     })
 }
 
+/// Whether a frit's `text` gives a bitmap font with strikes as its first
+/// source: the first `source=` line names neither an outline file nor a
+/// family, and a `strike=` line follows it before the next `source=` or
+/// `layer=` line. Such a source is one font at several heights, so its
+/// cell changes with the height it draws at.
+///
+/// References:
+/// - ADR-1204 D2: the `strike=` key, and the strike each height draws.
+fn frit_struck(text: &str) -> bool {
+    let mut keys = text.split('\n').filter_map(|line| {
+        let (k, v) = line.split('#').next()?.split_once('=')?;
+        Some((k.trim(), v.trim()))
+    });
+    let Some((_, first)) = keys.by_ref().find(|(k, _)| *k == "source") else {
+        return false;
+    };
+    !(first.starts_with("outline:") || first.starts_with("font:"))
+        && keys
+            .take_while(|(k, _)| *k != "source" && *k != "layer")
+            .any(|(k, _)| k == "strike")
+}
+
 /// What `vtium check-config` says of the cell the frit `name`'s `text`
 /// states, where that needs no font parsed (#145): an unreadable
 /// `cell=`, a cell smaller than the built-in Unscii-8's 8x8, which the
@@ -568,6 +651,13 @@ fn frit_cell_at(stated: Option<Cell>, height: u32, builtin: Cell) -> Cell {
             height: height.max(builtin.height),
         },
     }
+}
+
+/// The height of the largest whole multiple of `cell` no taller than
+/// `height`, and at least `cell`'s own height: the height a bitmap font of
+/// that cell draws at when `height` is asked for.
+pub fn whole_height(cell: Cell, height: u32) -> u32 {
+    frit_cell_at(Some(cell), height, cell).height
 }
 
 /// A face a display draws with: [`Send`], as its head's render thread
@@ -718,6 +808,10 @@ pub enum Came {
     /// `vconsole.font=` on the kernel command line, or `FONT=` in
     /// vconsole.conf.
     Vconsole,
+    /// No font is named, so the name is the default set's,
+    /// [`DEFAULT_SET`]. vtium draws it only where a set of that name is
+    /// installed, and never makes a set on the fly for it.
+    Default,
 }
 
 /// The font a name asks for, and where the name came from.
@@ -731,12 +825,14 @@ impl Wanted {
     /// The one source of the frit made on the fly for the name (ADR-1200
     /// D9): `vconsole` for vconsole's font, `font:` for an outline family,
     /// `file:` for a path, else `kbd:`.
+    /// The default set's name never reaches this, because [`frit_named`]
+    /// refuses it when no set bears it; it reads as a kbd name.
     fn source(&self) -> String {
         match self.came {
             Came::Vconsole => "vconsole".to_owned(),
             Came::Family => format!("font:{}", self.name),
             Came::Config if self.name.starts_with('/') => format!("file:{}", self.name),
-            Came::Config => format!("kbd:{}", self.name),
+            Came::Config | Came::Default => format!("kbd:{}", self.name),
         }
     }
 }
@@ -778,9 +874,12 @@ pub fn vconsole_font(conf: &str, cmdline: &str) -> Option<String> {
 }
 
 /// The font the configuration asks for (ADR-1200 D9): `font-name`, set in
-/// a file or on the command line, unless `font-engine` names the built-in
-/// unifont or the 8x16 font; unset, vconsole's font; else none,
-/// and vtium draws its built-in font.
+/// a file or on the command line; unset, vconsole's font; else the
+/// default set, [`DEFAULT_SET`]. When `font-engine` names the built-in
+/// unifont or the 8x16 font, none, and vtium draws its built-in font.
+///
+/// References:
+/// - ADR-1204 D2: the default set comes after vconsole's font.
 pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wanted> {
     if matches!(config.text(&FONT_ENGINE), Some("unifont" | "8x16")) {
         return None;
@@ -794,20 +893,34 @@ pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wan
                 _ => Came::Config,
             },
         }),
-        _ => vconsole_font(vconsole_conf, cmdline).map(|name| Wanted {
-            name,
-            came: Came::Vconsole,
-        }),
+        _ => Some(vconsole_font(vconsole_conf, cmdline).map_or_else(
+            || Wanted {
+                name: DEFAULT_SET.to_owned(),
+                came: Came::Default,
+            },
+            |name| Wanted {
+                name,
+                came: Came::Vconsole,
+            },
+        )),
     }
 }
 
 /// The frit `wanted` names (ADR-1200 D9): the frit of that name in the
 /// frits' directory, read under the sources' ownership check; else a kbd name, a path, an outline family or vconsole's font
 /// as a one-source frit made on the fly, named as it was named. The error
-/// is why the frit of that name cannot be read.
+/// is why the frit of that name cannot be read, or, for the default set,
+/// that no set of its name is installed: vtium then draws its built-in
+/// font.
 pub fn frit_named(sources: &Sources, wanted: &Wanted) -> Result<FritText, String> {
     if let Some(path) = frit(&sources.frits, &wanted.name) {
         return FritText::read(&path, &sources.frits, &sources.trust);
+    }
+    if wanted.came == Came::Default {
+        return Err(format!(
+            "No font is named, and the default font set {} is not installed.",
+            wanted.name
+        ));
     }
     Ok(FritText {
         name: wanted.name.clone(),
@@ -889,11 +1002,20 @@ pub enum Chosen {
         /// frit that states no cell, with no `font-size` configured.
         own: Option<Cell>,
         /// Its outline first source's cell at each height the helper was
-        /// asked at, for a frit that states no cell.
+        /// asked at, for a frit that states no cell; for a bitmap first
+        /// source with strikes, the cell of the strike each height draws.
         heights: std::collections::BTreeMap<u32, Cell>,
         /// Its first source is an outline font, so a zoom steps by 1
         /// pixel: guessed from its text until the helper's answer says.
         outline: bool,
+        /// Its first source is a bitmap font with strikes, read from its
+        /// text, so with no cell stated it asks the helper for its cell at
+        /// each height, as an outline frit does, and keeps each answer in
+        /// `heights` by the height asked at.
+        struck: bool,
+        /// A `font-size` is configured, which sets the cell's height of a
+        /// frit with strikes ([`Chosen::face_spaced`]).
+        sized: bool,
         /// `line-spacing=`, a whole percentage of the text's height
         /// (ADR-1302 D13), which vtium.conf's `font-line-spacing`
         /// overrides.
@@ -944,6 +1066,7 @@ impl Chosen {
         let line_spacing = frit_line_spacing(&frit.text)?;
         let fits = std::sync::Arc::new(crate::deferred::FritFits::of(&frit.text));
         let outline = frit_outline(&frit.text);
+        let struck = frit_struck(&frit.text);
         let name = frit.name.clone();
         if !frit_name(&name) {
             GENERATED.clone_into(&mut frit.name);
@@ -956,6 +1079,8 @@ impl Chosen {
             size: size.filter(|_| !sized && outline && look.is_none()),
             own: None,
             heights: std::collections::BTreeMap::new(),
+            struck,
+            sized,
             line_spacing,
             fits,
             generated: Shared::default(),
@@ -972,14 +1097,30 @@ impl Chosen {
 
     /// Whether the font is a frit that asks the helper for its first
     /// source's cell at `height`: one that states no cell, and either an
-    /// outline frit with no answer at `height` yet (the maintainer,
-    /// 2026-11-01), or a bitmap frit with no answer yet and no `font-size`
-    /// configured, which `sized` says (the operator, 2026-10-28).
+    /// outline frit or a bitmap frit with strikes with no answer at
+    /// `height` yet, whether or not a `font-size` is configured, or another
+    /// bitmap frit with no answer yet and no `font-size` configured, which
+    /// `sized` says. Each height of a font with strikes can draw another
+    /// strike, so its cell depends on the height, as an outline font's
+    /// does.
+    ///
+    /// References:
+    /// - ADR-1200 D17: an outline frit asks at each height (the maintainer,
+    ///   2026-11-01), and a bitmap frit at its own size (the operator,
+    ///   2026-10-28).
+    /// - ADR-1204 D2: the strike for the automatic height, for a configured
+    ///   font size and for each zoom step.
     pub fn wants_own_cell(&self, height: u32, sized: bool) -> bool {
         match self {
             Chosen::Frit {
                 cell: None,
                 outline: true,
+                heights,
+                ..
+            }
+            | Chosen::Frit {
+                cell: None,
+                struck: true,
                 heights,
                 ..
             } => !heights.contains_key(&height),
@@ -995,18 +1136,39 @@ impl Chosen {
 
     /// Takes `answer`, the cell the helper told for the frit's first
     /// source, which also says whether that source is a bitmap or an
-    /// outline font, whatever the frit's text suggested. A bitmap source's
-    /// own cell counts only where no `font-size` is configured, as
-    /// `sized` says.
+    /// outline font, whatever the frit's text suggested, as the answer at
+    /// the cell's own height ([`Chosen::set_own_cell_at`]).
     pub fn set_own_cell(&mut self, answer: OwnCell, sized: bool) {
+        let height = match answer {
+            OwnCell::Bitmap(cell) | OwnCell::Outline(cell) => cell.height,
+        };
+        self.set_own_cell_at(answer, height, sized);
+    }
+
+    /// Takes `answer`, the cell the helper told for the frit's first
+    /// source when asked at `height`, which also says whether that source
+    /// is a bitmap or an outline font, whatever the frit's text suggested.
+    /// A bitmap source's own cell counts only where no `font-size` is
+    /// configured, as `sized` says. A bitmap source with strikes answers
+    /// with the cell of the tallest strike no taller than `height`, which
+    /// then holds at every height from the strike's own up to `height`.
+    pub fn set_own_cell_at(&mut self, answer: OwnCell, height: u32, sized: bool) {
         if let Chosen::Frit {
+            cell: stated,
             own,
             heights,
             outline,
+            struck,
             ..
         } = self
         {
             match answer {
+                OwnCell::Bitmap(cell) if *struck && stated.is_none() => {
+                    *outline = false;
+                    for at in [height, whole_height(cell, height), cell.height] {
+                        heights.insert(at, cell);
+                    }
+                }
                 OwnCell::Bitmap(cell) => {
                     *outline = false;
                     if !sized {
@@ -1035,6 +1197,31 @@ impl Chosen {
     /// source is an outline font.
     pub fn outline(&self) -> bool {
         matches!(self, Chosen::Frit { outline: true, .. })
+    }
+
+    /// Whether the font is a frit that states no cell and whose first
+    /// source is a bitmap font with strikes, so each height it draws at
+    /// takes the cell of the strike the helper names for that height.
+    pub fn struck(&self) -> bool {
+        matches!(
+            self,
+            Chosen::Frit {
+                cell: None,
+                outline: false,
+                struck: true,
+                ..
+            }
+        )
+    }
+
+    /// The cell of the strike that a frit with strikes draws at `height`,
+    /// as the helper answered for that height. `None` before the answer,
+    /// and for any other font.
+    pub fn strike_at(&self, height: u32) -> Option<Cell> {
+        match self {
+            Chosen::Frit { heights, .. } if self.struck() => heights.get(&height).copied(),
+            _ => None,
+        }
     }
 
     /// The built-in font drawn at `height` in `locale`: in a look's cell,
@@ -1127,12 +1314,37 @@ impl Chosen {
             generated,
             heights,
             fits,
+            sized,
             ..
         } = self
         {
             let at = Chosen::BUILTINS.face(height, locale)?;
             let stated = self.base_cell();
             let (cell, step) = match (stated, self.outline()) {
+                // A bitmap source with strikes: the cell of the strike the
+                // helper names for this height, or its whole multiple
+                // above the tallest strike. A configured font size keeps
+                // its own height, as wide as that strike's whole multiple,
+                // and the helper centres the strike in it.
+                // References: ADR-1204 D2 decides the strike each height
+                // draws.
+                (None, false) if self.struck() => match heights.get(&height) {
+                    Some(c) => {
+                        let whole = frit_cell_at(Some(*c), height, *c);
+                        if *sized {
+                            (
+                                Cell {
+                                    width: whole.width,
+                                    height: height.max(whole.height),
+                                },
+                                1,
+                            )
+                        } else {
+                            (whole, c.height)
+                        }
+                    }
+                    None => (frit_cell_at(None, height, at.cell()), at.size_step()),
+                },
                 // D17, an outline frit steps by 1: the stated cell at its
                 // own height, else the helper's answer
                 // at this height, else the built-in font's width
@@ -1244,8 +1456,15 @@ impl Chosen {
 
     /// The height the font draws when `height` is asked for: a bitmap
     /// frit's stated or own cell's whole multiple at or under it, at least
-    /// the cell itself (#145, ADR-1200 D17); else `height`.
+    /// the cell itself (#145, ADR-1200 D17); with strikes and no
+    /// `font-size` configured, the whole multiple of the strike the helper
+    /// named for `height` (ADR-1204 D2); else `height`.
     pub fn snap(&self, height: u32) -> u32 {
+        if let Chosen::Frit { sized: false, .. } = self
+            && let Some(strike) = self.strike_at(height)
+        {
+            return whole_height(strike, height);
+        }
         match self.base_cell() {
             Some(cell) if !self.outline() => frit_cell_at(Some(cell), height, cell).height,
             _ => height,
@@ -1352,9 +1571,15 @@ mod tests {
             Canvas, Config as RenderConfig, Notice, Orientation, Renderer, Surface,
         };
         // an empty vtium.conf, an empty vconsole.conf and an empty kernel
-        // command line name no font, so vtium draws its built-in fonts
+        // command line name no font, so vtium asks for the default set;
+        // with no font sets installed it draws its built-in fonts
         let config = crate::config::load(&[], &mut |_: &Path| Ok(None)).config;
-        assert!(wanted(&config, "", "").is_none());
+        let default = wanted(&config, "", "").expect("the default set");
+        let none = Sources {
+            frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+            ..Sources::default()
+        };
+        assert!(frit_named(&none, &default).is_err());
         let text = "Keyboard /dev/input/event0 was not found.";
         let overlay = Overlay::new(None, &[text], None, OverlayColors::default());
         for (height, grid) in [(8, (40, 30)), (16, (40, 15))] {
@@ -1667,6 +1892,119 @@ mod tests {
         // an outline frit that states a cell asks nothing
         let stated = frit_of("source=outline:/f.ttf\ncell=10x20\n", false);
         assert!(!stated.wants_own_cell(20, false));
+    }
+
+    // A frit whose first source is a bitmap font with strikes asks the
+    // helper for its cell at each height, with a font size configured or
+    // not, and keeps each answer for the heights it holds at: the height
+    // asked at, the strike's own, and the whole multiple between them.
+    // With no font size the cell is the strike's cell or its whole
+    // multiple. A configured font size keeps its height, as wide as the
+    // strike's whole multiple, which the helper centres in the cell. The
+    // helper's answers below are those of Terminus's strikes.
+    //
+    // References:
+    // - ADR-1204 D2: the strike for the automatic height, for a configured
+    //   font size and for each zoom step.
+    #[test]
+    fn a_frit_with_strikes_takes_the_strike_of_each_height() {
+        let text =
+            "source=bdf:/16.bdf\nsha256=0\nstrike=bdf:/12.bdf\nstrike=bdf:/32.bdf\nlayer=unifont\n";
+        // the tallest Terminus strike no taller than each height
+        let strike = |h: u32| match h {
+            12..14 => cell(6, 12),
+            14..16 => cell(7, 14),
+            16..18 => cell(8, 16),
+            18..20 => cell(10, 18),
+            20..22 => cell(10, 20),
+            22..24 => cell(11, 22),
+            24..28 => cell(12, 24),
+            28..32 => cell(14, 28),
+            _ => cell(16, 32),
+        };
+        for (sized, rows) in [
+            (
+                true,
+                [
+                    (12, cell(6, 12)),
+                    (16, cell(8, 16)),
+                    (18, cell(10, 18)),
+                    (20, cell(10, 20)),
+                    (23, cell(11, 23)),
+                    (24, cell(12, 24)),
+                    (28, cell(14, 28)),
+                    (32, cell(16, 32)),
+                    (40, cell(16, 40)),
+                    (64, cell(32, 64)),
+                ],
+            ),
+            (
+                false,
+                [
+                    (12, cell(6, 12)),
+                    (16, cell(8, 16)),
+                    (18, cell(10, 18)),
+                    (20, cell(10, 20)),
+                    (23, cell(11, 22)),
+                    (24, cell(12, 24)),
+                    (28, cell(14, 28)),
+                    (32, cell(16, 32)),
+                    (40, cell(16, 32)),
+                    (64, cell(32, 64)),
+                ],
+            ),
+        ] {
+            let mut f = frit_of(text, sized);
+            assert!(f.struck() && !f.outline(), "{text}");
+            for (height, want) in rows {
+                assert!(f.wants_own_cell(height, sized), "{height}, sized {sized}");
+                assert_eq!(f.strike_at(height), None);
+                f.set_own_cell_at(OwnCell::Bitmap(strike(height)), height, sized);
+                assert!(!f.wants_own_cell(height, sized));
+                assert_eq!(f.strike_at(height), Some(strike(height)));
+                let drawn = f.snap(height);
+                assert_eq!(drawn, want.height, "{height}, sized {sized}");
+                let face = f.face(drawn, "C").expect("a face");
+                assert_eq!(face.cell(), want, "{height}, sized {sized}");
+            }
+        }
+        // a height with no answer yet draws as wide as the built-in font
+        let f = frit_of(text, true);
+        assert_eq!(f.face(24, "C").expect("a face").cell(), cell(8, 24));
+        // a stated cell wins, and asks nothing
+        let stated = frit_of(&format!("{text}cell=10x20\n"), false);
+        assert!(!stated.struck() && !stated.wants_own_cell(20, false));
+    }
+
+    // Only a first source that is a bitmap font followed by its own
+    // strike= lines makes a frit with strikes. A bitmap source with no
+    // strikes, a later source's strikes, and an outline source's strikes
+    // keep the rules they have.
+    #[test]
+    fn only_a_bitmap_first_source_with_strikes_is_struck() {
+        for (text, struck) in [
+            ("source=bdf:/16.bdf\nstrike=bdf:/12.bdf\n", true),
+            (
+                "# strike=bdf:/12.bdf\nsource=psf:/16.psf\nversion=1\nstrike=bdf:/12.bdf # a comment\n",
+                true,
+            ),
+            ("source=kbd:x\n", false),
+            (
+                "source=kbd:x\nsource=bdf:/16.bdf\nstrike=bdf:/12.bdf\n",
+                false,
+            ),
+            ("source=kbd:x\nlayer=unifont\nstrike=bdf:/12.bdf\n", false),
+            ("source=outline:/f.ttf\nstrike=bdf:/12.bdf\n", false),
+            ("source=font:Terminus\nstrike=bdf:/12.bdf\n", false),
+            ("strike=bdf:/12.bdf\n", false),
+        ] {
+            assert_eq!(frit_struck(text), struck, "{text}");
+        }
+        // a bitmap frit with no strikes asks once, and not with a font size
+        let mut f = frit_of("source=kbd:x\n", false);
+        f.set_own_cell(OwnCell::Bitmap(cell(8, 16)), false);
+        assert!(!f.struck() && !f.wants_own_cell(24, false));
+        assert!(!frit_of("source=kbd:x\n", true).wants_own_cell(24, true));
     }
 
     // overhang part 1: the helper's answer, not the frit's text, says what
@@ -2302,7 +2640,14 @@ mod tests {
                 came: Came::Vconsole
             })
         );
-        assert_eq!(wanted(&config(&[]), "", ""), None, "the built-ins");
+        assert_eq!(
+            wanted(&config(&[]), "", ""),
+            Some(Wanted {
+                name: "terminus".into(),
+                came: Came::Default
+            }),
+            "with no font named, the default set"
+        );
         let path = "/usr/share/kbd/consolefonts/ter-v16n.psf.gz";
         let named = wanted(
             &config(&["--font-engine=psf", &format!("--font-name={path}")]),
@@ -2368,6 +2713,105 @@ mod tests {
                 "source=font:DejaVu Sans Mono\n".into()
             ))
         );
+    }
+
+    /// With no font named, vtium draws the default set `terminus` from the
+    /// catalog's console folder. Where no set of that name is installed,
+    /// vtium makes no set on the fly for the name, as it does for a kbd
+    /// font's name: the read is refused with a line that names the set,
+    /// and vtium draws its built-in font.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the order in which vtium chooses a font, with
+    ///   `terminus` after vconsole's font and before the built-in font.
+    #[test]
+    fn with_no_font_named_vtium_draws_terminus_where_it_is_installed() {
+        let dir = Scratch::new("font-default");
+        let default = wanted(&config(&[]), "", "").expect("the default set");
+        assert_eq!(default.name, DEFAULT_SET);
+        let sources = Sources {
+            frits: dir.to_path_buf(),
+            trust: trust().below(&dir),
+            ..Sources::default()
+        };
+        let why = frit_named(&sources, &default).expect_err("no terminus is installed");
+        assert_eq!(
+            why,
+            "No font is named, and the default font set terminus is not installed."
+        );
+        std::fs::create_dir_all(dir.join("console")).expect("the folder");
+        let text = "source=bdf:/usr/share/vtium/fonts/ter-u16n.bdf.gz\n";
+        std::fs::write(dir.join("console/terminus.vtfrit"), text).expect("the set");
+        let frit = frit_named(&sources, &default).expect("terminus");
+        assert_eq!((frit.name.as_str(), frit.text.as_str()), ("terminus", text));
+    }
+
+    /// A display where 16-pixel rows leave fewer than 80 columns by 25 rows
+    /// is small. On a small display vtium draws the built-in font's 8×8
+    /// strike in place of the default set, so a 320×240 panel keeps 40
+    /// columns by 30 rows.
+    ///
+    /// References:
+    /// - ADR-1204 D2: an 8-pixel cell draws the built-in font's 8×8 strike.
+    /// - ADR-1200 D17: the small-display rule.
+    #[test]
+    fn a_small_display_keeps_the_built_in_font_with_no_font_named() {
+        for (w, h) in [(320, 240), (480, 320), (632, 480), (640, 384)] {
+            assert!(small_display(w, h), "{w}x{h}");
+            assert_eq!(auto_size(w, h, 8), 8, "{w}x{h}");
+            assert!(!default_set_fits([(w, h)]), "{w}x{h}");
+        }
+        for (w, h) in [(640, 400), (640, 480), (1920, 1080), (0, 0)] {
+            assert!(!small_display(w, h), "{w}x{h}");
+            assert!(default_set_fits([(w, h)]), "{w}x{h}");
+        }
+        // a head's displays count by the smallest width and the smallest
+        // height among them, as the automatic size takes them
+        assert!(!default_set_fits([(1920, 1080), (320, 240)]));
+        assert!(!default_set_fits([(1920, 240), (320, 1080)]));
+        assert!(default_set_fits([(1920, 1080), (640, 480)]));
+        // with no display known yet, the default set draws
+        assert!(default_set_fits([]));
+    }
+
+    // A set is found by its name in the frits' directory itself, where a
+    // person's own sets live, and then in each category folder of the
+    // catalog. A name in the directory itself wins over a category folder,
+    // two category folders are searched in the catalog's order, and a name
+    // in a folder that is not a category, or in the layers' folder, is not
+    // a set.
+    //
+    // References:
+    // - ADR-1204 D9: the category folders and the order vtium searches.
+    #[test]
+    fn a_set_is_found_in_the_frits_directory_and_then_in_its_category_folder() {
+        let dir = Scratch::new("font-catalog");
+        for (folder, name) in [
+            ("console", "terminus"),
+            ("code", "both"),
+            ("small", "both"),
+            ("code", "mine"),
+            ("", "mine"),
+            ("elsewhere", "stray"),
+            ("layers", "layered"),
+        ] {
+            std::fs::create_dir_all(dir.join(folder)).expect("the folder");
+            std::fs::write(
+                dir.join(folder).join(format!("{name}.vtfrit")),
+                "source=kbd:x\n",
+            )
+            .expect("the set");
+        }
+        assert_eq!(
+            frit(&dir, "terminus"),
+            Some(dir.join("console/terminus.vtfrit"))
+        );
+        assert_eq!(frit(&dir, "mine"), Some(dir.join("mine.vtfrit")));
+        assert_eq!(frit(&dir, "both"), Some(dir.join("code/both.vtfrit")));
+        assert_eq!(frit(&dir, "stray"), None);
+        assert_eq!(frit(&dir, "layered"), None);
+        assert_eq!(frit(&dir, "absent"), None);
+        assert_eq!(frit(&dir, "../console/terminus"), None);
     }
 
     // ADR-1401 D10, ADR-1403 D3: vtium reads a frit, at the start and for

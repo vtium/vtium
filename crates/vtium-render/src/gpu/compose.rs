@@ -1843,14 +1843,13 @@ impl<G: Gl> Back for GpuBack<'_, G> {
         &mut self,
         _: &mut Composer,
         font: &Font<F>,
-        text: &[char],
-        width: vtium_font::Width,
-        style: vtium_font::Variant,
+        key: (&[char], vtium_font::Width, vtium_font::Variant),
+        piece: Piece,
     ) -> Reach {
         if self.error.is_some() {
             return Reach::NONE;
         }
-        match self.glyphs.reach(self.gl, font, text, width, style) {
+        match self.glyphs.reach(self.gl, font, key, piece) {
             Ok(r) => r,
             Err(e) => {
                 self.error = Some(e);
@@ -1945,7 +1944,7 @@ impl<G: Gl> GpuBack<'_, G> {
                 .get(start..start.saturating_add(len))
                 .unwrap_or_default();
             let key = (text, width, style);
-            let Some(place) = self.glyphs.glyph(self.gl, font, key, Piece::WHOLE)? else {
+            let Some(place) = self.glyphs.glyph(self.gl, font, key, s.piece)? else {
                 continue;
             };
             let Some((slot, _)) = place.boxed else {

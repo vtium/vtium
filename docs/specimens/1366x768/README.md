@@ -10,7 +10,7 @@ A common laptop panel: 1366×768, 24-bit color, drawn in `unifont` at 8×16, 170
 
 ## Why this font
 
-With `font-size=0`, vtium asks for 19 pixels here. See [the issue that sets the size `font-size=0` picks](https://github.com/vtium/vtium/issues/118). A bitmap font draws at the largest whole multiple of its own height that fits. See [the issue that steps a font through its sizes](https://github.com/vtium/vtium/issues/126). So the built-in unifont draws at 16 pixels, which gives 170×48 cells. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols draw as the missing glyph. The outline profiles draw both from the desktop font set.
+With `font-size=0`, vtium asks for 19 pixels here. See [the issue that sets the size `font-size=0` picks](https://github.com/vtium/vtium/issues/118). A bitmap font draws at the largest whole multiple of its own height that fits. See [the issue that steps a font through its sizes](https://github.com/vtium/vtium/issues/126). So the built-in unifont draws at 16 pixels, which gives 170×48 cells. Emoji draw as unifont's monochrome glyphs where it has one, and Nerd Font symbols draw as the missing glyph. The outline profiles draw both from the font set jetbrains-mono.
 
 ## Configuration
 

@@ -1,0 +1,81 @@
+# terminus: Terminus, a bitmap font drawn for reading on a console, at all
+# nine of its heights from 12 to 32 pixels, regular and bold. This is the
+# font set vtium draws when no font is named. Drawing it needs no outline
+# rendering, so it suits a small or slow machine.
+#
+# Each source= line and its strike= lines are one font at several heights,
+# and vtium draws each character cell from the tallest strike that fits it.
+# When nothing sets the cell's size, vtium takes the cell of the tallest
+# strike no taller than the size it would choose for the display, so each
+# glyph fills its cell. Above 32 pixels the cell is a whole multiple of the
+# 32-pixel strike's cell, and the 32-pixel strike draws at that multiple. A
+# cell under 12 pixels, such as the 8-pixel rows of a 320×240 panel, draws
+# vtium's built-in font, because no strike is that short.
+#
+# GNU Unifont, the unifont layer, draws every character that Terminus lacks,
+# such as Han, kana and Hangul, in cells of 16 pixels and more. The set
+# names no symbols or emoji layer, because both are outline fonts: Unifont
+# draws emoji in 1 bit, and a Nerd Fonts icon draws as a hollow box. The
+# font set cullet-mono adds color emoji and the icons.
+#
+# Every vtium build installs these files: upstream's BDF files, each
+# gzipped with gzip -n -9, so each sha256= line is the hash of the gzipped
+# file.
+#
+# License: Terminus is under the SIL OFL 1.1, with the Reserved Font Name
+# "Terminus Font": Copyright (C) 2020 Dimitar Toshkov Zhekov. The layer
+# names its own license.
+#
+# References:
+# - ADR-1204 D2: the bitmap set, its strikes and the cell they give.
+# - ADR-1204 D7: the version=, sha256= and url= lines.
+
+name=terminus
+license=OFL-1.1
+
+# Terminus 4.49.1's regular strikes, 16 pixels first.
+source=bdf:/usr/share/vtium/fonts/ter-u16n.bdf.gz
+version=4.49.1
+sha256=90464c9c6a453ce6d1d8c82526bf0f50616163acaf00c626e90f57b430147a28
+url=https://sourceforge.net/projects/terminus-font/files/terminus-font-4.49/
+strike=bdf:/usr/share/vtium/fonts/ter-u12n.bdf.gz
+sha256=578a19161c233e2805df5b153747fc369744e1f4e2dacf7b0b1fff5ae3bd20f8
+strike=bdf:/usr/share/vtium/fonts/ter-u14n.bdf.gz
+sha256=5ac01f82f8f7948581fef3642cf82104f5321470b1ac2c1859204d194cc8f347
+strike=bdf:/usr/share/vtium/fonts/ter-u18n.bdf.gz
+sha256=c31dd58097bd1a12d464e1ea09e30f8f3574a32b4f6097a9ead7bd67c9ddfbcb
+strike=bdf:/usr/share/vtium/fonts/ter-u20n.bdf.gz
+sha256=c0350c52711d00146c4e7767fd9f78c1afeff2d7eea9f59b11f71630c2542557
+strike=bdf:/usr/share/vtium/fonts/ter-u22n.bdf.gz
+sha256=0fd37d8f02fba1d293441b3aec8007026e793596f82fb6295b0451a11d67f0a7
+strike=bdf:/usr/share/vtium/fonts/ter-u24n.bdf.gz
+sha256=d8a8dfbcd45cdae13db9d48641a676361c7973dd8277b2aa7dddf490990ad41d
+strike=bdf:/usr/share/vtium/fonts/ter-u28n.bdf.gz
+sha256=c3cddeaeb8b5847d2c7235dda5c6ebc9b39e0ecbcc31fb4d615dc7b1cfa8ed17
+strike=bdf:/usr/share/vtium/fonts/ter-u32n.bdf.gz
+sha256=7f34bc066799425059a828e82d416d47ab905e79c62d55312163b13bc9122e4d
+
+# Terminus 4.49.1's bold strikes.
+source=bdf:/usr/share/vtium/fonts/ter-u16b.bdf.gz
+style=bold
+version=4.49.1
+sha256=83efff5ab82f4a18b442173b7981068e388932172ea53e5d8bad6ebbc95519ec
+url=https://sourceforge.net/projects/terminus-font/files/terminus-font-4.49/
+strike=bdf:/usr/share/vtium/fonts/ter-u12b.bdf.gz
+sha256=b03abcd197687e142b5f89fd60d6d91a6fc1d8481cb26259694ecaf821c0d082
+strike=bdf:/usr/share/vtium/fonts/ter-u14b.bdf.gz
+sha256=279850c7ecda02f77d51e5888e65df9ae0e7e3479ecdf18fd0ce237762533110
+strike=bdf:/usr/share/vtium/fonts/ter-u18b.bdf.gz
+sha256=bba774fefb4b8e15cbfdf352c3bffa7f8df180697e7f028ad038579a563050fc
+strike=bdf:/usr/share/vtium/fonts/ter-u20b.bdf.gz
+sha256=59f7afcfc1f4514a3690bcd52d094af082df9eb059c5ead75b8e403f09dba27e
+strike=bdf:/usr/share/vtium/fonts/ter-u22b.bdf.gz
+sha256=f0d51e927d62b85646c7fa185028b7b5d5406b72a83865e2e267839385d44c0b
+strike=bdf:/usr/share/vtium/fonts/ter-u24b.bdf.gz
+sha256=3537958b777ea67c24a67606ae2d51501e34499eb3806e698e3999ab0825716f
+strike=bdf:/usr/share/vtium/fonts/ter-u28b.bdf.gz
+sha256=9c8f23dfe87b3441a00aa7d74bceed4b864c336530d30d6e824f32c84e4d4c8a
+strike=bdf:/usr/share/vtium/fonts/ter-u32b.bdf.gz
+sha256=bb5fddbf4767d3a55fea7dc3eb17c66a3f5c5004517d6369a784443fc9774e85
+
+layer=unifont

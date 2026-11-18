@@ -77,11 +77,13 @@ mod route;
 mod scratch;
 mod split;
 pub mod translation;
+pub mod vtlook;
 mod write;
 
 pub use bounds::{
     CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
-    LINE_MAX, LOOKS_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX, VT_MAX,
+    LINE_MAX, LOOKS_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX, VT_MAX, VTLOOK_FILE_MAX,
+    VTLOOK_SECTIONS_MAX,
 };
 pub use conf::{ConfEdit, Edit, KeyLine, edit_conf, key_line, setting, switch};
 pub use config::{

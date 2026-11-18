@@ -1366,9 +1366,9 @@ pub struct Engine {
     /// fonts its `script-source=` lines name (ADR-1202 D3, D12). Its own
     /// strike, which comes first, is not repeated here.
     smaller: Vec<Vec<SmallerFont>>,
-    /// Each outline source's strikes by its place in `sources`, each a
+    /// Each source's strikes by its place in `sources`, each a
     /// [`Loaded::Bitmap`]: the bitmap files its `strike=` lines name that
-    /// this machine has and that read. Empty for a bitmap source.
+    /// this machine has and that read ([`Engine::strike_at`]).
     strikes: Vec<Vec<Loaded>>,
     /// The frit's `cell=`, which sets its own cell where it states one.
     cell: Option<Cell>,
@@ -1786,6 +1786,7 @@ fn bitmap_of(input: Input, outline: &str) -> Result<Font, String> {
     match input {
         Input::Bitmap(font) => Ok(font),
         Input::Bdf(bytes) => crate::bdf::font(&bytes),
+        Input::Hex(bytes) => crate::hex::font(&bytes),
         Input::Font(req) => req
             .unimap
             .as_ref()
@@ -1799,18 +1800,21 @@ fn bitmap_of(input: Input, outline: &str) -> Result<Font, String> {
     }
 }
 
-/// The strikes that the outline `source`'s `strike=` lines name, read and
-/// parsed, each a [`Loaded::Bitmap`]. A strike this machine does not have
-/// is left out quietly, as a source is, and one that is here and is
-/// refused is left out with a warning that names its line in `frit`.
+/// The strikes that `source`'s `strike=` lines name, read and parsed,
+/// each a [`Loaded::Bitmap`]. A strike this machine does not have is left
+/// out quietly, as a source is, and one that is here and is refused is
+/// left out with a warning that names its line in `frit`. A strike whose
+/// file has another SHA-256 than its `sha256=` line gives still draws, and
+/// goes to `differs` under its own line and spelling.
 ///
 /// References:
-/// - ADR-1204 D2: the `strike=` key under an outline source.
+/// - ADR-1204 D2: the `strike=` key under an outline and a bitmap source.
+/// - ADR-1204 D7: a file with another hash still draws, and is reported.
 fn strike_fonts(
     source: &Source,
     host: &Host<'_>,
     frit: &Frit,
-    warnings: &mut Vec<String>,
+    (warnings, differs): (&mut Vec<String>, &mut Vec<crate::needs::Differs>),
 ) -> Vec<Loaded> {
     let mut fonts = Vec::new();
     for strike in &source.strikes {
@@ -1833,7 +1837,19 @@ fn strike_fonts(
                 .map_err(SourceError::Failed)
         });
         match font {
-            Ok(font) => fonts.push(Loaded::Bitmap(font)),
+            Ok(font) => {
+                if let Some(wanted) = &strike.sha256
+                    && let Some(found) = crate::needs::sha256_of(&strike.origin)
+                    && &found != wanted
+                {
+                    differs.push(crate::needs::Differs {
+                        line: frit.place(strike.line).own,
+                        spelling: strike.spelling.clone(),
+                        what: crate::needs::Differ::OtherHash(found),
+                    });
+                }
+                fonts.push(Loaded::Bitmap(font));
+            }
             Err(SourceError::Failed(e)) => warnings.push(format!(
                 "{}: strike={}: {e}. Because of this error, vtium leaves the strike out.",
                 frit.at(strike.line),
@@ -1937,6 +1953,7 @@ impl Engine {
                         version = stated;
                         Loaded::Bitmap(font)
                     }),
+                    Input::Hex(bytes) => crate::hex::font(&bytes).map(Loaded::Bitmap),
                     Input::Font(req) => crate::decode::font(
                         &req.font,
                         req.unimap.as_deref(),
@@ -1991,21 +2008,12 @@ impl Engine {
                         version.as_deref(),
                         own_line,
                     ));
-                    strikes.push(match l {
-                        Loaded::Outline { .. } => {
-                            strike_fonts(source, &host, &frit, &mut warnings)
-                        }
-                        Loaded::Bitmap(_) => {
-                            if let Some(strike) = source.strikes.first() {
-                                warnings.push(format!(
-                                    "{}: strike={} is ignored, because the source above it is a bitmap font",
-                                    frit.at(strike.line),
-                                    strike.spelling
-                                ));
-                            }
-                            Vec::new()
-                        }
-                    });
+                    strikes.push(strike_fonts(
+                        source,
+                        &host,
+                        &frit,
+                        (&mut warnings, &mut differs),
+                    ));
                     let small = match l {
                         Loaded::Bitmap(_) => smaller_fonts(source, &host, &frit, &mut warnings),
                         Loaded::Outline { .. } => {
@@ -2315,6 +2323,10 @@ impl Engine {
                 continue;
             }
             match loaded {
+                Loaded::Bitmap(font) if self.struck_bitmap(i) && height > 0 => {
+                    self.decide_first(true);
+                    break (source, self.struck_cell(i, font, height)?);
+                }
                 Loaded::Bitmap(font) => {
                     self.decide_first(true);
                     break (source, font.cell);
@@ -2347,6 +2359,13 @@ impl Engine {
             .iter()
             .position(|(s, _)| std::ptr::eq(s, first))
             .unwrap_or(0);
+        // a bitmap source with strikes takes the cell of one strike for the
+        // height, and a later bitmap source that does not fit that strike's
+        // cell draws nothing there, as it draws nothing in any cell it does
+        // not fit
+        if self.struck_bitmap(first_at) && height > 0 {
+            return Ok(OwnCell::Bitmap(cell));
+        }
         for (_, (source, loaded)) in self.sources.iter().enumerate().skip(first_at + 1) {
             match loaded {
                 Loaded::Bitmap(font)
@@ -2489,29 +2508,115 @@ impl Engine {
         merged && first.is_some_and(|first| first != i && outline(first)) && outline(i)
     }
 
-    /// The strike that source `i` draws from in a text band `cell`: the
-    /// tallest of its strikes that fits the cell, when the cell is no
-    /// taller than the tallest strike. Above that height, and in a cell
-    /// that no strike fits, the source draws its outline. A character the
-    /// strike lacks draws from the outline at every height.
+    /// The strike that source `i` draws from in a text band `cell`, where
+    /// one of its strikes draws there and not the source's own font.
+    ///
+    /// For an outline source, it is the tallest of its strikes that fits
+    /// the cell, when the cell is no taller than the tallest strike. Above
+    /// that height, and in a cell that no strike fits, the source draws its
+    /// outline. A character the strike lacks draws from the outline at
+    /// every height.
+    ///
+    /// For a bitmap source, the source and its strikes are one font at
+    /// several heights, and the tallest of them that fits the cell draws
+    /// alone. So a cell between two strikes' heights draws the shorter
+    /// strike, and a cell taller than every strike draws the tallest at the
+    /// largest whole factor that fits. `None` when the source's own font is
+    /// that tallest one, or when nothing fits the cell, where the source
+    /// draws nothing.
     ///
     /// References:
-    /// - ADR-1204 D2: the largest strike that fits a cell up to the
-    ///   tallest strike's height, and the outline above it.
+    /// - ADR-1204 D2: an outline source's strikes up to the tallest
+    ///   strike's height, and a bitmap source's strike for each cell.
     fn strike_at(&self, i: usize, cell: Cell) -> Option<&Loaded> {
         let strikes = self.strikes.get(i)?;
         let height = |l: &Loaded| match l {
             Loaded::Bitmap(font) => Some(font.cell),
             Loaded::Outline { .. } => None,
         };
-        let tallest = strikes.iter().filter_map(height).map(|c| c.height).max()?;
-        if cell.height > tallest {
-            return None;
+        let fits = |c: Cell| c.width <= cell.width && c.height <= cell.height;
+        let tallest_fitting = || {
+            strikes
+                .iter()
+                .filter(|l| height(l).is_some_and(fits))
+                .max_by_key(|l| height(l).map_or(0, |c| c.height))
+        };
+        match self.sources.get(i)? {
+            (_, Loaded::Bitmap(own)) => {
+                let strike = tallest_fitting()?;
+                let tall = height(strike)?.height;
+                (!fits(own.cell) || tall > own.cell.height).then_some(strike)
+            }
+            (_, Loaded::Outline { .. }) => {
+                let tallest = strikes.iter().filter_map(height).map(|c| c.height).max()?;
+                if cell.height > tallest {
+                    return None;
+                }
+                tallest_fitting()
+            }
         }
-        strikes
-            .iter()
-            .filter(|l| height(l).is_some_and(|c| c.width <= cell.width && c.height <= cell.height))
-            .max_by_key(|l| height(l).map_or(0, |c| c.height))
+    }
+
+    /// Whether source `i` is a bitmap source with strikes, one font at
+    /// several heights.
+    fn struck_bitmap(&self, i: usize) -> bool {
+        matches!(self.sources.get(i), Some((_, Loaded::Bitmap(_))))
+            && self.strikes.get(i).is_some_and(|s| !s.is_empty())
+    }
+
+    /// The row of a text band `cell` where the top of the glyphs of a
+    /// bitmap first source goes, `font` drawn at `scale`, where `at` is the
+    /// source's place. A source of one height fills the cell down to its
+    /// bottom row. A bitmap source with strikes is centred in the cell,
+    /// which a cell between two strikes' heights or taller than every
+    /// strike leaves room in.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the strike drawn in a cell between two strikes, or
+    ///   above the tallest, is centred.
+    fn bitmap_top(&self, at: Option<usize>, font: &Font, cell: Cell, scale: u32) -> u32 {
+        let room = cell
+            .height
+            .saturating_sub(font.cell.height.saturating_mul(scale));
+        if at.is_some_and(|i| self.struck_bitmap(i)) {
+            room / 2
+        } else {
+            room
+        }
+    }
+
+    /// The cell that bitmap source `i`, whose own font is `own`, gives at
+    /// `height`, the automatic rule's height, as its strikes give it: the
+    /// cell of the tallest of the source and its strikes that is no taller
+    /// than `height`. The console takes a whole multiple of that cell up to
+    /// `height`, so above the tallest strike's height the cell is a whole
+    /// multiple of the tallest strike's. Else why there is none: no strike
+    /// is that short, and the built-in font draws the text.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the cell of the tallest strike no taller than the
+    ///   automatic rule's height, and a whole multiple of the tallest above
+    ///   it.
+    fn struck_cell(&self, i: usize, own: &Font, height: u32) -> Result<Cell, String> {
+        let strikes = self.strikes.get(i).map_or(&[][..], Vec::as_slice);
+        let cells = std::iter::once(own.cell).chain(strikes.iter().filter_map(|l| match l {
+            Loaded::Bitmap(font) => Some(font.cell),
+            Loaded::Outline { .. } => None,
+        }));
+        let shortest = cells
+            .clone()
+            .map(|c| c.height)
+            .min()
+            .unwrap_or(own.cell.height);
+        cells
+            .filter(|c| c.height <= height)
+            .max_by_key(|c| c.height)
+            .ok_or_else(|| {
+                let source = self.sources.get(i).map_or("", |(s, _)| s.spelling.as_str());
+                format!(
+                    "the shortest strike of source={source} is {shortest} pixels high, taller than the {height}-pixel cell, so the built-in font draws the text in the cell of the configuration"
+                )
+            })
     }
 
     /// The frit's first regular source, the one whose baseline and lines
@@ -2552,7 +2657,7 @@ impl Engine {
                 if scale == 0 {
                     return band;
                 }
-                (cell.height - tall, tall)
+                (self.bitmap_top(first.at(), font, cell, scale), tall)
             }
             Loaded::Outline { font, family, .. } => {
                 let (Some(base), Ok((above, below))) = (
@@ -2589,7 +2694,7 @@ impl Engine {
             if scale == 0 {
                 return plain;
             }
-            let top = cell.height - font.cell.height * scale;
+            let top = self.bitmap_top(first.at(), font, cell, scale);
             return (top + bitmap_baseline(font) * scale, plain.1);
         }
         let Loaded::Outline { font, family, .. } = first.loaded() else {
@@ -3171,21 +3276,27 @@ impl Engine {
         let mut parts: BTreeSet<Vec<u32>> = BTreeSet::new();
         let steps = steps(style);
         // an outline source with a strike at this cell draws the strike's
-        // glyphs first, and its outline the characters the strike lacks
+        // glyphs first, and its outline the characters the strike lacks;
+        // a bitmap source with a strike at this cell draws the strike alone
         //
         // References:
         // - ADR-1204 D2: an outline source's strikes, and the outline for
-        //   what they lack.
+        //   what they lack; a bitmap source's strike for each cell.
         let order = steps.iter().flat_map(|step| {
             self.sources
                 .iter()
                 .enumerate()
                 .filter(move |(_, (source, _))| source.style == step.face)
                 .flat_map(move |(i, (source, loaded))| {
-                    self.strike_at(i, cell)
+                    let strike = self.strike_at(i, cell);
+                    let own = match (loaded, strike) {
+                        (Loaded::Bitmap(_), Some(_)) => None,
+                        _ => Some((i, (source, loaded), step.synth)),
+                    };
+                    strike
                         .map(|strike| (i, (source, strike), step.synth))
                         .into_iter()
-                        .chain(std::iter::once((i, (source, loaded), step.synth)))
+                        .chain(own)
                 })
         });
         // what asks for emoji presentation goes first to the sources in
@@ -3755,8 +3866,10 @@ fn tall_set(bytes: Vec<u8>, whole: Cell) -> Result<SetFace, String> {
 /// of each codepoint of `want` and of each cluster its cluster map holds,
 /// drawn for a line of double height. Each glyph comes in at half its
 /// height ([`halved`]), so it is the glyph of the normal size at twice its
-/// width, as a line of double width shows it. Gives whether any glyph
-/// went in.
+/// width, as a line of double width shows it. A glyph whose ink passes its
+/// cells keeps its ink box, halved the same way ([`halved_ink`]), so its
+/// marks reach past the line as at the normal size. Gives whether any
+/// glyph went in.
 ///
 /// The engine draws an outline glyph for a line of double width by
 /// stretching its outline sideways before it rasterises it. It cannot do
@@ -3773,7 +3886,11 @@ fn halve_into(
         let pixels = halved(glyph)?;
         let color = glyph.format() == vtium_font::Format::Rgba;
         let target = if color { &mut *rgba } else { &mut *r8 };
-        Some((color, target.glyph(glyph.cells(), pixels)))
+        let at = target.glyph(glyph.cells(), pixels);
+        if let Some((place, size, ink)) = halved_ink(glyph) {
+            target.ink(at, place, size, ink);
+        }
+        Some((color, at))
     };
     let mut maps: Vec<(char, bool, u32)> = Vec::new();
     for ch in want.iter().filter_map(|&c| char::from_u32(c)) {
@@ -3824,6 +3941,48 @@ fn halved(glyph: &Glyph) -> Option<Vec<u8>> {
         );
     }
     Some(out)
+}
+
+/// An ink box's place, size and pixels, as [`halved_ink`] gives them.
+type HalvedInk = ((i32, i32), (u32, u32), Vec<u8>);
+
+/// The ink box of `glyph` at half its height, as [`halved`] makes its
+/// pixels: each pair of the glyph's rows made one row, counted from the
+/// glyph's top, so a box that starts on an odd row above the glyph takes
+/// a row of its own that holds that row's ink at half. Its place, its size
+/// and its pixels; `None` for a glyph with no ink box, one of an odd
+/// height, or a box that, halved, no longer passes the glyph's cells.
+fn halved_ink(glyph: &Glyph) -> Option<HalvedInk> {
+    let ink = glyph.ink()?;
+    let height = i64::from(glyph.height());
+    if !glyph.height().is_multiple_of(2) || ink.pixels().len() > SET_CHUNK_BYTES as usize {
+        return None;
+    }
+    let bpp = usize::try_from(glyph.format().bytes_per_pixel()).ok()?;
+    let row = usize::try_from(ink.width()).ok()?.checked_mul(bpp)?;
+    let (top, bottom) = (
+        i64::from(ink.top()),
+        i64::from(ink.top()) + i64::from(ink.height()),
+    );
+    let (first, end) = (top.div_euclid(2), (bottom + 1).div_euclid(2));
+    let line = |y: i64| -> Option<&[u8]> {
+        let at = usize::try_from(y - top).ok()?.checked_mul(row)?;
+        ink.pixels().get(at..at.checked_add(row)?)
+    };
+    let mut out = Vec::with_capacity(row * usize::try_from(end - first).ok()?);
+    for y in first..end {
+        let (upper, lower) = (line(2 * y), line(2 * y + 1));
+        for x in 0..row {
+            let byte = |l: Option<&[u8]>| u16::from(l.and_then(|l| l.get(x)).copied().unwrap_or(0));
+            out.push((byte(upper) + byte(lower)).div_ceil(2) as u8);
+        }
+    }
+    let past = first < 0 || end > height / 2 || ink.left() < 0 || ink.width() > glyph.width();
+    past.then_some((
+        (ink.left(), i32::try_from(first).ok()?),
+        (ink.width(), u32::try_from(end - first).ok()?),
+        out,
+    ))
 }
 
 /// A coverage query's answer ([`FRAME_COVERAGE`]): which of `letters` the
@@ -5467,6 +5626,87 @@ mod tests {
         assert_eq!(answer, format!("sha256\t1\tbdf:{}\t{hash}", file.display()));
     }
 
+    // A hex: source draws its glyphs in its 8×16 cell, a 16×16 glyph across
+    // two cells, and a file whose SHA-256 is not the one sha256= gives
+    // still draws and is reported. A .hex font states no version, so
+    // version= finds nothing to compare. A gzipped .hex file is refused
+    // with a warning that names its line, and the frit draws without it.
+    //
+    // References:
+    // - ADR-1204 D5: the hex: source, read uncompressed.
+    // - ADR-1204 D7: a font that states no version is checked by its
+    //   sha256= line.
+    #[test]
+    fn a_hex_source_draws_and_is_checked_by_its_hash() {
+        let dir = scratch("hex");
+        let file = dir.join("u.hex");
+        let text = format!(
+            "0041:{}\n4E00:{}\n",
+            "00000000182424427E42424242000000",
+            "FF".repeat(32)
+        );
+        std::fs::write(&file, &text).unwrap();
+        let hash = vtium_font::sha256_hex(&vtium_font::Sha256::digest(text.as_bytes()));
+        let load = |keys: &str| {
+            let text = format!("source=hex:{}\n{keys}\n", file.display());
+            Engine::load(&frit(&text), &Paths::default(), None).unwrap()
+        };
+        let engine = load(&format!("version=17.0.03\nsha256={hash}"));
+        assert_eq!(engine.differs(), []);
+        assert_eq!(engine.coverage(), [0x41, 0x4e00]);
+        assert!(matches!(
+            engine.own_cell(16),
+            Ok(OwnCell::Bitmap(Cell {
+                width: 8,
+                height: 16
+            }))
+        ));
+        let (rows, _) = spaced_rows(
+            &frit(&format!("source=hex:{}\n", file.display())),
+            CELL,
+            Band::NONE,
+            &['A', '\u{4e00}'],
+        );
+        let a: Vec<u8> = [
+            0, 0, 0, 0, 0x18, 0x24, 0x24, 0x42, 0x7e, 0x42, 0x42, 0x42, 0x42, 0, 0, 0,
+        ]
+        .to_vec();
+        let lit = |r: &Vec<u8>| r.iter().fold(0u8, |b, &p| (b << 1) | u8::from(p != 0));
+        assert_eq!(rows[0].iter().map(lit).collect::<Vec<_>>(), a);
+        assert!(
+            rows[1]
+                .iter()
+                .all(|r| r.len() == 16 && r.iter().all(|&p| p == 255))
+        );
+        let other = "0".repeat(64);
+        let engine = load(&format!("sha256={other}"));
+        assert_eq!(
+            engine
+                .differs()
+                .iter()
+                .map(|d| d.what.clone())
+                .collect::<Vec<_>>(),
+            [crate::needs::Differ::OtherHash(hash)]
+        );
+        let gz = dir.join("u.hex.gz");
+        std::fs::write(&gz, crate::decode::tests::gzip(text.as_bytes())).unwrap();
+        let both = format!(
+            "source=hex:{}\nsource=hex:{}\n",
+            gz.display(),
+            file.display()
+        );
+        let engine = Engine::load(&frit(&both), &Paths::default(), None).unwrap();
+        assert_eq!(engine.sources.len(), 1);
+        assert!(
+            engine
+                .warnings()
+                .iter()
+                .any(|w| w.contains(":1: source=hex:") && w.contains("is gzipped")),
+            "{:?}",
+            engine.warnings()
+        );
+    }
+
     // A zstd font whose window is past ZSTD_WINDOW_MAX is refused with a
     // warning that names its window, the 16 MiB limit and what to do
     #[test]
@@ -7009,6 +7249,221 @@ mod tests {
         }
     }
 
+    /// A BDF font of `width`×`height` cells, one row of descent, whose `A`
+    /// lights column `column` on every row, and which holds `B` the same
+    /// way when `b` says so, so a test tells which font drew a glyph.
+    fn marked_bdf(width: u32, height: u32, column: u32, b: bool) -> String {
+        // a row of `width` pixels is whole bytes of hexadecimal digits
+        let bytes = width.div_ceil(8);
+        let row = |c: u32| {
+            let bits = 1u64 << (bytes * 8 - 1 - c);
+            format!("{bits:0digits$X}\n", digits = (bytes * 2) as usize)
+        };
+        let glyph = |name: &str, code: u32| {
+            format!(
+                "STARTCHAR {name}\nENCODING {code}\nDWIDTH {width} 0\nBBX {width} {height} 0 -1\nBITMAP\n{}ENDCHAR\n",
+                row(column).repeat(height as usize)
+            )
+        };
+        let b = if b { glyph("B", 66) } else { String::new() };
+        format!(
+            "STARTFONT 2.1\nFONT -test-\nFONTBOUNDINGBOX {width} {height} 0 -1\n\
+             STARTPROPERTIES 3\nFONT_ASCENT {}\nFONT_DESCENT 1\n\
+             CHARSET_REGISTRY \"ISO10646\"\nENDPROPERTIES\nCHARS {}\n{}{b}ENDFONT\n",
+            height - 1,
+            if b.is_empty() { 1 } else { 2 },
+            glyph("A", 65),
+        )
+    }
+
+    /// A frit of a bitmap source of 8×16 cells whose `A` lights column 2,
+    /// with strikes of 6×12 (column 1) and 16×32 (column 3), each file
+    /// written to `dir`; only the 8×16 font holds `B`. `tail` follows the
+    /// strikes.
+    fn struck_frit(dir: &Path, tail: &str) -> FritText {
+        let write = |name: &str, text: String| {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap();
+            path
+        };
+        let own = write("16.bdf", marked_bdf(8, 16, 2, true));
+        let twelve = write("12.bdf", marked_bdf(6, 12, 1, false));
+        let thirty_two = write("32.bdf", marked_bdf(16, 32, 3, false));
+        frit(&format!(
+            "source=bdf:{}\nstrike=bdf:{}\nstrike=bdf:{}\n{tail}",
+            own.display(),
+            thirty_two.display(),
+            twelve.display()
+        ))
+    }
+
+    // A bitmap source and its strikes are one font at several heights.
+    // When the set states no cell, the helper answers the cell of the
+    // tallest of them no taller than the height the console asks at: no
+    // cell under 12 pixels, where the built-in font draws the text, 6×12
+    // from 12, 8×16 from 16, and 16×32 from 32, of which the console takes
+    // whole multiples. A later bitmap source whose cell is larger than the
+    // strike's, such as an 8×16 fallback in a 12-pixel cell, does not stop
+    // the answer, and draws nothing in that cell. With no height, the
+    // answer is the source's own cell.
+    //
+    // References:
+    // - ADR-1204 D2: the cell of the tallest strike no taller than the
+    //   automatic rule's height, and a whole multiple of the 32-pixel
+    //   strike's cell above it.
+    #[test]
+    fn a_bitmap_source_with_strikes_gives_the_cell_of_its_tallest_strike_that_fits() {
+        let dir = scratch("bitmap-strikes-cell");
+        let fallback = dir.join("fallback.bdf");
+        std::fs::write(&fallback, marked_bdf(8, 16, 7, true)).unwrap();
+        let struck = struck_frit(&dir, &format!("source=bdf:{}\n", fallback.display()));
+        let engine = Engine::load(&struck, &Paths::default(), None).unwrap();
+        assert_eq!(engine.warnings(), [] as [String; 0]);
+        // an outline answer reads as no cell, which no row below expects
+        let at = |height: u32| match engine.own_cell(height) {
+            Ok(OwnCell::Bitmap(c)) => Ok((c.width, c.height)),
+            Ok(OwnCell::Outline(c)) => Err(format!("an outline cell {c:?}")),
+            Err(why) => Err(why),
+        };
+        let why = at(8).unwrap_err();
+        assert!(
+            why.contains("12 pixels high, taller than the 8-pixel cell")
+                && why.contains("built-in font"),
+            "{why}"
+        );
+        assert!(at(11).is_err());
+        for (height, cell) in [
+            (12, (6, 12)),
+            (15, (6, 12)),
+            (16, (8, 16)),
+            (24, (8, 16)),
+            (31, (8, 16)),
+            (32, (16, 32)),
+            (40, (16, 32)),
+            (64, (16, 32)),
+        ] {
+            assert_eq!(at(height), Ok(cell), "at {height} pixels");
+        }
+        assert_eq!(at(0), Ok((8, 16)), "no height: the source's own cell");
+        // the fallback's 8×16 cell does not fit 6×12, so it draws nothing
+        let small = Cell {
+            width: 6,
+            height: 12,
+        };
+        assert_eq!(drawn_chars(&struck, small, &['A', 'B']), ['A']);
+        // a bitmap source with no strikes and the same fallback answers
+        // as before, its own cell, at any height
+        let plain = frit(&format!(
+            "source=bdf:{}\nsource=bdf:{}\n",
+            dir.join("12.bdf").display(),
+            fallback.display()
+        ));
+        let engine = Engine::load(&plain, &Paths::default(), None).unwrap();
+        assert!(engine.own_cell(12).is_err(), "8×16 does not fit 6×12");
+    }
+
+    /// The rows a glyph of a [`marked_bdf`] font draws in `cell`: column
+    /// `column` of a `width`×`height` font at `scale`, centred across, with
+    /// its top row at `top`.
+    fn marked_rows(
+        cell: Cell,
+        (width, height): (u32, u32),
+        column: u32,
+        (scale, top): (u32, u32),
+    ) -> Vec<Vec<u8>> {
+        let x0 = (cell.width - width * scale) / 2 + column * scale;
+        (0..cell.height)
+            .map(|y| {
+                (0..cell.width)
+                    .map(|x| {
+                        let lit = (top..top + height * scale).contains(&y)
+                            && (x0..x0 + scale).contains(&x);
+                        if lit { 255 } else { 0 }
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    // Each cell draws the tallest of the source and its strikes that fits
+    // it, and that font alone: a character it lacks draws from the next
+    // source, never from another strike. A cell between two strikes'
+    // heights draws the shorter strike, centred in the cell. A cell taller
+    // than every strike draws the tallest at the largest whole factor that
+    // fits, centred. A cell that no strike fits draws nothing from the
+    // source.
+    //
+    // References:
+    // - ADR-1204 D2: the next smaller strike centred in a cell between two
+    //   strikes, and the 32-pixel strike at the largest whole factor above
+    //   it.
+    #[test]
+    fn a_bitmap_source_draws_its_strike_for_each_cell_centred() {
+        let dir = scratch("bitmap-strikes-draw");
+        let struck = struck_frit(&dir, "");
+        let cell = |width, height| Cell { width, height };
+        for (at, font, column, placed) in [
+            (cell(6, 12), (6, 12), 1, (1, 0)),
+            (cell(7, 14), (6, 12), 1, (1, 1)),
+            (cell(8, 16), (8, 16), 2, (1, 0)),
+            (cell(10, 20), (8, 16), 2, (1, 2)),
+            (cell(14, 31), (8, 16), 2, (1, 7)),
+            (cell(16, 32), (16, 32), 3, (1, 0)),
+            (cell(16, 40), (16, 32), 3, (1, 4)),
+            (cell(32, 64), (16, 32), 3, (2, 0)),
+            (cell(33, 70), (16, 32), 3, (2, 3)),
+        ] {
+            let (rows, _) = spaced_rows(&struck, at, Band::NONE, &['A']);
+            assert_eq!(
+                rows[0],
+                marked_rows(at, font, column, placed),
+                "A in {at:?}"
+            );
+        }
+        // B is the 8×16 font's alone, so the strikes' cells lack it
+        assert_eq!(drawn_chars(&struck, cell(6, 12), &['A', 'B']), ['A']);
+        assert_eq!(drawn_chars(&struck, cell(8, 16), &['A', 'B']), ['A', 'B']);
+        assert_eq!(drawn_chars(&struck, cell(16, 32), &['A', 'B']), ['A']);
+        assert!(drawn_chars(&struck, cell(8, 8), &['A']).is_empty());
+    }
+
+    // A strike whose file has another SHA-256 than the sha256= line after
+    // it gives still draws, and the helper reports it under the strike's
+    // own line and spelling. A strike whose hash matches is not reported.
+    //
+    // References:
+    // - ADR-1204 D7: a file with another hash still draws, and is
+    //   reported.
+    #[test]
+    fn a_strike_with_another_hash_draws_and_is_reported() {
+        let dir = scratch("bitmap-strikes-hash");
+        let twelve = dir.join("12.bdf");
+        let text = marked_bdf(6, 12, 1, false);
+        std::fs::write(&twelve, &text).unwrap();
+        let hash = vtium_font::sha256_hex(&vtium_font::Sha256::digest(text.as_bytes()));
+        let own = dir.join("16.bdf");
+        std::fs::write(&own, marked_bdf(8, 16, 2, true)).unwrap();
+        let load = |sha: &str| {
+            let text = format!(
+                "source=bdf:{}\nstrike=bdf:{}\nsha256={sha}\n",
+                own.display(),
+                twelve.display()
+            );
+            Engine::load(&frit(&text), &Paths::default(), None).unwrap()
+        };
+        assert_eq!(load(&hash).differs(), []);
+        let engine = load(&"0".repeat(64));
+        assert_eq!(engine.strikes[0].len(), 1, "the strike still draws");
+        assert_eq!(
+            engine.differs(),
+            [crate::needs::Differs {
+                line: 2,
+                spelling: format!("bdf:{}", twelve.display()),
+                what: crate::needs::Differ::OtherHash(hash),
+            }]
+        );
+    }
+
     // The frit's coverage holds what it draws at every height, so a
     // character that only a strike holds is not in it, though a cell up to
     // the strike's height draws it.
@@ -8517,6 +8972,25 @@ mod tests {
         assert_eq!(halved(&g), Some(vec![0, 255, 11, 20]));
         let odd = Glyph::from_pixels(1, 3, Format::Mask, vec![1, 2, 3]).unwrap();
         assert_eq!(halved(&odd), None);
+    }
+
+    // A glyph halved for a line of double width keeps its ink box, halved
+    // by the same pairs of rows from the glyph's top: a mark 1 row above
+    // the tall glyph pairs with an empty row, so it keeps a row of its own
+    // above the halved glyph at half its coverage
+    #[test]
+    fn halving_a_glyph_keeps_its_ink_box() {
+        let own = vec![255, 0, 0, 0, 0, 0, 0, 255];
+        let mut ink = vec![200, 200];
+        ink.extend(&own);
+        let g = Glyph::from_pixels(2, 4, Format::Mask, own)
+            .unwrap()
+            .with_ink((0, -1), (2, 5), ink)
+            .unwrap();
+        assert_eq!(
+            halved_ink(&g),
+            Some(((0, -1), (2, 3), vec![100, 100, 128, 0, 0, 128]))
+        );
     }
 
     #[test]

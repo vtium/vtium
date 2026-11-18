@@ -30,6 +30,9 @@ images = ["dep:vtium-image", "vtium-term/images"]
 # the GPU path's frame, its safe `Gl` trait and the tests' stand-in GL
 # (ADR-1303 D7); off by default, so the minspec build compiles none of it
 gpu = []
+# the frame filters' declarations, which a vtlook file chooses and sets
+# (ADR-1304 D10); off by default, so the minspec build compiles none of it
+filters = []
 # draws right-to-left text (ADR-1004 D13): each letter of a joining script
 # in its joined form, the lam-alef ligature across its two cells, and the
 # bar cursor on the right side of a right-to-left cell; the minspec build

@@ -4,7 +4,7 @@
 //! [`card`] writes the card's byte stream, [`bars`] draws vtium's message
 //! bars on the screen after it, [`profiles`] holds the display
 //! profiles and how each arrays the card, [`fonts`] pins the outline
-//! fonts and generates the desktop frit's glyphs, [`draw`] draws a profile's
+//! fonts and generates the jetbrains-mono set's glyphs, [`draw`] draws a profile's
 //! screens and its collage, [`png`] reads and writes them, [`docs`] lays
 //! out `docs/specimens/`, and [`check`] writes it or judges it.
 

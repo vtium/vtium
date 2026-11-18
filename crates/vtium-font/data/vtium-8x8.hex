@@ -1,0 +1,17 @@
+# vtium's own 8x8 glyphs for the four characters of IBM code page 437 that
+# Unscii-8 lacks: U+2219 BULLET OPERATOR, U+2302 HOUSE, U+2310 REVERSED NOT
+# SIGN and U+263C WHITE SUN WITH RAYS. vtium-font's build adds them to the
+# glyphs of unscii-8.hex when it cuts the built-in font's 8x8 strike. They
+# are drawn for vtium in the style of Unscii-8's own glyphs, with strokes
+# two pixels wide, and stand on row 7 of 8 as Unscii-8's do.
+#
+# Each line is one glyph in Unifont's hex form: a code point, a colon, and
+# 16 hex digits, one byte for each row from the top, the leftmost pixel in
+# the highest bit. A line that starts with '#' is a comment.
+#
+# Copyright (c) 2026 Aaron Bockelie <aaron@bockelie.com>
+# Released under the MIT License, as vtium's LICENSE file gives it.
+2219:0000001818000000
+2302:00183C6666667E00
+2310:007E606000000000
+263C:185A3CE7E73C5A18

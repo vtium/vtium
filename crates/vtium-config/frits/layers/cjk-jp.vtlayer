@@ -1,0 +1,21 @@
+# cjk-jp: Han, kana, Hangul and full-width punctuation, with Han in the
+# forms Japanese uses, from Noto Sans CJK JP. A font set adds this layer
+# after Noto Sans Mono, which holds none of them. Each character is two
+# cells wide, and the font draws at its own size.
+#
+# Unicode encodes each Han character once, even where China, Taiwan, Japan
+# and Korea each write it in a slightly different form, such as 直, 骨 and
+# 刃. Noto Sans CJK holds each region's forms in a face of its own, so the
+# catalog has one layer for each region, and a set holds one of them.
+# Distributions install the faces as one collection, NotoSansCJK-Regular.ttc.
+#
+# License: SIL OFL 1.1.
+#
+# References:
+# - ADR-1204 D5: the script layers.
+# - ADR-1204 D6: a set holds one Han face at most.
+
+role=script
+source=font:Noto Sans CJK JP
+version=2.004
+url=https://github.com/notofonts/noto-cjk/releases/tag/Sans2.004

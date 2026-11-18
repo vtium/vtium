@@ -6,20 +6,20 @@ A QHD monitor: 2560×1440, 24-bit color, drawn in `desktop` at 14×32, 182×45 c
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 2560×1440, 24-bit color | order unknown | 14×32 | 182×45 | `desktop`, the font set [`desktop.vtfrit`](https://github.com/vtium/vtium/blob/main/tools/specimens/frits/desktop.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
+| 2560×1440, 24-bit color | order unknown | 14×32 | 182×45 | `jetbrains-mono`, the font set [`code/jetbrains-mono.vtfrit`](https://github.com/vtium/vtium/blob/main/crates/vtium-config/frits/code/jetbrains-mono.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png) |
 
 ## Why this font
 
-vtium draws an outline font only when you name a font set that lists one. This profile's vtium.conf names the desktop font set with `font-name=desktop`. The desktop font set draws text from JetBrains Mono, the private-use symbols from Symbols Nerd Font Mono and emoji from Noto Color Emoji, with the built-in unifont last for every character the others lack. vtium's font helper generates the glyphs from these fonts while vtium runs. See [the issue that generates glyphs in the font helper](https://github.com/vtium/vtium/issues/145). The font set starts at 18 points, which is 24 pixels at 96 DPI, and these profiles draw it in 24- and 32-pixel cells. Outline glyphs draw antialiased at this size. The font helper draws an emoji sequence whole, so skin tones, ZWJ sequences, flags and keycaps each draw as one emoji. Scripts that need shaping, such as Devanagari and Tamil, draw unshaped. See [the text shaping issue](https://github.com/vtium/vtium/issues/144).
+vtium draws an outline font only when you name a font set that lists one. This profile's vtium.conf names the font set jetbrains-mono with `font-name=jetbrains-mono`. The set draws text from JetBrains Mono, Nerd Fonts' icons from Symbols Nerd Font Mono and emoji from Noto Color Emoji. GNU Unifont, which the set names last, draws in 1 bit each character of the Basic Multilingual Plane that the others lack. vtium's font helper generates the glyphs from these fonts while vtium runs. See [the issue that generates glyphs in the font helper](https://github.com/vtium/vtium/issues/145). The font set starts at 18 points, which is 24 pixels at 96 DPI, and these profiles draw it in 24- and 32-pixel cells. Outline glyphs draw antialiased at this size. The font helper draws an emoji sequence whole, so skin tones, ZWJ sequences, flags and keycaps each draw as one emoji. Scripts that need shaping, such as Devanagari and Tamil, draw unshaped. See [the text shaping issue](https://github.com/vtium/vtium/issues/144).
 
 ## Configuration
 
 [vtium.conf](vtium.conf):
 
 ```ini
-# The desktop font set: tools/specimens/frits/desktop.vtfrit in
-# /etc/vtium/fonts, its glyphs generated while vtium runs.
-font-name=desktop
+# The font set jetbrains-mono: crates/vtium-config/frits/code/jetbrains-mono.vtfrit
+# in /etc/vtium/fonts/code, its glyphs generated while vtium runs.
+font-name=jetbrains-mono
 font-size=0
 ```
 

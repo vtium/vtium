@@ -4,7 +4,9 @@
 //! 8×8, 8×16 and 16×32, each cut by `build.rs` from its source with the
 //! list in `data/builtin-chars.txt` and trusted by construction. The font
 //! holds printable ASCII, Latin-1, the ellipsis, the four arrows, box
-//! drawing and blocks, and the focus mark's circles, and nothing else.
+//! drawing and blocks, the focus mark's circles, and the rest of IBM code
+//! page 437, and nothing else. The 8×8 strike takes four of code page
+//! 437's characters from vtium's own glyphs, because Unscii-8 lacks them.
 //!
 //! A cell under 16 pixels high draws the 8×8 strike, one from 16 to 31 the
 //! 8×16 strike, and one from 32 the 16×32 strike, at the largest whole
@@ -107,9 +109,13 @@ mod tests {
         Cell { width, height }
     }
 
-    /// The characters ADR-1204 D1 lists, and the four arrows that a
-    /// notice names a chord's arrow key with, from the list file the build
-    /// reads.
+    /// The characters of IBM code page 437 that the ranges above leave
+    /// out, as ADR-1204 D1's last bullet writes them.
+    const CP437_REST: &str = "☺☻♥♦♣♠•◘◙♂♀♪♫☼►◄↕‼▬↨∟↔▲▼⌂₧ƒ⌐αΓπΣστΦΘΩδ∞φε∩≡≥≤⌠⌡≈∙√ⁿ■";
+
+    /// The characters ADR-1204 D1 lists, the four arrows that a notice
+    /// names a chord's arrow key with, and the rest of code page 437, from
+    /// the list file the build reads.
     #[test]
     fn the_list_holds_d1s_ranges() {
         let d1 = [
@@ -121,15 +127,24 @@ mod tests {
             (0x25CB, 0x25CB),
             (0x25CF, 0x25CF),
         ];
-        assert_eq!(LIST, d1);
+        assert_eq!(LIST[..d1.len()], d1);
+        let rest: Vec<u32> = LIST[d1.len()..].iter().flat_map(|&(a, b)| a..=b).collect();
+        let mut cp437: Vec<u32> = CP437_REST.chars().map(u32::from).collect();
+        cp437.sort_unstable();
+        assert_eq!(cp437.len(), 52);
+        assert_eq!(rest, cp437, "the list's code page 437 lines");
+        let all: Vec<u32> = LIST.iter().flat_map(|&(a, b)| a..=b).collect();
+        assert_eq!(all.len(), 410, "ADR-1204 D1's count");
         assert!(holds('A') && holds('\u{b7}') && holds('\u{2026}') && holds('\u{25cf}'));
-        assert!(!holds('\u{1f}') && !holds('\u{7f}') && !holds('\u{2194}') && !holds('中'));
+        assert!(!holds('\u{1f}') && !holds('\u{7f}') && !holds('\u{2196}') && !holds('中'));
         assert!(holds_all("● desk · console 2 of 3") && !holds_all("Tastatur ⇧"));
     }
 
-    /// Each strike holds every character of the list that its source
-    /// holds, the same glyph, and no character beyond the list. Terminus
-    /// lacks ten characters of the list, which vtium's sprites draw.
+    /// Each strike holds every character of the list that its sources
+    /// hold, the same glyph, and no character beyond the list. Terminus
+    /// lacks ten characters of the list, which vtium's sprites draw. The
+    /// 8×8 strike holds every character of the list: Unscii-8 and vtium's
+    /// own four glyphs hold them all.
     #[test]
     fn each_strike_holds_every_listed_character_its_source_holds() {
         let root = env!("CARGO_MANIFEST_DIR");
@@ -141,7 +156,10 @@ mod tests {
             .collect();
         for (n, s) in STRIKES.iter().enumerate() {
             let text = std::fs::read_to_string(format!("{root}/{}", s.path)).unwrap();
-            let source = cut::read(s, &text).unwrap();
+            let own_text = s
+                .own
+                .map(|p| std::fs::read_to_string(format!("{root}/{p}")).unwrap());
+            let source = cut::read(s, &text, own_text.as_deref()).unwrap();
             let set = strike(n).expect("a strike the reader takes");
             let own = cell(s.width.into(), s.height.into());
             assert_eq!(set.cells(), [own], "{}", s.file);
@@ -233,18 +251,93 @@ mod tests {
     /// Each strike records the SHA-256 of the source file it was cut
     /// from, and that digest is the one `data/README.md` states. A source
     /// file replaced or edited, for example regenerated from another
-    /// Terminus version, changes the digest and fails this test.
+    /// Terminus version, changes the digest and fails this test. The 8×8
+    /// strike records a second source, vtium's own glyphs, after
+    /// Unscii-8, with its license.
     #[test]
     fn each_strike_is_cut_from_its_pinned_source() {
-        let pinned = [
-            "03094f7fbab7085cf6a6b624cee61e47e71ce5d0c2f308c2f4436afdc17f776c",
-            "5197662b22bf9f3e68d4af9f969a7fefa3edae40dd82ae969a147381130fb4ae",
-            "5ad01972d58adfee75077e2c65ba5947e260043031664cb8ad8f98b5473b23a4",
+        let pinned: [&[&str]; 3] = [
+            &[
+                "03094f7fbab7085cf6a6b624cee61e47e71ce5d0c2f308c2f4436afdc17f776c",
+                OWN_8X8_SHA256,
+            ],
+            &["5197662b22bf9f3e68d4af9f969a7fefa3edae40dd82ae969a147381130fb4ae"],
+            &["5ad01972d58adfee75077e2c65ba5947e260043031664cb8ad8f98b5473b23a4"],
         ];
         for (n, sha) in pinned.into_iter().enumerate() {
             let set = strike(n).unwrap();
             let file = STRIKES[n].file;
-            assert_eq!(set.meta_values("source-sha256").next(), Some(sha), "{file}");
+            let recorded: Vec<&str> = set.meta_values("source-sha256").collect();
+            assert_eq!(recorded, sha, "{file}");
+        }
+        let licenses: Vec<&str> = strike(0).unwrap().meta_values("license").collect();
+        assert_eq!(licenses, ["public domain", "MIT"]);
+    }
+
+    /// The SHA-256 of `data/vtium-8x8.hex`, the four glyphs the maintainer
+    /// looked at. A glyph changed by hand changes the digest and fails
+    /// [`each_strike_is_cut_from_its_pinned_source`].
+    const OWN_8X8_SHA256: &str = "5003faa757c1029473af10d1e2a9900469d90839fa030422a5fc7e4330d42347";
+
+    /// vtium's own four 8×8 glyphs draw with the rows written out here, so
+    /// a glyph edited in the file, or read turned or shifted, fails. They
+    /// are the characters of code page 437 that Unscii-8 lacks.
+    ///
+    /// References:
+    /// - ADR-1204 D1: vtium draws these four glyphs itself, under MIT.
+    #[test]
+    fn the_8x8_strike_draws_vtiums_own_four_glyphs() {
+        let own: [(char, [&str; 8]); 4] = [
+            (
+                '\u{2219}',
+                [
+                    "........", "........", "........", "...##...", "...##...", "........",
+                    "........", "........",
+                ],
+            ),
+            (
+                '\u{2302}',
+                [
+                    "........", "...##...", "..####..", ".##..##.", ".##..##.", ".##..##.",
+                    ".######.", "........",
+                ],
+            ),
+            (
+                '\u{2310}',
+                [
+                    "........", ".######.", ".##.....", ".##.....", "........", "........",
+                    "........", "........",
+                ],
+            ),
+            (
+                '\u{263c}',
+                [
+                    "...##...", ".#.##.#.", "..####..", "###..###", "###..###", "..####..",
+                    ".#.##.#.", "...##...",
+                ],
+            ),
+        ];
+        let face = SetFace::new(Arc::clone(strike(0).unwrap()), 8).unwrap();
+        for (c, rows) in own {
+            assert!(face.has_glyph(c), "U+{:04X}", u32::from(c));
+            let g = face.draw(&[c], Default::default()).unwrap();
+            let drawn: Vec<String> = (0..8)
+                .map(|y| {
+                    (0..8)
+                        .map(|x| match g.pixel(x, y).is_some_and(|p| p[0] != 0) {
+                            true => '#',
+                            false => '.',
+                        })
+                        .collect()
+                })
+                .collect();
+            assert_eq!(drawn, rows, "U+{:04X}", u32::from(c));
+        }
+        // the 8×16 and 16×32 strikes draw them from Terminus
+        for n in [1, 2] {
+            let s = &STRIKES[n];
+            let face = SetFace::new(Arc::clone(strike(n).unwrap()), s.height.into()).unwrap();
+            assert!(CP437_REST.chars().all(|c| face.has_glyph(c)), "{}", s.file);
         }
     }
 

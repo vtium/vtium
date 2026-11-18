@@ -1,0 +1,27 @@
+# hack: Hack, a monospaced font for source code, derived from Bitstream Vera
+# and DejaVu. The font draws the text and sets the character cell. The set
+# starts at 12 points, 16 pixels at 96 DPI.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: Hack's own work is under MIT, and the glyphs it takes from
+# Bitstream Vera under the Bitstream Vera License. The layers name their own
+# licenses.
+#
+# References:
+# - ADR-1204 D3: the code-friendly fonts category.
+
+name=hack
+size=12
+license=MIT AND Bitstream-Vera AND OFL-1.1 AND Apache-2.0 AND CC-BY-4.0
+
+source=font:Hack
+version=3.003
+url=https://github.com/source-foundry/Hack/releases/tag/v3.003
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

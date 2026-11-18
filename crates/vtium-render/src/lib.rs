@@ -69,6 +69,8 @@ mod cache;
 mod compose;
 mod damage;
 mod deco;
+#[cfg(feature = "filters")]
+pub mod filter;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 #[cfg(feature = "bidi")]

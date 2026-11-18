@@ -1,15 +1,18 @@
-//! The fonts the desktop frit and the tiny5 frit name, and their glyphs.
+//! The fonts the catalog sets jetbrains-mono and tiny5 name, and their glyphs.
 //!
 //! vtium ships no third-party font bytes, so the profiles' fonts are
 //! pinned here by URL and SHA-256 and fetched into a cache outside the
 //! tree, as tier 3 pins its guest images: `$XDG_CACHE_HOME/vtium/specimens/fonts`.
-//! The glyphs of `frits/desktop.vtfrit` are generated from the outline
+//! The glyphs of the catalog set `jetbrains-mono` are generated from the outline
 //! fonts by vtium-config's engine, the one the helper runs, in this
 //! process, with the cache as its only font directory, at each outline
 //! profile's cell. The glyphs of the shipped frit `tiny5` are generated the
 //! same way from Tiny5 Mono's BDF file in the cache, its `source=` line
-//! pointed there. A profile whose glyphs cannot be generated, for want of
-//! a font, is skipped, and says why.
+//! pointed there. Both sets add the catalog's layers, the fallback layer
+//! `unifont` among them, whose BDF file the cache also holds, so the
+//! specimens show each set as it looks once the fonts it names are
+//! installed. A profile whose glyphs cannot be generated, for want of a
+//! font, is skipped, and says why.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,35 +24,127 @@ use vtium_font::{Cell, Sha256, sha256_hex};
 use crate::draw::{CellGlyphs, StyleClusters};
 
 /// One pinned font: its file in the cache, where it comes from, and the
-/// SHA-256 of its bytes, which the frit's comment above its source repeats.
+/// SHA-256 of its bytes. The set names the font's version, which the URL
+/// holds. A font published gzipped has `gzipped`, the SHA-256 of the file
+/// the URL serves, and the cache holds it decompressed, the form the set
+/// names.
 #[derive(Clone, Copy, Debug)]
 pub struct Pinned {
     pub file: &'static str,
     pub url: &'static str,
     pub sha256: &'static str,
+    pub gzipped: Option<&'static str>,
 }
 
-/// The desktop set's outline fonts, in the frit's order.
+/// The outline fonts of the set jetbrains-mono and its layers, in the
+/// set's order.
 pub const FONTS: [Pinned; 3] = [
     Pinned {
         file: "JetBrainsMono-Regular.ttf",
         url: "https://github.com/JetBrains/JetBrainsMono/raw/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf",
         sha256: "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
+        gzipped: None,
     },
     Pinned {
         file: "SymbolsNerdFontMono-Regular.ttf",
         url: "https://github.com/ryanoasis/nerd-fonts/raw/v3.4.0/patched-fonts/NerdFontsSymbolsOnly/SymbolsNerdFontMono-Regular.ttf",
         sha256: "f0f624d9b474bea1662cf7e862d44aebe1ae1f6c7f9cb7a0ca5d0e5ac9561c60",
+        gzipped: None,
     },
     Pinned {
         file: "NotoColorEmoji.ttf",
         url: "https://github.com/googlefonts/noto-emoji/raw/v2.051/fonts/NotoColorEmoji.ttf",
         sha256: "72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b",
+        gzipped: None,
     },
 ];
 
-/// The desktop set's frit.
-pub const FRIT: &str = include_str!("../frits/desktop.vtfrit");
+/// The catalog set the outline profiles draw, as vtium-config ships it in
+/// its category folder.
+pub const FRIT: &str =
+    include_str!("../../../crates/vtium-config/frits/code/jetbrains-mono.vtfrit");
+
+/// GNU Unifont 17.0.03's `.hex` file of every plane, the file the
+/// catalog's fallback layer `unifont` names. Unifoundry publishes it
+/// gzipped, at 1,687,539 bytes. The font helper reads a `.hex` file only
+/// uncompressed, so the cache holds the decompressed file, which is the
+/// same file as the tree's `crates/vtium-font/data/unifont.hex`.
+///
+/// References:
+/// - ADR-1204 D2: the Unifont version and where vtium installs the file.
+/// - ADR-1204 D5: the layer's `.hex` file and its two `cover=` lines.
+pub const UNIFONT: Pinned = Pinned {
+    file: "unifont_all-17.0.03.hex",
+    url: "https://unifoundry.com/pub/unifont/unifont-17.0.03/font-builds/unifont_all-17.0.03.hex.gz",
+    sha256: "90a5d4dd44a5ef8d3fd02a3f397926b2f9d98640f0b86a3f050faef7bb2683b2",
+    gzipped: Some("dd9e15729a1450c4f5e7f634ffcade4c84ee3d172291c67d39f1d747ad1be1f6"),
+};
+
+/// The path the layer `unifont` names its `.hex` file at.
+const UNIFONT_SOURCE: &str = "source=hex:/usr/share/vtium/fonts/unifont_all-17.0.03.hex";
+
+/// Unifont's character cell. A set whose cell is smaller gets no glyph
+/// from the layer `unifont`, and the console draws those characters in its
+/// built-in font instead.
+const UNIFONT_CELL: Cell = Cell {
+    width: 8,
+    height: 16,
+};
+
+/// The text of the catalog's layer `name` that the specimens' sets add,
+/// as vtium-config ships it.
+///
+/// References:
+/// - ADR-1204 D11: the specimens draw the catalog sets from the catalog's
+///   folders.
+fn layer_text(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "nerd-symbols" => {
+            include_str!("../../../crates/vtium-config/frits/layers/nerd-symbols.vtlayer")
+        }
+        "noto-emoji" => {
+            include_str!("../../../crates/vtium-config/frits/layers/noto-emoji.vtlayer")
+        }
+        "nerd-symbols-small" => {
+            include_str!("../../../crates/vtium-config/frits/layers/nerd-symbols-small.vtlayer")
+        }
+        "noto-emoji-small" => {
+            include_str!("../../../crates/vtium-config/frits/layers/noto-emoji-small.vtlayer")
+        }
+        "unifont" => include_str!("../../../crates/vtium-config/frits/layers/unifont.vtlayer"),
+        _ => return None,
+    })
+}
+
+/// The set `text` with its layers in place, as the console hands a set to
+/// the helper.
+pub fn spliced(text: &str) -> String {
+    vtium_font::set::layer::expand(text, &mut |name| Ok(layer_text(name).map(str::to_owned))).text
+}
+
+/// The set `text` with every layer in place but `unifont`: the sources
+/// the helper draws from at a cell smaller than Unifont's.
+fn spliced_without_unifont(text: &str) -> String {
+    vtium_font::set::layer::expand(text, &mut |name| {
+        Ok((name != "unifont")
+            .then(|| layer_text(name))
+            .flatten()
+            .map(str::to_owned))
+    })
+    .text
+}
+
+/// The set `text` with its layers in place and the layer `unifont`'s
+/// `source=` line pointed at the cache `fonts`, or why not: the spliced
+/// set must name Unifont's file exactly once, on the line the layer ships.
+fn spliced_in(text: &str, fonts: &Path) -> Result<String, String> {
+    let text = spliced(text);
+    if text.lines().filter(|l| *l == UNIFONT_SOURCE).count() != 1 {
+        return Err(format!("the set names no line {UNIFONT_SOURCE}"));
+    }
+    let here = format!("source=hex:{}", fonts.join(UNIFONT.file).display());
+    Ok(text.replace(UNIFONT_SOURCE, &here))
+}
 
 /// Tiny5 Mono's BDF file, at the commit and with the SHA-256 the shipped
 /// frit `tiny5` names in its comment.
@@ -57,17 +152,18 @@ pub const TINY5: Pinned = Pinned {
     file: "Tiny5Mono.bdf",
     url: "https://github.com/Gissio/font_Tiny5Mono/raw/7d30f9e887fdb29e0b951e92493822afba5f70a7/fonts/bdf/Tiny5Mono.bdf",
     sha256: "33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3",
+    gzipped: None,
 };
 
 /// The shipped frit `tiny5`, as vtium-config ships it.
-pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-config/frits/tiny5.vtfrit");
+pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-config/frits/small/tiny5.vtfrit");
 
 /// The path the shipped frit `tiny5` names its BDF file at.
 const TINY5_SOURCE: &str = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
 
 /// Every font `fetch` keeps in the cache.
 fn pinned() -> impl Iterator<Item = &'static Pinned> {
-    FONTS.iter().chain(std::iter::once(&TINY5))
+    FONTS.iter().chain([&TINY5, &UNIFONT])
 }
 
 /// The cache the pinned fonts are fetched into.
@@ -94,7 +190,9 @@ fn fault(dir: &Path, font: &Pinned) -> Option<String> {
 }
 
 /// Fetches each pinned font `dir` lacks with curl, and checks every one
-/// against its SHA-256; a fetched file that does not match is removed.
+/// against its SHA-256; a fetched file that does not match is removed. A
+/// gzipped font is checked against its gzipped SHA-256 first, then
+/// decompressed with gzip into the file the cache holds.
 pub fn fetch(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for font in pinned() {
@@ -110,6 +208,25 @@ pub fn fetch(dir: &Path) -> Result<(), String> {
             if !status.success() {
                 return Err(format!("curl {}: {status}", font.url));
             }
+            if let Some(gzipped) = font.gzipped {
+                let bytes = std::fs::read(&part).map_err(|e| format!("{}: {e}", part.display()))?;
+                let got = sha256_hex(&Sha256::digest(&bytes));
+                if got != gzipped {
+                    let _ = std::fs::remove_file(&part);
+                    return Err(format!("{} has SHA-256 {got}, not {gzipped}", font.url));
+                }
+                let out = Command::new("gzip")
+                    .arg("-dc")
+                    .arg(&part)
+                    .output()
+                    .map_err(|e| format!("gzip: {e}"))?;
+                let _ = std::fs::remove_file(&part);
+                if !out.status.success() {
+                    return Err(format!("gzip -dc {}: {}", font.url, out.status));
+                }
+                std::fs::write(&part, &out.stdout)
+                    .map_err(|e| format!("{}: {e}", part.display()))?;
+            }
             std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))?;
         }
         if let Some(why) = fault(dir, font) {
@@ -120,7 +237,7 @@ pub fn fetch(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The desktop frit's glyphs at each of `cells`, and `clusters` drawn
+/// The set jetbrains-mono's glyphs at each of `cells`, and `clusters` drawn
 /// whole in each style ([`crate::draw::clusters_shown`]), generated from the fonts in `fonts`, or why they
 /// are not.
 pub fn desktop(
@@ -128,24 +245,37 @@ pub fn desktop(
     cells: &[Cell],
     clusters: &[StyleClusters],
 ) -> Result<Vec<CellGlyphs>, String> {
-    if let Some(why) = FONTS.iter().find_map(|f| fault(fonts, f)) {
+    if let Some(why) = FONTS.iter().chain([&UNIFONT]).find_map(|f| fault(fonts, f)) {
         return Err(format!(
             "{why}; `make specimens-fonts` fetches the pinned fonts"
         ));
     }
-    generate("desktop", FRIT, fonts, cells, clusters)
+    generate(
+        "jetbrains-mono",
+        &spliced_in(FRIT, fonts)?,
+        fonts,
+        cells,
+        clusters,
+    )
 }
 
 /// The shipped frit `tiny5`'s glyphs at each of `cells`, and `clusters`
 /// drawn whole in each style, generated from Tiny5 Mono's BDF file in
-/// `fonts`, or why they are not: the frit's one `source=` line is pointed
-/// at the cache's copy, and nothing else in the frit changes.
+/// `fonts`, or why they are not: the frit's one `source=` line and the
+/// layer `unifont`'s are pointed at the cache's copies, and nothing else in
+/// the frit changes.
+///
+/// Unifont's 8×16 glyphs do not fit a cell smaller than that, such as
+/// Tiny5 Mono's own 6×9, so at such a cell the helper gets no glyph from
+/// the layer `unifont`, and the console draws those characters in its
+/// built-in font. These glyphs then come from the set's other sources
+/// alone, which is what the helper hands the console at that cell.
 pub fn tiny5(
     fonts: &Path,
     cells: &[Cell],
     clusters: &[StyleClusters],
 ) -> Result<Vec<CellGlyphs>, String> {
-    if let Some(why) = fault(fonts, &TINY5) {
+    if let Some(why) = [&TINY5, &UNIFONT].into_iter().find_map(|f| fault(fonts, f)) {
         return Err(format!(
             "{why}; `make specimens-fonts` fetches the pinned fonts"
         ));
@@ -154,13 +284,15 @@ pub fn tiny5(
         return Err(format!("the frit tiny5 has no line {TINY5_SOURCE}"));
     }
     let here = format!("source=bdf:{}", fonts.join(TINY5.file).display());
-    generate(
-        "tiny5",
-        &TINY5_FRIT.replace(TINY5_SOURCE, &here),
-        fonts,
-        cells,
-        clusters,
-    )
+    let whole = spliced_in(TINY5_FRIT, fonts)?.replace(TINY5_SOURCE, &here);
+    let small = spliced_without_unifont(TINY5_FRIT).replace(TINY5_SOURCE, &here);
+    let mut out = Vec::new();
+    for &cell in cells {
+        let fits = cell.width >= UNIFONT_CELL.width && cell.height >= UNIFONT_CELL.height;
+        let text = if fits { &whole } else { &small };
+        out.extend(generate("tiny5", text, fonts, &[cell], clusters)?);
+    }
+    Ok(out)
 }
 
 /// The glyphs of the frit `name`, `text`, at each of `cells`, as
@@ -255,18 +387,53 @@ mod tests {
     }
     use vtium_font::Face;
 
-    // The frit names each source's SHA-256, the bytes the cache is checked
-    // against, in the same order.
+    // The set and its layers name the version of each font this table
+    // fetches, in the same order, the version the table's URL holds.
     #[test]
     fn the_frit_names_the_fonts_this_table_fetches() {
-        let pins: Vec<&str> = FRIT
+        let versions: Vec<String> = spliced(FRIT)
             .lines()
-            .filter_map(|l| l.strip_prefix("# "))
-            .filter(|l| l.len() == 65 && l.ends_with('.'))
-            .map(|l| &l[..64])
+            .filter_map(|l| l.strip_prefix("version="))
+            .map(str::to_owned)
             .collect();
-        let table: Vec<&str> = FONTS.iter().map(|f| f.sha256).collect();
-        assert_eq!(pins, table);
+        let fetched: Vec<&Pinned> = FONTS.iter().chain([&UNIFONT]).collect();
+        assert_eq!(versions.len(), fetched.len(), "{versions:?}");
+        for (font, version) in fetched.iter().zip(&versions) {
+            assert!(
+                font.url.contains(&format!("/v{version}/"))
+                    || font.url.contains(&format!("/unifont-{version}/")),
+                "{} {version}",
+                font.url
+            );
+        }
+    }
+
+    // The layer unifont names, on its one source= line, the file this table
+    // fetches, with the SHA-256 the cache's copy has.
+    #[test]
+    fn the_unifont_layer_names_the_file_this_table_fetches() {
+        let layer = layer_text("unifont").unwrap();
+        let sources: Vec<&str> = layer.lines().filter(|l| l.starts_with("source=")).collect();
+        assert_eq!(sources, [UNIFONT_SOURCE]);
+        assert!(UNIFONT_SOURCE.ends_with(&format!("/{}", UNIFONT.file)));
+        assert!(layer.contains(&format!("sha256={}", UNIFONT.sha256)));
+        // both sets the specimens draw end with the layer
+        for set in [FRIT, TINY5_FRIT] {
+            assert!(set.lines().any(|l| l == "layer=unifont"));
+        }
+    }
+
+    // A cell Unifont's 8×16 glyphs fit draws from every layer; a smaller
+    // one draws from every layer but unifont, as the helper does.
+    #[test]
+    fn a_cell_smaller_than_unifonts_draws_without_its_layer() {
+        let dir = Scratch::new("small");
+        let whole = spliced_in(TINY5_FRIT, &dir).unwrap();
+        let unifont = format!("source=hex:{}", dir.join(UNIFONT.file).display());
+        assert!(whole.lines().any(|l| l == unifont), "{whole}");
+        let small = spliced_without_unifont(TINY5_FRIT);
+        assert!(!small.contains(UNIFONT.file), "{small}");
+        assert!(small.contains("source=font:Noto Color Emoji"), "{small}");
     }
 
     // The shipped tiny5 frit names, in its comment, the commit and the
@@ -351,6 +518,7 @@ mod tests {
             url: "",
             // the SHA-256 of "x"
             sha256: "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
+            gzipped: None,
         };
         assert!(fault(&dir, &font).unwrap().contains("is not in"));
         std::fs::write(dir.join("x.ttf"), b"y").unwrap();

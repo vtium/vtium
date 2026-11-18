@@ -491,6 +491,10 @@ considered:
     said: "From the review of the walk against the hand-built tree: Home, End, PgUp and PgDn move in the part maker and the new-font-set form; the form's typed fields follow the Settings typing rule, where only Enter and Esc act; a part's narrowing choices are a node of their own under its detail; mouse clicks and the wheel join the contract wherever the TUI reads them; and the leave question is met by the code."
     via: relayed by the steering session, 2026-11-16; the wording is the steering session's
     paraphrase: true
+  - operator: aaronsb
+    said: "The key line is always one row and shows a view's keys in pages. The first page holds the most-used keys, for the Flow view move, pick, open, add path, revise and quit. Where a view's keys do not fit on one row, the line ends with a more item and a page count, as in \". more 1/3\"; \".\" shows the next page and wraps round to the first page after the last. A view whose keys fit on one row shows no more item, and \".\" does nothing there. The pages come from the contract, so they stay true as keys change, and the Help page still lists every key with its meaning."
+    via: the maintainer's decision of 2026-11-17, relayed by the steering session in the brief for the card that pages the key line, after the generated key lines wrapped the Flow view's key line onto four rows at 80×25; the wording is the steering session's
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -857,7 +861,7 @@ vtium-config takes these colors by role from a file of the person's own, `$XDG_C
 
 #### The keys
 
-The key line shows only the keys that fit what the person is doing now (the maintainer, 2026-11-09). With nothing open, it reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit`, and it adds `p preview` where a preview can run, and `PgUp PgDn scroll`. When the keys do not fit on one row, the key line wraps onto a second row (below).
+The key line shows only the keys that fit what the person is doing now (the maintainer, 2026-11-09). It is one row, and it shows the keys in pages (the maintainer, 2026-11-17). With nothing open, its first page reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  q quit  . more 1/5`. Its four later pages hold the other keys of the Flow view: Home, End, PgUp and PgDn, the actions, `v`, `o`, `d`, `t`, Esc, Tab, Shift-Tab and Ctrl-C (below).
 
 - **Moving.** The arrow keys move the highlight from box to box in reading order. Left and Right move along a line of boxes and on to the next line. Up and Down move to the box above or below that is nearest in column. Home and End go to the first and the last box. PgUp and PgDn scroll by a window. Tab moves to the next view of the TUI and Shift-Tab to the view before, wherever the highlight is, as in every other view (the maintainer, 2026-11-07). While a detail, a part maker, a picker, the file view or a question is open, Tab and Shift-Tab do nothing, and Esc closes it. Coming back to the Flow view keeps the box that was highlighted.
 - **Space** picks the highlighted part into NEW PATH, or takes it out.
@@ -885,7 +889,11 @@ These rules hold in every view of the TUI (the maintainer, 2026-11-16):
 
   > Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). The leave question's sentences read: "The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does, and the font set changes it names are then lost. `i` and `l` no longer answer it."
 - **The action keys act only in the views whose tab bar shows them.** `s` saves only where the tab bar shows Save, and `i` installs only where it shows Install. Help's tab bar shows no action, so neither key acts there. The file view saves and installs as the Flow view does (below). Restore, on `o`, belongs to the Flow view, whose key line names it beside the tab bar's actions. A view's own key on the same letter is that view's, as `r` marks a font set for removal in the Looks view, and the view's key line names it. `o` has the one meaning, Restore, and does nothing in the other views. While a card, a detail, a part maker, a picker or a form is open, the action keys do nothing. The file view is the one exception, where `s` and `i` act.
-- **Every key line shows every key it lists.** When the keys do not fit on one row, the key line wraps onto a second row before it drops a key. This holds at the minimum size of 80×25 too.
+- **Every key line is one row, and shows its keys in pages.** The first page holds the keys a person uses most: in the Flow view, move, pick, open, add path, revise and quit. When a node's keys do not fit on one row at 80 columns, the key line ends with a more item and the page number, as in `. more 1/3`. `.` (period) shows the next page, and the first page again after the last. A key line whose keys fit on one row shows no more item, and `.` does nothing there. While a value is typed, `.` is a character like any other, and a question's keys always fit on one row. The pages are the same at every width from 80 columns up, so a wider screen shows the same first page and drops no key. The first page shows again whenever the person moves to another node of the tree. The Help tab still lists every key of the node with what it does.
+
+  The pages come from the contract, so they stay true as keys change. The key table's `page` column marks the keys of the first page with `1`. The generator puts the other keys on the later pages in the key line's order, as many as fit on a row of 80 columns with the more item. It refuses a first page that does not fit.
+
+  > Edited 2026-11-17: the maintainer decided that the key line is one row that shows its keys in pages (`considered`, 2026-11-17), after the key lines generated from the contract wrapped the Flow view's key line onto four rows at 80×25. This rule read: "- **Every key line shows every key it lists.** When the keys do not fit on one row, the key line wraps onto a second row before it drops a key. This holds at the minimum size of 80×25 too." The paragraph under **The keys** read, from its second sentence: "With nothing open, it reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit`, and it adds `p preview` where a preview can run, and `PgUp PgDn scroll`. When the keys do not fit on one row, the key line wraps onto a second row (below)." The key table gained its `page` column and the rows for `.`.
 - **While a Settings value is typed,** Enter keeps the value and Esc drops it. Up and Down do nothing. A field of the new-frit form follows the same rule: Enter keeps the value and goes to the next field, Esc closes the form, and the keys that move do nothing.
 
   > Edited 2026-11-16: the maintainer reviewed the differences between the walk of the code and the hand-built tree (`considered`, 2026-11-16). The new-frit form's fields were added to this rule. Until then Up and Down moved to another field while a value was typed.
@@ -925,6 +933,7 @@ The key table, `ADR-1403-keys.tsv` beside this record, says what each key means 
 | `decided` | the decisions that set the meaning |
 | `issue` | the issue that carries a planned or weighed row |
 | `label` | the short word or two a key line shows for the key, or `-` where the key does nothing and the key line leaves it out |
+| `page` | `1` where a paged key line shows the key on its first page; empty where the generator places the key on a later page |
 
 The kinds of state:
 

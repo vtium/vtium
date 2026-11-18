@@ -1,0 +1,49 @@
+## NAME
+vtium-config - set up the fonts and settings of vtium, a terminal for the Linux console
+
+## SYNOPSIS
+@SYNOPSIS@
+
+## DESCRIPTION
+@DESCRIPTION@
+
+vtium reads `/etc/vtium/vtium.conf` only when it starts on a VT, so a change that install makes takes effect when vtium starts again. install offers to restart vtium on the VTs it runs on. See vtium.conf(5) for the file and its settings.
+
+`vtium config`, a command of the console, runs vtium-config with the words that follow it.
+
+## COMMANDS
+@COMMANDS@
+
+## OPTIONS
+The options come before the command. Run as root, vtium-config refuses each option that names a path or a program. As root, it reads and writes only `/etc/vtium` and its font set directory, and runs only the programs it was built with.
+
+@OPTIONS@
+
+## EXIT STATUS
+@EXIT STATUS@
+
+## ENVIRONMENT
+= `VISUAL`, `EDITOR`
+The editor that edit opens, `VISUAL` first. Without either, edit opens vi.
+
+= `XDG_CONFIG_HOME`
+The directory that holds `vtium/drafts`, `vtium/library.conf` and `vtium/vtium-config.conf`, `~/.config` when unset.
+
+## FILES
+= `~/.config/vtium/drafts/NAME.conf`
+The drafts: your working copies of vtium.conf.
+
+= `~/.config/vtium/library.conf`
+The looks, heads and rules that the library keeps outside any draft.
+
+= `~/.config/vtium/vtium-config.conf`
+vtium-config's own settings, such as how many earlier vtium.conf files history keeps.
+
+= `/etc/vtium/vtium.conf`
+The file that install writes.
+
+= `/etc/vtium/fonts`
+The font sets, each in a file `NAME.vtfrit`.
+
+## SEE ALSO
+vtium(8), vtium.conf(5)

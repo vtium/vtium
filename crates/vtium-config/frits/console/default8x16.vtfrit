@@ -1,0 +1,26 @@
+# default8x16: kbd's default8x16, the console font that many distributions
+# load at boot, at its own 8x16 cell, scaled by whole factors on a larger
+# display.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: kbd's console fonts are under the GNU GPL, version 2 or later,
+# with each file's own notice. The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the console fonts category.
+
+name=default8x16
+license=GPL-2.0-or-later AND OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# kbd 2.10.0's default8x16.
+source=kbd:default8x16
+version=2.10.0
+url=https://github.com/legionus/kbd/tree/v2.10.0/data/consolefonts
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

@@ -1190,10 +1190,17 @@ impl App {
     /// Chooses head `h`'s font once, at its first display (ADR-1200 D9,
     /// ADR-1401 D3), as [`App::configured_font`] gives it.
     fn choose_font(&mut self, h: usize) {
+        self.choose_font_adding(h, None);
+    }
+
+    /// [`App::choose_font`] while a display of size `adding` is added to
+    /// head `h`, before the display has a view, so that the choice counts
+    /// its size.
+    fn choose_font_adding(&mut self, h: usize, adding: Option<(u32, u32)>) {
         if self.heads.get(h).is_none_or(|head| head.font.is_some()) {
             return;
         }
-        let (chosen, made) = self.configured_font(h);
+        let (chosen, made) = self.configured_font(h, adding);
         if let Some(head) = self.heads.get_mut(h) {
             head.font = Some(chosen);
             head.made = made;
@@ -1222,8 +1229,14 @@ impl App {
     /// draws in the cell the head's look states, the built-in font as a
     /// frit does (ADR-1200 D7, ADR-1403 D5). With it comes the frit made
     /// on the fly, where no frit bears the name, which OSC 50 switches
-    /// back to by that name ([`font::by_name`]).
-    fn configured_font(&self, h: usize) -> (Chosen, Option<FritText>) {
+    /// back to by that name ([`font::by_name`]). With no font named, a head
+    /// on a small display, its views' sizes and `adding` among them, draws
+    /// the built-in font in place of the default set.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the default set, and the built-in font's 8×8 strike
+    ///   on a small display.
+    fn configured_font(&self, h: usize, adding: Option<(u32, u32)>) -> (Chosen, Option<FritText>) {
         let Some(head) = self.heads.get(h) else {
             return (Chosen::BUILTINS, None);
         };
@@ -1240,7 +1253,10 @@ impl App {
                 &font::read_text(&s.kernel_cmdline),
             ),
         };
-        let Some(wanted) = wanted else {
+        let sizes = head.views.values().map(|v| v.size).chain(adding);
+        let Some(wanted) =
+            wanted.filter(|w| w.came != font::Came::Default || font::default_set_fits(sizes))
+        else {
             return (Chosen::builtins(look), None);
         };
         if let Some(builtin) = font::builtin_named(&wanted.name, look) {
@@ -1287,7 +1303,14 @@ impl App {
     /// frit, by the height asked at, for every head drawing it. A refusal,
     /// or no answer in time, leaves the display's cell, or for an outline
     /// frit the built-in font's width, with one line saying why; an answer
-    /// that comes after the wait is taken by [`App::late_cell`].
+    /// that comes after the wait is taken by [`App::late_cell`]. A frit
+    /// whose first source is a bitmap font with strikes asks at each
+    /// height, as an outline frit does, since each height can draw another
+    /// strike, and its answers hold at the height asked at alone.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the strike for the automatic height, for a configured
+    ///   font size and for each zoom step.
     fn own_cell(&mut self, h: usize, height: u32) {
         let Some(head) = self.heads.get(h) else {
             return;
@@ -1301,13 +1324,17 @@ impl App {
             return;
         }
         let outline = head.chosen().outline();
+        let struck = head.chosen().struck();
         let Some(name) = head.frit().map(str::to_owned) else {
             return;
         };
-        let known = self
-            .frits
-            .get(&name)
-            .and_then(|f| f.answer_at(height, outline));
+        let known = self.frits.get(&name).and_then(|f| {
+            if struck {
+                f.own.get(&height).cloned()
+            } else {
+                f.answer_at(height, outline)
+            }
+        });
         let own = match known {
             Some(own) => own,
             None => {
@@ -1318,6 +1345,11 @@ impl App {
                 let wait = Duration::from_millis(helper::OWN_CELL_MS);
                 let own = helper.own_cell(height, wait, &*clock);
                 match (&own, outline) {
+                    (Ok(helper::OwnCell::Bitmap(cell)), _) if struck => log::info!(
+                        "the frit {name} draws its {}x{} strike at {height} pixels",
+                        cell.width,
+                        cell.height
+                    ),
                     (Ok(helper::OwnCell::Bitmap(cell)), _) => log::info!(
                         "the frit {name} draws in its fonts' own {}x{} cell",
                         cell.width,
@@ -1344,7 +1376,7 @@ impl App {
         if let (Ok(answer), Some(head)) = (own, self.heads.get_mut(h))
             && let Some(font) = &mut head.font
         {
-            font.set_own_cell(answer, sized);
+            font.set_own_cell_at(answer, height, sized);
         }
     }
 
@@ -1594,7 +1626,7 @@ impl App {
                 "display {name} reports no physical size: vtium assumes {DPI_ASSUMED} DPI, which display-dpi can state"
             ));
         }
-        self.choose_font(h);
+        self.choose_font_adding(h, Some(size));
         let Some(head) = self.heads.get(h) else {
             return;
         };
@@ -2130,17 +2162,23 @@ impl App {
         height: u32,
         answer: Result<helper::OwnCell, helper::NoCell>,
     ) {
+        // A frit with strikes holds each answer at its own height, as an
+        // outline frit does.
+        let struck = self
+            .heads
+            .iter()
+            .any(|head| head.frit() == Some(name) && head.chosen().struck());
         let Some(frit) = self.frits.get_mut(name) else {
             return;
         };
         let outline = match &answer {
-            Ok(helper::OwnCell::Bitmap(_)) => Some(false),
+            Ok(helper::OwnCell::Bitmap(_)) => Some(struck),
             Ok(helper::OwnCell::Outline(_)) => Some(true),
             Err(_) => None,
         };
         let held = match outline {
-            Some(outline) => frit.answer_at(height, outline),
-            None => frit.own.get(&height).cloned(),
+            Some(outline) if !struck => frit.answer_at(height, outline),
+            _ => frit.own.get(&height).cloned(),
         };
         if held.is_some_and(|known| !known.is_err_and(|no| no.late)) {
             return;
@@ -4109,6 +4147,10 @@ impl App {
     fn zoom(&mut self, h: usize, dir: Zoom) {
         self.choose_font(h);
         let dpi = self.dpi(h);
+        if self.heads.get(h).is_some_and(|head| head.chosen().struck()) {
+            self.zoom_struck(h, dir);
+            return;
+        }
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
@@ -4126,6 +4168,49 @@ impl App {
         // The zoom fills the displays again, in place of a grid a program
         // asked for.
         self.take_size(h, size, None);
+    }
+
+    /// A zoom of head `h` whose frit's first source is a bitmap font with
+    /// strikes: the head draws at the next height in the zoom's direction
+    /// whose cell differs, the height of a strike or a whole multiple of
+    /// the tallest, which `strike_step` finds by asking the helper one pixel
+    /// at a time. A zoom out that the helper refuses, because no strike is
+    /// that short, stops with a line naming the smallest height.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the cell of the tallest strike no taller than each
+    ///   zoom step's height, and a whole multiple of the tallest strike's
+    ///   cell above it.
+    fn zoom_struck(&mut self, h: usize, dir: Zoom) {
+        let Some(size) = self.heads.get(h).map(|head| head.font_size) else {
+            return;
+        };
+        if let Some(next) = self.strike_step(h, size, dir) {
+            self.take_size(h, next, None);
+            return;
+        }
+        if dir != Zoom::Out {
+            return;
+        }
+        let Some(head) = self.heads.get(h) else {
+            return;
+        };
+        // strike_step stops a zoom out at the first height below `size`, so
+        // a refusal there is why it found no step
+        let refused = size
+            .checked_sub(1)
+            .and_then(|at| {
+                head.frit()
+                    .and_then(|name| self.frits.get(name))
+                    .and_then(|frit| frit.own.get(&at))
+            })
+            .is_some_and(|answer| matches!(answer, Err(no) if !no.late));
+        if refused {
+            log::info!(
+                "the set {} draws no smaller than {size} pixels: zoom stops there",
+                head.chosen().name(size, &self.locale)
+            );
+        }
     }
 
     /// Head `h` draws at the base height `size`, which ends `font-size`'s
@@ -4249,7 +4334,7 @@ impl App {
         let mut made = None;
         let new = if due.font {
             head.switched = None;
-            let (chosen, configured) = self.configured_font(h);
+            let (chosen, configured) = self.configured_font(h, None);
             made = Some(configured);
             Some(chosen)
         } else if head.sized() != was_sized {
@@ -4562,6 +4647,18 @@ impl App {
         for console in self.heads.iter_mut().flat_map(Head::consoles_mut) {
             console.term.coalesce.turn_end();
             console.term.changed = false;
+        }
+        // A synchronized update's end stops the terminal only until the
+        // displays take the finished frame. No display draws a hidden
+        // console, nor any console while the VT is not shown or the
+        // displays are blanked, so those take output again at once.
+        for head in &mut self.heads {
+            if !self.awake {
+                head.console.term.unshown = false;
+            }
+            for console in &mut head.hidden {
+                console.term.unshown = false;
+            }
         }
         let flipping = self.heads.iter().any(|head| {
             head.views.iter().any(|((node, _), v)| {
@@ -5049,6 +5146,25 @@ impl App {
         if self.leaving == Some(Leaving::Done) || self.guard_due {
             return Some(Duration::ZERO);
         }
+        // The rest of a read waits in the pty while the terminal takes no
+        // output, as after a synchronized update's end. Once the turn has
+        // drawn and the terminal takes output again, the loop feeds it at
+        // once. calloop does not shorten its wait for the idle callback that
+        // feeds it, so the wait itself is zero. While the terminal still
+        // takes nothing, the loop waits for what it waits on, such as the
+        // display's flip, and does not spin.
+        //
+        // References:
+        // - ADR-1401 D2, the note of 2026-11-17: the loop wakes at once for
+        //   the rest of the read.
+        let owed = self
+            .heads
+            .iter()
+            .flat_map(Head::consoles)
+            .any(|c| c.term.takes_input() && c.pty.as_ref().is_some_and(Pty::feed_owed));
+        if owed {
+            return Some(Duration::ZERO);
+        }
         due.into_iter()
             .min()
             .map(|d| d.saturating_duration_since(now))
@@ -5270,6 +5386,10 @@ fn draw_head(
             }
         }
     }
+    // The output after a synchronized update's end goes on once every
+    // display has taken the finished frame. A display that waits for its
+    // flip takes the frame at the flip's end.
+    term.drawn(head.views.values());
 }
 
 /// Head `head`'s GPU path ended during the run, for `why`: it draws on the
@@ -8095,5 +8215,190 @@ mod tests {
         assert_eq!(hotplugs(&mut app, &card1), 1, "one scan for three hotplugs");
         assert_eq!(hotplugs(&mut app, &card0), 0);
         assert_eq!(released.get(), 0, "the VT stays");
+    }
+
+    // ADR-1401 D2: the pty's channel, read through calloop as `main` turns
+    // the loop, shows every frame of a stream of synchronized updates whose
+    // reads each hold the end of one update and the start of the next. The
+    // test writes each read to the session's pty and turns the loop until
+    // the frame composes. The loop then asks to wake at once, and its next
+    // turn parses the next update's start.
+    #[test]
+    fn the_pty_channel_shows_each_frame_of_back_to_back_updates() {
+        use std::io::Write;
+        let args: Vec<OsString> = ["--font-size=16", "--login", "--", "/bin/sh", "-c", "read x"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
+        let mut lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            vec![("PATH".into(), "/usr/bin:/bin".into())],
+        );
+        app.set_font_sources(no_fonts());
+        let node = PathBuf::from("/dev/mem0");
+        app.add_video(node.clone(), Box::new(Still::new(&[(1, "A")])));
+        shown(&mut app);
+        app.start();
+        // Turns the loop as `main` does, waiting at most 50 ms, until
+        // `done` holds, for at most 5 s.
+        fn turn_until(lp: &mut Loop<App>, app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
+            let end = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < end {
+                if done(app) {
+                    return true;
+                }
+                let wait = app
+                    .next_wake(Instant::now())
+                    .map_or(Duration::from_millis(50), |w| {
+                        w.min(Duration::from_millis(50))
+                    });
+                lp.dispatch(Some(wait), app).unwrap();
+                app.turn(Instant::now());
+            }
+            done(app)
+        }
+        assert!(
+            turn_until(&mut lp, &mut app, |app| app.pty().is_some()),
+            "the session starts"
+        );
+        assert!(
+            app.term_mut().unwrap().sync.enabled(),
+            "mode 2026 is offered"
+        );
+        let name = rustix::pty::ptsname(app.pty().unwrap().master(), Vec::new()).unwrap();
+        let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY;
+        let slave = rustix::fs::open(name.as_c_str(), flags, rustix::fs::Mode::empty()).unwrap();
+        let mut slave = std::fs::File::from(slave);
+        fn swaps(app: &mut App) -> u32 {
+            let node = Path::new("/dev/mem0");
+            let video = app.videos.get_mut(node).unwrap();
+            video.as_any().downcast_mut::<Still>().unwrap().swaps
+        }
+        let start = b"\x1b[?2026h\x1b[1;1H\x1b[2K";
+        slave.write_all(start).unwrap();
+        let mut written = start.len() as u64;
+        assert!(
+            turn_until(&mut lp, &mut app, |app| app.term_mut().unwrap().parsed
+                >= written),
+            "the first update begins"
+        );
+        assert!(turn_until(&mut lp, &mut app, |app| app
+            .heads
+            .iter()
+            .all(|h| h.frames_out() == 0)));
+        let first = swaps(&mut app);
+        for k in 0..60u32 {
+            let end = format!("\x1b[1;{}HX\x1b[?2026l", k % 4 + 1).into_bytes();
+            slave.write_all(&[end.as_slice(), start].concat()).unwrap();
+            let frame = written + end.len() as u64;
+            written = frame + start.len() as u64;
+            // The turns until the display takes the finished frame: the
+            // read is parsed up to the frame's end, and the rest waits.
+            assert!(
+                turn_until(&mut lp, &mut app, |app| {
+                    let term = app.term_mut().unwrap();
+                    term.parsed >= frame && !term.unshown
+                }),
+                "frame {k} is taken"
+            );
+            let term = app.term_mut().unwrap();
+            assert_eq!(
+                term.parsed, frame,
+                "frame {k}: the next update waits in the pty"
+            );
+            let row = app.screen_text().first().cloned().unwrap_or_default();
+            assert_eq!(
+                row.find('X'),
+                Some(k as usize % 4),
+                "frame {k} is the one taken"
+            );
+            assert_eq!(
+                app.next_wake(Instant::now()),
+                Some(Duration::ZERO),
+                "frame {k}: the loop wakes at once for the rest of the read"
+            );
+            lp.dispatch(Some(Duration::ZERO), &mut app).unwrap();
+            app.turn(Instant::now());
+            let term = app.term_mut().unwrap();
+            assert_eq!(term.parsed, written, "frame {k}: the next update begins");
+            assert!(
+                term.sync.holding(&term.terminal),
+                "frame {k}: its hold is in force"
+            );
+            assert!(
+                turn_until(&mut lp, &mut app, |app| swaps(app) == first + k + 1),
+                "frame {k} composes"
+            );
+        }
+        assert!(turn_until(&mut lp, &mut app, |app| app
+            .heads
+            .iter()
+            .all(|h| h.frames_out() == 0)));
+        assert_eq!(swaps(&mut app), first + 60, "one frame for each update");
+    }
+
+    // ADR-1401 D2: a synchronized update's end stops the terminal only
+    // until the displays take the finished frame. No display draws a hidden
+    // console, nor the shown one while the displays are off, so each takes
+    // output again at the end of the turn.
+    #[test]
+    fn a_console_no_display_draws_takes_output_after_an_update_ends() {
+        let heads = "version = 1\n[head one]\nconsoles = 2\n";
+        let (_lp, mut app) = seat(Some(heads), no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let App {
+            heads,
+            config,
+            scrollback,
+            scrollback_bytes,
+            clock,
+            ..
+        } = &mut app;
+        let head = heads.first_mut().unwrap();
+        head.open_wanted(|| {
+            crate::head::terminal(config, *scrollback, *scrollback_bytes, Rc::clone(clock))
+        });
+        assert_eq!(head.console_count(), 2);
+        // An update ends in `term`, which offers mode 2026.
+        fn ended(term: &mut Term) {
+            term.terminal.set_sync_enabled(true);
+            term.sync =
+                crate::sync::Sync::new(Duration::from_millis(200), term.terminal.sync_frames());
+            let update = b"\x1b[?2026h\x1b[1;2Hx\x1b[?2026l";
+            assert_eq!(term.parse(update, &mut |_| {}), update.len());
+            assert!(!term.takes_input(), "the finished frame waits");
+        }
+        let hidden = |app: &mut App| {
+            let head = app.heads.first_mut().unwrap();
+            let shown = head.console.id;
+            head.consoles_mut()
+                .find(|c| c.id != shown)
+                .map(|c| c.term.takes_input())
+                .unwrap()
+        };
+        {
+            let head = app.heads.first_mut().unwrap();
+            let shown = head.console.id;
+            let console = head.consoles_mut().find(|c| c.id != shown).unwrap();
+            ended(&mut console.term);
+        }
+        app.turn(Instant::now());
+        assert!(hidden(&mut app), "a hidden console");
+        app.deactivate();
+        ended(app.term_mut().unwrap());
+        app.turn(Instant::now());
+        assert!(
+            app.term_mut().unwrap().takes_input(),
+            "the shown console while the displays are off"
+        );
     }
 }

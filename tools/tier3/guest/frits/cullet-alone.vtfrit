@@ -1,0 +1,6 @@
+# tier 3's reference set for the cullet-mono variants (t3_fonts.py): Cullet
+# Mono Regular alone, with no layer, so the font helper draws Cullet Mono's
+# own glyph for each character the font holds. The case switches the console
+# to it with vtium-config use-frit and compares the probes Cullet Mono draws
+# in cullet-mono with the same probes drawn here.
+source=outline:/usr/share/vtium/fonts/CulletMono-Regular.ttf

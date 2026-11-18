@@ -669,9 +669,125 @@ pub mod config_tool {
     }
 }
 
+/// vtium's command line and its subcommands: the one list that
+/// `vtium --help` prints its usage from, and that vtium(8), the man page
+/// tools/man generates, reads each subcommand's forms and help from.
+pub mod usage {
+    /// One way to write a subcommand, and what it does.
+    pub struct Form {
+        pub synopsis: &'static str,
+        pub does: &'static str,
+    }
+
+    /// A subcommand: its word, its forms, and its help. The help is plain
+    /// text, its paragraphs separated by a blank line, and may start with
+    /// a `Usage:` line.
+    pub struct Command {
+        pub word: &'static str,
+        pub forms: &'static [Form],
+        pub help: fn() -> &'static str,
+    }
+
+    /// How the console itself is started.
+    pub const SYNOPSIS: &str = "vtium [OPTION]... [--login -- COMMAND...]";
+
+    /// `vtium config`'s help.
+    const CONFIG_HELP: &str = "vtium config runs vtium-config, the font and settings tool, with the words that follow, as the user who runs it. vtium finds vtium-config at the path that the font-helper setting names, else at the path vtium was built with.\n\nvtium refuses to run a file that is not a regular file, that is setuid or setgid, that an account other than root or the user owns, or that its group or others can write.\n";
+
+    /// Every subcommand, in the order `vtium --help` lists them.
+    pub const COMMANDS: [Command; 5] = [
+        Command {
+            word: "check-config",
+            forms: &[Form {
+                synopsis: "check-config [OPTION]... [FILE]",
+                does: "check the configuration without applying it",
+            }],
+            help: || super::check_config::HELP,
+        },
+        Command {
+            word: crate::config_tool::WORD,
+            forms: &[Form {
+                synopsis: "config [COMMAND] [ARG]...",
+                does: "run vtium-config, the font and settings tool",
+            }],
+            help: || CONFIG_HELP,
+        },
+        Command {
+            word: "blank",
+            forms: &[Form {
+                synopsis: "blank --vt N",
+                does: "turn off the displays of the vtium on VT N now",
+            }],
+            help: || super::blank::USAGE_BLANK,
+        },
+        Command {
+            word: "wake",
+            forms: &[Form {
+                synopsis: "wake --vt N",
+                does: "turn on the displays of the vtium on VT N",
+            }],
+            help: || super::blank::USAGE_WAKE,
+        },
+        Command {
+            word: "console",
+            forms: &[
+                Form {
+                    synopsis: "console enable N|--all",
+                    does: "run vtium on VT N, or on every VT, from the next start",
+                },
+                Form {
+                    synopsis: "console disable N|--all",
+                    does: "stop running vtium on VT N, or on every VT",
+                },
+                Form {
+                    synopsis: "console status",
+                    does: "show what runs on each VT",
+                },
+                Form {
+                    synopsis: "console fallback N",
+                    does: "start a login prompt on VT N after vtium failed there",
+                },
+            ],
+            help: crate::console::usage,
+        },
+    ];
+
+    /// The usage lines of `vtium --help`: the console's synopsis, then each
+    /// subcommand's forms with what each does in a column.
+    pub fn lines() -> String {
+        let mut out = format!("Usage: {SYNOPSIS}\n");
+        for f in COMMANDS.iter().flat_map(|c| c.forms) {
+            let synopsis = format!("vtium {}", f.synopsis);
+            out.push_str(&format!("       {synopsis:<39} {}\n", f.does));
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // `vtium --help` lists the subcommands from the usage table in the
+    // columns it always had.
+    #[test]
+    fn the_usage_lines_list_each_subcommand_in_a_column() {
+        assert_eq!(
+            usage::lines(),
+            "Usage: vtium [OPTION]... [--login -- COMMAND...]\n       vtium check-config [OPTION]... [FILE]   check the configuration without applying it\n       vtium config [COMMAND] [ARG]...         run vtium-config, the font and settings tool\n       vtium blank --vt N                      turn off the displays of the vtium on VT N now\n       vtium wake --vt N                       turn on the displays of the vtium on VT N\n       vtium console enable N|--all            run vtium on VT N, or on every VT, from the next start\n       vtium console disable N|--all           stop running vtium on VT N, or on every VT\n       vtium console status                    show what runs on each VT\n       vtium console fallback N                start a login prompt on VT N after vtium failed there\n"
+        );
+        for command in &usage::COMMANDS {
+            assert!(
+                command
+                    .forms
+                    .iter()
+                    .all(|f| f.synopsis.starts_with(command.word)),
+                "{}",
+                command.word
+            );
+            assert!(!(command.help)().is_empty(), "{}", command.word);
+        }
+    }
 
     // The maintainer's wording, 2026-11-10: each unused display names
     // itself and the terminal it is configured for, or says it has none.

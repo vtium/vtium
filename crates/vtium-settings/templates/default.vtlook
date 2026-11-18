@@ -1,0 +1,18 @@
+# default.vtlook: a pure passthrough vtlook, which changes no pixel.
+# vtium's built-in vtlook: a look that names no vtlook draws it. To make a
+# vtlook of your own, copy this file under another name, uncomment the
+# sections you want and set their values. Within a layer, filters run in the
+# order of their sections.
+version = 1
+
+# Display requirements. A display that misses one draws the default vtlook;
+# the head's other displays keep this vtlook. any is no constraint.
+[requires]
+min-depth = any     # any, 1, 8, 16 or 24 (32 reads as 24): bits a pixel
+max-depth = any
+min-size = any      # any, or WxH: the mode's own pixels
+max-size = any
+min-dpi = any       # any, or 1 to 1000: the density fonts are sized at
+max-dpi = any
+min-fps = any       # any, refresh or 1 to 1000: frames a second the filters must keep
+gpu = any           # any; yes for the GPU path only; no for the CPU path only

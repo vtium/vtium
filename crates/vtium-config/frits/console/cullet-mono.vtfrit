@@ -1,0 +1,40 @@
+# cullet-mono: Cullet Mono, vtium's own outline version of Terminus, with
+# Nerd Fonts' icons added. An outline font scales to any cell, so this set
+# suits a HiDPI display.
+#
+# The set adds Symbols Nerd Font Mono for the Font Logos icons, which Cullet
+# Mono leaves out because they carry no license, then color emoji, and GNU
+# Unifont last, which draws every other character. Every vtium build
+# installs Cullet Mono and Unifont. vtium ships no Nerd Fonts file, so the
+# Font Logos icons, such as a distribution's logo in a prompt, draw as
+# hollow boxes until you install Symbols Nerd Font Mono.
+#
+# Licenses: Cullet Mono is derived from Terminus Font by Dimitar Toshkov
+# Zhekov and Terminus (TTF) by Tilman Blumenbach, under the SIL OFL 1.1,
+# with the Reserved Font Names "Terminus Font" and "Terminus (TTF)". Its
+# icons come from Nerd Fonts: the patcher is under MIT, and the icon sets
+# are under their own licenses, CC-BY-4.0 for Font Awesome and Codicons
+# and Apache-2.0 for Material Design Icons among them. The layers name
+# their own licenses.
+#
+# References:
+# - ADR-1204 D2: the outline set and its layers.
+# - ADR-1204 D7: the sha256= and url= lines.
+
+name=cullet-mono
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# Cullet Mono, built by tools/cullet-mono from Terminus (TTF) 4.49.3 and
+# Nerd Fonts' patcher 3.4.0. Its version string is the patcher's, so the
+# set names no version= and checks each face by its hash.
+source=outline:/usr/share/vtium/fonts/CulletMono-Regular.ttf
+sha256=33960495f6d42818f7ac9d00be2e46397c7b741b45b322beb42804d2ea9a0427
+url=https://github.com/vtium/vtium/tree/main/tools/cullet-mono
+source=outline:/usr/share/vtium/fonts/CulletMono-Bold.ttf
+style=bold
+sha256=68d61b18df0ff98adcef79d8a68d4a15834083db66211cee80cb689b2cc1cd45
+url=https://github.com/vtium/vtium/tree/main/tools/cullet-mono
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

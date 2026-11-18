@@ -1,0 +1,30 @@
+# unifont: GNU Unifont, the fallback that ends every catalog font set. It
+# draws every character that the sources before it lack, in 1 bit, Han,
+# kana and Hangul among them, in every plane Unifont covers. Its glyphs are
+# 8×16 and 16×16, so a set whose cell is smaller draws those characters in
+# vtium's built-in font instead.
+#
+# The file is Unifoundry's unifont_all-17.0.03.hex.gz, decompressed: every
+# plane in Unifont's .hex format, which every vtium build installs.
+#
+# The two cover= lines leave out both private-use areas, where the file
+# holds the invented scripts of the ConScript Unicode Registry and where
+# Nerd Fonts puts its icons. So an icon that no earlier source holds draws
+# as a hollow box, not as a letter of an invented script.
+#
+# License: SIL OFL 1.1, the option vtium takes of Unifont's two licenses.
+# Copyright (C) 1998-2025 Roman Czyborra, Paul Hardy, Qianqian Fang, Andrew
+# Miller, Johnnie Weaver, David Corbett, Ælla Chiana Moskopp, Rebecca
+# Bettencourt, Minseo Lee, Ho-Seok Ee, et al.
+#
+# References:
+# - ADR-1204 D5: the fallback layer, its file and its two cover= lines.
+# - ADR-1204 D2: every build installs the file.
+
+role=fallback
+source=hex:/usr/share/vtium/fonts/unifont_all-17.0.03.hex
+version=17.0.03
+sha256=90a5d4dd44a5ef8d3fd02a3f397926b2f9d98640f0b86a3f050faef7bb2683b2
+url=https://unifoundry.com/pub/unifont/unifont-17.0.03/
+cover=U+0000-U+DFFF
+cover=U+F900-U+EFFFF

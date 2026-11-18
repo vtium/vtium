@@ -224,13 +224,15 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # tools/vt/units.sh as make install generates them (ADR-1500 D3), the
 # compiled terminfo entry, the example configuration
 # /etc/vtium/vtium.conf.example beside the file vtium reads,
-# /etc/vtium/vtium.conf (ADR-1500 D3, D4), the frits FRITS names in
-# /etc/vtium/fonts, the example udev rules and hwdb fragment, which are
-# documentation and never active (ADR-1401 D4), with images in
+# /etc/vtium/vtium.conf (ADR-1500 D3, D4), the font sets FRITS names in
+# their category folders under /etc/vtium/fonts and the layers FRIT_LAYERS
+# names in /etc/vtium/fonts/layers (ADR-1204 D9), the example udev rules
+# and hwdb fragment, which are documentation and never active (ADR-1401
+# D4), with images in
 # FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8), and with
 # libseat and logind in FEATURES seat mode's unit vtium-seat@.service and the
-# PAM file /etc/pam.d/vtium (ADR-1400 D3). Tier 3 installs this tree in its
-# guest.
+# PAM file /etc/pam.d/vtium (ADR-1400 D3), and the man pages in
+# /usr/share/man. Tier 3 installs this tree in its guest.
 # DESTDIR's default is install-tree's alone: make install refuses it below.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
@@ -248,30 +250,68 @@ IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
 # with libseat alone is for seatd: it opens no PAM session, and its logins
 # run as in the default build. PAM reads /etc/pam.d whatever PREFIX is.
 PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter logind,$(subst $(comma), ,$(FEATURES))))
-# The frits make install and make install-tree stage into /etc/vtium/fonts,
-# by name (ADR-1500 D8). Each is NAME.vtfrit in crates/vtium-config/frits,
-# or in tools/specimens/frits, where the specimens draw desktop. The
-# default is the set the vtium package ships; a minspec package names
-# FRITS='minspec-16 minspec-8'. A frit names its fonts, and no vtium
-# install ships a font.
-FRITS := desktop minspec-16 minspec-8
-FRIT_DIRS := crates/vtium-config/frits tools/specimens/frits
-# The frits the optional vtium-fonts package ships beside the fonts they
-# name, which make install-fonts stages: the five for scripts whose marks
-# need room above and below the letters, and the four for Chinese, Japanese
-# and Korean, one for each region's forms of Han (ADR-1500 D8). make
-# install stages any of them that FRITS names too.
-FONTS_FRITS := arabic hebrew indic thai-lao vietnamese cjk-sc cjk-tc cjk-jp cjk-kr
+# The font sets (frits) make install and make install-tree stage into
+# /etc/vtium/fonts, each in its category's folder, and the layers they add
+# in /etc/vtium/fonts/layers (ADR-1204 D9, ADR-1500 D8). Each set is
+# NAME.vtfrit in a category folder of crates/vtium-config/frits, and each
+# layer NAME.vtlayer in its layers folder. The default is the vtium
+# package's: the two sets for text, terminus and cullet-mono, then
+# jetbrains-mono and the small panels' two sets, and
+# FRIT_LAYERS names the layers those sets add. A set names its fonts, and
+# no vtium install ships a font.
+FRIT_ROOT := crates/vtium-config/frits
+FRIT_CATEGORIES := console classic code nerd scripts small
+FRIT_DIRS := $(addprefix $(FRIT_ROOT)/,$(FRIT_CATEGORIES))
+FRITS := terminus cullet-mono jetbrains-mono unifont-icons unscii-icons
+FRIT_LAYERS := nerd-symbols nerd-symbols-small noto-emoji noto-emoji-small unifont
+# The sets and layers the optional vtium-fonts package ships beside the
+# fonts they name, which make install-fonts stages: the whole catalog
+# (ADR-1204 D9). make install stages any of them that FRITS names too.
+FONTS_FRITS := $(sort $(basename $(notdir $(wildcard $(addsuffix /*.vtfrit,$(FRIT_DIRS))))))
+FONTS_LAYERS := $(sort $(basename $(notdir $(wildcard $(FRIT_ROOT)/layers/*.vtlayer))))
 frit_paths = $(foreach f,$(1),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
+layer_paths = $(foreach l,$(1),$(or $(wildcard $(FRIT_ROOT)/layers/$(l).vtlayer),$(error no layer $(l) in $(FRIT_ROOT)/layers)))
 frit_files = $(call frit_paths,$(FRITS))
+# The command that stages the sets $(1) in their category folders and the
+# layers $(2) in the layers folder, under DESTDIR.
+install_frits = $(strip $(foreach c,$(FRIT_CATEGORIES),$(if $(filter $(FRIT_ROOT)/$(c)/%,$(1)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts/$(c) $(filter $(FRIT_ROOT)/$(c)/%,$(1)) &&))) install -Dm644 -t $(DESTDIR)/etc/vtium/fonts/layers $(2)
 # A frit vtium does not hold stops the install as make reads this file,
 # before anything is built.
 ifneq ($(filter install install-build install-tree,$(MAKECMDGOALS)),)
-_frits := $(frit_files)
+_frits := $(frit_files) $(call layer_paths,$(FRIT_LAYERS))
 endif
 ifneq ($(filter install-fonts,$(MAKECMDGOALS)),)
-_fonts_frits := $(call frit_paths,$(FONTS_FRITS))
+_fonts_frits := $(call frit_paths,$(FONTS_FRITS)) $(call layer_paths,$(FONTS_LAYERS))
 endif
+# The font files every build installs in /usr/share/vtium/fonts, minspec
+# builds included: bitmap Terminus 4.49.1's eighteen BDF files, gzipped,
+# GNU Unifont's all-planes .hex file, and Cullet Mono's two faces, with
+# Cullet Mono's notices and the license texts they name in the package's
+# license directory. make font-files stages the Terminus and Unifont files
+# in FONT_FILES from a pinned archive, and make cullet-mono builds the
+# faces in CULLET_MONO_OUT. make install and make install-tree check every
+# file against its pin first, and stop with a line that names the target
+# that stages a missing file. tools/fonts/README.md describes the files and
+# their pins.
+#
+# References:
+# - ADR-1204 D2: every build installs the Terminus, Unifont and Cullet Mono
+#   files, and make install writes the package's prefix into the paths
+#   the font sets name.
+# - ADR-1204 D8: vtium installs these fonts itself.
+FONT_FILES := $(or $(CARGO_TARGET_DIR),target)/font-files
+# The script that stages and checks them; the tests name a stand-in.
+FONT_FILES_TOOL := tools/fonts/files
+FONT_FILE_NAMES := $(foreach h,12 14 16 18 20 22 24 28 32,ter-u$(h)n.bdf.gz ter-u$(h)b.bdf.gz) unifont_all-17.0.03.hex
+CULLET_MONO_FACES := CulletMono-Regular.ttf CulletMono-Bold.ttf
+CULLET_MONO_NOTICES := $(sort $(wildcard tools/cullet-mono/notices/*))
+# install-font-files,FONTS,LICENSES stages the font files in FONTS and
+# Cullet Mono's notices in LICENSES/cullet-mono.
+define install-font-files
+install -Dm644 -t $(1) $(addprefix $(FONT_FILES)/,$(FONT_FILE_NAMES)) $(addprefix $(CULLET_MONO_OUT)/,$(CULLET_MONO_FACES))
+install -Dm644 -t $(2)/cullet-mono $(CULLET_MONO_NOTICES)
+endef
+
 # The picture gallery tool, which a console with images ships as
 # vtium-gallery (ADR-1500 D8).
 GALLERY := tools/gallery/gallery
@@ -291,8 +331,18 @@ clipboard-release: ## Build vtium-clipboard, the program that copies text to the
 	cargo build --release -p vtium-clipboard --target $(X86_TARGET)
 	$(call check-glibc,$(CLIPBOARD_RELEASE))
 
+# install-man,DIR installs the man pages every build ships under DIR, the
+# man directory, with vticlip.1 a link to vtium-clipboard.1 as vticlip is to
+# vtium-clipboard. The gallery's page goes with the gallery.
+define install-man
+install -Dm644 -t $(1)/man8 $(MAN_DIR)/vtium.8
+install -Dm644 -t $(1)/man1 $(MAN_DIR)/vtium-config.1 $(MAN_DIR)/vtium-clipboard.1
+ln -sfn vtium-clipboard.1 $(1)/man1/vticlip.1
+install -Dm644 -t $(1)/man5 $(MAN_DIR)/vtium.conf.5
+endef
+
 .PHONY: install-tree
-install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-release) ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' and its frits FRITS='...' when named (needs tic)
+install-tree: font-files-check minspec config-release clipboard-release $(if $(IMAGES),image-release) ## Stage vtium's install tree under DESTDIR (default target/install-tree), its console built with FEATURES='...' and its frits FRITS='...' when named (needs tic, and the font files make font-files and make cullet-mono stage)
 	install -Dm755 $(VTIUM_MINSPEC) $(DESTDIR)/usr/bin/vtium
 	$(call check-relr,$(DESTDIR)/usr/bin/vtium)
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
@@ -306,15 +356,18 @@ install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-rele
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/xterm-vtium.ti
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
-	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
+	$(if $(strip $(FRITS)),$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS))))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
+	$(call install-font-files,$(DESTDIR)/usr/share/vtium/fonts,$(DESTDIR)/usr/share/licenses/vtium)
 	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
+	$(call install-man,$(DESTDIR)/usr/share/man)
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-image)
 	install -Dm644 $(VTIUM_INSTALL)/vtium-image.conf $(DESTDIR)/usr/lib/sysusers.d/vtium-image.conf
 	install -Dm755 $(GALLERY) $(DESTDIR)/usr/bin/vtium-gallery
+	install -Dm644 $(MAN_DIR)/vtium-gallery.1 $(DESTDIR)/usr/share/man/man1/vtium-gallery.1
 endif
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
@@ -334,13 +387,15 @@ endif
 # prompt (ADR-1101 D1, D2), and the picture gallery tool as
 # PREFIX/bin/vtium-gallery (ADR-1500 D8), the VT unit vtium@.service and its
 # getty fallback vtium-getty@.service, generated by tools/vt/units.sh, the
-# example configuration /etc/vtium/vtium.conf.example and the frits FRITS
-# names in /etc/vtium/fonts, which stay in /etc whatever PREFIX is, because
-# vtium reads its configuration and its frits from /etc/vtium alone (ADR-1500
-# D3, D4, D8), the example udev rules and hwdb fragment as documentation,
-# LICENSE_FILES under PKGNAME's name, and with libseat and logind in FEATURES
-# seat mode's unit vtium-seat@.service and the PAM file /etc/pam.d/vtium
-# (ADR-1400 D3).
+# example configuration /etc/vtium/vtium.conf.example, the font sets FRITS
+# names in their category folders under /etc/vtium/fonts and the layers
+# FRIT_LAYERS names in /etc/vtium/fonts/layers, all of which stay in /etc
+# whatever PREFIX is, because vtium reads its configuration and its font
+# sets from /etc/vtium alone (ADR-1204 D9, ADR-1500 D3, D4, D8), the example
+# udev rules and hwdb fragment as documentation,
+# LICENSE_FILES under PKGNAME's name, the man pages in PREFIX/share/man, and
+# with libseat and logind in FEATURES seat mode's unit vtium-seat@.service and
+# the PAM file /etc/pam.d/vtium (ADR-1400 D3).
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
@@ -435,7 +490,7 @@ endif
 	$(build_settings)cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
-install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default desktop minspec-16 minspec-8): make install DESTDIR=DIR PREFIX=/usr
+install: font-files-check install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus cullet-mono jetbrains-mono unifont-icons unscii-icons), with the font files make font-files and make cullet-mono stage: make install DESTDIR=DIR PREFIX=/usr
 	install -Dm755 $(INSTALL_TARGET_DIR)/minspec/vtium $(DESTDIR)$(PREFIX)/bin/vtium
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-config $(DESTDIR)$(PREFIX)/bin/vtium-config
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-clipboard $(DESTDIR)$(PREFIX)/bin/vtium-clipboard
@@ -444,20 +499,26 @@ ifneq ($(IMAGES),)
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-image $(DESTDIR)$(PREFIX)/bin/vtium-image
 	install -Dm644 $(VTIUM_INSTALL)/vtium-image.conf $(DESTDIR)$(PREFIX)/lib/sysusers.d/vtium-image.conf
 	install -Dm755 $(GALLERY) $(DESTDIR)$(PREFIX)/bin/vtium-gallery
+	install -Dm644 $(MAN_DIR)/vtium-gallery.1 $(DESTDIR)$(PREFIX)/share/man/man1/vtium-gallery.1
 endif
+	$(call install-man,$(DESTDIR)$(PREFIX)/share/man)
 	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service'$(if $(PAM_SESSION), --seat) $(DESTDIR)$(UNITDIR)
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
-	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
+	$(if $(strip $(FRITS)),$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS))))
+ifneq ($(PREFIX),/usr)
+	find $(DESTDIR)/etc/vtium/fonts -type f \( -name '*.vtfrit' -o -name '*.vtlayer' \) -exec sed -i 's|/usr/share/vtium/fonts/|$(PREFIX)/share/vtium/fonts/|g' {} +
+endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)$(PREFIX)/share/vtium/pointers.svg
+	$(call install-font-files,$(DESTDIR)$(PREFIX)/share/vtium/fonts,$(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
-install-fonts: ## Stage the frits the vtium-fonts package ships, FONTS_FRITS='...' (default arabic hebrew indic thai-lao vietnamese cjk-sc cjk-tc cjk-jp cjk-kr), in /etc/vtium/fonts under DESTDIR=DIR
-	install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(call frit_paths,$(FONTS_FRITS))
+install-fonts: ## Stage the font sets and layers the vtium-fonts package ships, FONTS_FRITS='...' and FONTS_LAYERS='...' (default the whole catalog), in /etc/vtium/fonts under DESTDIR=DIR
+	$(call install_frits,$(call frit_paths,$(FONTS_FRITS)),$(call layer_paths,$(FONTS_LAYERS)))
 
 .PHONY: install-terminfo
 install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and its alias vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
@@ -629,7 +690,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the Cullet Mono build's checks without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest, the font files' staging and check, and the Cullet Mono build's checks without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -646,6 +707,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/arm/test_sysroot.py
 	python3 -I -B tools/stage/test_check.py
 	python3 -I -B tools/vendor/test_manifest.py
+	python3 -I -B tools/fonts/test_files.py
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
 	cargo test -q -p vtium-site
@@ -653,7 +715,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/t3-novt tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/t3-novt tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive tools/fonts/files && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The key table's crates' unit tests, built as the vtium package builds
 # them, with VTIUM_HWACCEL=on, VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8) and
@@ -838,6 +900,13 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 # - ADR-1204 D2: the sources, the name and the icon sets.
 CULLET_MONO := cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool --
 CULLET_MONO_OUT := $(or $(CARGO_TARGET_DIR),target)/cullet-mono
+.PHONY: font-files font-files-check
+font-files: ## Stage the Terminus and Unifont files every build installs in target/font-files: Terminus 4.49.1's archive fetched once into the cache, and each file checked against tools/fonts/pins.tsv (needs curl and the network once)
+	$(FONT_FILES_TOOL) fetch $(FONT_FILES)
+
+font-files-check: ## Check the font files make install stages, in target/font-files and target/cullet-mono, against their pins
+	$(FONT_FILES_TOOL) check $(FONT_FILES) $(CULLET_MONO_OUT)
+
 .PHONY: cullet-mono cullet-mono-check
 cullet-mono: ## Build Cullet Mono from its pinned sources into target/cullet-mono, and check each face against its pinned SHA-256 (needs FontForge, Python and the network once)
 	$(CULLET_MONO) build --out $(CULLET_MONO_OUT)
@@ -946,6 +1015,26 @@ release-notes: ## Write the GitHub release body for VERSION=V from docs/releases
 	@test -n "$(VERSION)" || { echo "name the release: make release-notes VERSION=0.1.0-alpha.9" >&2; exit 1; }
 	cargo run -q -p vtium-site --bin release-notes -- --out target/release-notes/$(VERSION).md $(VERSION)
 
+# vtium's man pages, committed in man/. tools/man generates them in roff:
+# vtium.conf(5)'s settings from the key table, each command's options from
+# that command's own list, and the prose from tools/man/templates. make man
+# writes them, and make man-check, a gate of the gate line, fails when a
+# committed page differs from what the generator writes, or when mandoc's
+# lint reports a warning or worse on one; a style note passes. make install
+# and make install-tree install them in PREFIX/share/man, the gallery's page
+# only with images in FEATURES, as its program.
+MAN_DIR := man
+MAN_PAGES := vtium.8 vtium-config.1 vtium.conf.5 vtium-clipboard.1 vtium-gallery.1
+
+.PHONY: man man-check
+man: ## Write vtium's man pages into man/ from the key table, the commands' option lists and tools/man's templates
+	cargo run -q -p vtium-man -- write $(MAN_DIR)
+
+man-check: ## Fail when a man page in man/ is stale or mandoc -T lint finds a warning or worse in one (needs mandoc)
+	cargo run -q -p vtium-man -- check $(MAN_DIR)
+	@command -v mandoc >/dev/null || { echo "man-check: mandoc is not installed, so it cannot lint the man pages. Install the mandoc package." >&2; exit 1; }
+	mandoc -T lint -W warning $(addprefix $(MAN_DIR)/,$(MAN_PAGES))
+
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the goldens in
 # tools/tier3/goldens (tools/tier3/README.md). QEMU runs headless as the invoking user. Each
@@ -999,8 +1088,8 @@ tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or
 	$(T3_RUN) --tree-target install-tree $(VARIANTS)
 
 .PHONY: tier3-minimal
-tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, the 320x240 and 640x480 displays, and vtium with nothing installed
-	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held builtin-font)
+tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: unifont, a PSF font, the 320x240 and 640x480 displays, vtium with nothing installed, and the default font sets at 16, 24 and 40 pixels
+	$(T3_RUN) --tree-target install-tree $(or $(VARIANTS),2d-potato-min 2d-potato-min-psf 2d-320x240-psf8 2d-640x480-psf16 2d-640x480-frit 2d-640x480-frit-held default-font-16 default-font-24 default-font-40 cullet-mono-16 cullet-mono-24 cullet-mono-40 builtin-font)
 
 # vtium's pictures on tier 3: the tree's console built with images, and with
 # any other features FEATURES names, then the images variants, which draw
@@ -1064,6 +1153,7 @@ docs/scripts/claims
 docs/scripts/prose --check
 docs/scripts/coverage
 make api
+make man-check
 make test-tools
 make conformance
 make conformance-probes

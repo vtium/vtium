@@ -1,0 +1,327 @@
+//! Text to roff. The templates and the texts that come from code are plain
+//! prose with a little markup, and this module turns them into man(7)
+//! requests: headings, paragraphs, tagged and bulleted lists, examples, and
+//! inline code.
+//!
+//! A template is read line by line, and a blank line ends a paragraph:
+//!
+//! - `## TITLE` starts a section (`.SH`), and `### Title` a subsection
+//!   (`.SS`).
+//! - `= TERM` starts an item of a tagged list (`.TP`): the lines that follow
+//!   are its text, up to the next blank line. A paragraph that follows the
+//!   item without a blank line between them stays inside the item (`.IP`).
+//! - `- text` is an item of a bulleted list.
+//! - A line indented by four spaces is an example, shown as it is.
+//! - `@NAME@` alone on a line stands for a block the generator fills in.
+//! - In text, `` `code` `` is set in bold, as a man page sets a command, an
+//!   option, a key or a file name.
+
+/// Escapes `text` for a roff text line: a backslash becomes `\e`, and each
+/// character outside ASCII becomes a `\[uXXXX]` escape, which mandoc and
+/// groff both read in any locale. In `code`, each hyphen becomes `\-`, a
+/// minus sign, so that an option such as `--help` can be copied and pasted
+/// from the rendered page.
+fn escape(text: &str, code: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\e"),
+            '-' if code => out.push_str("\\-"),
+            c if c.is_ascii() => out.push(c),
+            c => out.push_str(&format!("\\[u{:04X}]", u32::from(c))),
+        }
+    }
+    out
+}
+
+/// `text` with its code spans set in bold, escaped for a text line. A word
+/// outside a code span that starts with a hyphen, such as `--help` written
+/// without backticks, has its hyphens set as minus signs too.
+pub fn inline(text: &str) -> String {
+    let mut out = String::new();
+    for (i, part) in text.split('`').enumerate() {
+        if i % 2 == 1 {
+            out.push_str("\\fB");
+            out.push_str(&escape(part, true));
+            out.push_str("\\fR");
+            continue;
+        }
+        for (j, word) in part.split(' ').enumerate() {
+            if j > 0 {
+                out.push(' ');
+            }
+            let option = word.trim_start_matches(['(', '[']).starts_with('-');
+            out.push_str(&escape(word, option));
+        }
+    }
+    text_line(&out)
+}
+
+/// `line` made safe as a text line: a line that starts with a period or
+/// an apostrophe would be read as a request, so it gets a zero-width `\&`
+/// in front.
+fn text_line(line: &str) -> String {
+    if line.starts_with('.') || line.starts_with('\'') {
+        format!("\\&{line}")
+    } else {
+        line.to_owned()
+    }
+}
+
+/// A command line written for a synopsis: each word in capitals, such as
+/// FILE or N, and a size such as WxH, is a value to replace and is set in
+/// italics; each other word, such as a command or an option, is set in
+/// bold; brackets, bars and ellipses stay in the regular font.
+pub fn synopsis(line: &str) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        if word.is_empty() {
+            return;
+        }
+        let letters: Vec<char> = word.chars().filter(char::is_ascii_alphabetic).collect();
+        let placeholder = !letters.is_empty()
+            && (letters.iter().all(char::is_ascii_uppercase)
+                || (letters.len() == 3 && letters[1] == 'x' && letters[0].is_ascii_uppercase()));
+        let font = if placeholder { "\\fI" } else { "\\fB" };
+        out.push_str(font);
+        out.push_str(&escape(word, true));
+        out.push_str("\\fR");
+        word.clear();
+    };
+    for c in line.chars() {
+        if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '=' | '/' | ':' | '+' | '\'') {
+            word.push(c);
+        } else {
+            flush(&mut word, &mut out);
+            out.push_str(&escape(&c.to_string(), false));
+        }
+    }
+    flush(&mut word, &mut out);
+    text_line(&out)
+}
+
+/// What the last request written left open, so that [`Writer`] knows
+/// whether the next paragraph needs a `.PP` of its own.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum After {
+    /// A heading: the next paragraph starts without a request.
+    Heading,
+    /// Text, a list item or an example.
+    Text,
+}
+
+/// Builds a page from blocks, choosing the paragraph requests so that a
+/// page never has a paragraph request that mandoc would skip.
+pub struct Writer {
+    out: String,
+    after: After,
+}
+
+impl Writer {
+    /// A page whose title line names `name`, its section, the date and the
+    /// source, and the manual's name.
+    pub fn new(name: &str, section: u8, date: &str, source: &str, manual: &str) -> Writer {
+        let out = format!(
+            ".\\\" Generated by tools/man from vtium's code and templates; do not edit.\n\
+             .\\\" Run make man to write it again.\n\
+             .TH {} {section} {date} \"{source}\" \"{manual}\"\n",
+            escape(&name.to_uppercase(), true)
+        );
+        Writer {
+            out,
+            after: After::Heading,
+        }
+    }
+
+    fn request(&mut self, line: &str) {
+        self.out.push_str(line);
+        self.out.push('\n');
+    }
+
+    /// A section heading.
+    pub fn section(&mut self, title: &str) {
+        self.request(&format!(".SH {}", escape(title, false)));
+        self.after = After::Heading;
+    }
+
+    /// A subsection heading.
+    pub fn subsection(&mut self, title: &str) {
+        let title = escape(title, true);
+        if title.contains(' ') {
+            self.request(&format!(".SS \"{title}\""));
+        } else {
+            self.request(&format!(".SS {title}"));
+        }
+        self.after = After::Heading;
+    }
+
+    /// A paragraph of prose, with its code spans.
+    pub fn paragraph(&mut self, text: &str) {
+        self.start_paragraph();
+        self.request(&inline(text));
+    }
+
+    /// Starts a paragraph whose lines the caller writes with [`Writer::line`].
+    pub fn start_paragraph(&mut self) {
+        if self.after == After::Text {
+            self.request(".PP");
+        }
+        self.after = After::Text;
+    }
+
+    /// A line of roff, written as it is.
+    pub fn line(&mut self, roff: &str) {
+        self.request(roff);
+        self.after = After::Text;
+    }
+
+    /// Lines of a synopsis, one command line to a line.
+    pub fn synopsis<'a>(&mut self, lines: impl IntoIterator<Item = &'a str>) {
+        self.start_paragraph();
+        for (i, line) in lines.into_iter().enumerate() {
+            if i > 0 {
+                self.request(".br");
+            }
+            self.request(&synopsis(line));
+        }
+    }
+
+    /// An item of a tagged list: `tag`, already in roff, then the item's
+    /// paragraphs, each with its code spans.
+    pub fn item<'a>(&mut self, tag: &str, paragraphs: impl IntoIterator<Item = &'a str>) {
+        self.request(".TP");
+        self.request(&text_line(tag));
+        for (i, p) in paragraphs.into_iter().enumerate() {
+            if i > 0 {
+                self.request(".IP");
+            }
+            self.request(&inline(p));
+        }
+        self.after = After::Text;
+    }
+
+    /// An item of a bulleted list.
+    pub fn bullet(&mut self, text: &str) {
+        self.request(".IP \\(bu 2");
+        self.request(&inline(text));
+        self.after = After::Text;
+    }
+
+    /// An example: lines shown as they are, indented, without filling.
+    pub fn example<'a>(&mut self, lines: impl IntoIterator<Item = &'a str>) {
+        self.start_paragraph();
+        self.request(".RS 4");
+        self.request(".nf");
+        for line in lines {
+            self.request(&text_line(&escape(line, true)));
+        }
+        self.request(".fi");
+        self.request(".RE");
+        self.after = After::Text;
+    }
+
+    /// The blocks of `template`, with each `@NAME@` line replaced by what
+    /// `fill` writes for NAME. `fill` returns false for a name it does not
+    /// know, which is a fault in the template.
+    pub fn template(&mut self, template: &str, fill: &mut dyn FnMut(&str, &mut Writer) -> bool) {
+        let mut lines = template.lines().peekable();
+        while let Some(line) = lines.next() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Some(title) = line.strip_prefix("### ") {
+                self.subsection(title);
+            } else if let Some(title) = line.strip_prefix("## ") {
+                self.section(title);
+            } else if let Some(name) = line.strip_prefix('@').and_then(|l| l.strip_suffix('@')) {
+                assert!(
+                    fill(name, self),
+                    "the template names no block called {name}"
+                );
+            } else if let Some(term) = line.strip_prefix("= ") {
+                let mut text = Vec::new();
+                while let Some(next) =
+                    lines.next_if(|l| !l.trim().is_empty() && !l.starts_with("= "))
+                {
+                    text.push(next);
+                }
+                self.item(&inline(term), text);
+            } else if let Some(text) = line.strip_prefix("- ") {
+                self.bullet(text);
+            } else if let Some(first) = line.strip_prefix("    ") {
+                let mut block = vec![first];
+                while let Some(next) = lines.next_if(|l| l.starts_with("    ")) {
+                    block.push(next.strip_prefix("    ").unwrap_or(next));
+                }
+                self.example(block);
+            } else {
+                let mut text = vec![line];
+                while let Some(next) = lines.next_if(|l| {
+                    !l.trim().is_empty()
+                        && !l.starts_with('#')
+                        && !l.starts_with("= ")
+                        && !l.starts_with("- ")
+                }) {
+                    text.push(next);
+                }
+                self.paragraph(&text.join(" "));
+            }
+        }
+    }
+
+    /// The page.
+    pub fn finish(self) -> String {
+        self.out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn code_spans_are_bold_and_their_hyphens_are_minus_signs() {
+        assert_eq!(
+            inline("Set `font-size` with --font-size=14 or a built-in font."),
+            "Set \\fBfont\\-size\\fR with \\-\\-font\\-size=14 or a built-in font."
+        );
+    }
+
+    #[test]
+    fn a_line_that_would_be_a_request_is_escaped() {
+        assert_eq!(inline(".vtfrit files"), "\\&.vtfrit files");
+        assert_eq!(inline("'quoted'"), "\\&'quoted'");
+        assert_eq!(inline("a \\ b × c"), "a \\e b \\[u00D7] c");
+    }
+
+    #[test]
+    fn a_synopsis_sets_values_in_italics_and_words_in_bold() {
+        assert_eq!(
+            synopsis("vtium blank --vt N"),
+            "\\fBvtium\\fR \\fBblank\\fR \\fB\\-\\-vt\\fR \\fIN\\fR"
+        );
+        assert_eq!(
+            synopsis("look add NAME [--cell WxH]"),
+            "\\fBlook\\fR \\fBadd\\fR \\fINAME\\fR [\\fB\\-\\-cell\\fR \\fIWxH\\fR]"
+        );
+    }
+
+    #[test]
+    fn a_paragraph_after_a_heading_needs_no_request() {
+        let mut w = Writer::new("x", 1, "2026-11-17", "vtium 1", "User Commands");
+        w.template(
+            "## NAME\n\none\n\ntwo\n\n= `--a`\nit\n\n    $ x\n\nthree\n",
+            &mut |_, _| false,
+        );
+        let page = w.finish();
+        let body = page
+            .split_once(".SH NAME\n")
+            .map(|(_, b)| b)
+            .unwrap_or_default();
+        assert_eq!(
+            body,
+            "one\n.PP\ntwo\n.TP\n\\fB\\-\\-a\\fR\nit\n.PP\n.RS 4\n.nf\n$ x\n.fi\n.RE\n.PP\nthree\n"
+        );
+    }
+}

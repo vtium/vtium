@@ -1453,7 +1453,10 @@ mod tests {
         // the control each hint names is the one on screen
         assert!(words::SWITCH_EVERY_VT.contains(&format!("line {}", words::VTS_LABEL)));
         assert!(words::SWITCH_EVERY_VT.contains("Press e"));
-        assert!(words::KEYS_FLOW_CARD.contains("e revise this path"));
+        assert!(
+            super::super::contract::key_pages("flow.card")
+                .is_some_and(|pages| pages.iter().any(|p| p.contains("e revise this path")))
+        );
         assert!(words::SWITCH_EVERY_VT_NEW.contains(&format!("line {}", words::VTS_LABEL)));
         // each hint fits the three lines the card gives it at 80 columns
         for why in [
