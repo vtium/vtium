@@ -86,6 +86,9 @@ considered:
     via: the maintainer's answers to the steering session's questions, 2026-11-18
     paraphrase: true
     covers: [the tab order]
+  - operator: aaronsb
+    said: "Yes that makes sense a look takes priority over what is defined in settings"
+    via: the steering session, 2026-11-18, on how a look's pointer theme sits beside vtium.conf's pointer-theme key
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -240,7 +243,7 @@ One font may fill every role, or several fonts may share them. The fonts keep AD
 
 A look also takes active effects: the color maps and shaders that its vtlook names (ADR-1304 D4, D11).
 
-**A look picks its pointer theme.** The Looks tab lists the installed pointer themes: vtium's own `/usr/share/vtium/pointers.svg`, and each desktop cursor theme in `/usr/share/icons` or `/usr/local/share/icons` whose folder holds a `cursors` folder (ADR-1309 D2). Those two folders are this record's agent's call. Each look picks one of them, or none for vtium's own pictures. A pointer theme follows D4's rule and is activated like any other resource, so the Looks tab offers only active themes and marks the others as not active. How a look's choice sits beside the top-level `pointer-theme` key of ADR-1309 D1 is left to the work that builds the Looks tab.
+**A look picks its pointer theme.** The Looks tab lists the installed pointer themes: vtium's own `/usr/share/vtium/pointers.svg`, and each desktop cursor theme in `/usr/share/icons` or `/usr/local/share/icons` whose folder holds a `cursors` folder (ADR-1309 D2). Those two folders are this record's agent's call. Each look picks one of them, or none for vtium's own pictures. A pointer theme follows D4's rule and is activated like any other resource, so the Looks tab offers only active themes and marks the others as not active. A look's choice takes priority over the `pointer-theme` key in vtium.conf (ADR-1309 D1). That key stays the default for a look that picks no theme, so an existing configuration keeps its pointers.
 
 ### D7: sizes come from the look
 
