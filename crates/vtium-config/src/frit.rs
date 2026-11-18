@@ -67,6 +67,13 @@ pub enum Origin {
     /// A BDF font file by its absolute path, read by vtium-config's own
     /// reader (ADR-1200 D14).
     Bdf(PathBuf),
+    /// A font in the `.hex` format of GNU Unifont's tools, uncompressed,
+    /// by its absolute path, read by vtium-config's own reader
+    /// ([`crate::hex`]).
+    ///
+    /// References:
+    /// - ADR-1204 D5: the `hex:` source kind.
+    Hex(PathBuf),
     /// An outline font file, TrueType or OpenType or a collection of
     /// them, by its absolute path.
     Outline(PathBuf),
@@ -306,7 +313,7 @@ impl Source {
     pub fn font_name(&self) -> Option<String> {
         match &self.origin {
             Origin::Kbd(name) | Origin::Font(name) | Origin::Builtin(name) => Some(name.clone()),
-            Origin::File(path) | Origin::Bdf(path) | Origin::Outline(path) => {
+            Origin::File(path) | Origin::Bdf(path) | Origin::Hex(path) | Origin::Outline(path) => {
                 Some(path.display().to_string())
             }
             Origin::Vconsole | Origin::Console(_) => None,
@@ -802,6 +809,7 @@ impl Frit {
                             | Origin::Console(_)
                             | Origin::Outline(_)
                             | Origin::Bdf(_)
+                            | Origin::Hex(_)
                     ) {
                         return Err(err(n, "unimap= is for a source without its own map"));
                     }
@@ -1191,7 +1199,7 @@ fn origin(value: &str) -> Result<Origin, String> {
     }
     let Some((kind, rest)) = value.split_once(':') else {
         return Err(format!(
-            "source={value} is not one of font:, kbd:, file:, bdf:, outline:, vconsole, console: or builtin:"
+            "source={value} is not one of font:, kbd:, file:, bdf:, hex:, outline:, vconsole, console: or builtin:"
         ));
     };
     match kind {
@@ -1207,7 +1215,7 @@ fn origin(value: &str) -> Result<Origin, String> {
             }
             Ok(Origin::Kbd(rest.to_owned()))
         }
-        "file" | "bdf" | "outline" => {
+        "file" | "bdf" | "hex" | "outline" => {
             let path = PathBuf::from(rest);
             if !path.is_absolute() {
                 return Err(format!("{kind}: takes an absolute path"));
@@ -1215,6 +1223,7 @@ fn origin(value: &str) -> Result<Origin, String> {
             Ok(match kind {
                 "file" => Origin::File(path),
                 "bdf" => Origin::Bdf(path),
+                "hex" => Origin::Hex(path),
                 _ => Origin::Outline(path),
             })
         }
@@ -1227,7 +1236,7 @@ fn origin(value: &str) -> Result<Origin, String> {
         "builtin" if RESERVED.contains(&rest) => Ok(Origin::Builtin(rest.to_owned())),
         "builtin" => Err("builtin: takes unifont or unscii-8".to_owned()),
         _ => Err(format!(
-            "source={value} is not one of font:, kbd:, file:, bdf:, outline:, vconsole, console: or builtin:"
+            "source={value} is not one of font:, kbd:, file:, bdf:, hex:, outline:, vconsole, console: or builtin:"
         )),
     }
 }
@@ -1317,10 +1326,10 @@ fn need(needs: &mut Needs, origin: &Origin, key: &str, value: &str) -> Result<()
         "sha256" => {
             if !matches!(
                 origin,
-                Origin::File(_) | Origin::Bdf(_) | Origin::Outline(_)
+                Origin::File(_) | Origin::Bdf(_) | Origin::Hex(_) | Origin::Outline(_)
             ) {
                 return Err(
-                    "sha256= is for a source named by its path, file:, bdf: or outline:, and the source above it names no file"
+                    "sha256= is for a source named by its path, file:, bdf:, hex: or outline:, and the source above it names no file"
                         .to_owned(),
                 );
             }
@@ -1868,6 +1877,38 @@ mod tests {
             let (l, w) = refusal(text);
             assert_eq!(l, line, "{text:?}: {w}");
             assert!(w.contains(why), "{text:?}: {w}");
+        }
+    }
+
+    // hex: names a .hex font by its absolute path. It takes sha256=, like
+    // any source named by its path, and no unimap=, because a .hex font
+    // maps its own code points.
+    //
+    // References:
+    // - ADR-1204 D5: the hex: source kind and its sha256= line.
+    #[test]
+    fn hex_names_a_hex_font_by_its_path() {
+        let hash = "90a5d4dd44a5ef8d3fd02a3f397926b2f9d98640f0b86a3f050faef7bb2683b2";
+        let frit = parse(&format!(
+            "source=hex:/usr/share/vtium/fonts/unifont_all-17.0.03.hex\nversion=17.0.03\nsha256={hash}\n"
+        ))
+        .expect("the frit");
+        let source = &frit.sources[0];
+        assert_eq!(
+            source.origin,
+            Origin::Hex("/usr/share/vtium/fonts/unifont_all-17.0.03.hex".into())
+        );
+        assert_eq!(source.needs.sha256.as_deref(), Some(hash));
+        assert_eq!(
+            source.font_name().as_deref(),
+            Some("/usr/share/vtium/fonts/unifont_all-17.0.03.hex")
+        );
+        for (text, why) in [
+            ("source=hex:unifont.hex\n", "hex: takes an absolute path"),
+            ("source=hex:/u.hex\nunimap=def\n", "unimap= is for a source"),
+        ] {
+            let (_, e) = refusal(text);
+            assert!(e.starts_with(why), "{text:?}: {e}");
         }
     }
 

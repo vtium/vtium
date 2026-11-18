@@ -116,12 +116,13 @@ pub fn lacking(check: &[Cover], count: impl Fn(u32, u32) -> usize) -> Option<u32
 /// The version string a font read from `input` states: an outline font's
 /// version from its name table, in the face of the family the source
 /// names, and a BDF font's `FONT_VERSION` property. `None` for a font that
-/// states none, such as a PSF font, which has no place for one.
+/// states none, such as a PSF font or a `.hex` font, which have no place
+/// for one.
 pub fn version_of(input: &Input) -> Option<String> {
     match input {
         Input::Outline(req) => crate::serve::outline_version(&req.font, &req.family),
         Input::Bdf(bytes) => crate::bdf::version(bytes),
-        Input::Font(_) | Input::Bitmap(_) => None,
+        Input::Font(_) | Input::Hex(_) | Input::Bitmap(_) => None,
     }
 }
 
@@ -131,7 +132,9 @@ pub fn version_of(input: &Input) -> Option<String> {
 pub fn sha256_of(origin: &Origin) -> Option<String> {
     let (path, limit): (&Path, u64) = match origin {
         Origin::Outline(path) => (path, OUTLINE_BYTES_MAX),
-        Origin::File(path) | Origin::Bdf(path) => (path, u64::from(PSF_BYTES_MAX)),
+        Origin::File(path) | Origin::Bdf(path) | Origin::Hex(path) => {
+            (path, u64::from(PSF_BYTES_MAX))
+        }
         _ => return None,
     };
     let bytes = crate::sources::read_regular(path, limit).ok()?;

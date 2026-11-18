@@ -1786,6 +1786,7 @@ fn bitmap_of(input: Input, outline: &str) -> Result<Font, String> {
     match input {
         Input::Bitmap(font) => Ok(font),
         Input::Bdf(bytes) => crate::bdf::font(&bytes),
+        Input::Hex(bytes) => crate::hex::font(&bytes),
         Input::Font(req) => req
             .unimap
             .as_ref()
@@ -1937,6 +1938,7 @@ impl Engine {
                         version = stated;
                         Loaded::Bitmap(font)
                     }),
+                    Input::Hex(bytes) => crate::hex::font(&bytes).map(Loaded::Bitmap),
                     Input::Font(req) => crate::decode::font(
                         &req.font,
                         req.unimap.as_deref(),
@@ -5513,6 +5515,87 @@ mod tests {
             .map(|(_, p)| String::from_utf8(p.clone()).unwrap())
             .unwrap();
         assert_eq!(answer, format!("sha256\t1\tbdf:{}\t{hash}", file.display()));
+    }
+
+    // A hex: source draws its glyphs in its 8×16 cell, a 16×16 glyph across
+    // two cells, and a file whose SHA-256 is not the one sha256= gives
+    // still draws and is reported. A .hex font states no version, so
+    // version= finds nothing to compare. A gzipped .hex file is refused
+    // with a warning that names its line, and the frit draws without it.
+    //
+    // References:
+    // - ADR-1204 D5: the hex: source, read uncompressed.
+    // - ADR-1204 D7: a font that states no version is checked by its
+    //   sha256= line.
+    #[test]
+    fn a_hex_source_draws_and_is_checked_by_its_hash() {
+        let dir = scratch("hex");
+        let file = dir.join("u.hex");
+        let text = format!(
+            "0041:{}\n4E00:{}\n",
+            "00000000182424427E42424242000000",
+            "FF".repeat(32)
+        );
+        std::fs::write(&file, &text).unwrap();
+        let hash = vtium_font::sha256_hex(&vtium_font::Sha256::digest(text.as_bytes()));
+        let load = |keys: &str| {
+            let text = format!("source=hex:{}\n{keys}\n", file.display());
+            Engine::load(&frit(&text), &Paths::default(), None).unwrap()
+        };
+        let engine = load(&format!("version=17.0.03\nsha256={hash}"));
+        assert_eq!(engine.differs(), []);
+        assert_eq!(engine.coverage(), [0x41, 0x4e00]);
+        assert!(matches!(
+            engine.own_cell(16),
+            Ok(OwnCell::Bitmap(Cell {
+                width: 8,
+                height: 16
+            }))
+        ));
+        let (rows, _) = spaced_rows(
+            &frit(&format!("source=hex:{}\n", file.display())),
+            CELL,
+            Band::NONE,
+            &['A', '\u{4e00}'],
+        );
+        let a: Vec<u8> = [
+            0, 0, 0, 0, 0x18, 0x24, 0x24, 0x42, 0x7e, 0x42, 0x42, 0x42, 0x42, 0, 0, 0,
+        ]
+        .to_vec();
+        let lit = |r: &Vec<u8>| r.iter().fold(0u8, |b, &p| (b << 1) | u8::from(p != 0));
+        assert_eq!(rows[0].iter().map(lit).collect::<Vec<_>>(), a);
+        assert!(
+            rows[1]
+                .iter()
+                .all(|r| r.len() == 16 && r.iter().all(|&p| p == 255))
+        );
+        let other = "0".repeat(64);
+        let engine = load(&format!("sha256={other}"));
+        assert_eq!(
+            engine
+                .differs()
+                .iter()
+                .map(|d| d.what.clone())
+                .collect::<Vec<_>>(),
+            [crate::needs::Differ::OtherHash(hash)]
+        );
+        let gz = dir.join("u.hex.gz");
+        std::fs::write(&gz, crate::decode::tests::gzip(text.as_bytes())).unwrap();
+        let both = format!(
+            "source=hex:{}\nsource=hex:{}\n",
+            gz.display(),
+            file.display()
+        );
+        let engine = Engine::load(&frit(&both), &Paths::default(), None).unwrap();
+        assert_eq!(engine.sources.len(), 1);
+        assert!(
+            engine
+                .warnings()
+                .iter()
+                .any(|w| w.contains(":1: source=hex:") && w.contains("is gzipped")),
+            "{:?}",
+            engine.warnings()
+        );
     }
 
     // A zstd font whose window is past ZSTD_WINDOW_MAX is refused with a

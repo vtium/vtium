@@ -193,7 +193,7 @@ fn needs_report(
         // a font named by its path is a file this machine lacks, not a font
         // it has not installed
         let named = match source.origin {
-            Origin::File(_) | Origin::Bdf(_) | Origin::Outline(_) => Named::ByPath,
+            Origin::File(_) | Origin::Bdf(_) | Origin::Hex(_) | Origin::Outline(_) => Named::ByPath,
             _ => Named::ByName,
         };
         let text = match (version, lacks) {
@@ -543,10 +543,10 @@ pub const TEMPLATE: &str = "\
 # The fonts, in order: each later source= line supplies only the characters
 # the fonts before it lack. A source is font:FAMILY, a font family found on
 # the machine that draws it; kbd:NAME, a kbd console font; file:PATH, a PSF
-# file; bdf:PATH, a BDF font; outline:PATH, a TrueType or OpenType file;
-# vconsole, the console font vconsole.conf names; console:VT, the font the
-# kernel's console had when vtium started; or builtin:unifont or
-# builtin:unscii-8.
+# file; bdf:PATH, a BDF font; hex:PATH, a font in GNU Unifont's .hex
+# format, uncompressed; outline:PATH, a TrueType or OpenType file; vconsole,
+# the console font vconsole.conf names; console:VT, the font the kernel's
+# console had when vtium started; or builtin:unifont or builtin:unscii-8.
 source=font:DejaVu Sans Mono
 #source=builtin:unifont
 #
@@ -594,8 +594,8 @@ source=font:DejaVu Sans Mono
 /// A source as `new` takes it: a source's spelling when it starts with a
 /// form a frit's `source=` takes, and otherwise a font family, `font:`.
 fn source_spelling(word: &str) -> String {
-    const FORMS: [&str; 7] = [
-        "font:", "kbd:", "file:", "bdf:", "outline:", "console:", "builtin:",
+    const FORMS: [&str; 8] = [
+        "font:", "kbd:", "file:", "bdf:", "hex:", "outline:", "console:", "builtin:",
     ];
     if word == "vconsole" || FORMS.iter().any(|f| word.starts_with(f)) {
         word.to_owned()
