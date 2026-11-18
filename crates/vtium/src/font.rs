@@ -553,6 +553,28 @@ fn frit_outline(text: &str) -> bool {
     })
 }
 
+/// Whether a frit's `text` gives a bitmap font with strikes as its first
+/// source: the first `source=` line names neither an outline file nor a
+/// family, and a `strike=` line follows it before the next `source=` or
+/// `layer=` line. Such a source is one font at several heights, so its
+/// cell changes with the height it draws at.
+///
+/// References:
+/// - ADR-1204 D2: the `strike=` key, and the strike each height draws.
+fn frit_struck(text: &str) -> bool {
+    let mut keys = text.split('\n').filter_map(|line| {
+        let (k, v) = line.split('#').next()?.split_once('=')?;
+        Some((k.trim(), v.trim()))
+    });
+    let Some((_, first)) = keys.by_ref().find(|(k, _)| *k == "source") else {
+        return false;
+    };
+    !(first.starts_with("outline:") || first.starts_with("font:"))
+        && keys
+            .take_while(|(k, _)| *k != "source" && *k != "layer")
+            .any(|(k, _)| k == "strike")
+}
+
 /// What `vtium check-config` says of the cell the frit `name`'s `text`
 /// states, where that needs no font parsed (#145): an unreadable
 /// `cell=`, a cell smaller than the built-in Unscii-8's 8x8, which the
@@ -629,6 +651,13 @@ fn frit_cell_at(stated: Option<Cell>, height: u32, builtin: Cell) -> Cell {
             height: height.max(builtin.height),
         },
     }
+}
+
+/// The height of the largest whole multiple of `cell` no taller than
+/// `height`, and at least `cell`'s own height: the height a bitmap font of
+/// that cell draws at when `height` is asked for.
+pub fn whole_height(cell: Cell, height: u32) -> u32 {
+    frit_cell_at(Some(cell), height, cell).height
 }
 
 /// A face a display draws with: [`Send`], as its head's render thread
@@ -973,11 +1002,20 @@ pub enum Chosen {
         /// frit that states no cell, with no `font-size` configured.
         own: Option<Cell>,
         /// Its outline first source's cell at each height the helper was
-        /// asked at, for a frit that states no cell.
+        /// asked at, for a frit that states no cell; for a bitmap first
+        /// source with strikes, the cell of the strike each height draws.
         heights: std::collections::BTreeMap<u32, Cell>,
         /// Its first source is an outline font, so a zoom steps by 1
         /// pixel: guessed from its text until the helper's answer says.
         outline: bool,
+        /// Its first source is a bitmap font with strikes, read from its
+        /// text, so with no cell stated it asks the helper for its cell at
+        /// each height, as an outline frit does, and keeps each answer in
+        /// `heights` by the height asked at.
+        struck: bool,
+        /// A `font-size` is configured, which sets the cell's height of a
+        /// frit with strikes ([`Chosen::face_spaced`]).
+        sized: bool,
         /// `line-spacing=`, a whole percentage of the text's height
         /// (ADR-1302 D13), which vtium.conf's `font-line-spacing`
         /// overrides.
@@ -1028,6 +1066,7 @@ impl Chosen {
         let line_spacing = frit_line_spacing(&frit.text)?;
         let fits = std::sync::Arc::new(crate::deferred::FritFits::of(&frit.text));
         let outline = frit_outline(&frit.text);
+        let struck = frit_struck(&frit.text);
         let name = frit.name.clone();
         if !frit_name(&name) {
             GENERATED.clone_into(&mut frit.name);
@@ -1040,6 +1079,8 @@ impl Chosen {
             size: size.filter(|_| !sized && outline && look.is_none()),
             own: None,
             heights: std::collections::BTreeMap::new(),
+            struck,
+            sized,
             line_spacing,
             fits,
             generated: Shared::default(),
@@ -1056,14 +1097,30 @@ impl Chosen {
 
     /// Whether the font is a frit that asks the helper for its first
     /// source's cell at `height`: one that states no cell, and either an
-    /// outline frit with no answer at `height` yet (the maintainer,
-    /// 2026-11-01), or a bitmap frit with no answer yet and no `font-size`
-    /// configured, which `sized` says (the operator, 2026-10-28).
+    /// outline frit or a bitmap frit with strikes with no answer at
+    /// `height` yet, whether or not a `font-size` is configured, or another
+    /// bitmap frit with no answer yet and no `font-size` configured, which
+    /// `sized` says. Each height of a font with strikes can draw another
+    /// strike, so its cell depends on the height, as an outline font's
+    /// does.
+    ///
+    /// References:
+    /// - ADR-1200 D17: an outline frit asks at each height (the maintainer,
+    ///   2026-11-01), and a bitmap frit at its own size (the operator,
+    ///   2026-10-28).
+    /// - ADR-1204 D2: the strike for the automatic height, for a configured
+    ///   font size and for each zoom step.
     pub fn wants_own_cell(&self, height: u32, sized: bool) -> bool {
         match self {
             Chosen::Frit {
                 cell: None,
                 outline: true,
+                heights,
+                ..
+            }
+            | Chosen::Frit {
+                cell: None,
+                struck: true,
                 heights,
                 ..
             } => !heights.contains_key(&height),
@@ -1079,18 +1136,39 @@ impl Chosen {
 
     /// Takes `answer`, the cell the helper told for the frit's first
     /// source, which also says whether that source is a bitmap or an
-    /// outline font, whatever the frit's text suggested. A bitmap source's
-    /// own cell counts only where no `font-size` is configured, as
-    /// `sized` says.
+    /// outline font, whatever the frit's text suggested, as the answer at
+    /// the cell's own height ([`Chosen::set_own_cell_at`]).
     pub fn set_own_cell(&mut self, answer: OwnCell, sized: bool) {
+        let height = match answer {
+            OwnCell::Bitmap(cell) | OwnCell::Outline(cell) => cell.height,
+        };
+        self.set_own_cell_at(answer, height, sized);
+    }
+
+    /// Takes `answer`, the cell the helper told for the frit's first
+    /// source when asked at `height`, which also says whether that source
+    /// is a bitmap or an outline font, whatever the frit's text suggested.
+    /// A bitmap source's own cell counts only where no `font-size` is
+    /// configured, as `sized` says. A bitmap source with strikes answers
+    /// with the cell of the tallest strike no taller than `height`, which
+    /// then holds at every height from the strike's own up to `height`.
+    pub fn set_own_cell_at(&mut self, answer: OwnCell, height: u32, sized: bool) {
         if let Chosen::Frit {
+            cell: stated,
             own,
             heights,
             outline,
+            struck,
             ..
         } = self
         {
             match answer {
+                OwnCell::Bitmap(cell) if *struck && stated.is_none() => {
+                    *outline = false;
+                    for at in [height, whole_height(cell, height), cell.height] {
+                        heights.insert(at, cell);
+                    }
+                }
                 OwnCell::Bitmap(cell) => {
                     *outline = false;
                     if !sized {
@@ -1119,6 +1197,31 @@ impl Chosen {
     /// source is an outline font.
     pub fn outline(&self) -> bool {
         matches!(self, Chosen::Frit { outline: true, .. })
+    }
+
+    /// Whether the font is a frit that states no cell and whose first
+    /// source is a bitmap font with strikes, so each height it draws at
+    /// takes the cell of the strike the helper names for that height.
+    pub fn struck(&self) -> bool {
+        matches!(
+            self,
+            Chosen::Frit {
+                cell: None,
+                outline: false,
+                struck: true,
+                ..
+            }
+        )
+    }
+
+    /// The cell of the strike that a frit with strikes draws at `height`,
+    /// as the helper answered for that height. `None` before the answer,
+    /// and for any other font.
+    pub fn strike_at(&self, height: u32) -> Option<Cell> {
+        match self {
+            Chosen::Frit { heights, .. } if self.struck() => heights.get(&height).copied(),
+            _ => None,
+        }
     }
 
     /// The built-in font drawn at `height` in `locale`: in a look's cell,
@@ -1211,12 +1314,35 @@ impl Chosen {
             generated,
             heights,
             fits,
+            sized,
             ..
         } = self
         {
             let at = Chosen::BUILTINS.face(height, locale)?;
             let stated = self.base_cell();
             let (cell, step) = match (stated, self.outline()) {
+                // ADR-1204 D2, a bitmap source with strikes: the cell of
+                // the strike the helper names for this height, or its
+                // whole multiple above the tallest strike. A configured
+                // font size keeps its own height, as wide as that strike,
+                // with the strike centred in it.
+                (None, false) if self.struck() => match heights.get(&height) {
+                    Some(c) => {
+                        let whole = frit_cell_at(Some(*c), height, *c);
+                        if *sized {
+                            (
+                                Cell {
+                                    width: whole.width,
+                                    height: height.max(whole.height),
+                                },
+                                1,
+                            )
+                        } else {
+                            (whole, c.height)
+                        }
+                    }
+                    None => (frit_cell_at(None, height, at.cell()), at.size_step()),
+                },
                 // D17, an outline frit steps by 1: the stated cell at its
                 // own height, else the helper's answer
                 // at this height, else the built-in font's width
@@ -1328,8 +1454,15 @@ impl Chosen {
 
     /// The height the font draws when `height` is asked for: a bitmap
     /// frit's stated or own cell's whole multiple at or under it, at least
-    /// the cell itself (#145, ADR-1200 D17); else `height`.
+    /// the cell itself (#145, ADR-1200 D17); with strikes and no
+    /// `font-size` configured, the whole multiple of the strike the helper
+    /// named for `height` (ADR-1204 D2); else `height`.
     pub fn snap(&self, height: u32) -> u32 {
+        if let Chosen::Frit { sized: false, .. } = self
+            && let Some(strike) = self.strike_at(height)
+        {
+            return whole_height(strike, height);
+        }
         match self.base_cell() {
             Some(cell) if !self.outline() => frit_cell_at(Some(cell), height, cell).height,
             _ => height,
@@ -1757,6 +1890,119 @@ mod tests {
         // an outline frit that states a cell asks nothing
         let stated = frit_of("source=outline:/f.ttf\ncell=10x20\n", false);
         assert!(!stated.wants_own_cell(20, false));
+    }
+
+    // A frit whose first source is a bitmap font with strikes asks the
+    // helper for its cell at each height, with a font size configured or
+    // not, and keeps each answer for the heights it holds at: the height
+    // asked at, the strike's own, and the whole multiple between them.
+    // With no font size the cell is the strike's cell or its whole
+    // multiple. A configured font size keeps its height, as wide as the
+    // strike's whole multiple, which the helper centres in the cell. The
+    // helper's answers below are those of Terminus's strikes.
+    //
+    // References:
+    // - ADR-1204 D2: the strike for the automatic height, for a configured
+    //   font size and for each zoom step.
+    #[test]
+    fn a_frit_with_strikes_takes_the_strike_of_each_height() {
+        let text =
+            "source=bdf:/16.bdf\nsha256=0\nstrike=bdf:/12.bdf\nstrike=bdf:/32.bdf\nlayer=unifont\n";
+        // the tallest Terminus strike no taller than each height
+        let strike = |h: u32| match h {
+            12..14 => cell(6, 12),
+            14..16 => cell(7, 14),
+            16..18 => cell(8, 16),
+            18..20 => cell(10, 18),
+            20..22 => cell(10, 20),
+            22..24 => cell(11, 22),
+            24..28 => cell(12, 24),
+            28..32 => cell(14, 28),
+            _ => cell(16, 32),
+        };
+        for (sized, rows) in [
+            (
+                true,
+                [
+                    (12, cell(6, 12)),
+                    (16, cell(8, 16)),
+                    (18, cell(10, 18)),
+                    (20, cell(10, 20)),
+                    (23, cell(11, 23)),
+                    (24, cell(12, 24)),
+                    (28, cell(14, 28)),
+                    (32, cell(16, 32)),
+                    (40, cell(16, 40)),
+                    (64, cell(32, 64)),
+                ],
+            ),
+            (
+                false,
+                [
+                    (12, cell(6, 12)),
+                    (16, cell(8, 16)),
+                    (18, cell(10, 18)),
+                    (20, cell(10, 20)),
+                    (23, cell(11, 22)),
+                    (24, cell(12, 24)),
+                    (28, cell(14, 28)),
+                    (32, cell(16, 32)),
+                    (40, cell(16, 32)),
+                    (64, cell(32, 64)),
+                ],
+            ),
+        ] {
+            let mut f = frit_of(text, sized);
+            assert!(f.struck() && !f.outline(), "{text}");
+            for (height, want) in rows {
+                assert!(f.wants_own_cell(height, sized), "{height}, sized {sized}");
+                assert_eq!(f.strike_at(height), None);
+                f.set_own_cell_at(OwnCell::Bitmap(strike(height)), height, sized);
+                assert!(!f.wants_own_cell(height, sized));
+                assert_eq!(f.strike_at(height), Some(strike(height)));
+                let drawn = f.snap(height);
+                assert_eq!(drawn, want.height, "{height}, sized {sized}");
+                let face = f.face(drawn, "C").expect("a face");
+                assert_eq!(face.cell(), want, "{height}, sized {sized}");
+            }
+        }
+        // a height with no answer yet draws as wide as the built-in font
+        let f = frit_of(text, true);
+        assert_eq!(f.face(24, "C").expect("a face").cell(), cell(8, 24));
+        // a stated cell wins, and asks nothing
+        let stated = frit_of(&format!("{text}cell=10x20\n"), false);
+        assert!(!stated.struck() && !stated.wants_own_cell(20, false));
+    }
+
+    // Only a first source that is a bitmap font followed by its own
+    // strike= lines makes a frit with strikes. A bitmap source with no
+    // strikes, a later source's strikes, and an outline source's strikes
+    // keep the rules they have.
+    #[test]
+    fn only_a_bitmap_first_source_with_strikes_is_struck() {
+        for (text, struck) in [
+            ("source=bdf:/16.bdf\nstrike=bdf:/12.bdf\n", true),
+            (
+                "# strike=bdf:/12.bdf\nsource=psf:/16.psf\nversion=1\nstrike=bdf:/12.bdf # a comment\n",
+                true,
+            ),
+            ("source=kbd:x\n", false),
+            (
+                "source=kbd:x\nsource=bdf:/16.bdf\nstrike=bdf:/12.bdf\n",
+                false,
+            ),
+            ("source=kbd:x\nlayer=unifont\nstrike=bdf:/12.bdf\n", false),
+            ("source=outline:/f.ttf\nstrike=bdf:/12.bdf\n", false),
+            ("source=font:Terminus\nstrike=bdf:/12.bdf\n", false),
+            ("strike=bdf:/12.bdf\n", false),
+        ] {
+            assert_eq!(frit_struck(text), struck, "{text}");
+        }
+        // a bitmap frit with no strikes asks once, and not with a font size
+        let mut f = frit_of("source=kbd:x\n", false);
+        f.set_own_cell(OwnCell::Bitmap(cell(8, 16)), false);
+        assert!(!f.struck() && !f.wants_own_cell(24, false));
+        assert!(!frit_of("source=kbd:x\n", true).wants_own_cell(24, true));
     }
 
     // overhang part 1: the helper's answer, not the frit's text, says what
