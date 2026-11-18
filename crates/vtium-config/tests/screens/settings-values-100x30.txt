@@ -1,0 +1,30 @@
+ Flow  Looks  Fonts  Settings  Help                                                   Save  Install
+ draft workstation · 1 change · no problems                              text preview · t: try live
+----------------------------------------------------------------------------------------------------
+ Settings › Fonts and text › cluster-width
+
+   ● double  the default
+   ○ single
+
+ Press Enter to pick the highlighted value, or Esc to close the list and leave the setting as it
+ is.
+ How many character cells a syllable takes when it has a spacing vowel sign or a virama that joins
+ two consonants, in Tamil, Devanagari and other scripts of South and Southeast Asia. `double`, the
+ default, gives such a syllable two cells, so கொ  takes two. `single` gives it one cell and squeezes
+ it to fit. For example, the Tamil syllable கொ  is the letter க with the vowel sign ொ . Under …
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ ↑↓ move  Enter pick  Esc back  q quit  . more 1/3

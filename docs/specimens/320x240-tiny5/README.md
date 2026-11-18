@@ -6,7 +6,7 @@ minspec's display floor, a 320×240 SPI panel, in the example font set tiny5: 32
 
 | Display | Class | Cell | Grid | Font | Screens |
 |---|---|---|---|---|---|
-| 320×240, 24-bit color | small color LCD | 6×9 | 53×26 | `tiny5`, the font set [`tiny5.vtfrit`](https://github.com/vtium/vtium/blob/main/crates/vtium-config/frits/tiny5.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png), [screen-6.png](screen-6.png), [screen-7.png](screen-7.png), [screen-8.png](screen-8.png), [screen-9.png](screen-9.png), [screen-10.png](screen-10.png), [screen-11.png](screen-11.png), [screen-12.png](screen-12.png) |
+| 320×240, 24-bit color | small color LCD | 6×9 | 53×26 | `tiny5`, the font set [`small/tiny5.vtfrit`](https://github.com/vtium/vtium/blob/main/crates/vtium-config/frits/small/tiny5.vtfrit) | [screen-1.png](screen-1.png), [screen-2.png](screen-2.png), [screen-3.png](screen-3.png), [screen-4.png](screen-4.png), [screen-5.png](screen-5.png), [screen-6.png](screen-6.png), [screen-7.png](screen-7.png), [screen-8.png](screen-8.png), [screen-9.png](screen-9.png), [screen-10.png](screen-10.png), [screen-11.png](screen-11.png), [screen-12.png](screen-12.png) |
 
 ## Why this font
 
@@ -17,8 +17,8 @@ This profile shows the smallest font vtium ships a font set for: the example fon
 [vtium.conf](vtium.conf):
 
 ```ini
-# The font set tiny5: crates/vtium-config/frits/tiny5.vtfrit in
-# /etc/vtium/fonts, with Tiny5 Mono's BDF file installed where its
+# The font set tiny5: crates/vtium-config/frits/small/tiny5.vtfrit in
+# /etc/vtium/fonts/small, with Tiny5 Mono's BDF file installed where its
 # source= line says. It draws at its own 6×9 cell.
 font-name=tiny5
 font-size=0

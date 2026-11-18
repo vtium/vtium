@@ -1,0 +1,37 @@
+# noto-arabic: a font set for Arabic, Persian and Urdu. Noto Sans Mono draws
+# Latin text and sets the character cell, and Noto Sans Arabic draws the
+# Arabic script at Noto Sans Mono's size.
+#
+# The set adds Nerd Fonts' icons and color emoji after the script, and
+# GNU Unifont last, which draws every other character. vtium ships this
+# font set, never the fonts. The font helper leaves out a font that the
+# machine lacks, and the next source that holds a character draws it.
+#
+# Arabic writes marks above and below the letters: hamza, the vowel marks
+# (harakat) and shadda, sometimes two in a stack. Noto Sans Arabic's
+# highest marks and its deepest letters and marks reach past the text's
+# height. Line spacing of 30 adds three twentieths of the text's height
+# above each row and as much below it, so the marks of one row stay clear
+# of the letters and marks of the rows above and below.
+#
+# Licenses: Noto Sans Mono and the script's Noto fonts are under the SIL OFL
+# 1.1. The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the scripts and regions category.
+# - ADR-1302 D13: the line spacing.
+
+name=noto-arabic
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# Latin text, setting the cell at each size.
+source=font:Noto Sans Mono
+version=2.014
+url=https://github.com/notofonts/latin-greek-cyrillic/releases/tag/NotoSansMono-v2.014
+
+layer=arabic
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont
+
+line-spacing=30

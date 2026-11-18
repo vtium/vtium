@@ -1,0 +1,37 @@
+# noto-thai-lao: a font set for Thai and Lao. Noto Sans Mono draws Latin
+# text and sets the character cell, and Noto Sans Thai and Noto Sans Lao
+# draw those scripts at Noto Sans Mono's size.
+#
+# The set adds Nerd Fonts' icons and color emoji after the script, and
+# GNU Unifont last, which draws every other character. vtium ships this
+# font set, never the fonts. The font helper leaves out a font that the
+# machine lacks, and the next source that holds a character draws it.
+#
+# Thai and Lao stack vowel signs and tone marks above a consonant, and
+# write some vowels under it. The vowels under a consonant with a tail
+# below, such as Thai's do chada (U+0E0E), reach furthest under the line.
+# Line spacing of 25 adds an eighth of the text's height above each row
+# and an eighth below it, so the stacks of one row stay clear of the rows
+# above and below.
+#
+# Licenses: Noto Sans Mono and the script's Noto fonts are under the SIL OFL
+# 1.1. The layers name their own licenses.
+#
+# References:
+# - ADR-1204 D3: the scripts and regions category.
+# - ADR-1302 D13: the line spacing.
+
+name=noto-thai-lao
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+# Latin text, setting the cell at each size.
+source=font:Noto Sans Mono
+version=2.014
+url=https://github.com/notofonts/latin-greek-cyrillic/releases/tag/NotoSansMono-v2.014
+
+layer=thai-lao
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont
+
+line-spacing=25

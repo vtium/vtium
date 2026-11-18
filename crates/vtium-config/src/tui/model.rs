@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use vtium_settings::keys::{self, Kind, Scope};
+use vtium_settings::keys::{self, Kind};
 use vtium_settings::{setting, switch as conf_switch};
 
 use super::desk::{Done, Kept, Op, Opened};
@@ -269,37 +269,6 @@ pub const ASSUMED_CELL: (u32, u32) = (8, 16);
 /// the bounds the console reads `font-size` and a frit's `size=` in.
 pub const SIZES: [u32; 15] = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32];
 
-/// The font keys, which the settings view lists first (D1): the font,
-/// its size and options, font operations, the density, and the sprite
-/// policy's keys.
-pub const FONT_KEYS: [&str; 14] = [
-    "font-name",
-    "font-size",
-    "font-frits",
-    "font-hinting",
-    "font-line-spacing",
-    "allow-font-ops",
-    "display-dpi",
-    "glyph-source",
-    "glyph-source-box",
-    "glyph-source-block",
-    "glyph-source-braille",
-    "glyph-source-sextants",
-    "glyph-source-octants",
-    "glyph-source-legacy",
-];
-
-/// The keys the settings view lists: every key vtium.conf takes, from
-/// vtium's own key table, the font keys first and the rest in the table's
-/// order.
-pub fn setting_keys() -> Vec<&'static keys::Key> {
-    let font = FONT_KEYS.iter().filter_map(|n| keys::find(n));
-    let rest = keys::KEYS
-        .iter()
-        .filter(|k| k.scope == Scope::Anywhere && !FONT_KEYS.contains(&k.name));
-    font.chain(rest).collect()
-}
-
 /// The frits an install writes and removes with the draft. Unlike a
 /// key, a frit is a file of its own, which no draft holds, so the TUI
 /// keeps it until Install, which writes the frits before vtium.conf
@@ -407,7 +376,9 @@ pub struct App {
     pub refused: BTreeSet<String>,
     pub font_at: usize,
     pub size_at: usize,
-    pub setting_at: usize,
+    /// Where the Settings view stands: the section highlighted or open,
+    /// the key highlighted in it, and the key's values open as a list.
+    pub settings: super::settings::Settings,
     /// The Flow view's selected item.
     pub flow_at: Item,
     /// The Help view shows About.
@@ -467,6 +438,10 @@ pub struct App {
     /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
     /// "Changes wait for Save").
     pub unsaved: usize,
+    /// The page of the key line that shows, counted from 0. It goes back
+    /// to the first page whenever the TUI moves to another node of the
+    /// interface tree.
+    pub key_page: usize,
 }
 
 /// A question the Flow view asks before it acts.
@@ -533,7 +508,7 @@ impl App {
             refused: BTreeSet::new(),
             font_at,
             size_at: 0,
-            setting_at: 0,
+            settings: super::settings::Settings::default(),
             flow_at,
             about: false,
             help_at: 0,
@@ -561,6 +536,7 @@ impl App {
             saving_tried: None,
             quit_after_install: None,
             unsaved: 0,
+            key_page: 0,
         };
         // the Flow view's highlight on its first box from the first frame,
         // and what reading the color file found on the message line
@@ -633,10 +609,10 @@ impl App {
     /// Whether something is open in the view that a change of view would
     /// leave behind (#355): a question, and in the Flow view the file
     /// view, Restore's list, or a detail, a part maker or a picker; in
-    /// the Settings view a value being typed; and the new-frit view, a
+    /// the Settings view an open section; and the new-frit view, a
     /// form of the Fonts view's. While one is, Tab, Shift-Tab and a click
     /// on a view's name do not change the view. Esc closes each, and a
-    /// question takes any key but its yes as no.
+    /// question takes only its own keys.
     fn holds_view(&self) -> bool {
         if self.confirm.is_some() {
             return true;
@@ -645,7 +621,7 @@ impl App {
             View::Flow => {
                 self.pager.is_some() || self.restore.is_some() || self.flow_view.layer.is_some()
             }
-            View::Settings => self.editing.is_some(),
+            View::Settings => self.settings.open.is_some(),
             View::New => true,
             View::Looks | View::Fonts | View::Help => false,
         }
@@ -697,9 +673,15 @@ impl App {
 
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
+        let node = super::contract::node(self);
         let mut out = self.handle(event);
         out.extend(self.ask_picture());
         self.flow_settle();
+        // a key line shows its first page in each node the TUI moves to,
+        // where the keys a person uses most are
+        if super::contract::node(self) != node {
+            self.key_page = 0;
+        }
         out
     }
 
@@ -961,6 +943,15 @@ impl App {
         {
             return self.type_key(key);
         }
+        // `.` shows the key line's next page, and the first after the
+        // last, where the keys do not fit on one row
+        if key == Key::Char('.')
+            && let Some(pages) = super::contract::key_pages(super::contract::node(self))
+            && pages.len() > 1
+        {
+            self.key_page = self.key_page.saturating_add(1) % pages.len();
+            return Vec::new();
+        }
         match key {
             // `q` quits or asks from a view and from what is open over
             // it, the file view and Restore's list included
@@ -974,20 +965,27 @@ impl App {
         if self.view == View::Flow {
             return self.flow_key(key);
         }
+        // the action keys do nothing while a Settings section is open
+        // over the list of sections, as in every layer (ADR-1403 D7)
+        let layer = self.view == View::Settings && self.settings.open.is_some();
         match key {
             // Install acts where the tab bar shows it: not in Help, whose
             // tab bar shows no action, nor in the new-frit form, which is
             // open over the Fonts view
-            Key::Char('i') if !self.typing() && !matches!(self.view, View::Help | View::New) => {
+            Key::Char('i')
+                if !layer && !self.typing() && !matches!(self.view, View::Help | View::New) =>
+            {
                 return self.action('i');
             }
             // Save in the views whose own keys leave `s` free (ADR-1403 D7)
             Key::Char('s')
-                if matches!(self.view, View::Looks | View::Settings) && !self.typing() =>
+                if !layer
+                    && matches!(self.view, View::Looks | View::Settings)
+                    && !self.typing() =>
             {
                 return self.save();
             }
-            Key::Char('o') if self.live == Live::OpsOff && self.view != View::New => {
+            Key::Char('o') if !layer && self.live == Live::OpsOff && self.view != View::New => {
                 return self.top("allow-font-ops", Some("on"));
             }
             _ => {}
@@ -1011,9 +1009,23 @@ impl App {
                         self.about = !self.about;
                         self.help_at = 0;
                     }
+                    // the top row of the page moves by a line, or by the
+                    // rows the screen shows, and stops where the page's
+                    // last row is at the bottom of the screen
                     Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                        let rows = super::view::help_rows(self).len();
-                        self.help_at = step(self.help_at, rows, key);
+                        let (rows, room) = super::view::help_window(self);
+                        let last = rows.saturating_sub(room);
+                        let page = room.max(1);
+                        let at = self.help_at.min(last);
+                        self.help_at = match key {
+                            Key::Up => at.saturating_sub(1),
+                            Key::Down => at.saturating_add(1),
+                            Key::PageUp => at.saturating_sub(page),
+                            Key::PageDown => at.saturating_add(page),
+                            Key::Home => 0,
+                            _ => last,
+                        }
+                        .min(last);
                     }
                     _ => {}
                 }
@@ -1208,68 +1220,104 @@ impl App {
         Vec::new()
     }
 
-    /// A key in the settings view: Enter turns a switch on or off, steps a
-    /// key of a fixed set of words to its next word, and starts typing any
-    /// other key's value, which a second Enter writes into the draft; an
-    /// empty value goes back to the default, but a key binding's binds no
-    /// key and the word `default` returns it to its default. Esc drops
-    /// what is typed.
+    /// A key in the Settings view. On the list of sections, Enter opens
+    /// the highlighted section. In a section, Enter on a switch or a key
+    /// of a fixed set of words opens its values as the shared list, with
+    /// the value it has now highlighted, and Enter on any other key starts
+    /// typing its value. Esc goes back to the sections, with the same
+    /// section highlighted. In the list of values, Enter writes the
+    /// highlighted value into the draft and Esc closes the list. While a
+    /// value is typed, Enter writes it and Esc drops it, and the moving
+    /// keys do nothing. An empty typed value goes back to the default,
+    /// except for a key binding, where it binds no key and the word
+    /// `default` returns the key to its default.
+    ///
+    /// References:
+    /// - ADR-1201 D3, the Settings bullet: sections, then their keys.
+    /// - ADR-1403 D7, "One list for every set of items": the values list.
+    /// - ADR-1005 D10: the empty value of a key binding.
     fn settings_key(&mut self, key: Key) -> Vec<Effect> {
-        // while a value is typed, only Enter and Esc act on it: Enter
-        // keeps the value and Esc drops it, and the arrows and the other
-        // moving keys do nothing
+        use super::listbox::{Act, ListBox};
+        use super::settings::{fixed_values, sections};
         if self.editing.is_some() && !matches!(key, Key::Enter | Key::Escape) {
             return Vec::new();
         }
-        let all = setting_keys();
         if let Some(typed) = self.editing.take() {
-            return match all.get(self.setting_at) {
-                // a key binding's empty value binds no key, and the word
-                // `default`, or its default's own combinations, leave it
-                // at its default (ADR-1005 D10)
-                Some(k) if key == Key::Enter && k.kind == Kind::KeyBinding => {
-                    let typed = typed.trim().to_owned();
-                    let default = crate::commands::value_text(k, None).0;
-                    let value = (typed != super::words::BINDING_DEFAULT && typed != default)
-                        .then_some(typed);
-                    self.top(k.name, value.as_deref())
+            let Some(k) = self.settings.key().filter(|_| key == Key::Enter) else {
+                return Vec::new();
+            };
+            let typed = typed.trim().to_owned();
+            let value = if k.kind == Kind::KeyBinding {
+                // the word `default`, or its default's own combinations,
+                // leave a key binding at its default
+                let default = crate::commands::value_text(k, None).0;
+                (typed != super::words::BINDING_DEFAULT && typed != default).then_some(typed)
+            } else {
+                Some(typed).filter(|t| !t.is_empty())
+            };
+            return self.top(k.name, value.as_deref());
+        }
+        if let Some(mut list) = self.settings.values {
+            let words = self
+                .settings
+                .key()
+                .and_then(fixed_values)
+                .unwrap_or_default();
+            return match list.key(key, words.len()) {
+                Act::Moved => {
+                    self.settings.values = Some(list);
+                    Vec::new()
                 }
-                Some(k) if key == Key::Enter => {
-                    let typed = typed.trim().to_owned();
-                    self.top(
-                        k.name,
-                        Some(&typed).filter(|t| !t.is_empty()).map(String::as_str),
-                    )
+                Act::Closed => {
+                    self.settings.values = None;
+                    Vec::new()
                 }
-                _ => Vec::new(),
+                Act::Picked(i) => {
+                    self.settings.values = None;
+                    match (self.settings.key(), words.get(i)) {
+                        (Some(k), Some(w)) => self.top(k.name, Some(w)),
+                        _ => Vec::new(),
+                    }
+                }
+                Act::Ignored => Vec::new(),
             };
         }
-        self.setting_at = step(self.setting_at, all.len(), key);
-        let Some(k) = all.get(self.setting_at).copied() else {
-            return Vec::new();
-        };
-        if key != Key::Enter {
-            return Vec::new();
-        }
-        let (now, default) = self.value(k);
-        match k.kind {
-            Kind::Switch => self.top(k.name, Some(if now == "on" { "off" } else { "on" })),
-            Kind::Choice(words) => {
-                let at = words.iter().position(|w| *w == now);
-                let next = at.map_or(0, |i| i.saturating_add(1) % words.len().max(1));
-                match words.get(next) {
-                    Some(w) => self.top(k.name, Some(w)),
-                    None => Vec::new(),
+        if let Some((at, mut list)) = self.settings.open {
+            let keys = self
+                .settings
+                .section()
+                .map(|s| s.keys())
+                .unwrap_or_default();
+            match list.key(key, keys.len()) {
+                Act::Moved => self.settings.open = Some((at, list)),
+                Act::Closed => self.settings.open = None,
+                Act::Picked(i) => {
+                    let Some(k) = keys.get(i).copied() else {
+                        return Vec::new();
+                    };
+                    let (now, default) = self.value(k);
+                    match fixed_values(k) {
+                        Some(words) => {
+                            let at = words.iter().position(|w| *w == now).unwrap_or(0);
+                            self.settings.values = Some(ListBox::at(at));
+                        }
+                        // a key binding's editor starts from its
+                        // combinations, its default's included, so Enter
+                        // alone never empties it
+                        None => {
+                            let start = default && k.kind != Kind::KeyBinding;
+                            self.editing = Some(if start { String::new() } else { now });
+                        }
+                    }
                 }
+                Act::Ignored => {}
             }
-            // a key binding's editor starts from its combinations, its
-            // default's included, so Enter alone never empties it
-            _ => {
-                let start = default && k.kind != Kind::KeyBinding;
-                self.editing = Some(if start { String::new() } else { now });
-                Vec::new()
-            }
+            return Vec::new();
         }
+        if let Act::Picked(i) = self.settings.sections.key(key, sections().len()) {
+            self.settings.open = Some((i, ListBox::default()));
+        }
+        Vec::new()
     }
 
     /// Sets the top-level key `key` to `value` in the draft, or leaves it
@@ -1425,16 +1473,7 @@ pub(crate) fn first_item(flow: &Flow) -> Item {
 /// The most bytes a typed field holds.
 pub const TYPED_MAX: usize = 256;
 
-/// `at` moved by `key` in a list of `n`.
+/// `at` moved by `key` in a list of `n`, as the shared list moves.
 pub(crate) fn step(at: usize, n: usize, key: Key) -> usize {
-    let last = n.saturating_sub(1);
-    match key {
-        Key::Up => at.saturating_sub(1),
-        Key::Down => at.saturating_add(1).min(last),
-        Key::PageUp => at.saturating_sub(10),
-        Key::PageDown => at.saturating_add(10).min(last),
-        Key::Home => 0,
-        Key::End => last,
-        _ => at.min(last),
-    }
+    super::listbox::step(at, n, key)
 }

@@ -815,6 +815,17 @@
 
 #no-hwaccel
 
+# -- Frame filters -----------------------------------------------------------
+
+## The vtlook, a file of frame filters that change the picture before the
+## display shows it, such as a CRT effect.
+##
+## The value names a file `NAME.vtlook` in `/etc/vtium/looks`. A look's own
+## `vtlook` wins over this one. Unset or `default` is the built-in vtlook,
+## which changes no pixel.
+
+#vtlook=
+
 # -- Frame timer -------------------------------------------------------------
 
 ## Measure each display's frame times once a second, and write the figures to

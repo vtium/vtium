@@ -218,9 +218,88 @@ pub fn frits_dir(configdir: &Path) -> Frits {
     }
 }
 
-/// The frit file `name` names in `frits`, for a frit's name.
-fn frit_file(frits: &Path, name: &str) -> Option<PathBuf> {
-    valid_name(name).then(|| frits.join(format!("{name}.vtfrit")))
+/// The category folders of the catalog of font sets, in the order
+/// vtium-config searches them, as the console searches them.
+///
+/// References:
+/// - ADR-1204 D3 and D9: the six categories and their folders.
+pub const CATEGORIES: [&str; 6] = ["console", "classic", "code", "nerd", "scripts", "small"];
+
+/// Whether `path` names a regular file.
+fn is_file(path: &Path) -> bool {
+    std::fs::metadata(path).is_ok_and(|m| m.is_file())
+}
+
+/// The set `name` names in `frits`: `NAME.vtfrit` in the frits' directory
+/// itself, where a person's own sets live, else in the first category
+/// folder that holds it. Only a frit's name is looked up, so no name
+/// reaches outside the directory.
+///
+/// References:
+/// - ADR-1204 D9: the directory itself first, then each category folder.
+pub fn frit_file(frits: &Path, name: &str) -> Option<PathBuf> {
+    if !valid_name(name) {
+        return None;
+    }
+    let own = frits.join(format!("{name}.vtfrit"));
+    if is_file(&own) {
+        return Some(own);
+    }
+    category_file(frits, name)
+}
+
+/// The set `name` in the first category folder of `frits` that holds it,
+/// whether or not the frits' directory itself holds one of that name.
+/// vtium-config installs no set of a name that a category folder holds.
+///
+/// References:
+/// - ADR-1204 D9: a name stays unique across every folder.
+pub fn category_file(frits: &Path, name: &str) -> Option<PathBuf> {
+    if !valid_name(name) {
+        return None;
+    }
+    let file = format!("{name}.vtfrit");
+    CATEGORIES
+        .iter()
+        .map(|c| frits.join(c).join(&file))
+        .find(|path| is_file(path))
+}
+
+/// Ok when vtium-config may install a set named `name` in the frits'
+/// directory `frits`; else why not: a category folder of the catalog holds
+/// a set of that name already.
+///
+/// References:
+/// - ADR-1204 D9: vtium-config refuses a name that another folder holds.
+pub fn unheld(frits: &Path, name: &str) -> Result<(), String> {
+    match category_file(frits, name) {
+        Some(held) => Err(format!(
+            "The font set {name} is already installed as {}, a set of vtium's catalog. Give your font set another name.",
+            held.display()
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Every set in `frits` by its name, sorted by name, each with the file
+/// that [`frit_file`] finds for it.
+pub fn frit_files(frits: &Path) -> Vec<(String, PathBuf)> {
+    let mut names = std::collections::BTreeSet::new();
+    for dir in std::iter::once(frits.to_owned()).chain(CATEGORIES.iter().map(|c| frits.join(c))) {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let file = entry.file_name();
+            if let Some(name) = file.to_str().and_then(|n| n.strip_suffix(".vtfrit")) {
+                names.insert(name.to_owned());
+            }
+        }
+    }
+    names
+        .into_iter()
+        .filter_map(|name| frit_file(frits, &name).map(|path| (name, path)))
+        .collect()
 }
 
 /// Whether the console takes `name`: a built-in font, or a frit's name
@@ -305,6 +384,68 @@ pub fn command(words: &[String], frits: &Path, out: &mut dyn Write, err: &mut dy
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+
+    /// A frits' directory with a set in it and the catalog's sets in their
+    /// category folders, under the test's own scratch path.
+    fn catalog(test: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("vtium-config-switch-{test}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (folder, name) in [
+            ("console", "terminus"),
+            ("code", "both"),
+            ("small", "both"),
+            ("code", "mine"),
+            ("", "mine"),
+            ("elsewhere", "stray"),
+            ("layers", "layered"),
+        ] {
+            std::fs::create_dir_all(dir.join(folder)).unwrap();
+            std::fs::write(
+                dir.join(folder).join(format!("{name}.vtfrit")),
+                "source=kbd:x\n",
+            )
+            .unwrap();
+        }
+        dir
+    }
+
+    // A set is found by its name in the frits' directory itself, then in
+    // each category folder in the catalog's order. A folder that is not a
+    // category, and the layers' folder, hold no set.
+    //
+    // References:
+    // - ADR-1204 D9: the category folders and the order of the search.
+    #[test]
+    fn a_set_is_found_in_the_frits_directory_and_then_in_its_category_folder() {
+        let dir = catalog("found");
+        let found = |name| frit_file(&dir, name);
+        assert_eq!(found("terminus"), Some(dir.join("console/terminus.vtfrit")));
+        assert_eq!(found("mine"), Some(dir.join("mine.vtfrit")));
+        assert_eq!(found("both"), Some(dir.join("code/both.vtfrit")));
+        assert_eq!(found("stray"), None);
+        assert_eq!(found("layered"), None);
+        assert_eq!(found("absent"), None);
+        assert_eq!(found("../console/terminus"), None);
+        let listed: Vec<(String, PathBuf)> = frit_files(&dir);
+        assert_eq!(
+            listed,
+            [
+                ("both".to_owned(), dir.join("code/both.vtfrit")),
+                ("mine".to_owned(), dir.join("mine.vtfrit")),
+                ("terminus".to_owned(), dir.join("console/terminus.vtfrit")),
+            ]
+        );
+        assert_eq!(
+            category_file(&dir, "mine"),
+            Some(dir.join("code/mine.vtfrit"))
+        );
+        assert_eq!(
+            category_file(&dir, "terminus"),
+            Some(dir.join("console/terminus.vtfrit"))
+        );
+        assert_eq!(category_file(&dir, "absent"), None);
+    }
 
     #[test]
     fn the_reply_is_found_whole_after_other_bytes() {

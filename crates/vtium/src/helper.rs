@@ -68,8 +68,11 @@
 //! console asks the helper for at the height it draws at
 //! ([`Helper::own_cell`]): a bitmap source's own cell, whatever the
 //! height, or an outline source's cell at that height. The console waits
-//! for the answer at most [`OWN_CELL_MS`], the one wait on the helper,
-//! before the first frame and at a zoom of an outline frit. An answer that
+//! for the answer at most [`OWN_CELL_MS`] before the first frame and at a
+//! zoom of an outline frit. For a frit whose first source is a bitmap font
+//! with strikes, the asks of one zoom step, or of one text area request,
+//! share one such wait. Nothing else in the console waits on the helper.
+//! An answer that
 //! comes after the wait is kept, with the height its query asked at, and
 //! [`Helper::late_cells`] hands it on (ADR-1200 D17, the maintainer,
 //! 2026-11-03).
@@ -693,11 +696,30 @@ pub struct NoCell {
     /// No answer came in time, as opposed to an answer that says there is
     /// none, which the frit's text decides and asking again cannot change.
     pub late: bool,
+    /// The helper answered that the frit's fonts give no cell at the
+    /// height asked, as below the shortest strike of a bitmap font with
+    /// strikes. False when the helper could not answer: it failed, ended,
+    /// is not running, sent a malformed answer, or answered too late.
+    pub from_frit: bool,
 }
 
 impl NoCell {
+    /// The helper could not answer, for `why`.
     fn refused(why: String) -> NoCell {
-        NoCell { why, late: false }
+        NoCell {
+            why,
+            late: false,
+            from_frit: false,
+        }
+    }
+
+    /// The helper answered that there is no cell, for `why`.
+    fn answered(why: String) -> NoCell {
+        NoCell {
+            why,
+            late: false,
+            from_frit: true,
+        }
     }
 }
 
@@ -718,7 +740,7 @@ fn cell_answer(answer: Event, height: u32) -> Result<Result<OwnCell, NoCell>, St
             "an outline cell {} pixels high, where {height} was asked",
             cell.height
         )),
-        Event::NoOwnCell(why) => Ok(Err(NoCell::refused(why.trim().to_owned()))),
+        Event::NoOwnCell(why) => Ok(Err(NoCell::answered(why.trim().to_owned()))),
         _ => Err("a frame that answers no cell query".to_owned()),
     }
 }
@@ -1607,6 +1629,7 @@ impl Helper {
                     Err(NoCell {
                         why: format!("the helper gave no answer in {} ms", wait.as_millis()),
                         late: true,
+                        from_frit: false,
                     })
                 }
             };
@@ -4882,6 +4905,7 @@ mod tests {
         let first = NoCell {
             why: "the first query's answer".to_owned(),
             late: false,
+            from_frit: true,
         };
         assert_eq!(s.helper.late_cells(), [(16, Err(first))]);
         let _ = s.helper.poll(t0());
@@ -4978,7 +5002,14 @@ mod tests {
         let why = "source=outline:/f.ttf is an outline font".to_owned();
         assert_eq!(
             s.helper.late_cells(),
-            [(16, Err(NoCell { why, late: false }))]
+            [(
+                16,
+                Err(NoCell {
+                    why,
+                    late: false,
+                    from_frit: true
+                })
+            )]
         );
         // past the cell's bound, or never asked: given up
         let mut s = StandIn::new("own-cell-huge", ANSWERS, &own_cell_frame(8, 4096));

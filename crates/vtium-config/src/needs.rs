@@ -17,12 +17,7 @@
 //! - ADR-1204 D7: what vtium does with each of the four keys, and the
 //!   console's line for a missing font.
 
-use std::path::Path;
-
-use vtium_font::{PSF_BYTES_MAX, Sha256, sha256_hex};
-
-use crate::frit::{Cover, Origin, Source, Version};
-use crate::outline::OUTLINE_BYTES_MAX;
+use crate::frit::{Cover, Source, Version};
 use crate::sources::Input;
 
 /// How a font the helper found differs from what its source needs.
@@ -116,34 +111,28 @@ pub fn lacking(check: &[Cover], count: impl Fn(u32, u32) -> usize) -> Option<u32
 /// The version string a font read from `input` states: an outline font's
 /// version from its name table, in the face of the family the source
 /// names, and a BDF font's `FONT_VERSION` property. `None` for a font that
-/// states none, such as a PSF font, which has no place for one.
+/// states none, such as a PSF font or a `.hex` font, which have no place
+/// for one.
 pub fn version_of(input: &Input) -> Option<String> {
     match input {
         Input::Outline(req) => crate::serve::outline_version(&req.font, &req.family),
         Input::Bdf(bytes) => crate::bdf::version(bytes),
-        Input::Font(_) | Input::Bitmap(_) => None,
+        Input::Font(_) | Input::Hex(_) | Input::Bitmap(_) => None,
     }
-}
-
-/// The SHA-256 of the file a path source names, as lowercase hexadecimal
-/// digits, read again with the bound the helper reads it with; `None` for
-/// a source that names no file, or a file that no longer reads.
-pub fn sha256_of(origin: &Origin) -> Option<String> {
-    let (path, limit): (&Path, u64) = match origin {
-        Origin::Outline(path) => (path, OUTLINE_BYTES_MAX),
-        Origin::File(path) | Origin::Bdf(path) => (path, u64::from(PSF_BYTES_MAX)),
-        _ => return None,
-    };
-    let bytes = crate::sources::read_regular(path, limit).ok()?;
-    Some(sha256_hex(&Sha256::digest(&bytes)))
 }
 
 /// How the font that `source` names differs from what the source needs,
 /// once the helper has read it: its version, `found` as the font states
-/// it, against `version=`, and its file's SHA-256 against `sha256=`. A
-/// font that states no version is not compared, because nothing says it
-/// is older. `line` is the source's line in the frit's own text.
-pub fn differences(source: &Source, found: Option<&str>, line: usize) -> Vec<Differs> {
+/// it, against `version=`, and its file's SHA-256, `hash` as
+/// [`crate::sources::resolve_hashed`] gives it from the bytes the helper
+/// read, against `sha256=`. A font that states no version is not
+/// compared, because nothing says it is older. `line` is the source's
+/// line in the frit's own text.
+pub fn differences(
+    source: &Source,
+    (found, hash): (Option<&str>, Option<&str>),
+    line: usize,
+) -> Vec<Differs> {
     let mut out = Vec::new();
     let differs = |what| Differs {
         line,
@@ -157,10 +146,10 @@ pub fn differences(source: &Source, found: Option<&str>, line: usize) -> Vec<Dif
         out.push(differs(Differ::Older(found.spelling)));
     }
     if let Some(wanted) = &source.needs.sha256
-        && let Some(found) = sha256_of(&source.origin)
-        && &found != wanted
+        && let Some(found) = hash
+        && found != wanted
     {
-        out.push(differs(Differ::OtherHash(found)));
+        out.push(differs(Differ::OtherHash(found.to_owned())));
     }
     out
 }
@@ -192,6 +181,27 @@ pub fn missing_line(set: &str, source: &Source, lacks: Option<u32>) -> Option<St
     })
 }
 
+/// The line the console logs, once a boot, for a strike that the frit
+/// `set` needs and that this machine lacks: the set, the strike's font,
+/// and the font of `source`, whose size the strike is. The other sizes
+/// of that font draw in its place. `None` for a strike that names no font
+/// of its own.
+///
+/// References:
+/// - ADR-1204 D7: the console logs one line for each missing font.
+pub fn missing_strike_line(set: &str, strike: &Source, source: &Source) -> Option<String> {
+    let font = strike.font_name()?;
+    let of = source.font_name()?;
+    let from = source
+        .layer
+        .as_ref()
+        .map(|layer| format!(" from the layer {layer}"))
+        .unwrap_or_default();
+    Some(format!(
+        "{set} needs the font {font}{from}, which is not on this machine. That font is {of} at one size, so vtium draws {of} at that size without it"
+    ))
+}
+
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
@@ -199,6 +209,10 @@ pub fn missing_line(set: &str, source: &Source, lacks: Option<u32>) -> Option<St
     reason = "a test fails by panicking"
 )]
 mod tests {
+    use std::path::Path;
+
+    use vtium_font::{Sha256, sha256_hex};
+
     use super::*;
     use crate::frit::Frit;
 
@@ -253,9 +267,7 @@ mod tests {
     // that states no version, or a higher or equal one, gives none.
     #[test]
     fn a_lower_version_and_another_hash_are_differences() {
-        let dir = crate::scratch::Scratch::new("needs-differences");
-        let file = dir.join("f.bdf");
-        std::fs::write(&file, b"font bytes").expect("a file");
+        let file = Path::new("/fonts/f.bdf");
         let hash = sha256_hex(&Sha256::digest(b"font bytes"));
         let s = sources(&format!(
             "source=bdf:{}\nversion=2.304\nsha256={hash}\nsource=bdf:{}\nsha256={}\n",
@@ -264,11 +276,12 @@ mod tests {
             "0".repeat(64)
         ));
         let line = 1;
-        assert_eq!(differences(&s[0], Some("Version 2.304"), line), []);
-        assert_eq!(differences(&s[0], Some("Version 2.310"), line), []);
-        assert_eq!(differences(&s[0], None, line), []);
+        let read = Some(hash.as_str());
+        assert_eq!(differences(&s[0], (Some("Version 2.304"), read), line), []);
+        assert_eq!(differences(&s[0], (Some("Version 2.310"), read), line), []);
+        assert_eq!(differences(&s[0], (None, read), line), []);
         assert_eq!(
-            differences(&s[0], Some("Version 2.242; ttfautohint"), line),
+            differences(&s[0], (Some("Version 2.242; ttfautohint"), read), line),
             [Differs {
                 line,
                 spelling: format!("bdf:{}", file.display()),
@@ -276,7 +289,7 @@ mod tests {
             }]
         );
         assert_eq!(
-            differences(&s[1], None, 4),
+            differences(&s[1], (None, read), 4),
             [Differs {
                 line: 4,
                 spelling: format!("bdf:{}", file.display()),

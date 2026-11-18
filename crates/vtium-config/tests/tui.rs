@@ -777,8 +777,16 @@ fn a_grid_too_small_draws_the_way_out() {
         joined.starts_with(&vtium_config::tui::words::too_small(30, 8)),
         "{screen}"
     );
+    // the generated key line of the screen below the minimum size, and
+    // the sentence about u under it
+    let keys = vtium_config::tui::contract::key_pages("any.too-small")
+        .and_then(|p| p.first())
+        .expect("the key line below the minimum size");
     assert!(
-        joined.ends_with(vtium_config::tui::words::TOO_SMALL_KEYS),
+        joined.ends_with(&format!(
+            "{keys} {}",
+            vtium_config::tui::words::TOO_SMALL_UNDO
+        )),
         "{screen}"
     );
     assert!(rows.iter().all(|r| r.chars().count() <= 30), "{screen}");
@@ -854,22 +862,85 @@ fn a_failed_install_keeps_the_draft_and_says_why() {
     assert_eq!(d.installed, inputs().conf.expect("the fixture"));
 }
 
-/// The settings view lists every key vtium.conf takes, from the console's
-/// own key table, the font keys first, each once.
-#[test]
-fn the_settings_view_lists_every_key_vtium_conf_takes() {
-    use vtium_settings::keys::{KEYS, Scope};
-    let listed: Vec<&str> = model::setting_keys().iter().map(|k| k.name).collect();
-    let takes: Vec<&str> = KEYS
+/// The keys that go from the Settings view's list of sections to the
+/// key `name`: the first section, Down to the key's section, Enter to open
+/// it, and Down to the key. Esc closes the section again.
+fn to_setting(name: &str) -> Vec<&'static [u8]> {
+    use vtium_config::tui::settings::sections;
+    let (section, key) = sections()
         .iter()
-        .filter(|k| k.scope == Scope::Anywhere)
-        .map(|k| k.name)
-        .collect();
-    assert_eq!(listed.len(), takes.len(), "{listed:?}");
-    for name in &takes {
-        assert_eq!(listed.iter().filter(|n| *n == name).count(), 1, "{name}");
+        .enumerate()
+        .find_map(|(s, sec)| {
+            sec.keys()
+                .iter()
+                .position(|k| k.name == name)
+                .map(|k| (s, k))
+        })
+        .unwrap_or_else(|| panic!("no section holds {name}"));
+    let mut keys: Vec<&'static [u8]> = vec![b"\x1b[H"];
+    keys.extend(std::iter::repeat_n(DOWN, section));
+    keys.push(b"\r");
+    keys.extend(std::iter::repeat_n(DOWN, key));
+    keys
+}
+
+/// An open Settings section and a key's list of values, at 80×25 and
+/// 100×30, each a provisional golden until the maintainer reviews it.
+#[test]
+fn a_settings_section_and_a_list_of_values_at_80x25_and_100x30() {
+    let scripts: [(&str, &[&[u8]]); 2] = [
+        ("settings-section", &[b"\t", b"\r"]),
+        ("settings-values", &[b"\t", b"\r", b"\x1b[F", b"\r"]),
+    ];
+    for (cols, rows) in [(80, 25), (100, 30)] {
+        for (name, keys) in scripts {
+            let (screen, bytes) = reach_from(model::View::Fonts, cols, rows, keys);
+            let lines: Vec<&str> = screen.lines().collect();
+            assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
+            assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");
+            assert!(lines[rows - 1].contains(" quit"), "{name}: {screen}");
+            golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
+        }
     }
-    assert_eq!(&listed[..model::FONT_KEYS.len()], &model::FONT_KEYS[..]);
+}
+
+/// The keys that pick `word` from the highlighted key's list of values,
+/// wherever the list opens.
+fn pick_value(name: &str, word: &str) -> Vec<&'static [u8]> {
+    let key = vtium_settings::keys::find(name).expect("a key");
+    let at = vtium_config::tui::settings::fixed_values(key)
+        .and_then(|words| words.iter().position(|w| *w == word))
+        .unwrap_or_else(|| panic!("{name} does not take {word}"));
+    let mut keys: Vec<&'static [u8]> = vec![b"\r", b"\x1b[H"];
+    keys.extend(std::iter::repeat_n(DOWN, at));
+    keys.push(b"\r");
+    keys
+}
+
+/// The Settings view opens on the sections of vtium.conf's keys, each
+/// with how many settings it holds. Enter opens a section, which shows its
+/// keys under the titles of their groups, and Esc goes back to the
+/// sections.
+///
+/// References:
+/// - ADR-1201 D3, the Settings bullet: the sections come from the key
+///   table, and Enter and Esc move between them and their keys.
+#[test]
+fn the_settings_view_opens_on_the_sections_and_enter_shows_a_section_s_groups() {
+    let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"\t"]);
+    for title in ["Fonts and text", "Colors", "Keyboard and mouse"] {
+        assert!(screen.contains(title), "{title}:\n{screen}");
+    }
+    assert!(screen.contains(" settings"), "{screen}");
+    assert!(screen.contains(words::SECTIONS_HINT.split(' ').next().unwrap_or_default()));
+    let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"\t", b"\r"]);
+    assert!(screen.contains("Settings › Fonts and text"), "{screen}");
+    assert!(screen.contains(" Font\n"), "the group's title: {screen}");
+    assert!(screen.contains("font-name"), "{screen}");
+    assert!(!screen.contains("Colors"), "{screen}");
+    let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"\t", DOWN, b"\r", b"\x1b"]);
+    assert!(screen.contains("Fonts and text"), "{screen}");
+    assert!(!screen.contains("Settings ›"), "{screen}");
 }
 
 /// ADR-1005 D10: the settings view lists the seventeen keys vtium takes
@@ -896,7 +967,10 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
         ("key-focus-next", "<Ctrl><Logo>Up"),
         ("key-focus-previous", "<Ctrl><Logo>Down"),
     ];
-    let listed = model::setting_keys();
+    let listed: Vec<&vtium_settings::keys::Key> = vtium_config::tui::settings::sections()
+        .iter()
+        .flat_map(|s| s.keys())
+        .collect();
     for (name, default) in want {
         let key = listed
             .iter()
@@ -908,12 +982,8 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
             "{name}"
         );
     }
-    let at = listed
-        .iter()
-        .position(|k| k.name == "key-reset")
-        .expect("listed");
     let mut keys: Vec<&[u8]> = vec![b"\t"];
-    keys.extend(std::iter::repeat_n(DOWN, at));
+    keys.extend(to_setting("key-reset"));
     let mut c = console().keys(&keys);
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
@@ -928,13 +998,9 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
 /// `default` returns the key to its default.
 #[test]
 fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
-    let at = model::setting_keys()
-        .iter()
-        .position(|k| k.name == "key-reset")
-        .expect("listed");
     let erase = [b"\x7f".as_slice(); 19];
     let mut keys: Vec<&[u8]> = vec![b"\t"];
-    keys.extend(std::iter::repeat_n(DOWN, at));
+    keys.extend(to_setting("key-reset"));
     keys.push(b"\r");
     keys.extend(erase);
     keys.push(b"\r");
@@ -964,7 +1030,9 @@ fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
 
 #[test]
 fn a_setting_shows_its_default_and_what_it_does() {
-    let mut c = console().keys(&[b"\t", DOWN]);
+    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    keys.extend(to_setting("font-size"));
+    let mut c = console().keys(&keys);
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("font-size"), "{screen}");
@@ -972,19 +1040,25 @@ fn a_setting_shows_its_default_and_what_it_does() {
     assert!(screen.contains("The font size in points"), "{screen}");
 }
 
-/// Enter types a value for a key that takes one, a second Enter keeps it,
-/// a switch turns, a choice steps, and the save changes each line; typed
-/// text takes `q` and `i` as letters.
-/// Enter types a value for a key that takes one, a second Enter keeps it,
-/// a switch turns and a choice steps, each written into the draft at
-/// once; typed text takes `q` and `i` as letters.
+/// Enter types a value for a key that takes one, and a second Enter
+/// keeps it. Enter on a switch or a choice opens its values as a list, and
+/// Enter there picks one. Each change goes into the draft at once, and
+/// typed text takes `q` and `i` as letters.
 #[test]
 fn a_typed_value_a_switch_and_a_choice_go_into_the_draft() {
     let mut d = desk();
-    let mut c = console().keys(&[
-        b"\t", DOWN, DOWN, DOWN, b"\r", DOWN, b"\r", b"10", b"\r", DOWN, b"\r", DOWN, b"\r", b"qi",
-        b"\r", b"q", b"y",
-    ]);
+    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    keys.extend(to_setting("font-hinting"));
+    keys.extend(pick_value("font-hinting", "light"));
+    keys.push(b"\x1b");
+    keys.extend(to_setting("font-line-spacing"));
+    keys.extend([b"\r".as_slice(), b"10", b"\r", b"\x1b"]);
+    keys.extend(to_setting("allow-font-ops"));
+    keys.extend(pick_value("allow-font-ops", "off"));
+    keys.push(b"\x1b");
+    keys.extend(to_setting("display-dpi"));
+    keys.extend([b"\r".as_slice(), b"qi", b"\r", b"q", b"y"]);
+    let mut c = console().keys(&keys);
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert_eq!(
         d.draft,
@@ -1448,17 +1522,41 @@ const RIGHT: &[u8] = b"\x1b[C";
 const LEFT: &[u8] = b"\x1b[D";
 const TAB: &[u8] = b"\t";
 
-/// The key line the script `keys` leaves at 80x25, from `view`.
+/// The screen the script `keys` leaves at 80x25, from `view`.
 fn key_line(view: model::View, keys: &[&[u8]]) -> String {
-    let (screen, _) = reach_from(view, 80, 25, keys);
-    screen.lines().last().unwrap_or_default().trim().to_owned()
+    reach_from(view, 80, 25, keys).0
 }
 
-/// Whether `line` is the Flow view's key line, which shows the keys that
-/// fit and starts with the first.
-fn is_flow_keys(line: &str) -> bool {
-    let first = words::KEYS_FLOW.split("  ").next().unwrap_or_default();
-    line.starts_with(first) && line.ends_with("q quit")
+/// The first page of the key line that the contract gives the node `id`
+/// of the interface tree, the page the TUI shows when it comes to the node.
+fn keys_of(id: &str) -> &'static str {
+    vtium_config::tui::contract::key_pages(id)
+        .and_then(|pages| pages.first())
+        .copied()
+        .unwrap_or_else(|| panic!("no key line for {id}"))
+}
+
+/// The key line at the foot of `screen`: as many of its last rows as the
+/// key line `line` takes at 80 columns, each key kept whole on a row,
+/// joined as a key line. It equals `line` when the screen shows `line`.
+fn foot(screen: &str, line: &str) -> String {
+    let mut rows: Vec<String> = Vec::new();
+    for item in line.split("  ") {
+        match rows.last_mut() {
+            Some(row) if row.chars().count() + 2 + item.chars().count() <= 78 => {
+                row.push_str("  ");
+                row.push_str(item);
+            }
+            _ => rows.push(item.to_owned()),
+        }
+    }
+    let shown: Vec<&str> = screen.lines().map(str::trim).collect();
+    shown[shown.len().saturating_sub(rows.len())..].join("  ")
+}
+
+/// Whether `screen` shows the Flow view's key line.
+fn is_flow_keys(screen: &str) -> bool {
+    foot(screen, keys_of("flow")) == keys_of("flow")
 }
 
 use vtium_config::tui::words;
@@ -1469,11 +1567,19 @@ fn tab_and_shift_tab_step_the_views_from_every_column_of_the_flow_through_the_lo
         let mut keys: Vec<&[u8]> = vec![RIGHT; column];
         keys.push(TAB);
         let line = key_line(model::View::Flow, &keys);
-        assert_eq!(line, words::KEYS_LOOKS, "Tab from column {column}");
+        assert_eq!(
+            foot(&line, words::KEYS_LOOKS),
+            words::KEYS_LOOKS,
+            "Tab from column {column}"
+        );
         keys.pop();
         keys.push(BACKTAB);
         let line = key_line(model::View::Flow, &keys);
-        assert_eq!(line, words::KEYS_HELP, "Shift-Tab from column {column}");
+        assert_eq!(
+            foot(&line, keys_of("help")),
+            keys_of("help"),
+            "Shift-Tab from column {column}"
+        );
     }
 }
 
@@ -1483,12 +1589,12 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
     let own = |view| match view {
         Looks => words::KEYS_LOOKS,
         Fonts => words::KEYS_FONTS_LIVE,
-        Settings => words::KEYS_SETTINGS,
-        _ => words::KEYS_HELP,
+        Settings => keys_of("settings"),
+        _ => keys_of("help"),
     };
     let shown = |line: &str, view| match view {
         Flow => is_flow_keys(line),
-        _ => line == own(view),
+        _ => foot(line, own(view)) == own(view),
     };
     for (view, next, before) in [
         (Looks, Fonts, Flow),
@@ -1502,8 +1608,52 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
         assert!(shown(&line, before), "Shift-Tab from {view:?}: {line}");
         let arrows = [LEFT, LEFT, RIGHT, RIGHT, RIGHT, UP, DOWN, DOWN];
         let line = key_line(view, &arrows);
-        assert_eq!(line, own(view), "the arrows on {view:?}");
+        assert_eq!(foot(&line, own(view)), own(view), "the arrows on {view:?}");
     }
+}
+
+/// The last row of `screen`, without its margin.
+fn last_row(screen: &str) -> &str {
+    screen.lines().last().unwrap_or_default().trim()
+}
+
+/// The key line is one row in pages: `.` steps through the Flow view's
+/// pages and back to the first, and every node the TUI moves to shows its
+/// first page, whatever page the node before showed.
+///
+/// References:
+/// - ADR-1403 D7, "The same keys in every view": the key line is one row
+///   that shows its keys in pages, and `.` shows the next page.
+#[test]
+fn the_key_line_shows_its_pages_on_period_and_its_first_page_in_each_node() {
+    use model::View::{Flow, Help};
+    let flow = vtium_config::tui::contract::key_pages("flow").expect("the Flow view's pages");
+    assert!(flow.len() > 1, "{flow:?}");
+    let mut keys: Vec<&[u8]> = Vec::new();
+    for page in flow.iter().chain(flow.first()) {
+        assert_eq!(
+            last_row(&key_line(Flow, &keys)),
+            *page,
+            "after {} presses",
+            keys.len()
+        );
+        keys.push(b".");
+    }
+    // the second page, then a move inside the view keeps it
+    assert_eq!(last_row(&key_line(Flow, &[b".", DOWN])), flow[1]);
+    // the next view and Help's own pages start at 1, and so does the
+    // Flow view's when the TUI comes back to it
+    assert_eq!(last_row(&key_line(Flow, &[b".", TAB])), words::KEYS_LOOKS);
+    assert_eq!(last_row(&key_line(Flow, &[b".", BACKTAB])), keys_of("help"));
+    assert_eq!(
+        last_row(&key_line(Flow, &[b".", BACKTAB, TAB])),
+        keys_of("flow")
+    );
+    // a key line of one page takes `.` as a key that does nothing
+    let looks = key_line(Flow, &[TAB]);
+    assert_eq!(key_line(Flow, &[TAB, b"."]), looks);
+    let help = vtium_config::tui::contract::key_pages("help").expect("Help's pages");
+    assert_eq!(last_row(&key_line(Help, &[b"."])), help[1]);
 }
 
 /// Tab leaves a question open on any view, and Esc answers it no.
@@ -1516,21 +1666,30 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("Install the draft?"), "{screen}");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_CONFIRM, "{screen}");
+    assert_eq!(
+        foot(&screen, keys_of("any.question.confirm")),
+        keys_of("any.question.confirm"),
+        "{screen}"
+    );
     let mut c = console().keys(&[&ask[..], &[TAB]].concat());
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_CONFIRM, "{screen}");
+    assert_eq!(
+        foot(&screen, keys_of("any.question.confirm")),
+        keys_of("any.question.confirm"),
+        "{screen}"
+    );
     let mut c = console().keys(&[&ask[..], &[TAB, b"\x1b"]].concat());
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_DONE), "{screen}");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_LOOKS, "{screen}");
+    assert_eq!(
+        foot(&screen, words::KEYS_LOOKS),
+        words::KEYS_LOOKS,
+        "{screen}"
+    );
     assert!(d.plans.is_empty());
     // the question before leaving with a frit waiting: Tab leaves it
     // open, and Esc goes back
@@ -1538,30 +1697,49 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_LEAVE, "{screen}");
+    assert_eq!(
+        foot(&screen, keys_of("any.question.leave")),
+        keys_of("any.question.leave"),
+        "{screen}"
+    );
     let mut c = console().keys(&[UP, b"r", b"q", TAB]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_LEAVE, "{screen}");
+    assert_eq!(
+        foot(&screen, keys_of("any.question.leave")),
+        keys_of("any.question.leave"),
+        "{screen}"
+    );
     let mut c = console().keys(&[UP, b"r", b"q", TAB, b"\x1b"]);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_LEFT), "{screen}");
-    let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_FONTS_LIVE, "{screen}");
+    assert_eq!(
+        foot(&screen, words::KEYS_FONTS_LIVE),
+        words::KEYS_FONTS_LIVE,
+        "{screen}"
+    );
 }
 
 #[test]
 fn tab_does_nothing_while_a_value_is_typed_in_settings() {
-    // Settings, Down to font-line-spacing, Enter starts typing its value;
+    // Settings, down to font-line-spacing, Enter starts typing its value;
     // Tab and Shift-Tab between the two digits change nothing
-    let mut c = console().keys(&[
-        TAB, DOWN, DOWN, DOWN, DOWN, b"\r", b"1", TAB, BACKTAB, b"0", b"\r", b"q", b"y",
+    let mut keys: Vec<&[u8]> = vec![TAB];
+    keys.extend(to_setting("font-line-spacing"));
+    keys.extend([
+        b"\r".as_slice(),
+        b"1",
+        TAB,
+        BACKTAB,
+        b"0",
+        b"\r",
+        b"q",
+        b"y",
     ]);
+    let mut c = console().keys(&keys);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert!(d.draft.contains("\nfont-line-spacing=10\n"), "{}", d.draft);
@@ -1571,12 +1749,15 @@ fn tab_does_nothing_while_a_value_is_typed_in_settings() {
 fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_fonts() {
     for key in [TAB, BACKTAB] {
         let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"n", b"abc", key]);
-        let line = screen.lines().last().unwrap_or_default().trim();
-        assert_eq!(line, words::KEYS_NEW, "{key:?}: {screen}");
+        assert_eq!(
+            foot(&screen, words::KEYS_NEW),
+            words::KEYS_NEW,
+            "{key:?}: {screen}"
+        );
         assert!(screen.contains("abc"), "{screen}");
     }
     let line = key_line(model::View::Fonts, &[b"n", b"abc", TAB, b"\x1b"]);
-    assert_eq!(line, words::KEYS_FONTS_LIVE);
+    assert_eq!(foot(&line, words::KEYS_FONTS_LIVE), words::KEYS_FONTS_LIVE);
 }
 
 #[test]
@@ -2505,7 +2686,11 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
         );
         assert!(joined.contains("vtium-config fonts"), "{screen}");
         assert!(joined.contains("vtium-config set"), "{screen}");
-        assert!(joined.contains(words::TOO_SMALL_KEYS), "{screen}");
+        let keys = vtium_config::tui::contract::key_pages("any.too-small")
+            .and_then(|p| p.first())
+            .expect("the key line below the minimum size");
+        assert!(joined.contains(keys), "{screen}");
+        assert!(joined.contains(words::TOO_SMALL_UNDO), "{screen}");
         // keys that would move are ignored below the minimum; u gives the
         // console its start font back, and the views come back
         let mut c = Console::vtium(80, 25, true, "unifont")
@@ -2538,15 +2723,25 @@ fn at_80x25_no_key_or_sentence_is_cut() {
     use vtium_config::tui::words;
     // the keys that reach a view, its key line, and its sentences
     type Case<'a> = (&'a [&'a [u8]], &'a str, &'a [&'a str]);
-    let views: [Case; 4] = [
+    let views: [Case; 6] = [
         (&[], words::KEYS_FONTS_LIVE, &[]),
         (
             &[BACKTAB],
             words::KEYS_LOOKS,
             &[words::CONSOLE_SIZE_CAPTION],
         ),
-        (&[b"\t"], words::KEYS_SETTINGS, &[words::SETTINGS_HINT]),
-        (&[b"\t", b"\t"], words::KEYS_HELP, &[]),
+        (&[b"\t"], keys_of("settings"), &[words::SECTIONS_HINT]),
+        (
+            &[b"\t", b"\r"],
+            keys_of("settings.section"),
+            &[words::SETTINGS_HINT],
+        ),
+        (
+            &[b"\t", b"\r", b"\x1b[F", b"\r"],
+            keys_of("settings.section.list"),
+            &[words::VALUES_HINT],
+        ),
+        (&[b"\t", b"\t"], keys_of("help"), &[]),
     ];
     for (keys, key_line, sentences) in views {
         let screen = reach(80, 25, keys);
@@ -2568,7 +2763,7 @@ fn at_80x25_no_key_or_sentence_is_cut() {
             assert!(rows[0].contains(name), "{name}: {:?}", rows[0]);
         }
         // the Help view shows no actions (ADR-1403 D7)
-        if key_line != words::KEYS_HELP {
+        if key_line != keys_of("help") {
             for (_, short) in words::ACTIONS {
                 assert!(rows[0].contains(short), "{short}: {:?}", rows[0]);
             }
@@ -2935,14 +3130,14 @@ mod flow_view {
     }
 
     #[test]
-    fn the_help_view_draws_the_keys_from_the_catalog_and_about_from_its_source() {
+    fn the_help_view_draws_the_keys_from_the_contract_and_about_from_its_source() {
         let mut a = app(80, 25);
         a.flow_at = Item::Display(0);
         press(&mut a, Key::BackTab);
         assert_eq!(a.view, View::Help);
         let joined = |a: &App| text(a).lines().map(str::trim).collect::<Vec<_>>().join(" ");
         assert!(
-            joined(&a).contains("Flow shows how the console is set up"),
+            joined(&a).contains("The Flow view: CONFIGURATION, NEW PATH and PARTS"),
             "{}",
             text(&a)
         );
@@ -2965,6 +3160,87 @@ mod flow_view {
             "{}",
             text(&a)
         );
+    }
+
+    /// The Help page is generated from the contract: it shows, for each
+    /// supported node of the interface tree, what the node is, then every
+    /// key of the node's help with what the key does, in the contract's
+    /// order, at each width the TUI draws.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The contract": the Help tab is generated from the
+    ///   key table and the tree.
+    #[test]
+    fn the_help_page_shows_every_key_of_every_node_the_contract_gives() {
+        use vtium_config::tui::contract::NODES;
+        let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+        for (cols, rows) in [(80, 25), (100, 30)] {
+            let mut a = app(cols, rows);
+            press(&mut a, Key::BackTab);
+            assert_eq!(a.view, View::Help);
+            let page = words(
+                &view::help_rows(&a)
+                    .iter()
+                    .map(view::text)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+            let mut shown = 0;
+            for node in NODES.iter().filter(|n| n.supported && !n.help.is_empty()) {
+                let what = words(node.what);
+                let mut at = page
+                    .find(&what)
+                    .unwrap_or_else(|| panic!("{cols}: the page leaves out {what:?}"));
+                for (keys, does) in node.help {
+                    let entry = words(&format!("{keys} {does}"));
+                    let found = page.get(at..).and_then(|rest| rest.find(&entry));
+                    let Some(i) = found else {
+                        panic!("{cols}: {}'s help leaves out {entry:?}", node.id);
+                    };
+                    at = at.saturating_add(i).saturating_add(entry.len());
+                    shown += 1;
+                }
+            }
+            assert!(shown > 100, "{cols}: only {shown} keys");
+        }
+    }
+
+    /// Help's page scrolls by a line with Up and Down, and by the rows the
+    /// screen shows with PgUp and PgDn. Its top row stops where the page's
+    /// last row is at the bottom of the screen, so Up moves the page at
+    /// once after End.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The contract": the key table's rows for the Help
+    ///   view's keys.
+    #[test]
+    fn the_help_page_scrolls_by_its_window_and_up_moves_it_at_once_from_the_bottom() {
+        let mut a = app(80, 25);
+        press(&mut a, Key::BackTab);
+        let (len, room) = view::help_window(&a);
+        assert!(len > room.saturating_mul(2), "{len} rows, {room} shown");
+        // the screen's first row of the page, the row under the tab bar's
+        // rule, is the page's row `at`
+        let top = |a: &App, at: usize| {
+            let rows = view::help_rows(a);
+            let want = rows.get(at).map(view::text).unwrap_or_default();
+            let got = text(a).lines().nth(3).unwrap_or_default().to_owned();
+            assert_eq!(got.trim_end(), want.trim_end(), "row {at}");
+        };
+        press(&mut a, Key::PageDown);
+        top(&a, room);
+        press(&mut a, Key::PageDown);
+        top(&a, room.saturating_mul(2));
+        press(&mut a, Key::PageUp);
+        top(&a, room);
+        press(&mut a, Key::End);
+        top(&a, len.saturating_sub(room));
+        press(&mut a, Key::Down);
+        top(&a, len.saturating_sub(room));
+        press(&mut a, Key::Up);
+        top(&a, len.saturating_sub(room).saturating_sub(1));
+        press(&mut a, Key::Home);
+        top(&a, 0);
     }
 }
 
@@ -3508,7 +3784,11 @@ mod draft_flow {
             "{}",
             ran.screen()
         );
-        assert!(ran.screen().contains(words::KEYS_QUIT), "{}", ran.screen());
+        assert!(
+            ran.screen().contains(keys_of("any.question.quit")),
+            "{}",
+            ran.screen()
+        );
         // n quits without the change, and y saves it and quits
         let b = bench("quit-n");
         run(&b, &[&CHANGE[..], &[b"q", b"n"]].concat());
@@ -3537,8 +3817,12 @@ mod draft_flow {
         run(&b, &[&CHANGE[..], &[b"i", b"y"]].concat());
         for key in [TAB, BACKTAB] {
             let ran = run(&b, &[b"o", key]);
-            let line = ran.screen().lines().last().unwrap_or_default().trim();
-            assert_eq!(line, words::KEYS_RESTORE, "{key:?}: {}", ran.screen());
+            assert_eq!(
+                foot(ran.screen(), keys_of("flow.restore")),
+                keys_of("flow.restore"),
+                "{key:?}: {}",
+                ran.screen()
+            );
         }
         let ran = run(&b, &[b"o", TAB, BACKTAB, b"\r"]);
         assert!(
@@ -3552,8 +3836,9 @@ mod draft_flow {
         let ran = run(&b, &[&CHANGE[..], &[b"s", b"r", TAB, ESC]].concat());
         assert!(ran.said().contains(words::NOT_DONE), "{}", ran.screen());
         assert!(ran.status().contains("4 changes"), "{}", ran.status());
+        // the Flow view's key line shows its first page, which ends in q
         let line = ran.screen().lines().last().unwrap_or_default().trim();
-        assert!(line.ends_with("q quit"), "{}", ran.screen());
+        assert!(line.ends_with("q quit  . more 1/5"), "{}", ran.screen());
     }
 
     #[test]
@@ -3664,8 +3949,22 @@ mod draft_flow {
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
         assert!(screen.contains("▸   9 display * -> desk"), "{screen}");
-        assert!(screen.contains("Esc back  s save"), "{screen}");
-        assert!(screen.contains("q quit"), "{screen}");
+        assert!(screen.contains("Esc back"), "{screen}");
+        assert!(screen.contains("q quit  . more 1/3"), "{screen}");
+        // the key line's third page names Save and Install
+        let ran = run(&b, &[b"\x1b[H", b"v", b".", b"."]);
+        let screen = ran.screen();
+        assert!(screen.contains("▸   9 display * -> desk"), "{screen}");
+        assert!(screen.contains("s save"), "{screen}");
+        assert!(screen.contains("i install"), "{screen}");
+        assert!(screen.contains(". more 3/3"), "{screen}");
+        // the file view shows its first page from any page of the Flow
+        // view's, and Esc goes back to the Flow view's first page
+        let ran = run(&b, &[b".", b"v"]);
+        assert!(ran.screen().contains(words::PAGER_TITLE));
+        assert_eq!(last_row(ran.screen()), super::keys_of("flow.file"));
+        let ran = run(&b, &[b"v", b".", ESC]);
+        assert_eq!(last_row(ran.screen()), super::keys_of("flow"));
         // Esc goes back to the flow
         let ran = run(&b, &[b"v", b"j", b"G", b"\x04", ESC]);
         assert!(!ran.screen().contains(words::PAGER_TITLE));
@@ -3690,10 +3989,12 @@ mod draft_flow {
     #[test]
     fn the_file_view_saves_and_installs_and_stays_open() {
         let b = bench("file-view");
-        let ran = run_rows(&b, &[b"v"]);
+        // the key line's third page names Save and Install
+        let ran = run_rows(&b, &[b"v", b".", b"."]);
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
-        assert!(screen.contains("s save  i install"), "{screen}");
+        assert!(screen.contains("s save"), "{screen}");
+        assert!(screen.contains("i install"), "{screen}");
         // s says what Save says, and the file stays open
         let ran = run_rows(&b, &[b"v", b"s"]);
         let screen = ran.screen();

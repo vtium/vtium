@@ -37,6 +37,9 @@ impl Term {
     }
 }
 
+/// The comment lines the stand-in desk's draft ends with.
+const LONG_FILE_COMMENTS: usize = 30;
+
 /// The font the stand-in console draws when the TUI starts.
 pub const START_FONT: &str = "unifont";
 
@@ -198,7 +201,13 @@ impl Sim {
     pub fn start(term: Term, cols: usize, rows: usize) -> Sim {
         let mut inputs = vtium_config::tui::fixture::inputs();
         inputs.desk = true;
-        let conf = inputs.conf.clone().unwrap_or_default();
+        // comments after the fixture's settings make the file longer than
+        // the file view's window, so its scrolling keys have lines to move
+        let mut conf = inputs.conf.clone().unwrap_or_default();
+        for n in 1..=LONG_FILE_COMMENTS {
+            conf.push_str(&format!("# comment {n} of the stand-in desk's draft\n"));
+        }
+        inputs.conf = Some(conf.clone());
         let (app, first) = App::new(inputs, cols, rows);
         let mut sim = Sim {
             app,
@@ -206,7 +215,12 @@ impl Sim {
             desk: Desk {
                 installed: conf.clone(),
                 draft: conf.clone(),
-                history: vec![format!("{conf}# an older file\n")],
+                // two installed files, so Restore's list has an item to
+                // move to
+                history: vec![
+                    format!("{conf}# an older file\n"),
+                    format!("{conf}# the oldest file\n"),
+                ],
                 writes: 0,
                 no_route: false,
             },

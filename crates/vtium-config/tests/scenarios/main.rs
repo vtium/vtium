@@ -91,7 +91,7 @@ fn card_lines(map: &Map, checks: &mut Checks) {
         if abs.node() == "flow" && abs.focus == "new terminal" {
             at.press(press_of("Enter"));
             keys.push("Enter");
-        } else if abs.node() != "flow.card" {
+        } else if !matches!(abs.node().as_str(), "flow.card" | "flow.new-card") {
             continue;
         }
         let lines = Checks::card_line_count(&at);
@@ -117,12 +117,177 @@ fn card_lines(map: &Map, checks: &mut Checks) {
     }
 }
 
+/// Every key from the second page of a paged key line, each transition
+/// checked as the walk's are. The walk itself never presses `.` before a
+/// key that leaves a node, so this is where the rule that a key line shows
+/// its first page after a key that moves to another node is checked. The
+/// map records none of these transitions.
+fn from_a_second_page(map: &Map, checks: &mut Checks) {
+    for (abs, (sim, path, start)) in &map.reps {
+        let line = vtium_config::tui::view::key_line(&sim.app);
+        if !line
+            .rsplit("  ")
+            .next()
+            .is_some_and(|i| i.starts_with(". more "))
+        {
+            continue;
+        }
+        let mut paged = sim.clone();
+        paged.press(press_of("."));
+        let mut keys = path.clone();
+        keys.push(".");
+        let from = state::of(&paged);
+        if from != *abs {
+            continue;
+        }
+        for (name, press) in explore::ALPHABET {
+            let mut after = paged.clone();
+            let did = after.press(*press);
+            let step = explore::Step {
+                from: from.clone(),
+                key: name,
+                to: state::of(&after),
+                did,
+                path: keys.clone(),
+                start: *start,
+            };
+            checks.see(&step, &paged, &after);
+        }
+    }
+}
+
+/// Whether a key changed anything a person can see or that the TUI did:
+/// the screen with its colors, so a highlight that moves counts, the
+/// abstract state, an effect, or leaving the TUI.
+fn acted(before: &Sim, after: &Sim, did: &sim::Did) -> bool {
+    let drawn = |sim: &Sim| vtium_config::tui::view::screen(&sim.app);
+    !did.effects.is_empty()
+        || after.exited.is_some()
+        || state::of(before) != state::of(after)
+        || drawn(before) != drawn(after)
+}
+
+/// The key a person presses for one of the key table's names of keys:
+/// the alphabet's own name, or a letter for `any letter`.
+fn pressed_for(row: &tables::KeyRow) -> Vec<&'static str> {
+    if row.letters {
+        vec!["x"]
+    } else {
+        row.keys.clone()
+    }
+}
+
+/// The keys that move a highlight or a cursor, which the check below
+/// presses two at a time to leave the edge of a list: Right and then Left
+/// moves a card's choice off its first one only once Down has reached a
+/// line that has choices.
+const MOVING: [&str; 8] = ["Up", "Down", "Left", "Right", "Home", "End", "PgUp", "PgDn"];
+
+/// The rows each key line names, by node, whose key acts in that node:
+/// for every row a supported node lists with a label, so that its key line
+/// shows it, each of its keys is pressed in every state of the node the
+/// walk reached. Where the key changes nothing there, it is pressed again
+/// after each key of the alphabet that keeps the TUI in the node, and then
+/// after each pair of [`MOVING`] keys that does, which moves the highlight
+/// away from the edge of a list. The set holds each node, row and key that
+/// acted at least once.
+fn named_keys_that_act(map: &Map) -> BTreeSet<(String, String, &'static str)> {
+    let rows = tables::keys();
+    let mut acted_once = BTreeSet::new();
+    for node in tables::tree().iter().filter(|n| n.status == "supported") {
+        let named: Vec<&tables::KeyRow> = rows
+            .iter()
+            .filter(|r| {
+                node.keys.contains(&r.id)
+                    && r.status == "supported"
+                    && r.label != "-"
+                    && !r.key_line
+                    && r.keys != ["."]
+            })
+            .collect();
+        let reps: Vec<&Sim> = map
+            .reps
+            .iter()
+            .filter(|(abs, _)| abs.node() == node.id)
+            .map(|(_, (sim, _, _))| sim)
+            .collect();
+        for row in named {
+            for key in pressed_for(row) {
+                // the key acts after `first`, where `first` keeps the TUI
+                // in the node
+                let acts_after = |rep: &Sim, first: &[sim::Press]| {
+                    let mut moved = rep.clone();
+                    for p in first {
+                        moved.press(*p);
+                    }
+                    if moved.exited.is_some() || state::of(&moved).node() != node.id {
+                        return false;
+                    }
+                    let mut after = moved.clone();
+                    let did = after.press(press_of(key));
+                    acted(&moved, &after, &did)
+                };
+                let singles = || explore::ALPHABET.iter().map(|(_, p)| vec![*p]);
+                let pairs = || {
+                    MOVING
+                        .iter()
+                        .flat_map(|a| MOVING.iter().map(move |b| vec![press_of(a), press_of(b)]))
+                };
+                let acts = reps.iter().any(|rep| acts_after(rep, &[]))
+                    || reps
+                        .iter()
+                        .any(|rep| singles().any(|f| acts_after(rep, &f)))
+                    || reps.iter().any(|rep| pairs().any(|f| acts_after(rep, &f)));
+                if acts {
+                    acted_once.insert((node.id.clone(), row.id.clone(), key));
+                }
+            }
+        }
+    }
+    acted_once
+}
+
+/// Every key a key line names does something in the node whose key line
+/// names it, in at least one kind of terminal: a key line that offers a
+/// key that does nothing tells the person something false. A key that
+/// does nothing in a node has no label there, so its key line leaves it
+/// out.
+///
+/// References:
+/// - ADR-1403 D7, "The contract": the key lines are generated from the
+///   key table, and the scenario test proves that the code does what the
+///   table says.
+fn every_named_key_acts(acted_once: &BTreeSet<(String, String, &'static str)>) -> Vec<String> {
+    let rows = tables::keys();
+    let mut out = Vec::new();
+    for node in tables::tree().iter().filter(|n| n.status == "supported") {
+        for row in rows.iter().filter(|r| {
+            node.keys.contains(&r.id)
+                && r.status == "supported"
+                && r.label != "-"
+                && !r.key_line
+                && r.keys != ["."]
+        }) {
+            for key in pressed_for(row) {
+                if !acted_once.contains(&(node.id.clone(), row.id.clone(), key)) {
+                    out.push(format!(
+                        "the key line of {} shows {key} as \"{}\" (row {}), and {key} changes nothing there in any state the walk reached",
+                        node.id, row.label, row.id
+                    ));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The 0-switch run: every key in every state of every kind of terminal,
 /// each terminal on a thread of its own, with every check after every
 /// key, the map compared with the committed one, and the tables met.
 #[test]
 fn every_key_in_every_state_keeps_the_rules() {
-    let runs: Vec<(Term, Map, Checks)> = std::thread::scope(|scope| {
+    type Run = (Term, Map, Checks, BTreeSet<(String, String, &'static str)>);
+    let runs: Vec<Run> = std::thread::scope(|scope| {
         let handles: Vec<_> = Term::ALL
             .into_iter()
             .map(|term| {
@@ -132,7 +297,9 @@ fn every_key_in_every_state_keeps_the_rules() {
                         checks.see(step, before, after);
                     });
                     card_lines(&map, &mut checks);
-                    (term, map, checks)
+                    from_a_second_page(&map, &mut checks);
+                    let acts = named_keys_that_act(&map);
+                    (term, map, checks, acts)
                 })
             })
             .collect();
@@ -144,7 +311,9 @@ fn every_key_in_every_state_keeps_the_rules() {
     let mut all = Checks::new();
     let mut failures = Vec::new();
     let bless = std::env::var_os("VTIUM_CONFIG_BLESS").is_some();
-    for (term, map, checks) in runs {
+    let mut acted_once = BTreeSet::new();
+    for (term, map, checks, acts) in runs {
+        acted_once.extend(acts);
         failures.extend(unreachable_exits(&map));
         let found = checks.found;
         failures.extend(found.failures);
@@ -178,6 +347,7 @@ fn every_key_in_every_state_keeps_the_rules() {
     }
     all.finish(&tables::views());
     failures.extend(all.found.failures);
+    failures.extend(every_named_key_acts(&acted_once));
     assert!(
         failures.is_empty(),
         "{} failures:\n{}",
@@ -434,6 +604,54 @@ fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
     assert_eq!(sim.app.view, vtium_config::tui::model::View::Fonts);
 }
 
+/// A Settings key's list of values opens on the value the key has now, and
+/// Enter there writes the highlighted value. Esc from a section goes back
+/// to the sections with that section highlighted.
+///
+/// References:
+/// - ADR-1201 D3, the Settings bullet: Esc goes back to the sections with
+///   the same section highlighted.
+/// - ADR-1403 D7, "One list for every set of items": a key's values open
+///   in the shared list.
+#[test]
+fn a_value_list_opens_on_the_value_now_and_esc_keeps_the_section() {
+    use vtium_config::tui::model::View;
+    let mut sim = Sim::start(Term::Vtium, 80, 25);
+    for _ in 0..View::TABS.len() {
+        if sim.app.view != View::Settings {
+            press(&mut sim, &["Tab"]);
+        }
+    }
+    assert_eq!(sim.app.view, View::Settings);
+    // the first section's last key is cluster-width, which takes double,
+    // its default, or single
+    press(&mut sim, &["Enter", "End"]);
+    assert_eq!(
+        sim.app.settings.key().map(|k| k.name),
+        Some("cluster-width")
+    );
+    press(&mut sim, &["Enter"]);
+    assert_eq!(sim.app.settings.values.map(|l| l.at), Some(0));
+    press(&mut sim, &["Down", "Enter"]);
+    assert_eq!(sim.app.settings.values, None);
+    let draft = sim
+        .app
+        .draft
+        .as_ref()
+        .map(|d| d.text.clone())
+        .unwrap_or_default();
+    assert!(draft.contains("\ncluster-width=single\n"), "{draft}");
+    press(&mut sim, &["Enter"]);
+    assert_eq!(sim.app.settings.values.map(|l| l.at), Some(1));
+    press(&mut sim, &["Esc", "Esc"]);
+    assert_eq!(sim.app.settings.open, None);
+    press(&mut sim, &["Down", "Down", "Enter"]);
+    assert_eq!(sim.app.settings.open.map(|(at, _)| at), Some(2));
+    press(&mut sim, &["Esc"]);
+    assert_eq!(sim.app.settings.open, None);
+    assert_eq!(sim.app.settings.sections.at, 2);
+}
+
 /// The leave question's `y` installs a draft that wires no complete route
 /// only after the person answers the question that says so, and quits
 /// once that install ends well. Esc at that question keeps the TUI, and a
@@ -512,9 +730,9 @@ fn joined(screen: &[String]) -> String {
 
 /// Below the minimum size, a question shows whole however narrow or short
 /// the screen: what it says and every key it takes wrap to the width and
-/// come first, and while it is open the screen shows the question's keys,
-/// never the screen's own "Press q to quit", since q does nothing under a
-/// question.
+/// come first, a key whose words are wider than the screen included. While
+/// the question is open the screen shows the question's keys, never the
+/// screen's own key line, since q does nothing under a question.
 ///
 /// References:
 /// - ADR-1201 D3: below the minimum size only `q`, `u` and Ctrl-C act.
@@ -526,19 +744,27 @@ fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
         "1 change is not saved.",
         "y save and quit",
         "n quit without saving",
-        "Esc back",
+        "Esc Ctrl-C cancel",
     ];
     let leave = [
         "Font sets wait to be installed; y and n save 1 change first.",
         "y install and quit",
         "n quit without installing",
-        "Esc back",
+        "Esc Ctrl-C cancel",
     ];
     for (name, keys, said) in [
         ("quit", &["Up", "Enter"][..], quit),
         ("leave", &["Up", "Up", "Enter", "Down", "r"][..], leave),
     ] {
-        for (cols, rows) in [(60, 30), (50, 25), (40, 12), (80, 3), (80, 2)] {
+        for (cols, rows) in [
+            (60, 30),
+            (50, 25),
+            (40, 12),
+            (20, 12),
+            (12, 30),
+            (80, 3),
+            (80, 2),
+        ] {
             let mut sim = Sim::start(Term::Vtium, 80, 25);
             press(&mut sim, keys);
             sim.press(sim::Press::Resize(cols, rows));
@@ -553,7 +779,7 @@ fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
                 );
             }
             assert!(
-                !text.contains("Press q to quit"),
+                !text.contains("q quit") && !text.contains("press u"),
                 "{name} at {cols}x{rows}: {screen:#?}"
             );
             assert!(

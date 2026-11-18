@@ -1,8 +1,10 @@
-# The section reader's, the split's and the section writer's fuzz targets,
+# The section reader's, the split's, the section writer's and the vtlook
+# reader's fuzz targets,
 # run with cargo-fuzz on nightly:
 #   cargo +nightly fuzz run reading
 #   cargo +nightly fuzz run split
 #   cargo +nightly fuzz run sections
+#   cargo +nightly fuzz run vtlook
 # Its own workspace, so the main workspace and CI do not build it.
 [package]
 name = "vtium-settings-fuzz"
@@ -15,7 +17,8 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-vtium-settings = { path = ".." }
+vtium-settings = { path = "..", features = ["filters"] }
+vtium-render = { path = "../../vtium-render", features = ["filters"] }
 
 [[bin]]
 name = "reading"
@@ -34,6 +37,13 @@ bench = false
 [[bin]]
 name = "sections"
 path = "fuzz_targets/sections.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vtlook"
+path = "fuzz_targets/vtlook.rs"
 test = false
 doc = false
 bench = false

@@ -1144,7 +1144,7 @@ pub mod fonts {
     pub enum Named {
         /// A family's or a kbd font's name.
         ByName,
-        /// A file's path: a `file:`, `bdf:` or `outline:` source.
+        /// A file's path: a source's or a strike's `file:`, `bdf:`, `hex:` or `outline:` font.
         ByPath,
     }
 

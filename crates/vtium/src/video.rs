@@ -41,8 +41,9 @@ pub const FEATURE_BUFFERS: Buffers = if any_on(&FEATURES_ON_TOP) {
 /// adds on top of minspec, and whether this build has it on. A test holds
 /// the names equal to Cargo.toml's, so a feature added there fails it
 /// until it is named here too.
-pub const FEATURES_ON_TOP: [(&str, bool); 5] = [
+pub const FEATURES_ON_TOP: [(&str, bool); 6] = [
     ("bidi", cfg!(feature = "bidi")),
+    ("filters", cfg!(feature = "filters")),
     ("gpu", cfg!(feature = "gpu")),
     ("images", cfg!(feature = "images")),
     ("libseat", cfg!(feature = "libseat")),
@@ -552,10 +553,15 @@ mod tests {
         assert_eq!(waits, [false, true, true]);
     }
 
-    // ADR-1401 D2: the minspec build, vtium's default build, keeps two
-    // buffers a DRM display.
+    // The minspec build, vtium's default build, keeps two buffers a DRM
+    // display. The cfg names every feature of FEATURES_ON_TOP, since any
+    // one of them gives the build three buffers.
+    //
+    // References:
+    // - ADR-1401 D2: the minspec build keeps two buffers a display.
     #[cfg(not(any(
         feature = "bidi",
+        feature = "filters",
         feature = "gpu",
         feature = "images",
         feature = "libseat",

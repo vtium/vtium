@@ -1,0 +1,32 @@
+# nerd-symbols-small: a chosen list of Nerd Fonts' icons for the small
+# panels' font sets, from Symbols Nerd Font Mono, one cell wide. Each range
+# names why it is here, so that the list can be reviewed and grown. A
+# cover= line limits the source above it to that range.
+#
+# Behind a bitmap text font, these outline icons draw in 1 bit, so they
+# match the font around them.
+#
+# Licenses, as Nerd Fonts' license audit gives them: MIT for the patcher,
+# and each icon set's own license at its range. The list leaves out Font
+# Logos (U+F300-U+F385), which carries no license grant, and Font Awesome,
+# Codicons and Material Design Icons, which a small panel does not need.
+#
+# References:
+# - ADR-1204 D5: the small panels' layers.
+
+role=symbols
+source=font:Symbols Nerd Font Mono
+version=3.4.0
+check=U+E0B0
+url=https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0
+cover=U+E0A0-U+E0A2        # Powerline: branch, line number, lock (Powerline's licence)
+cover=U+E0B0-U+E0B3        # Powerline: the arrow separators every prompt draws
+cover=U+E0A3               # Powerline Extra (MIT): column number
+cover=U+E0B4-U+E0C8        # Powerline Extra (MIT): round, slant, flame separators
+cover=U+E0CA               # Powerline Extra (MIT)
+cover=U+E0CC-U+E0D7        # Powerline Extra (MIT): pixel, hexagon, lego separators
+cover=U+E5FA-U+E6BB        # Seti-UI (MIT): file type icons eza, lsd and yazi draw
+cover=U+E700-U+E958        # Devicons (MIT): language and tool logos
+cover=U+F400-U+F533        # Octicons (MIT): git status in prompts
+cover=U+23FB-U+23FE        # IEC Power Symbols (MIT)
+cover=U+2B58               # IEC Power Symbols (MIT)

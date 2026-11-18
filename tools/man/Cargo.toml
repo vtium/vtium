@@ -1,0 +1,37 @@
+# The generator of vtium's man pages: vtium(8), vtium-config(1),
+# vtium.conf(5), vtium-clipboard(1) and vtium-gallery(1), written in roff
+# from the key table, each command's own option list and the templates in
+# templates/. `make man` writes them into man/, and `make man-check` fails
+# when a committed page differs from what the generator writes.
+[package]
+name = "vtium-man"
+description = "Generates vtium's man pages from the key table, the commands' option lists and its templates"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+# The key table, its sections and its bounds, for vtium.conf(5).
+vtium-settings.workspace = true
+# The scrollback memory defaults that vtium.conf(5) states for each build.
+vtium-term.workspace = true
+# The console's own usage texts and its subcommands, for vtium(8).
+vtium = { path = "../../crates/vtium" }
+# vtium-config's commands, options and exit statuses, for vtium-config(1).
+vtium-config = { path = "../../crates/vtium-config" }
+# vtium-clipboard's help, for vtium-clipboard(1).
+vtium-clipboard = { path = "../../crates/vtium-clipboard" }
+# The documentation site's address and its rule for a page's address, so
+# that a relative link in a text becomes the full address a man page shows.
+vtium-site = { path = "../site" }
+
+[[bin]]
+name = "vtium-man"
+path = "src/main.rs"

@@ -23,7 +23,6 @@ use crate::gpu::turn::Turn;
 use crate::gpu::{ArrowAt, DrawTarget, Error, ErrorKind, Gl, Pipeline, Size, Work};
 use crate::mono::{self, Depth, Fallback};
 use crate::notice::Placed;
-use crate::reach::Reach;
 use crate::renderer::Back;
 
 /// The next renderer's id: it tells the GPU path's glyphs whose font drew
@@ -187,11 +186,7 @@ impl<F: Face> Renderer<F> {
         // the neighbours named as sources of ink take the reach each cell
         // has once the whole frame is scanned, and the jobs that receive
         // their ink the display lines it reaches
-        let reach = |k: usize, r: usize| {
-            self.cells
-                .get(k, r)
-                .map_or((Reach::NONE, 0), |c| (c.reach(), c.span()))
-        };
+        let reach = |k: usize, r: usize| self.sent_reach(k, r);
         #[cfg(not(feature = "images"))]
         let lists = [&cells];
         #[cfg(feature = "images")]

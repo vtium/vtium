@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vtium_font::PSF_BYTES_MAX;
+use vtium_font::{PSF_BYTES_MAX, Sha256, sha256_hex};
 use vtium_platform::vt::font::ConsoleFont;
 
 use crate::child::Request;
@@ -37,6 +37,9 @@ pub const FONT_DIRS: [&str; 2] = ["/usr/share/fonts", "/usr/local/share/fonts"];
 pub const OUTLINE_SUFFIXES: [&str; 4] = ["ttf", "otf", "ttc", "otc"];
 /// How deep under a font directory an outline family is looked for.
 pub const FONT_DEPTH_MAX: usize = 8;
+
+/// The first two bytes of a gzip member (RFC 1952 2.3.1).
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
 /// The most bytes vconsole.conf or the kernel's command line holds.
 pub(crate) const CONFIG_BYTES_MAX: u64 = 64 * 1024;
@@ -70,6 +73,9 @@ pub enum Input {
     /// A BDF font's bytes, read here and parsed by [`crate::bdf`] when the
     /// frit loads, where the other untrusted fonts are.
     Bdf(Vec<u8>),
+    /// A `.hex` font's bytes, uncompressed, read here and parsed by
+    /// [`crate::hex`] when the frit loads, as a BDF font's are.
+    Hex(Vec<u8>),
     /// A bitmap font's glyphs at its own cell, already read: a built-in
     /// font's.
     Bitmap(Font),
@@ -584,7 +590,36 @@ fn contained(path: &Path, data_dirs: &[PathBuf], sub: &str) -> Result<PathBuf, S
 
 /// Reads `source` for the parser.
 pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
+    read_source(source, host, false).map(|(input, _)| input)
+}
+
+/// [`resolve`], with the SHA-256 of the file that `source` names when its
+/// `sha256=` line asks for one, as lowercase hexadecimal digits. The hash
+/// is of the bytes this read takes from the file, as the file is stored,
+/// so the font that is parsed is the font that is checked, and the file
+/// is read once. `None` when the source asks for no hash, or names no
+/// file of its own: a `font:`, `kbd:` or `vconsole` source, a console's
+/// font, or a built-in font.
+///
+/// References:
+/// - ADR-1204 D7: `sha256=` is the hash of the file a source names by its
+///   path.
+pub fn resolve_hashed(
+    source: &Source,
+    host: &Host<'_>,
+) -> Result<(Input, Option<String>), SourceError> {
+    read_source(source, host, source.needs.sha256.is_some())
+}
+
+/// [`resolve`], which also hashes the file a path source names when
+/// `hash` is true.
+fn read_source(
+    source: &Source,
+    host: &Host<'_>,
+    hash: bool,
+) -> Result<(Input, Option<String>), SourceError> {
     let limit = u64::from(PSF_BYTES_MAX);
+    let digest = |bytes: &[u8]| hash.then(|| sha256_hex(&Sha256::digest(bytes)));
     let dirs = || {
         host.kbd_dirs
             .iter()
@@ -617,11 +652,29 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
     };
     let not_here =
         |path: &Path| SourceError::Missing(format!("{} is not on this machine", path.display()));
+    // the hash of a file: source's file, before cp-size= takes one height
+    // out of it
+    let mut found = None;
     let (font, unimap_name) = match &source.origin {
-        Origin::Builtin(name) => return Ok(Input::Bitmap(Font::from_builtin(name)?)),
+        Origin::Builtin(name) => return Ok((Input::Bitmap(Font::from_builtin(name)?), None)),
         Origin::Bdf(path) if !path.exists() => return Err(not_here(path)),
         Origin::Bdf(path) => {
-            return Ok(Input::Bdf(read_bounded(path, limit)?));
+            let bytes = read_bounded(path, limit)?;
+            let found = digest(&bytes);
+            return Ok((Input::Bdf(bytes), found));
+        }
+        Origin::Hex(path) if !path.exists() => return Err(not_here(path)),
+        Origin::Hex(path) => {
+            let bytes = read_bounded(path, limit)?;
+            // a .hex font is read as it is installed, uncompressed
+            if bytes.starts_with(&GZIP_MAGIC) {
+                return Err(SourceError::Failed(format!(
+                    "{} is gzipped. vtium reads a .hex font uncompressed, so decompress the file with gunzip and name the file that gives.",
+                    path.display()
+                )));
+            }
+            let found = digest(&bytes);
+            return Ok((Input::Hex(bytes), found));
         }
         Origin::Kbd(name) => (
             read_bounded(&find_font(name)?, limit)?,
@@ -652,15 +705,24 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
                         path.display()
                     )));
                 }
-                return Ok(outline(read_bounded(&path, OUTLINE_BYTES_MAX)?, family));
+                return Ok((
+                    outline(read_bounded(&path, OUTLINE_BYTES_MAX)?, family),
+                    None,
+                ));
             }
         },
         Origin::Outline(path) if !path.exists() => return Err(not_here(path)),
         Origin::Outline(path) => {
-            return Ok(outline(read_bounded(path, OUTLINE_BYTES_MAX)?, ""));
+            let bytes = read_bounded(path, OUTLINE_BYTES_MAX)?;
+            let found = digest(&bytes);
+            return Ok((outline(bytes, ""), found));
         }
         Origin::File(path) if !path.exists() => return Err(not_here(path)),
-        Origin::File(path) => (read_bounded(path, limit)?, source.unimap.clone()),
+        Origin::File(path) => {
+            let bytes = read_bounded(path, limit)?;
+            found = digest(&bytes);
+            (bytes, source.unimap.clone())
+        }
         Origin::Vconsole => {
             let conf = match read_bounded(&host.vconsole_conf, CONFIG_BYTES_MAX) {
                 Ok(b) => String::from_utf8_lossy(&b).into_owned(),
@@ -691,11 +753,14 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
     };
     let unimap = unimap_name.as_deref().map(read_unimap).transpose()?;
     let def_uni = if unimap.is_none() { def_uni()? } else { None };
-    Ok(Input::Font(Request {
-        font,
-        unimap,
-        def_uni,
-    }))
+    Ok((
+        Input::Font(Request {
+            font,
+            unimap,
+            def_uni,
+        }),
+        found,
+    ))
 }
 
 /// A smaller size of a source's font as [`smaller`] reads it: the line and
@@ -1129,6 +1194,81 @@ mod tests {
         // sandboxed side's
         let r = resolve(&source("bdf:", Origin::Bdf(bad), None), &h).unwrap();
         assert!(matches!(r, Input::Bdf(ref b) if b.starts_with(b"STARTFONT")));
+    }
+
+    // A source with a sha256= line gets the SHA-256 of the bytes its read
+    // took from the file, as the file is stored, for each source kind
+    // that names a file. A source with no sha256= line, and a source that
+    // names no file of its own, gets no hash.
+    //
+    // References:
+    // - ADR-1204 D7: sha256= is the hash of the file a source names.
+    #[test]
+    fn a_source_with_a_sha256_line_is_hashed_from_the_bytes_it_reads() {
+        let t = Tree::new("hashed");
+        let consoles = Graphics;
+        let h = host(&t, &consoles);
+        let hash_of = |bytes: &[u8]| sha256_hex(&Sha256::digest(bytes));
+        let bdf = crate::decode::tests::xz(crate::bdf::tests::bdf("").as_bytes());
+        let hex = format!("0041:{}\n", "00".repeat(16)).into_bytes();
+        let psf = crate::decode::tests::psf2(8, 16, 4, None);
+        let ttf = vtium_testfont::ttf::test_mono().build();
+        let cases = [
+            (Origin::Bdf(t.file("fonts/t.bdf.xz", &bdf)), hash_of(&bdf)),
+            (Origin::Hex(t.file("fonts/u.hex", &hex)), hash_of(&hex)),
+            (Origin::File(t.file("fonts/f.psf", &psf)), hash_of(&psf)),
+            (Origin::Outline(t.file("fonts/m.ttf", &ttf)), hash_of(&ttf)),
+        ];
+        for (origin, hash) in cases {
+            let mut s = source("x", origin.clone(), None);
+            assert_eq!(resolve_hashed(&s, &h).unwrap().1, None, "{origin:?}");
+            s.needs.sha256 = Some("0".repeat(64));
+            assert_eq!(resolve_hashed(&s, &h).unwrap().1, Some(hash), "{origin:?}");
+        }
+        t.file("kbd/consolefonts/k.psf", &psf);
+        let mut s = source("kbd:k", Origin::Kbd("k".into()), None);
+        s.needs.sha256 = Some("0".repeat(64));
+        assert_eq!(resolve_hashed(&s, &h).unwrap().1, None);
+    }
+
+    // A hex: source reads its file's bytes as they are, for the sandboxed
+    // side to parse. A file that is not here is missing, a gzipped file is
+    // refused, because vtium reads a .hex font uncompressed, and a file
+    // past the 16 MiB that bounds every bitmap file is refused.
+    //
+    // References:
+    // - ADR-1204 D5: the hex: source, uncompressed, up to 16 MiB.
+    #[test]
+    fn a_hex_source_reads_its_file_uncompressed() {
+        let t = Tree::new("hex");
+        let text = format!("0041:{}\n", "00".repeat(16));
+        let path = t.file("fonts/u.hex", text.as_bytes());
+        let consoles = Graphics;
+        let h = host(&t, &consoles);
+        let hex = |p: PathBuf| source("hex:", Origin::Hex(p), None);
+        let r = resolve(&hex(path), &h).unwrap();
+        assert_eq!(r, Input::Hex(text.clone().into_bytes()));
+        let gone = t.0.join("fonts/gone.hex");
+        let e = resolve(&hex(gone), &h).unwrap_err();
+        assert!(matches!(e, SourceError::Missing(_)), "{e}");
+        let gz = t.file(
+            "fonts/u.hex.gz",
+            &crate::decode::tests::gzip(text.as_bytes()),
+        );
+        let e = resolve(&hex(gz), &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Failed(why) if why.contains("is gzipped") && why.contains("uncompressed")),
+            "{e}"
+        );
+        let big = t.file(
+            "fonts/big.hex",
+            &vec![b'0'; usize::try_from(PSF_BYTES_MAX).unwrap() + 1],
+        );
+        let e = resolve(&hex(big), &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Failed(why) if why.contains("larger than")),
+            "{e}"
+        );
     }
 
     #[test]

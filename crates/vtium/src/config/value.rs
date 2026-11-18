@@ -34,6 +34,13 @@ pub(super) fn lookup(name: &str) -> Option<(&'static Key, bool)> {
     (key.kind == Kind::Switch).then_some((key, true))
 }
 
+/// Why vtium refuses a top-level `vtlook` that is not a vtlook's name.
+///
+/// References:
+/// - ADR-1304 D5: a vtlook's name, and the top level's `vtlook`.
+const VTLOOK_NAME: &str =
+    "a vtlook's name is 1 to 64 of the characters A-Z a-z 0-9 . _ + -, with no path";
+
 /// Text holds at most [`TEXT_MAX`] bytes and no control character.
 fn text_ok(key: &'static Key, text: &str, origin: &Origin, reports: &mut Reports) -> bool {
     if text.len() > TEXT_MAX {
@@ -119,7 +126,25 @@ pub(super) fn parse(
                 None
             }
         }
-        Kind::Text => text_ok(key, text, origin, reports).then(|| Value::Text(text.to_owned())),
+        Kind::Text => {
+            if !text_ok(key, text, origin, reports) {
+                return None;
+            }
+            // A vtlook's name becomes a file name in the looks folder, so
+            // it follows the rule for a head's name and never holds a path.
+            if key.name == keys::VTLOOK.name && !vtium_settings::vtlook::named(text) {
+                reports.push(
+                    origin.clone(),
+                    Problem::BadValue {
+                        key: key.name,
+                        value: text.to_owned(),
+                        why: VTLOOK_NAME,
+                    },
+                );
+                return None;
+            }
+            Some(Value::Text(text.to_owned()))
+        }
         Kind::Path => {
             if !text_ok(key, text, origin, reports) {
                 return None;

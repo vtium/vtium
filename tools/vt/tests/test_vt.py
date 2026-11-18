@@ -3775,6 +3775,15 @@ fi
         os.unlink(sysusers)
         self.refused(self.vt_install("install", "4", **sudo_uid), f"cannot read the owner of {sysusers}")
 
+# The font files every build installs in /usr/share/vtium/fonts: the
+# eighteen Terminus files and Unifont's, which make font-files stages, and
+# Cullet Mono's two faces, which make cullet-mono builds; and Cullet Mono's
+# notices, which go in the package's license directory (ADR-1204 D2).
+FONT_FILE_NAMES = ([f"ter-u{h}{w}.bdf.gz" for h in (12, 14, 16, 18, 20, 22, 24, 28, 32) for w in "nb"]
+                   + ["unifont_all-17.0.03.hex", "CulletMono-Regular.ttf", "CulletMono-Bold.ttf"])
+CULLET_MONO_NOTICES = sorted(os.listdir(os.path.join(ROOT, "tools", "cullet-mono", "notices")))
+
+
 class Package(Case):
     """make install, which a package's build runs, and units.sh, which makes
     the units for it and for make vt-install."""
@@ -3783,9 +3792,16 @@ class Package(Case):
     # Every file make install stages, by its path under DESTDIR with
     # PREFIX=/usr, with no FEATURES and the default FRITS.
     STAGED = sorted([
-        "etc/vtium/fonts/desktop.vtfrit",
-        "etc/vtium/fonts/minspec-16.vtfrit",
-        "etc/vtium/fonts/minspec-8.vtfrit",
+        "etc/vtium/fonts/code/jetbrains-mono.vtfrit",
+        "etc/vtium/fonts/console/cullet-mono.vtfrit",
+        "etc/vtium/fonts/console/terminus.vtfrit",
+        "etc/vtium/fonts/layers/nerd-symbols-small.vtlayer",
+        "etc/vtium/fonts/layers/nerd-symbols.vtlayer",
+        "etc/vtium/fonts/layers/noto-emoji-small.vtlayer",
+        "etc/vtium/fonts/layers/noto-emoji.vtlayer",
+        "etc/vtium/fonts/layers/unifont.vtlayer",
+        "etc/vtium/fonts/small/unifont-icons.vtfrit",
+        "etc/vtium/fonts/small/unscii-icons.vtfrit",
         "etc/vtium/vtium.conf.example",
         "usr/bin/vticlip",
         "usr/bin/vtium",
@@ -3800,19 +3816,33 @@ class Package(Case):
         "usr/share/licenses/vtium/OFL-1.1.txt",
         "usr/share/licenses/vtium/rgb-license.txt",
         "usr/share/licenses/vtium/tiny-skia-LICENSE",
+        "usr/share/man/man1/vticlip.1",
+        "usr/share/man/man1/vtium-clipboard.1",
+        "usr/share/man/man1/vtium-config.1",
+        "usr/share/man/man5/vtium.conf.5",
+        "usr/share/man/man8/vtium.8",
         "usr/share/vtium/pointers.svg",
-    ])
+    ] + [f"usr/share/vtium/fonts/{n}" for n in FONT_FILE_NAMES]
+      + [f"usr/share/licenses/vtium/cullet-mono/{n}" for n in CULLET_MONO_NOTICES])
 
     # What the ordinary-machine build, FEATURES='images logind gpu', stages
     # beside STAGED: the image helper, its account file and the picture
-    # gallery tool (ADR-1101 D1, ADR-1500 D8).
-    WITH_IMAGES = ["usr/bin/vtium-gallery", "usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf"]
+    # gallery tool and its man page (ADR-1101 D1, ADR-1500 D8).
+    WITH_IMAGES = ["usr/bin/vtium-gallery", "usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf",
+                   "usr/share/man/man1/vtium-gallery.1"]
 
     # Where each staged file that vtium's tree holds as it is comes from.
     SOURCES = {
-        "etc/vtium/fonts/desktop.vtfrit": "tools/specimens/frits/desktop.vtfrit",
-        "etc/vtium/fonts/minspec-16.vtfrit": "crates/vtium-config/frits/minspec-16.vtfrit",
-        "etc/vtium/fonts/minspec-8.vtfrit": "crates/vtium-config/frits/minspec-8.vtfrit",
+        "etc/vtium/fonts/console/terminus.vtfrit": "crates/vtium-config/frits/console/terminus.vtfrit",
+        "etc/vtium/fonts/console/cullet-mono.vtfrit": "crates/vtium-config/frits/console/cullet-mono.vtfrit",
+        "etc/vtium/fonts/code/jetbrains-mono.vtfrit": "crates/vtium-config/frits/code/jetbrains-mono.vtfrit",
+        "etc/vtium/fonts/small/unifont-icons.vtfrit": "crates/vtium-config/frits/small/unifont-icons.vtfrit",
+        "etc/vtium/fonts/small/unscii-icons.vtfrit": "crates/vtium-config/frits/small/unscii-icons.vtfrit",
+        "etc/vtium/fonts/layers/nerd-symbols.vtlayer": "crates/vtium-config/frits/layers/nerd-symbols.vtlayer",
+        "etc/vtium/fonts/layers/nerd-symbols-small.vtlayer": "crates/vtium-config/frits/layers/nerd-symbols-small.vtlayer",
+        "etc/vtium/fonts/layers/noto-emoji.vtlayer": "crates/vtium-config/frits/layers/noto-emoji.vtlayer",
+        "etc/vtium/fonts/layers/noto-emoji-small.vtlayer": "crates/vtium-config/frits/layers/noto-emoji-small.vtlayer",
+        "etc/vtium/fonts/layers/unifont.vtlayer": "crates/vtium-config/frits/layers/unifont.vtlayer",
         "usr/bin/vtium-gallery": "tools/gallery/gallery",
         "usr/share/licenses/vtium/COPYING": "COPYING",
         "usr/share/licenses/vtium/LICENSE": "LICENSE",
@@ -3820,6 +3850,11 @@ class Package(Case):
         "usr/share/licenses/vtium/rgb-license.txt": "crates/vtium-term/gen-color-names/src/rgb-license.txt",
         "usr/share/licenses/vtium/tiny-skia-LICENSE": "crates/vtium-config/licenses/tiny-skia-LICENSE",
         "usr/share/vtium/pointers.svg": "crates/vtium/install/pointers.svg",
+        "usr/share/man/man1/vtium-clipboard.1": "man/vtium-clipboard.1",
+        "usr/share/man/man1/vtium-config.1": "man/vtium-config.1",
+        "usr/share/man/man1/vtium-gallery.1": "man/vtium-gallery.1",
+        "usr/share/man/man5/vtium.conf.5": "man/vtium.conf.5",
+        "usr/share/man/man8/vtium.8": "man/vtium.8",
     }
 
     # A stand-in cargo that records the helper paths each build bakes in,
@@ -3831,11 +3866,28 @@ class Package(Case):
                                '${VTIUM_DISPLAY_BUFFERS+VTIUM_DISPLAY_BUFFERS=$VTIUM_DISPLAY_BUFFERS }'
                                '$*" >>"$CALLS"\n')
 
+    # A stand-in for tools/fonts/files, which records each call and checks
+    # nothing, unless FONTS_CHECK_FAILS is set: the real check needs the
+    # pinned font files, which make font-files and make cullet-mono stage.
+    FONTS = "#!/bin/bash\n" + ('printf "%s\\n" "fonts $*" >>"$CALLS"\n'
+                               '[ -z "${FONTS_CHECK_FAILS-}" ] || { echo "fonts: a file is missing" >&2; exit 1; }\n')
+
     def setUp(self):
         super().setUp()
         write(os.path.join(self.s.standins, "cargo"), self.CARGO)
         self.build = os.path.join(self.s.tmp, "build")
         self.dest = os.path.join(self.s.tmp, "stage")
+        # Stand-in font files, in the two folders make install stages them
+        # from, each holding its own name.
+        self.fonts = os.path.join(self.s.tmp, "font-files")
+        self.cullet = os.path.join(self.s.tmp, "cullet-mono")
+        for name in FONT_FILE_NAMES:
+            folder = self.cullet if name.startswith("CulletMono") else self.fonts
+            os.makedirs(folder, exist_ok=True)
+            write(os.path.join(folder, name), name + "\n")
+        self.fonts_tool = os.path.join(self.s.tmp, "fonts-files")
+        write(self.fonts_tool, self.FONTS)
+        os.chmod(self.fonts_tool, 0o755)
 
     def built(self, helper, image=None):
         """The stand-in builds in INSTALL_TARGET_DIR: a console that starts
@@ -3851,7 +3903,8 @@ class Package(Case):
             write(os.path.join(self.build, path), text)
 
     def make(self, *args, **env):
-        return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
+        fonts = [f"FONT_FILES={self.fonts}", f"CULLET_MONO_OUT={self.cullet}", f"FONT_FILES_TOOL={self.fonts_tool}"]
+        return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *fonts, *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=BUILD_BOUND, start_new_session=True)
 
     def staged(self):
@@ -4019,19 +4072,20 @@ class Package(Case):
             f"-p vtium-config -p vtium-clipboard -p vtium-image-helper --target-dir {self.build}"])
 
     def test_a_minspec_install_stages_the_frits_it_names_and_no_gallery(self):
-        # ADR-1500 D8: a minspec package ships the two minspec frits alone.
+        # ADR-1204 D9: a minspec package ships terminus and the small panels'
+        # sets, with the layers.
         self.built("/usr/bin/vtium-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
-                      "FRITS=minspec-16 minspec-8", "HWACCEL=off", "DISPLAY_BUFFERS=2")
+                      "FRITS=terminus cullet-mono unifont-icons unscii-icons", "HWACCEL=off", "DISPLAY_BUFFERS=2")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.staged(), [f for f in self.STAGED if f != "etc/vtium/fonts/desktop.vtfrit"])
+        self.assertEqual(self.staged(), [f for f in self.STAGED if f != "etc/vtium/fonts/code/jetbrains-mono.vtfrit"])
         self.assertEqual([c.split(" rustc ")[0].split(" build ")[0] for c in self.s.calls_of("cargo")], [
             "VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2",
             "VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2"])
 
     def test_install_refuses_a_frit_vtium_does_not_hold_and_a_setting_out_of_its_range(self):
         self.built("/usr/bin/vtium-config")
-        for arg, why in (("FRITS=minspec-16 absent", "no frit absent in"),
+        for arg, why in (("FRITS=unifont-icons absent", "no frit absent in"),
                          ("HWACCEL=yes", "HWACCEL is on or off"),
                          ("HWACCEL=on off", "HWACCEL is on or off"),
                          ("DISPLAY_BUFFERS=4", "DISPLAY_BUFFERS is 1, 2 or 3")):
@@ -4039,7 +4093,7 @@ class Package(Case):
             self.assertNotEqual(p.returncode, 0, arg)
             self.assertIn(why, p.stderr, arg)
         for target in ("install-tree", "install-build"):
-            p = self.make(target, f"DESTDIR={self.dest}", f"INSTALL_TARGET_DIR={self.build}", "FRITS=minspec-16 absent")
+            p = self.make(target, f"DESTDIR={self.dest}", f"INSTALL_TARGET_DIR={self.build}", "FRITS=unifont-icons absent")
             self.assertNotEqual(p.returncode, 0, target)
             self.assertIn("no frit absent in", p.stderr, target)
         # Every target that builds checks the settings, the tier 3 runs that
@@ -4054,6 +4108,88 @@ class Package(Case):
                 self.assertNotEqual(p.returncode, 0, (target, arg))
                 self.assertIn(why, p.stderr, (target, arg))
         # each is refused as make reads the Makefile, before any build
+        self.assertEqual(self.s.calls_of("cargo"), [])
+
+    def test_install_stages_every_font_file_after_checking_them_all(self):
+        # ADR-1204 D2: every build, minspec included, installs the font
+        # files, each as the folder make font-files or make cullet-mono
+        # staged it holds it, and Cullet Mono's notices as the tree holds
+        # them. The check runs once, on both folders, before anything else.
+        self.built("/usr/bin/vtium-config")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FRITS=terminus cullet-mono unifont-icons unscii-icons")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("fonts"), [f"check {self.fonts} {self.cullet}"])
+        for name in FONT_FILE_NAMES:
+            self.assertEqual(read(os.path.join(self.dest, "usr/share/vtium/fonts", name)), name + "\n", name)
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.dest, "usr/share/vtium/fonts", name)).st_mode),
+                             0o644, name)
+        for name in CULLET_MONO_NOTICES:
+            self.assertEqual(read(os.path.join(self.dest, "usr/share/licenses/vtium/cullet-mono", name)),
+                             read(os.path.join(ROOT, "tools/cullet-mono/notices", name)), name)
+        # A file that fails its check stops the install before it builds or
+        # stages anything, and make install-tree stops the same way.
+        shutil.rmtree(self.dest)
+        for target in ("install", "install-tree"):
+            p = self.make(target, f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                          FONTS_CHECK_FAILS="1")
+            self.assertNotEqual(p.returncode, 0, target)
+            self.assertIn("fonts: a file is missing", p.stderr, target)
+            self.assertFalse(os.path.exists(self.dest), target)
+        self.assertEqual(len(self.s.calls_of("cargo")), 2, "only the first install builds")
+
+    def test_install_writes_its_prefix_into_every_staged_set_and_layer(self):
+        # ADR-1204 D2: the sets and layers name the font files by their path
+        # under /usr. make install for another PREFIX writes that PREFIX
+        # into each path and changes nothing else in the file, so each
+        # staged set reads as the tree's set does.
+        self.built("/usr/local/bin/vtium-config")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr/local", f"INSTALL_TARGET_DIR={self.build}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        staged = [f for f in self.staged() if f.startswith("etc/vtium/fonts/")]
+        self.assertEqual(staged, [f for f in self.STAGED if f.startswith("etc/vtium/fonts/")])
+        named = 0
+        for f in staged:
+            text = read(os.path.join(self.dest, f))
+            source = read(os.path.join(ROOT, self.SOURCES[f]))
+            self.assertEqual(text, source.replace("/usr/share/vtium/fonts/", "/usr/local/share/vtium/fonts/"), f)
+            self.assertNotIn("/usr/share/vtium/fonts/", text, f)
+            for line in text.splitlines():
+                if line.startswith(("source=", "strike=")) and "/vtium/fonts/" in line:
+                    named += 1
+                    self.assertIn(":/usr/local/share/vtium/fonts/", line, (f, line))
+        # Terminus's eighteen files, Cullet Mono's two faces and Unifont's
+        # file are each named at least once.
+        self.assertGreaterEqual(named, 21)
+
+    def test_install_stages_layers_with_no_sets_and_neither_when_both_are_empty(self):
+        # FRITS='' stages no set and FRIT_LAYERS='' no layer, each on its
+        # own. With neither, nothing is staged in /etc/vtium/fonts, and an
+        # install for another PREFIX has nothing to rewrite there.
+        self.built("/opt/vt/bin/vtium-config")
+        layers = [f for f in self.STAGED if f.startswith("etc/vtium/fonts/layers/")]
+        for args, fonts in ((["FRITS="], layers), (["FRITS=", "FRIT_LAYERS="], [])):
+            with self.subTest(args=args):
+                p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/opt/vt", f"INSTALL_TARGET_DIR={self.build}", *args)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual([f for f in self.staged() if f.startswith("etc/vtium/fonts/")], fonts)
+                for f in fonts:
+                    self.assertEqual(read(os.path.join(self.dest, f)),
+                                     read(os.path.join(ROOT, self.SOURCES[f])).replace(
+                                         "/usr/share/vtium/fonts/", "/opt/vt/share/vtium/fonts/"), f)
+            shutil.rmtree(self.dest, ignore_errors=True)
+
+    def test_install_refuses_a_prefix_that_sed_would_misread(self):
+        # make install writes PREFIX into the sets with sed, whose
+        # replacement reads & as the matched text, and whose command uses |
+        # and \\ for itself.
+        self.built("/usr/bin/vtium-config")
+        for prefix in ("/opt/a&b", "/opt/a|b", "/opt/a\\b"):
+            with self.subTest(prefix=prefix):
+                p = self.make("install", f"DESTDIR={self.dest}", f"PREFIX={prefix}", f"INSTALL_TARGET_DIR={self.build}")
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(f"install: PREFIX={prefix} holds &, | or \\", p.stderr)
+                self.assertEqual(self.staged(), [])
         self.assertEqual(self.s.calls_of("cargo"), [])
 
     def test_install_refuses_a_console_that_starts_another_helper(self):
@@ -4086,6 +4222,16 @@ class Package(Case):
                     self.assertNotEqual(p.returncode, 0)
                     self.assertIn(why, p.stderr)
                     self.assertEqual(self.s.calls_of("cargo"), [])
+        # make install-tree stages under its own default when DESTDIR is not
+        # named, but never onto the machine.
+        for args, why in ((["DESTDIR="], "install-tree: DESTDIR is empty"),
+                          (["DESTDIR=/"], "install-tree: DESTDIR=/ is this machine's root"),
+                          (["DESTDIR=/usr/.."], "install-tree: DESTDIR=/usr/.. is this machine's root")):
+            with self.subTest(target="install-tree", args=args):
+                p = self.make("install-tree", *args)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(why, p.stderr)
+                self.assertEqual(self.s.calls_of("cargo"), [])
 
     def test_install_names_the_license_for_the_package(self):
         self.built("/usr/bin/vtium-config")
@@ -4094,9 +4240,10 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual([f for f in self.staged() if f.startswith("usr/share/licenses/")],
                          ["usr/share/licenses/vtium-git/COPYING", "usr/share/licenses/vtium-git/LICENSE",
-                          "usr/share/licenses/vtium-git/OFL-1.1.txt",
-                          "usr/share/licenses/vtium-git/rgb-license.txt",
-                          "usr/share/licenses/vtium-git/tiny-skia-LICENSE"])
+                          "usr/share/licenses/vtium-git/OFL-1.1.txt"]
+                         + [f"usr/share/licenses/vtium-git/cullet-mono/{n}" for n in CULLET_MONO_NOTICES]
+                         + ["usr/share/licenses/vtium-git/rgb-license.txt",
+                            "usr/share/licenses/vtium-git/tiny-skia-LICENSE"])
         self.assertFalse([f for f in self.staged() if f.startswith("usr/share/licenses/vtium/")], self.staged())
 
     def test_enabling_the_packaged_template_with_no_vt_links_nothing(self):
@@ -4175,26 +4322,44 @@ class Package(Case):
         self.assertIn("install-terminfo: no", p.stderr)
         self.assertEqual(self.staged(), [])
 
-    # ADR-1500 D8: vtium-fonts ships the frits for scripts with marks and the
-    # four CJK frits, one for each region, beside the fonts they name, and
-    # make install-fonts stages them for its recipe.
-    SCRIPT_FRITS = ("arabic", "hebrew", "indic", "thai-lao", "vietnamese",
-                    "cjk-sc", "cjk-tc", "cjk-jp", "cjk-kr")
-
-    def test_install_fonts_stages_the_script_frits_alone(self):
+    # ADR-1204 D9: vtium-fonts ships the catalog beside the fonts it names,
+    # each set in its category folder and the layers in layers/, and make
+    # install-fonts stages them for its recipe. It leaves out each set and
+    # layer that a console package ships, so pacman never finds two packages
+    # that own one file.
+    def test_install_fonts_stages_the_catalog_but_what_a_console_package_ships(self):
         p = self.make("install-fonts", f"DESTDIR={self.dest}", "PREFIX=/usr")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.staged(), sorted("etc/vtium/fonts/%s.vtfrit" % n for n in self.SCRIPT_FRITS))
-        for n in self.SCRIPT_FRITS:
-            self.assertEqual(read(os.path.join(self.dest, "etc/vtium/fonts/%s.vtfrit" % n)),
-                             read(os.path.join(ROOT, "tools/specimens/frits/%s.vtfrit" % n)), n)
+        catalog = os.path.join(ROOT, "crates/vtium-config/frits")
+        console = {f[len("etc/vtium/fonts/"):] for f in self.STAGED if f.startswith("etc/vtium/fonts/")}
+        self.assertEqual(len(console), 10)
+        files = sorted(os.path.join(d, f) for d in os.listdir(catalog) for f in os.listdir(os.path.join(catalog, d))
+                       if os.path.join(d, f) not in console)
+        self.assertEqual(len(files), 41)
+        self.assertEqual(self.staged(), ["etc/vtium/fonts/" + f for f in files])
+        for f in files:
+            self.assertEqual(read(os.path.join(self.dest, "etc/vtium/fonts", f)), read(os.path.join(catalog, f)), f)
         self.assertEqual(self.s.calls_of("cargo"), [])
         # A frit vtium does not hold stops it before it stages anything.
         shutil.rmtree(self.dest)
-        p = self.make("install-fonts", f"DESTDIR={self.dest}", "FONTS_FRITS=arabic absent")
+        p = self.make("install-fonts", f"DESTDIR={self.dest}", "FONTS_FRITS=noto-arabic absent")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("no frit absent in", p.stderr)
         self.assertEqual(self.staged(), [])
+        # make install stages none of the files make install-fonts stages,
+        # with the default FRITS or a minspec package's.
+        p = self.make("install-fonts", f"DESTDIR={self.dest}", "PREFIX=/usr")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        fonts_package = set(self.staged())
+        self.built("/usr/bin/vtium-config")
+        for frits in ([], ["FRITS=terminus cullet-mono unifont-icons unscii-icons"]):
+            with self.subTest(frits=frits):
+                dest = os.path.join(self.s.tmp, "console")
+                shutil.rmtree(dest, ignore_errors=True)
+                p = self.make("install", f"DESTDIR={dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}", *frits)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                console_package = {os.path.relpath(os.path.join(d, n), dest) for d, _, ns in os.walk(dest) for n in ns}
+                self.assertEqual(fonts_package & console_package, set())
 
     def units(self, *args, out=None):
         out = out or os.path.join(self.s.tmp, "units")

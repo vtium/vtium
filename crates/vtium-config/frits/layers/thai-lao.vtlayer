@@ -1,0 +1,23 @@
+# thai-lao: the Thai and Lao scripts, from Noto Sans Thai and Noto Sans
+# Lao. A font set adds this layer after Noto Sans Mono, which holds neither,
+# and the fonts draw at Noto Sans Mono's size.
+#
+# Thai and Lao stack vowel signs and tone marks above a consonant, and
+# write some vowels under it. The marks may use the rows that the set's
+# line spacing adds.
+#
+# License: both fonts are under the SIL OFL 1.1.
+#
+# References:
+# - ADR-1204 D5: the script layers.
+# - ADR-1302 D13: line spacing and fit=.
+
+role=script
+source=font:Noto Sans Thai
+version=2.002
+url=https://github.com/notofonts/thai/releases/tag/NotoSansThai-v2.002
+fit=room
+source=font:Noto Sans Lao
+version=2.003
+url=https://github.com/notofonts/lao/releases/tag/NotoSansLao-v2.003
+fit=room

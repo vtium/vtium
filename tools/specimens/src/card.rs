@@ -453,7 +453,7 @@ fn emoji(b: &mut Block<'_>, l: &Layout) {
         "1\u{fe0f}\u{20e3} #\u{fe0f}\u{20e3} *\u{fe0f}\u{20e3} \x1b[2mVS15|16\x1b[22m ☺\u{fe0e}|☺\u{fe0f}| ✈\u{fe0e}|✈\u{fe0f}| ♥\u{fe0e}|♥\u{fe0f}|",
     );
     b.put(7, 0, "\x1b[2mUTF-8: bytes, script; unshaped (#144)");
-    let samples: [(&str, &str); 16] = [
+    let samples: [(&str, &str); 15] = [
         (
             "2 Latin",
             "a\u{308}\u{327}\u{301} o\u{306}\u{324}\u{303} e\u{323}\u{302}\u{300} u\u{308}\u{301}\u{308} x\u{334}\u{335}\u{336}",
@@ -471,10 +471,9 @@ fn emoji(b: &mut Block<'_>, l: &Layout) {
             "3 Jamo",
             "\u{1112}\u{119e}\u{11ab} \u{1100}\u{119e}\u{11af} \u{110b}\u{119e}\u{11ab}",
         ),
-        ("4 CJK Ext B", "𠀀 𠮷 𡈽 𪚥 𠜎"),
+        ("4 CJK Ext B", "𠀀 𠀋 𡈽 𠀃 𠜎"),
         ("4 Math", "𝐀𝐁𝐂 𝑥𝑦𝑧 𝔄𝔅 𝕏𝕐 𝟘𝟙𝟚"),
         ("4 Gothic", "𐌲𐌿𐍄𐌹𐍃𐌺"),
-        ("4 Cuneiform", "𒀭𒈹𒁲𒂗"),
         ("4 Legacy", "🯰🯱🯲🯳🯴🯵🯶🯷🯸🯹 🯀🯁🯂🯃"),
     ];
     for (i, (label, sample)) in samples.iter().enumerate() {

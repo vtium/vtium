@@ -96,7 +96,7 @@ pub(crate) fn scrollback_bytes(config: &Config, caps: Caps, heads: usize) -> usi
 /// `config`, its look's font keys and its own `login` among them
 /// (ADR-1401 D3, ADR-1403 D5), the consoles `caps` give it, and the
 /// scrollback cap and length and the bytes `scrollback` gives each
-/// console.
+/// console. Each head chooses its vtlook, which reads the vtlook's file.
 pub(crate) fn heads(
     rules: &vtium_settings::Config,
     config: &Config,
@@ -104,23 +104,56 @@ pub(crate) fn heads(
     caps: Caps,
     clock: &Clock,
 ) -> Vec<Head> {
+    made(rules, config, scrollback, caps, clock, true)
+}
+
+/// [`heads`] for the compiled-in heads that the seat starts with, which
+/// the head file's heads replace before any display comes. They choose no
+/// vtlook, so a start reads each vtlook once and logs a vtlook that fails
+/// once, for the head the file declares.
+///
+/// References:
+/// - ADR-1304 D6: a vtlook that fails costs one read and one log line.
+pub(crate) fn interim_heads(
+    rules: &vtium_settings::Config,
+    config: &Config,
+    scrollback: ((usize, usize), usize),
+    caps: Caps,
+    clock: &Clock,
+) -> Vec<Head> {
+    made(rules, config, scrollback, caps, clock, false)
+}
+
+/// The heads of [`heads`], each choosing its vtlook where `vtlooks` holds.
+fn made(
+    rules: &vtium_settings::Config,
+    config: &Config,
+    scrollback: ((usize, usize), usize),
+    caps: Caps,
+    clock: &Clock,
+    vtlooks: bool,
+) -> Vec<Head> {
     let (lines, bytes) = scrollback;
     rules
         .heads
         .iter()
         .zip(console_shares(rules, caps))
         .map(|(h, wanted)| {
-            let settings: Vec<vtium_settings::Setting> = rules
+            let mut settings: Vec<vtium_settings::Setting> = rules
                 .settings(h)
                 .into_iter()
                 .map(|(_, s)| s.clone())
                 .collect();
+            crate::head::look::with_look_vtlook(&mut settings, rules.look(h));
             let (own, reports) = config.for_head(&crate::config::path(config), &settings);
             for r in reports {
                 log::warn!("head {}: {r}; the top level's value stands", h.name);
             }
             let term = crate::head::terminal(config, lines, bytes, Rc::clone(clock));
             let mut head = Head::new(&h.name, &own, settings, term);
+            if vtlooks {
+                head.vtlook = crate::head::look::choose(&h.name, &own);
+            }
             head.wanted = wanted;
             head.when_display_lost = h.when_display_lost;
             head.login = h.login.is_some().then_some(own);

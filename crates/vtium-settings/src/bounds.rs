@@ -106,10 +106,38 @@ const QUOTE: Bound = Bound {
     cite: "vtium's own: a name, a value or a token",
 };
 
+const VTLOOK_FILE: Bound = Bound {
+    name: "VTLOOK_FILE_MAX",
+    value: 64 * 1024,
+    what: "Bytes of a vtlook",
+    past: "The vtlook fails at its reading stage, and the head draws the built-in vtlook",
+    cite: "ADR-1304 D4",
+};
+
+const VTLOOK_SECTIONS: Bound = Bound {
+    name: "VTLOOK_SECTIONS_MAX",
+    value: 32,
+    what: "Sections of a vtlook, its `[requires]` included",
+    past: "The vtlook fails at its reading stage, the first section past it named, and the head draws the built-in vtlook",
+    cite: "ADR-1304 D4",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 11] = [
-    FILE, LINE, NAME, HEADS, LOOKS, RULES, TOKENS, CONSOLES, VT, ERRORS, QUOTE,
+pub(crate) const BOUNDS: [Bound; 13] = [
+    FILE,
+    LINE,
+    NAME,
+    HEADS,
+    LOOKS,
+    RULES,
+    TOKENS,
+    CONSOLES,
+    VT,
+    ERRORS,
+    QUOTE,
+    VTLOOK_FILE,
+    VTLOOK_SECTIONS,
 ];
 
 /// Bytes of vtium.conf; past them every section is dropped but for the
@@ -159,6 +187,12 @@ pub const ERRORS_MAX: usize = ERRORS.value as usize;
 
 /// Characters of the file's text an error quotes.
 pub const QUOTE_MAX: usize = QUOTE.value as usize;
+
+/// Bytes of a vtlook (ADR-1304 D4).
+pub const VTLOOK_FILE_MAX: usize = VTLOOK_FILE.value as usize;
+
+/// Sections of a vtlook, its `[requires]` included (ADR-1304 D4).
+pub const VTLOOK_SECTIONS_MAX: usize = VTLOOK_SECTIONS.value as usize;
 
 #[cfg(test)]
 #[expect(clippy::panic, reason = "a test fails by panicking")]

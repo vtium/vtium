@@ -1,0 +1,43 @@
+# noto-emoji-small: a chosen list of color emoji for the small panels' font
+# sets, from Noto Color Emoji, two cells wide: the smileys, gitmoji and the
+# status marks that build tools print. Each range names why it is here. A
+# cover= line limits the source above it to that range.
+#
+# License: SIL OFL 1.1.
+#
+# References:
+# - ADR-1204 D5: the small panels' layers.
+
+role=emoji
+source=font:Noto Color Emoji
+version=2.051
+url=https://github.com/googlefonts/noto-emoji/releases/tag/v2.051
+cover=U+1F600-U+1F64F      # Emoticons: the smileys
+cover=U+2705               # check mark button: tests passed
+cover=U+274C               # cross mark: tests failed
+cover=U+2728               # sparkles: gitmoji's new feature
+cover=U+2B50               # star
+cover=U+26A0               # warning
+cover=U+26A1               # high voltage: gitmoji's performance
+cover=U+23F3               # hourglass: waiting
+cover=U+2764               # red heart
+cover=U+1F389              # party popper: gitmoji's release
+cover=U+1F3A8              # artist palette: gitmoji's style
+cover=U+1F41B              # bug: gitmoji's bug fix
+cover=U+1F40D              # snake: Python
+cover=U+1F980              # crab: Rust
+cover=U+1F44D-U+1F44E      # thumbs up and down
+cover=U+1F4A1              # light bulb
+cover=U+1F4A5              # collision: gitmoji's breaking change
+cover=U+1F4C1-U+1F4C2      # folders: file managers
+cover=U+1F4C4              # page: files
+cover=U+1F4DD              # memo: gitmoji's documentation
+cover=U+1F4E6              # package: gitmoji's dependencies
+cover=U+1F512-U+1F513      # locks: gitmoji's security
+cover=U+1F525              # fire: gitmoji's removal
+cover=U+1F527              # wrench: gitmoji's configuration
+cover=U+1F680              # rocket: gitmoji's deploy
+cover=U+1F6A7              # construction: work in progress
+cover=U+1F6A8              # police light: gitmoji's lint
+cover=U+1F9EA              # test tube: gitmoji's tests
+cover=U+1F504              # arrows: refresh and sync

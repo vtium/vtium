@@ -4,13 +4,16 @@
 //! the TUI after it and what the key caused.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use vtium_config::tui::flowdraw::{self, CardLine};
-use vtium_config::tui::flowview::Obj;
+use vtium_config::tui::flowview::{Obj, Slot};
+use vtium_config::tui::input::Key;
 use vtium_config::tui::model::{Then, View};
+use vtium_config::tui::paths::Piece;
 
 use super::explore::Step;
-use super::sim::{Sim, Term};
+use super::sim::{Press, Sim, Term};
 use super::state::{StateKind, view_name};
 use super::tables::{self, KeyRow, ViewRow};
 
@@ -93,6 +96,76 @@ impl Seen<'_> {
         Ok(())
     }
 
+    /// `.` shows the key line's next page, and the first page after the
+    /// last, and changes nothing else; where the keys fit on one row it
+    /// does nothing. Pressing `.` once for each page goes round every page
+    /// and back: the pages together show every label the node's supported
+    /// rows give, the first page shows the labels of the rows the key
+    /// table puts there, and the keys would not fit on one row.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The same keys in every view": the key line is one
+    ///   row, and `.` shows its next page.
+    fn next_page(&self) -> Result<(), String> {
+        let line = |sim: &Sim| vtium_config::tui::view::key_line(&sim.app).to_owned();
+        let before = line(self.before);
+        let Some((at, pages)) = page_of(&before) else {
+            return self.nothing();
+        };
+        if !self.idle() || !self.kept() {
+            return Err("`.` did more than show the next page".into());
+        }
+        let next = if at == pages { 1 } else { at.saturating_add(1) };
+        let after = line(self.after);
+        if page_of(&after) != Some((next, pages)) {
+            return Err(format!("`.` on page {at} of {pages} shows {after:?}"));
+        }
+        let (want, first) = node_labels(&self.step.from.node());
+        let mut sim = self.before.clone();
+        let mut shown: Vec<&str> = Vec::new();
+        let mut items: Vec<String> = Vec::new();
+        for _ in 0..pages {
+            let now = line(&sim);
+            let (page, _) =
+                page_of(&now).ok_or_else(|| format!("a page without its more item: {now:?}"))?;
+            let mut got = labels_of(&now, &want)?;
+            if page == 1 && !first.is_empty() {
+                got.sort_unstable();
+                if got != first {
+                    return Err(format!(
+                        "the first page shows {got:?}, and the key table puts {first:?} there"
+                    ));
+                }
+            }
+            shown.extend(got);
+            items.extend(
+                now.split("  ")
+                    .filter(|i| !i.starts_with(". "))
+                    .map(str::to_owned),
+            );
+            sim.press(Press::Key(Key::Char('.')));
+        }
+        if line(&sim) != before {
+            return Err(format!(
+                "{pages} presses of `.` do not come back to {before:?}"
+            ));
+        }
+        shown.sort_unstable();
+        shown.dedup();
+        if shown != want {
+            return Err(format!(
+                "the pages show the labels {shown:?}, and the contract gives {want:?}"
+            ));
+        }
+        let width = items.join("  ").chars().count();
+        if width <= KEY_LINE_COLUMNS {
+            return Err(format!(
+                "the keys fit on one row of {width} columns, and the key line still has pages"
+            ));
+        }
+        Ok(())
+    }
+
     fn nothing(&self) -> Result<(), String> {
         if self.idle() && self.kept() {
             Ok(())
@@ -124,6 +197,20 @@ impl Seen<'_> {
             return Err(format!("the console draws {}", self.after.console_font));
         }
         Ok(())
+    }
+
+    /// The key moves to the node `id` of the tree, and changes nothing
+    /// the person made.
+    fn goes_to(&self, id: &str) -> Result<(), String> {
+        if self.exited() || !self.kept() {
+            return Err("the key quit or changed what the person made".into());
+        }
+        let to = self.step.to.node();
+        if to == id {
+            Ok(())
+        } else {
+            Err(format!("expected {id}, and the TUI is in {to}"))
+        }
     }
 
     fn opens(&self, state: &str) -> Result<(), String> {
@@ -249,6 +336,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("q.trial", (back, no_today));
     m.insert("q.too-small", (quit, no_today));
     m.insert("esc.view", (nothing, no_today));
+    for id in ["period.view", "period.layer"] {
+        m.insert(id, (|s| s.next_page(), Some(nothing)));
+    }
     m.insert(
         "esc.view.flow",
         (
@@ -368,7 +458,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             no_today,
         ),
     );
-    m.insert("n.question", (nothing, no_today));
+    m.insert("n.question", (no, no_today));
     m.insert(
         "n.question.quit",
         (
@@ -514,13 +604,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // another shape today: what the key does there today is not pinned
     let not_built: Check = |_| Err("not built".into());
     for id in [
-        "list.settings-values",
         "list.filter-picker",
         "list.font-sets",
         "list.font-sizes",
-        "enter.view.settings",
-        "enter.layer.settings-section",
-        "esc.layer.settings-section",
         "enter.view.looks",
     ] {
         m.insert(id, (not_built, None));
@@ -621,8 +707,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     for id in ["list.flow-card", "list.font-set-files", "list.terminals"] {
         m.insert(id, (not_built, Some(sets)));
     }
+    detail_checks(&mut m);
     m.insert(
-        "e.layer.flow-detail",
+        "e.layer.flow-info",
         (
             |s| {
                 if s.exited() {
@@ -671,7 +758,8 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 }
                 Ok(())
             },
-            no_today,
+            // today t does nothing on a card
+            Some(nothing),
         ),
     );
     m.insert(
@@ -705,7 +793,280 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     );
     m.insert("other.too-small", (nothing, no_today));
     m.insert("updown.typing.settings", (nothing, None));
+    settings_checks(&mut m);
     m
+}
+
+/// A part's detail: its first line is the part's label, and the lines
+/// below it are the choices that narrow the part. On the label line, Up
+/// does nothing, Down moves to the first choice and Enter starts typing
+/// the label. Among the choices, Up and Down move by one line, Up from the
+/// first choice goes back to the label line, and Enter picks the choice
+/// under the cursor into NEW PATH and closes the detail.
+///
+/// References:
+/// - ADR-1403 D7, "The contract": the key table's rows of the part's
+///   detail and of its choices.
+fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
+    // the line under the detail's cursor before and after the key, with
+    // the number of choices below the label line
+    fn lines(s: &Seen<'_>) -> Result<(usize, usize, usize), String> {
+        let fv = &s.before.app.flow_view;
+        let obj = fv.layer.as_ref().ok_or("no detail was open")?;
+        let len = flowdraw::choices_for(&s.before.app, obj).len();
+        Ok((fv.line, s.after.app.flow_view.line, len))
+    }
+    m.insert("up.layer.flow-detail", (|s| s.nothing(), None));
+    m.insert(
+        "down.layer.flow-detail",
+        (
+            |s| {
+                s.goes_to("flow.detail.choices")?;
+                match lines(s)? {
+                    (0, 1, _) => Ok(()),
+                    (a, b, _) => Err(format!("Down moved the line from {a} to {b}")),
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "enter.layer.flow-detail",
+        (
+            |s| {
+                s.goes_to("flow.detail.typing")?;
+                let doc = vtium_config::tui::paths::read(&s.before.app.inputs.flow);
+                let obj = s.before.app.flow_view.layer.clone().ok_or("no detail")?;
+                let (kind, sel) = flowdraw::label_target(&obj).ok_or("no label")?;
+                let now = doc.label(kind, &sel).unwrap_or_default().to_owned();
+                match Seen::typed(s.after) {
+                    Some(t) if t == now => Ok(()),
+                    t => Err(format!("the typing starts at {t:?}, not the label {now:?}")),
+                }
+            },
+            None,
+        ),
+    );
+    // End and PgDn from the label line move into the choices, as far as
+    // the last
+    for (id, by) in [
+        ("end.layer.flow-detail", usize::MAX),
+        ("pgdn.layer.flow-detail", vtium_config::tui::listbox::PAGE),
+    ] {
+        let check: Check = match by {
+            usize::MAX => |s| {
+                s.goes_to("flow.detail.choices")?;
+                match lines(s)? {
+                    (0, b, len) if b == len => Ok(()),
+                    (a, b, _) => Err(format!("End moved the line from {a} to {b}")),
+                }
+            },
+            _ => |s| {
+                s.goes_to("flow.detail.choices")?;
+                match lines(s)? {
+                    (0, b, len) if b == vtium_config::tui::listbox::PAGE.min(len) => Ok(()),
+                    (a, b, _) => Err(format!("PgDn moved the line from {a} to {b}")),
+                }
+            },
+        };
+        m.insert(id, (check, None));
+    }
+    // Home goes back to the label line, and PgUp moves up a page, as far
+    // as the label line
+    m.insert(
+        "home.layer.flow-choices",
+        (
+            |s| {
+                s.goes_to("flow.detail")?;
+                match lines(s)? {
+                    (_, 0, _) => Ok(()),
+                    (a, b, _) => Err(format!("Home moved the line from {a} to {b}")),
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "pgup.layer.flow-choices",
+        (
+            |s| {
+                let (a, b, _) = lines(s)?;
+                let want = a.saturating_sub(vtium_config::tui::listbox::PAGE);
+                s.goes_to(if want == 0 {
+                    "flow.detail"
+                } else {
+                    "flow.detail.choices"
+                })?;
+                if b == want {
+                    Ok(())
+                } else {
+                    Err(format!("PgUp moved the line from {a} to {b}"))
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "up.layer.flow-choices",
+        (
+            |s| match lines(s)? {
+                (1, 0, _) => s.goes_to("flow.detail"),
+                (a, b, _) if a > 1 && b == a - 1 => s.goes_to("flow.detail.choices"),
+                (a, b, _) => Err(format!("Up moved the line from {a} to {b}")),
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "down.layer.flow-choices",
+        (
+            |s| {
+                s.goes_to("flow.detail.choices")?;
+                match lines(s)? {
+                    (a, b, len) if b == a.saturating_add(1).min(len) => Ok(()),
+                    (a, b, _) => Err(format!("Down moved the line from {a} to {b}")),
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "enter.layer.flow-choices",
+        (
+            |s| {
+                let fv = &s.before.app.flow_view;
+                let obj = fv.layer.clone().ok_or("no detail was open")?;
+                let list = flowdraw::choices_for(&s.before.app, &obj);
+                let Some(sel) = list
+                    .get(fv.line.saturating_sub(1))
+                    .and_then(|c| c.2.clone())
+                else {
+                    // a choice with no selector is a heading, and Enter on
+                    // it does nothing
+                    return s.nothing();
+                };
+                if s.exited() || s.after.app.flow_view.layer.is_some() || !s.kept() {
+                    return Err("Enter left the detail open, quit, or changed the draft".into());
+                }
+                let piece = match obj {
+                    Obj::Pal(Slot::Display(_)) | Obj::New(Slot::Display(_)) => Piece::Display(sel),
+                    _ => Piece::Input(sel),
+                };
+                let said =
+                    s.after.app.message.is_some() && s.after.app.message != s.before.app.message;
+                if s.after.app.flow_view.new.has(&piece) || said {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Enter did not pick {piece:?} into NEW PATH or say why"
+                    ))
+                }
+            },
+            None,
+        ),
+    );
+}
+
+/// The Settings view's rows: Enter on a section opens it, Enter on a key
+/// opens its value for typing or its allowed values as the shared list,
+/// and Esc goes back to the sections. None of them writes anything.
+///
+/// References:
+/// - ADR-1201 D3, the Settings bullet: the view opens on the sections,
+///   Enter opens one and Esc goes back with the same section highlighted.
+/// - ADR-1403 D7, "One list for every set of items": a key's allowed
+///   values open in the shared list.
+fn settings_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
+    m.insert(
+        "enter.view.settings",
+        (
+            |s| {
+                s.goes_to("settings.section")?;
+                let (want, got) = (
+                    s.before.app.settings.sections.at,
+                    s.after.app.settings.open.map(|(at, list)| (at, list.at)),
+                );
+                if got == Some((want, 0)) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Enter on section {want} opened {got:?}, not its first key"
+                    ))
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "enter.layer.settings-section",
+        (
+            |s| match s.step.from.focus.as_str() {
+                "switch" | "choice" => s.goes_to("settings.section.list"),
+                _ => s.goes_to("settings.section.typing"),
+            },
+            None,
+        ),
+    );
+    // the list opens on the value the key has now
+    m.insert(
+        "list.settings-values",
+        (
+            |s| {
+                s.goes_to("settings.section.list")?;
+                let app = &s.after.app;
+                let key = app.settings.key().ok_or("no key is highlighted")?;
+                let words = vtium_config::tui::settings::fixed_values(key)
+                    .ok_or("the key has no fixed values")?;
+                let now = app.value(key).0;
+                let at = app.settings.values.map(|l| l.at);
+                match words.iter().position(|w| *w == now) {
+                    Some(i) if at != Some(i) => Err(format!(
+                        "the list highlights {at:?}, and the key's value {now} is item {i}"
+                    )),
+                    _ => Ok(()),
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "esc.layer.settings-section",
+        (
+            |s| {
+                s.goes_to("settings")?;
+                let open = s.before.app.settings.open.map(|(at, _)| at);
+                if open == Some(s.after.app.settings.sections.at) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Esc from section {open:?} highlights section {}",
+                        s.after.app.settings.sections.at
+                    ))
+                }
+            },
+            None,
+        ),
+    );
+    // Up and Down move the highlight by one key and stay in the section
+    fn moved(s: &Seen<'_>, by: isize) -> Result<(), String> {
+        s.goes_to("settings.section")?;
+        let at = |sim: &Sim| sim.app.settings.open.map(|(_, list)| list.at);
+        let (a, b) = (at(s.before), at(s.after));
+        let len = s
+            .before
+            .app
+            .settings
+            .section()
+            .map_or(0, |sec| sec.keys().len());
+        let want = a.map(|a| a.saturating_add_signed(by).min(len.saturating_sub(1)));
+        if b == want {
+            Ok(())
+        } else {
+            Err(format!("the highlight went from {a:?} to {b:?}"))
+        }
+    }
+    m.insert("up.layer.settings-section", (|s| moved(s, -1), None));
+    m.insert("down.layer.settings-section", (|s| moved(s, 1), None));
 }
 
 fn step_view(s: &Seen<'_>, forward: bool) -> Result<(), String> {
@@ -765,6 +1126,10 @@ fn row_cases() -> BTreeMap<&'static str, Case> {
             card_line(s),
             Some(CardLine::Part(_) | CardLine::Setting("vt"))
         )
+    });
+    // the allowed values open as a list only on a key with a fixed set
+    m.insert("list.settings-values", |s| {
+        matches!(s.step.from.focus.as_str(), "switch" | "choice")
     });
     m.insert("list.font-set-files", |s| {
         matches!(card_line(s), Some(CardLine::Font))
@@ -850,6 +1215,9 @@ impl Checks {
         if let Err(e) = self.invariants(&seen) {
             self.fail(step, e);
         }
+        if let Err(e) = self.contract_key_line(&seen) {
+            self.fail(step, format!("help.generated: {e}"));
+        }
         // every state the walk reaches is a node of the interface tree
         let node_id = step.from.node();
         let to_id = step.to.node();
@@ -919,6 +1287,60 @@ impl Checks {
         self.views(&seen);
     }
 
+    /// Whether the key table's row `id` is supported.
+    fn supported(&self, id: &str) -> bool {
+        self.rows
+            .iter()
+            .any(|r| r.id == id && r.status == "supported")
+    }
+
+    /// The key line the TUI shows after the key holds what the contract
+    /// gives the node the TUI is in, and nothing else: each item is one
+    /// label of the node's supported rows that the key line shows. A key
+    /// line with one page shows every such label. A paged key line ends
+    /// with its more item, `. more 2/3`, and shows its first page after a
+    /// key that moves to another node; the row check of `.` checks that
+    /// its pages together show every label. A node that is still planned
+    /// keeps its hand-written key line until its work lands, so it is not
+    /// checked.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The contract": the key lines are generated from the
+    ///   key table and the tree, and the row `help.generated` tracks them.
+    /// - ADR-1403 D7, "The same keys in every view": the key line is one
+    ///   row that shows its keys in pages.
+    fn contract_key_line(&self, s: &Seen<'_>) -> Result<(), String> {
+        if s.after.exited.is_some() || !self.supported("help.generated") {
+            return Ok(());
+        }
+        let node_id = s.step.to.node();
+        let Some(node) = self.tree.iter().find(|n| n.id == node_id) else {
+            return Ok(());
+        };
+        if node.status != "supported" {
+            return Ok(());
+        }
+        let (want, _) = node_labels(&node_id);
+        let line = vtium_config::tui::view::key_line(&s.after.app);
+        let mut got = labels_of(line, &want).map_err(|e| format!("{node_id}: {e}"))?;
+        got.sort_unstable();
+        got.dedup();
+        match page_of(line) {
+            None if got != want => Err(format!(
+                "{node_id}: the key line shows the labels {got:?}, and the contract gives {want:?}"
+            )),
+            None => Ok(()),
+            Some((at, pages)) if at == 0 || at > pages => Err(format!(
+                "{node_id}: the key line shows page {at} of {pages}"
+            )),
+            Some((at, _)) if at != 1 && s.step.from.node() != node_id => Err(format!(
+                "{node_id}: the key line shows page {at} after a key that came from {}",
+                s.step.from.node()
+            )),
+            Some(_) => Ok(()),
+        }
+    }
+
     /// The invariants after every key.
     fn invariants(&mut self, s: &Seen<'_>) -> Result<(), String> {
         let app = &s.after.app;
@@ -949,14 +1371,21 @@ impl Checks {
                     c.question
                 ));
             }
-            // every key the key line lists shows, outside the Flow view,
-            // whose key lines its own drawing picks
-            if app.view != View::Flow || app.confirm.is_some() {
+            // every key the key line lists shows; in the Flow view and its
+            // file view, once their key-line rows are supported
+            let flow_lines =
+                self.supported("key-line.view.flow") && self.supported("key-line.layer.file-view");
+            if app.view != View::Flow || app.confirm.is_some() || flow_lines {
                 let shown = screen.join("\n");
                 let line = vtium_config::tui::view::key_line(app);
                 let small = vtium_config::tui::view::too_small(app) && app.confirm.is_none();
-                if !small && let Some(key) = line.split("  ").find(|k| !shown.contains(k)) {
+                if let Some(key) = line.split("  ").find(|k| !shown.contains(k)) {
                     return Err(format!("the key line leaves out {key:?}"));
+                }
+                // the key line is one row, once the key-line rows say so
+                let rows = vtium_config::tui::view::key_rows(app).len();
+                if !small && self.supported("key-line.any") && rows != 1 {
+                    return Err(format!("the key line takes {rows} rows"));
                 }
             }
         } else {
@@ -1156,11 +1585,10 @@ fn written(before: &str, after: &str) -> BTreeSet<String> {
 fn reached_today(id: &str) -> Option<bool> {
     Some(match id {
         // the view, the tab or the form exists today in another shape
-        "looks" | "fonts" | "settings" | "looks.new-frit" | "looks.new-frit.typing" => true,
-        "settings.section.typing" => true,
+        "looks" | "fonts" | "looks.new-frit" | "looks.new-frit.typing" => true,
         // nothing like it exists today
         "flow.card.list" | "looks.list" | "looks.new-frit.list" => false,
-        "settings.section" | "settings.section.list" | "any.question.window-ops" => false,
+        "any.question.window-ops" => false,
         _ => return None,
     })
 }
@@ -1254,4 +1682,75 @@ fn generic(row: &KeyRow) -> Option<(Check, Option<Check>)> {
         stays
     };
     Some((means, None))
+}
+
+/// The columns a key line fills at the minimum size: 80 less a column of
+/// margin on each side.
+const KEY_LINE_COLUMNS: usize = 78;
+
+/// A key line's more item, `. more 2/3`, as the page it shows and the
+/// number of pages; `None` for a key line with one page.
+fn page_of(line: &str) -> Option<(usize, usize)> {
+    let last = line.rsplit("  ").next()?;
+    let (at, pages) = last.strip_prefix(". more ")?.split_once('/')?;
+    Some((at.parse().ok()?, pages.parse().ok()?))
+}
+
+/// The labels a key line shows, each item read as its keys and the
+/// longest label of `labels` that ends it, so that `save and quit` is not
+/// read as `quit`. The more item is left out.
+fn labels_of<'a>(line: &str, labels: &[&'a str]) -> Result<Vec<&'a str>, String> {
+    line.split("  ")
+        .filter(|i| !i.is_empty() && !i.starts_with(". more "))
+        .map(|item| {
+            labels
+                .iter()
+                .filter(|l| {
+                    item.strip_suffix(**l)
+                        .is_some_and(|keys| keys.ends_with(' ') && !keys.trim().is_empty())
+                })
+                .max_by_key(|l| l.len())
+                .copied()
+                .ok_or_else(|| {
+                    format!(
+                        "the key line shows {item:?}, which no supported row of the node labels"
+                    )
+                })
+        })
+        .collect()
+}
+
+/// The two tables, read once for the checks that need them outside a
+/// [`Checks`].
+fn tables() -> &'static (Vec<KeyRow>, Vec<tables::TreeNode>) {
+    static TABLES: OnceLock<(Vec<KeyRow>, Vec<tables::TreeNode>)> = OnceLock::new();
+    TABLES.get_or_init(|| (tables::keys(), tables::tree()))
+}
+
+/// The labels a key line shows in the node `id`: every label of the
+/// node's supported rows but `.`'s, sorted, and those of the rows the key
+/// table puts on a paged key line's first page.
+fn node_labels(id: &str) -> (Vec<&'static str>, Vec<&'static str>) {
+    let (rows, tree) = tables();
+    let Some(node) = tree.iter().find(|n| n.id == id) else {
+        return (Vec::new(), Vec::new());
+    };
+    let shown = || {
+        rows.iter().filter(|r| {
+            node.keys.contains(&r.id)
+                && r.status == "supported"
+                && r.label != "-"
+                && r.keys != ["."]
+        })
+    };
+    let mut all: Vec<&str> = shown().map(|r| r.label.as_str()).collect();
+    let mut first: Vec<&str> = shown()
+        .filter(|r| r.first_page)
+        .map(|r| r.label.as_str())
+        .collect();
+    for labels in [&mut all, &mut first] {
+        labels.sort_unstable();
+        labels.dedup();
+    }
+    (all, first)
 }

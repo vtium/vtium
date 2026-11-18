@@ -119,7 +119,7 @@ fn message_rows(app: &App) -> Vec<String> {
 pub fn window(app: &App) -> (usize, usize) {
     let bottom = app
         .rows
-        .saturating_sub(1)
+        .saturating_sub(super::view::key_rows(app).len())
         .saturating_sub(message_rows(app).len());
     (HEAD_ROWS, bottom.saturating_sub(HEAD_ROWS))
 }
@@ -552,50 +552,22 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
     }
 }
 
-/// The key line on the last row: the keys that fit, and always the last,
-/// the key that leaves.
-fn key_line(canvas: &mut Canvas, app: &App, keys: &str) {
-    // a question takes the next key, so its keys show in place of the view's
-    let keys = match app.confirm.as_ref().map(|c| &c.then) {
-        Some(super::model::Then::Quit(_)) => words::KEYS_QUIT,
-        Some(super::model::Then::Leave(_)) => words::KEYS_LEAVE,
-        Some(_) => words::KEYS_CONFIRM,
-        None => keys,
-    };
-    let room = app.cols.saturating_sub(2);
-    let items: Vec<&str> = keys.split("  ").collect();
-    let (last, rest) = items.split_last().unwrap_or((&"", &[]));
-    let mut row = String::new();
-    for item in rest {
-        let len = width(&row)
-            .saturating_add(2)
-            .saturating_add(width(item))
-            .saturating_add(2)
-            .saturating_add(width(last));
-        if len > room {
-            break;
-        }
-        if !row.is_empty() {
-            row.push_str("  ");
-        }
-        row.push_str(item);
+/// The key line on the last row.
+fn key_line(canvas: &mut Canvas, app: &App) {
+    let rows = super::view::key_rows(app);
+    let top = app.rows.saturating_sub(rows.len());
+    for (i, row) in rows.iter().enumerate() {
+        canvas.put(1, top.saturating_add(i), row, Style::text(Color::Grey));
     }
-    if !row.is_empty() {
-        row.push_str("  ");
-    }
-    row.push_str(last);
-    canvas.put(
-        1,
-        app.rows.saturating_sub(1),
-        &row,
-        Style::text(Color::Grey),
-    );
 }
 
 /// The message above the key line.
 fn message(canvas: &mut Canvas, app: &App) {
     let lines = message_rows(app);
-    let y = app.rows.saturating_sub(1).saturating_sub(lines.len());
+    let y = app
+        .rows
+        .saturating_sub(super::view::key_rows(app).len())
+        .saturating_sub(lines.len());
     for (i, line) in lines.iter().enumerate() {
         canvas.put(1, y.saturating_add(i), line, Style::PLAIN);
     }
@@ -610,16 +582,7 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
     match &state.layer {
         Some(obj) => {
             status(canvas, app, &layout, Some(&obj_name(flow, obj)));
-            let keys = match obj {
-                _ if state.typing.is_some() && state.picker.is_some() => words::KEYS_TYPING_VALUE,
-                _ if state.typing.is_some() => words::KEYS_TYPING,
-                Obj::Nothing(_) => words::KEYS_FLOW_INFO,
-                Obj::Doc(_, Slot::Terminal) => words::KEYS_FLOW_CARD,
-                Obj::New(Slot::Terminal) => words::KEYS_FLOW_EDITOR_CARD,
-                Obj::Doc(..) | Obj::Roam(_) | Obj::Others => words::KEYS_FLOW_INFO,
-                _ => words::KEYS_FLOW_CHOOSE,
-            };
-            key_line(canvas, app, keys);
+            key_line(canvas, app);
             match obj {
                 Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
                     card_layer(canvas, app, state, obj);
@@ -635,7 +598,7 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
         }
         None => {
             status(canvas, app, &layout, None);
-            key_line(canvas, app, words::KEYS_FLOW);
+            key_line(canvas, app);
             canvas.put(
                 1,
                 2,

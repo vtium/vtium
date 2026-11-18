@@ -295,6 +295,11 @@ impl<E: Endpoint> Channel<E> {
         (next, self.exit_told)
     }
 
+    /// Whether a feed asked for on a later turn has not yet run.
+    pub(crate) fn feed_owed(&self) -> bool {
+        self.feed_owed
+    }
+
     /// A feed on a later turn, unless one is owed already.
     fn feed_later(&mut self) -> Next {
         if self.feed_owed {

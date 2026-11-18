@@ -3843,7 +3843,7 @@ fn a_change_of_mouse_tracking_clears_the_selection() {
 fn every_key_a_file_sets_is_read_or_listed_as_not_built() {
     use vtium::config::{KEYS, Scope, keys};
     // The custom palette's keys are read only under palette=custom.
-    let h = Harness::new(&[
+    let mut h = Harness::new(&[
         "--palette=custom",
         "--login",
         "--",
@@ -3851,6 +3851,13 @@ fn every_key_a_file_sets_is_read_or_listed_as_not_built() {
         "-c",
         "read x",
     ]);
+    // `main` sets the heads of the head file, here the compiled-in flow of
+    // a missing vtium.conf, right after it makes the seat. Those heads
+    // choose their vtlooks, which the seat's interim heads do not.
+    h.app.set_heads(vtium::head::rules(
+        Path::new("/nonexistent/vtium.conf"),
+        &config::File::Missing,
+    ));
     let read = h.app.config().read();
     let unread: Vec<&str> = KEYS
         .iter()

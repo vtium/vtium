@@ -1,0 +1,25 @@
+# cascadia-code: Cascadia Code, Microsoft's monospaced font for code and
+# terminals. The font draws the text and sets the character cell. The set
+# starts at 12 points, 16 pixels at 96 DPI.
+#
+# The set adds Nerd Fonts' icons and color emoji after the text font, and
+# GNU Unifont last, which draws every other character. vtium ships this font
+# set, never the fonts. The font helper leaves out a font that the machine
+# lacks, and the next source that holds a character draws it.
+#
+# Licenses: Cascadia Code is under the SIL OFL 1.1. The layers name their
+# own licenses.
+#
+# References:
+# - ADR-1204 D3: the code-friendly fonts category.
+
+name=cascadia-code
+size=12
+license=OFL-1.1 AND MIT AND Apache-2.0 AND CC-BY-4.0
+
+source=font:Cascadia Code
+url=https://github.com/microsoft/cascadia-code/releases/tag/v2407.24
+
+layer=nerd-symbols
+layer=noto-emoji
+layer=unifont

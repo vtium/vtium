@@ -365,10 +365,14 @@ impl Path {
         done
     }
 
-    /// Puts `new` in the place of the part `old`, keeping its place.
+    /// Puts `new` in the place of the part `old`, keeping its place. Where
+    /// `new` is `old`, the path stays as it is. Where the path holds `new`
+    /// already, `old` goes, so the path holds each part once.
     pub fn replace(&mut self, old: &Piece, new: Piece) {
         let swap = |list: &mut Vec<String>, o: &str, n: String| {
-            if list.contains(&n) {
+            if o == n {
+                // the part's own choice, picked again
+            } else if list.contains(&n) {
                 list.retain(|x| x != o);
             } else if let Some(x) = list.iter_mut().find(|x| *x == o) {
                 *x = n;
@@ -1478,6 +1482,20 @@ pub fn sort_of(flow: &Flow, piece: &Piece) -> Sort {
 pub(crate) mod tests {
     use super::super::flow::{Head, Look, RuleState};
     use super::*;
+
+    /// Picking a part's own choice again in its detail keeps the part,
+    /// and picking another choice puts it in the part's place.
+    #[test]
+    fn replacing_a_part_with_itself_keeps_it() {
+        let mut path = Path {
+            displays: vec!["*".into(), "DP-1".into()],
+            ..Path::default()
+        };
+        path.replace(&Piece::Display("*".into()), Piece::Display("*".into()));
+        assert_eq!(path.displays, ["*", "DP-1"]);
+        path.replace(&Piece::Display("*".into()), Piece::Display("DP-2".into()));
+        assert_eq!(path.displays, ["DP-2", "DP-1"]);
+    }
 
     fn dev(name: &str, detail: &str, keys: &[&str], found: bool, rule: Option<usize>) -> Device {
         Device {

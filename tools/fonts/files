@@ -1,0 +1,117 @@
+#!/bin/sh
+# The font files that every vtium build installs in /usr/share/vtium/fonts:
+# bitmap Terminus 4.49.1's eighteen BDF files, gzipped, GNU Unifont's
+# all-planes .hex file, and Cullet Mono's two faces. pins.tsv pins each
+# Terminus and Unifont file, and the archive the Terminus files come from;
+# tools/cullet-mono/pins.tsv pins the two faces, which make cullet-mono
+# builds.
+#
+#   files fetch OUT          stage the Terminus and Unifont files in OUT
+#   files check OUT CULLET   check the files in OUT and the faces in CULLET
+#
+# fetch takes Terminus's archive from $XDG_CACHE_HOME/vtium/fonts, and
+# downloads it there with curl when it is missing. It checks the archive's
+# size and SHA-256 against its pin, and removes a copy that differs. It then
+# gzips each BDF file with gzip -n -9, which leaves out the file's name and
+# time, so the same gzip gives the same bytes on every machine. Unifont's
+# file is the tree's crates/vtium-font/data/unifont.hex, under the name
+# Unifoundry gives it. fetch ends by checking OUT.
+#
+# check fails on any file that is missing or whose size or SHA-256 differs
+# from its pin, and names the make target that stages that file. make
+# install and make install-tree run it before they stage anything.
+#
+# References:
+# - ADR-1204 D2: which files every build installs, and their sizes.
+# - ADR-1204 D5: Unifont's all-planes file and its SHA-256.
+# - ADR-1204 D8: vtium installs these fonts itself.
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+root=$(cd "$here/../.." && pwd)
+pins=$here/pins.tsv
+cullet_pins=$root/tools/cullet-mono/pins.tsv
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/vtium/fonts
+
+die() { echo "fonts: $*" >&2; exit 1; }
+# The pin rows of kind $1 in file $2, without the comments.
+rows() { awk -F'\t' -v k="$1" '$1 == k' "$2"; }
+
+# Whether file $1 has size $2 and SHA-256 $3; prints why not.
+matches() {
+    [ -f "$1" ] || { echo "is missing"; return 1; }
+    size=$(wc -c < "$1" | tr -d ' ')
+    [ "$size" = "$2" ] || { echo "has $size bytes, not $2"; return 1; }
+    # Read from stdin: sha256sum starts its line with a backslash when the
+    # file's name holds a backslash or a newline.
+    sum=$(sha256sum < "$1" | cut -d' ' -f1)
+    [ "$sum" = "$3" ] || { echo "has SHA-256 $sum, not $3"; return 1; }
+}
+
+fetch() {
+    out=$1
+    mkdir -p "$cache" "$out"
+    rows source "$pins" | {
+        IFS='	' read -r _ file bytes sha from
+        archive=$cache/$file
+        if [ ! -f "$archive" ]; then
+            echo "fonts: fetching $from"
+            curl -fsSL --proto =https --proto-redir =https --retry 3 --connect-timeout 30 \
+                --max-time 600 -o "$archive.part" "$from" || {
+                rm -f "$archive.part"
+                die "curl could not fetch $from"
+            }
+            mv "$archive.part" "$archive"
+        fi
+        if ! why=$(matches "$archive" "$bytes" "$sha"); then
+            rm -f "$archive"
+            die "$archive $why, so fetch removed it; run make font-files again to fetch it"
+        fi
+        work=$(mktemp -d)
+        trap 'rm -rf "$work"' EXIT
+        tar -xzf "$archive" -C "$work"
+        rows gzip "$pins" | while IFS='	' read -r _ name _ _ member; do
+            [ -f "$work/$member" ] || die "$file holds no $member"
+            gzip -n -9 -c "$work/$member" > "$out/$name.part"
+            mv "$out/$name.part" "$out/$name"
+        done
+    }
+    rows copy "$pins" | while IFS='	' read -r _ name _ _ from; do
+        cp "$root/$from" "$out/$name.part"
+        mv "$out/$name.part" "$out/$name"
+    done
+    check "$out" ""
+}
+
+# Checks the Terminus and Unifont files in $1, and with $2 the Cullet Mono
+# faces in $2.
+check() {
+    out=$1 cullet=$2 failed=0 count=0
+    tab='	'
+    while IFS=$tab read -r kind name bytes sha _; do
+        case $kind in gzip|copy) ;; *) continue ;; esac
+        count=$((count + 1))
+        if ! why=$(matches "$out/$name" "$bytes" "$sha"); then
+            echo "fonts: $out/$name $why; make font-files stages it" >&2
+            failed=1
+        fi
+    done < "$pins"
+    if [ -n "$cullet" ]; then
+        while IFS=$tab read -r kind name bytes sha _; do
+            [ "$kind" = face ] || continue
+            count=$((count + 1))
+            if ! why=$(matches "$cullet/$name" "$bytes" "$sha"); then
+                echo "fonts: $cullet/$name $why; make cullet-mono builds it" >&2
+                failed=1
+            fi
+        done < "$cullet_pins"
+    fi
+    [ "$count" -gt 0 ] || die "no pins read from $pins"
+    [ "$failed" = 0 ] || exit 1
+    echo "fonts: the $count font files match their pins"
+}
+
+case ${1-} in
+fetch) [ $# = 2 ] || die "usage: files fetch OUT"; fetch "$2" ;;
+check) [ $# = 3 ] || die "usage: files check OUT CULLET"; check "$2" "$3" ;;
+*) die "usage: files fetch OUT | files check OUT CULLET" ;;
+esac

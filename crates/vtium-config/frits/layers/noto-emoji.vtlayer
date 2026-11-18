@@ -1,0 +1,16 @@
+# noto-emoji: color emoji from Noto Color Emoji, two cells wide. A font set
+# adds this layer after its text font and its symbols layer, so a character
+# that a text font holds draws as text. The font helper still takes the
+# color glyph for a character that asks for emoji presentation, wherever
+# this layer stands in the set.
+#
+# License: SIL OFL 1.1.
+#
+# References:
+# - ADR-1204 D5 and D6: the emoji layer and its place in a set.
+# - ADR-1200 D21: emoji presentation takes the color glyph.
+
+role=emoji
+source=font:Noto Color Emoji
+version=2.051
+url=https://github.com/googlefonts/noto-emoji/releases/tag/v2.051

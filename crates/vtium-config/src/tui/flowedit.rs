@@ -423,7 +423,8 @@ impl App {
     pub(crate) fn pager_key(&mut self, key: Key) {
         let lines = self.draft.as_ref().map_or(0, |d| d.text.lines().count());
         // the draft's lines run from row 4 to the row above the key line
-        let room = self.rows.saturating_sub(5).max(1);
+        let keys = super::view::key_rows(self).len();
+        let room = self.rows.saturating_sub(4).saturating_sub(keys).max(1);
         let last = lines.saturating_sub(room);
         let half = (room / 2).max(1);
         let Some(p) = self.pager.as_mut() else {

@@ -60,6 +60,16 @@ pub struct Term {
     pub changed: bool,
     /// A frame end or a timeout asks every display of the head to present.
     pub present: bool,
+    /// A synchronized update ended, and a display of the head has not yet
+    /// taken the finished frame to draw. Until each has, the terminal
+    /// takes no more of the child's output, so the start of the next
+    /// update cannot hide the finished frame. A display whose draw waits
+    /// for its flip in flight takes the frame when the flip ends.
+    ///
+    /// References:
+    /// - ADR-1401 D2, the note of 2026-11-17: the parser stops at a
+    ///   frame's end, and vtium keeps no copy of the finished frame.
+    pub unshown: bool,
     /// The child exited and its output has been read.
     pub exited: Option<ExitStatus>,
     /// Bytes of the child's output parsed since the start.
@@ -81,6 +91,7 @@ impl Term {
             unparsed: false,
             changed: false,
             present: false,
+            unshown: false,
             exited: None,
             parsed: 0,
             keys: 0,
@@ -105,8 +116,31 @@ impl Term {
     /// What a hold's rules asked for.
     pub fn act(&mut self, action: Action) {
         match action {
-            Action::Present | Action::Expired => self.present = true,
+            Action::Present | Action::Expired => {
+                self.present = true;
+                self.unshown = true;
+            }
             Action::None | Action::Arm => {}
+        }
+    }
+
+    /// Whether the terminal takes the child's output now: no finished
+    /// frame waits for a display, and no request waits for the turn that
+    /// carries it out. While the pty holds output and this is true, the
+    /// loop turns again at once.
+    pub fn takes_input(&self) -> bool {
+        !(self.unshown
+            || self.terminal.font_requested()
+            || self.terminal.grid_requested()
+            || self.terminal.display_requested())
+    }
+
+    /// The turn drew what it could of `views`, the head's displays: once
+    /// none of them still owes the finished frame of a synchronized update,
+    /// the terminal takes the child's output again.
+    pub fn drawn<'a>(&mut self, views: impl IntoIterator<Item = &'a View>) {
+        if self.unshown {
+            self.unshown = views.into_iter().any(|v| v.unshown);
         }
     }
 
@@ -114,16 +148,15 @@ impl Term {
     /// passes the terminal's replies to `reply`. Returns the bytes taken,
     /// as [`Consumer::output`] does, which reads the pty through it.
     pub(crate) fn parse(&mut self, output: &[u8], reply: &mut dyn FnMut(&[u8])) -> usize {
-        // The output after an OSC 50 request waits for the turn that
-        // switches the font, so a query that follows names the new set,
-        // the output after an XTWINOPS 8 request for the turn that
-        // resizes, so a size report that follows answers the new size, and
-        // the output after setBackground or setForeground for the turn that
-        // takes it, so the seat takes each in order.
-        if self.terminal.font_requested()
-            || self.terminal.grid_requested()
-            || self.terminal.display_requested()
-        {
+        // The output after a synchronized update's end waits until each
+        // display has taken the finished frame. The output after an OSC 50
+        // request waits for the turn that switches the font, so a query
+        // that follows names the new set, the output after an XTWINOPS 8
+        // request for the turn that resizes, so a size report that follows
+        // answers the new size, and the output after setBackground or
+        // setForeground for the turn that takes it, so the seat takes each
+        // in order.
+        if !self.takes_input() {
             return 0;
         }
         let start = (self.clock)();
@@ -809,6 +842,9 @@ pub struct View {
     kept: Option<Cost>,
     /// A draw waits for the hold's end.
     pub owed: bool,
+    /// A synchronized update ended, and this display has not yet taken the
+    /// finished frame to draw ([`Term::unshown`]).
+    pub unshown: bool,
     /// The display lost its picture and draws whole, through a hold.
     pub lost: bool,
     /// The log said once that the GPU path failed one of the display's
@@ -878,6 +914,7 @@ impl View {
             pending: false,
             kept: None,
             owed: false,
+            unshown: false,
             lost: true,
             gpu_failure_logged: false,
             timer: measure.then(RenderTimer::new),
@@ -1048,6 +1085,32 @@ impl View {
         }
     }
 
+    /// Lets go of the finished frame this view owes when its display
+    /// cannot take a frame by itself. A display takes the frame on its own
+    /// when it is ready for a frame, when its flip ends, or when the frame
+    /// it is composing comes back. A display that is none of these waits
+    /// for something outside the terminal: its card was handed to another
+    /// program, the device sleeps and cannot wake while another program
+    /// holds DRM master, the display is blanked, or its connector went
+    /// offline. Such a display would hold the head's terminal stopped for
+    /// as long as that lasts, so it owes no frame, and the display draws
+    /// the screen as it is when it comes back. `video` is `None` when the
+    /// display's device is gone.
+    ///
+    /// References:
+    /// - ADR-1401 D2, the note of 2026-11-17: the parser stops at a
+    ///   frame's end only until the displays that can draw take the frame.
+    pub fn settle(&mut self, video: Option<&dyn Video>) {
+        if !self.unshown {
+            return;
+        }
+        let takes = video
+            .is_some_and(|v| v.ready_for_frame(self.id) || v.is_flipping(self.id) || self.away());
+        if !takes {
+            self.unshown = false;
+        }
+    }
+
     /// Whether the loop's pass at `now` draws this view of `term` on
     /// `video`. `now_all`: vtium asks every display of the head to draw at
     /// once for something other than the program's output, such as a key,
@@ -1093,6 +1156,7 @@ impl View {
         if due {
             self.wait.end();
         }
+        self.unshown |= frame_end;
         // A pending view waits for its display to take a frame, so a
         // display that lends no token never turns the loop.
         let taken = self.pending && video.ready_for_frame(self.id);
@@ -1211,6 +1275,7 @@ impl View {
         self.pending = false;
         self.wait.taken();
         self.owed = false;
+        self.unshown = false;
         self.lost = false;
         self.sent = Some(clock());
         // An overlay that changed leaves its old areas to the renderer.
@@ -2576,6 +2641,7 @@ mod tests {
         if draws {
             view.draw(term, video, &DrawState::default(), &*clock);
         }
+        term.drawn([&*view]);
         term.coalesce.turn_end();
         term.changed = false;
     }
@@ -3246,9 +3312,11 @@ mod tests {
         }
     }
 
-    // ADR-1401 D2: an update that waits for the flip is never drawn in part.
-    // When the program has begun another update by the time the flip ends,
-    // the waiting one goes out with the next one's end, in one frame.
+    // ADR-1401 D2: an update that waits for the flip is never drawn in part,
+    // and the next update waits for it. The terminal parses nothing of the
+    // next update until the flip ends and the finished frame is taken, so
+    // that frame goes out alone, and the next update shows whole at its own
+    // end.
     #[test]
     fn a_synchronized_update_that_waits_is_never_drawn_in_part() {
         let (hand, mut term, mut view, mut video) = synced_in_flight(3);
@@ -3256,32 +3324,180 @@ mod tests {
         turn(&mut term, &mut view, &mut video, &[&update(b"\x1b[1;1Hp")]);
         assert!(view.wait.for_flip(), "p waits for the flip");
         hand.at(8);
-        turn(
-            &mut term,
-            &mut view,
-            &mut video,
-            &[b"\x1b[?2026h\x1b[1;2Hq"],
+        let mut left = b"\x1b[?2026h\x1b[1;2Hq".to_vec();
+        loop_turn(&mut term, &mut view, &mut video, &mut left);
+        assert_eq!(
+            left, b"\x1b[?2026h\x1b[1;2Hq",
+            "the next update waits in the pty while p waits"
         );
         hand.at(16);
         video.flipping = false;
-        turn(&mut term, &mut view, &mut video, &[]);
-        assert_eq!(
-            (video.composed, video.sent),
-            (1, 1),
-            "nothing composes while the next update is open"
-        );
+        loop_turn(&mut term, &mut view, &mut video, &mut left);
+        assert_eq!((video.composed, video.sent), (2, 2), "p at the flip's end");
+        let b = (video.back + 2) % 3;
+        assert!(video.shows(b, 0) && !video.shows(b, 1), "p alone");
+        loop_turn(&mut term, &mut view, &mut video, &mut left);
+        assert!(left.is_empty(), "the next update begins");
+        assert_eq!(video.composed, 2, "nothing composes while it is open");
         hand.at(20);
-        turn(
-            &mut term,
-            &mut view,
-            &mut video,
-            &[b"\x1b[1;3Hr\x1b[?2026l"],
-        );
-        assert_eq!((video.composed, video.sent), (2, 2), "one frame at its end");
+        left.extend_from_slice(b"\x1b[1;3Hr\x1b[?2026l");
+        loop_turn(&mut term, &mut view, &mut video, &mut left);
+        assert_eq!((video.composed, video.sent), (3, 3), "one frame at its end");
         let b = (video.back + 2) % 3;
         assert!(
             (0..3).all(|col| video.shows(b, col)),
             "p, q and r in the frame sent"
+        );
+    }
+
+    /// One turn of the loop, as `main` runs it, after the pty's output
+    /// `left` arrived. The dispatch feeds `left` to the terminal, calling
+    /// [`Term::parse`] again on what the terminal leaves until it takes
+    /// nothing, as the pty's channel does, and `left` keeps what stays
+    /// unparsed. The turn then runs the hold's timer and draws.
+    fn loop_turn(term: &mut Term, view: &mut View, video: &mut Flip, left: &mut Vec<u8>) {
+        let mut taken = 0;
+        while taken < left.len() {
+            let n = term.parse(&left[taken..], &mut |_| {});
+            if n == 0 {
+                break;
+            }
+            taken += n;
+        }
+        left.drain(..taken);
+        let now = (term.clock)();
+        if term.sync.deadline().is_some_and(|d| d <= now) {
+            let action = term.sync.timer(&mut term.terminal, now, term.unparsed);
+            term.act(action);
+        }
+        pass(term, view, video, &[], false);
+    }
+
+    /// A read of `part` from the pty, and the turns of the loop that follow
+    /// it at once: the loop waits for nothing while the pty holds output
+    /// and the terminal takes input. Returns the number of turns.
+    fn read(
+        term: &mut Term,
+        view: &mut View,
+        video: &mut Flip,
+        left: &mut Vec<u8>,
+        part: &[u8],
+    ) -> usize {
+        left.extend_from_slice(part);
+        let mut turns = 0;
+        loop {
+            loop_turn(term, view, video, left);
+            turns += 1;
+            assert!(turns < 100, "the loop settles");
+            if left.is_empty() || !term.takes_input() {
+                return turns;
+            }
+        }
+    }
+
+    // ADR-1401 D2: a read that holds the end of one synchronized update and
+    // the start of the next shows the finished frame in the turn the read
+    // arrives. The terminal parses the next update's start only after that
+    // turn has drawn the frame.
+    #[test]
+    fn a_frame_whose_read_also_starts_the_next_shows_in_that_turn() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        offer_sync(&mut term);
+        let mut video = Flip::new();
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        assert_eq!(video.composed, 1, "A");
+        let mut left = b"\x1b[?2026h\x1b[1;2HB\x1b[?2026l\x1b[?2026h\x1b[1;3HC".to_vec();
+        hand.at(4);
+        loop_turn(&mut term, &mut view, &mut video, &mut left);
+        let front = (video.back + 1) % 2;
+        assert_eq!(video.composed, 2, "B composes in the read's turn");
+        assert!(video.shows(front, 1), "B is shown");
+        assert!(!video.shows(front, 2), "C's start is not");
+        assert_eq!(left, b"\x1b[?2026h\x1b[1;3HC", "C's start waits in the pty");
+        assert!(term.takes_input(), "the frame is drawn, so output goes on");
+        loop_turn(&mut term, &mut view, &mut video, &mut left);
+        assert!(left.is_empty(), "the next turn parses C's start");
+        assert!(term.sync.holding(&term.terminal), "C's hold is in force");
+        assert_eq!(video.composed, 2, "nothing composes in C's hold");
+    }
+
+    // ADR-1401 D2: a program that writes frames faster than the loop turns
+    // shows every frame. Here 60 reads come 10 ms apart, each holding the
+    // end of one synchronized update and the start of the next, with
+    // `sync-timeout` at 200 ms, and each frame composes in its read's turn.
+    #[test]
+    fn a_stream_of_back_to_back_updates_shows_every_frame() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        offer_sync(&mut term);
+        let mut video = Flip::new();
+        // Each frame clears the first row and writes X in one of its four
+        // cells, so the frame shown tells which update it is.
+        let start = b"\x1b[?2026h\x1b[1;1H\x1b[2K";
+        let end = |k: u32| format!("\x1b[1;{}HX\x1b[?2026l", k % 4 + 1).into_bytes();
+        let mut left = Vec::new();
+        read(&mut term, &mut view, &mut video, &mut left, start);
+        let first = video.composed;
+        for k in 0..60u32 {
+            hand.at(10 * (u64::from(k) + 1));
+            let part = [end(k).as_slice(), start].concat();
+            read(&mut term, &mut view, &mut video, &mut left, &part);
+            assert_eq!(
+                video.composed,
+                first + k + 1,
+                "frame {k} composes in its read's turns"
+            );
+            let front = (video.back + 1) % 2;
+            for col in 0..4 {
+                assert_eq!(
+                    video.shows(front, col),
+                    col == k % 4,
+                    "frame {k}, cell {col}"
+                );
+            }
+            assert!(left.is_empty(), "frame {k}: the read is parsed");
+            assert!(
+                term.sync.holding(&term.terminal),
+                "frame {k}: the next hold"
+            );
+        }
+    }
+
+    // ADR-1401 D2: while a hold is in force, a scroll of the view draws
+    // nothing, and the frame drawn when the hold ends shows the scroll, so
+    // the person never sees a half-written update.
+    #[test]
+    fn a_scroll_during_a_hold_draws_when_the_hold_ends() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        term.terminal = Terminal::new(4, 2, 10);
+        term.terminal.screen_mut().set_scrollback_max(10);
+        offer_sync(&mut term);
+        let mut video = Flip::new();
+        // A goes to the scrollback; the screen shows B and C.
+        turn(&mut term, &mut view, &mut video, &[b"A\r\n B\r\n  C"]);
+        let composed = video.composed;
+        assert!(!video.shows((video.back + 1) % 2, 0), "B's row first");
+        hand.at(4);
+        turn(
+            &mut term,
+            &mut view,
+            &mut video,
+            &[b"\x1b[?2026h\x1b[2;4HD"],
+        );
+        // The person scrolls back a line, which asks every display to draw
+        // at once.
+        hand.at(6);
+        term.terminal.screen_mut().scroll_view_up(1);
+        pass(&mut term, &mut view, &mut video, &[], true);
+        assert_eq!(video.composed, composed, "nothing composes in the hold");
+        hand.at(8);
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[?2026l"]);
+        assert_eq!(video.composed, composed + 1, "one frame at the hold's end");
+        assert!(
+            video.shows((video.back + 1) % 2, 0),
+            "the frame shows the scrollback's A"
         );
     }
 

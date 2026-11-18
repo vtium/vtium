@@ -647,18 +647,18 @@ impl Glyphs {
         self.reaching
     }
 
-    /// How far the ink of `text`'s glyph reaches past its cells, the glyph
-    /// drawn and uploaded when it is not cached: none for a glyph the font
-    /// draws nothing for, or one the boxes had no room for.
+    /// How far the ink of the piece `piece` of `text`'s glyph reaches past
+    /// its cells, the piece drawn and uploaded when it is not cached: none
+    /// for a glyph the font draws nothing for, or one the boxes had no room
+    /// for.
     pub(crate) fn reach<G: Gl, F: Face>(
         &mut self,
         gl: &mut G,
         font: &Font<F>,
-        text: &[char],
-        width: Width,
-        style: Variant,
+        key: (&[char], Width, Variant),
+        piece: Piece,
     ) -> Result<Reach, Error> {
-        let place = self.glyph(gl, font, (text, width, style), Piece::WHOLE)?;
+        let place = self.glyph(gl, font, key, piece)?;
         Ok(place.and_then(|p| p.boxed).map_or(Reach::NONE, |(_, r)| r))
     }
 
@@ -773,8 +773,8 @@ impl Glyphs {
     /// Where the piece `piece` of `text`'s glyph lies, drawn and uploaded
     /// when it is not cached; `None` when the font draws nothing. Each
     /// upload is a call of the frame's batch of uploads. A doubled piece is
-    /// one cell whose ink stays in it, so it takes a slot of a one-cell
-    /// pool whatever the glyph's width, and never a box.
+    /// one cell, so it takes a slot of a one-cell pool whatever the glyph's
+    /// width, or a box when its ink passes its cell.
     pub(crate) fn glyph<G: Gl, F: Face>(
         &mut self,
         gl: &mut G,
@@ -795,7 +795,8 @@ impl Glyphs {
             true => pool_of(true, true),
             false => pool_of(stored.is_rgba(), width == Width::Wide && piece.is_whole()),
         };
-        let stored = match self.boxed(gl, (text, width, style), pool, (stored, missing))? {
+        let key = ((text, width, style), piece);
+        let stored = match self.boxed(gl, key, pool, (stored, missing))? {
             Ok(place) => return Ok(Some(place)),
             Err(stored) => stored,
         };
@@ -837,16 +838,17 @@ impl Glyphs {
         Ok(self.place(slot))
     }
 
-    /// Puts `stored`, the glyph for `text` that counts against the cache's
-    /// pool `pool`, in a box when its ink passes its cells, and gives its
-    /// place; `missing` when the font drew it as its missing glyph. Gives
+    /// Puts `stored`, the piece `piece` of the glyph for `text` that counts
+    /// against the cache's pool `pool`, in a box when its ink passes its
+    /// cells, and gives its place; `missing` when the font drew it as its
+    /// missing glyph. Gives
     /// `stored` back when its ink stays in its cells, or when the boxes
     /// have no room for it, which notes it for the log: it is then drawn
     /// cut at its cells, and none of its ink reaches another cell.
     fn boxed<G: Gl>(
         &mut self,
         gl: &mut G,
-        (text, width, style): (&[char], Width, Variant),
+        key: ((&[char], Width, Variant), Piece),
         pool: usize,
         (stored, missing): (Stored, bool),
     ) -> Result<Result<Place, Stored>, Error> {
@@ -889,7 +891,7 @@ impl Glyphs {
             mixed: false,
         };
         if kept {
-            self.cache.keep((text, width, style), pool, slot, missing);
+            self.cache.keep_piece(key, pool, slot, missing);
         } else {
             self.boxes.held.push(index);
             self.cache.count_uncached();
@@ -910,9 +912,8 @@ impl Glyphs {
         stored: Stored,
     ) -> Result<Option<Place>, Error> {
         let pool = pool_of(stored.is_rgba(), width == Width::Wide);
-        Ok(self
-            .boxed(gl, (text, width, style), pool, (stored, false))?
-            .ok())
+        let key = ((text, width, style), Piece::WHOLE);
+        Ok(self.boxed(gl, key, pool, (stored, false))?.ok())
     }
 
     /// Gives `text` as a note for the log, unless a note was given in the
