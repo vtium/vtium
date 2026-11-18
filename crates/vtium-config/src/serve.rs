@@ -237,7 +237,7 @@ use crate::frit::{Render, RenderLine};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
-use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve};
+use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve_hashed};
 use vtium_render::{POINTER_SIDE_MAX, POINTER_SVG_BYTES_MAX, XCURSOR_FILE_MAX};
 use vtium_term::{ClusterWidth, PointerShape};
 
@@ -1800,21 +1800,33 @@ fn bitmap_of(input: Input, outline: &str) -> Result<Font, String> {
     }
 }
 
+/// What [`Engine::read`] gathers about the frit's fonts as it reads them:
+/// the warnings the console logs, the fonts it leaves out, and the fonts
+/// that differ from what their sources need.
+struct Report<'a> {
+    warnings: &'a mut Vec<String>,
+    left_out: &'a mut Vec<LeftOut>,
+    differs: &'a mut Vec<crate::needs::Differs>,
+}
+
 /// The strikes that `source`'s `strike=` lines name, read and parsed,
 /// each a [`Loaded::Bitmap`]. A strike this machine does not have is left
-/// out quietly, as a source is, and one that is here and is refused is
-/// left out with a warning that names its line in `frit`. A strike whose
-/// file has another SHA-256 than its `sha256=` line gives still draws, and
-/// goes to `differs` under its own line and spelling.
+/// out and reported as a missing font is: a warning that the console logs
+/// once a boot, and a missing font in the answer to a sources query, under
+/// the strike's own line and spelling. A strike that is here and is
+/// refused is left out with a warning that names its line in `frit`. A
+/// strike whose file has another SHA-256 than its `sha256=` line gives
+/// still draws, and goes to `differs` under its own line and spelling.
 ///
 /// References:
 /// - ADR-1204 D2: the `strike=` key under an outline and a bitmap source.
-/// - ADR-1204 D7: a file with another hash still draws, and is reported.
+/// - ADR-1204 D7: a missing font is logged and reported, and a file with
+///   another hash still draws and is reported.
 fn strike_fonts(
     source: &Source,
     host: &Host<'_>,
     frit: &Frit,
-    (warnings, differs): (&mut Vec<String>, &mut Vec<crate::needs::Differs>),
+    report: &mut Report<'_>,
 ) -> Vec<Loaded> {
     let mut fonts = Vec::new();
     for strike in &source.strikes {
@@ -1830,32 +1842,48 @@ fn strike_fonts(
             fits: Vec::new(),
             layer: source.layer.clone(),
             line: strike.line,
-            needs: crate::frit::Needs::default(),
+            needs: crate::frit::Needs {
+                sha256: strike.sha256.clone(),
+                ..crate::frit::Needs::default()
+            },
         };
-        let font = resolve(&file, host).and_then(|input| {
+        let font = resolve_hashed(&file, host).and_then(|(input, hash)| {
             bitmap_of(input, "this is an outline font, not a bitmap strike")
+                .map(|font| (font, hash))
                 .map_err(SourceError::Failed)
         });
+        let own_line = frit.place(strike.line).own;
         match font {
-            Ok(font) => {
+            Ok((font, hash)) => {
                 if let Some(wanted) = &strike.sha256
-                    && let Some(found) = crate::needs::sha256_of(&strike.origin)
+                    && let Some(found) = hash
                     && &found != wanted
                 {
-                    differs.push(crate::needs::Differs {
-                        line: frit.place(strike.line).own,
+                    report.differs.push(crate::needs::Differs {
+                        line: own_line,
                         spelling: strike.spelling.clone(),
                         what: crate::needs::Differ::OtherHash(found),
                     });
                 }
                 fonts.push(Loaded::Bitmap(font));
             }
-            Err(SourceError::Failed(e)) => warnings.push(format!(
+            Err(SourceError::Failed(e)) => report.warnings.push(format!(
                 "{}: strike={}: {e}. Because of this error, vtium leaves the strike out.",
                 frit.at(strike.line),
                 strike.spelling
             )),
-            Err(SourceError::Missing(_)) => {}
+            Err(SourceError::Missing(why)) => {
+                // the console logs this line once a boot
+                report
+                    .warnings
+                    .extend(crate::needs::missing_strike_line(&frit.name, &file, source));
+                report.left_out.push(LeftOut {
+                    missing: true,
+                    line: own_line,
+                    spelling: strike.spelling.clone(),
+                    why,
+                });
+            }
         }
     }
     fonts
@@ -1940,7 +1968,11 @@ impl Engine {
             // the version the font states, read only where the set asks
             // for one
             let mut version = None;
-            let loaded = resolve(source, &host).and_then(|input| {
+            // the SHA-256 of the bytes this read takes from the file, when
+            // the source has a sha256= line
+            let mut hash = None;
+            let loaded = resolve_hashed(source, &host).and_then(|(input, found)| {
+                hash = found;
                 let wants = source.needs.version.is_some();
                 // a BDF font gives its version as it is read, from one
                 // decompression of its bytes
@@ -2005,14 +2037,18 @@ impl Engine {
                 Ok(l) => {
                     differs.extend(crate::needs::differences(
                         source,
-                        version.as_deref(),
+                        (version.as_deref(), hash.as_deref()),
                         own_line,
                     ));
                     strikes.push(strike_fonts(
                         source,
                         &host,
                         &frit,
-                        (&mut warnings, &mut differs),
+                        &mut Report {
+                            warnings: &mut warnings,
+                            left_out: &mut left_out,
+                            differs: &mut differs,
+                        },
                     ));
                     let small = match l {
                         Loaded::Bitmap(_) => smaller_fonts(source, &host, &frit, &mut warnings),
@@ -7498,33 +7534,56 @@ mod tests {
         assert!(drawn_chars(&struck, CELL, &['Z']).is_empty());
     }
 
-    // A strike this machine lacks is left out quietly, and one it refuses
-    // is a warning naming its line.
+    // A strike this machine lacks is reported as a missing font is: the
+    // console's line that names the set, the strike's font and the font
+    // it is a size of, and a missing font under the strike's own line in
+    // the answer to a sources query. A strike that is here and refused is
+    // a warning naming its line.
     //
     // References:
     // - ADR-1204 D2: the strike= key.
+    // - ADR-1204 D7: a missing font is logged and reported.
     #[test]
-    fn a_strike_this_machine_lacks_is_left_out_and_a_bad_one_warns() {
+    fn a_strike_this_machine_lacks_is_reported_and_a_bad_one_warns() {
         let dir = scratch("strikes-bad");
         let outline = dir.join("mono.ttf");
         std::fs::write(&outline, super::ttf::test_mono().build()).unwrap();
         let broken = dir.join("broken.psf");
         std::fs::write(&broken, b"not a font").unwrap();
+        let gone = dir.join("gone.psf");
         let text = format!(
-            "source=outline:{}\nstrike=file:{}/gone.psf\nstrike=file:{}\n",
+            "source=outline:{}\nstrike=file:{}\nstrike=file:{}\n",
             outline.display(),
-            dir.display(),
+            gone.display(),
             broken.display()
         );
         let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
-        assert_eq!(engine.warnings().len(), 1, "{:?}", engine.warnings());
+        assert_eq!(engine.warnings().len(), 2, "{:?}", engine.warnings());
+        assert_eq!(
+            engine.warnings()[0],
+            format!(
+                "t needs the font {}, which is not on this machine. That font is {} at one size, so vtium draws {} at that size without it",
+                gone.display(),
+                outline.display(),
+                outline.display()
+            )
+        );
         assert!(
-            engine.warnings()[0].starts_with(&format!("t:3: strike=file:{}: ", broken.display())),
+            engine.warnings()[1].starts_with(&format!("t:3: strike=file:{}: ", broken.display())),
             "{:?}",
             engine.warnings()
         );
         assert!(
-            engine.warnings()[0].ends_with(". Because of this error, vtium leaves the strike out.")
+            engine.warnings()[1].ends_with(". Because of this error, vtium leaves the strike out.")
+        );
+        assert_eq!(
+            engine.left_out,
+            [LeftOut {
+                missing: true,
+                line: 2,
+                spelling: format!("file:{}", gone.display()),
+                why: format!("{} is not on this machine", gone.display()),
+            }]
         );
         assert!(engine.strikes.iter().all(Vec::is_empty));
     }
