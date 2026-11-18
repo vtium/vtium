@@ -1190,10 +1190,17 @@ impl App {
     /// Chooses head `h`'s font once, at its first display (ADR-1200 D9,
     /// ADR-1401 D3), as [`App::configured_font`] gives it.
     fn choose_font(&mut self, h: usize) {
+        self.choose_font_adding(h, None);
+    }
+
+    /// [`App::choose_font`] while a display of size `adding` is added to
+    /// head `h`, before the display has a view, so that the choice counts
+    /// its size.
+    fn choose_font_adding(&mut self, h: usize, adding: Option<(u32, u32)>) {
         if self.heads.get(h).is_none_or(|head| head.font.is_some()) {
             return;
         }
-        let (chosen, made) = self.configured_font(h);
+        let (chosen, made) = self.configured_font(h, adding);
         if let Some(head) = self.heads.get_mut(h) {
             head.font = Some(chosen);
             head.made = made;
@@ -1222,8 +1229,14 @@ impl App {
     /// draws in the cell the head's look states, the built-in font as a
     /// frit does (ADR-1200 D7, ADR-1403 D5). With it comes the frit made
     /// on the fly, where no frit bears the name, which OSC 50 switches
-    /// back to by that name ([`font::by_name`]).
-    fn configured_font(&self, h: usize) -> (Chosen, Option<FritText>) {
+    /// back to by that name ([`font::by_name`]). With no font named, a head
+    /// on a small display, its views' sizes and `adding` among them, draws
+    /// the built-in font in place of the default set.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the default set, and the built-in font's 8×8 strike
+    ///   on a small display.
+    fn configured_font(&self, h: usize, adding: Option<(u32, u32)>) -> (Chosen, Option<FritText>) {
         let Some(head) = self.heads.get(h) else {
             return (Chosen::BUILTINS, None);
         };
@@ -1240,7 +1253,10 @@ impl App {
                 &font::read_text(&s.kernel_cmdline),
             ),
         };
-        let Some(wanted) = wanted else {
+        let sizes = head.views.values().map(|v| v.size).chain(adding);
+        let Some(wanted) =
+            wanted.filter(|w| w.came != font::Came::Default || font::default_set_fits(sizes))
+        else {
             return (Chosen::builtins(look), None);
         };
         if let Some(builtin) = font::builtin_named(&wanted.name, look) {
@@ -1594,7 +1610,7 @@ impl App {
                 "display {name} reports no physical size: vtium assumes {DPI_ASSUMED} DPI, which display-dpi can state"
             ));
         }
-        self.choose_font(h);
+        self.choose_font_adding(h, Some(size));
         let Some(head) = self.heads.get(h) else {
             return;
         };
@@ -4249,7 +4265,7 @@ impl App {
         let mut made = None;
         let new = if due.font {
             head.switched = None;
-            let (chosen, configured) = self.configured_font(h);
+            let (chosen, configured) = self.configured_font(h, None);
             made = Some(configured);
             Some(chosen)
         } else if head.sized() != was_sized {

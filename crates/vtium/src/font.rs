@@ -163,6 +163,24 @@ pub fn small_display(width: u32, height: u32) -> bool {
     width != 0 && height != 0 && (width < 80 * 8 || height < 25 * 16)
 }
 
+/// Whether vtium draws the default set on a head whose displays have
+/// `sizes`, each a width and height in pixels. The head counts as small
+/// when its smallest width and its smallest height make a small display
+/// ([`small_display`]), as the automatic size takes them, and there vtium
+/// draws the built-in font's 8×8 strike instead. With no display known yet
+/// the default set draws.
+///
+/// References:
+/// - ADR-1204 D2: on a display where the small-display rule picks 8-pixel
+///   rows, vtium draws the built-in font's 8×8 strike in place of
+///   `terminus`, which has no strike under 12 pixels.
+pub fn default_set_fits(sizes: impl IntoIterator<Item = (u32, u32)>) -> bool {
+    let smallest = sizes
+        .into_iter()
+        .reduce(|(w, h), (w2, h2)| (w.min(w2), h.min(h2)));
+    smallest.is_none_or(|(w, h)| !small_display(w, h))
+}
+
 /// The font set vtium draws when no font is named: bitmap Terminus at
 /// every strike from 12 to 32 pixels, then GNU Unifont, which every vtium
 /// build installs. It sits in the catalog's `console` folder.
@@ -2493,10 +2511,19 @@ mod tests {
         for (w, h) in [(320, 240), (480, 320), (632, 480), (640, 384)] {
             assert!(small_display(w, h), "{w}x{h}");
             assert_eq!(auto_size(w, h, 8), 8, "{w}x{h}");
+            assert!(!default_set_fits([(w, h)]), "{w}x{h}");
         }
         for (w, h) in [(640, 400), (640, 480), (1920, 1080), (0, 0)] {
             assert!(!small_display(w, h), "{w}x{h}");
+            assert!(default_set_fits([(w, h)]), "{w}x{h}");
         }
+        // a head's displays count by the smallest width and the smallest
+        // height among them, as the automatic size takes them
+        assert!(!default_set_fits([(1920, 1080), (320, 240)]));
+        assert!(!default_set_fits([(1920, 240), (320, 1080)]));
+        assert!(default_set_fits([(1920, 1080), (640, 480)]));
+        // with no display known yet, the default set draws
+        assert!(default_set_fits([]));
     }
 
     // A set is found by its name in the frits' directory itself, where a
