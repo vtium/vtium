@@ -141,7 +141,13 @@ vtium stopped on an error. Its command line was wrong, or \fBvtium.enable=0\fR t
 The settings and the sections. See vtium.conf(5).
 .TP
 \fB/etc/vtium/fonts\fR
-The font sets, each in a file \fBNAME.vtfrit\fR.
+The font sets, each in a file \fBNAME.vtfrit\fR. Your own sets go in this folder itself. The sets vtium installs are in a folder for each category: \fBconsole\fR, \fBclassic\fR, \fBcode\fR, \fBnerd\fR, \fBscripts\fR and \fBsmall\fR. vtium looks for a set's name in this folder first, then in each category's folder.
+.TP
+\fB/etc/vtium/fonts/layers\fR
+The layers that font sets add, each in a file \fBNAME.vtlayer\fR, such as the emoji or Nerd Fonts' icons.
+.TP
+\fB/usr/share/vtium/fonts\fR
+The font files every vtium installs: bitmap Terminus at nine sizes, GNU Unifont, and Cullet Mono, an outline Terminus with Nerd Fonts' icons. The font sets \fBterminus\fR and \fBcullet\-mono\fR name them.
 .TP
 \fB/run/vtium\fR
 The marker files that tell the getty fallback that a VT runs under the closed policy.

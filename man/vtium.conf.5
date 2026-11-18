@@ -549,7 +549,7 @@ Set it in the top level, or on vtium's command line with \fB\-\-pointer\-char=VA
 \fBpointer-theme\fR
 The SVG file or cursor theme folder whose pictures the pointer takes.
 .IP
-The value is an SVG file in vtium's pointer file format, or the folder of a desktop cursor theme, such as \fB/usr/share/icons/Adwaita\fR. vtium installs its own pictures as \fB/usr/share/vtium/pointers.svg\fR, which you can copy and edit. The format is described in [the pointer file reference](https://vtium.github.io/vtium/reference/pointer-file/).
+The value is an SVG file in vtium's pointer file format, or the folder of a desktop cursor theme, such as \fB/usr/share/icons/Adwaita\fR. vtium installs its own pictures as \fB/usr/share/vtium/pointers.svg\fR, which you can copy and edit. The format is described in the pointer file reference <https://vtium.github.io/vtium/reference/pointer-file/>.
 .IP
 When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and \fBpointer\-char\fR keeps the default shape. The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no \fBInherits=\fR line, so name the folder that holds the \fBcursors\fR folder.
 .IP
@@ -1170,7 +1170,7 @@ A PNG or JPEG picture shown at each login prompt.
 .IP
 \fBlogin\-image\-fit\fR chooses whether it is a background beneath the text or a banner above or below the prompt. The picture is an ordinary picture on the screen: it scrolls away with the text, and a screen clear removes it. A program can cover or remove the picture, but it can never read it.
 .IP
-To remove the picture each time you log in, add one line to your shell's startup file. See [Remove the login picture when you log in](configure.md#remove-the-login-picture-when-you-log-in).
+To remove the picture each time you log in, add one line to your shell's startup file. See Remove the login picture when you log in <https://vtium.github.io/vtium/configure/#remove-the-login-picture-when-you-log-in>.
 .IP
 vtium reads the file as root and decodes it in the image helper, as the account that runs before login. When vtium cannot read or decode the file, it logs one line and starts the login prompt without the picture. When unset, vtium shows no picture.
 .IP
