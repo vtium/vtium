@@ -257,9 +257,9 @@ PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter 
 # layer NAME.vtlayer in its layers folder. The default is the vtium
 # package's: the two sets for text, terminus and cullet-mono, then
 # jetbrains-mono and the small panels' two sets, and
-# FRIT_LAYERS names the layers those sets add. A minspec package names a
-# few of these sets in FRITS. FRITS='' stages no set, and FRIT_LAYERS=''
-# no layer. A set names its fonts.
+# FRIT_LAYERS names the layers those sets add. Every console package, the
+# minspec ones included, ships these lists. FRITS='' stages no set, and
+# FRIT_LAYERS='' no layer. A set names its fonts.
 FRIT_ROOT := crates/vtium-config/frits
 FRIT_CATEGORIES := console classic code nerd scripts small
 FRIT_DIRS := $(addprefix $(FRIT_ROOT)/,$(FRIT_CATEGORIES))
