@@ -1425,7 +1425,7 @@ mod tests {
         let font = Font::new(vtium_font::set::own::face(cell).expect("a strike"));
         let (w, h) = (320, 240);
         let mut canvas = Canvas::new(w, h, 0);
-        Notice::new("a\u{4e2d}\u{2194}b")
+        Notice::new("a\u{4e2d}\u{21d4}b")
             .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
             .expect("it fits");
         let c = Colors::NOTICE;
@@ -1496,14 +1496,14 @@ mod tests {
             height: 16,
         };
         let font = Font::new(vtium_font::set::own::face(cell).expect("a strike"));
-        let glyphs = Glyphs::new(&font, Depth::default(), "\u{4e2d}\u{6587}\u{2194}\u{21d2}a");
+        let glyphs = Glyphs::new(&font, Depth::default(), "\u{4e2d}\u{6587}\u{21d4}\u{21d2}a");
         let same = |a, b| match (glyphs.glyph(a), glyphs.glyph(b)) {
             (Some(x), Some(y)) => std::ptr::eq(x, y),
             _ => false,
         };
         assert!(same('\u{4e2d}', '\u{6587}'), "the wide box");
-        assert!(same('\u{2194}', '\u{21d2}'), "the narrow box");
-        assert!(!same('\u{4e2d}', '\u{2194}'), "a wide box and a narrow one");
+        assert!(same('\u{21d4}', '\u{21d2}'), "the narrow box");
+        assert!(!same('\u{4e2d}', '\u{21d4}'), "a wide box and a narrow one");
         assert_eq!(glyphs.width('\u{4e2d}'), Width::Wide);
     }
 
