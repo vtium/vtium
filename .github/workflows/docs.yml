@@ -20,14 +20,31 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      # The toolchain rust-toolchain.toml pins, and the cache of target/.
+      # They come before any step that writes under target/. When rust-cache
+      # restores a cache whose key differs from this run's, as it does after
+      # Cargo.lock changes, it deletes every file in target/ outside cargo's
+      # own build directories. If the cache step ran after the site build,
+      # it would delete the site venv and the site in target/site.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
       # Zensical needs Python 3.11 or later; 3.12 is the oldest Python tier
       # 3's harness takes.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       # Exactly the files tools/site/requirements.txt pins, each checked
-      # against its hash.
-      - run: python -m venv target/site-venv
+      # against its hash. The restored cache can hold the venv's empty
+      # directories, because rust-cache deletes the files in target/ before
+      # it saves and keeps the directories. Over those directories venv
+      # leaves out bin/pip, so --clear empties the directory first.
+      - run: python -m venv --clear target/site-venv
       - run: target/site-venv/bin/pip install --require-hashes -r tools/site/requirements.txt
       # The Decisions section is the index of the records, so an index that
       # leaves a record out fails here. The ADR tool reads adr.yaml with
@@ -47,15 +64,6 @@ jobs:
       # References:
       # - ADR-1508 D1: the crates' interfaces under /api/, which these steps build.
       - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev
-      # The toolchain rust-toolchain.toml pins.
-      - id: toolchain
-        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.toolchain.outputs.channel }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: docs
       # make site-api builds the reference with make api and copies it into
       # target/site/api, beside the pages Zensical built from docs/api/.
       - run: make site-api
