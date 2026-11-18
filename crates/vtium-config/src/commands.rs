@@ -176,8 +176,26 @@ fn needs_report(
             out.push(fonts_report::page(url));
         }
     };
+    // the source whose strike= line a line of the answer names, and the
+    // strike's file, which the report names in place of the source's
+    let strike_of = |line: usize, spelling: &str| {
+        frit.sources.iter().find_map(|s| {
+            s.strikes
+                .iter()
+                .find(|k| frit.place(k.line).own == line && k.spelling == spelling)
+                .map(|k| (s, k))
+        })
+    };
     for l in left.iter().filter(|l| l.missing) {
+        // a missing strike is named by its own file, with no version,
+        // because version= describes the source's font, and with the page
+        // of the source it is a size of
         let Some(source) = source_of(l.line, &l.spelling) else {
+            if let Some((source, strike)) = strike_of(l.line, &l.spelling)
+                && let Some((font, named)) = strike_font(&strike.origin)
+            {
+                with_page(fonts_report::missing(set, &font, named), source);
+            }
             continue;
         };
         let Some(font) = source.font_name() else {
@@ -204,21 +222,13 @@ fn needs_report(
         };
         with_page(text, source);
     }
-    // the source whose strike= line a line of the answer names, and the
-    // strike's file, which the report names in place of the source's
-    let strike_of = |line: usize, spelling: &str| {
-        frit.sources.iter().find_map(|s| {
-            s.strikes
-                .iter()
-                .find(|k| frit.place(k.line).own == line && k.spelling == spelling)
-                .map(|k| (s, k))
-        })
-    };
     for d in differs {
         let (source, font) = match source_of(d.line, &d.spelling) {
             Some(source) => (source, source.font_name()),
             None => match strike_of(d.line, &d.spelling) {
-                Some((source, strike)) => (source, strike_file(&strike.origin)),
+                Some((source, strike)) => {
+                    (source, strike_font(&strike.origin).map(|(font, _)| font))
+                }
                 None => continue,
             },
         };
@@ -240,11 +250,13 @@ fn needs_report(
     out
 }
 
-/// The file a strike names, as the report names it; `None` for a kbd
-/// font, which names no file.
-fn strike_file(origin: &Origin) -> Option<String> {
+/// The font a strike names, as the report names it, and how the frit
+/// names it: a `file:` or `bdf:` strike by its file's path, and a `kbd:`
+/// strike by its kbd font's name.
+fn strike_font(origin: &Origin) -> Option<(String, Named)> {
     match origin {
-        Origin::File(path) | Origin::Bdf(path) => Some(path.display().to_string()),
+        Origin::File(path) | Origin::Bdf(path) => Some((path.display().to_string(), Named::ByPath)),
+        Origin::Kbd(name) => Some((name.clone(), Named::ByName)),
         _ => None,
     }
 }
@@ -946,6 +958,47 @@ mod tests {
             needs_report("terminus", &frit, &[], &differs),
             [
                 fonts_report::other_file("terminus", "/f/ter-u12n.bdf.gz"),
+                fonts_report::page("https://example.org/terminus/"),
+            ]
+        );
+    }
+
+    // The report names a strike this machine lacks by the strike's own
+    // file, or by its kbd font's name, with the page of the source the
+    // strike is a size of, as it names a missing source's font.
+    //
+    // References:
+    // - ADR-1204 D2: a bitmap source's strikes, each its own file.
+    // - ADR-1204 D7: vtium-config names each missing font with its page.
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test fails by panicking")]
+    fn the_report_names_a_missing_strike_by_its_file() {
+        let frit = Frit::parse(
+            b"source=bdf:/f/ter-u16n.bdf.gz\nversion=4.49\nurl=https://example.org/terminus/\nstrike=bdf:/f/ter-u20n.bdf.gz\nstrike=kbd:ter-v22n\n",
+            Path::new("/r/terminus.vtfrit"),
+            "terminus",
+        )
+        .expect("the frit");
+        let missing = |line: usize, spelling: &str| crate::serve::LeftOut {
+            missing: true,
+            line,
+            spelling: spelling.to_owned(),
+            why: "not on this machine".to_owned(),
+        };
+        assert_eq!(
+            needs_report(
+                "terminus",
+                &frit,
+                &[
+                    missing(4, "bdf:/f/ter-u20n.bdf.gz"),
+                    missing(5, "kbd:ter-v22n")
+                ],
+                &[]
+            ),
+            [
+                fonts_report::missing("terminus", "/f/ter-u20n.bdf.gz", Named::ByPath),
+                fonts_report::page("https://example.org/terminus/"),
+                fonts_report::missing("terminus", "ter-v22n", Named::ByName),
                 fonts_report::page("https://example.org/terminus/"),
             ]
         );

@@ -4,7 +4,9 @@
 # vtium build installs, and the two small layers add the icons that shell
 # prompts and file listers draw and the emoji that terminals show most. The
 # two cover= lines leave Unifont's private-use glyphs out, so the icons in
-# those areas come from the symbols layer.
+# those areas come from the symbols layer. The set names no unifont layer,
+# because its text font is the file that layer names, and a second source
+# of the same file could draw nothing the first does not.
 #
 # When the Unifont file is missing, vtium's built-in font draws the text in
 # the same 8x16 cell. vtium ships this font set, never the fonts. The font
@@ -31,4 +33,3 @@ cover=U+F900-U+EFFFF
 
 layer=nerd-symbols-small
 layer=noto-emoji-small
-layer=unifont
