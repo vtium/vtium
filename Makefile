@@ -1051,17 +1051,41 @@ release-notes: ## Write the GitHub release body for VERSION=V from docs/releases
 # lint reports a warning or worse on one; a style note passes. make install
 # and make install-tree install them in PREFIX/share/man, the gallery's page
 # only with images in FEATURES, as its program.
+#
+# man-check runs the mandoc it finds on PATH. When there is none, as on an
+# Arch desktop that keeps man-db, it runs the same lint in docker: it builds
+# tools/man/mandoc.Dockerfile once as MANDOC_IMAGE, with Ubuntu 24.04's
+# mandoc like CI's, and reuses that image afterwards. The container has no
+# network, runs as the invoking user, and mounts only man/, read-only.
+# mandoc's exit status passes through docker run, so a warning still fails
+# the gate. MANDOC_DOCKER=0 turns the docker fallback off.
 MAN_DIR := man
 MAN_PAGES := vtium.8 vtium-config.1 vtium.conf.5 vtium-clipboard.1 vtium-gallery.1
+MAN_LINT := mandoc -T lint -W warning $(addprefix $(MAN_DIR)/,$(MAN_PAGES))
+MANDOC_DOCKER ?= 1
+MANDOC_IMAGE := vtium-mandoc:1
 
 .PHONY: man man-check
 man: ## Write vtium's man pages into man/ from the key table, the commands' option lists and tools/man's templates
 	cargo run -q -p vtium-man -- write $(MAN_DIR)
 
-man-check: ## Fail when a man page in man/ is stale or mandoc -T lint finds a warning or worse in one (needs mandoc)
+man-check: ## Fail when a man page in man/ is stale or mandoc -T lint finds a warning or worse in one (needs mandoc, or docker when mandoc is missing)
 	cargo run -q -p vtium-man -- check $(MAN_DIR)
-	@command -v mandoc >/dev/null || { echo "man-check: mandoc is not installed, so it cannot lint the man pages. Install the mandoc package." >&2; exit 1; }
-	mandoc -T lint -W warning $(addprefix $(MAN_DIR)/,$(MAN_PAGES))
+	@if command -v mandoc >/dev/null; then \
+		echo "man-check: linting the man pages with $$(command -v mandoc)"; \
+		$(MAN_LINT); \
+	elif [ "$(MANDOC_DOCKER)" != 0 ] && docker info >/dev/null 2>&1; then \
+		echo "man-check: mandoc is not installed, so man-check lints the man pages in the docker image $(MANDOC_IMAGE)"; \
+		docker image inspect $(MANDOC_IMAGE) >/dev/null 2>&1 \
+			|| docker build -t $(MANDOC_IMAGE) - < tools/man/mandoc.Dockerfile \
+			|| { echo "man-check: cannot build the docker image $(MANDOC_IMAGE) from tools/man/mandoc.Dockerfile." >&2; exit 1; }; \
+		docker run --rm --network=none --user "$$(id -u):$$(id -g)" \
+			-v "$(CURDIR)/$(MAN_DIR):/vtium/$(MAN_DIR):ro" -w /vtium \
+			$(MANDOC_IMAGE) $(MAN_LINT); \
+	else \
+		echo "man-check: mandoc is not installed and docker is not available, so man-check cannot lint the man pages. Install mandoc, or make docker available." >&2; \
+		exit 1; \
+	fi
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the goldens in
