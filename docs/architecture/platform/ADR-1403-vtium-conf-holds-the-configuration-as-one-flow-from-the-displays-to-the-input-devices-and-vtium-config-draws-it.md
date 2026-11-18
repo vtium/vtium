@@ -1097,6 +1097,8 @@ The view and the docs use these words for one thing each. The maintainer fixed s
 > - The seven words, with tag and connect (the maintainer, 2026-11-05 and 2026-11-09), give way to the words above.
 > - "any display", "any keyboard" and "any pointer" as standing parts (the maintainer, 2026-11-09) become choices inside the templates (the maintainer, 2026-11-10: "we need to rename the 'any display' or 'any pointer' or 'any keyboard' to just mean display, pointer, keyboard (and maybe font set).").
 
+> Note 2026-11-18: ADR-1205, proposed on this date, changes this decision once it is accepted. A terminal takes a look from the Looks tab, and the Flow view no longer makes one (ADR-1205 D1). A path holds one look in place of a font set and the terminal's size. In PARTS, the FONT SETS group and its template give way to the draft's looks, and the part maker lists them, with the default look first. `New terminal…` asks for the terminal's name and its look. The terminal's subflow draws the look's font set and effects as before.
+
 ### D8: what vtium-config writes
 
 > Edited 2026-11-05: the term was unified under the maintainer's six words (D7): this record says draft wherever it said working copy, the user's copy of vtium.conf that every edit changes. The considered entries keep the words that were said.
@@ -1167,6 +1169,8 @@ A path in the Flow view (D7) is one head of vtium.conf and the rules that send d
 - **Labels** go into a `[labels]` section after `[rules]` (D4): one line for each labelled part that has a match, `display MATCH = LABEL` or `input MATCH = LABEL`, with exactly the MATCH its rule uses. The lines follow the order of the rules, and a label for a part that no rule uses comes after them. vtium-config writes the section's comment in the style of the shipped vtium.conf, wrapped at 78 columns, saying what a label is and that vtium shows a display's label when vtium-config identifies the displays.
 - **Revise and add back write nothing new.** Adding a path that Revise took out leaves the draft's text byte for byte as it was (D7). Removing a path, by clearing it after Revise, removes its head's section and its rules, and leaves its parts' labels.
 - **The rules that fit no path** are rules vtium-config does not write itself, such as a rule that sends to a head that does not exist. vtium-config keeps them where they are, and D7 counts them.
+
+> Note 2026-11-18: ADR-1205, proposed on this date, changes this decision once it is accepted. The first bullet's look writing changes. A path names a look that the draft already holds, and vtium-config writes that look's name as the head's `look =` line. vtium-config makes no look named for a frit, and prunes no look when a path's look changes, because the Looks tab creates and deletes looks (ADR-1201 D3, ADR-1205 D1). A path with no look still leaves `look` out.
 
 #### `vtium config edit`, the way visudo edits sudoers
 

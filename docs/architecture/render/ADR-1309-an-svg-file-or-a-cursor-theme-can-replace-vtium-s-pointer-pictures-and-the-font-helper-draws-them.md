@@ -168,6 +168,8 @@ In a cursor theme, vtium tries the files in this order, and the first one the he
 - **The compiled-in pictures draw first.** Until the helper answers, and when it cannot start, the pointer shows vtium's compiled-in picture. A missing helper costs the file's pictures, never the pointer.
 - **Why the helper.** The helper already runs every file vtium does not trust into pixels, inside its sandbox. A flaw in an SVG or Xcursor parser then reaches only the helper, and the console reads only frames it checks field by field.
 
+> Note 2026-11-18: ADR-1205, proposed on this date, sets a trust rule for the resources a look draws from: a file in use comes from a root-owned folder on a filesystem that stays mounted, and a symbolic link fails the rule (ADR-1205 D4). A pointer theme is such a resource, and a desktop cursor theme's folder holds links, such as Adwaita's `xterm` to `text`. Whether pointer themes are exempt from the link rule is a question in ADR-1205's Summary, with the lean that they are. Until the maintainer answers, this decision stands as written, and its walk follows a link.
+
 ### D6: the cursor theme's files
 
 The Xcursor parser lives in the helper, in `crates/vtium-config/src/xcursor.rs`, and runs in the serve process's sandbox. Its checks stay as the record first set them.
