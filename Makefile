@@ -299,6 +299,8 @@ endif
 #   the font sets name.
 # - ADR-1204 D8: vtium installs these fonts itself.
 FONT_FILES := $(or $(CARGO_TARGET_DIR),target)/font-files
+# The script that stages and checks them; the tests name a stand-in.
+FONT_FILES_TOOL := tools/fonts/files
 FONT_FILE_NAMES := $(foreach h,12 14 16 18 20 22 24 28 32,ter-u$(h)n.bdf.gz ter-u$(h)b.bdf.gz) unifont_all-17.0.03.hex
 CULLET_MONO_FACES := CulletMono-Regular.ttf CulletMono-Bold.ttf
 CULLET_MONO_NOTICES := $(sort $(wildcard tools/cullet-mono/notices/*))
@@ -899,10 +901,10 @@ CULLET_MONO := cargo run --release --manifest-path tools/cullet-mono/Cargo.toml 
 CULLET_MONO_OUT := $(or $(CARGO_TARGET_DIR),target)/cullet-mono
 .PHONY: font-files font-files-check
 font-files: ## Stage the Terminus and Unifont files every build installs in target/font-files: Terminus 4.49.1's archive fetched once into the cache, and each file checked against tools/fonts/pins.tsv (needs curl and the network once)
-	tools/fonts/files fetch $(FONT_FILES)
+	$(FONT_FILES_TOOL) fetch $(FONT_FILES)
 
 font-files-check: ## Check the font files make install stages, in target/font-files and target/cullet-mono, against their pins
-	tools/fonts/files check $(FONT_FILES) $(CULLET_MONO_OUT)
+	$(FONT_FILES_TOOL) check $(FONT_FILES) $(CULLET_MONO_OUT)
 
 .PHONY: cullet-mono cullet-mono-check
 cullet-mono: ## Build Cullet Mono from its pinned sources into target/cullet-mono, and check each face against its pinned SHA-256 (needs FontForge, Python and the network once)

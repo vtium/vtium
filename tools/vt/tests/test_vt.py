@@ -3775,6 +3775,15 @@ fi
         os.unlink(sysusers)
         self.refused(self.vt_install("install", "4", **sudo_uid), f"cannot read the owner of {sysusers}")
 
+# The font files every build installs in /usr/share/vtium/fonts: the
+# eighteen Terminus files and Unifont's, which make font-files stages, and
+# Cullet Mono's two faces, which make cullet-mono builds; and Cullet Mono's
+# notices, which go in the package's license directory (ADR-1204 D2).
+FONT_FILE_NAMES = ([f"ter-u{h}{w}.bdf.gz" for h in (12, 14, 16, 18, 20, 22, 24, 28, 32) for w in "nb"]
+                   + ["unifont_all-17.0.03.hex", "CulletMono-Regular.ttf", "CulletMono-Bold.ttf"])
+CULLET_MONO_NOTICES = sorted(os.listdir(os.path.join(ROOT, "tools", "cullet-mono", "notices")))
+
+
 class Package(Case):
     """make install, which a package's build runs, and units.sh, which makes
     the units for it and for make vt-install."""
@@ -3812,7 +3821,8 @@ class Package(Case):
         "usr/share/man/man5/vtium.conf.5",
         "usr/share/man/man8/vtium.8",
         "usr/share/vtium/pointers.svg",
-    ])
+    ] + [f"usr/share/vtium/fonts/{n}" for n in FONT_FILE_NAMES]
+      + [f"usr/share/licenses/vtium/cullet-mono/{n}" for n in CULLET_MONO_NOTICES])
 
     # What the ordinary-machine build, FEATURES='images logind gpu', stages
     # beside STAGED: the image helper, its account file and the picture
@@ -3854,11 +3864,28 @@ class Package(Case):
                                '${VTIUM_DISPLAY_BUFFERS+VTIUM_DISPLAY_BUFFERS=$VTIUM_DISPLAY_BUFFERS }'
                                '$*" >>"$CALLS"\n')
 
+    # A stand-in for tools/fonts/files, which records each call and checks
+    # nothing, unless FONTS_CHECK_FAILS is set: the real check needs the
+    # pinned font files, which make font-files and make cullet-mono stage.
+    FONTS = "#!/bin/bash\n" + ('printf "%s\\n" "fonts $*" >>"$CALLS"\n'
+                               '[ -z "${FONTS_CHECK_FAILS-}" ] || { echo "fonts: a file is missing" >&2; exit 1; }\n')
+
     def setUp(self):
         super().setUp()
         write(os.path.join(self.s.standins, "cargo"), self.CARGO)
         self.build = os.path.join(self.s.tmp, "build")
         self.dest = os.path.join(self.s.tmp, "stage")
+        # Stand-in font files, in the two folders make install stages them
+        # from, each holding its own name.
+        self.fonts = os.path.join(self.s.tmp, "font-files")
+        self.cullet = os.path.join(self.s.tmp, "cullet-mono")
+        for name in FONT_FILE_NAMES:
+            folder = self.cullet if name.startswith("CulletMono") else self.fonts
+            os.makedirs(folder, exist_ok=True)
+            write(os.path.join(folder, name), name + "\n")
+        self.fonts_tool = os.path.join(self.s.tmp, "fonts-files")
+        write(self.fonts_tool, self.FONTS)
+        os.chmod(self.fonts_tool, 0o755)
 
     def built(self, helper, image=None):
         """The stand-in builds in INSTALL_TARGET_DIR: a console that starts
@@ -3874,7 +3901,8 @@ class Package(Case):
             write(os.path.join(self.build, path), text)
 
     def make(self, *args, **env):
-        return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *args], env=self.s.env(**env),
+        fonts = [f"FONT_FILES={self.fonts}", f"CULLET_MONO_OUT={self.cullet}", f"FONT_FILES_TOOL={self.fonts_tool}"]
+        return subprocess.run(["make", "--no-print-directory", "-C", ROOT, *fonts, *args], env=self.s.env(**env),
                               capture_output=True, text=True, timeout=BUILD_BOUND, start_new_session=True)
 
     def staged(self):
@@ -4080,6 +4108,34 @@ class Package(Case):
         # each is refused as make reads the Makefile, before any build
         self.assertEqual(self.s.calls_of("cargo"), [])
 
+    def test_install_stages_every_font_file_after_checking_them_all(self):
+        # ADR-1204 D2: every build, minspec included, installs the font
+        # files, each as the folder make font-files or make cullet-mono
+        # staged it holds it, and Cullet Mono's notices as the tree holds
+        # them. The check runs once, on both folders, before anything else.
+        self.built("/usr/bin/vtium-config")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                      "FRITS=terminus unifont-icons unscii-icons")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.s.calls_of("fonts"), [f"check {self.fonts} {self.cullet}"])
+        for name in FONT_FILE_NAMES:
+            self.assertEqual(read(os.path.join(self.dest, "usr/share/vtium/fonts", name)), name + "\n", name)
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.join(self.dest, "usr/share/vtium/fonts", name)).st_mode),
+                             0o644, name)
+        for name in CULLET_MONO_NOTICES:
+            self.assertEqual(read(os.path.join(self.dest, "usr/share/licenses/vtium/cullet-mono", name)),
+                             read(os.path.join(ROOT, "tools/cullet-mono/notices", name)), name)
+        # A file that fails its check stops the install before it builds or
+        # stages anything, and make install-tree stops the same way.
+        shutil.rmtree(self.dest)
+        for target in ("install", "install-tree"):
+            p = self.make(target, f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                          FONTS_CHECK_FAILS="1")
+            self.assertNotEqual(p.returncode, 0, target)
+            self.assertIn("fonts: a file is missing", p.stderr, target)
+            self.assertFalse(os.path.exists(self.dest), target)
+        self.assertEqual(len(self.s.calls_of("cargo")), 2, "only the first install builds")
+
     def test_install_refuses_a_console_that_starts_another_helper(self):
         self.built("/usr/local/bin/vtium-dev-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
@@ -4118,9 +4174,10 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual([f for f in self.staged() if f.startswith("usr/share/licenses/")],
                          ["usr/share/licenses/vtium-git/COPYING", "usr/share/licenses/vtium-git/LICENSE",
-                          "usr/share/licenses/vtium-git/OFL-1.1.txt",
-                          "usr/share/licenses/vtium-git/rgb-license.txt",
-                          "usr/share/licenses/vtium-git/tiny-skia-LICENSE"])
+                          "usr/share/licenses/vtium-git/OFL-1.1.txt"]
+                         + [f"usr/share/licenses/vtium-git/cullet-mono/{n}" for n in CULLET_MONO_NOTICES]
+                         + ["usr/share/licenses/vtium-git/rgb-license.txt",
+                            "usr/share/licenses/vtium-git/tiny-skia-LICENSE"])
         self.assertFalse([f for f in self.staged() if f.startswith("usr/share/licenses/vtium/")], self.staged())
 
     def test_enabling_the_packaged_template_with_no_vt_links_nothing(self):
