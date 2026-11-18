@@ -6732,7 +6732,8 @@ class ShowcaseTest(unittest.TestCase):
         with open(t3_showcase.SPECIMEN_FONTS) as f:
             rs = f.read()
         for url, sha in shared.values():
-            self.assertIn('url: "%s"' % url, rs)
+            # the specimens name a downloaded font's URL as Origin::Url
+            self.assertRegex(rs, r'origin: Origin::Url\(\s*"%s",?\s*\)' % re.escape(url))
             self.assertIn('sha256: "%s"' % sha, rs)
         tier2 = {f.file: (f.url, f.sha256) for f in t3_showcase.FONTS
                  if "tier2" in f.source}
@@ -8010,6 +8011,19 @@ class FontSourcesTest(unittest.TestCase):
         _, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
         self.assertEqual(faults, ["the letter g differs from Cullet Mono's own glyph in "
                                   "cullet-alone"])
+        # a letter that both captures draw from a bitmap source, as when
+        # the console cannot read Cullet Mono and both draw from the
+        # built-in font, whose 8x16 strike is Terminus's: the two captures
+        # are the same, and the letter has the bitmap source's shape
+        for source in ("Terminus 16 px", "Unifont"):
+            img, reference = self.cullet_screens(cell, glyphs)
+            x0, y0, w, h = t3_fonts.probe_box(t3_fonts.LETTER, cell)
+            for shot in (img, reference):
+                for y in range(y0, y0 + h):
+                    shot.data[(y * shot.width + x0) * 3:(y * shot.width + x0 + w) * 3] = b"\x10" * 3 * w
+                self.paint(shot, t3_fonts.LETTER, cell, glyphs[ord(t3_fonts.LETTER)][source][2])
+            _, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
+            self.assertEqual(faults, ["the letter g matches %s, not Cullet Mono's glyph" % source])
         # an icon drawn as a hollow box, an emoji in grey and a Font Logos
         # icon drawn as a glyph
         img, reference = self.cullet_screens(cell, glyphs)

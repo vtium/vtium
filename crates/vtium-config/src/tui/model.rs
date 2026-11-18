@@ -612,7 +612,7 @@ impl App {
     /// the Settings view an open section; and the new-frit view, a
     /// form of the Fonts view's. While one is, Tab, Shift-Tab and a click
     /// on a view's name do not change the view. Esc closes each, and a
-    /// question takes any key but its yes as no.
+    /// question takes only its own keys.
     fn holds_view(&self) -> bool {
         if self.confirm.is_some() {
             return true;
@@ -1009,9 +1009,23 @@ impl App {
                         self.about = !self.about;
                         self.help_at = 0;
                     }
+                    // the top row of the page moves by a line, or by the
+                    // rows the screen shows, and stops where the page's
+                    // last row is at the bottom of the screen
                     Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                        let rows = super::view::help_rows(self).len();
-                        self.help_at = step(self.help_at, rows, key);
+                        let (rows, room) = super::view::help_window(self);
+                        let last = rows.saturating_sub(room);
+                        let page = room.max(1);
+                        let at = self.help_at.min(last);
+                        self.help_at = match key {
+                            Key::Up => at.saturating_sub(1),
+                            Key::Down => at.saturating_add(1),
+                            Key::PageUp => at.saturating_sub(page),
+                            Key::PageDown => at.saturating_add(page),
+                            Key::Home => 0,
+                            _ => last,
+                        }
+                        .min(last);
                     }
                     _ => {}
                 }

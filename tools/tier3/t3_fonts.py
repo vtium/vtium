@@ -22,7 +22,8 @@ the pixels instead.
   use-frit`, to the reference set `cullet-alone`, which holds Cullet Mono
   Regular alone, and draw the same row again. The helper then draws Cullet
   Mono's own glyphs, and a probe that Cullet Mono draws in the set must be
-  the same, pixel for pixel, in both captures.
+  the same, pixel for pixel, in both captures, and match no bitmap
+  source's glyph.
 - A color emoji shows color, which no 1-bit source and no outline in the
   set can give, so a probe from Noto Color Emoji passes when its cells hold
   color.
@@ -351,9 +352,14 @@ def judge_cullet(img, reference, cell, size, glyphs):
             found[char] = names
             faults.append("%s differs from Cullet Mono's own glyph in %s" % (NAMES[char],
                                                                              REFERENCE))
-        elif "Unifont" in " ".join(names):
+        elif names:
+            # The two captures agree, but the glyph has a bitmap source's
+            # shape, as when the console cannot read Cullet Mono and draws
+            # both rows from the built-in font, whose 8x16 strike is
+            # Terminus's, or from Unifont.
             found[char] = names
-            faults.append("%s matches %s" % (NAMES[char], " and ".join(names)))
+            faults.append("%s matches %s, not Cullet Mono's glyph"
+                          % (NAMES[char], " and ".join(names)))
         else:
             found[char] = ["Cullet Mono"]
     if colored(drawn[EMOJI].values()):

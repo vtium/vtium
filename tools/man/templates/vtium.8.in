@@ -78,7 +78,13 @@ vtium stopped on an error. Its command line was wrong, or `vtium.enable=0` turne
 The settings and the sections. See vtium.conf(5).
 
 = `/etc/vtium/fonts`
-The font sets, each in a file `NAME.vtfrit`.
+The font sets, each in a file `NAME.vtfrit`. Your own sets go in this folder itself. The sets vtium installs are in a folder for each category: `console`, `classic`, `code`, `nerd`, `scripts` and `small`. vtium looks for a set's name in this folder first, then in each category's folder.
+
+= `/etc/vtium/fonts/layers`
+The layers that font sets add, each in a file `NAME.vtlayer`, such as the emoji or Nerd Fonts' icons.
+
+= `/usr/share/vtium/fonts`
+The font files every vtium installs: bitmap Terminus at nine sizes, GNU Unifont, and Cullet Mono, an outline Terminus with Nerd Fonts' icons. The font sets `terminus` and `cullet-mono` name them.
 
 = `/run/vtium`
 The marker files that tell the getty fallback that a VT runs under the closed policy.

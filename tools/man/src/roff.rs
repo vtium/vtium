@@ -36,8 +36,10 @@ fn escape(text: &str, code: bool) -> String {
 
 /// `text` with its code spans set in bold, escaped for a text line. A word
 /// outside a code span that starts with a hyphen, such as `--help` written
-/// without backticks, has its hyphens set as minus signs too.
+/// without backticks, has its hyphens set as minus signs too. A Markdown
+/// link shows its words and its full address (see [`links_as_text`]).
 pub fn inline(text: &str) -> String {
+    let text = links_as_text(text);
     let mut out = String::new();
     for (i, part) in text.split('`').enumerate() {
         if i % 2 == 1 {
@@ -55,6 +57,74 @@ pub fn inline(text: &str) -> String {
         }
     }
     text_line(&out)
+}
+
+/// The address of vtium's documentation site, the `site_url` of
+/// zensical.toml, which ends in `/`.
+fn site_url() -> &'static str {
+    static URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    URL.get_or_init(|| {
+        vtium_site::Site::parse(include_str!("../../../zensical.toml"))
+            .and_then(|site| {
+                site.site_url
+                    .ok_or_else(|| "zensical.toml names no site_url".into())
+            })
+            .unwrap_or_else(|e| panic!("{e}"))
+    })
+}
+
+/// `text` with each Markdown link outside a code span, `[words](target)`,
+/// written as its words and its full address in angle brackets, the way a
+/// man page shows a link: a man page has no links to follow. The texts
+/// come from the key table and the templates, which the documentation site
+/// also shows, so a relative target names a page under `docs/` and becomes
+/// that page's address on the site.
+///
+/// # Panics
+///
+/// When a relative link climbs out of `docs/`, where the site has no
+/// address for it.
+fn links_as_text(text: &str) -> String {
+    let text = vtium_site::release::for_github(text, "index.md", site_url())
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    let mut in_code = false;
+    while let Some(at) = rest.find(['`', '[']) {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        if rest.starts_with('`') {
+            in_code = !in_code;
+            out.push('`');
+            rest = &rest[1..];
+            continue;
+        }
+        match (!in_code).then(|| link(rest)).flatten() {
+            Some((words, target, len)) => {
+                out.push_str(&format!("{words} <{target}>"));
+                rest = &rest[len..];
+            }
+            None => {
+                out.push('[');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The words, the target and the length of the link `[words](target)` that
+/// `text` starts with, or `None` when it starts with none: the words hold
+/// no bracket and no backtick, and the target holds no space.
+fn link(text: &str) -> Option<(&str, &str, usize)> {
+    let close = text.find(']')?;
+    let words = &text[1..close];
+    let after = text[close + 1..].strip_prefix('(')?;
+    let end = after.find(')')?;
+    let target = &after[..end];
+    let plain = !words.is_empty() && !words.contains(['[', '`']) && !target.is_empty();
+    (plain && !target.contains(char::is_whitespace)).then_some((words, target, close + 2 + end + 1))
 }
 
 /// `line` made safe as a text line: a line that starts with a period or
@@ -286,6 +356,27 @@ mod tests {
             inline("Set `font-size` with --font-size=14 or a built-in font."),
             "Set \\fBfont\\-size\\fR with \\-\\-font\\-size=14 or a built-in font."
         );
+    }
+
+    #[test]
+    fn a_link_shows_its_words_and_its_full_address() {
+        assert_eq!(
+            inline(
+                "See [the pointer file reference](https://vtium.github.io/vtium/reference/pointer-file/)."
+            ),
+            "See the pointer file reference <https://vtium.github.io/vtium/reference/pointer-file/>."
+        );
+        // a relative link names a page under docs/, which the site serves
+        // in a folder of its own
+        assert_eq!(
+            inline("See [Remove it](configure.md#remove-it) and [fonts](concepts/fonts.md)."),
+            "See Remove it <https://vtium.github.io/vtium/configure/#remove-it> and fonts \
+             <https://vtium.github.io/vtium/concepts/fonts/>."
+        );
+        // a link in a code span stays as it is written
+        assert_eq!(inline("Write `[x](y.md)`."), "Write \\fB[x](y.md)\\fR.");
+        // brackets that make no link stay as they are
+        assert_eq!(inline("a [b] (c) and f(x)](y)"), "a [b] (c) and f(x)](y)");
     }
 
     #[test]

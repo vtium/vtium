@@ -68,7 +68,11 @@ fn each_example_reads_as_the_page_says() {
         match info.as_str() {
             "vtlook" => {
                 let read = vtlook::read_text(&name, &file, text.as_bytes());
-                assert!(read.is_ok(), "{name}: {:?}", read.err().map(|e| shown(&e)));
+                assert!(
+                    read.is_ok(),
+                    "{name}: {:?}",
+                    read.err().map(|e| shown(&e.reports))
+                );
                 clean += 1;
             }
             "vtlook-error" => {
@@ -77,7 +81,7 @@ fn each_example_reads_as_the_page_says() {
                 };
                 let errors = vtlook::read_text(&name, &file, text.as_bytes())
                     .err()
-                    .map(|e| shown(&e))
+                    .map(|e| shown(&e.reports))
                     .unwrap_or_default();
                 assert_eq!(errors, said.lines().collect::<Vec<_>>(), "{name}");
                 wrong += 1;

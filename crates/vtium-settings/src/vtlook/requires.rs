@@ -9,6 +9,8 @@
 //! References:
 //! - ADR-1304 D7: the eight keys, their values and the errors of a malformed section.
 
+use super::report::quoted;
+
 /// The order of the keys, as the template and vtium-config write them.
 pub const KEYS: [&str; 8] = [
     "min-depth",
@@ -134,9 +136,13 @@ impl Requires {
     /// the key is unknown or the value is not one it takes.
     pub(super) fn set(&mut self, key: &str, value: &str) -> Result<(), String> {
         if !KEYS.contains(&key) {
-            return Err(format!("found {key}, needs one of {}", list(&KEYS)));
+            return Err(format!(
+                "found {}, needs one of {}",
+                quoted(key),
+                list(&KEYS)
+            ));
         }
-        let bad = || format!("{key} = {value}, needs {}", needs(key));
+        let bad = || format!("{key} = {}, needs {}", quoted(value), needs(key));
         let any = value == "any";
         match key {
             "min-depth" | "max-depth" => {

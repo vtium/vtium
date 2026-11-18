@@ -165,6 +165,7 @@ name = "vtium-settings-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
+ "vtium-render",
  "vtium-settings",
 ]
 

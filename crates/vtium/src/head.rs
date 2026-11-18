@@ -217,11 +217,9 @@ pub struct Head {
     /// [`Config::for_head`] lays over the configuration wherever the
     /// console reads a key a section may set.
     pub(crate) settings: Vec<vtium_settings::Setting>,
-    /// The vtlook the head draws with, chosen once when the head is made.
-    #[expect(
-        dead_code,
-        reason = "the color layer draws with it; until then every vtlook that reads holds no filter"
-    )]
+    /// The vtlook the head draws with, chosen once when vtium makes the
+    /// head from the head file ([`crate::head::session::heads`]). A head
+    /// made otherwise draws the built-in vtlook.
     pub(crate) vtlook: look::Chosen,
     /// The base font's height; each display may draw larger
     /// ([`crate::layout::layout`]).
@@ -237,6 +235,9 @@ pub struct Head {
     /// until a zoom or its session's end; `None` while the grid fills the
     /// displays.
     pub(crate) asked: Option<(usize, usize)>,
+    /// The height at which the log last said that a zoom out stops at the
+    /// font's smallest height, so a key held there logs the stop once.
+    pub(crate) zoom_stop_logged: Option<u32>,
     /// A `font-size` other than 0 is configured, and the head's look
     /// states no cell.
     sized: bool,
@@ -543,12 +544,13 @@ impl Head {
             focused: false,
             tracking: MouseTracking::Off,
             font_name,
-            vtlook: look::choose(name, config),
+            vtlook: look::Chosen::default(),
             settings,
             font_size: 0,
             points,
             auto_size,
             asked: None,
+            zoom_stop_logged: None,
             sized,
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),

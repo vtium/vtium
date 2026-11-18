@@ -369,7 +369,10 @@ pub fn too_small(cols: usize, rows: usize) -> String {
 }
 pub const TOO_SMALL_COMMANDS: &str =
     "Make this terminal larger, or use these commands, which work at any size:";
-pub const TOO_SMALL_KEYS: &str = "Press q to quit. If a font you tried made this terminal too small, press u to put back the font you had before.";
+/// What `u` does below the minimum size, under the generated key line,
+/// while the key table's row for `u` is still planned and the key line
+/// leaves `u` out.
+pub const TOO_SMALL_UNDO: &str = "Press u to put back the font the console started with.";
 
 /// The status line (ADR-1403 D7).
 pub const NO_DRAFT: &str = "no draft";

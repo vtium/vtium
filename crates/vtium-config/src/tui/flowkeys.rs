@@ -656,7 +656,8 @@ impl App {
     /// A key on a terminal's card, an added path's or the editor's: Up and
     /// Down move between its lines, Left and Right between a line's
     /// choices, Enter sets the choice or starts typing the name or, on the
-    /// login's Other…, a command, and Esc goes back. `e` on an added path's card revises it.
+    /// login's Other…, a command, and Esc goes back. `e` on an added path's
+    /// card revises the path.
     fn terminal_card_key(&mut self, state: &State, obj: &Obj, key: Key) -> Vec<Effect> {
         let Some(path) = flowdraw::card_path(self, obj) else {
             self.flow_with(|s| s.layer = None);

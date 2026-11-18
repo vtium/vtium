@@ -94,7 +94,7 @@ fn read_in(
 ) -> (Chosen, Option<String>) {
     match vtlook::read(name, dir, trust) {
         Ok(look) => (Chosen { vtlook: Some(look) }, None),
-        Err(reports) => (Chosen::default(), vtlook::log_line(&reports, head)),
+        Err(failure) => (Chosen::default(), vtlook::log_line(&failure, head)),
     }
 }
 
@@ -159,7 +159,7 @@ mod tests {
             read("console", "amber"),
             (
                 Chosen::default(),
-                Some("This build of vtium has no frame filters, so head console draws the vtlook default (built in) and not vtlook amber.".to_owned())
+                Some("This build of vtium has no frame filters, so head console draws the built-in vtlook instead of vtlook amber.".to_owned())
             )
         );
     }
@@ -195,7 +195,7 @@ mod tests {
         assert_eq!(
             said,
             Some(format!(
-                "vtlook crt ({}:3): requires: checking: min-depth = 12, needs any, 1, 8, 16 or 24; 2 more errors; head console draws the vtlook default (built in)",
+                "vtlook crt ({}:3): requires: checking: min-depth = 12, needs any, 1, 8, 16 or 24; 2 more errors; head console draws the built-in vtlook instead",
                 dir.join("crt.vtlook").display()
             ))
         );
@@ -203,8 +203,8 @@ mod tests {
         assert_eq!(chosen, Chosen::default());
         assert!(
             said.as_deref()
-                .is_some_and(|s| s.contains("reading: found no such file")
-                    && s.ends_with("head desk draws the vtlook default (built in)")),
+                .is_some_and(|s| s.contains("reading: There is no file gone.vtlook in")
+                    && s.ends_with("head desk draws the built-in vtlook instead")),
             "{said:?}"
         );
         let _ = std::fs::remove_dir_all(&dir);

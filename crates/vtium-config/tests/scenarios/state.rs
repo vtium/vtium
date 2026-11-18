@@ -87,6 +87,8 @@ impl Abs {
             (StateKind::Layer, "restore") => n("flow.restore"),
             (StateKind::Layer, "picker") => n("flow.maker.picker"),
             (StateKind::Layer, "flow-card") => n("flow.card"),
+            (StateKind::Layer, "flow-new-card") => n("flow.new-card"),
+            (StateKind::Layer, "flow-info") => n("flow.info"),
             (StateKind::Layer, "flow-maker") => n("flow.maker"),
             (StateKind::Layer, "flow-others") => n("flow.others"),
             (StateKind::Layer, "flow-detail") => n("flow.detail"),
@@ -267,14 +269,17 @@ fn open(app: &App) -> (StateKind, &'static str) {
     }
     match &app.flow_view.layer {
         None => (StateKind::View, ""),
-        Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal)) => {
-            (StateKind::Layer, "flow-card")
-        }
+        Some(Obj::Doc(_, Slot::Terminal)) => (StateKind::Layer, "flow-card"),
+        Some(Obj::New(Slot::Terminal)) => (StateKind::Layer, "flow-new-card"),
         Some(Obj::Pal(Slot::Template(_)) | Obj::New(Slot::Empty(_))) => {
             (StateKind::Layer, "flow-maker")
         }
         Some(Obj::Others) => (StateKind::Layer, "flow-others"),
-        Some(Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_)) => (StateKind::Layer, "flow-detail"),
+        // an added path's display or input, or a roaming or set-aside
+        // input: what it matches, read-only
+        Some(Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_)) => (StateKind::Layer, "flow-info"),
+        // a part's detail: the label on its first line, its choices below
+        Some(_) if app.flow_view.line == 0 => (StateKind::Layer, "flow-detail"),
         Some(_) => (StateKind::Layer, "flow-choice"),
     }
 }

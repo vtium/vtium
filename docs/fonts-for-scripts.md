@@ -59,7 +59,7 @@ When you build vtium from a checkout, name the sets in `FRITS` beside the defaul
 $ make install DESTDIR=DIR PREFIX=/usr FRITS='jetbrains-mono unifont-icons unscii-icons noto-arabic'
 ```
 
-`make install-fonts DESTDIR=DIR` stages the whole catalog alone. The sets' files are in `crates/vtium-config/frits/scripts`, and the layers are in `crates/vtium-config/frits/layers`.
+`make install-fonts DESTDIR=DIR` stages the catalog apart from the sets and layers that a console package installs. The sets' files are in `crates/vtium-config/frits/scripts`, and the layers are in `crates/vtium-config/frits/layers`.
 
 When a font is missing, vtium leaves it out and logs one line that names it. The characters it would have rendered then come from the next font in the set that has them. To see which fonts a set still lacks, run:
 

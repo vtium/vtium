@@ -41,7 +41,9 @@ matches() {
     [ -f "$1" ] || { echo "is missing"; return 1; }
     size=$(wc -c < "$1" | tr -d ' ')
     [ "$size" = "$2" ] || { echo "has $size bytes, not $2"; return 1; }
-    sum=$(sha256sum "$1" | cut -d' ' -f1)
+    # Read from stdin: sha256sum starts its line with a backslash when the
+    # file's name holds a backslash or a newline.
+    sum=$(sha256sum < "$1" | cut -d' ' -f1)
     [ "$sum" = "$3" ] || { echo "has SHA-256 $sum, not $3"; return 1; }
 }
 

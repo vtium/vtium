@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use vtium_render::filter::Layer;
 
-use super::BUILT_IN;
+use crate::bounds::{ERRORS_MAX, QUOTE_MAX};
 
 /// The stage at which a vtlook fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,18 +113,84 @@ impl fmt::Display for Report {
     }
 }
 
+/// Why a vtlook fails: its first errors by line, at most [`ERRORS_MAX`],
+/// and how many more it holds. A file of 64 KiB can hold tens of
+/// thousands of errors, and a check that printed each one would bury the
+/// first, so vtium keeps the first ones and counts the rest, as it does
+/// for vtium.conf.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failure {
+    /// The errors kept, in the file's order, at least one.
+    pub reports: Vec<Report>,
+    /// The errors past those kept.
+    pub more: usize,
+}
+
+impl Failure {
+    /// The failure of one error.
+    pub(super) fn one(report: Report) -> Failure {
+        Failure {
+            reports: vec![report],
+            more: 0,
+        }
+    }
+
+    /// The failure of `reports`, sorted by line and cut to the first
+    /// [`ERRORS_MAX`], with `more` already dropped before. A stable sort
+    /// keeps a line's errors in the order they were found, and an error
+    /// with no line, about the file as a whole, comes first.
+    pub(super) fn of(mut reports: Vec<Report>, more: usize) -> Failure {
+        let more = more.saturating_add(keep_first(&mut reports));
+        Failure { reports, more }
+    }
+}
+
+/// Sorts `reports` by line, keeps the first [`ERRORS_MAX`], and returns
+/// how many it dropped.
+pub(super) fn keep_first(reports: &mut Vec<Report>) -> usize {
+    reports.sort_by_key(|e| e.line.unwrap_or(0));
+    let past = reports.len().saturating_sub(ERRORS_MAX);
+    reports.truncate(ERRORS_MAX);
+    past
+}
+
+/// Text from a vtlook as a report quotes it: at most [`QUOTE_MAX`]
+/// characters, marked `...` where it is cut, with each control or
+/// formatting character, such as a right-to-left override, written as an
+/// escape. So a line of the file never reaches a screen or the journal as
+/// itself, and a long line cannot make a long report.
+pub(super) fn quoted(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    for c in chars.by_ref().take(QUOTE_MAX) {
+        match c {
+            '"' | '\'' => out.push(c),
+            _ => out.extend(c.escape_debug()),
+        }
+    }
+    if chars.next().is_some() {
+        out.push_str("...");
+    }
+    out
+}
+
 /// vtium's one log line for a vtlook that fails on head `head`: the
 /// first error whole, how many more there are, and that the head draws
-/// the built-in vtlook. `None` when `reports` is empty.
-pub fn log_line(reports: &[Report], head: &str) -> Option<String> {
-    let first = reports.first()?;
-    let more = match reports.len().saturating_sub(1) {
+/// the built-in vtlook instead.
+pub fn log_line(failure: &Failure, head: &str) -> Option<String> {
+    let first = failure.reports.first()?;
+    let more = match failure
+        .reports
+        .len()
+        .saturating_sub(1)
+        .saturating_add(failure.more)
+    {
         0 => String::new(),
         1 => "; 1 more error".to_owned(),
         n => format!("; {n} more errors"),
     };
     Some(format!(
-        "vtlook {} ({}): {first}{more}; head {head} draws the vtlook {BUILT_IN}",
+        "vtlook {} ({}): {first}{more}; head {head} draws the built-in vtlook instead",
         first.vtlook,
         first.at()
     ))
@@ -155,26 +221,72 @@ mod tests {
     // are and what the head draws instead.
     #[test]
     fn the_log_line_names_the_first_error_and_counts_the_rest() {
-        let one = [scanlines()];
+        let one = Failure::one(scanlines());
         assert_eq!(
             log_line(&one, "console").as_deref(),
             Some(
-                "vtlook crt (/etc/vtium/looks/crt.vtlook:5): spatial filter 1 of 1, scanlines: checking: period = 12, needs an integer from 2 to 8; head console draws the vtlook default (built in)"
+                "vtlook crt (/etc/vtium/looks/crt.vtlook:5): spatial filter 1 of 1, scanlines: checking: period = 12, needs an integer from 2 to 8; head console draws the built-in vtlook instead"
             )
         );
         let mut requires = scanlines();
         requires.part = Some(Part::Requires);
         requires.message = "min-depth = 12, needs any, 1, 8, 16 or 24".to_owned();
-        let three = [scanlines(), requires.clone(), requires];
+        let three = Failure::of(vec![scanlines(), requires.clone(), requires], 0);
         let line = log_line(&three, "desk").unwrap_or_default();
         assert!(
-            line.ends_with("; 2 more errors; head desk draws the vtlook default (built in)"),
+            line.ends_with("; 2 more errors; head desk draws the built-in vtlook instead"),
             "{line}"
         );
-        assert_eq!(log_line(&[], "desk"), None);
+        // the errors past those kept count in the log line too
+        let past = Failure {
+            reports: vec![scanlines()],
+            more: 70,
+        };
+        let line = log_line(&past, "desk").unwrap_or_default();
+        assert!(line.contains("; 70 more errors;"), "{line}");
+        let none = Failure {
+            reports: Vec::new(),
+            more: 0,
+        };
+        assert_eq!(log_line(&none, "desk"), None);
         assert_eq!(
-            format!("{}: {}", three[1].at(), three[1]),
-            "/etc/vtium/looks/crt.vtlook:5: requires: checking: min-depth = 12, needs any, 1, 8, 16 or 24"
+            three.reports.get(1).map(|r| format!("{}: {r}", r.at())),
+            Some(
+                "/etc/vtium/looks/crt.vtlook:5: requires: checking: min-depth = 12, needs any, 1, 8, 16 or 24".to_owned()
+            )
+        );
+    }
+
+    // A quote from the file is cut at its bound and escapes what would
+    // act on a screen, so neither a long line nor a right-to-left
+    // override reaches the journal as itself.
+    #[test]
+    fn a_quote_from_the_file_is_cut_and_escaped() {
+        assert_eq!(quoted("sepia"), "sepia");
+        assert_eq!(quoted("say \"hi\" it's"), "say \"hi\" it's");
+        assert_eq!(quoted("\u{202e}kool"), "\\u{202e}kool");
+        assert_eq!(quoted("a\u{1b}[2Jb"), "a\\u{1b}[2Jb");
+        let long = "a".repeat(QUOTE_MAX + 1);
+        assert_eq!(quoted(&long), format!("{}...", "a".repeat(QUOTE_MAX)));
+        assert_eq!(quoted(&long[1..]), "a".repeat(QUOTE_MAX));
+    }
+
+    // At most ERRORS_MAX errors are kept, the first ones by line, and the
+    // rest are counted.
+    #[test]
+    fn a_failure_keeps_the_first_errors_by_line_and_counts_the_rest() {
+        let at = |line: usize| Report {
+            line: Some(line),
+            ..scanlines()
+        };
+        let reports: Vec<Report> = (1..=ERRORS_MAX + 10).rev().map(at).collect();
+        let failure = Failure::of(reports, 5);
+        assert_eq!(failure.reports.len(), ERRORS_MAX);
+        assert_eq!(failure.more, 15);
+        assert_eq!(failure.reports.first().and_then(|r| r.line), Some(1));
+        assert_eq!(
+            failure.reports.last().and_then(|r| r.line),
+            Some(ERRORS_MAX)
         );
     }
 }

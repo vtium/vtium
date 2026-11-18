@@ -553,10 +553,15 @@ mod tests {
         assert_eq!(waits, [false, true, true]);
     }
 
-    // ADR-1401 D2: the minspec build, vtium's default build, keeps two
-    // buffers a DRM display.
+    // The minspec build, vtium's default build, keeps two buffers a DRM
+    // display. The cfg names every feature of FEATURES_ON_TOP, since any
+    // one of them gives the build three buffers.
+    //
+    // References:
+    // - ADR-1401 D2: the minspec build keeps two buffers a display.
     #[cfg(not(any(
         feature = "bidi",
+        feature = "filters",
         feature = "gpu",
         feature = "images",
         feature = "libseat",

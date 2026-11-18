@@ -1085,6 +1085,32 @@ impl View {
         }
     }
 
+    /// Lets go of the finished frame this view owes when its display
+    /// cannot take a frame by itself. A display takes the frame on its own
+    /// when it is ready for a frame, when its flip ends, or when the frame
+    /// it is composing comes back. A display that is none of these waits
+    /// for something outside the terminal: its card was handed to another
+    /// program, the device sleeps and cannot wake while another program
+    /// holds DRM master, the display is blanked, or its connector went
+    /// offline. Such a display would hold the head's terminal stopped for
+    /// as long as that lasts, so it owes no frame, and the display draws
+    /// the screen as it is when it comes back. `video` is `None` when the
+    /// display's device is gone.
+    ///
+    /// References:
+    /// - ADR-1401 D2, the note of 2026-11-17: the parser stops at a
+    ///   frame's end only until the displays that can draw take the frame.
+    pub fn settle(&mut self, video: Option<&dyn Video>) {
+        if !self.unshown {
+            return;
+        }
+        let takes = video
+            .is_some_and(|v| v.ready_for_frame(self.id) || v.is_flipping(self.id) || self.away());
+        if !takes {
+            self.unshown = false;
+        }
+    }
+
     /// Whether the loop's pass at `now` draws this view of `term` on
     /// `video`. `now_all`: vtium asks every display of the head to draw at
     /// once for something other than the program's output, such as a key,

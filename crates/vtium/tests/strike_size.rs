@@ -396,3 +396,51 @@ fn a_text_area_request_draws_the_strike_whose_grid_holds_it() {
         assert_eq!(s.app.grid(), (cols, rows), "{what}: the grid");
     }
 }
+
+/// Above the tallest strike, a zoom in steps to the next whole multiple of
+/// the 32-pixel strike, which draws at factor 2 and fills the 32×64 cell.
+/// vtium asks the helper once for that step, at 64 pixels, and not at each
+/// height from 33 to 64.
+#[test]
+fn a_zoom_above_the_tallest_strike_asks_the_helper_once() {
+    let mut s = Seat::boot("strike-zoom-once", 32);
+    s.draws((16, 32), (0, 0, 16, 32), "font-size=32");
+    let asked = s.app.frit_cells("t").len();
+    s.app.input_event(zoom(Mods::CTRL, '='), now());
+    s.draws((32, 64), (0, 0, 32, 64), "32, zoomed in to 64");
+    let heights: Vec<u32> = s.app.frit_cells("t").iter().map(|(at, _)| *at).collect();
+    assert_eq!(
+        heights.len(),
+        asked + 1,
+        "one ask for the step: {heights:?}"
+    );
+    assert!(
+        heights.contains(&64),
+        "the ask is at 64 pixels: {heights:?}"
+    );
+}
+
+/// A program asks for a text area of one row of one column, which the
+/// 640×480 display holds at every height. vtium climbs from 16 pixels
+/// through each strike, two pixels apart, and then through the whole
+/// multiples of the 32-pixel strike up to 160 pixels, the first step above
+/// the largest height a zoom in starts from. Each step asks the helper at
+/// the next whole multiple of the strike in use and at the heights just
+/// above `from`, 26 asks in all, where asking at each pixel from 17 to 160
+/// takes 145.
+#[test]
+fn a_text_area_request_asks_the_helper_at_few_heights() {
+    let mut s = Seat::boot_with(
+        "strike-window-few",
+        16,
+        &["--allow-window-ops"],
+        "printf 'A\\033[8;1;1t'; exec sleep 30",
+    );
+    assert!(s.until(|s| s.app.grid() == (1, 1)), "the grid");
+    let heights: Vec<u32> = s.app.frit_cells("t").iter().map(|(at, _)| *at).collect();
+    assert!(
+        heights.len() <= 26 && heights.contains(&160),
+        "{} asks, at {heights:?}",
+        heights.len()
+    );
+}
