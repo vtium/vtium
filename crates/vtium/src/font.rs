@@ -1321,11 +1321,13 @@ impl Chosen {
             let at = Chosen::BUILTINS.face(height, locale)?;
             let stated = self.base_cell();
             let (cell, step) = match (stated, self.outline()) {
-                // ADR-1204 D2, a bitmap source with strikes: the cell of
-                // the strike the helper names for this height, or its
-                // whole multiple above the tallest strike. A configured
-                // font size keeps its own height, as wide as that strike,
-                // with the strike centred in it.
+                // A bitmap source with strikes: the cell of the strike the
+                // helper names for this height, or its whole multiple
+                // above the tallest strike. A configured font size keeps
+                // its own height, as wide as that strike's whole multiple,
+                // and the helper centres the strike in it.
+                // References: ADR-1204 D2 decides the strike each height
+                // draws.
                 (None, false) if self.struck() => match heights.get(&height) {
                     Some(c) => {
                         let whole = frit_cell_at(Some(*c), height, *c);
