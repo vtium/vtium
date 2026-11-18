@@ -35,7 +35,7 @@ y.question.quit	y	question:quit	Saves the changes that are not saved into the dr
 y.question.leave	y	question:leave	Installs the draft, then quits. Install saves the changes that are not saved first.	supported		ADR-1403 D7	#411	install and quit	
 n.question.leave	n	question:leave	Saves the changes that are not saved into the draft, then quits without installing. The new and removed font sets that wait for an install are lost.	supported		ADR-1403 D7	#411	quit without installing	
 n.question.quit	n	question:quit	Quits without saving the changes that are not saved.	supported		ADR-1403 D7		quit without saving	
-n.question	n	question	Answers no. Nothing changes. Where the question offers no n, n does nothing.	supported		ADR-1403 D7	#412	no	
+n.question	n	question	Answers no. Nothing changes.	supported		ADR-1403 D7	#412	no	
 i.question.leave	i	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 l.question.leave	l	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 other.question	any other key	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-	
@@ -57,7 +57,7 @@ t.view.looks	t	view:looks	Tries the highlighted font set on this console for 10 
 enter.view.looks	Enter	view:looks	On a font set, chooses it for the look. On a size, tries the size on this console for 10 seconds: k keeps it, and any other key puts the size back.	planned	today Enter on a size writes the top-level font-size	ADR-1201 D4	#379	choose	
 p.view.looks	p	view:looks	Switches the preview between the sample characters and the picture of the console.	planned	today s does this in the Fonts view; the label names the preview p switches to, picture or sample	ADR-1201 D4	#379	picture | sample	
 window-ops.view.looks	w	view:looks	Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing.	planned	the notice line shows w	ADR-1201 D4	#379	resize grid	
-t.layer.flow-card	t	layer:flow-card	Tries the card's font set on this console for 10 seconds.	supported		ADR-1201 D4		try live	
+t.layer.flow-card	t	layer:flow-card	Tries a font set on this console for 10 seconds: on the font set line the choice under the cursor, and elsewhere the card's own font set.	supported		ADR-1201 D4		try live	
 o.view.looks	o	view:looks	Does nothing here.	planned	the notice that the live trial is off names allow-font-ops in the Settings view; today o turns on allow-font-ops in every view but Flow	ADR-1201 D4; ADR-1403 D7	#412	-	
 o.view	o	view	Does nothing here.	planned	o opens Restore in the Flow view alone; today o turns on allow-font-ops in Help and Settings too	ADR-1403 D7	#412	-	
 up.layer.list	Up	layer:list	Moves to the item above.	supported	the Flow view's picker does this today	ADR-1403 D7		move	1
@@ -66,7 +66,7 @@ home.layer.list	Home	layer:list	Goes to the first item.	supported	the Flow view'
 end.layer.list	End	layer:list	Goes to the last item.	supported	the Flow view's picker does this today	ADR-1403 D7		last	
 pgup.layer.list	PgUp	layer:list	Moves up by a page.	supported	the Flow view's picker does this today	ADR-1403 D7		page up	
 pgdn.layer.list	PgDn	layer:list	Moves down by a page.	supported	the Flow view's picker does this today	ADR-1403 D7		page down	
-enter.layer.list	Enter	layer:list	Picks the highlighted item and closes the list. On Other…, it lets you type a value.	supported	the Flow view's picker does this today	ADR-1403 D7		pick	1
+enter.layer.list	Enter	layer:list	Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead.	supported	the Flow view's picker does this today	ADR-1403 D7		pick	1
 esc.layer.list	Esc	layer:list	Closes the list without picking.	supported	the Flow view's picker does this today	ADR-1403 D7		back	1
 list.settings-values	Enter	layer:settings-section	Shows the key's allowed values as a list to pick from, with the highlight on the value the key has now.	supported		ADR-1403 D7		-	
 enter.view.settings	Enter	view:settings	Opens the highlighted section, with its keys in titled groups.	supported		ADR-1201 D3		open	1
@@ -117,15 +117,17 @@ enter.view.fonts	Enter	view:fonts	Chooses the highlighted font set.	planned	the 
 t.view.fonts	t	view:fonts	Tries the highlighted font set on this console for 10 seconds.	planned	the Fonts view goes into the Looks tab, which takes this key	ADR-1201 D3	#379	try live	
 n.view.fonts	n	view:fonts	Opens the form for a new font set.	planned	the Fonts view goes into the Looks tab, which takes this key	ADR-1201 D3	#379	new	
 r.view.fonts	r	view:fonts	Marks the highlighted font set for removal at the next install, or takes the mark back.	planned	the Fonts view goes into the Looks tab, which takes this key	ADR-1201 D3	#379	remove	
-up.layer.flow-detail	Up	layer:flow-detail	Moves to the line above.	supported		ADR-1403 D7		move	
-down.layer.flow-detail	Down	layer:flow-detail	Moves to the line below.	supported		ADR-1403 D7		move	
-enter.layer.flow-detail	Enter	layer:flow-detail	On the label line, lets you type the part's label.	supported		ADR-1403 D7		label	
-e.layer.flow-detail	e	layer:flow-detail	Takes this path out of the configuration into NEW PATH, to change it.	supported		ADR-1403 D7		revise	
+up.layer.flow-detail	Up	layer:flow-detail	Does nothing on the label line, which is the first line of the detail.	supported		ADR-1403 D7		-	
+down.layer.flow-detail	Down	layer:flow-detail	Moves from the label line to the part's first choice.	supported		ADR-1403 D7		choices	
+end.layer.flow-detail	End	layer:flow-detail	Moves from the label line to the last choice.	supported		ADR-1403 D7		choices	
+pgdn.layer.flow-detail	PgDn	layer:flow-detail	Moves from the label line down by a page of choices.	supported		ADR-1403 D7		choices	
+enter.layer.flow-detail	Enter	layer:flow-detail	Lets you type the part's label.	supported		ADR-1403 D7		label	
+e.layer.flow-info	e	layer:flow-info	Takes this path out of the configuration into NEW PATH, to change it. While NEW PATH holds another path, e says so and changes nothing.	supported		ADR-1403 D7		revise	
 up.layer.flow-card	Up	layer:flow-card	Moves to the field above.	supported		ADR-1403 D7		move	1
 down.layer.flow-card	Down	layer:flow-card	Moves to the field below.	supported		ADR-1403 D7		move	1
 left.layer.flow-card	Left	layer:flow-card	Steps the highlighted field to its choice before.	supported		ADR-1403 D7		choose	1
 right.layer.flow-card	Right	layer:flow-card	Steps the highlighted field to its next choice.	supported		ADR-1403 D7		choose	1
-enter.layer.flow-card	Enter	layer:flow-card	Sets the highlighted field, or lets you type the new terminal's name.	supported		ADR-1403 D7		set	1
+enter.layer.flow-card	Enter	layer:flow-card	Sets the highlighted field to the choice under the cursor, or lets you type a value where that choice is typed, such as the new terminal's name or a login command.	supported		ADR-1403 D7		set	1
 e.layer.flow-card	e	layer:flow-card	Takes this path out of the configuration into NEW PATH, to change it.	supported		ADR-1403 D7		revise this path	
 up.layer.flow-maker	Up	layer:flow-maker	Moves to the choice above.	supported		ADR-1403 D7		move	1
 down.layer.flow-maker	Down	layer:flow-maker	Moves to the choice below.	supported		ADR-1403 D7		move	1
@@ -172,9 +174,9 @@ move.typing.new-frit	Up, Down, Home, End, PgUp, PgDn	typing:new-frit	Do nothing 
 list.system-fonts	Enter	layer:new-frit	On a font field, shows the fonts and font sets found on this system as a list to pick from. You can still type a font that the list lacks.	planned	today each font field takes typed text only	ADR-1201 D3	#375	choose	
 up.layer.flow-choices	Up	layer:flow-choices	Moves to the choice above, and from the first choice back to the label line.	supported		ADR-1403 D7		move	1
 down.layer.flow-choices	Down	layer:flow-choices	Moves to the choice below.	supported		ADR-1403 D7		move	1
-home.layer.flow-choices	Home	layer:flow-choices	Goes to the first choice.	supported		ADR-1403 D7		first	
+home.layer.flow-choices	Home	layer:flow-choices	Goes to the label line at the top of the detail.	supported		ADR-1403 D7		top	
 end.layer.flow-choices	End	layer:flow-choices	Goes to the last choice.	supported		ADR-1403 D7		last	
-pgup.layer.flow-choices	PgUp	layer:flow-choices	Moves up by a page.	supported		ADR-1403 D7		page up	
+pgup.layer.flow-choices	PgUp	layer:flow-choices	Moves up by a page, as far as the label line.	supported		ADR-1403 D7		page up	
 pgdn.layer.flow-choices	PgDn	layer:flow-choices	Moves down by a page.	supported		ADR-1403 D7		page down	
 enter.layer.flow-choices	Enter	layer:flow-choices	Picks the part narrowed to the highlighted choice into NEW PATH, and closes the detail.	supported		ADR-1403 D7		pick	1
 click-tab.view.flow	Click on a view's name	view:flow	Switches to that view.	supported	mouse reporting is on only while the Flow view is in front	ADR-1403 D7		-	
@@ -194,4 +196,4 @@ key-line.view.flow	key line	view:flow	Shows one row. Where the keys do not fit o
 key-line.layer.file-view	key line	layer:file-view	Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number.	supported		ADR-1403 D7	#412	-	
 period.view	.	view	Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row.	supported		ADR-1403 D7	#412	more	
 period.layer	.	layer	Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row.	supported		ADR-1403 D7	#412	more	
-help.generated	Help and key line	any	Show, for the place you are in, the keys that act there and what each does.	supported	generated from this table's means and label columns and the interface tree into crates/vtium-config/src/tui/contract_text.rs; a node whose status is planned keeps its hand-written key line and help until the work that moves it to supported, and the screen below 80×25 keeps its sentence about q and u; the site's reference page, vtium-config's screens and keys, is generated from the same tables	ADR-1403 D7	#412	-	
+help.generated	Help and key line	any	Show, for the place you are in, the keys that act there and what each does.	supported	generated from this table's means and label columns and the interface tree into crates/vtium-config/src/tui/contract_text.rs; a node whose status is planned keeps its hand-written key line and help until the work that moves it to supported, and the screen below 80×25 shows its generated key line, with a sentence about u under it while the row for u is planned; the site's reference page, vtium-config's screens and keys, is generated from the same tables	ADR-1403 D7	#412	-	

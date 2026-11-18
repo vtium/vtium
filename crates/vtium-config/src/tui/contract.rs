@@ -98,10 +98,14 @@ pub fn node(app: &App) -> &'static str {
         View::Flow if flow.picker.is_some() => "flow.maker.picker",
         View::Flow => match &flow.layer {
             None => "flow",
-            Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal)) => "flow.card",
+            Some(Obj::Doc(_, Slot::Terminal)) => "flow.card",
+            Some(Obj::New(Slot::Terminal)) => "flow.new-card",
             Some(Obj::Pal(Slot::Template(_)) | Obj::New(Slot::Empty(_))) => "flow.maker",
             Some(Obj::Others) => "flow.others",
-            Some(Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_)) => "flow.detail",
+            Some(Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_)) => "flow.info",
+            // a part's detail: its first line is the label, and the
+            // lines below it are the choices
+            Some(_) if flow.line == 0 => "flow.detail",
             Some(_) => "flow.detail.choices",
         },
         View::Settings if app.editing.is_some() => "settings.section.typing",
@@ -284,6 +288,15 @@ mod generate {
                 help.push(entry);
                 pages(id, &items, label)?
             }
+            // with no row for `.`, the key line has no pages, so it must
+            // fit on one row
+            _ if width(&all) > super::PAGE_COLUMNS => {
+                return Err(format!(
+                    "the key line of {id} is wider than {} columns and has no row for `.` to show it in pages: {}",
+                    super::PAGE_COLUMNS,
+                    all.join("  ")
+                ));
+            }
             _ => vec![all.join("  ")],
         };
         help.sort_by_key(|(place, _, _)| *place);
@@ -461,7 +474,12 @@ mod generate {
     fn sentence(s: &str) -> String {
         let mut chars = s.chars();
         let first = chars.next().map(|c| c.to_uppercase().collect::<String>());
-        let mut out = first.unwrap_or_default() + chars.as_str();
+        stop(&(first.unwrap_or_default() + chars.as_str()))
+    }
+
+    /// A phrase of the tree with a full stop at its end, where it has none.
+    fn stop(s: &str) -> String {
+        let mut out = s.to_owned();
         if !out.ends_with(['.', '?', '!', '"']) {
             out.push('.');
         }
@@ -478,7 +496,8 @@ mod generate {
              The TUI's Help tab and its key lines come from the same two tables as this page, so they say the same. \
              [Configure vtium](../configure.md#the-tui) explains what the TUI is for.\n\n\
              The diagram shows how the screens open from one another. \
-             A dashed box is a screen that vtium-config does not have yet, and its section links the issue that tracks it.\n\n\
+             A dashed box is a screen that is not built as described yet. \
+             Its section links the issue that tracks it, and says what vtium-config has today.\n\n\
              ```mermaid\nflowchart LR\n",
         );
         let mut planned = Vec::new();
@@ -512,15 +531,17 @@ mod generate {
         for node in &c.tree {
             let id = col(node, "id");
             let _ = write!(out, "\n## `{id}`\n\n{}\n", sentence(col(node, "node")));
+            // a planned screen may exist today in another shape, which the
+            // `now` column says, after a colon and so in lower case
             if col(node, "status") != "supported" {
                 let _ = write!(
                     out,
-                    "\nvtium-config does not have this screen yet. See {}.",
+                    "\nThis screen is not built as described yet. See {}.",
                     issue_links(col(node, "issue"))
                 );
                 let now = col(node, "now");
                 if !now.is_empty() {
-                    let _ = write!(out, " Today: {}", sentence(now));
+                    let _ = write!(out, " Today: {}", stop(now));
                 }
                 out.push('\n');
             }
@@ -694,6 +715,29 @@ mod generate {
         Ok(())
     }
 
+    /// A key line wider than a row is an error where the node has no row
+    /// for `.`, since such a key line cannot show its keys in pages.
+    #[test]
+    fn a_key_line_wider_than_a_row_with_no_more_key_is_refused() -> Result<(), String> {
+        let mut keys =
+            String::from("id\tkey\tstate\tmeans\tstatus\tnote\tdecided\tissue\tlabel\tpage\n");
+        let mut ids = Vec::new();
+        for l in ["a", "b", "c", "d"] {
+            keys.push_str(&format!(
+                "{l}.x\t{l}\tview\tDoes {l}.\tsupported\t\t\t\tdoes the letter {l} at length\t\n"
+            ));
+            ids.push(format!("{l}.x"));
+        }
+        let tree = format!(
+            "id\tparent\tnode\treach\tleave\tkeys\tstatus\tissue\tnow\n\
+             x\t-\ta node\t-\t-\t{}\tsupported\t\t\n",
+            ids.join(", ")
+        );
+        let c = Contract::read(&keys, &tree)?;
+        assert!(text(&c).is_err_and(|e| e.contains("the key line of x is wider than 78 columns")));
+        Ok(())
+    }
+
     /// A node that names a row the key table lacks is an error, not a
     /// key line that silently drops the key.
     #[test]
@@ -724,6 +768,8 @@ mod tests {
             "flow",
             "flow.card",
             "flow.card.typing",
+            "flow.new-card",
+            "flow.info",
             "flow.detail",
             "flow.detail.typing",
             "flow.detail.choices",

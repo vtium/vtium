@@ -369,7 +369,10 @@ pub fn too_small(cols: usize, rows: usize) -> String {
 }
 pub const TOO_SMALL_COMMANDS: &str =
     "Make this terminal larger, or use these commands, which work at any size:";
-pub const TOO_SMALL_KEYS: &str = "Press q to quit. If a font you tried made this terminal too small, press u to put back the font you had before.";
+/// What `u` does below the minimum size, under the generated key line,
+/// while the key table's row for `u` is still planned and the key line
+/// leaves `u` out.
+pub const TOO_SMALL_UNDO: &str = "Press u to put back the font the console started with.";
 
 /// The status line (ADR-1403 D7).
 pub const NO_DRAFT: &str = "no draft";
@@ -1001,6 +1004,9 @@ pub const IN_DOCUMENT: &str =
     "This part is in a path in the configuration. Press e to revise the path.";
 pub const OTHERS_CANNOT: &str =
     "These inputs are neither keyboards nor pointers, so they cannot be part of a path.";
+/// `t` on a terminal's card whose font set is the default one, which has
+/// no name of its own to try on the console.
+pub const TRY_DEFAULT_FONT_SET: &str = "The default font set has no name to try. Choose a font set on the card's Font set line, and press t to try it.";
 pub const DEFAULT_FONT_PREVIEW: &str = "The default font set is the font vtium.conf sets. The Fonts view shows each font set's preview.";
 pub const PREVIEW_PATH_NOT_HERE: &str =
     "Previewing a path needs a vtium console, and this terminal is not one.";

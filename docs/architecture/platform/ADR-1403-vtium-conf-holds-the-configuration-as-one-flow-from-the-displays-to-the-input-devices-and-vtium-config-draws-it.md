@@ -973,6 +973,8 @@ Every row of the key table applies to at least one node, and every key a node na
 
 > Edited 2026-11-16: the maintainer reviewed the differences between the walk of the code and the hand-built tree (`considered`, 2026-11-16). A part's narrowing choices became a node of their own under a part's detail, and the mouse joined the contract. The paragraph ended at "A script checks both directions."
 
+> Edited 2026-11-18: the code review of the work that generates the key lines from the contract found key lines that offered keys that did nothing. The detail of a path's display or input offered Up, Down and Enter, NEW PATH's terminal card offered `e`, a card offered `t`, and a question before an action offered `n`. The review's fix round split three nodes so that each key line names only keys that act there. `flow.info` is the read-only detail of a box of a path, `flow.new-card` is NEW PATH's terminal card, and `flow.detail` is a part's detail while its label line is under the cursor, with `flow.detail.choices` below it. `t` on a card now tries a font set, and a question before an action no longer lists `n`. The scenario test checks that every key a key line names changes something in its node.
+
 The diagram shows the tree's top levels, with the Flow, Looks and Settings views opened one level or more:
 
 ```mermaid
@@ -985,11 +987,15 @@ stateDiagram-v2
     help --> flow: Tab
     state flow {
         [*] --> overview
-        overview --> detail: Enter on a box
+        overview --> detail: Enter on a part
         detail --> detail_typing: Enter on the label
-        overview --> card: Enter on a terminal
+        detail --> choices: Down
+        overview --> info: Enter on a path's display or input
+        overview --> card: Enter on a path's terminal
         card --> card_list: Enter on a set
-        card --> card_typing: Enter on the name
+        card --> card_typing: Enter on a typed choice
+        overview --> new_card: Enter on NEW PATH's terminal
+        new_card --> card_typing: Enter on the name
         overview --> maker: Enter on a template
         maker --> picker: Enter on a filter
         picker --> picker_typing: Enter on Other…

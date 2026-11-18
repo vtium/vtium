@@ -7,9 +7,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use vtium_config::tui::flowdraw::{self, CardLine};
-use vtium_config::tui::flowview::Obj;
+use vtium_config::tui::flowview::{Obj, Slot};
 use vtium_config::tui::input::Key;
 use vtium_config::tui::model::{Then, View};
+use vtium_config::tui::paths::Piece;
 
 use super::explore::Step;
 use super::sim::{Press, Sim, Term};
@@ -457,7 +458,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             no_today,
         ),
     );
-    m.insert("n.question", (nothing, no_today));
+    m.insert("n.question", (no, no_today));
     m.insert(
         "n.question.quit",
         (
@@ -706,8 +707,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     for id in ["list.flow-card", "list.font-set-files", "list.terminals"] {
         m.insert(id, (not_built, Some(sets)));
     }
+    detail_checks(&mut m);
     m.insert(
-        "e.layer.flow-detail",
+        "e.layer.flow-info",
         (
             |s| {
                 if s.exited() {
@@ -792,6 +794,176 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("updown.typing.settings", (nothing, None));
     settings_checks(&mut m);
     m
+}
+
+/// A part's detail: its first line is the part's label, and the lines
+/// below it are the choices that narrow the part. On the label line, Up
+/// does nothing, Down moves to the first choice and Enter starts typing
+/// the label. Among the choices, Up and Down move by one line, Up from the
+/// first choice goes back to the label line, and Enter picks the choice
+/// under the cursor into NEW PATH and closes the detail.
+///
+/// References:
+/// - ADR-1403 D7, "The contract": the key table's rows of the part's
+///   detail and of its choices.
+fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
+    // the line under the detail's cursor before and after the key, with
+    // the number of choices below the label line
+    fn lines(s: &Seen<'_>) -> Result<(usize, usize, usize), String> {
+        let fv = &s.before.app.flow_view;
+        let obj = fv.layer.as_ref().ok_or("no detail was open")?;
+        let len = flowdraw::choices_for(&s.before.app, obj).len();
+        Ok((fv.line, s.after.app.flow_view.line, len))
+    }
+    m.insert("up.layer.flow-detail", (|s| s.nothing(), None));
+    m.insert(
+        "down.layer.flow-detail",
+        (
+            |s| {
+                s.goes_to("flow.detail.choices")?;
+                match lines(s)? {
+                    (0, 1, _) => Ok(()),
+                    (a, b, _) => Err(format!("Down moved the line from {a} to {b}")),
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "enter.layer.flow-detail",
+        (
+            |s| {
+                s.goes_to("flow.detail.typing")?;
+                let doc = vtium_config::tui::paths::read(&s.before.app.inputs.flow);
+                let obj = s.before.app.flow_view.layer.clone().ok_or("no detail")?;
+                let (kind, sel) = flowdraw::label_target(&obj).ok_or("no label")?;
+                let now = doc.label(kind, &sel).unwrap_or_default().to_owned();
+                match Seen::typed(s.after) {
+                    Some(t) if t == now => Ok(()),
+                    t => Err(format!("the typing starts at {t:?}, not the label {now:?}")),
+                }
+            },
+            None,
+        ),
+    );
+    // End and PgDn from the label line move into the choices, as far as
+    // the last
+    for (id, by) in [
+        ("end.layer.flow-detail", usize::MAX),
+        ("pgdn.layer.flow-detail", vtium_config::tui::listbox::PAGE),
+    ] {
+        let check: Check = match by {
+            usize::MAX => |s| {
+                s.goes_to("flow.detail.choices")?;
+                match lines(s)? {
+                    (0, b, len) if b == len => Ok(()),
+                    (a, b, _) => Err(format!("End moved the line from {a} to {b}")),
+                }
+            },
+            _ => |s| {
+                s.goes_to("flow.detail.choices")?;
+                match lines(s)? {
+                    (0, b, len) if b == vtium_config::tui::listbox::PAGE.min(len) => Ok(()),
+                    (a, b, _) => Err(format!("PgDn moved the line from {a} to {b}")),
+                }
+            },
+        };
+        m.insert(id, (check, None));
+    }
+    // Home goes back to the label line, and PgUp moves up a page, as far
+    // as the label line
+    m.insert(
+        "home.layer.flow-choices",
+        (
+            |s| {
+                s.goes_to("flow.detail")?;
+                match lines(s)? {
+                    (_, 0, _) => Ok(()),
+                    (a, b, _) => Err(format!("Home moved the line from {a} to {b}")),
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "pgup.layer.flow-choices",
+        (
+            |s| {
+                let (a, b, _) = lines(s)?;
+                let want = a.saturating_sub(vtium_config::tui::listbox::PAGE);
+                s.goes_to(if want == 0 {
+                    "flow.detail"
+                } else {
+                    "flow.detail.choices"
+                })?;
+                if b == want {
+                    Ok(())
+                } else {
+                    Err(format!("PgUp moved the line from {a} to {b}"))
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "up.layer.flow-choices",
+        (
+            |s| match lines(s)? {
+                (1, 0, _) => s.goes_to("flow.detail"),
+                (a, b, _) if a > 1 && b == a - 1 => s.goes_to("flow.detail.choices"),
+                (a, b, _) => Err(format!("Up moved the line from {a} to {b}")),
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "down.layer.flow-choices",
+        (
+            |s| {
+                s.goes_to("flow.detail.choices")?;
+                match lines(s)? {
+                    (a, b, len) if b == a.saturating_add(1).min(len) => Ok(()),
+                    (a, b, _) => Err(format!("Down moved the line from {a} to {b}")),
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "enter.layer.flow-choices",
+        (
+            |s| {
+                let fv = &s.before.app.flow_view;
+                let obj = fv.layer.clone().ok_or("no detail was open")?;
+                let list = flowdraw::choices_for(&s.before.app, &obj);
+                let Some(sel) = list
+                    .get(fv.line.saturating_sub(1))
+                    .and_then(|c| c.2.clone())
+                else {
+                    // a choice with no selector is a heading, and Enter on
+                    // it does nothing
+                    return s.nothing();
+                };
+                if s.exited() || s.after.app.flow_view.layer.is_some() || !s.kept() {
+                    return Err("Enter left the detail open, quit, or changed the draft".into());
+                }
+                let piece = match obj {
+                    Obj::Pal(Slot::Display(_)) | Obj::New(Slot::Display(_)) => Piece::Display(sel),
+                    _ => Piece::Input(sel),
+                };
+                let said =
+                    s.after.app.message.is_some() && s.after.app.message != s.before.app.message;
+                if s.after.app.flow_view.new.has(&piece) || said {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "Enter did not pick {piece:?} into NEW PATH or say why"
+                    ))
+                }
+            },
+            None,
+        ),
+    );
 }
 
 /// The Settings view's rows: Enter on a section opens it, Enter on a key
@@ -1128,9 +1300,8 @@ impl Checks {
     /// with its more item, `. more 2/3`, and shows its first page after a
     /// key that moves to another node; the row check of `.` checks that
     /// its pages together show every label. A node that is still planned
-    /// keeps its hand-written key line until its work lands, and the
-    /// screen below 80×25 shows a sentence about its keys instead of a key
-    /// line, so neither is checked.
+    /// keeps its hand-written key line until its work lands, so it is not
+    /// checked.
     ///
     /// References:
     /// - ADR-1403 D7, "The contract": the key lines are generated from the
@@ -1145,7 +1316,7 @@ impl Checks {
         let Some(node) = self.tree.iter().find(|n| n.id == node_id) else {
             return Ok(());
         };
-        if node.status != "supported" || node_id == "any.too-small" {
+        if node.status != "supported" {
             return Ok(());
         }
         let (want, _) = node_labels(&node_id);
@@ -1207,7 +1378,7 @@ impl Checks {
                 let shown = screen.join("\n");
                 let line = vtium_config::tui::view::key_line(app);
                 let small = vtium_config::tui::view::too_small(app) && app.confirm.is_none();
-                if !small && let Some(key) = line.split("  ").find(|k| !shown.contains(k)) {
+                if let Some(key) = line.split("  ").find(|k| !shown.contains(k)) {
                     return Err(format!("the key line leaves out {key:?}"));
                 }
                 // the key line is one row, once the key-line rows say so

@@ -787,24 +787,20 @@ pub fn key_rows(app: &App) -> Vec<String> {
     vec![key_line(app).to_owned()]
 }
 
-/// Items two spaces apart, in rows of at most `width` columns, each item
-/// kept whole on one row: an item goes onto the next row rather than
-/// break.
+/// Items two spaces apart, in rows of at most `width` columns. An item
+/// that fits on a row stays whole: it goes onto the next row rather than
+/// break. An item wider than a row wraps between its words onto rows of
+/// its own, so no part of it is cut off at the edge.
 fn item_rows(items: &str, width: usize) -> Vec<String> {
     let mut rows: Vec<String> = Vec::new();
     for item in items.split("  ").filter(|i| !i.is_empty()) {
+        let len = item.chars().count();
         match rows.last_mut() {
-            Some(row)
-                if row
-                    .chars()
-                    .count()
-                    .saturating_add(2)
-                    .saturating_add(item.chars().count())
-                    <= width =>
-            {
+            Some(row) if row.chars().count().saturating_add(2).saturating_add(len) <= width => {
                 row.push_str("  ");
                 row.push_str(item);
             }
+            _ if len > width => rows.extend(wrap(item, width, usize::MAX)),
             _ => rows.push(item.to_owned()),
         }
     }
@@ -834,6 +830,43 @@ pub fn picture_area(app: &App) -> (usize, usize) {
             .saturating_sub(footer)
             .saturating_sub(row.saturating_sub(1)),
     )
+}
+
+/// The message under a view's list, wrapped to the screen.
+fn message_rows(app: &App) -> Vec<String> {
+    wrap(
+        app.message.as_deref().unwrap_or(""),
+        app.cols.saturating_sub(2),
+        MESSAGE_ROWS,
+    )
+}
+
+/// The rows a view's list fills, between the tab bar's rule and the
+/// message, and whether the sentences under the list show. They show whole
+/// while the list keeps at least `LIST_MIN` rows; otherwise they are
+/// dropped and the list takes their rows.
+fn list_window(app: &App, list: usize, tail: usize) -> (usize, bool) {
+    let room = app
+        .rows
+        .saturating_sub(4)
+        .saturating_sub(message_rows(app).len())
+        .saturating_sub(key_rows(app).len());
+    let show_tail =
+        tail > 0 && (list.saturating_add(tail) <= room || room >= LIST_MIN.saturating_add(tail));
+    let list_room = if show_tail {
+        room.saturating_sub(tail)
+    } else {
+        room
+    };
+    (list_room, show_tail)
+}
+
+/// The Help view's page: how many rows it has, and how many of them the
+/// screen shows at once. The page's top row goes as far as the row that
+/// puts the page's last row at the bottom of the screen.
+pub fn help_window(app: &App) -> (usize, usize) {
+    let len = help_rows(app).len();
+    (len, list_window(app, len, 0).0)
 }
 
 /// The screen below the minimum size.
@@ -880,9 +913,12 @@ fn small(canvas: &mut Canvas, app: &App) {
     };
     // the keys that stay on the screen however few its rows: the
     // question's, at the top, or the screen's own, at the bottom
+    // the screen's own keys are its generated key line, and a sentence
+    // about u while the key line leaves u out
     let keys = if question.is_empty() {
         lines.push(String::new());
-        let keys = wrap(words::TOO_SMALL_KEYS, cols, usize::MAX);
+        let mut keys = item_rows(key_line(app), cols);
+        keys.extend(wrap(words::TOO_SMALL_UNDO, cols, usize::MAX));
         lines.extend(keys.clone());
         keys
     } else {
@@ -1033,27 +1069,10 @@ pub fn screen(app: &App) -> Vec<Row> {
         return canvas.into_rows();
     }
     canvas.put(0, 2, &"-".repeat(cols), Style::PLAIN);
-    let message = wrap(
-        app.message.as_deref().unwrap_or(""),
-        cols.saturating_sub(2),
-        MESSAGE_ROWS,
-    );
+    let message = message_rows(app);
     let keys = key_rows(app);
-    let room = rows
-        .saturating_sub(4)
-        .saturating_sub(message.len())
-        .saturating_sub(keys.len());
     let Body { list, keep, tail } = body(app);
-    // the sentences under the list show whole, while the list keeps at
-    // least LIST_MIN rows; otherwise they are dropped
-    let show_tail = !tail.is_empty()
-        && (list.len().saturating_add(tail.len()) <= room
-            || room >= LIST_MIN.saturating_add(tail.len()));
-    let list_room = if show_tail {
-        room.saturating_sub(tail.len())
-    } else {
-        room
-    };
+    let (list_room, show_tail) = list_window(app, list.len(), tail.len());
     let first = if app.view == View::Help {
         keep.min(list.len().saturating_sub(list_room))
     } else {

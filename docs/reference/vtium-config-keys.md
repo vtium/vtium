@@ -4,7 +4,7 @@
 
 vtium-config's TUI is its full-screen view of the configuration, which `vtium config tui` opens. This page lists every screen of the TUI and what each key does there. The TUI's Help tab and its key lines come from the same two tables as this page, so they say the same. [Configure vtium](../configure.md#the-tui) explains what the TUI is for.
 
-The diagram shows how the screens open from one another. A dashed box is a screen that vtium-config does not have yet, and its section links the issue that tracks it.
+The diagram shows how the screens open from one another. A dashed box is a screen that is not built as described yet. Its section links the issue that tracks it, and says what vtium-config has today.
 
 ```mermaid
 flowchart LR
@@ -13,9 +13,11 @@ flowchart LR
     flow_detail["flow.detail"]
     flow_detail_typing["flow.detail.typing"]
     flow_detail_choices["flow.detail.choices"]
+    flow_info["flow.info"]
     flow_card["flow.card"]
     flow_card_list["flow.card.list"]
     flow_card_typing["flow.card.typing"]
+    flow_new_card["flow.new-card"]
     flow_maker["flow.maker"]
     flow_maker_picker["flow.maker.picker"]
     flow_maker_picker_typing["flow.maker.picker.typing"]
@@ -44,9 +46,11 @@ flowchart LR
     flow --> flow_detail
     flow_detail --> flow_detail_typing
     flow_detail --> flow_detail_choices
+    flow --> flow_info
     flow --> flow_card
     flow_card --> flow_card_list
     flow_card --> flow_card_typing
+    flow --> flow_new_card
     flow --> flow_maker
     flow_maker --> flow_maker_picker
     flow_maker_picker --> flow_maker_picker_typing
@@ -134,11 +138,11 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 
 ## `flow.detail`
 
-A part's detail, with its label line and the choices that narrow it, or the detail of a path, the roaming inputs or Nowhere.
+A part's detail on its label line: the part's name and label, with the choices that narrow it below.
 
-**Open it:** Enter on a box that is not a terminal or a template.
+**Open it:** Enter on a display or an input in PARTS; Up from the first choice.
 
-**Leave it:** Esc to flow; e revises the path and goes to flow.
+**Leave it:** Esc to flow; Down, End and PgDn to flow.detail.choices; Enter to flow.detail.typing.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -150,10 +154,11 @@ A part's detail, with its label line and the choices that narrow it, or the deta
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
-| Up | move | Moves to the line above. |
-| Down | move | Moves to the line below. |
-| Enter | label | On the label line, lets you type the part's label. |
-| e | revise | Takes this path out of the configuration into NEW PATH, to change it. |
+| Up | - | Does nothing on the label line, which is the first line of the detail. |
+| Down | choices | Moves from the label line to the part's first choice. |
+| End | choices | Moves from the label line to the last choice. |
+| PgDn | choices | Moves from the label line down by a page of choices. |
+| Enter | label | Lets you type the part's label. |
 | Click | - | Does nothing until you close what is open with Esc. |
 | Wheel up | - | Acts as Up does in what is open. |
 | Wheel down | - | Acts as Down does in what is open. |
@@ -183,17 +188,17 @@ A part's label being typed.
 
 A part's narrowing choices: the narrower parts the part's detail offers to pick into NEW PATH.
 
-**Open it:** Down from the label line of a part's detail.
+**Open it:** Down from the label line of a part's detail; Enter on a display or an input in NEW PATH, which opens on the part's own choice.
 
-**Leave it:** Up from the first choice goes back to the label line; Enter picks a choice and goes to flow; Esc goes to flow.
+**Leave it:** Up from the first choice, Home, and PgUp near the top go to flow.detail; Enter picks a choice and goes to flow; Esc goes to flow.
 
 | Key | Shown as | What it does |
 |---|---|---|
 | Up | move | Moves to the choice above, and from the first choice back to the label line. |
 | Down | move | Moves to the choice below. |
-| Home | first | Goes to the first choice. |
+| Home | top | Goes to the label line at the top of the detail. |
 | End | last | Goes to the last choice. |
-| PgUp | page up | Moves up by a page. |
+| PgUp | page up | Moves up by a page, as far as the label line. |
 | PgDn | page down | Moves down by a page. |
 | Enter | pick | Picks the part narrowed to the highlighted choice into NEW PATH, and closes the detail. |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
@@ -208,11 +213,34 @@ A part's narrowing choices: the narrower parts the part's detail offers to pick 
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 
+## `flow.info`
+
+The detail of a display or an input of a path in CONFIGURATION, of the roaming inputs, or of Nowhere: what it matches and where it goes, read-only.
+
+**Open it:** Enter on a display or an input of a path in CONFIGURATION, of the roaming inputs, or of Nowhere.
+
+**Leave it:** Esc to flow; e takes the path into NEW PATH and goes to flow.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Esc | back | Goes back, with the same item highlighted. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| e | revise | Takes this path out of the configuration into NEW PATH, to change it. While NEW PATH holds another path, e says so and changes nothing. |
+| Click | - | Does nothing until you close what is open with Esc. |
+| Wheel up | - | Acts as Up does in what is open. |
+| Wheel down | - | Acts as Down does in what is open. |
+
 ## `flow.card`
 
-A path's terminal card, in CONFIGURATION or NEW PATH.
+An added path's terminal card, in CONFIGURATION.
 
-**Open it:** Enter on a terminal box.
+**Open it:** Enter on the terminal box of a path in CONFIGURATION.
 
 **Leave it:** Esc to flow; e revises the path and goes to flow.
 
@@ -224,8 +252,7 @@ A path's terminal card, in CONFIGURATION or NEW PATH.
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| t | try live | Tries the card's font set on this console for 10 seconds. |
-| Enter | choose | Shows the card's displays, devices or VTs as a list inside the card. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| t | try live | Tries a font set on this console for 10 seconds: on the font set line the choice under the cursor, and elsewhere the card's own font set. |
 | Enter | choose | Shows the font sets to choose from as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
@@ -234,7 +261,7 @@ A path's terminal card, in CONFIGURATION or NEW PATH.
 | Down | move | Moves to the field below. |
 | Left | choose | Steps the highlighted field to its choice before. |
 | Right | choose | Steps the highlighted field to its next choice. |
-| Enter | set | Sets the highlighted field, or lets you type the new terminal's name. |
+| Enter | set | Sets the highlighted field to the choice under the cursor, or lets you type a value where that choice is typed, such as the new terminal's name or a login command. |
 | e | revise this path | Takes this path out of the configuration into NEW PATH, to change it. |
 | Click | - | Does nothing until you close what is open with Esc. |
 | Wheel up | - | Acts as Up does in what is open. |
@@ -244,7 +271,7 @@ A path's terminal card, in CONFIGURATION or NEW PATH.
 
 The shared list, as a list box inside the card: its displays, devices, VTs, font set files or terminals.
 
-vtium-config does not have this screen yet. See [#412](https://github.com/vtium/vtium/issues/412). Today: The card shows a set as items joined in a line, and Left and Right step a field through its choices.
+This screen is not built as described yet. See [#412](https://github.com/vtium/vtium/issues/412). Today: the card shows a set as items joined in a line, and Left and Right step a field through its choices.
 
 **Open it:** Enter on a field of the card that holds a set of items.
 
@@ -258,7 +285,7 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Enter | pick | Picks the highlighted item and closes the list. On Other…, it lets you type a value. |
+| Enter | pick | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. |
 | Esc | back | Closes the list without picking. |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
 | Tab | - | Does nothing until you close what is open with Esc. |
@@ -272,11 +299,11 @@ vtium-config does not have this screen yet. See [#412](https://github.com/vtium/
 
 ## `flow.card.typing`
 
-The new terminal's name being typed.
+A field of a terminal card being typed: the new terminal's name, or a login command.
 
-**Open it:** Enter on the name field of the card in NEW PATH.
+**Open it:** Enter on the name field of NEW PATH's card, or on a choice of a card that is typed, such as Other… on the login line.
 
-**Leave it:** Enter keeps it and Esc drops it, both to flow.card.
+**Leave it:** Enter keeps it and Esc drops it, both to the card.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -290,6 +317,37 @@ The new terminal's name being typed.
 | any letter | type | Types the letter. |
 | Click | - | Does nothing while you type. |
 | Wheel up, Wheel down | - | Do nothing while you type. |
+
+## `flow.new-card`
+
+NEW PATH's terminal card: the new terminal's name, its settings, and the displays and inputs it takes.
+
+**Open it:** Enter on NEW PATH's terminal box.
+
+**Leave it:** Esc to flow.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Esc | back | Goes back, with the same item highlighted. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| t | try live | Tries a font set on this console for 10 seconds: on the font set line the choice under the cursor, and elsewhere the card's own font set. |
+| Enter | choose | Shows the card's displays, devices or VTs as a list inside the card. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | choose | Shows the font sets to choose from as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| Up | move | Moves to the field above. |
+| Down | move | Moves to the field below. |
+| Left | choose | Steps the highlighted field to its choice before. |
+| Right | choose | Steps the highlighted field to its next choice. |
+| Enter | set | Sets the highlighted field to the choice under the cursor, or lets you type a value where that choice is typed, such as the new terminal's name or a login command. |
+| Click | - | Does nothing until you close what is open with Esc. |
+| Wheel up | - | Acts as Up does in what is open. |
+| Wheel down | - | Acts as Down does in what is open. |
 
 ## `flow.maker`
 
@@ -336,7 +394,7 @@ The filter picker: each value of a match with the devices it matches now, and Ot
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Enter | pick | Picks the highlighted item and closes the list. On Other…, it lets you type a value. |
+| Enter | pick | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. |
 | Esc | back | Closes the list without picking. |
 | Enter | choose | Shows the devices that each value matches as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
@@ -464,7 +522,7 @@ Restore's list of the installed history, newest first.
 
 The Looks tab: the looks and the font sets, with one preview of a look's font set and size.
 
-vtium-config does not have this screen yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: A list of sizes whose Enter writes the top-level font-size.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the Looks tab is a list of sizes whose Enter writes the top-level font-size.
 
 **Open it:** Tab from flow, Shift-Tab from settings.
 
@@ -501,7 +559,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 
 The shared list of the font sets, or of the sizes.
 
-vtium-config does not have this screen yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: No such list.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no such list.
 
 **Open it:** Enter on the look's font set or size.
 
@@ -515,7 +573,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Enter | pick | Picks the highlighted item and closes the list. On Other…, it lets you type a value. |
+| Enter | pick | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. |
 | Esc | back | Closes the list without picking. |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
 | Tab | - | Does nothing until you close what is open with Esc. |
@@ -528,7 +586,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 
 The form for a new font set: a text font and the layers (the views table's new-frit).
 
-vtium-config does not have this screen yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: Under=fonts; o writes the top-level allow-font-ops in a vtium console with allow-font-ops off, and i installs from the last row.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Fonts tab, o writes the top-level allow-font-ops in a vtium console with allow-font-ops off, and i installs from the last row.
 
 **Open it:** N.
 
@@ -557,7 +615,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 
 A field of the form being typed.
 
-vtium-config does not have this screen yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: Under the Fonts tab, and Up and Down move to another field while a value is typed.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Fonts tab, and Up and Down move to another field while a value is typed.
 
 **Open it:** The form opens on its first field; Enter on a field goes to the next field.
 
@@ -579,7 +637,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 
 The shared list of the layers in the frits' directory.
 
-vtium-config does not have this screen yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: The form has three source fields and no layers.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the form has three source fields and no layers.
 
 **Open it:** Enter on the form's layer field.
 
@@ -593,7 +651,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Enter | pick | Picks the highlighted item and closes the list. On Other…, it lets you type a value. |
+| Enter | pick | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. |
 | Esc | back | Closes the list without picking. |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
 | Tab | - | Does nothing until you close what is open with Esc. |
@@ -606,7 +664,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 
 The Fonts tab, which goes into the Looks tab.
 
-vtium-config does not have this screen yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: A tab of its own at place 3, with n, r, t and s on its font sets.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the Fonts tab is a tab of its own at place 3, with n, r, t and s on its font sets.
 
 **Open it:** Tab from looks, Shift-Tab from settings.
 
@@ -726,7 +784,7 @@ The shared list of a key's allowed values.
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Enter | pick | Picks the highlighted item and closes the list. On Other…, it lets you type a value. |
+| Enter | pick | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. |
 | Esc | back | Closes the list without picking. |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
 | Tab | - | Does nothing until you close what is open with Esc. |
@@ -821,12 +879,11 @@ A question before an action: Install, Revert, Restore, New, or deleting a look.
 
 **Open it:** I, r, n, or Enter on Restore's list.
 
-**Leave it:** Y acts; n where offered, Esc and Ctrl-C go back without acting.
+**Leave it:** Y acts; Esc and Ctrl-C go back without acting; every other key, n included, does nothing.
 
 | Key | Shown as | What it does |
 |---|---|---|
 | y | yes | Answers yes, and vtium-config does what the question asks. |
-| n | no | Answers no. Nothing changes. Where the question offers no n, n does nothing. |
 | Esc | cancel | Cancels the question. Nothing changes. |
 | Ctrl-C | cancel | Cancels the question, as Esc does. Nothing changes. |
 | q | - | Does nothing. The question stays until you answer it or cancel it. |
@@ -841,7 +898,7 @@ A question before an action: Install, Revert, Restore, New, or deleting a look.
 
 "Let programs resize the grid?"
 
-vtium-config does not have this screen yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: No such question.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no such question.
 
 **Open it:** W in looks while allow-window-ops is off.
 
@@ -850,7 +907,7 @@ vtium-config does not have this screen yet. See [#379](https://github.com/vtium/
 | Key | Shown as | What it does |
 |---|---|---|
 | y | yes | Answers yes, and vtium-config does what the question asks. |
-| n | no | Answers no. Nothing changes. Where the question offers no n, n does nothing. |
+| n | no | Answers no. Nothing changes. |
 | Esc | cancel | Cancels the question. Nothing changes. |
 | Ctrl-C | cancel | Cancels the question, as Esc does. Nothing changes. |
 | q | - | Does nothing. The question stays until you answer it or cancel it. |

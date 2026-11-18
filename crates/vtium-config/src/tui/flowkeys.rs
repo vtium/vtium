@@ -656,7 +656,8 @@ impl App {
     /// A key on a terminal's card, an added path's or the editor's: Up and
     /// Down move between its lines, Left and Right between a line's
     /// choices, Enter sets the choice or starts typing the name or, on the
-    /// login's Other…, a command, and Esc goes back. `e` on an added path's card revises it.
+    /// login's Other…, a command, and Esc goes back. `t` tries a font set
+    /// on the console, and `e` on an added path's card revises the path.
     fn terminal_card_key(&mut self, state: &State, obj: &Obj, key: Key) -> Vec<Effect> {
         let Some(path) = flowdraw::card_path(self, obj) else {
             self.flow_with(|s| s.layer = None);
@@ -706,6 +707,21 @@ impl App {
                 Obj::Doc(..) => self.revise(obj),
                 _ => Vec::new(),
             },
+            // the font set line's choice under the cursor, so a font set
+            // can be tried before Enter sets it; elsewhere the card's own
+            Key::Char('t') => {
+                let font = if line == flowdraw::CardLine::Font {
+                    choices.get(state.pick).map(|(_, v)| v.clone())
+                } else {
+                    path.font.clone()
+                }
+                .unwrap_or_default();
+                if font.is_empty() {
+                    self.tell(words::TRY_DEFAULT_FONT_SET)
+                } else {
+                    self.try_live(font)
+                }
+            }
             Key::Escape => {
                 self.flow_with(|s| s.layer = None);
                 Vec::new()
