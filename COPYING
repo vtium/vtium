@@ -90,7 +90,9 @@ Font Name "Terminus Font", licensed under the SIL Open Font License 1.1, whose
 text is crates/vtium-font/data/OFL-1.1.txt in vtium's source and OFL-1.1.txt
 beside this file in an installed console. The strikes are a modified version
 of the font, so they carry vtium's name and not the reserved name. The 8x8
-strike is cut from Unscii-8, by Viznut, which is in the public domain.
+strike is cut from Unscii-8, by Viznut, which is in the public domain, with
+four glyphs of vtium's own under vtium's MIT license
+(crates/vtium-font/data/vtium-8x8.hex).
 
 The geometry of vtium-font's sprites (crates/vtium-font/src/sprite.rs) is
 adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under

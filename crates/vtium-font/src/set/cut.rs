@@ -51,7 +51,15 @@ pub(crate) struct Strike {
     /// The source's name and version, for the set's provenance.
     pub source: &'static str,
     pub license: &'static str,
+    /// vtium's own glyphs for characters of the list the source lacks, a
+    /// hex file in the source's cell, relative to the crate's folder.
+    pub own: Option<&'static str>,
 }
+
+/// The name, version and license of vtium's own 8×8 glyphs, for the 8×8
+/// strike's provenance.
+pub(crate) const OWN_SOURCE: &str = "vtium's own 8x8 glyphs, vtium-8x8.hex";
+pub(crate) const OWN_LICENSE: &str = "MIT";
 
 /// The built-in font's strikes, smallest first: 8×8 for cells under 16
 /// pixels high, 8×16 for cells from 16 to 31, and 16×32 from 32.
@@ -65,6 +73,8 @@ pub(crate) const STRIKES: [Strike; 3] = [
         format: Format::Hex { baseline: 7 },
         source: "Unscii 2.1, unscii-8.hex",
         license: "public domain",
+        // the four characters of code page 437 that Unscii-8 lacks
+        own: Some("data/vtium-8x8.hex"),
     },
     Strike {
         file: "builtin-8x16.vtglass",
@@ -74,6 +84,7 @@ pub(crate) const STRIKES: [Strike; 3] = [
         format: Format::Bdf,
         source: "Terminus Font 4.49.1, ter-u16n.bdf",
         license: "OFL-1.1",
+        own: None,
     },
     Strike {
         file: "builtin-16x32.vtglass",
@@ -83,6 +94,7 @@ pub(crate) const STRIKES: [Strike; 3] = [
         format: Format::Bdf,
         source: "Terminus Font 4.49.1, ter-u32n.bdf",
         license: "OFL-1.1",
+        own: None,
     },
 ];
 
@@ -133,11 +145,16 @@ pub(crate) fn listed(ranges: &[(u32, u32)], cp: u32) -> bool {
 
 /// The glyphs of a hex file `text` whose cells are `width` by `height`,
 /// stood on `baseline`. A glyph of another width, such as Unscii-8's
-/// 16×8 U+0000, is left out, since no strike draws it.
+/// 16×8 U+0000, is left out, since no strike draws it. A line that starts
+/// with `#` is a comment, which lets vtium's own glyph file carry its
+/// license notice, and an empty line is skipped.
 pub(crate) fn hex(text: &str, width: u16, height: u16, baseline: u16) -> Result<Glyphs, String> {
     let digits = usize::from(width.div_ceil(8)) * usize::from(height) * 2;
     let mut glyphs = BTreeMap::new();
     for (i, line) in text.lines().enumerate() {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         let (cp, bits) = line
             .split_once(':')
             .ok_or_else(|| format!("line {}: no ':'", i + 1))?;
@@ -237,12 +254,27 @@ pub(crate) fn bdf(text: &str) -> Result<Glyphs, String> {
     Ok(out)
 }
 
-/// The glyphs of `strike`'s source `text`.
-pub(crate) fn read(strike: &Strike, text: &str) -> Result<Glyphs, String> {
-    let glyphs = match strike.format {
+/// The glyphs of `strike`'s source `text`, with the glyphs of `own`, the
+/// text of the strike's own glyph file, added. The own file is a hex file
+/// in the strike's cell, on the source's baseline. It fills only
+/// characters the source lacks, so a glyph that both hold is an error: a
+/// glyph of vtium's own never replaces one of the source's unnoticed.
+pub(crate) fn read(strike: &Strike, text: &str, own: Option<&str>) -> Result<Glyphs, String> {
+    let mut glyphs = match strike.format {
         Format::Hex { baseline } => hex(text, strike.width, strike.height, baseline)?,
         Format::Bdf => bdf(text)?,
     };
+    if let Some(own) = own {
+        let own = hex(own, strike.width, strike.height, glyphs.baseline)?;
+        for (cp, glyph) in own.glyphs {
+            if glyphs.glyphs.insert(cp, glyph).is_some() {
+                return Err(format!(
+                    "U+{cp:04X} is in {} and in the strike's own glyph file",
+                    strike.path
+                ));
+            }
+        }
+    }
     if (glyphs.width, glyphs.height) != (strike.width, strike.height) {
         return Err(format!(
             "{} has {}×{} cells, not {}×{}",

@@ -123,12 +123,19 @@ fn own(out: &std::path::Path) {
     );
     std::fs::write(out.join("builtin_chars.rs"), list).expect("write the list");
     for strike in &set::cut::STRIKES {
-        println!("cargo::rerun-if-changed={}", strike.path);
-        let source =
-            std::fs::read(strike.path).unwrap_or_else(|e| panic!("read {}: {e}", strike.path));
-        let sha = sha256::hex(&sha256::Sha256::digest(&source));
-        let text = String::from_utf8(source).expect("a font source is UTF-8");
-        let all = set::cut::read(strike, &text).unwrap_or_else(|e| panic!("{}: {e}", strike.path));
+        let read = |path: &str| {
+            println!("cargo::rerun-if-changed={path}");
+            let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("read {path}: {e}"));
+            let sha = sha256::hex(&sha256::Sha256::digest(&bytes));
+            (
+                String::from_utf8(bytes).expect("a font source is UTF-8"),
+                sha,
+            )
+        };
+        let (text, sha) = read(strike.path);
+        let own = strike.own.map(read);
+        let all = set::cut::read(strike, &text, own.as_ref().map(|(t, _)| t.as_str()))
+            .unwrap_or_else(|e| panic!("{}: {e}", strike.path));
         let cut = set::cut::cut(&all, &ranges);
         let mut glyphs = Vec::new();
         let mut map = Vec::new();
@@ -140,13 +147,22 @@ fn own(out: &std::path::Path) {
             set::cut::Format::Hex { .. } => "unifont-hex",
             set::cut::Format::Bdf => "bdf",
         };
-        let meta = [
+        let mut meta = vec![
             ("name", set::cut::SET_NAME.to_owned()),
             ("source", strike.source.to_owned()),
             ("source-sha256", sha),
             ("source-format", format.to_owned()),
             ("license", strike.license.to_owned()),
         ];
+        // vtium's own glyphs, a second source with its own license
+        if let Some((_, own_sha)) = own {
+            meta.extend([
+                ("source", set::cut::OWN_SOURCE.to_owned()),
+                ("source-sha256", own_sha),
+                ("source-format", "unifont-hex".to_owned()),
+                ("license", set::cut::OWN_LICENSE.to_owned()),
+            ]);
+        }
         let bytes = encode_set(&meta, (cut.width, cut.height, cut.baseline), glyphs, map);
         std::fs::write(out.join(strike.file), bytes).expect("write a strike");
     }
