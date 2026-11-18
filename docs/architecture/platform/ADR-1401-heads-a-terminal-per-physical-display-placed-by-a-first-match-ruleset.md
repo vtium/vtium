@@ -1564,7 +1564,7 @@ flowchart TD
 
 > Edited 2026-11-05: ADR-1403 extended the trust check to the whole of vtium.conf, with an exception for a vtium that runs unprivileged (ADR-1403 D3). The bullet began: "The head file, the profiles and the frits route input", said "and the shipped default runs instead (D7)", and ended: "The console reads no file that a user supplies."
 
-> Note 2026-11-18: ADR-1205, proposed on this date, sets a trust rule for resource files: the font files, color maps and shaders a look draws from (ADR-1205 D4). A resource is in use only from a root-owned folder that neither the group nor others can write, on a filesystem that stays mounted, with no symbolic link on the way. That rule sits beside this decision, which keeps its scope: vtium.conf and the frits.
+> Note 2026-11-18: ADR-1205, proposed on this date, sets a trust rule for resource files: the font files, color maps and shaders a look draws from (ADR-1205 D4). A resource can be activated only from a root-owned folder that neither the group nor others can write, on a filesystem that stays mounted, with no symbolic link on the way. That rule sits beside this decision, which keeps its scope: vtium.conf and the frits.
 
 ### D11: how it is judged
 
