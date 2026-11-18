@@ -8027,6 +8027,31 @@ class FontSourcesTest(unittest.TestCase):
                                   "not draw it",
                                   "the Font Logos icon U+F303 is not a hollow box"])
 
+    def test_cullet_mono_draws_cjk_as_a_box_where_unifont_does_not_fit(self):
+        # Cullet Mono's cell at 16 pixels is 7x16, narrower than Unifont's
+        # 8-pixel glyphs, so the Han character draws as a hollow box
+        # (ADR-1204 D2, amended 2026-11-18).
+        glyphs = self.sources()
+        cell = (7, 16)
+        img, reference = self.cullet_screens(cell, glyphs)
+        wide = (2 * cell[0], cell[1])
+        # clear the probe and the columns Unifont's 16-pixel glyph spilled
+        # past it, then draw the box
+        x0, y0, w, h = t3_fonts.probe_box(t3_fonts.HAN, cell)
+        w += cell[0]
+        for y in range(y0, y0 + h):
+            img.data[(y * img.width + x0) * 3:(y * img.width + x0 + w) * 3] = b"\x10" * 3 * w
+        self.paint(img, t3_fonts.HAN, cell, self.box(wide))
+        found, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
+        self.assertEqual(faults, [])
+        self.assertEqual(found[t3_fonts.HAN], ["a hollow box"])
+        # a blank cell is not the hollow box
+        for y in range(y0, y0 + h):
+            img.data[(y * img.width + x0) * 3:(y * img.width + x0 + w) * 3] = b"\x10" * 3 * w
+        _, faults = t3_fonts.judge_cullet(img, reference, cell, 16, glyphs)
+        self.assertEqual(faults, ["the Han character U+4E2D is not a hollow box, though "
+                                  "Unifont's 8-pixel glyphs do not fit a 7-pixel cell"])
+
     class FakeVm:
         """The parts of a VM the check reads: the console log, the event
         port, and the keys typed."""

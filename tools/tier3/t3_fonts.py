@@ -64,6 +64,8 @@ NAMES = {LETTER: "the letter g", POWERLINE: "the Powerline separator U+E0B0",
 # Where the install tree puts the fonts of both sets.
 FONTS = "usr/share/vtium/fonts/"
 UNIFONT = FONTS + "unifont_all-17.0.03.hex"
+# The width of Unifont's narrow glyphs, in pixels; a wide glyph is twice it.
+UNIFONT_WIDTH = 8
 TERMINUS_STRIKES = (12, 14, 16, 18, 20, 22, 24, 28, 32)
 # The reference set the cullet-mono variants switch to (guest/frits).
 REFERENCE = "cullet-alone"
@@ -77,7 +79,8 @@ CHECKS = {
           "of the cell's height, or its 32-pixel strike at 40; the Han character, U+20000 and "
           "the emoji from Unifont, in 1 bit; the Nerd Fonts icon as a hollow box. Correct for "
           "cullet-mono: the letter and the Nerd Fonts icon from Cullet Mono, the emoji in "
-          "color from Noto Color Emoji, the Han character from Unifont, and the Font Logos "
+          "color from Noto Color Emoji, the Han character from Unifont, or a hollow box where "
+          "the cell is narrower than Unifont's 8-pixel glyphs, and the Font Logos "
           "icon as a hollow box.",
 }
 
@@ -358,11 +361,24 @@ def judge_cullet(img, reference, cell, size, glyphs):
     else:
         found[EMOJI] = matches(set(drawn[EMOJI]), glyphs[ord(EMOJI)], cell[1])
         faults.append("%s holds no color, so Noto Color Emoji did not draw it" % NAMES[EMOJI])
-    names = matches(set(drawn[HAN]), glyphs[ord(HAN)], cell[1])
-    found[HAN] = names
-    if names != [unifont]:
-        faults.append("%s matches %s, not %s alone" % (
-            NAMES[HAN], " and ".join(names) or "no source's glyph", unifont))
+    # Cullet Mono's cell is 0.46 times as wide as it is high, so at 16 and 17
+    # pixels it is 7 pixels wide, too narrow for Unifont's 8-pixel glyphs, and
+    # no source draws the Han character: vtium draws a hollow box.
+    #
+    # References:
+    # - ADR-1204 D2, amended 2026-11-18: cullet-mono draws CJK through
+    #   Unifont from 18 pixels up.
+    if cell[0] < UNIFONT_WIDTH:
+        found[HAN] = ["a hollow box"] if hollow_box(set(drawn[HAN])) else []
+        if not found[HAN]:
+            faults.append("%s is not a hollow box, though Unifont's %d-pixel glyphs do not fit "
+                          "a %d-pixel cell" % (NAMES[HAN], UNIFONT_WIDTH, cell[0]))
+    else:
+        names = matches(set(drawn[HAN]), glyphs[ord(HAN)], cell[1])
+        found[HAN] = names
+        if names != [unifont]:
+            faults.append("%s matches %s, not %s alone" % (
+                NAMES[HAN], " and ".join(names) or "no source's glyph", unifont))
     found[LOGO] = ["a hollow box"] if hollow_box(set(drawn[LOGO])) else []
     if not found[LOGO]:
         faults.append("%s is not a hollow box" % NAMES[LOGO])
