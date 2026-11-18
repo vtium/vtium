@@ -204,11 +204,25 @@ fn needs_report(
         };
         with_page(text, source);
     }
+    // the source whose strike= line a line of the answer names, and the
+    // strike's file, which the report names in place of the source's
+    let strike_of = |line: usize, spelling: &str| {
+        frit.sources.iter().find_map(|s| {
+            s.strikes
+                .iter()
+                .find(|k| frit.place(k.line).own == line && k.spelling == spelling)
+                .map(|k| (s, k))
+        })
+    };
     for d in differs {
-        let Some(source) = source_of(d.line, &d.spelling) else {
-            continue;
+        let (source, font) = match source_of(d.line, &d.spelling) {
+            Some(source) => (source, source.font_name()),
+            None => match strike_of(d.line, &d.spelling) {
+                Some((source, strike)) => (source, strike_file(&strike.origin)),
+                None => continue,
+            },
         };
-        let Some(font) = source.font_name() else {
+        let Some(font) = font else {
             continue;
         };
         let text = match &d.what {
@@ -224,6 +238,15 @@ fn needs_report(
         with_page(text, source);
     }
     out
+}
+
+/// The file a strike names, as the report names it; `None` for a kbd
+/// font, which names no file.
+fn strike_file(origin: &Origin) -> Option<String> {
+    match origin {
+        Origin::File(path) | Origin::Bdf(path) => Some(path.display().to_string()),
+        _ => None,
+    }
 }
 
 /// The sources left out, as `fonts` lists them: each source's spelling, a
@@ -893,6 +916,40 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The report names a strike whose file has another SHA-256 by the
+    // strike's own file, with the page of the source the strike belongs
+    // to, as it names a source's file.
+    //
+    // References:
+    // - ADR-1204 D2: a bitmap source's strikes, each its own file.
+    // - ADR-1204 D7: a file with another hash still draws, and is reported.
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test fails by panicking")]
+    fn the_report_names_a_strike_whose_hash_differs_by_its_file() {
+        let frit = Frit::parse(
+            format!(
+                "source=bdf:/f/ter-u16n.bdf.gz\nurl=https://example.org/terminus/\nstrike=bdf:/f/ter-u12n.bdf.gz\nsha256={}\n",
+                "0".repeat(64)
+            )
+            .as_bytes(),
+            Path::new("/r/terminus.vtfrit"),
+            "terminus",
+        )
+        .expect("the frit");
+        let differs = [Differs {
+            line: 3,
+            spelling: "bdf:/f/ter-u12n.bdf.gz".to_owned(),
+            what: Differ::OtherHash("1".repeat(64)),
+        }];
+        assert_eq!(
+            needs_report("terminus", &frit, &[], &differs),
+            [
+                fonts_report::other_file("terminus", "/f/ter-u12n.bdf.gz"),
+                fonts_report::page("https://example.org/terminus/"),
+            ]
+        );
+    }
 
     // vtium-config installs no set of a name that a category folder of the
     // catalog already holds, and installs any other name.

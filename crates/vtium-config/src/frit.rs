@@ -106,15 +106,17 @@ pub struct Source {
     /// which its superscript and subscript glyphs may come (ADR-1202 D3,
     /// D12), in the frit's order.
     pub script_sources: Vec<ScriptSource>,
-    /// `strike=`: the bitmap files of an outline source's design at the
-    /// heights they were drawn for, in the frit's order. A cell up to the
-    /// tallest strike's height draws the largest strike that fits it, and
-    /// the outline draws above that height and every character the strike
-    /// lacks.
+    /// `strike=`: bitmap files of the source's design at the heights they
+    /// were drawn for, in the frit's order. Under an outline source, a
+    /// cell up to the tallest strike's height draws the largest strike
+    /// that fits it, and the outline draws above that height and every
+    /// character the strike lacks. Under a bitmap source, the source and
+    /// its strikes are one font at several heights, and each cell draws
+    /// the tallest of them that fits it.
     ///
     /// References:
-    /// - ADR-1204 D2: the `strike=` key, and the switch at the tallest
-    ///   strike's height.
+    /// - ADR-1204 D2: the `strike=` key under an outline source and under
+    ///   a bitmap source.
     pub strikes: Vec<ScriptSource>,
     /// `style=`: the style the source draws, regular unless the frit names
     /// another (ADR-1200 D1, D21).
@@ -282,15 +284,24 @@ impl Ord for Version {
 /// One `script-source=` line: a smaller size of the same font as the
 /// bitmap `source=` line above it (ADR-1202 D12). It takes that line's
 /// `unimap=` where it has no Unicode table of its own. A `strike=` line,
-/// a bitmap file of the outline source above it, is held the same way.
+/// a bitmap file of the source above it at another height, is held the
+/// same way.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ScriptSource {
     /// The value as the frit spelled it.
     pub spelling: String,
     /// A `kbd:`, `file:` or `bdf:` font.
     pub origin: Origin,
-    /// The `script-source=` line, from 1.
+    /// The `script-source=` or `strike=` line, from 1.
     pub line: usize,
+    /// `sha256=` on the lines after a `strike=` line: the SHA-256 of the
+    /// strike's file, as 64 lowercase hexadecimal digits. A file with
+    /// another hash still draws, and vtium-config reports it. Always
+    /// `None` for a `script-source=` line.
+    ///
+    /// References:
+    /// - ADR-1204 D7: `sha256=` names the hash of each file a set names.
+    pub sha256: Option<String>,
 }
 
 /// One `fit=` line: the set it is for and its value. The set is the
@@ -703,6 +714,9 @@ impl Frit {
         // whether the last key line was a `layer=` line, so that no key
         // after it describes a source above it
         let mut after_layer = false;
+        // whether the last line that named a font file was a `strike=`
+        // line, so that a `sha256=` line gives that strike's hash
+        let mut strike_open = false;
         // the layer whose lines a spliced text is reading, by its name
         let mut open: Option<String> = None;
         for (line, n) in text.split('\n').zip(1usize..) {
@@ -795,6 +809,7 @@ impl Frit {
                         needs: Needs::default(),
                     });
                     after_layer = false;
+                    strike_open = false;
                     set = Some((n, None));
                 }
                 "unimap" => {
@@ -876,19 +891,26 @@ impl Frit {
                         spelling: value.to_owned(),
                         origin,
                         line: n,
+                        sha256: None,
                     });
+                    strike_open = false;
                 }
                 "strike" => {
                     let i = current(&mut sources)?;
                     let source = sources
                         .get_mut(i)
                         .ok_or_else(|| err(n, "there is no source line"))?;
-                    // a font: source is a console font or an outline font,
-                    // which only the helper finds out, so it may take one
-                    if !matches!(source.origin, Origin::Outline(_) | Origin::Font(_)) {
+                    // a source that names a font file or a font by its name
+                    // takes strikes of its design; the built-in fonts and
+                    // the system's console font are of no design a frit
+                    // can name the other heights of
+                    if matches!(
+                        source.origin,
+                        Origin::Builtin(_) | Origin::Vconsole | Origin::Console(_)
+                    ) {
                         return Err(err(
                             n,
-                            "strike= is for an outline font, and the source above it is a bitmap font",
+                            "strike= is for a font you install, and the source above it is built into vtium or names the system's console font",
                         ));
                     }
                     let origin = match origin(value) {
@@ -907,15 +929,37 @@ impl Frit {
                         spelling: value.to_owned(),
                         origin,
                         line: n,
+                        sha256: None,
                     });
+                    strike_open = true;
                 }
                 "version" | "check" | "sha256" | "url" => {
                     let i = current(&mut sources)?;
                     let source = sources
                         .get_mut(i)
                         .ok_or_else(|| err(n, "there is no source line"))?;
-                    need(&mut source.needs, &source.origin, key, value)
-                        .map_err(|why| err(n, &why))?;
+                    // sha256= after a strike= line is the strike's file's
+                    // hash; the other three describe the font, so they go
+                    // to the source whatever line they follow
+                    match source.strikes.last_mut().filter(|_| strike_open) {
+                        Some(strike) if key == "sha256" => {
+                            if !matches!(strike.origin, Origin::File(_) | Origin::Bdf(_)) {
+                                return Err(err(
+                                    n,
+                                    "sha256= is for a strike named by its path, file: or bdf:, and the strike above it names no file",
+                                ));
+                            }
+                            if strike.sha256.is_some() {
+                                return Err(err(n, "sha256= appears twice for one strike"));
+                            }
+                            let mut file = Needs::default();
+                            need(&mut file, &strike.origin, key, value)
+                                .map_err(|why| err(n, &why))?;
+                            strike.sha256 = file.sha256;
+                        }
+                        _ => need(&mut source.needs, &source.origin, key, value)
+                            .map_err(|why| err(n, &why))?,
+                    }
                 }
                 "style" => {
                     let i = current(&mut sources)?;
@@ -1912,13 +1956,14 @@ mod tests {
         }
     }
 
-    // strike= names a bitmap file of the outline source above it, once for
-    // each file, and nothing else takes it.
+    // strike= names a bitmap file of the source above it, an outline or a
+    // bitmap font, once for each file. A built-in font and the system's
+    // console font take none.
     //
     // References:
-    // - ADR-1204 D2: the strike= key.
+    // - ADR-1204 D2: the strike= key under an outline and a bitmap source.
     #[test]
-    fn strike_names_bitmap_files_of_the_outline_source_above_it() {
+    fn strike_names_bitmap_files_of_the_source_above_it() {
         let frit = parse(
             "source=outline:/t.ttf\nstrike=bdf:/t12.bdf\nstrike=kbd:ter-v16n\nsource=font:Other\nstrike=file:/o.psf\n",
         )
@@ -1947,9 +1992,14 @@ mod tests {
                 "strike= comes before any source= line",
             ),
             (
-                "source=kbd:x\nstrike=bdf:/a.bdf\n",
+                "source=builtin:unifont\nstrike=bdf:/a.bdf\n",
                 2,
-                "strike= is for an outline font",
+                "strike= is for a font you install",
+            ),
+            (
+                "source=vconsole\nstrike=bdf:/a.bdf\n",
+                2,
+                "strike= is for a font you install",
             ),
             (
                 "source=outline:/t.ttf\nstrike=outline:/a.ttf\n",
@@ -1963,6 +2013,77 @@ mod tests {
             ),
         ] {
             let (n, e) = refusal(text);
+            assert_eq!(n, line, "{text:?}");
+            assert!(e.starts_with(why), "{text:?}: {e}");
+        }
+    }
+
+    // A bitmap source and its strikes are one font at several heights, so
+    // each file carries its own sha256=: the line after a strike= line
+    // gives that strike's hash, and the source keeps its own. version=,
+    // check= and url= describe the font, so they go to the source after a
+    // strike= line too. A second sha256= for one strike, and one under a
+    // strike that names no file, refuse the frit.
+    //
+    // References:
+    // - ADR-1204 D2: strike= under a bitmap source.
+    // - ADR-1204 D7: sha256= for each file the set names.
+    #[test]
+    fn each_strike_of_a_bitmap_source_carries_its_own_hash() {
+        let (a, b, c) = ("a".repeat(64), "B".repeat(64), "c".repeat(64));
+        let frit = parse(&format!(
+            "source=bdf:/f/ter-u16n.bdf.gz
+version=4.49.1
+sha256={a}
+             strike=bdf:/f/ter-u12n.bdf.gz
+sha256={b}
+url=https://example.org/terminus/
+             strike=bdf:/f/ter-u14n.bdf.gz
+             strike=file:/f/ter-u18n.psf
+sha256={c}
+"
+        ))
+        .expect("the frit");
+        let source = &frit.sources[0];
+        assert_eq!(source.needs.sha256.as_deref(), Some(a.as_str()));
+        assert_eq!(
+            source.needs.version.as_ref().map(|v| v.spelling.as_str()),
+            Some("4.49.1")
+        );
+        assert_eq!(
+            source.needs.url.as_deref(),
+            Some("https://example.org/terminus/")
+        );
+        let hashes: Vec<Option<&str>> =
+            source.strikes.iter().map(|k| k.sha256.as_deref()).collect();
+        assert_eq!(
+            hashes,
+            [Some("b".repeat(64).as_str()), None, Some(c.as_str())]
+        );
+        for (text, line, why) in [
+            (
+                format!("source=bdf:/a.bdf\nstrike=bdf:/b.bdf\nsha256={a}\nsha256={a}\n"),
+                4,
+                "sha256= appears twice for one strike",
+            ),
+            (
+                format!("source=bdf:/a.bdf\nstrike=kbd:ter-v12n\nsha256={a}\n"),
+                3,
+                "sha256= is for a strike named by its path",
+            ),
+            (
+                format!("source=bdf:/a.bdf\nstrike=bdf:/b.bdf\nsha256=12\n"),
+                3,
+                "sha256= takes the file's SHA-256",
+            ),
+            // a source= line after the strikes takes its own sha256=
+            (
+                format!("source=bdf:/a.bdf\nstrike=bdf:/b.bdf\nsource=kbd:x\nsha256={a}\n"),
+                4,
+                "sha256= is for a source named by its path",
+            ),
+        ] {
+            let (n, e) = refusal(&text);
             assert_eq!(n, line, "{text:?}");
             assert!(e.starts_with(why), "{text:?}: {e}");
         }
@@ -2354,7 +2475,7 @@ mod tests {
             ),
             (
                 format!("source=font:Fira Code\nsha256={hash}\n"),
-                "sha256= is for a source named by its path, file:, bdf: or outline:, and the source above it names no file",
+                "sha256= is for a source named by its path, file:, bdf:, hex: or outline:, and the source above it names no file",
             ),
             (
                 "source=builtin:unscii-8\ncheck=U+4E2D\n".into(),
