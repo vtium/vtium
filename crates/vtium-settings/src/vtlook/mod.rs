@@ -43,8 +43,8 @@ pub use template::{TEMPLATE, template};
 /// The name of the built-in vtlook.
 pub const DEFAULT: &str = "default";
 
-/// How vtium's log, `vtium check-config` and vtium-config name the
-/// built-in vtlook.
+/// How vtium-config's listing names the built-in vtlook. vtium's log and
+/// `vtium check-config` call it the built-in vtlook.
 pub const BUILT_IN: &str = "default (built in)";
 
 /// The folder vtium reads vtlooks from: set at build time with
