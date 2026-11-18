@@ -537,7 +537,8 @@ impl App {
             ),
         };
         let bytes = session::scrollback_bytes(&config, caps, rules.heads.len());
-        let heads = session::heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
+        // The head file's heads replace these before any display comes.
+        let heads = session::interim_heads(&rules, &config, ((cap, lines), bytes), caps, &clock);
         let built = heads.len();
         let dpms = config
             .number(&keys::DPMS_TIMEOUT)
@@ -6930,6 +6931,23 @@ mod tests {
     /// time, and each head still wants its frit's cell.
     /// The seat is shown, and the frits' directory kept for the test,
     /// which removes it when the test ends.
+    // ADR-1304 D6: a start reads and logs each head's vtlook once. App::new
+    // builds the compiled-in head `console` until the head file's heads
+    // replace it, and that interim head reads no vtlook, so the one line
+    // about the missing vtlook names head `desk`, which the file declares.
+    #[test]
+    fn a_start_reads_and_logs_a_vtlook_once_for_the_files_head() {
+        crate::getty::tests::logged();
+        let heads = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
+        let (_lp, _app) = seat_with(&["--vtlook=gone"], Some(heads), no_fonts());
+        let lines: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.contains("gone"))
+            .collect();
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(lines.iter().all(|l| l.contains("head desk")), "{lines:?}");
+    }
+
     /// A seat whose one head draws the font set `t`, whose first source
     /// is a bitmap font with strikes, through a stand-in helper that never
     /// answers. The first ask, at the head's height, had no answer in time.
