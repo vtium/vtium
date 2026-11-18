@@ -1,6 +1,6 @@
 //! The font vtium draws when no font is named: the default set `terminus`
-//! where it is installed, the built-in font on a small display, and the
-//! built-in font with one log line where no `terminus` set is installed.
+//! where it is installed, the built-in font on a small display at the
+//! automatic height, and the built-in font with one log line where no `terminus` set is installed.
 //! Each test boots the seat on the fake VT with one display in memory,
 //! with no vtium.conf, no vconsole font and no kernel command line.
 //!
@@ -135,16 +135,18 @@ fn sources(frits: &Path) -> Sources {
 /// sets in `frits`, and the lines it logged while it started. The font
 /// helper is a path where none is, so no helper starts.
 fn boot(w: u32, h: u32, frits: &Path) -> (Loop<App>, App, Vec<String>) {
+    boot_with(w, h, frits, &[])
+}
+
+/// [`boot`], with the options `more` on the command line.
+fn boot_with(w: u32, h: u32, frits: &Path, more: &[&str]) -> (Loop<App>, App, Vec<String>) {
     logged();
-    let args: Vec<OsString> = [
-        "--font-helper=/nonexistent/vtium-config",
-        "--login",
-        "--",
-        "/bin/true",
-    ]
-    .iter()
-    .map(OsString::from)
-    .collect();
+    let args: Vec<OsString> = ["--font-helper=/nonexistent/vtium-config"]
+        .iter()
+        .chain(more)
+        .chain(&["--login", "--", "/bin/true"])
+        .map(OsString::from)
+        .collect();
     let loaded = config::load(&args, &mut |_: &Path| Ok(None));
     let lp: Loop<App> = Loop::new().expect("a loop");
     #[expect(
@@ -205,6 +207,17 @@ fn with_no_font_named_a_small_display_draws_the_built_in_8x8_strike() {
     let (_lp, app, lines) = boot(320, 240, &dir);
     assert_eq!(app.font_name(), "unscii-8");
     assert_eq!(about_default(&lines), Vec::<&String>::new(), "{lines:?}");
+}
+
+/// The built-in font's 8×8 strike stands in for `terminus` only at the
+/// automatic height. With `font-size=16` on the same 320×240 panel, the
+/// head draws 16-pixel rows, which `terminus` has a strike for, so vtium
+/// draws `terminus`.
+#[test]
+fn with_a_font_size_a_small_display_draws_terminus() {
+    let dir = with_terminus("default-font-small-sized");
+    let (_lp, app, _) = boot_with(320, 240, &dir, &["--font-size=16"]);
+    assert_eq!(app.font_name(), "terminus");
 }
 
 /// With no `terminus` set installed, vtium logs one line that says so and

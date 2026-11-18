@@ -1231,11 +1231,14 @@ impl App {
     /// on the fly, where no frit bears the name, which OSC 50 switches
     /// back to by that name ([`font::by_name`]). With no font named, a head
     /// on a small display, its views' sizes and `adding` among them, draws
-    /// the built-in font in place of the default set.
+    /// the built-in font in place of the default set, but only at the
+    /// automatic height, where the head's rows are 8 pixels high. A
+    /// configured `font-size`, or a cell the head's look states, sets the
+    /// height itself, and the default set draws there.
     ///
     /// References:
     /// - ADR-1204 D2: the default set, and the built-in font's 8×8 strike
-    ///   on a small display.
+    ///   where the small-display rule picks 8-pixel rows.
     fn configured_font(&self, h: usize, adding: Option<(u32, u32)>) -> (Chosen, Option<FritText>) {
         let Some(head) = self.heads.get(h) else {
             return (Chosen::BUILTINS, None);
@@ -1254,9 +1257,10 @@ impl App {
             ),
         };
         let sizes = head.views.values().map(|v| v.size).chain(adding);
-        let Some(wanted) =
-            wanted.filter(|w| w.came != font::Came::Default || font::default_set_fits(sizes))
-        else {
+        let automatic = !head.sized() && look.is_none();
+        let Some(wanted) = wanted.filter(|w| {
+            w.came != font::Came::Default || !automatic || font::default_set_fits(sizes)
+        }) else {
             return (Chosen::builtins(look), None);
         };
         if let Some(builtin) = font::builtin_named(&wanted.name, look) {
