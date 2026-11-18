@@ -1303,7 +1303,14 @@ impl App {
     /// frit, by the height asked at, for every head drawing it. A refusal,
     /// or no answer in time, leaves the display's cell, or for an outline
     /// frit the built-in font's width, with one line saying why; an answer
-    /// that comes after the wait is taken by [`App::late_cell`].
+    /// that comes after the wait is taken by [`App::late_cell`]. A frit
+    /// whose first source is a bitmap font with strikes asks at each
+    /// height, as an outline frit does, since each height can draw another
+    /// strike, and its answers hold at the height asked at alone.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the strike for the automatic height, for a configured
+    ///   font size and for each zoom step.
     fn own_cell(&mut self, h: usize, height: u32) {
         let Some(head) = self.heads.get(h) else {
             return;
@@ -1317,13 +1324,17 @@ impl App {
             return;
         }
         let outline = head.chosen().outline();
+        let struck = head.chosen().struck();
         let Some(name) = head.frit().map(str::to_owned) else {
             return;
         };
-        let known = self
-            .frits
-            .get(&name)
-            .and_then(|f| f.answer_at(height, outline));
+        let known = self.frits.get(&name).and_then(|f| {
+            if struck {
+                f.own.get(&height).cloned()
+            } else {
+                f.answer_at(height, outline)
+            }
+        });
         let own = match known {
             Some(own) => own,
             None => {
@@ -1334,6 +1345,11 @@ impl App {
                 let wait = Duration::from_millis(helper::OWN_CELL_MS);
                 let own = helper.own_cell(height, wait, &*clock);
                 match (&own, outline) {
+                    (Ok(helper::OwnCell::Bitmap(cell)), _) if struck => log::info!(
+                        "the frit {name} draws its {}x{} strike at {height} pixels",
+                        cell.width,
+                        cell.height
+                    ),
                     (Ok(helper::OwnCell::Bitmap(cell)), _) => log::info!(
                         "the frit {name} draws in its fonts' own {}x{} cell",
                         cell.width,
@@ -1360,7 +1376,7 @@ impl App {
         if let (Ok(answer), Some(head)) = (own, self.heads.get_mut(h))
             && let Some(font) = &mut head.font
         {
-            font.set_own_cell(answer, sized);
+            font.set_own_cell_at(answer, height, sized);
         }
     }
 
@@ -2146,17 +2162,23 @@ impl App {
         height: u32,
         answer: Result<helper::OwnCell, helper::NoCell>,
     ) {
+        // A frit with strikes holds each answer at its own height, as an
+        // outline frit does.
+        let struck = self
+            .heads
+            .iter()
+            .any(|head| head.frit() == Some(name) && head.chosen().struck());
         let Some(frit) = self.frits.get_mut(name) else {
             return;
         };
         let outline = match &answer {
-            Ok(helper::OwnCell::Bitmap(_)) => Some(false),
+            Ok(helper::OwnCell::Bitmap(_)) => Some(struck),
             Ok(helper::OwnCell::Outline(_)) => Some(true),
             Err(_) => None,
         };
         let held = match outline {
-            Some(outline) => frit.answer_at(height, outline),
-            None => frit.own.get(&height).cloned(),
+            Some(outline) if !struck => frit.answer_at(height, outline),
+            _ => frit.own.get(&height).cloned(),
         };
         if held.is_some_and(|known| !known.is_err_and(|no| no.late)) {
             return;
@@ -4125,6 +4147,10 @@ impl App {
     fn zoom(&mut self, h: usize, dir: Zoom) {
         self.choose_font(h);
         let dpi = self.dpi(h);
+        if self.heads.get(h).is_some_and(|head| head.chosen().struck()) {
+            self.zoom_struck(h, dir);
+            return;
+        }
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
@@ -4142,6 +4168,73 @@ impl App {
         // The zoom fills the displays again, in place of a grid a program
         // asked for.
         self.take_size(h, size, None);
+    }
+
+    /// A zoom of head `h` whose frit's first source is a bitmap font with
+    /// strikes: the head draws at the next height in the zoom's direction
+    /// whose cell differs, the height of a strike or a whole multiple of
+    /// the tallest. The console reads no font, so it does not know the
+    /// strikes' heights. It asks the helper for the cell one pixel at a
+    /// time, and keeps each answer, so each height is asked once. A height
+    /// that no strike is short enough for stops a zoom out, with a line
+    /// naming the smallest height. An ask with no answer in time stops the
+    /// zoom, so a helper that does not answer holds up only one frame.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the cell of the tallest strike no taller than each
+    ///   zoom step's height, and a whole multiple of the tallest strike's
+    ///   cell above it.
+    fn zoom_struck(&mut self, h: usize, dir: Zoom) {
+        let Some(size) = self.heads.get(h).map(|head| head.font_size) else {
+            return;
+        };
+        if dir == Zoom::In && size > font::ZOOM_IN_MAX {
+            return;
+        }
+        let mut at = size;
+        let next = loop {
+            let step = match dir {
+                Zoom::In => at
+                    .checked_add(1)
+                    .filter(|&a| a <= vtium_font::CELL_SIDE_MAX),
+                Zoom::Out => at.checked_sub(1).filter(|&a| a > 0),
+            };
+            let Some(step) = step else {
+                break None;
+            };
+            at = step;
+            self.own_cell(h, at);
+            let Some(head) = self.heads.get(h) else {
+                return;
+            };
+            if let Some(strike) = head.chosen().strike_at(at) {
+                let whole = font::whole_height(strike, at);
+                if dir == Zoom::Out || whole > size {
+                    break Some(whole);
+                }
+                continue;
+            }
+            let answer = head
+                .frit()
+                .and_then(|name| self.frits.get(name))
+                .and_then(|frit| frit.own.get(&at));
+            match answer {
+                // a refusal says no strike is this short: a zoom in goes on
+                // to the next height, and a zoom out stops
+                Some(Err(no)) if !no.late && dir == Zoom::In => {}
+                Some(Err(no)) if !no.late => {
+                    log::info!(
+                        "the set {} draws no smaller than {size} pixels: zoom stops there",
+                        head.chosen().name(size, &self.locale)
+                    );
+                    break None;
+                }
+                _ => break None,
+            }
+        };
+        if let Some(next) = next {
+            self.take_size(h, next, None);
+        }
     }
 
     /// Head `h` draws at the base height `size`, which ends `font-size`'s
