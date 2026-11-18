@@ -975,6 +975,9 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
     }
 }
 
+/// The heads that a vtlook named at the top level are for.
+const TOP_HEADS: &str = "the heads whose look names no vtlook of its own";
+
 /// What check-config says of the vtlooks a start would read: `top`, the
 /// one vtium.conf's top level or the command line names, with where it is
 /// named, and those its looks name in `looks`, each with its look's name
@@ -982,52 +985,25 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
 /// file, since the heads that take a vtlook with an error draw the
 /// built-in vtlook.
 ///
-/// A top-level name that cannot name a vtlook, such as one with a path in
-/// it, is an error of vtium.conf at its line, and vtium reads no file for
-/// it. A look's name passes the same rule when vtium.conf's sections are
-/// read.
+/// `top` is always a vtlook's name: vtium refuses a top-level `vtlook`
+/// that is not one, such as a path, when it reads vtium.conf or the
+/// command line, and check-config reports that refusal at its line with
+/// vtium.conf's other errors. A look's name passes the same rule when
+/// vtium.conf's sections are read.
 ///
 /// A build with frame filters reads each distinct vtlook once from `dir`
 /// under `trust`, as the start reads it. For each vtlook that fails, it
 /// lists the vtlook's errors, each starting with the vtlook's file and
 /// line, and then each place in vtium.conf that names the vtlook. It also
 /// reports a file named `default.vtlook` in `dir`, which vtium never
-/// reads. A build without frame filters reads no vtlook and says, for each
-/// place that names one, that the heads it chooses for draw the built-in
-/// vtlook.
+/// reads.
 ///
 /// References:
 /// - ADR-1304 D4: vtium refuses a file named default.vtlook.
+/// - ADR-1304 D5: a vtlook's name, and the top level's `vtlook`.
 /// - ADR-1304 D6: check-config lists every error of the reading and checking stages, each report whole.
-/// - ADR-1304 D10: check-config warns of a vtlook in a build without `filters`, as it warns of `hwaccel` in a build without `gpu`.
-fn vtlook_findings(
-    top: Option<(&str, String)>,
-    conf: &Path,
-    looks: &[(String, String, usize)],
-    dir: &Path,
-    trust: &Trust,
-) -> Vec<String> {
-    let mut out = Vec::new();
-    let top = top.filter(|(name, at)| {
-        let named = vtium_settings::vtlook::named(name);
-        if !named {
-            out.push(format!(
-                "{at}: vtlook={name:?} is not a value this setting takes. It takes a vtlook's name, 1 to 64 of the characters A-Z a-z 0-9 . _ + -, with no path. Because of this error, the heads whose look names no vtlook of its own draw the built-in vtlook."
-            ));
-        }
-        named
-    });
-    out.extend(vtlook_reads(top, conf, looks, dir, trust));
-    out
-}
-
-/// The heads that a vtlook named at the top level are for.
-const TOP_HEADS: &str = "the heads whose look names no vtlook of its own";
-
-/// [`vtlook_findings`]'s reading of each vtlook named, in a build with
-/// frame filters.
 #[cfg(feature = "filters")]
-fn vtlook_reads(
+fn vtlook_findings(
     top: Option<(&str, String)>,
     conf: &Path,
     looks: &[(String, String, usize)],
@@ -1092,9 +1068,13 @@ fn vtlook_reads(
 }
 
 /// [`vtlook_findings`] in a build without frame filters, which reads no
-/// vtlook.
+/// vtlook: for each place that names one, it says that the heads that
+/// place chooses for draw the built-in vtlook.
+///
+/// References:
+/// - ADR-1304 D10: check-config warns of a vtlook in a build without `filters`, as it warns of `hwaccel` in a build without `gpu`.
 #[cfg(not(feature = "filters"))]
-fn vtlook_reads(
+fn vtlook_findings(
     top: Option<(&str, String)>,
     conf: &Path,
     looks: &[(String, String, usize)],
@@ -1219,27 +1199,40 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
     out
 }
 
-/// The font a source's `spelling` names, as a person knows it: a family's
-/// or a kbd font's name, or a file's path, and which of the two it is.
-/// `None` for `vconsole`, `console:` and `builtin:`, which name no font a
-/// person installs.
+/// The font a source's or a strike's `spelling` names, as a person knows
+/// it: a family's or a kbd font's name, or a file's path, and which of the
+/// two it is. `None` for `vconsole`, `console:` and `builtin:`, which name
+/// no font a person installs.
 fn font_of(spelling: &str) -> Option<(&str, check_config::font_needs::Named)> {
     let (kind, rest) = spelling.split_once(':')?;
     match kind {
         "font" | "kbd" => Some((rest, check_config::font_needs::Named::ByName)),
-        "file" | "bdf" | "outline" => Some((rest, check_config::font_needs::Named::ByPath)),
+        "file" | "bdf" | "hex" | "outline" => Some((rest, check_config::font_needs::Named::ByPath)),
         _ => None,
     }
 }
 
-/// The `version=` and `url=` lines under the source `spelling` on the font
-/// set's own line `line`, in `text`, the font set with its layers in place.
-/// A layer's source names the font set's `layer=` line, as the helper's
-/// answer does, so its spelling tells it from the layer's other sources.
+/// The `version=` and `url=` lines of the font that `spelling` names on
+/// the font set's own line `line`, in `text`, the font set with its layers
+/// in place. A layer's source names the font set's `layer=` line, as the
+/// helper's answer does, so its spelling tells it from the layer's other
+/// sources.
+///
+/// `spelling` is a `source=` line's or a `strike=` line's. A strike is a
+/// file of its source's font at one more height, so a strike takes the
+/// `version=` and `url=` of the source it follows. Those lines describe
+/// the source wherever they stand among its lines, before a `strike=` line
+/// or after one, and only a `sha256=` line belongs to the strike above it.
+///
+/// References:
+/// - ADR-1204 D2: the `strike=` key, and which lines after it belong to the strike.
+/// - ADR-1204 D7: check-config names a missing font's version and page.
 fn needs_of(text: &str, line: usize, spelling: &str) -> (Option<String>, Option<String>) {
     let own = vtium_font::set::layer::lines(text);
+    // the version= and url= of the source being read, and whether that
+    // source or one of its strikes is the font asked about
     let mut found = (None, None);
-    let mut inside = false;
+    let mut named = false;
     for (body, at) in text.split('\n').zip(own) {
         let at = match at {
             vtium_font::set::layer::Line::Set(n) => n,
@@ -1250,15 +1243,20 @@ fn needs_of(text: &str, line: usize, spelling: &str) -> (Option<String>, Option<
             continue;
         };
         let (key, value) = (key.trim(), value.trim());
+        let this = at == line && value == spelling;
         match key {
-            "source" | "layer" if inside => break,
-            "source" => inside = at == line && value == spelling,
-            "version" if inside => found.0 = Some(value.to_owned()),
-            "url" if inside => found.1 = Some(value.to_owned()),
+            "source" | "layer" if named => break,
+            "source" | "layer" => {
+                found = (None, None);
+                named = key == "source" && this;
+            }
+            "strike" => named |= this,
+            "version" => found.0 = Some(value.to_owned()),
+            "url" => found.1 = Some(value.to_owned()),
             _ => {}
         }
     }
-    found
+    if named { found } else { (None, None) }
 }
 
 /// The note on a look, `look`, whose font set `name` at `file` leaves
@@ -2806,6 +2804,120 @@ mod tests {
         ];
         assert_eq!(out.counted, want, "{out:#?}");
         assert!(!out.notes.iter().any(|n| n.contains("Font set desk")));
+    }
+
+    /// What check-config says of the look `big`'s font set `desk`, given
+    /// as `frit`, with each `layers` entry, a name and its text, written to
+    /// the font sets' `layers` folder. The fonts this machine lacks come
+    /// from the glyph helper's own answer. Returns the vtium.conf's path
+    /// and the result, with the folder kept alive.
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn desk_needs(
+        fixture: &str,
+        frit: &str,
+        layers: &[(&str, &str)],
+    ) -> (Scratch, String, HeadCheck) {
+        let text = "version = 1\n[look big]\nfont-name = desk\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n";
+        let (dir, file, trust) = heads_fixture(fixture, text, 0o644);
+        let frits = file.parent().unwrap().join("frits");
+        std::fs::create_dir_all(frits.join("layers")).unwrap();
+        std::fs::write(frits.join("desk.vtfrit"), frit).unwrap();
+        for (name, body) in layers {
+            std::fs::write(frits.join(format!("layers/{name}.vtlayer")), body).unwrap();
+        }
+        let settings = Settings {
+            frits: &frits,
+            trust: font::trust().below(file.parent().unwrap()),
+            sources: Some(FontSources {
+                ask: &served_sources,
+            }),
+            ..caps(4)
+        };
+        let out = conf_file(&file, false, &trust, &machine(true), &settings);
+        (dir, file.display().to_string(), out)
+    }
+
+    /// A BDF font of one glyph, `A`, in an 8×16 cell.
+    const ONE_GLYPH_BDF: &str = "STARTFONT 2.1\nFONT -test-\nFONTBOUNDINGBOX 8 16 0 -4\nSTARTPROPERTIES 3\nFONT_ASCENT 12\nFONT_DESCENT 4\nCHARSET_REGISTRY \"ISO10646\"\nENDPROPERTIES\nCHARS 1\nSTARTCHAR A\nENCODING 65\nDWIDTH 8 0\nBBX 8 16 0 -4\nBITMAP\n18\n18\n18\n18\n18\n18\n18\n18\n18\n18\n18\n18\n18\n18\n18\n18\nENDCHAR\nENDFONT\n";
+
+    // A layer's font named by the path of a .hex file, such as the unifont
+    // layer's, is a font this machine can lack like any other file, so
+    // check-config names it with its version and its page.
+    //
+    // References:
+    // - ADR-1204 D5: the unifont layer's hex: source.
+    // - ADR-1204 D7: check-config names each missing font as vtium config
+    //   fonts does.
+    #[test]
+    fn a_missing_hex_font_is_named_with_its_page() {
+        let (_dir, f, out) = desk_needs(
+            "font-needs-hex",
+            "source=builtin:unifont\nlayer=uni\n",
+            &[(
+                "uni",
+                "role=fallback\nsource=hex:/nonesuch/unifont_all-17.0.03.hex\nversion=17.0.03\nurl=https://unifoundry.com/pub/unifont/unifont-17.0.03/\n",
+            )],
+        );
+        let page = "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font.";
+        assert_eq!(
+            out.counted,
+            [format!(
+                "{f}:3: Font set desk needs the font /nonesuch/unifont_all-17.0.03.hex, version 17.0.03 or later, and there is no file at that path. You can get the font from https://unifoundry.com/pub/unifont/unifont-17.0.03/. {page}"
+            )],
+            "{out:#?}"
+        );
+    }
+
+    // A strike is a file of its source's font at one more height, so a
+    // missing strike is named with its source's version= and url=, whether
+    // those lines come before the strike= line or after it. A sha256= line
+    // after a strike= line belongs to the strike, and ends nothing.
+    //
+    // References:
+    // - ADR-1204 D2: the strike= key, and the lines that belong to a strike.
+    // - ADR-1204 D7: check-config names each missing font as vtium config
+    //   fonts does.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_missing_strike_is_named_with_its_sources_version_and_page() {
+        let fonts = Scratch::new("font-needs-strike-files");
+        let (regular, bold) = (fonts.join("ter-u16n.bdf"), fonts.join("ter-u16b.bdf"));
+        std::fs::write(&regular, ONE_GLYPH_BDF).unwrap();
+        std::fs::write(&bold, ONE_GLYPH_BDF).unwrap();
+        let hash = "0".repeat(64);
+        let frit = format!(
+            "source=bdf:{}\nversion=4.49.1\nurl=https://example.org/terminus\nstrike=bdf:/nonesuch/ter-u12n.bdf.gz\nsha256={hash}\nstrike=bdf:/nonesuch/ter-u14n.bdf.gz\nsource=bdf:{}\nstyle=bold\nstrike=bdf:/nonesuch/ter-u12b.bdf.gz\nsha256={hash}\nversion=2.0\nurl=https://example.org/bold\n",
+            regular.display(),
+            bold.display()
+        );
+        let (_dir, f, out) = desk_needs("font-needs-strike", &frit, &[]);
+        let page = "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font.";
+        let missing = |font: &str, version: &str, url: &str| {
+            format!(
+                "{f}:3: Font set desk needs the font {font}, version {version} or later, and there is no file at that path. You can get the font from {url}. {page}"
+            )
+        };
+        assert_eq!(
+            out.counted,
+            [
+                missing(
+                    "/nonesuch/ter-u12n.bdf.gz",
+                    "4.49.1",
+                    "https://example.org/terminus"
+                ),
+                missing(
+                    "/nonesuch/ter-u14n.bdf.gz",
+                    "4.49.1",
+                    "https://example.org/terminus"
+                ),
+                missing(
+                    "/nonesuch/ter-u12b.bdf.gz",
+                    "2.0",
+                    "https://example.org/bold"
+                ),
+            ],
+            "{out:#?}"
+        );
     }
 
     // ADR-1401 D7, ADR-1403 D5: a look whose font-name names a frit not
@@ -4379,22 +4491,6 @@ mod tests {
         );
     }
 
-    // A top-level name that cannot name a vtlook is vtium.conf's error at
-    // its line, in every build, and vtium reads no file for it.
-    #[test]
-    fn a_top_level_vtlook_that_is_no_name_is_an_error_at_its_line() {
-        let conf = Path::new("/etc/vtium/vtium.conf");
-        for name in ["", "a/b", "../x"] {
-            let top = Some((name, "/etc/vtium/vtium.conf:2".to_owned()));
-            assert_eq!(
-                vtlook_findings(top, conf, &[], Path::new("/nonexistent"), &font::trust()),
-                [format!(
-                    "/etc/vtium/vtium.conf:2: vtlook={name:?} is not a value this setting takes. It takes a vtlook's name, 1 to 64 of the characters A-Z a-z 0-9 . _ + -, with no path. Because of this error, the heads whose look names no vtlook of its own draw the built-in vtlook."
-                )]
-            );
-        }
-    }
-
     // check-config lists every error of every vtlook named, each vtlook
     // read once however many looks name it, each line starting with the
     // vtlook's file and line, and then each place that names the vtlook.
@@ -4560,6 +4656,61 @@ mod tests {
                 && l.contains("vtium-check-config-test-arg")),
             "{:#?}",
             out.stderr
+        );
+    }
+
+    // A top-level name that cannot name a vtlook, such as a path, is an
+    // error of vtium.conf at its line, or of the command-line argument that
+    // gives it, and check-config reports it once, in every build.
+    //
+    // References:
+    // - ADR-1304 D5: a vtlook's name, and the top level's `vtlook`.
+    // - ADR-1304 D6: check-config reports each error whole, once.
+    #[test]
+    fn a_top_level_vtlook_that_is_no_name_is_reported_once_where_it_is_given() {
+        let text = "vtlook = ../x\nversion = 1\n[head a]\n[rules]\ndisplay * -> a\n";
+        let (_dir, file, _) = heads_fixture("vtlook-no-name", text, 0o644);
+        let f = file.display().to_string();
+        let host = Host {
+            conf_file: file.with_file_name("installed.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust(),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        };
+        let check = |args: &[&str]| {
+            let args: Vec<OsString> = [SUBCOMMAND, "--no-devices"]
+                .iter()
+                .chain(args)
+                .chain([&f.as_str()])
+                .map(OsString::from)
+                .collect();
+            outcome(&config::load(&args, &mut config::read_bytes), &host)
+        };
+        // every line that names the bad name, so a second report of it in
+        // any words, such as a failed read of that vtlook, counts
+        let said = |out: &Outcome, name: &str| -> Vec<String> {
+            out.stderr
+                .iter()
+                .filter(|l| l.contains(name))
+                .cloned()
+                .collect()
+        };
+        let out = check(&[]);
+        assert_eq!(out.status, 1, "{:#?}", out.stderr);
+        let reported = said(&out, "../x");
+        assert_eq!(reported.len(), 1, "{:#?}", out.stderr);
+        assert!(
+            reported.iter().all(|l| l.starts_with(&format!("{f}:1: "))),
+            "{reported:#?}"
+        );
+        let out = check(&["--vtlook=a/b"]);
+        let reported = said(&out, "a/b");
+        assert_eq!(reported.len(), 1, "{:#?}", out.stderr);
+        assert!(
+            reported.iter().all(|l| l.starts_with("argument 3: ")),
+            "{reported:#?}"
         );
     }
 }
