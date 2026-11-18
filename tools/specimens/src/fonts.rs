@@ -25,15 +25,31 @@ use crate::draw::{CellGlyphs, StyleClusters};
 
 /// One pinned font: its file in the cache, where it comes from, and the
 /// SHA-256 of its bytes. The set names the font's version, which the URL
-/// holds. A font published gzipped has `gzipped`, the SHA-256 of the file
-/// the URL serves, and the cache holds it decompressed, the form the set
-/// names.
+/// or the cache's file name holds.
 #[derive(Clone, Copy, Debug)]
 pub struct Pinned {
     pub file: &'static str,
-    pub url: &'static str,
+    pub origin: Origin,
     pub sha256: &'static str,
-    pub gzipped: Option<&'static str>,
+}
+
+/// Where `fetch` gets a pinned font from.
+#[derive(Clone, Copy, Debug)]
+pub enum Origin {
+    /// Downloaded over HTTPS.
+    Url(&'static str),
+    /// Copied from vtium's tree, at this path from the workspace's root.
+    Tree(&'static str),
+}
+
+impl Origin {
+    /// Where the font comes from, as a person reads it in a message.
+    fn shown(&self) -> String {
+        match self {
+            Origin::Url(url) => (*url).to_owned(),
+            Origin::Tree(path) => format!("vtium's tree, {path}"),
+        }
+    }
 }
 
 /// The outline fonts of the set jetbrains-mono and its layers, in the
@@ -41,21 +57,24 @@ pub struct Pinned {
 pub const FONTS: [Pinned; 3] = [
     Pinned {
         file: "JetBrainsMono-Regular.ttf",
-        url: "https://github.com/JetBrains/JetBrainsMono/raw/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf",
+        origin: Origin::Url(
+            "https://github.com/JetBrains/JetBrainsMono/raw/v2.304/fonts/ttf/JetBrainsMono-Regular.ttf",
+        ),
         sha256: "a0bf60ef0f83c5ed4d7a75d45838548b1f6873372dfac88f71804491898d138f",
-        gzipped: None,
     },
     Pinned {
         file: "SymbolsNerdFontMono-Regular.ttf",
-        url: "https://github.com/ryanoasis/nerd-fonts/raw/v3.4.0/patched-fonts/NerdFontsSymbolsOnly/SymbolsNerdFontMono-Regular.ttf",
+        origin: Origin::Url(
+            "https://github.com/ryanoasis/nerd-fonts/raw/v3.4.0/patched-fonts/NerdFontsSymbolsOnly/SymbolsNerdFontMono-Regular.ttf",
+        ),
         sha256: "f0f624d9b474bea1662cf7e862d44aebe1ae1f6c7f9cb7a0ca5d0e5ac9561c60",
-        gzipped: None,
     },
     Pinned {
         file: "NotoColorEmoji.ttf",
-        url: "https://github.com/googlefonts/noto-emoji/raw/v2.051/fonts/NotoColorEmoji.ttf",
+        origin: Origin::Url(
+            "https://github.com/googlefonts/noto-emoji/raw/v2.051/fonts/NotoColorEmoji.ttf",
+        ),
         sha256: "72a635cb3d2f3524c51620cdde406b217204e8a6a06c6a096ff8ed4b5fd6e27b",
-        gzipped: None,
     },
 ];
 
@@ -65,20 +84,22 @@ pub const FRIT: &str =
     include_str!("../../../crates/vtium-config/frits/code/jetbrains-mono.vtfrit");
 
 /// GNU Unifont 17.0.03's `.hex` file of every plane, the file the
-/// catalog's fallback layer `unifont` names. Unifoundry publishes it
-/// gzipped, at 1,687,539 bytes. The font helper reads a `.hex` file only
-/// uncompressed, so the cache holds the decompressed file, which is the
-/// same file as the tree's `crates/vtium-font/data/unifont.hex`.
+/// catalog's fallback layer `unifont` names. vtium's tree holds the same
+/// file as `crates/vtium-font/data/unifont.hex`, so `fetch` copies it from
+/// there, as `tools/fonts/files` does for the install, and downloads
+/// nothing.
 ///
 /// References:
 /// - ADR-1204 D2: the Unifont version and where vtium installs the file.
 /// - ADR-1204 D5: the layer's `.hex` file and its two `cover=` lines.
 pub const UNIFONT: Pinned = Pinned {
     file: "unifont_all-17.0.03.hex",
-    url: "https://unifoundry.com/pub/unifont/unifont-17.0.03/font-builds/unifont_all-17.0.03.hex.gz",
+    origin: Origin::Tree("crates/vtium-font/data/unifont.hex"),
     sha256: "90a5d4dd44a5ef8d3fd02a3f397926b2f9d98640f0b86a3f050faef7bb2683b2",
-    gzipped: Some("dd9e15729a1450c4f5e7f634ffcade4c84ee3d172291c67d39f1d747ad1be1f6"),
 };
+
+/// vtium's workspace root, where an [`Origin::Tree`] path starts.
+const WORKSPACE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../..");
 
 /// The path the layer `unifont` names its `.hex` file at.
 const UNIFONT_SOURCE: &str = "source=hex:/usr/share/vtium/fonts/unifont_all-17.0.03.hex";
@@ -150,9 +171,10 @@ fn spliced_in(text: &str, fonts: &Path) -> Result<String, String> {
 /// frit `tiny5` names in its comment.
 pub const TINY5: Pinned = Pinned {
     file: "Tiny5Mono.bdf",
-    url: "https://github.com/Gissio/font_Tiny5Mono/raw/7d30f9e887fdb29e0b951e92493822afba5f70a7/fonts/bdf/Tiny5Mono.bdf",
+    origin: Origin::Url(
+        "https://github.com/Gissio/font_Tiny5Mono/raw/7d30f9e887fdb29e0b951e92493822afba5f70a7/fonts/bdf/Tiny5Mono.bdf",
+    ),
     sha256: "33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3",
-    gzipped: None,
 };
 
 /// The shipped frit `tiny5`, as vtium-config ships it.
@@ -189,50 +211,54 @@ fn fault(dir: &Path, font: &Pinned) -> Option<String> {
     }
 }
 
-/// Fetches each pinned font `dir` lacks with curl, and checks every one
-/// against its SHA-256; a fetched file that does not match is removed. A
-/// gzipped font is checked against its gzipped SHA-256 first, then
-/// decompressed with gzip into the file the cache holds.
+/// Fetches each pinned font `dir` lacks, with curl over HTTPS or by a copy
+/// from vtium's tree, and checks every one against its SHA-256; a fetched
+/// file that does not match is removed.
 pub fn fetch(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    for font in pinned() {
-        let path = dir.join(font.file);
-        if !path.exists() {
-            let part = dir.join(format!("{}.part", font.file));
-            let status = Command::new("curl")
-                .args(["-fL", "--retry", "3", "-o"])
-                .arg(&part)
-                .arg(font.url)
-                .status()
-                .map_err(|e| format!("curl: {e}"))?;
-            if !status.success() {
-                return Err(format!("curl {}: {status}", font.url));
-            }
-            if let Some(gzipped) = font.gzipped {
-                let bytes = std::fs::read(&part).map_err(|e| format!("{}: {e}", part.display()))?;
-                let got = sha256_hex(&Sha256::digest(&bytes));
-                if got != gzipped {
-                    let _ = std::fs::remove_file(&part);
-                    return Err(format!("{} has SHA-256 {got}, not {gzipped}", font.url));
-                }
-                let out = Command::new("gzip")
-                    .arg("-dc")
+    pinned().try_for_each(|font| fetch_one(dir, font))
+}
+
+/// Fetches `font` into `dir` unless `dir` has it, and checks it.
+fn fetch_one(dir: &Path, font: &Pinned) -> Result<(), String> {
+    let path = dir.join(font.file);
+    if !path.exists() {
+        let part = dir.join(format!("{}.part", font.file));
+        match font.origin {
+            Origin::Url(url) => {
+                let status = Command::new("curl")
+                    .args([
+                        "-fL",
+                        "--proto",
+                        "=https",
+                        "--proto-redir",
+                        "=https",
+                        "--retry",
+                        "3",
+                        "-o",
+                    ])
                     .arg(&part)
-                    .output()
-                    .map_err(|e| format!("gzip: {e}"))?;
-                let _ = std::fs::remove_file(&part);
-                if !out.status.success() {
-                    return Err(format!("gzip -dc {}: {}", font.url, out.status));
+                    .arg(url)
+                    .status()
+                    .map_err(|e| format!("curl: {e}"))?;
+                if !status.success() {
+                    let _ = std::fs::remove_file(&part);
+                    return Err(format!("curl {url}: {status}"));
                 }
-                std::fs::write(&part, &out.stdout)
-                    .map_err(|e| format!("{}: {e}", part.display()))?;
             }
-            std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+            Origin::Tree(from) => {
+                let from = Path::new(WORKSPACE).join(from);
+                if let Err(e) = std::fs::copy(&from, &part) {
+                    let _ = std::fs::remove_file(&part);
+                    return Err(format!("{}: {e}", from.display()));
+                }
+            }
         }
-        if let Some(why) = fault(dir, font) {
-            let _ = std::fs::remove_file(&path);
-            return Err(why);
-        }
+        std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    if let Some(why) = fault(dir, font) {
+        let _ = std::fs::remove_file(&path);
+        return Err(format!("{why}; it comes from {}", font.origin.shown()));
     }
     Ok(())
 }
@@ -399,12 +425,11 @@ mod tests {
         let fetched: Vec<&Pinned> = FONTS.iter().chain([&UNIFONT]).collect();
         assert_eq!(versions.len(), fetched.len(), "{versions:?}");
         for (font, version) in fetched.iter().zip(&versions) {
-            assert!(
-                font.url.contains(&format!("/v{version}/"))
-                    || font.url.contains(&format!("/unifont-{version}/")),
-                "{} {version}",
-                font.url
-            );
+            let named = match font.origin {
+                Origin::Url(url) => url.contains(&format!("/v{version}/")),
+                Origin::Tree(_) => font.file.contains(&format!("-{version}.")),
+            };
+            assert!(named, "{font:?} {version}");
         }
     }
 
@@ -442,7 +467,10 @@ mod tests {
     #[test]
     fn the_tiny5_frit_names_the_file_this_table_fetches() {
         assert!(TINY5_FRIT.contains(&format!("# {}.", TINY5.sha256)));
-        let commit = TINY5.url.split('/').nth(6).unwrap();
+        let Origin::Url(url) = TINY5.origin else {
+            panic!("{TINY5:?}")
+        };
+        let commit = url.split('/').nth(6).unwrap();
         assert_eq!(commit.len(), 40, "{commit}");
         assert!(TINY5_FRIT.contains(commit));
         let sources: Vec<&str> = TINY5_FRIT
@@ -515,15 +543,44 @@ mod tests {
         let dir = Scratch::new("fonts");
         let font = Pinned {
             file: "x.ttf",
-            url: "",
+            origin: Origin::Url(""),
             // the SHA-256 of "x"
             sha256: "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881",
-            gzipped: None,
         };
         assert!(fault(&dir, &font).unwrap().contains("is not in"));
         std::fs::write(dir.join("x.ttf"), b"y").unwrap();
         assert!(fault(&dir, &font).unwrap().contains("has SHA-256"));
         std::fs::write(dir.join("x.ttf"), b"x").unwrap();
         assert_eq!(fault(&dir, &font), None);
+    }
+
+    // Unifont's file comes from vtium's tree, with no download, and the
+    // tree's file has the pinned bytes. A file the tree lacks, or one whose
+    // bytes differ from the pin, leaves nothing in the cache.
+    #[test]
+    fn unifont_is_copied_from_the_tree_and_checked() {
+        let dir = Scratch::new("unifont");
+        fetch_one(&dir, &UNIFONT).unwrap();
+        assert_eq!(
+            std::fs::read(dir.join(UNIFONT.file)).unwrap(),
+            std::fs::read(Path::new(WORKSPACE).join("crates/vtium-font/data/unifont.hex")).unwrap()
+        );
+        for (origin, why) in [
+            (
+                Origin::Tree("crates/vtium-font/data/absent.hex"),
+                "absent.hex",
+            ),
+            (
+                Origin::Tree("crates/vtium-font/data/unscii-8.hex"),
+                "has SHA-256",
+            ),
+        ] {
+            let other = Scratch::new("unifont-other");
+            let font = Pinned { origin, ..UNIFONT };
+            let err = fetch_one(&other, &font).unwrap_err();
+            assert!(err.contains(why), "{err}");
+            assert!(!other.join(UNIFONT.file).exists());
+            assert!(!other.join(format!("{}.part", UNIFONT.file)).exists());
+        }
     }
 }
