@@ -2002,3 +2002,33 @@ fn an_osd_line_vtium_cannot_read_keeps_osd_silent_from_applying() {
         );
     }
 }
+
+/// A top-level `vtlook` names a vtlook by the rule for a head's name: 1 to
+/// 64 of the characters `A-Z a-z 0-9 . _ + -`, so it never holds a path.
+/// The start reports a name that breaks the rule at its line, and the key
+/// stays unset, so every head draws the built-in vtlook.
+///
+/// References:
+/// - ADR-1304 D5: a vtlook's name, and the top level's `vtlook`.
+#[test]
+fn a_vtlook_name_that_could_hold_a_path_is_reported_at_its_line() {
+    for (text, value) in [("vtlook = \"\"\n", ""), ("vtlook = \"a/b\"\n", "a/b")] {
+        let l = main_file(&format!("# a vtlook\n{text}"));
+        assert_eq!(
+            l.reports,
+            [Report {
+                origin: line(2),
+                problem: Problem::BadValue {
+                    key: "vtlook",
+                    value: value.into(),
+                    why: "a vtlook's name is 1 to 64 of the characters A-Z a-z 0-9 . _ + -, with no path",
+                },
+            }],
+            "{text:?}"
+        );
+        assert_eq!(l.config.text(&VTLOOK), None, "{text:?}");
+    }
+    let l = main_file("vtlook = amber.v2\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(l.config.text(&VTLOOK), Some("amber.v2"));
+}
