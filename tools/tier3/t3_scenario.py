@@ -11,6 +11,7 @@ import time
 import t3_bench
 import t3_builtin
 import t3_devices
+import t3_fonts
 import t3_handover
 import t3_heads
 import t3_images
@@ -337,6 +338,13 @@ SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait"
 # helper, and starts it again. Its cases are the new vtium's login prompt and
 # the notice of a kernel message, both judged by their goldens.
 VARIANTS["builtin-font"] = dict(POWER, conf="vtium-minimal.conf", builtin=True, agent=True)
+
+# The font sets every build installs (ADR-1204 D2, t3_fonts): default-font-N
+# names no font and draws terminus, cullet-mono-N names cullet-mono, each at a
+# cell N pixels high on the minspec machine. Each logs in and runs the check
+# font-sources, which draws a row of probe characters and works out from the
+# pixels which font drew each one.
+VARIANTS.update(t3_fonts.variants())
 
 # boot-claim checks that vtium console enable --direct --all starts vtium at
 # boot on each VT it claims (ADR-1500 D7, "Each claimed VT starts at boot").
@@ -1801,6 +1809,7 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "boot-claim": t3_seat.check_boot_claim,
               "login-session": t3_seat.check_login_session,
               "two-logins": t3_seat.check_two_logins,
+              t3_fonts.CASE: t3_fonts.run,
               **t3_handover.CHECK_RUNS,
               **t3_heads.CHECK_RUNS}
 
