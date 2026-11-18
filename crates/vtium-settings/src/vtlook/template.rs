@@ -38,7 +38,7 @@ min-size = any      # any, or WxH: the mode's own pixels
 max-size = any
 min-dpi = any       # any, or 1 to 1000: the density fonts are sized at
 max-dpi = any
-min-fps = any       # any, refresh or 1 to 1000: frames a second the filters must keep
+min-fps = any       # any, refresh or 1 to 1000: the frame rate to keep
 gpu = any           # any; yes for the GPU path only; no for the CPU path only
 ";
 
@@ -149,6 +149,19 @@ mod tests {
         if TEMPLATE != generated {
             panic!(
                 "templates/default.vtlook differs from the declarations; run VTIUM_SETTINGS_BLESS=1 cargo test -p vtium-settings --features filters template\n--- generated\n{generated}"
+            );
+        }
+    }
+
+    // People read the template in a terminal editor, so its lines wrap at
+    // 78 columns, as vtium.conf's example does.
+    #[test]
+    fn the_template_s_lines_fit_78_columns() {
+        for line in TEMPLATE.lines() {
+            assert!(
+                line.chars().count() <= 78,
+                "{} columns: {line}",
+                line.chars().count()
             );
         }
     }
