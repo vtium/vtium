@@ -2072,7 +2072,7 @@ sha256={c}
                 "sha256= is for a strike named by its path",
             ),
             (
-                format!("source=bdf:/a.bdf\nstrike=bdf:/b.bdf\nsha256=12\n"),
+                "source=bdf:/a.bdf\nstrike=bdf:/b.bdf\nsha256=12\n".to_owned(),
                 3,
                 "sha256= takes the file's SHA-256",
             ),

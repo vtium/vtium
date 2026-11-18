@@ -7319,9 +7319,10 @@ mod tests {
         let struck = struck_frit(&dir, &format!("source=bdf:{}\n", fallback.display()));
         let engine = Engine::load(&struck, &Paths::default(), None).unwrap();
         assert_eq!(engine.warnings(), [] as [String; 0]);
+        // an outline answer reads as no cell, which no row below expects
         let at = |height: u32| match engine.own_cell(height) {
             Ok(OwnCell::Bitmap(c)) => Ok((c.width, c.height)),
-            Ok(OwnCell::Outline(c)) => panic!("an outline cell {c:?}"),
+            Ok(OwnCell::Outline(c)) => Err(format!("an outline cell {c:?}")),
             Err(why) => Err(why),
         };
         let why = at(8).unwrap_err();
