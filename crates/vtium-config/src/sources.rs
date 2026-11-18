@@ -38,6 +38,9 @@ pub const OUTLINE_SUFFIXES: [&str; 4] = ["ttf", "otf", "ttc", "otc"];
 /// How deep under a font directory an outline family is looked for.
 pub const FONT_DEPTH_MAX: usize = 8;
 
+/// The first two bytes of a gzip member (RFC 1952 2.3.1).
+const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
+
 /// The most bytes vconsole.conf or the kernel's command line holds.
 pub(crate) const CONFIG_BYTES_MAX: u64 = 64 * 1024;
 
@@ -70,6 +73,9 @@ pub enum Input {
     /// A BDF font's bytes, read here and parsed by [`crate::bdf`] when the
     /// frit loads, where the other untrusted fonts are.
     Bdf(Vec<u8>),
+    /// A `.hex` font's bytes, uncompressed, read here and parsed by
+    /// [`crate::hex`] when the frit loads, as a BDF font's are.
+    Hex(Vec<u8>),
     /// A bitmap font's glyphs at its own cell, already read: a built-in
     /// font's.
     Bitmap(Font),
@@ -623,6 +629,18 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
         Origin::Bdf(path) => {
             return Ok(Input::Bdf(read_bounded(path, limit)?));
         }
+        Origin::Hex(path) if !path.exists() => return Err(not_here(path)),
+        Origin::Hex(path) => {
+            let bytes = read_bounded(path, limit)?;
+            // a .hex font is read as it is installed, uncompressed
+            if bytes.starts_with(&GZIP_MAGIC) {
+                return Err(SourceError::Failed(format!(
+                    "{} is gzipped. vtium reads a .hex font uncompressed, so decompress the file with gunzip and name the file that gives.",
+                    path.display()
+                )));
+            }
+            return Ok(Input::Hex(bytes));
+        }
         Origin::Kbd(name) => (
             read_bounded(&find_font(name)?, limit)?,
             source.unimap.clone(),
@@ -1129,6 +1147,46 @@ mod tests {
         // sandboxed side's
         let r = resolve(&source("bdf:", Origin::Bdf(bad), None), &h).unwrap();
         assert!(matches!(r, Input::Bdf(ref b) if b.starts_with(b"STARTFONT")));
+    }
+
+    // A hex: source reads its file's bytes as they are, for the sandboxed
+    // side to parse. A file that is not here is missing, a gzipped file is
+    // refused, because vtium reads a .hex font uncompressed, and a file
+    // past the 16 MiB that bounds every bitmap file is refused.
+    //
+    // References:
+    // - ADR-1204 D5: the hex: source, uncompressed, up to 16 MiB.
+    #[test]
+    fn a_hex_source_reads_its_file_uncompressed() {
+        let t = Tree::new("hex");
+        let text = format!("0041:{}\n", "00".repeat(16));
+        let path = t.file("fonts/u.hex", text.as_bytes());
+        let consoles = Graphics;
+        let h = host(&t, &consoles);
+        let hex = |p: PathBuf| source("hex:", Origin::Hex(p), None);
+        let r = resolve(&hex(path), &h).unwrap();
+        assert_eq!(r, Input::Hex(text.clone().into_bytes()));
+        let gone = t.0.join("fonts/gone.hex");
+        let e = resolve(&hex(gone), &h).unwrap_err();
+        assert!(matches!(e, SourceError::Missing(_)), "{e}");
+        let gz = t.file(
+            "fonts/u.hex.gz",
+            &crate::decode::tests::gzip(text.as_bytes()),
+        );
+        let e = resolve(&hex(gz), &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Failed(why) if why.contains("is gzipped") && why.contains("uncompressed")),
+            "{e}"
+        );
+        let big = t.file(
+            "fonts/big.hex",
+            &vec![b'0'; usize::try_from(PSF_BYTES_MAX).unwrap() + 1],
+        );
+        let e = resolve(&hex(big), &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Failed(why) if why.contains("larger than")),
+            "{e}"
+        );
     }
 
     #[test]

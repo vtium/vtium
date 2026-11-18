@@ -193,7 +193,7 @@ fn needs_report(
         // a font named by its path is a file this machine lacks, not a font
         // it has not installed
         let named = match source.origin {
-            Origin::File(_) | Origin::Bdf(_) | Origin::Outline(_) => Named::ByPath,
+            Origin::File(_) | Origin::Bdf(_) | Origin::Hex(_) | Origin::Outline(_) => Named::ByPath,
             _ => Named::ByName,
         };
         let text = match (version, lacks) {
@@ -204,11 +204,25 @@ fn needs_report(
         };
         with_page(text, source);
     }
+    // the source whose strike= line a line of the answer names, and the
+    // strike's file, which the report names in place of the source's
+    let strike_of = |line: usize, spelling: &str| {
+        frit.sources.iter().find_map(|s| {
+            s.strikes
+                .iter()
+                .find(|k| frit.place(k.line).own == line && k.spelling == spelling)
+                .map(|k| (s, k))
+        })
+    };
     for d in differs {
-        let Some(source) = source_of(d.line, &d.spelling) else {
-            continue;
+        let (source, font) = match source_of(d.line, &d.spelling) {
+            Some(source) => (source, source.font_name()),
+            None => match strike_of(d.line, &d.spelling) {
+                Some((source, strike)) => (source, strike_file(&strike.origin)),
+                None => continue,
+            },
         };
-        let Some(font) = source.font_name() else {
+        let Some(font) = font else {
             continue;
         };
         let text = match &d.what {
@@ -224,6 +238,15 @@ fn needs_report(
         with_page(text, source);
     }
     out
+}
+
+/// The file a strike names, as the report names it; `None` for a kbd
+/// font, which names no file.
+fn strike_file(origin: &Origin) -> Option<String> {
+    match origin {
+        Origin::File(path) | Origin::Bdf(path) => Some(path.display().to_string()),
+        _ => None,
+    }
 }
 
 /// The sources left out, as `fonts` lists them: each source's spelling, a
@@ -543,10 +566,10 @@ pub const TEMPLATE: &str = "\
 # The fonts, in order: each later source= line supplies only the characters
 # the fonts before it lack. A source is font:FAMILY, a font family found on
 # the machine that draws it; kbd:NAME, a kbd console font; file:PATH, a PSF
-# file; bdf:PATH, a BDF font; outline:PATH, a TrueType or OpenType file;
-# vconsole, the console font vconsole.conf names; console:VT, the font the
-# kernel's console had when vtium started; or builtin:unifont or
-# builtin:unscii-8.
+# file; bdf:PATH, a BDF font; hex:PATH, a font in GNU Unifont's .hex
+# format, uncompressed; outline:PATH, a TrueType or OpenType file; vconsole,
+# the console font vconsole.conf names; console:VT, the font the kernel's
+# console had when vtium started; or builtin:unifont or builtin:unscii-8.
 source=font:DejaVu Sans Mono
 #source=builtin:unifont
 #
@@ -594,8 +617,8 @@ source=font:DejaVu Sans Mono
 /// A source as `new` takes it: a source's spelling when it starts with a
 /// form a frit's `source=` takes, and otherwise a font family, `font:`.
 fn source_spelling(word: &str) -> String {
-    const FORMS: [&str; 7] = [
-        "font:", "kbd:", "file:", "bdf:", "outline:", "console:", "builtin:",
+    const FORMS: [&str; 8] = [
+        "font:", "kbd:", "file:", "bdf:", "hex:", "outline:", "console:", "builtin:",
     ];
     if word == "vconsole" || FORMS.iter().any(|f| word.starts_with(f)) {
         word.to_owned()
@@ -893,6 +916,40 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The report names a strike whose file has another SHA-256 by the
+    // strike's own file, with the page of the source the strike belongs
+    // to, as it names a source's file.
+    //
+    // References:
+    // - ADR-1204 D2: a bitmap source's strikes, each its own file.
+    // - ADR-1204 D7: a file with another hash still draws, and is reported.
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test fails by panicking")]
+    fn the_report_names_a_strike_whose_hash_differs_by_its_file() {
+        let frit = Frit::parse(
+            format!(
+                "source=bdf:/f/ter-u16n.bdf.gz\nurl=https://example.org/terminus/\nstrike=bdf:/f/ter-u12n.bdf.gz\nsha256={}\n",
+                "0".repeat(64)
+            )
+            .as_bytes(),
+            Path::new("/r/terminus.vtfrit"),
+            "terminus",
+        )
+        .expect("the frit");
+        let differs = [Differs {
+            line: 3,
+            spelling: "bdf:/f/ter-u12n.bdf.gz".to_owned(),
+            what: Differ::OtherHash("1".repeat(64)),
+        }];
+        assert_eq!(
+            needs_report("terminus", &frit, &[], &differs),
+            [
+                fonts_report::other_file("terminus", "/f/ter-u12n.bdf.gz"),
+                fonts_report::page("https://example.org/terminus/"),
+            ]
+        );
+    }
 
     // vtium-config installs no set of a name that a category folder of the
     // catalog already holds, and installs any other name.

@@ -41,6 +41,7 @@ Every decoder lives here. The console reads only the helper's glyphs and its own
 | `src/child.rs` | The parser's child process, `--parse`: its limits and the request it reads. Its parent's side lives in `tests/common/parser.rs`. `preview`, `fonts` and the TUI reach fonts through the helper, `serve`, under its own sandbox. |
 | `src/decode.rs` | The decoders that the helper and the parser run: compressions told apart by their magic, gzip, PSF through vtium-font's reader, the font of a CPI file that `cp-size=` takes, and kbd unimaps. |
 | `src/bdf.rs` | vtium-config's own BDF reader. It gives a `bdf:` source's glyphs at the font's own cell. |
+| `src/hex.rs` | vtium-config's own reader of GNU Unifont's `.hex` format. It gives a `hex:` source's glyphs at their 8×16 cell. |
 | `src/cover.rs`, `src/cover.rs.sha256` | The named `cover=` sets as range tables, and their SHA-256. `tools/cover-tables` generates them, and nobody edits them by hand. |
 | `src/outline.rs` | Outline fonts: the request, and the bounded answer that the parent checks. Also the rasteriser that the parser runs, where swash places each glyph in its cell as R8 or premultiplied RGBA. |
 | `src/shaping/` | Clusters (vtium/vtium#144). Each cluster is judged by what it holds, shaped with HarfRust, and drawn whole by swash. `data.rs` holds the Unicode tables that `gen-shaping/` generates, and nobody edits it by hand. |
@@ -74,7 +75,7 @@ Every decoder lives here. The console reads only the helper's glyphs and its own
 | `tests/indic_sizes.rs` | A measurement, ignored by default, of how the helper draws the Indic font set's clusters at 32 pixels with the Noto fonts in tier 2's font cache. For each cluster, it prints the ink as the helper draws it, beside the cluster drawn with each of the helper's rules added in turn, so the rule that changes a glyph shows. Run it with `cargo test -p vtium-config --test indic_sizes -- --ignored --nocapture`. |
 | `tests/harfbuzz/` | HarfBuzz's shaping tests of syllabic scripts on subsets of Noto fonts, copied from HarfRust, which judge the shaper in `src/shaping/harfbuzz.rs`. Its README says where they come from, and `differs.tsv` lists the 9 cases that the helper cannot draw as HarfBuzz does, with each reason. |
 | `gen-shaping/` | The generator of `src/shaping/data.rs` from the Unicode Character Database. It is a workspace of its own, run by hand. |
-| `fuzz/` | The fuzz targets, in a workspace of their own (`fuzz/README.md`). `shape` drives clusters through the shaper and the rasteriser. `bdf` drives any bytes through the BDF reader. `serve` drives any bytes through the glyph helper's request parser. |
+| `fuzz/` | The fuzz targets, in a workspace of their own (`fuzz/README.md`). `shape` drives clusters through the shaper and the rasteriser. `bdf` drives any bytes through the BDF reader, and `hex` through the `.hex` reader. `serve` drives any bytes through the glyph helper's request parser. |
 | `frits/` | The catalog of font sets vtium ships, in six category folders (console, classic, code, nerd, scripts and small), with the layers they share in `layers/` (ADR-1204 D3, D5, D9). |
 
 `cargo test -p vtium-config` runs every test.
@@ -307,14 +308,14 @@ A frit has one `key=value` a line. Blanks around the key and the value are dropp
 This slice reads ADR-1200 D1's keys and ADR-1301 D4's `antialias=`:
 
 - `name=`;
-- `source=` (`font:`, `kbd:`, `file:`, `bdf:`, `outline:`, `vconsole`, `console:VT`, `builtin:`);
+- `source=` (`font:`, `kbd:`, `file:`, `bdf:`, `hex:`, `outline:`, `vconsole`, `console:VT`, `builtin:`);
 - `unimap=`;
 - `script-source=`;
 - `cover=` (`ascii`, `latin-1`, `gb2312`, `gbk`, `big5`, `jis-x-0208`, `ks-x-1001`, `U+XXXX` and `U+XXXX-U+YYYY`);
 - `cp-size=`;
 - `style=`, which is `regular`, `bold`, `italic` or `bold-italic`, for the source above it. The style is regular when no line names one. Any other value refuses the frit, naming its line.
 - `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=`, `hinting=`, `render=` and `license=`;
-- `strike=`, for an outline source, and `layer=`, which ADR-1204 D2 and D5 add. See [Layers](#layers) and [Strikes](#strikes).
+- `strike=`, for an outline or a bitmap source, and `layer=`, which ADR-1204 D2 and D5 add. See [Layers](#layers) and [Strikes](#strikes).
 - `version=`, `check=`, `sha256=` and `url=`, which say which font the source above them needs, as ADR-1204 D7 adds them. See [What a source needs](#what-a-source-needs).
 
 The store's `package=` is an unknown key. `compress=` chose how a stored set was compressed. vtium-config accepts it with one warning, naming the file and line. Refusing it would leave the console on the built-in font, for a key that never changed what was drawn.
@@ -386,7 +387,9 @@ The frit draws without that layer. `vtium check-config` reports each such line f
 
 ### Strikes
 
-`strike=` names a bitmap file of the same design as the outline `source=` line above it, as `kbd:NAME`, `file:PATH` or `bdf:PATH`, once for each file. A cell up to the tallest strike's height draws the tallest strike that fits it, placed as a bitmap source is placed. Its baseline and lines are the strike's. Above the tallest strike's height, and in a cell that no strike fits, the outline draws. The outline also draws, at every height, each character that the strikes lack, such as a Nerd Fonts icon. Each strike file states its own height, so the frit needs no other number for the switch. A strike this machine lacks is left out quietly, and one the helper refuses is left out with a warning naming its line.
+`strike=` names a bitmap file of the same design as the `source=` line above it, at another height, as `kbd:NAME`, `file:PATH` or `bdf:PATH`, once for each file. Each strike file states its own height, so the frit needs no other number to choose among them. A strike this machine lacks is left out quietly, and one the helper refuses is left out with a warning naming its line. A built-in font, `vconsole` and `console:` take no strikes, because a frit cannot name their design at other heights.
+
+Under an outline source, a cell up to the tallest strike's height draws the tallest strike that fits it, placed as a bitmap source is placed. Its baseline and lines are the strike's. Above the tallest strike's height, and in a cell that no strike fits, the outline draws. The outline also draws, at every height, each character that the strikes lack, such as a Nerd Fonts icon.
 
 ```ini
 source=outline:/usr/share/fonts/terminus/TerminusTTF-4.49.3.ttf
@@ -397,13 +400,24 @@ strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
 
 Here a 14-pixel cell draws `ter-u14n`, a 15-pixel cell draws it too, a 16-pixel cell draws `ter-u16n`, and a 17-pixel cell draws the outline.
 
+Under a bitmap source, the source and its strikes are one font at several heights. Each cell draws the tallest of them that fits it, and that font alone, so a character it lacks draws from the next source. A cell between two strikes' heights draws the shorter strike, centred in the cell. A cell taller than every strike draws the tallest at the largest whole factor that fits, centred. A cell that no strike fits draws nothing from the source. The catalog's `terminus` set is Terminus at nine heights from 12 to 32 pixels:
+
+```ini
+source=bdf:/usr/share/vtium/fonts/ter-u16n.bdf.gz
+strike=bdf:/usr/share/vtium/fonts/ter-u12n.bdf.gz
+strike=bdf:/usr/share/vtium/fonts/ter-u24n.bdf.gz
+strike=bdf:/usr/share/vtium/fonts/ter-u32n.bdf.gz
+```
+
+When the frit states no `cell=` and no `font-size` is configured, the console asks the helper for a cell at the automatic rule's height. The helper answers with the cell of the tallest strike no taller than that height. The console takes whole multiples of that cell, as it does of any bitmap cell. With the lines above, a 13-pixel height gives Terminus's 6×12 cell, a 26-pixel height its 12×24 cell, and a 40-pixel height its 16×32 cell. Under the shortest strike's height, such as the 8-pixel rows of a 320×240 panel, the frit gives no cell. The built-in font then draws the text in the configuration's cell. A later bitmap source whose cell is larger than the strike's, such as Unifont's 8×16 in a 12-pixel cell, does not stop the answer, and draws nothing in that cell.
+
 ### What a source needs
 
 Four keys under a `source=` line say which font the source needs. The helper matches the font it finds against them, and `vtium-config fonts` names the font with them when the font is missing or differs.
 
 - `version=` is the lowest version of the font that the frit was written against, as numbers separated by dots, such as `2.304`, eight numbers at most. The helper reads a font's version from an outline font's name table (name ID 5) or a BDF font's `FONT_VERSION` property, and takes the first run of numbers in it. A Nerd Fonts build states its base font's version first and its Nerd Fonts release after the words `Nerd Fonts`, as in `Version 001.000;Nerd Fonts 3.5.1`, so the helper takes the release there. It compares versions number by number, so `2.10` is later than `2.9`, and `3.4` is the same version as `3.4.0`. A font of a lower version still draws, and `vtium-config fonts` reports it. A font that states no version, such as a PSF font, is not compared.
 - `check=` names a character that the right font holds, as `U+XXXX`, or a range of characters as `U+XXXX-U+YYYY`. The line can repeat, and its ranges join. A font that lacks any of them counts as missing, so the next source gives its characters. For example, `check=U+E0B0` tells a Nerd Fonts build from the plain font of a similar name.
-- `sha256=` is the SHA-256 of the file that a `file:`, `bdf:` or `outline:` source names, as 64 hexadecimal digits, in either case. The hash is of the file as it is stored, compressed or not. A file with another hash still draws, and `vtium-config fonts` reports it. Under a source that names no file, `sha256=` refuses the frit.
+- `sha256=` is the SHA-256 of the file that a `file:`, `bdf:`, `hex:` or `outline:` source names, as 64 hexadecimal digits, in either case. The hash is of the file as it is stored, compressed or not. A file with another hash still draws, and `vtium-config fonts` reports it. Under a source that names no file, `sha256=` refuses the frit. On the lines after a `strike=` line, `sha256=` gives that strike's file's hash, because each strike is a file of its own. `version=`, `check=` and `url=` there still describe the source's font. A strike whose file has another hash still draws, and the report names the strike's file.
 - `url=` is the font's upstream page, with the version, as an address that starts with `https://` or `http://`. `vtium-config fonts` names it beside the font. A `#` starts a comment in a frit, so the address cannot hold one.
 
 Each key but `check=` comes once for each source. A malformed value, a second line of a key, and a key above the first `source=` line each refuse the frit, naming the line. `version=` and `check=` under a `builtin:`, `vconsole` or `console:` source refuse it too, because such a source names no font you install.
@@ -571,6 +585,7 @@ The parser's answer is checked by the parent. For each cell asked for, the answe
   A glyph of `ENCODING -1` has no place in the character set. It is read as any glyph is, so a malformed one still refuses the font. It is then left out, and not counted against `CHARS`. Some fonts, Tiny5 Mono's among them, count `CHARS` without such glyphs. Each glyph sits on the baseline at its `BBX` offsets, and is cut at its cells' edges.
 
   A BDF font's bytes are read where the source is resolved. They are parsed in `Engine::load`, in the helper's own sandbox with the other fonts, since the glyph form that the parser's child answers with holds no glyph two cells wide. `preview` (#120) has no sandboxed place to parse one yet.
+- **`.hex` fonts** are read by vtium-config's own reader, as GNU Unifont's tools write them (ADR-1204 D5). Each line holds one glyph: a code point in hexadecimal, a colon, and the glyph's rows. An 8×16 glyph takes 32 hexadecimal digits and a 16×16 glyph 64, which is two cells wide. Every glyph stands on row 14 of its 16, as Unifont's do. A line that does not read so refuses the font, and so do a code point that is not a Unicode character and a second glyph for one code point. The message names the line. The helper reads a `.hex` file uncompressed, up to `PSF_BYTES_MAX`, and refuses a gzipped one with a message that says to decompress it. A `.hex` font states no version, so only `sha256=` checks it. Unifoundry's `unifont_all-17.0.03.hex`, every plane of Unifont, holds 126,641 glyphs, which the reader takes in about 32 ms in a release build. The bytes are parsed in `Engine::load`, as a BDF font's are.
 - **Compression** is told by its magic, as kbd tells it. It is decoded with its stream's own check value verified. The formats are gzip, bzip2, xz and zstd. Each is refused past `COMPRESSED_BYTES_MAX` before it is decoded, and past `PSF_BYTES_MAX` once decoded.
 
 ## Decoders
@@ -775,6 +790,7 @@ A frit and every source file are opened once, never blocking on a FIFO. Each is 
 | `BDF_LINE_MAX` | 4096 bytes | The BDF font is refused, naming the line |
 | `BDF_GLYPHS_MAX` | 65535 glyphs, as a PSF's: the `CHARS` line, and the glyphs it counts. A glyph of `ENCODING -1` is read and dropped, so only the decompressed file's size bounds how many there are, and none is held | The BDF font is refused |
 | `BDF_BITMAP_MAX` | 192 pixels, a glyph's side or offset | The BDF font is refused, naming the line |
+| A `.hex` file | `PSF_BYTES_MAX`, read uncompressed; a code point of 1 to 6 hexadecimal digits and a glyph of 32 or 64 | The source is refused; a malformed line refuses the font, naming the line |
 | A BDF font's cell | 1 to `FRIT_CELL_MAX` a side | The BDF font is refused |
 | A BDF font's glyphs | `PSF_BYTES_MAX` in all, each counted as placed in its one or two cells | The BDF font is refused, naming the bound |
 | A CPI file | 8 fonts of 512 glyphs, 32 wide | It is no CPI file |
