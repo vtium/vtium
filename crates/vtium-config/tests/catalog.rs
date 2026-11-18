@@ -1,8 +1,11 @@
 //! `vtium-config fonts` over the whole catalog of font sets: every set gets
 //! an answer from the font helper, however many sets there are and however
-//! large their fonts.
+//! large their fonts. Each set, with its layers in place, also names each
+//! font file once.
 //!
 //! References:
+//! - ADR-1204 D5: a set adds its layers' sources in place of its `layer=`
+//!   lines.
 //! - ADR-1204 D7: vtium-config names each set's missing fonts.
 //! - ADR-1204 D9: the catalog's sets in their category folders.
 
@@ -100,4 +103,43 @@ fn many_sets_of_large_fonts_each_get_an_answer() {
         "{out}"
     );
     assert_eq!(unanswered(&out), [] as [&str; 0], "{out}");
+}
+
+// No set of the catalog, with its layers in place, names one font file in
+// two sources of the same style. The helper reads, hashes and parses each
+// source on its own, so a second source of the same file costs a second
+// read of the file and holds its glyphs twice, and it can draw nothing the
+// first one does not.
+//
+// References:
+// - ADR-1204 D5: a set adds its layers' sources in place of its `layer=`
+//   lines.
+#[test]
+fn no_catalog_set_names_one_font_file_twice() {
+    let catalog = Path::new(env!("CARGO_MANIFEST_DIR")).join("frits");
+    let layers = catalog.join("layers");
+    let mut sets = 0;
+    for folder in std::fs::read_dir(&catalog).expect("the catalog") {
+        let folder = folder.expect("a folder").path();
+        if folder == layers {
+            continue;
+        }
+        for file in std::fs::read_dir(&folder).expect("a category") {
+            let file = file.expect("a file").path();
+            let frit = vtium_config::frit::Frit::load_in(&file, &layers).expect("the set reads");
+            sets += 1;
+            let mut seen = std::collections::BTreeSet::new();
+            for source in &frit.sources {
+                if source.font_name().is_some_and(|f| f.starts_with('/')) {
+                    assert!(
+                        seen.insert((source.spelling.clone(), format!("{:?}", source.style))),
+                        "{} names {} twice",
+                        file.display(),
+                        source.spelling
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(sets, 38);
 }
