@@ -21,6 +21,9 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+# The Makefile stages the font files under the caller's CARGO_TARGET_DIR,
+# or target. make gates gives each gate its own.
+TARGET = os.environ.get("CARGO_TARGET_DIR") or "target"
 SCRIPT = os.path.join(HERE, "files")
 PINS = os.path.join(HERE, "pins.tsv")
 HEIGHTS = (12, 14, 16, 18, 20, 22, 24, 28, 32)
@@ -191,8 +194,8 @@ class Install(unittest.TestCase):
         return p.stdout.splitlines()
 
     def fonts_line(self, where):
-        files = [f"target/font-files/{n}" for n in TERMINUS] + ["target/font-files/unifont_all-17.0.03.hex"]
-        files += [f"target/cullet-mono/{n}" for n in FACES]
+        files = [f"{TARGET}/font-files/{n}" for n in TERMINUS] + [f"{TARGET}/font-files/unifont_all-17.0.03.hex"]
+        files += [f"{TARGET}/cullet-mono/{n}" for n in FACES]
         return f"install -Dm644 -t {where} " + " ".join(files)
 
     def test_every_build_installs_the_font_files_and_cullet_monos_notices(self):
@@ -207,7 +210,7 @@ class Install(unittest.TestCase):
                 with self.subTest(target=target, features=features):
                     lines = self.make_n(target, *args, *features)
                     # the check comes first, before anything is built
-                    self.assertEqual(lines[0], "tools/fonts/files check target/font-files target/cullet-mono")
+                    self.assertEqual(lines[0], f"tools/fonts/files check {TARGET}/font-files {TARGET}/cullet-mono")
                     self.assertIn(self.fonts_line(fonts), lines)
                     self.assertIn(f"install -Dm644 -t {licenses}/cullet-mono "
                                   + " ".join(f"tools/cullet-mono/notices/{n}" for n in notices), lines)
@@ -220,9 +223,9 @@ class Install(unittest.TestCase):
                       "-exec sed -i 's|/usr/share/vtium/fonts/|/usr/local/share/vtium/fonts/|g' {} +", lines)
 
     def test_font_files_fetches_and_checks_with_the_script(self):
-        self.assertEqual(self.make_n("font-files"), ["tools/fonts/files fetch target/font-files"])
+        self.assertEqual(self.make_n("font-files"), [f"tools/fonts/files fetch {TARGET}/font-files"])
         self.assertEqual(self.make_n("font-files-check"),
-                         ["tools/fonts/files check target/font-files target/cullet-mono"])
+                         [f"tools/fonts/files check {TARGET}/font-files {TARGET}/cullet-mono"])
 
 
 if __name__ == "__main__":
