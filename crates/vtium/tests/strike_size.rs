@@ -189,6 +189,13 @@ impl Seat {
     /// The seat drawing the set `t` at `--font-size=<size>`, its session
     /// printing one A at the top left. Its first turn has run.
     fn boot(test: &str, size: u32) -> Seat {
+        Seat::boot_with(test, size, &[], "printf A; exec sleep 30")
+    }
+
+    /// The seat drawing the set `t` at `--font-size=<size>`, with the
+    /// options `more`, its session running `script` under `/bin/sh`. Its
+    /// first turn has run.
+    fn boot_with(test: &str, size: u32, more: &[&str], script: &str) -> Seat {
         let dir = struck_set(test);
         let kinds = dir.join("kinds");
         let fonts = Sources {
@@ -199,18 +206,12 @@ impl Seat {
             kernel_cmdline: PathBuf::from("/dev/null"),
         };
         let size = format!("--font-size={size}");
-        let args: Vec<OsString> = [
-            size.as_str(),
-            "--font-name=t",
-            "--login",
-            "--",
-            "/bin/sh",
-            "-c",
-            "printf A; exec sleep 30",
-        ]
-        .iter()
-        .map(OsString::from)
-        .collect();
+        let args: Vec<OsString> = [size.as_str(), "--font-name=t"]
+            .iter()
+            .chain(more)
+            .chain(&["--login", "--", "/bin/sh", "-c", script])
+            .map(OsString::from)
+            .collect();
         let loaded = config::load(&args, &mut |_: &Path| Ok(None));
         assert_eq!(loaded.reports, [], "the seat's command line");
         let lp: Loop<App> = Loop::new().expect("a loop");
@@ -369,5 +370,29 @@ fn a_zoom_steps_through_the_strikes() {
             (0, 0, 11, 22),
             &format!("{size}, zoomed out to 22"),
         );
+    }
+}
+
+/// ctlseqs, XTWINOPS 8: a program asks for a text area in rows and
+/// columns, and vtium meets the request at the largest height whose grid
+/// holds it. For a set with strikes, those heights are the strikes'
+/// heights. On the 640×480 display, 21 rows of 58 columns are the grid of
+/// the 22-pixel strike's 11×22 cell, so a request from 16 pixels draws
+/// that strike. 26 rows of 64 columns are the grid of the 18-pixel
+/// strike's 10×18 cell, so a request from 24 pixels steps down to it.
+// covers: window.resize
+#[test]
+fn a_text_area_request_draws_the_strike_whose_grid_holds_it() {
+    for (size, rows, cols, (w, h)) in [(16, 21, 58, (11, 22)), (24, 26, 64, (10, 18))] {
+        let script = format!("printf 'A\\033[8;{rows};{cols}t'; exec sleep 30");
+        let mut s = Seat::boot_with(
+            &format!("strike-window-{size}"),
+            size,
+            &["--allow-window-ops"],
+            &script,
+        );
+        let what = format!("{rows} rows of {cols} columns from {size} pixels");
+        s.draws((w, h), (0, 0, w, h), &what);
+        assert_eq!(s.app.grid(), (cols, rows), "{what}: the grid");
     }
 }
