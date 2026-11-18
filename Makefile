@@ -257,24 +257,36 @@ PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter 
 # layer NAME.vtlayer in its layers folder. The default is the vtium
 # package's: the two sets for text, terminus and cullet-mono, then
 # jetbrains-mono and the small panels' two sets, and
-# FRIT_LAYERS names the layers those sets add. A set names its fonts, and
-# no vtium install ships a font.
+# FRIT_LAYERS names the layers those sets add. Every console package, the
+# minspec ones included, ships these lists. FRITS='' stages no set, and
+# FRIT_LAYERS='' no layer. A set names its fonts.
 FRIT_ROOT := crates/vtium-config/frits
 FRIT_CATEGORIES := console classic code nerd scripts small
 FRIT_DIRS := $(addprefix $(FRIT_ROOT)/,$(FRIT_CATEGORIES))
-FRITS := terminus cullet-mono jetbrains-mono unifont-icons unscii-icons
-FRIT_LAYERS := nerd-symbols nerd-symbols-small noto-emoji noto-emoji-small unifont
+CONSOLE_FRITS := terminus cullet-mono jetbrains-mono unifont-icons unscii-icons
+CONSOLE_FRIT_LAYERS := nerd-symbols nerd-symbols-small noto-emoji noto-emoji-small unifont
+FRITS := $(CONSOLE_FRITS)
+FRIT_LAYERS := $(CONSOLE_FRIT_LAYERS)
 # The sets and layers the optional vtium-fonts package ships beside the
-# fonts they name, which make install-fonts stages: the whole catalog
-# (ADR-1204 D9). make install stages any of them that FRITS names too.
-FONTS_FRITS := $(sort $(basename $(notdir $(wildcard $(addsuffix /*.vtfrit,$(FRIT_DIRS))))))
-FONTS_LAYERS := $(sort $(basename $(notdir $(wildcard $(FRIT_ROOT)/layers/*.vtlayer))))
+# fonts they name, which make install-fonts stages: the rest of the catalog.
+# It leaves out every set and layer a console package can ship, so that
+# pacman can install vtium-fonts beside any console package without two
+# packages owning one file.
+#
+# References:
+# - ADR-1204 D9: vtium-fonts ships the catalog beside the fonts it names.
+FONTS_FRITS := $(filter-out $(CONSOLE_FRITS),$(sort $(basename $(notdir $(wildcard $(addsuffix /*.vtfrit,$(FRIT_DIRS)))))))
+FONTS_LAYERS := $(filter-out $(CONSOLE_FRIT_LAYERS),$(sort $(basename $(notdir $(wildcard $(FRIT_ROOT)/layers/*.vtlayer)))))
 frit_paths = $(foreach f,$(1),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
 layer_paths = $(foreach l,$(1),$(or $(wildcard $(FRIT_ROOT)/layers/$(l).vtlayer),$(error no layer $(l) in $(FRIT_ROOT)/layers)))
 frit_files = $(call frit_paths,$(FRITS))
 # The command that stages the sets $(1) in their category folders and the
-# layers $(2) in the layers folder, under DESTDIR.
-install_frits = $(strip $(foreach c,$(FRIT_CATEGORIES),$(if $(filter $(FRIT_ROOT)/$(c)/%,$(1)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts/$(c) $(filter $(FRIT_ROOT)/$(c)/%,$(1)) &&))) install -Dm644 -t $(DESTDIR)/etc/vtium/fonts/layers $(2)
+# layers $(2) in the layers folder, under DESTDIR. frit_commands starts
+# each install with &&, and install_frits drops the first &&, so with
+# neither sets nor layers the command is empty and make runs nothing.
+frit_commands = $(strip $(foreach c,$(FRIT_CATEGORIES),$(if $(filter $(FRIT_ROOT)/$(c)/%,$(1)),&& install -Dm644 -t $(DESTDIR)/etc/vtium/fonts/$(c) $(filter $(FRIT_ROOT)/$(c)/%,$(1)))) $(if $(strip $(2)),&& install -Dm644 -t $(DESTDIR)/etc/vtium/fonts/layers $(2)))
+install_frits = $(call drop_first,$(call frit_commands,$(1),$(2)))
+drop_first = $(wordlist 2,$(words $(1)),$(1))
 # A frit vtium does not hold stops the install as make reads this file,
 # before anything is built.
 ifneq ($(filter install install-build install-tree,$(MAKECMDGOALS)),)
@@ -356,7 +368,7 @@ install-tree: font-files-check minspec config-release clipboard-release $(if $(I
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/xterm-vtium.ti
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
-	$(if $(strip $(FRITS)),$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS))))
+	$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS)))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
 	$(call install-font-files,$(DESTDIR)/usr/share/vtium/fonts,$(DESTDIR)/usr/share/licenses/vtium)
@@ -460,18 +472,31 @@ $(error $(firstword $(filter $(VT_GOALS) vt-install,$(MAKECMDGOALS))): HWACCEL a
 endif
 endif
 endif
-# Both stage under DESTDIR alone: DESTDIR is named, not empty, and not the
-# machine's own root, so neither writes a file over the packaged vtium's or
-# beside it in /usr/local.
+# Each of these targets stages under DESTDIR alone: DESTDIR is not empty
+# and not the machine's own root, so none of them writes a file over the
+# packaged vtium's or beside it in /usr/local. make install, make
+# install-terminfo and make install-fonts also need DESTDIR named, while
+# make install-tree stages under its own default, target/install-tree.
+STAGE_GOALS := install install-terminfo install-fonts install-tree
+stage_goal = $(firstword $(filter $(STAGE_GOALS),$(MAKECMDGOALS)))
+ifneq ($(filter $(STAGE_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(filter install install-terminfo install-fonts,$(MAKECMDGOALS)),)
 ifeq ($(origin DESTDIR),file)
 $(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): name DESTDIR=DIR, the directory it stages the files under; it never installs onto this machine)
 endif
+endif
 ifeq ($(strip $(DESTDIR)),)
-$(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): DESTDIR is empty, which would install onto this machine; name the directory it stages the files under)
+$(error $(stage_goal): DESTDIR is empty, which would install onto this machine; name the directory it stages the files under)
 endif
 ifeq ($(shell readlink -m -- '$(DESTDIR)'),/)
-$(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): DESTDIR=$(DESTDIR) is this machine's root; name the directory it stages the files under)
+$(error $(stage_goal): DESTDIR=$(DESTDIR) is this machine's root; name the directory it stages the files under)
+endif
+endif
+# make install writes PREFIX into the font sets with sed, where &, | and \
+# have a meaning of their own, so it refuses a PREFIX that holds one.
+ifneq ($(filter install,$(MAKECMDGOALS)),)
+ifneq ($(findstring &,$(PREFIX))$(findstring |,$(PREFIX))$(findstring \,$(PREFIX)),)
+$(error install: PREFIX=$(PREFIX) holds &, | or \, which make install cannot write into the font sets; name a PREFIX without them)
 endif
 endif
 
@@ -507,9 +532,12 @@ ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
-	$(if $(strip $(FRITS)),$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS))))
+	$(call install_frits,$(frit_files),$(call layer_paths,$(FRIT_LAYERS)))
+# The sets and layers name the font files by their path under /usr, so for
+# another PREFIX make install rewrites that path in each one it staged. With
+# no set and no layer staged there is no folder to rewrite in.
 ifneq ($(PREFIX),/usr)
-	find $(DESTDIR)/etc/vtium/fonts -type f \( -name '*.vtfrit' -o -name '*.vtlayer' \) -exec sed -i 's|/usr/share/vtium/fonts/|$(PREFIX)/share/vtium/fonts/|g' {} +
+	$(if $(strip $(FRITS) $(FRIT_LAYERS)),find $(DESTDIR)/etc/vtium/fonts -type f \( -name '*.vtfrit' -o -name '*.vtlayer' \) -exec sed -i 's|/usr/share/vtium/fonts/|$(PREFIX)/share/vtium/fonts/|g' {} +)
 endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)$(PREFIX)/share/vtium/pointers.svg
@@ -517,7 +545,7 @@ endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
-install-fonts: ## Stage the font sets and layers the vtium-fonts package ships, FONTS_FRITS='...' and FONTS_LAYERS='...' (default the whole catalog), in /etc/vtium/fonts under DESTDIR=DIR
+install-fonts: ## Stage the font sets and layers the vtium-fonts package ships, FONTS_FRITS='...' and FONTS_LAYERS='...' (default the catalog but the sets and layers a console package ships), in /etc/vtium/fonts under DESTDIR=DIR
 	$(call install_frits,$(call frit_paths,$(FONTS_FRITS)),$(call layer_paths,$(FONTS_LAYERS)))
 
 .PHONY: install-terminfo

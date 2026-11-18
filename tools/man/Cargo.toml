@@ -28,6 +28,9 @@ vtium = { path = "../../crates/vtium" }
 vtium-config = { path = "../../crates/vtium-config" }
 # vtium-clipboard's help, for vtium-clipboard(1).
 vtium-clipboard = { path = "../../crates/vtium-clipboard" }
+# The documentation site's address and its rule for a page's address, so
+# that a relative link in a text becomes the full address a man page shows.
+vtium-site = { path = "../site" }
 
 [[bin]]
 name = "vtium-man"

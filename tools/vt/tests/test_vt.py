@@ -4138,6 +4138,60 @@ class Package(Case):
             self.assertFalse(os.path.exists(self.dest), target)
         self.assertEqual(len(self.s.calls_of("cargo")), 2, "only the first install builds")
 
+    def test_install_writes_its_prefix_into_every_staged_set_and_layer(self):
+        # ADR-1204 D2: the sets and layers name the font files by their path
+        # under /usr. make install for another PREFIX writes that PREFIX
+        # into each path and changes nothing else in the file, so each
+        # staged set reads as the tree's set does.
+        self.built("/usr/local/bin/vtium-config")
+        p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr/local", f"INSTALL_TARGET_DIR={self.build}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        staged = [f for f in self.staged() if f.startswith("etc/vtium/fonts/")]
+        self.assertEqual(staged, [f for f in self.STAGED if f.startswith("etc/vtium/fonts/")])
+        named = 0
+        for f in staged:
+            text = read(os.path.join(self.dest, f))
+            source = read(os.path.join(ROOT, self.SOURCES[f]))
+            self.assertEqual(text, source.replace("/usr/share/vtium/fonts/", "/usr/local/share/vtium/fonts/"), f)
+            self.assertNotIn("/usr/share/vtium/fonts/", text, f)
+            for line in text.splitlines():
+                if line.startswith(("source=", "strike=")) and "/vtium/fonts/" in line:
+                    named += 1
+                    self.assertIn(":/usr/local/share/vtium/fonts/", line, (f, line))
+        # Terminus's eighteen files, Cullet Mono's two faces and Unifont's
+        # file are each named at least once.
+        self.assertGreaterEqual(named, 21)
+
+    def test_install_stages_layers_with_no_sets_and_neither_when_both_are_empty(self):
+        # FRITS='' stages no set and FRIT_LAYERS='' no layer, each on its
+        # own. With neither, nothing is staged in /etc/vtium/fonts, and an
+        # install for another PREFIX has nothing to rewrite there.
+        self.built("/opt/vt/bin/vtium-config")
+        layers = [f for f in self.STAGED if f.startswith("etc/vtium/fonts/layers/")]
+        for args, fonts in ((["FRITS="], layers), (["FRITS=", "FRIT_LAYERS="], [])):
+            with self.subTest(args=args):
+                p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/opt/vt", f"INSTALL_TARGET_DIR={self.build}", *args)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual([f for f in self.staged() if f.startswith("etc/vtium/fonts/")], fonts)
+                for f in fonts:
+                    self.assertEqual(read(os.path.join(self.dest, f)),
+                                     read(os.path.join(ROOT, self.SOURCES[f])).replace(
+                                         "/usr/share/vtium/fonts/", "/opt/vt/share/vtium/fonts/"), f)
+            shutil.rmtree(self.dest, ignore_errors=True)
+
+    def test_install_refuses_a_prefix_that_sed_would_misread(self):
+        # make install writes PREFIX into the sets with sed, whose
+        # replacement reads & as the matched text, and whose command uses |
+        # and \\ for itself.
+        self.built("/usr/bin/vtium-config")
+        for prefix in ("/opt/a&b", "/opt/a|b", "/opt/a\\b"):
+            with self.subTest(prefix=prefix):
+                p = self.make("install", f"DESTDIR={self.dest}", f"PREFIX={prefix}", f"INSTALL_TARGET_DIR={self.build}")
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(f"install: PREFIX={prefix} holds &, | or \\", p.stderr)
+                self.assertEqual(self.staged(), [])
+        self.assertEqual(self.s.calls_of("cargo"), [])
+
     def test_install_refuses_a_console_that_starts_another_helper(self):
         self.built("/usr/local/bin/vtium-dev-config")
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}")
@@ -4168,6 +4222,16 @@ class Package(Case):
                     self.assertNotEqual(p.returncode, 0)
                     self.assertIn(why, p.stderr)
                     self.assertEqual(self.s.calls_of("cargo"), [])
+        # make install-tree stages under its own default when DESTDIR is not
+        # named, but never onto the machine.
+        for args, why in ((["DESTDIR="], "install-tree: DESTDIR is empty"),
+                          (["DESTDIR=/"], "install-tree: DESTDIR=/ is this machine's root"),
+                          (["DESTDIR=/usr/.."], "install-tree: DESTDIR=/usr/.. is this machine's root")):
+            with self.subTest(target="install-tree", args=args):
+                p = self.make("install-tree", *args)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(why, p.stderr)
+                self.assertEqual(self.s.calls_of("cargo"), [])
 
     def test_install_names_the_license_for_the_package(self):
         self.built("/usr/bin/vtium-config")
@@ -4258,15 +4322,20 @@ class Package(Case):
         self.assertIn("install-terminfo: no", p.stderr)
         self.assertEqual(self.staged(), [])
 
-    # ADR-1204 D9: vtium-fonts ships the whole catalog beside the fonts it
-    # names, each set in its category folder and the layers in layers/, and
-    # make install-fonts stages them for its recipe.
-    def test_install_fonts_stages_the_catalog_alone(self):
+    # ADR-1204 D9: vtium-fonts ships the catalog beside the fonts it names,
+    # each set in its category folder and the layers in layers/, and make
+    # install-fonts stages them for its recipe. It leaves out each set and
+    # layer that a console package ships, so pacman never finds two packages
+    # that own one file.
+    def test_install_fonts_stages_the_catalog_but_what_a_console_package_ships(self):
         p = self.make("install-fonts", f"DESTDIR={self.dest}", "PREFIX=/usr")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         catalog = os.path.join(ROOT, "crates/vtium-config/frits")
-        files = sorted(os.path.join(d, f) for d in os.listdir(catalog) for f in os.listdir(os.path.join(catalog, d)))
-        self.assertEqual(len(files), 51)
+        console = {f[len("etc/vtium/fonts/"):] for f in self.STAGED if f.startswith("etc/vtium/fonts/")}
+        self.assertEqual(len(console), 10)
+        files = sorted(os.path.join(d, f) for d in os.listdir(catalog) for f in os.listdir(os.path.join(catalog, d))
+                       if os.path.join(d, f) not in console)
+        self.assertEqual(len(files), 41)
         self.assertEqual(self.staged(), ["etc/vtium/fonts/" + f for f in files])
         for f in files:
             self.assertEqual(read(os.path.join(self.dest, "etc/vtium/fonts", f)), read(os.path.join(catalog, f)), f)
@@ -4277,6 +4346,20 @@ class Package(Case):
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("no frit absent in", p.stderr)
         self.assertEqual(self.staged(), [])
+        # make install stages none of the files make install-fonts stages,
+        # with the default FRITS or a minspec package's.
+        p = self.make("install-fonts", f"DESTDIR={self.dest}", "PREFIX=/usr")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        fonts_package = set(self.staged())
+        self.built("/usr/bin/vtium-config")
+        for frits in ([], ["FRITS=terminus cullet-mono unifont-icons unscii-icons"]):
+            with self.subTest(frits=frits):
+                dest = os.path.join(self.s.tmp, "console")
+                shutil.rmtree(dest, ignore_errors=True)
+                p = self.make("install", f"DESTDIR={dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}", *frits)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                console_package = {os.path.relpath(os.path.join(d, n), dest) for d, _, ns in os.walk(dest) for n in ns}
+                self.assertEqual(fonts_package & console_package, set())
 
     def units(self, *args, out=None):
         out = out or os.path.join(self.s.tmp, "units")
