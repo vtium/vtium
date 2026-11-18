@@ -8,7 +8,7 @@ vtium takes its fonts from font set files, called frits. A frit is a short text 
 
 The console does not read any font file itself. Instead, it starts the font helper, `vtium-config serve`. The font helper reads the frit's sources and turns them into ready-made glyphs, the images of the characters. It sends the console glyphs at the size of the console's character cell, the box on the screen that holds one character.
 
-When `font-name` is not set, vtium uses the console font that the system names. That name comes from `vconsole.font=` on the kernel command line, or from `FONT=` in `/etc/vconsole.conf`. When neither names a font, vtium uses its built-in fonts, Unifont and Unscii-8.
+When `font-name` is not set, vtium uses the console font that the system names. That name comes from `vconsole.font=` on the kernel command line, or from `FONT=` in `/etc/vconsole.conf`. When neither names a font, vtium uses the font set `terminus`, bitmap Terminus at every size from 12 to 32 pixels. You can choose the outline set `cullet-mono` instead, which scales to any size and adds Nerd Fonts icons and color emoji. Every build installs both sets, with GNU Unifont for the characters that Terminus lacks.
 
 ## An outline font
 
