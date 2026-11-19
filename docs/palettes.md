@@ -98,5 +98,6 @@ vtium installs these color schemes in `/usr/share/vtium/palettes`. Each comes fr
 | Tokyo Night | `tokyo-night`, `tokyo-night-storm`, `tokyo-night-moon`, `tokyo-night-day` | [folke/tokyonight.nvim](https://github.com/folke/tokyonight.nvim) | Apache-2.0 |
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` | [gruvbox-community/gruvbox](https://github.com/gruvbox-community/gruvbox) | MIT |
 | Kiln | `kiln` | vtium's own: a warm near-black background, saturated accents and a light warm foreground | vtium's license |
+| Sunny | `sunny` | vtium's own: black text on a white background, like the white consoles of 1990s Unix workstations | vtium's license |
 
 Nord and Solarized are built-in palettes, so they need no file. To use a color scheme vtium does not install, copy its Ghostty theme file to `/etc/vtium/palettes/NAME.palette` as root, and add that path to `/etc/vtium/batch.conf`.
