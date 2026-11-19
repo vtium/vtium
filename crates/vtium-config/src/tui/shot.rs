@@ -7,16 +7,18 @@
 //! A picture is asked for in two steps. The TUI first asks the glyph
 //! helper for the font's cell at the change's size ([`Effect::Cell`]),
 //! since the cell decides the grid the change gives on the display. It
-//! then lays its own screen out again at that grid and asks for the
-//! picture of it ([`Effect::Picture`]). Where the terminal draws no kitty
-//! graphics, it asks for a line of text instead ([`Effect::Summary`]).
+//! then asks the loop to draw its own screen at that grid and to ask for
+//! the picture of it ([`Effect::ScreenPicture`]); the Looks view's sample
+//! screen goes in the request itself ([`Effect::Picture`]). Where the
+//! terminal draws no kitty graphics, it asks for a line of text instead
+//! ([`Effect::Summary`]).
 
 use std::time::Duration;
 
 use vtium_font::Cell;
 
 use super::input::Key;
-use super::model::{App, Effect, FontState, Live, View};
+use super::model::{App, Effect, Font, FontState, Live, Shared, Size, View};
 use super::words;
 use crate::specimen::Shot;
 
@@ -125,15 +127,23 @@ pub fn sample_rows() -> Vec<Vec<(&'static str, super::color::Style)>> {
 
 /// The Looks view's preview screen laid out at `grid`, its sample content
 /// from the top left.
+/// Each row holds `cols` characters: the sample's text, cut at the right
+/// edge, then blanks.
 fn sample_screen((cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
-    let mut canvas = super::canvas::Canvas::new(cols, rows);
-    for (y, line) in sample_rows().into_iter().enumerate().take(rows) {
-        let mut x = 0usize;
-        for (text, style) in line {
-            x = canvas.put(x, y, text, style);
-        }
-    }
-    canvas.into_rows()
+    use super::canvas::{Row, put};
+    let lines = sample_rows();
+    (0..rows)
+        .map(|y| {
+            let mut row: Row = Vec::new();
+            put(&mut row, 0, &" ".repeat(cols), super::color::Style::PLAIN);
+            let mut x = 0usize;
+            for (text, style) in lines.get(y).into_iter().flatten() {
+                let shown: String = text.chars().take(cols.saturating_sub(x)).collect();
+                x = put(&mut row, x, &shown, *style);
+            }
+            row
+        })
+        .collect()
 }
 
 /// The most columns and rows a picture's screen is laid out at, whatever
@@ -184,18 +194,100 @@ pub struct Caption {
     pub grid: (usize, usize),
 }
 
-impl App {
+/// The cells under a picture on the screen: the picture's first row and
+/// column, counted from 0, and how many columns and rows it takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Covered {
+    pub row: usize,
+    pub col: usize,
+    pub cols: usize,
+    pub rows: usize,
+}
+
+impl Covered {
+    /// The cells a picture of `pixels` covers from the cell `place`, by
+    /// the cell's size in pixels that `size` holds, and at most the
+    /// picture's area `area`, in columns and rows. Where the terminal
+    /// reports no size in pixels, the cell is the one the TUI assumes, as
+    /// the picture was sized by.
+    pub fn at(
+        (row, col): (usize, usize),
+        (area_cols, area_rows): (usize, usize),
+        (width, height): (u32, u32),
+        size: Size,
+    ) -> Covered {
+        let (cw, ch) = size.cell_px.unwrap_or(super::model::ASSUMED_CELL);
+        let cells = |pixels: u32, cell: u32| {
+            usize::try_from(pixels.div_ceil(cell.max(1))).unwrap_or(usize::MAX)
+        };
+        Covered {
+            row,
+            col,
+            cols: cells(width, cw).min(area_cols),
+            rows: cells(height, ch).min(area_rows),
+        }
+    }
+}
+
+/// The parts of the model that a view's preview reads: the open view, the
+/// shared part and the terminal's size, whether the Fonts tab shows the
+/// font's detailed specimen, and the size the Looks tab highlights. The
+/// font the preview shows comes from the shared part, which the Fonts tab
+/// keeps on its highlight. Update and the layout both read the preview
+/// through this, and neither changes it.
+#[derive(Clone, Copy, Debug)]
+pub struct Preview<'a> {
+    pub view: View,
+    pub shared: &'a Shared,
+    pub size: Size,
+    /// The Fonts view shows the detailed specimen of the font.
+    pub detail: bool,
+    /// The size the Looks view highlights, in points, 0 for automatic.
+    pub points: u32,
+}
+
+impl<'a> Preview<'a> {
+    /// The Fonts view's preview: the font the previews show, at the
+    /// draft's size, as its detailed specimen where `detail` says so.
+    pub fn fonts(shared: &'a Shared, size: Size, detail: bool) -> Preview<'a> {
+        Preview {
+            view: View::Fonts,
+            shared,
+            size,
+            detail,
+            points: 0,
+        }
+    }
+
+    /// The Looks view's preview: the font the previews show, at `points`,
+    /// 0 for automatic.
+    pub fn looks(shared: &'a Shared, size: Size, points: u32) -> Preview<'a> {
+        Preview {
+            view: View::Looks,
+            shared,
+            size,
+            detail: false,
+            points,
+        }
+    }
+
+    /// The font the preview shows.
+    pub fn font(&self) -> Option<&'a Font> {
+        self.shared.preview_font()
+    }
+
     /// The change the view previews now, if any: the highlighted font in
     /// the Fonts view at the draft's size; the highlighted size of the
     /// highlighted font in the Looks view, automatic having none; and on a
     /// look's card in the Flow view, the look with the value under the
     /// cursor of its frit, size or cell.
     pub fn wanted(&self) -> Option<Wanted> {
-        if super::view::too_small(self) {
+        if super::layout::too_small(self.size) {
             return None;
         }
         let readable = |name: &str| {
-            self.inputs
+            self.shared
+                .inputs
                 .fonts
                 .iter()
                 .find(|f| f.name == name)
@@ -206,16 +298,16 @@ impl App {
                 let font = self.font()?.name.clone();
                 readable(&font).then(|| Wanted {
                     font,
-                    points: self.draft_points(),
+                    points: draft_points(self.shared),
                     cell: None,
                     detail: self.detail,
                 })
             }
             View::Looks => {
                 let font = self.font()?.name.clone();
-                (readable(&font) && self.size() > 0).then(|| Wanted {
+                (readable(&font) && self.points > 0).then_some(Wanted {
                     font,
-                    points: self.size(),
+                    points: self.points,
                     cell: None,
                     detail: false,
                 })
@@ -224,30 +316,24 @@ impl App {
         }
     }
 
-    /// The pixel height `wanted` asks the font for: its cell's height where
-    /// it states a cell, else its size at the density.
-    pub fn height_of(&self, wanted: &Wanted) -> u32 {
-        match wanted.cell {
-            Some(c) => c.height,
-            None => crate::specimen::pixel_height(wanted.points, self.inputs.dpi.0),
-        }
-    }
-
     /// The line that describes the preview: beside a picture, what the
     /// picture shows; with no pictures, the summary of the change.
     pub fn preview_line(&self) -> Option<String> {
-        if self.text_preview() && !super::view::too_small(self) {
+        if self.shared.text_preview() && !super::layout::too_small(self.size) {
             return match self.view {
-                View::Fonts => Some(words::console_font_caption(self.shown_font.as_deref())),
+                View::Fonts => Some(words::console_font_caption(
+                    self.shared.shown_font.as_deref(),
+                )),
                 View::Looks => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
                 _ => None,
             };
         }
         let wanted = self.wanted()?;
-        if self.graphics && wanted.detail {
-            let height = self.height_of(&wanted);
-            let (display, assumed) = self.display();
+        if self.shared.graphics && wanted.detail {
+            let height = height_of(self.shared, &wanted);
+            let (display, assumed) = display(self.shared);
             let summary = self
+                .shared
                 .specimen
                 .as_ref()
                 .filter(|(f, h, _)| *f == wanted.font && *h == height)
@@ -260,11 +346,12 @@ impl App {
                 assumed,
             ));
         }
-        if self.graphics {
-            return self.shot.as_ref().map(words::caption);
+        if self.shared.graphics {
+            return self.shared.shot.as_ref().map(words::caption);
         }
-        let height = self.height_of(&wanted);
+        let height = height_of(self.shared, &wanted);
         let summary = self
+            .shared
             .summary
             .as_ref()
             .filter(|(f, h, _)| *f == wanted.font && *h == height)
@@ -277,39 +364,66 @@ impl App {
             None => words::NO_PICTURES.to_owned(),
         })
     }
+}
 
-    /// The draft's `font-size`, else the size `preview` draws an automatic
-    /// size at.
-    fn draft_points(&self) -> u32 {
-        self.drafted("font-size")
-            .and_then(|s| s.parse::<u32>().ok())
-            .filter(|s| *s > 0)
-            .unwrap_or(crate::preview::POINTS)
+/// The pixel height `wanted` asks the font for: its cell's height where it
+/// states a cell, else its size at the density `shared` holds.
+pub fn height_of(shared: &Shared, wanted: &Wanted) -> u32 {
+    match wanted.cell {
+        Some(c) => c.height,
+        None => crate::specimen::pixel_height(wanted.points, shared.inputs.dpi.0),
     }
+}
 
-    /// The display the picture shows, and whether it is assumed.
-    fn display(&self) -> ((u32, u32), bool) {
-        match self.inputs.display {
-            Some(d) => (d, false),
-            None => (ASSUMED_DISPLAY, true),
+/// The draft's `font-size`, else the size `preview` draws an automatic
+/// size at.
+fn draft_points(shared: &Shared) -> u32 {
+    shared
+        .drafted("font-size")
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(crate::preview::POINTS)
+}
+
+/// The display the picture shows, and whether it is assumed.
+fn display(shared: &Shared) -> ((u32, u32), bool) {
+    match shared.inputs.display {
+        Some(d) => (d, false),
+        None => (ASSUMED_DISPLAY, true),
+    }
+}
+
+/// The most pixels the picture takes: `area`, the picture area in the
+/// terminal's cells, at the cell's size in pixels that `size` holds.
+fn picture_max((cols, rows): (usize, usize), size: Size) -> (u32, u32) {
+    let (cw, ch) = size.cell_px.unwrap_or(super::model::ASSUMED_CELL);
+    (
+        u32::try_from(cols)
+            .unwrap_or(0)
+            .saturating_mul(cw)
+            .min(crate::specimen::PICTURE_MAX.0),
+        u32::try_from(rows)
+            .unwrap_or(0)
+            .saturating_mul(ch)
+            .min(crate::specimen::PICTURE_MAX.1),
+    )
+}
+
+impl App {
+    /// The parts of the model that the open view's preview reads.
+    pub fn preview(&self) -> Preview<'_> {
+        Preview {
+            view: self.nav.view,
+            shared: &self.shared,
+            size: self.size,
+            detail: self.fonts.detail(),
+            points: self.looks.points(),
         }
     }
 
-    /// The most pixels the picture takes: the picture area, in the
-    /// terminal's cells.
-    fn picture_max(&self) -> (u32, u32) {
-        let (cols, rows) = super::view::picture_area(self);
-        let (cw, ch) = self.cell_px.unwrap_or(super::model::ASSUMED_CELL);
-        (
-            u32::try_from(cols)
-                .unwrap_or(0)
-                .saturating_mul(cw)
-                .min(crate::specimen::PICTURE_MAX.0),
-            u32::try_from(rows)
-                .unwrap_or(0)
-                .saturating_mul(ch)
-                .min(crate::specimen::PICTURE_MAX.1),
-        )
+    /// The most pixels the picture takes in the open view.
+    fn picture_room(&self) -> (u32, u32) {
+        picture_max(super::layout::picture_area(self), self.size)
     }
 
     /// Asks for the preview of what the view shows now, where it is not
@@ -317,50 +431,53 @@ impl App {
     /// the terminal draws kitty graphics, and a line of text where it does
     /// not. With nothing to preview, the picture on the screen is deleted.
     pub(crate) fn ask_picture(&mut self) -> Vec<Effect> {
-        if self.live == Live::Asking || self.leaving.is_some() || self.installing {
+        if self.shared.live == Live::Asking
+            || self.shared.leaving.is_some()
+            || self.shared.installing
+        {
             return Vec::new();
         }
         // in a vtium console the console draws the preview as text, so the
         // helper draws nothing
-        if self.text_preview() {
-            self.asked = None;
-            self.shot = None;
+        if self.shared.text_preview() {
+            self.shared.asked = None;
+            self.shared.shot = None;
             return self.drop_picture();
         }
-        let asked = self.wanted().map(|wanted| Asked {
+        let asked = self.preview().wanted().map(|wanted| Asked {
             wanted,
-            grid: (self.cols, self.rows),
-            cell_px: self.cell_px,
-            graphics: self.graphics,
+            grid: (self.size.cols, self.size.rows),
+            cell_px: self.size.cell_px,
+            graphics: self.shared.graphics,
         });
-        if asked == self.asked || self.drawing {
+        if asked == self.shared.asked || self.shared.drawing {
             return Vec::new();
         }
-        self.asked = asked.clone();
+        self.shared.asked = asked.clone();
         let Some(asked) = asked else {
-            self.shot = None;
+            self.shared.shot = None;
             return self.drop_picture();
         };
-        let height = self.height_of(&asked.wanted);
+        let height = height_of(&self.shared, &asked.wanted);
         let Wanted {
             font,
             points,
             cell,
             detail,
         } = asked.wanted;
-        if !self.graphics {
-            self.drawing = true;
+        if !self.shared.graphics {
+            self.shared.drawing = true;
             return vec![Effect::Summary { font, height }];
         }
-        let max = self.picture_max();
+        let max = self.picture_room();
         if max.0 == 0 || max.1 == 0 {
-            self.shot = None;
+            self.shared.shot = None;
             return self.drop_picture();
         }
-        self.drawing = true;
+        self.shared.drawing = true;
         if detail {
-            self.shot = None;
-            let display = self.display().0;
+            self.shared.shot = None;
+            let display = display(&self.shared).0;
             return vec![Effect::Specimen {
                 font,
                 height,
@@ -382,26 +499,26 @@ impl App {
         height: u32,
         cell: Result<(Cell, u32), String>,
     ) -> Vec<Effect> {
-        let Some(asked) = self.asked.clone() else {
-            self.drawing = false;
+        let Some(asked) = self.shared.asked.clone() else {
+            self.shared.drawing = false;
             return Vec::new();
         };
         let wanted = asked.wanted;
         // a cell for a change no longer highlighted: the next is asked for
         if wanted.font != font
-            || self.height_of(&wanted) != height
+            || height_of(&self.shared, &wanted) != height
             || wanted.cell.is_some()
-            || self.wanted().as_ref() != Some(&wanted)
-            || self.leaving.is_some()
+            || self.preview().wanted().as_ref() != Some(&wanted)
+            || self.shared.leaving.is_some()
         {
-            self.drawing = false;
+            self.shared.drawing = false;
             return Vec::new();
         }
         match cell {
             Ok(cell) => self.picture_of(wanted.font, wanted.points, height, cell),
             Err(why) => {
-                self.drawing = false;
-                self.shot = None;
+                self.shared.drawing = false;
+                self.shared.shot = None;
                 self.say_unless_trial(words::no_picture(why));
                 self.drop_picture()
             }
@@ -417,14 +534,14 @@ impl App {
         height: u32,
         (cell, face_height): (Cell, u32),
     ) -> Vec<Effect> {
-        let (display, assumed) = self.display();
+        let (display, assumed) = display(&self.shared);
         let across =
             |px: u32, side: u32| usize::try_from(px.checked_div(side).unwrap_or(0)).unwrap_or(0);
         let grid = (
             across(display.0, cell.width).min(GRID_MAX.0),
             across(display.1, cell.height).min(GRID_MAX.1),
         );
-        self.shot = Some(Caption {
+        self.shared.shot = Some(Caption {
             font: font.clone(),
             points,
             display,
@@ -433,21 +550,23 @@ impl App {
             grid,
         });
         // the Looks view draws a nominal screen of sample content at the
-        // look's cell; the caption still counts the real display's grid
-        let (display, grid, screen) = if self.view == View::Looks {
+        // look's cell; the caption still counts the real display's grid.
+        // Elsewhere the loop draws the TUI's own screen at the grid.
+        let looks = self.nav.view == View::Looks;
+        let (display, grid, screen) = if looks {
             let shown = (
                 across(PREVIEW_SCREEN.0, cell.width).min(GRID_MAX.0),
                 across(PREVIEW_SCREEN.1, cell.height).min(GRID_MAX.1),
             );
             (PREVIEW_SCREEN, shown, sample_screen(shown))
         } else {
-            (display, grid, self.screen_at(grid))
+            (display, grid, Vec::new())
         };
         let palette = self
             .conf_text()
             .and_then(|c| vtium_settings::setting(c, "palette"))
             .unwrap_or_default();
-        vec![Effect::Picture(Shot {
+        let shot = Shot {
             font,
             height,
             cell,
@@ -456,23 +575,19 @@ impl App {
             grid,
             screen,
             palette,
-            color: self.inputs.color,
-            max: self.picture_max(),
-        })]
-    }
-
-    /// The TUI's screen as it would be at `grid`, with no picture on it.
-    fn screen_at(&mut self, (cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
-        let kept = (self.cols, self.rows, self.picture, self.shot.take());
-        (self.cols, self.rows, self.picture) = (cols, rows, false);
-        let screen = super::view::screen(self);
-        (self.cols, self.rows, self.picture, self.shot) = kept;
-        screen
+            color: self.shared.inputs.color,
+            max: self.picture_room(),
+        };
+        vec![if looks {
+            Effect::Picture(shot)
+        } else {
+            Effect::ScreenPicture(shot)
+        }]
     }
 
     /// Deletes the picture on the screen, if any.
     pub(crate) fn drop_picture(&mut self) -> Vec<Effect> {
-        if std::mem::take(&mut self.picture) {
+        if self.shared.picture.take().is_some() {
             vec![Effect::Write(crate::kitty::delete(crate::kitty::IMAGE_ID))]
         } else {
             Vec::new()
@@ -485,23 +600,24 @@ impl App {
         &mut self,
         result: Result<crate::specimen::Picture, String>,
     ) -> Vec<Effect> {
-        self.drawing = false;
+        self.shared.drawing = false;
         let mut out = self.drop_picture();
         // a picture of a change no longer highlighted is not shown: the
         // next is asked for
         let current = self
+            .shared
             .asked
             .as_ref()
-            .is_some_and(|a| self.wanted().as_ref() == Some(&a.wanted));
-        if !matches!(self.view, View::Looks | View::Fonts | View::Flow)
-            || self.leaving.is_some()
+            .is_some_and(|a| self.preview().wanted().as_ref() == Some(&a.wanted));
+        if !matches!(self.nav.view, View::Looks | View::Fonts | View::Flow)
+            || self.shared.leaving.is_some()
             || !current
         {
             return out;
         }
         match result {
             Ok(p) => {
-                let (row, col) = super::view::picture_at(self);
+                let (row, col) = super::layout::picture_at(self);
                 let mut bytes = format!("\x1b[{row};{col}H").into_bytes();
                 bytes.extend(crate::kitty::show(
                     crate::kitty::IMAGE_ID,
@@ -509,11 +625,16 @@ impl App {
                     p.height,
                     &p.rgba,
                 ));
-                self.picture = true;
+                self.shared.picture = Some(Covered::at(
+                    (row.saturating_sub(1), col.saturating_sub(1)),
+                    super::layout::picture_area(self),
+                    (p.width, p.height),
+                    self.size,
+                ));
                 out.push(Effect::Write(bytes));
             }
             Err(why) => {
-                self.shot = None;
+                self.shared.shot = None;
                 self.say_unless_trial(words::no_picture(why));
             }
         }
@@ -523,8 +644,8 @@ impl App {
     /// Puts `line` on the message line, unless the live trial's countdown
     /// holds it.
     fn say_unless_trial(&mut self, line: String) {
-        if self.trial.is_none() {
-            self.message = Some(line);
+        if self.nav.trial.is_none() {
+            self.shared.message = Some(line);
         }
     }
 
@@ -538,7 +659,7 @@ impl App {
     ) -> Vec<Effect> {
         match result {
             Ok((picture, summary)) => {
-                self.specimen = Some((font, height, summary));
+                self.shared.specimen = Some((font, height, summary));
                 self.pictured(Ok(picture))
             }
             Err(why) => self.pictured(Err(why)),
@@ -549,30 +670,31 @@ impl App {
     /// that puts the font it drew back (D4), where the console can be
     /// switched.
     pub(crate) fn try_live(&mut self, name: String) -> Vec<Effect> {
-        if self.live != Live::On {
-            self.message = Some(words::TRIAL_OFF.to_owned());
+        if self.shared.live != Live::On {
+            self.shared.message = Some(words::TRIAL_OFF.to_owned());
             return Vec::new();
         }
-        if self.refused.contains(&name) {
-            self.message = Some(words::KEPT.to_owned());
+        if self.shared.refused.contains(&name) {
+            self.shared.message = Some(words::KEPT.to_owned());
             return Vec::new();
         }
         let back = self
+            .shared
             .want
             .clone()
-            .or_else(|| self.shown_font.clone())
+            .or_else(|| self.shared.shown_font.clone())
             .unwrap_or_default();
         if back == name {
-            self.message = Some(words::trial_same(&name));
+            self.shared.message = Some(words::trial_same(&name));
             return Vec::new();
         }
-        self.trial = Some(Trial {
+        self.nav.trial = Some(Trial {
             font: name.clone(),
             back,
             left: TRIAL_TICKS,
         });
-        self.want = Some(name.clone());
-        self.message = Some(words::trial_countdown(&name, TRIAL_TICKS));
+        self.shared.want = Some(name.clone());
+        self.shared.message = Some(words::trial_countdown(&name, TRIAL_TICKS));
         let mut out = self.follow();
         out.push(Effect::Wait(TICK));
         out
@@ -583,8 +705,8 @@ impl App {
     pub(crate) fn trial_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
             Key::Char('k') => {
-                if let Some(t) = self.trial.take() {
-                    self.message = Some(words::trial_kept(&t.font));
+                if let Some(t) = self.nav.trial.take() {
+                    self.shared.message = Some(words::trial_kept(&t.font));
                 }
                 Vec::new()
             }
@@ -595,18 +717,18 @@ impl App {
     /// Ends the live trial and switches the console back to the font it
     /// drew before it.
     pub(crate) fn put_back(&mut self) -> Vec<Effect> {
-        let Some(t) = self.trial.take() else {
+        let Some(t) = self.nav.trial.take() else {
             return Vec::new();
         };
-        self.message = Some(words::trial_back(&t.back));
-        self.want = Some(t.back);
+        self.shared.message = Some(words::trial_back(&t.back));
+        self.shared.want = Some(t.back);
         self.follow()
     }
 
     /// One tick of the live trial's countdown: the next wait, or, at its
     /// end, the font put back.
     pub(crate) fn tick(&mut self) -> Vec<Effect> {
-        let Some(t) = self.trial.as_mut() else {
+        let Some(t) = self.nav.trial.as_mut() else {
             return Vec::new();
         };
         t.left = t.left.saturating_sub(1);
@@ -614,7 +736,7 @@ impl App {
             return self.put_back();
         }
         let (font, left) = (t.font.clone(), t.left);
-        self.message = Some(words::trial_countdown(&font, left));
+        self.shared.message = Some(words::trial_countdown(&font, left));
         vec![Effect::Wait(TICK)]
     }
 }

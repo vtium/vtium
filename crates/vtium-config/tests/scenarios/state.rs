@@ -10,8 +10,9 @@
 //! by a name after a colon.
 
 use vtium_config::tui::flowview::{Obj, Slot};
+use vtium_config::tui::layout::too_small;
 use vtium_config::tui::model::{App, FontState, Then, View};
-use vtium_config::tui::view::too_small;
+use vtium_config::tui::nav;
 use vtium_settings::keys::Kind;
 
 use super::sim::Sim;
@@ -59,6 +60,9 @@ pub struct Abs {
     pub unsaved: bool,
     /// New or removed font sets wait for an install.
     pub pending: bool,
+    /// The node of the interface tree the TUI is in, as the navigation
+    /// module names it; empty once the TUI has left.
+    pub at: &'static str,
 }
 
 impl Abs {
@@ -67,34 +71,10 @@ impl Abs {
     /// walk and the tree meet here: every state the explorer reaches names
     /// a node, and the test fails on one that does not.
     pub fn node(&self) -> String {
-        let n = |s: &str| s.to_owned();
-        match (&self.kind, self.narrow.as_str()) {
-            (StateKind::Left, _) => n("left"),
-            (StateKind::TooSmall, _) => n("any.too-small"),
-            (StateKind::Trial, _) => n("any.trial"),
-            (StateKind::Question, "quit") => n("any.question.quit"),
-            (StateKind::Question, "leave") => n("any.question.leave"),
-            (StateKind::Question, _) => n("any.question.confirm"),
-            (StateKind::Typing, "flow-name") => n("flow.card.typing"),
-            (StateKind::Typing, "flow-label") => n("flow.detail.typing"),
-            (StateKind::Typing, "flow-value") => n("flow.maker.picker.typing"),
-            (StateKind::Typing, "settings") => n("settings.section.typing"),
-            (StateKind::Typing, "new-frit") => n("looks.new-frit.typing"),
-            (StateKind::Layer, "new-frit") => n("looks.new-frit"),
-            (StateKind::Layer, "settings-section") => n("settings.section"),
-            (StateKind::Layer, "settings-list") => n("settings.section.list"),
-            (StateKind::Layer, "file-view") => n("flow.file"),
-            (StateKind::Layer, "restore") => n("flow.restore"),
-            (StateKind::Layer, "picker") => n("flow.maker.picker"),
-            (StateKind::Layer, "flow-card") => n("flow.card"),
-            (StateKind::Layer, "flow-new-card") => n("flow.new-card"),
-            (StateKind::Layer, "flow-info") => n("flow.info"),
-            (StateKind::Layer, "flow-maker") => n("flow.maker"),
-            (StateKind::Layer, "flow-others") => n("flow.others"),
-            (StateKind::Layer, "flow-detail") => n("flow.detail"),
-            (StateKind::Layer, "flow-choice") => n("flow.detail.choices"),
-            (StateKind::View, view) => n(view),
-            (kind, narrow) => format!("{}:{narrow}", kind.name()),
+        if self.kind == StateKind::Left {
+            "left".to_owned()
+        } else {
+            self.at.to_owned()
         }
     }
 }
@@ -151,45 +131,44 @@ pub fn of(sim: &Sim) -> Abs {
     let term = sim.term.name();
     let mut abs = Abs {
         term,
-        view: view_name(app.view),
+        view: view_name(app.nav.view),
         focus: String::new(),
         kind: StateKind::View,
         narrow: String::new(),
-        unsaved: app.unsaved > 0,
-        pending: !app.pending.is_empty(),
+        unsaved: app.shared.unsaved > 0,
+        pending: !app.shared.pending.is_empty(),
+        at: nav::node(app),
     };
     if sim.exited.is_some() {
         abs.kind = StateKind::Left;
         abs.view = "";
         abs.unsaved = false;
         abs.pending = false;
+        abs.at = "";
         return abs;
     }
     // below the minimum size no view shows, and only a question asked
     // there or the live trial's countdown changes what the keys do
-    let small = too_small(app);
-    if small && app.confirm.is_none() && app.trial.is_none() {
-        abs.kind = StateKind::TooSmall;
+    if too_small(app.size) {
         abs.view = "";
+    }
+    let (kind, narrow) = open(app, abs.at);
+    abs.kind = kind;
+    if abs.kind == StateKind::TooSmall {
         return abs;
     }
-    if small {
-        abs.view = "";
-    }
-    let (kind, narrow) = open(app);
-    abs.kind = kind;
     abs.narrow = narrow.to_owned();
     // the highlight matters only to the keys of a view with nothing open
     // over it, and a view's own name narrows it, as in `view:flow`
     // a part maker's line, and the picker's, decide what Enter opens: a
     // part, the picker, or the value typed after Other…
     if matches!(abs.narrow.as_str(), "flow-maker" | "picker") {
-        abs.focus = format!("line {}", app.flow_view.line);
+        abs.focus = format!("line {}", app.flow.state().line);
     }
     // the new-frit form's row: Enter steps from field to field, and the
     // last row adds the font set
     if abs.narrow == "new-frit" {
-        abs.focus = format!("row {}", app.new_frit.at);
+        abs.focus = format!("row {}", app.fonts.form().at);
     }
     // a Settings key's kind decides what Enter opens on it: its typing,
     // or its values as a list
@@ -203,12 +182,23 @@ pub fn of(sim: &Sim) -> Abs {
     abs
 }
 
-/// What is open over the view, in the order `App::key` reads the keys: a
-/// question first, then the live trial, then a value being typed.
-fn open(app: &App) -> (StateKind, &'static str) {
-    if let Some(confirm) = &app.confirm {
+/// The kind of state of the node `at`, which the navigation module gives,
+/// and the name that narrows it, as the key table writes it: `layer` and
+/// `file-view` for `flow.file`. A question's name says what its yes does,
+/// a finer split than the tree's three questions, so that the walk tries
+/// the keys at each of them.
+fn open(app: &App, at: &str) -> (StateKind, &'static str) {
+    let kind = match nav::kind(at) {
+        nav::Kind::View => StateKind::View,
+        nav::Kind::Layer => StateKind::Layer,
+        nav::Kind::Typing => StateKind::Typing,
+        nav::Kind::Question => StateKind::Question,
+        nav::Kind::Trial => StateKind::Trial,
+        nav::Kind::TooSmall => StateKind::TooSmall,
+    };
+    if let Some(confirm) = &app.nav.confirm {
         return (
-            StateKind::Question,
+            kind,
             match &confirm.then {
                 Then::Quit(_) => "quit",
                 Then::Leave(_) => "leave",
@@ -223,77 +213,46 @@ fn open(app: &App) -> (StateKind, &'static str) {
             },
         );
     }
-    if app.trial.is_some() {
-        return (StateKind::Trial, "");
-    }
-    if app.view == View::Flow && app.flow_view.typing.is_some() {
-        let field = if app.flow_view.picker.is_some() {
-            "flow-value"
-        } else if matches!(
-            app.flow_view.layer,
-            Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal))
-        ) {
-            "flow-name"
-        } else {
-            "flow-label"
-        };
-        return (StateKind::Typing, field);
-    }
-    match app.view {
-        View::Settings if app.editing.is_some() => return (StateKind::Typing, "settings"),
-        View::New if app.new_frit.at < vtium_config::tui::model::NEW_FIELDS => {
-            return (StateKind::Typing, "new-frit");
-        }
-        _ => {}
-    }
-    if app.view == View::New {
-        return (StateKind::Layer, "new-frit");
-    }
-    if app.view == View::Settings && app.settings.values.is_some() {
-        return (StateKind::Layer, "settings-list");
-    }
-    if app.view == View::Settings && app.settings.open.is_some() {
-        return (StateKind::Layer, "settings-section");
-    }
-    if app.view != View::Flow {
-        return (StateKind::View, "");
-    }
-    if app.pager.is_some() {
-        return (StateKind::Layer, "file-view");
-    }
-    if app.restore.is_some() {
-        return (StateKind::Layer, "restore");
-    }
-    if app.flow_view.picker.is_some() {
-        return (StateKind::Layer, "picker");
-    }
-    match &app.flow_view.layer {
-        None => (StateKind::View, ""),
-        Some(Obj::Doc(_, Slot::Terminal)) => (StateKind::Layer, "flow-card"),
-        Some(Obj::New(Slot::Terminal)) => (StateKind::Layer, "flow-new-card"),
-        Some(Obj::Pal(Slot::Template(_)) | Obj::New(Slot::Empty(_))) => {
-            (StateKind::Layer, "flow-maker")
-        }
-        Some(Obj::Others) => (StateKind::Layer, "flow-others"),
-        // an added path's display or input, or a roaming or set-aside
-        // input: what it matches, read-only
-        Some(Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_)) => (StateKind::Layer, "flow-info"),
-        // a part's detail: the label on its first line, its choices below
-        Some(_) if app.flow_view.line == 0 => (StateKind::Layer, "flow-detail"),
-        Some(_) => (StateKind::Layer, "flow-choice"),
-    }
+    let narrow = NARROW
+        .iter()
+        .find(|(node, _)| *node == at)
+        .map_or("", |(_, narrow)| *narrow);
+    (kind, narrow)
 }
+
+/// The name the key table narrows each layer and typed value with, by the
+/// node of the tree it is.
+const NARROW: &[(&str, &str)] = &[
+    ("flow.card.typing", "flow-name"),
+    ("flow.detail.typing", "flow-label"),
+    ("flow.maker.picker.typing", "flow-value"),
+    ("settings.section.typing", "settings"),
+    ("looks.new-frit.typing", "new-frit"),
+    ("looks.new-frit", "new-frit"),
+    ("settings.section", "settings-section"),
+    ("settings.section.list", "settings-list"),
+    ("flow.file", "file-view"),
+    ("flow.restore", "restore"),
+    ("flow.maker.picker", "picker"),
+    ("flow.card", "flow-card"),
+    ("flow.new-card", "flow-new-card"),
+    ("flow.info", "flow-info"),
+    ("flow.maker", "flow-maker"),
+    ("flow.others", "flow-others"),
+    ("flow.detail", "flow-detail"),
+    ("flow.detail.choices", "flow-choice"),
+];
 
 /// What the highlight is on, where the keys act on it differently: the
 /// kind of font in the Fonts view, the kind of setting in Settings, the
 /// kind of box in Flow, the page in Help, the add row of the new-frit form.
 fn focus(app: &App) -> String {
-    match app.view {
+    match app.nav.view {
         View::Fonts => {
             let Some(font) = app.font() else {
                 return "none".into();
             };
-            if app.pending.removals.contains(&font.name) {
+            if app.shared.pending.removals.contains(&font.name) {
                 return "marked".into();
             }
             match font.state {
@@ -302,9 +261,9 @@ fn focus(app: &App) -> String {
                 FontState::Refused(_) => "refused".into(),
             }
         }
-        View::Help => if app.about { "about" } else { "help" }.into(),
+        View::Help => if app.help.about() { "about" } else { "help" }.into(),
         View::Flow => {
-            let obj = match &app.flow_view.at {
+            let obj = match &app.flow.state().at {
                 None => return "none".into(),
                 Some(obj) => obj,
             };
@@ -323,6 +282,7 @@ fn focus(app: &App) -> String {
                 // selector that names the device
                 Slot::Input(name) => {
                     let sort = app
+                        .shared
                         .inputs
                         .flow
                         .inputs
@@ -348,7 +308,7 @@ fn focus(app: &App) -> String {
         }
         // on the list of sections, the first section apart from the
         // rest, so the walk opens a section other than the first
-        View::Settings if app.settings.sections.at == 0 => "first".into(),
+        View::Settings if app.settings.section_at() == 0 => "first".into(),
         View::Settings => "later".into(),
         View::Looks | View::New => String::new(),
     }

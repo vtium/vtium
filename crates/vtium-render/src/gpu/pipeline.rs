@@ -13,9 +13,10 @@
 //!
 //! The slots never change and a configuration changes only what a slot
 //! holds. A slot with nothing to do holds a no-op that makes no GL call,
-//! joins no shader source and changes no pixel. The color and spatial slots
-//! hold only their no-ops until the frame shader's record defines their
-//! steps.
+//! joins no shader source and changes no pixel. In a build with `filters`
+//! the color slot holds the head's color table ([`Pipeline::set_color_table`]);
+//! the spatial slot holds only its no-op until the spatial filters are
+//! built.
 //!
 //! GL's errors are read at the batch boundaries D7 names: after the set-up's
 //! allocations, after the composition's draws and at the end of the frame,
@@ -37,7 +38,7 @@ use std::collections::VecDeque;
 use super::compose::{CELL_VERT, Composition, TARGET_SIZE, Work};
 use super::gl::{
     Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Gl, Input, InputKind, Program, Quad,
-    Size, Source, Value,
+    Size, Source, Texture, Value,
 };
 use super::glyphs::{Glyphs, Spec};
 use super::tile::{Tile, meet};
@@ -48,6 +49,15 @@ use crate::target::{Orientation, Rect};
 
 const PRESENT_HEAD: &str = include_str!("glsl/present_head.frag");
 const PRESENT_MAIN: &str = include_str!("glsl/present_main.frag");
+#[cfg(feature = "filters")]
+const PRESENT_COLOR: &str = include_str!("glsl/present_color.frag");
+
+/// The color step's input: the color table as a 3D texture.
+#[cfg(feature = "filters")]
+const COLOR_TABLE: Input = Input {
+    name: "color_table",
+    kind: InputKind::Volume,
+};
 
 /// Present's own inputs, before those of the steps folded into it.
 const PRESENT_INPUTS: [Input; 2] = [
@@ -66,6 +76,14 @@ pub enum Color {
     /// No color step.
     #[default]
     None,
+    /// The head's color table, which present samples with linear
+    /// filtering. A pipeline set up with it and no table yet samples the
+    /// identity table, which changes no color.
+    ///
+    /// References:
+    /// - ADR-1304 D2: the GPU path's color step.
+    #[cfg(feature = "filters")]
+    Table,
 }
 
 impl Color {
@@ -74,6 +92,8 @@ impl Color {
     fn source(self) -> &'static [&'static str] {
         match self {
             Color::None => &[],
+            #[cfg(feature = "filters")]
+            Color::Table => &[PRESENT_COLOR],
         }
     }
 
@@ -81,6 +101,8 @@ impl Color {
     fn inputs(self) -> &'static [Input] {
         match self {
             Color::None => &[],
+            #[cfg(feature = "filters")]
+            Color::Table => &[COLOR_TABLE],
         }
     }
 }
@@ -212,6 +234,7 @@ impl Present {
         age: u32,
         composed: Vec<Rect>,
         whole: bool,
+        table: Option<&Texture>,
     ) -> Result<Vec<Rect>, Error> {
         self.history.push_front(composed);
         let age = usize::try_from(age).unwrap_or(usize::MAX);
@@ -250,16 +273,27 @@ impl Present {
             if quads.is_empty() {
                 continue;
             }
+            let target_size = (
+                "target_size",
+                Value::Vec2([size.width as f32, size.height as f32]),
+            );
+            let frame = ("frame", Value::Texture(frame, Filter::Nearest));
+            let with_table;
+            let inputs: &[(&'static str, Value<'_>)] = match table {
+                Some(t) => {
+                    with_table = [
+                        target_size,
+                        frame,
+                        ("color_table", Value::Volume(t, Filter::Linear)),
+                    ];
+                    &with_table
+                }
+                None => &[target_size, frame],
+            };
             gl.draw(&Draw {
                 target,
                 program: &self.program,
-                inputs: &[
-                    (
-                        "target_size",
-                        Value::Vec2([size.width as f32, size.height as f32]),
-                    ),
-                    ("frame", Value::Texture(frame, Filter::Nearest)),
-                ],
+                inputs,
                 quads: &quads,
                 blend: Blend::Replace,
                 scissor: None,
@@ -309,8 +343,15 @@ pub struct Pipeline {
     turn: Turn,
     pictures: Pictures,
     composition: Composition,
+    color: Color,
+    /// The color table present samples while `color` is [`Color::Table`],
+    /// and the id of the table it holds, `None` for the identity a
+    /// pipeline set up with the color step starts from.
+    table: Option<(Texture, Option<u64>)>,
     spatial: Spatial,
     present: Present,
+    /// The pipeline's own notes for the log, beside the composition's.
+    notes: Vec<String>,
 }
 
 impl Pipeline {
@@ -341,12 +382,24 @@ impl Pipeline {
                 return Err(e);
             }
         };
+        let table = match identity(gl, config.color) {
+            Ok(t) => t,
+            Err(e) => {
+                // the error that matters is the upload's
+                let _ = composition.free(gl);
+                let _ = gl.free_program(present.program);
+                return Err(e);
+            }
+        };
         let pipeline = Pipeline {
             turn,
             pictures: Pictures::new(),
             composition,
+            color: config.color,
+            table: table.map(|t| (t, None)),
             spatial: config.spatial,
             present,
+            notes: Vec::new(),
         };
         if let Err(e) = gl.check(Batch::Uploads) {
             // the error that matters is the check's
@@ -426,6 +479,7 @@ impl Pipeline {
             age,
             composed,
             self.spatial.presents_whole(),
+            self.table.as_ref().map(|(t, _)| t),
         )?;
         if damage.is_empty() {
             return Ok(damage);
@@ -477,7 +531,9 @@ impl Pipeline {
     /// to its log: today only that glyphs were drawn blank past the glyph
     /// textures' ceiling, given at most once in `GPU_IDLE_FRAMES` frames.
     pub fn take_notes(&mut self) -> Vec<String> {
-        self.composition.take_notes()
+        let mut notes = core::mem::take(&mut self.notes);
+        notes.extend(self.composition.take_notes());
+        notes
     }
 
     /// Bytes the GPU glyph pools' and sprites' textures hold, while the
@@ -563,6 +619,158 @@ impl Pipeline {
     pub fn free<G: Gl>(mut self, gl: &mut G) -> Result<(), Error> {
         let pictures = self.pictures.release(gl);
         let program = gl.free_program(self.present.program);
-        self.composition.free(gl).and(program).and(pictures)
+        let table = self.table.map_or(Ok(()), |(t, _)| gl.free_texture(t));
+        self.composition
+            .free(gl)
+            .and(program)
+            .and(pictures)
+            .and(table)
+    }
+
+    /// What the color slot holds.
+    pub fn color(&self) -> Color {
+        self.color
+    }
+
+    /// Puts `table`, a head's color table with the id its renderer gave
+    /// it, in the color slot, or empties the slot with `None`. A table of
+    /// the id the slot holds already changes nothing, so a renderer can
+    /// hand its table over before every frame. Anything else uploads the
+    /// table as a 3D texture, in a batch of its own that is checked at
+    /// once, compiles present again when the step comes or goes, and makes
+    /// the next frame compose and present whole.
+    ///
+    /// A failure that the look causes, an upload GL refuses or a present
+    /// the driver will not compile with the step joined, leaves the slot
+    /// empty, so the display draws without the look's colors, and gives a
+    /// note for the log. Only GL running out of memory, a lost context and
+    /// a present that does not compile even without the step fail the
+    /// call, as failures of the GPU path itself.
+    ///
+    /// References:
+    /// - ADR-1304 D2: the GPU path uploads the table as an RGBA16F 3D texture and presents whole after a change.
+    /// - ADR-1304 D6: a filter's failure is never the GPU path's failure.
+    #[cfg(feature = "filters")]
+    pub fn set_color_table<G: Gl>(
+        &mut self,
+        gl: &mut G,
+        table: Option<(u64, &crate::filter::Table)>,
+    ) -> Result<(), Error> {
+        let held = self.table.as_ref().and_then(|(_, id)| *id);
+        if held == table.map(|(id, _)| id) && (table.is_some() || self.color == Color::None) {
+            return Ok(());
+        }
+        let Some((id, table)) = table else {
+            return self.empty_color(gl);
+        };
+        let texels = match table.rgba16f() {
+            Ok(t) => t,
+            Err(e) => return self.drop_colors(gl, format!("building the color table: {e}")),
+        };
+        let texture = match upload(gl, &texels) {
+            Ok(t) => t,
+            Err(e) if serious(&e) => return Err(e),
+            Err(e) => return self.drop_colors(gl, format!("uploading the color table: {e}")),
+        };
+        if self.color != Color::Table {
+            match Present::new(gl, Color::Table, self.spatial) {
+                Ok(present) => {
+                    let old = core::mem::replace(&mut self.present, present);
+                    self.present.history = old.history;
+                    gl.free_program(old.program)?;
+                }
+                Err(e) => {
+                    let _ = gl.free_texture(texture);
+                    if e.kind == ErrorKind::Compile {
+                        return self.drop_colors(gl, format!("compiling the color step: {e}"));
+                    }
+                    return Err(e);
+                }
+            }
+        }
+        self.color = Color::Table;
+        if let Some((old, _)) = self.table.replace((texture, Some(id))) {
+            gl.free_texture(old)?;
+        }
+        // every pixel changes: the history's rectangles say nothing now
+        self.redraw_whole();
+        Ok(())
+    }
+
+    /// Empties the color slot after a failure the look caused, with a
+    /// note for the log that says what failed.
+    #[cfg(feature = "filters")]
+    fn drop_colors<G: Gl>(&mut self, gl: &mut G, why: String) -> Result<(), Error> {
+        self.notes.push(format!(
+            "the display draws without the vtlook's color filters: {why}"
+        ));
+        self.empty_color(gl)
+    }
+
+    /// Empties the color slot: present is compiled again without the color
+    /// step, the table's texture is freed, and the next frame presents
+    /// whole.
+    #[cfg(feature = "filters")]
+    fn empty_color<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
+        if self.color != Color::None {
+            let present = Present::new(gl, Color::None, self.spatial)?;
+            let old = core::mem::replace(&mut self.present, present);
+            self.present.history = old.history;
+            gl.free_program(old.program)?;
+            self.color = Color::None;
+        }
+        if let Some((old, _)) = self.table.take() {
+            gl.free_texture(old)?;
+        }
+        self.redraw_whole();
+        Ok(())
+    }
+}
+
+/// Whether `e` is a failure of the GPU path itself, which ADR-1303 D9
+/// sorts, whatever the look: GL out of memory, or a lost context. After
+/// either, nothing the context holds can be trusted.
+#[cfg(feature = "filters")]
+fn serious(e: &Error) -> bool {
+    matches!(e.kind, ErrorKind::OutOfMemory | ErrorKind::ContextLost)
+}
+
+/// Uploads `texels`, a color table's RGBA16F texels, as a 3D texture, and
+/// checks the upload's batch at once, so that an error GL raises is traced
+/// to the table. A texture GL refused is freed.
+#[cfg(feature = "filters")]
+fn upload<G: Gl>(gl: &mut G, texels: &[u8]) -> Result<Texture, Error> {
+    let side = u32::try_from(crate::filter::Table::side()).unwrap_or(u32::MAX);
+    let texture = gl.create_volume(side, texels)?;
+    if let Err(e) = gl.check(Batch::Uploads) {
+        // the error that matters is the check's
+        let _ = gl.free_texture(texture);
+        return Err(e);
+    }
+    Ok(texture)
+}
+
+/// The identity table's texture, for a pipeline set up with the color
+/// step and no table yet; `None` with no color step.
+#[cfg_attr(
+    not(feature = "filters"),
+    expect(unused_variables, reason = "no color step")
+)]
+fn identity<G: Gl>(gl: &mut G, color: Color) -> Result<Option<Texture>, Error> {
+    match color {
+        Color::None => Ok(None),
+        #[cfg(feature = "filters")]
+        Color::Table => {
+            let table = crate::filter::Table::build(&[])
+                .map_err(|e| Error::new(ErrorKind::OutOfMemory, e.to_string()))?;
+            let texels = table
+                .rgba16f()
+                .map_err(|e| Error::new(ErrorKind::OutOfMemory, e.to_string()))?;
+            gl.create_volume(
+                u32::try_from(crate::filter::Table::side()).unwrap_or(u32::MAX),
+                &texels,
+            )
+            .map(Some)
+        }
     }
 }

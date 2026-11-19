@@ -45,6 +45,10 @@ pub(super) struct State {
     id: u64,
     /// Characters the GPU path's glyphs forget on its next frame.
     forget: Vec<char>,
+    /// The head's color table, which present's color step samples, with
+    /// an id that tells a pipeline whether it holds the table already.
+    #[cfg(feature = "filters")]
+    table: Option<(u64, crate::filter::Table)>,
 }
 
 impl State {
@@ -54,7 +58,16 @@ impl State {
             sprites,
             id: next_id(),
             forget: Vec::new(),
+            #[cfg(feature = "filters")]
+            table: None,
         }
+    }
+
+    /// Sets the color table present samples, `None` for none, with a new
+    /// id, so the next frame hands it to the pipeline.
+    #[cfg(feature = "filters")]
+    pub(super) fn set_table(&mut self, table: Option<crate::filter::Table>) {
+        self.table = table.map(|t| (next_id(), t));
     }
 
     /// The font now draws each of `chars` differently.
@@ -69,6 +82,8 @@ impl State {
         State {
             id: old.id,
             forget: old.forget,
+            #[cfg(feature = "filters")]
+            table: old.table,
             ..self
         }
     }
@@ -150,6 +165,10 @@ impl<F: Face> Renderer<F> {
         }
         let turn = Turn::new(self.config.orientation, display);
         pipeline.turn(gl, turn.orientation)?;
+        // the color slot takes the head's color table, which uploads only
+        // when the table changed
+        #[cfg(feature = "filters")]
+        pipeline.set_color_table(gl, self.gpu.table.as_ref().map(|(id, t)| (*id, t)))?;
         let border = pixel(mono::border(self.config.depth, state.background));
         let begun = pipeline.begin(gl, &self.gpu_spec(), border, overlays)?;
         for r in begun.gone {

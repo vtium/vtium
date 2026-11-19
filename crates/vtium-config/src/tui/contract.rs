@@ -30,9 +30,6 @@
 //! - ADR-1403 D7, "The same keys in every view": the key line is one row
 //!   that shows its keys in pages.
 
-use super::flowview::{Obj, Slot};
-use super::model::{App, Then, View};
-
 /// A node of the interface tree, with what the TUI shows there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Node {
@@ -49,6 +46,12 @@ pub struct Node {
     /// Each key that acts in the node, as the key line names it, and what
     /// it does; empty for a planned node.
     pub help: &'static [(&'static str, &'static str)],
+    /// The id of each row of the key table that applies in the node, in
+    /// the order the tree's `keys` column names them, and whether the row
+    /// is supported. The navigation module reads these to decide what the
+    /// keys that act the same in every tab do here, planned nodes
+    /// included.
+    pub rows: &'static [(&'static str, bool)],
 }
 
 pub use super::contract_text::NODES;
@@ -66,58 +69,6 @@ pub const PAGE_COLUMNS: usize = 78;
 /// is supported.
 pub fn key_pages(id: &str) -> Option<&'static [&'static str]> {
     find(id).filter(|n| n.supported).map(|n| n.key_pages)
-}
-
-/// The node of the interface tree that the TUI is in: `flow.card`,
-/// `any.question.quit`, `settings`. A question comes first, since it takes
-/// the next key, then the live trial, then the screen below the minimum
-/// size, then a value being typed, then what is open over the view.
-pub fn node(app: &App) -> &'static str {
-    if let Some(confirm) = &app.confirm {
-        return match confirm.then {
-            Then::Quit(_) => "any.question.quit",
-            Then::Leave(_) => "any.question.leave",
-            _ => "any.question.confirm",
-        };
-    }
-    if app.trial.is_some() {
-        return "any.trial";
-    }
-    if super::view::too_small(app) {
-        return "any.too-small";
-    }
-    let flow = &app.flow_view;
-    match app.view {
-        View::Flow if flow.typing.is_some() && flow.picker.is_some() => "flow.maker.picker.typing",
-        View::Flow if flow.typing.is_some() => match flow.layer {
-            Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal)) => "flow.card.typing",
-            _ => "flow.detail.typing",
-        },
-        View::Flow if app.pager.is_some() => "flow.file",
-        View::Flow if app.restore.is_some() => "flow.restore",
-        View::Flow if flow.picker.is_some() => "flow.maker.picker",
-        View::Flow => match &flow.layer {
-            None => "flow",
-            Some(Obj::Doc(_, Slot::Terminal)) => "flow.card",
-            Some(Obj::New(Slot::Terminal)) => "flow.new-card",
-            Some(Obj::Pal(Slot::Template(_)) | Obj::New(Slot::Empty(_))) => "flow.maker",
-            Some(Obj::Others) => "flow.others",
-            Some(Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_)) => "flow.info",
-            // a part's detail: its first line is the label, and the
-            // lines below it are the choices
-            Some(_) if flow.line == 0 => "flow.detail",
-            Some(_) => "flow.detail.choices",
-        },
-        View::Settings if app.editing.is_some() => "settings.section.typing",
-        View::Settings if app.settings.values.is_some() => "settings.section.list",
-        View::Settings if app.settings.open.is_some() => "settings.section",
-        View::Settings => "settings",
-        View::New if app.new_frit.at < super::model::NEW_FIELDS => "looks.new-frit.typing",
-        View::New => "looks.new-frit",
-        View::Looks => "looks",
-        View::Fonts => "fonts",
-        View::Help => "help",
-    }
 }
 
 #[cfg(test)]
@@ -415,10 +366,10 @@ mod generate {
         );
         for node in &c.tree {
             let supported = col(node, "status") == "supported";
+            let rows = c.rows_of(node)?;
             let (pages, help) = if supported {
-                lines(col(node, "id"), &c.rows_of(node)?)?
+                lines(col(node, "id"), &rows)?
             } else {
-                c.rows_of(node)?;
                 (Vec::new(), Vec::new())
             };
             let _ = writeln!(out, "    Node {{");
@@ -440,6 +391,16 @@ mod generate {
                 let _ = writeln!(out, "        help: &[");
                 for (keys, means) in help {
                     let _ = writeln!(out, "            ({}, {}),", lit(&keys), lit(&means));
+                }
+                let _ = writeln!(out, "        ],");
+            }
+            if rows.is_empty() {
+                let _ = writeln!(out, "        rows: &[],");
+            } else {
+                let _ = writeln!(out, "        rows: &[");
+                for row in rows {
+                    let supported = col(row, "status") == "supported";
+                    let _ = writeln!(out, "            ({}, {supported}),", lit(col(row, "id")));
                 }
                 let _ = writeln!(out, "        ],");
             }

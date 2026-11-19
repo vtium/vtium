@@ -13,9 +13,10 @@
 //! This part is in every build, so a build without frame filters still
 //! reads `vtlook` and says that it draws `default`. With the `filters`
 //! feature, [`read`] reads a vtlook against the filters' declarations,
-//! [`Report`] says where a vtlook fails, and [`template`] gives the
-//! built-in vtlook's text, which vtium-config writes out to start a new
-//! vtlook.
+//! [`Report`] says where a vtlook fails, [`table`] merges a vtlook's color
+//! filters into the one color table both drawing paths read, and
+//! [`template`] gives the built-in vtlook's text, which vtium-config writes
+//! out to start a new vtlook.
 //!
 //! References:
 //! - ADR-1304 D4: the vtlook file and the built-in default.
@@ -29,6 +30,8 @@ mod report;
 #[cfg(feature = "filters")]
 mod requires;
 #[cfg(feature = "filters")]
+mod table;
+#[cfg(feature = "filters")]
 mod template;
 
 #[cfg(feature = "filters")]
@@ -37,6 +40,8 @@ pub use read::{Filter, Value, Vtlook, read, read_text, read_text_with};
 pub use report::{Failure, Part, Report, Stage, log_line};
 #[cfg(feature = "filters")]
 pub use requires::{Depth, Fps, Gpu, Requires, Size};
+#[cfg(feature = "filters")]
+pub use table::table;
 #[cfg(feature = "filters")]
 pub use template::{TEMPLATE, template};
 

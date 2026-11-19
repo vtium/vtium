@@ -22,12 +22,11 @@
 //! in each console's session (ADR-1401 D5). The draft is written only
 //! when `vtium check-config` passes it ([`super::desk::Op::WriteChecked`]).
 
-use super::canvas::Canvas;
 use super::color::Style;
 use super::desk::Op;
 use super::edit::Change;
 use super::flow::{Flow, Look};
-use super::model::{App, Effect, Live, View};
+use super::model::{App, Effect, Live, Shared, View};
 use super::words;
 
 /// Where the font the console shows is saved.
@@ -67,33 +66,14 @@ pub fn fonts_lines(locale: &str) -> Vec<Vec<(&'static str, Style)>> {
 
 /// The preview text of `app`'s view, empty for a view with none.
 pub fn lines(app: &App) -> Vec<Vec<(&'static str, Style)>> {
-    match app.view {
-        View::Fonts => fonts_lines(&app.inputs.locale),
+    match app.nav.view {
+        View::Fonts => fonts_lines(&app.shared.inputs.locale),
         View::Looks => super::shot::sample_rows(),
         _ => Vec::new(),
     }
 }
 
-/// Draws the preview text on `canvas` in the picture area, where a
-/// picture would go, as many lines as the area holds, each cut at the
-/// screen's edge.
-pub fn draw(canvas: &mut Canvas, app: &App) {
-    if !app.text_preview() {
-        return;
-    }
-    let (row, col) = super::view::picture_at(app);
-    let (_, rows) = super::view::picture_area(app);
-    let top = row.saturating_sub(1);
-    let left = col.saturating_sub(1);
-    for (i, line) in lines(app).into_iter().take(rows).enumerate() {
-        let mut x = left;
-        for (text, style) in line {
-            x = canvas.put_cells(x, top.saturating_add(i), text, style);
-        }
-    }
-}
-
-impl App {
+impl Shared {
     /// Whether the Fonts and Looks views preview as text the console
     /// draws: in a vtium console the TUI can switch, so `t` shows a font
     /// on the console itself. Anywhere else they preview as pictures, or
@@ -174,42 +154,44 @@ impl App {
         };
         Ok((changes, Place::Top))
     }
+}
 
+impl App {
     /// `s` in the Fonts view of a vtium console: writes the font the
     /// console shows into the draft, where the console's head takes its
     /// font from, with the changes not yet saved, once `vtium
     /// check-config` passes the result; a draft it fails is not written,
     /// and the message line shows what the check says.
     pub(crate) fn save_tried(&mut self) -> Vec<Effect> {
-        let Some(draft) = &self.draft else {
-            self.message = Some(words::NO_DESK.to_owned());
+        let Some(draft) = &self.shared.draft else {
+            self.shared.message = Some(words::NO_DESK.to_owned());
             return Vec::new();
         };
-        let Some(font) = self.shown_font.clone() else {
-            self.message = Some(words::TRIED_UNKNOWN.to_owned());
+        let Some(font) = self.shared.shown_font.clone() else {
+            self.shared.message = Some(words::TRIED_UNKNOWN.to_owned());
             return Vec::new();
         };
         let name = draft.name.clone();
         let text = draft.text.clone();
-        let (changes, place) = match self.tried_changes(&text, &font) {
+        let (changes, place) = match self.shared.tried_changes(&text, &font) {
             Ok(planned) => planned,
             Err(why) => {
-                self.message = Some(why);
+                self.shared.message = Some(why);
                 return Vec::new();
             }
         };
-        if changes.is_empty() && self.unsaved == 0 {
-            self.message = Some(words::tried_already(&font));
+        if changes.is_empty() && self.shared.unsaved == 0 {
+            self.shared.message = Some(words::tried_already(&font));
             return Vec::new();
         }
         let new = match super::edit::apply_all(&text, &changes) {
             Ok(new) => new,
             Err(fail) => {
-                self.message = Some(fail.text().to_owned());
+                self.shared.message = Some(fail.text().to_owned());
                 return Vec::new();
             }
         };
-        self.saving_tried = Some(match place {
+        self.shared.saving_tried = Some(match place {
             Place::Look { head, look } => words::tried_saved_look(&font, &head, &look, &name),
             Place::Top => words::tried_saved_top(&font, &name),
         });

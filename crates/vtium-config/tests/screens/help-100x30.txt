@@ -1,30 +1,30 @@
  Flow  Looks  Fonts  Settings  Help
  draft workstation · 1 change · no problems                              text preview · t: try live
 ----------------------------------------------------------------------------------------------------
- Tab moves to the next view, and Shift-Tab moves to the one before, wherever the selection is. The
- arrow keys move inside a view. While a card, a list, the draft's text, the form for a new font
- set, or a value you are typing is open, Tab does nothing until you close it with Esc. While a
- question waits for your answer, Tab does nothing: y answers yes, and Esc goes back.
-
- Flow shows how the console is set up, from the displays to the input devices: each display, the
- rule that sends it to a head (a screen with its own consoles), the head and its look (its font and
- size), and each input device with the rule that sends its typing to a head.
-     ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o
-     restore  n new  p preview  t trial  PgUp PgDn scroll  q quit
-
- Looks lists the console's font sizes, automatic first, with a preview of each. Later it will
- manage the looks, each a font set and a size.
-     Enter choose  Tab next view  i install  q quit without installing
-
- Fonts lists the font sets (frits) and the built-in fonts, with any font files each is missing.
- Below the list, the console draws every character of the preview in the font it uses now. Press t
- to try the highlighted font on the console, k to keep it, and s to save it in the draft. Press n
- to make a new font set.
-     Enter choose  t try live  s save  n new  r remove  i install  q quit
-
- Settings lists every setting at the top of vtium.conf, with its value and what it does.
-     Enter change  Tab next view  i install  q quit without installing
-
+ The Flow view: CONFIGURATION, NEW PATH and PARTS
+   ↑          Moves to the box above.
+   ↓          Moves to the box below.
+   ←          Moves to the box before, and on to the line before.
+   →          Moves to the box after, and on to the next line.
+   Home       Goes to the first box.
+   End        Goes to the last box.
+   PgUp       Scrolls up by a window.
+   PgDn       Scrolls down by a window.
+   Space      Picks the highlighted part into NEW PATH, or takes it out.
+   Enter      Opens the highlighted box: a part's detail, a path's card, a template's part maker, or
+              the list of other inputs.
+   1          Goes straight to the Fonts tab.
+   3          Goes straight to the Looks tab.
+   5          Goes straight to the Settings tab.
+   6          Goes straight to the Help tab.
+   s          Saves the changes that are not saved into the draft.
+   i          Saves, then asks whether to install the draft.
+   r          Asks whether to throw away the draft's changes and copy the installed file back.
+   n          Asks whether to start a new configuration.
+   v          Shows the draft's vtium.conf as text.
+   o          Lists the files installed before, newest first, to copy one into the draft.
+   .          Shows the key line's next page, and the first page again after the last. Does nothing
+              where the keys fit on one row.
 
 ----------------------------------------------------------------------------------------------------
- ←→ Help, About  ↑↓ scroll  Tab next view  q quit
+ ↑↓ scroll  ←→ Help, About  q quit  . more 1/4

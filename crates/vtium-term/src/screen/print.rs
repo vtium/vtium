@@ -72,7 +72,7 @@ use core::ops::Range;
 use super::{Screen, Segment, WidthMethod};
 use crate::bounds::CLUSTER_BYTES_PER_CELL;
 use crate::cell::Width;
-use crate::line::{Glyph, LinkId, SizedRun, TextSize, run_fit, whole_clusters};
+use crate::line::{Glyph, Line, LinkId, SizedRun, TextSize, run_fit, whole_clusters};
 use crate::style::Style;
 use crate::unicode::{self, Segmenter};
 
@@ -157,6 +157,100 @@ impl Screen {
         self.advance(x, x.saturating_add(len), y);
         let start = if glyph == Glyph::Empty { '\0' } else { c };
         self.set_segment(x, y, Segmenter::start(start));
+    }
+
+    /// Prints the first bytes of `run`, printable ASCII from 0x20 to 0x7E,
+    /// in one step, and returns how many it printed. It stops before any
+    /// other byte. The screen ends up as
+    /// a [`print`](Self::print) of each of those bytes leaves it: the same
+    /// cells, damage, cursor, pending wrap, and cluster for the next print
+    /// to join.
+    ///
+    /// Each byte of printable ASCII takes one cell and starts a cluster of
+    /// its own, so a run that fits on the cursor's row needs none of the
+    /// work `print` does to place one character. The step writes the run
+    /// only where all of these hold, and otherwise prints nothing and
+    /// returns 0:
+    /// - no wrap is pending, and the cursor is on the screen;
+    /// - insert mode is off;
+    /// - the cursor's row holds no sized run, and it is a single-size line;
+    /// - the run's first byte does not join the cluster the last print
+    ///   wrote, which it does only after a character of UAX #29's Prepend
+    ///   class.
+    ///
+    /// The step writes the bytes that fit up to the print edge, the last
+    /// column before the next character wraps, and leaves the rest for
+    /// `print`, whose wrap comes first.
+    ///
+    /// References:
+    /// - ADR-1009 D9: a line with no sized run pays no time for runs.
+    pub fn print_ascii(&mut self, run: &[u8]) -> usize {
+        let (x, y) = (self.cursor_x, self.cursor_y);
+        let Some(&first) = run.first() else {
+            return 0;
+        };
+        if self.margin_wrap
+            || x >= self.cols
+            || y >= self.rows
+            || self.flags.insert
+            || self.row_has_runs(y)
+            || self.line_cols(y) != self.cols
+        {
+            return 0;
+        }
+        if let Some(mut segment) = self.live_segment() {
+            let joins = match self.width_method {
+                WidthMethod::Unicode => segment.state.continues(char::from(first)),
+                WidthMethod::Wcwidth => false,
+            };
+            if joins {
+                return 0;
+            }
+        }
+        // The bytes that fit before the print edge, and no byte past the
+        // first that is not printable ASCII, which only `print` places.
+        let room = self.print_edge(x, y).saturating_add(1).saturating_sub(x);
+        let n = run
+            .iter()
+            .take(room)
+            .take_while(|&&b| (0x20..0x7f).contains(&b))
+            .count();
+        let text = run.get(..n).unwrap_or_default();
+        let Some(&last) = text.last() else {
+            return 0;
+        };
+        #[cfg(feature = "bidi")]
+        if x == 0 {
+            self.carry_paragraph(y);
+        }
+        let end = x.saturating_add(n);
+        for k in x..end {
+            self.images_cut(y, k, k);
+        }
+        let (pen, link) = (self.pen, self.link);
+        if self.line(y).is_some_and(Line::holds_wide) {
+            // A wide character the text covers goes whole, as each print
+            // splits one at the cell it writes and the cell after.
+            self.split_wide_char(y, x);
+            for (k, &b) in (x..end).zip(text) {
+                self.split_wide_char(y, k.saturating_add(1));
+                if let Some(line) = self.line_mut(y) {
+                    line.write(k, Glyph::Char(char::from(b)), Width::Narrow, &pen, link);
+                }
+            }
+        } else if let Some(line) = self.line_mut(y) {
+            for (k, &b) in (x..end).zip(text) {
+                line.write(k, Glyph::Char(char::from(b)), Width::Narrow, &pen, link);
+            }
+        }
+        self.mark_cells(y, x..end);
+        self.mark_reflow(y);
+        let last = char::from(last);
+        self.last_printed = Some(last);
+        let at = end.saturating_sub(1);
+        self.advance(at, end, y);
+        self.set_segment(at, y, Segmenter::start(last));
+        n
     }
 
     /// Moves the cursor past text written from column `from` to `to` on

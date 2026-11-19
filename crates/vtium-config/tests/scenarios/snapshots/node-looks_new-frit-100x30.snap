@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "looks.new-frit at 100×30, keys: n Enter Enter Enter Enter Enter Enter"
+---
+ Flow  Looks  Fonts  Settings  Help                                                   Save  Install
+ draft mine · no changes · no problems                                   text preview · t: try live
+----------------------------------------------------------------------------------------------------
+   Name
+   Font 1
+   Font 2
+   Font 3
+   Character cell
+   Size
+ > Add this font set to the install
+
+ A font set (frit) combines up to three fonts. Name each font by its family, such as JetBrains
+ Mono, or as a frit file names it, such as kbd:ter-v16n. Each later font supplies the characters
+ the fonts before it lack. Character cell is WIDTHxHEIGHT in pixels and Size is in points; leave
+ both empty to use the fonts' own size. If you leave Name empty, the name comes from the first
+ font.
+
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ type into a field  Enter next field  Esc back  Ctrl-C quit without installing

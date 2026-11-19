@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "flow.card at 100×30, keys: 4 Down Enter"
+---
+ Flow  Looks  Fonts  Settings  Help                 v View file  s Save  i Install  r Revert  n New
+ draft mine  ›  panel   1 keyboard and 1 pointer in no path yet · no changes · no problems · not w…
+
+ TERMINAL panel · every VT
+
+   Name                            panel   Enter types a new name
+   Font set                       default font set
+   Size                           automatic
+   Consoles                       1
+   Login                          Default: /bin/login -p
+   When its screen is unplugged   keep the sessions running
+   Switch on Enter                off
+
+   Which displays and inputs this path joins change only when you revise it: press e.
+
+ WHAT THIS TERMINAL DRAWS
+   Font set default font set  →  default look (built in)  →  no display
+   Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card
+   names the look and shows no filters.
+
+
+
+
+
+
+
+
+
+
+ ↑↓ move  ←→ choose  Enter set  Esc back  q quit  . more 1/2

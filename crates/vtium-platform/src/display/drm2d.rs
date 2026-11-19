@@ -500,6 +500,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.levels.filter(|_| self.output(id).is_some())
     }
 
+    /// The bits a pixel of the display's buffers holds: 32, since every
+    /// dumb buffer vtium makes is XRGB8888. `None` for a display that is
+    /// not online.
+    pub fn buffer_bits(&self, id: DisplayId) -> Option<u8> {
+        self.output(id).map(|_| 32)
+    }
+
     /// The display's density, from its mode and the physical size its
     /// connector reports, or [`Density::ASSUMED`] where it reports none or
     /// one out of bounds.

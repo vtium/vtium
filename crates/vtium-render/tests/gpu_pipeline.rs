@@ -507,3 +507,178 @@ fn a_restore_out_of_memory_fails_its_frame_cleanly_and_the_next_draws_whole() {
     assert_eq!(frames_made(&gl), [DISPLAY]);
     assert_eq!(damage, [rect(0, 0, DISPLAY.width, DISPLAY.height)]);
 }
+
+/// The table of a tint toward amber, which moves most colors.
+#[cfg(feature = "filters")]
+fn amber() -> vtium_render::filter::Table {
+    use vtium_render::filter::{Fixed, Given, Map, Table, color};
+    let tint = color("tint").unwrap();
+    let given = [Given::Color([255, 176, 0]), Given::Number(Fixed::of(1, 0))];
+    let map = Map::new(tint, &given).unwrap();
+    Table::build(&[map]).unwrap()
+}
+
+/// The fragment shader of the last program compiled.
+#[cfg(feature = "filters")]
+fn last_compiled(gl: &StandIn) -> String {
+    gl.calls()
+        .iter()
+        .rev()
+        .find_map(|c| match c {
+            Call::Compile(t) => Some(t.clone()),
+            _ => None,
+        })
+        .unwrap()
+}
+
+// A color table in the color slot is uploaded once as a 3D texture of
+// RGBA16F, 33 a side, in a batch checked at once; present is compiled
+// again with the color step joined between the spatial step and its main,
+// and samples the table linearly in every present after. The same table
+// handed over again makes no call. Emptying the slot compiles present
+// without the step and frees the texture.
+#[cfg(feature = "filters")]
+#[test]
+fn a_color_table_is_uploaded_once_and_present_samples_it() {
+    let mut gl = StandIn::new();
+    let mut p = set_up(&mut gl);
+    let buffer = gl.import_buffer(&DISPLAY).unwrap();
+    let work = Work::new(BORDER, &[], &[]);
+    p.frame(&mut gl, &work, &buffer, 0).unwrap();
+    gl.clear_calls();
+    let table = amber();
+    p.set_color_table(&mut gl, Some((7, &table))).unwrap();
+    assert_eq!(p.color(), Color::Table);
+    let calls = gl.calls().to_vec();
+    assert_eq!(calls[0], Call::CreateVolume(33), "{calls:?}");
+    assert_eq!(calls[1], Call::Check(Batch::Uploads), "{calls:?}");
+    let with_step = [
+        include_str!("../src/gpu/glsl/present_head.frag"),
+        include_str!("../src/gpu/glsl/present_color.frag"),
+        include_str!("../src/gpu/glsl/present_main.frag"),
+    ]
+    .concat();
+    assert_eq!(last_compiled(&gl), with_step);
+    assert!(with_step.contains("#define COLOR_STEP"));
+    // the table changes every pixel, so the next present is whole at any age
+    gl.clear_calls();
+    p.frame(&mut gl, &work, &buffer, 1).unwrap();
+    let presented = gl.calls().iter().find_map(|c| match c {
+        Call::Draw { inputs, quads, .. } if inputs.contains(&"color_table") => Some(quads.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        presented.map(|q| q.iter().map(|q| q.dst).collect::<Vec<_>>()),
+        Some(vec![[0, 0, 64, 32]])
+    );
+    let name = gl
+        .seen()
+        .iter()
+        .rev()
+        .find_map(|s| s.textures.iter().find(|t| t.0 == "color_table"))
+        .map(|t| t.1)
+        .unwrap();
+    let (format, side, texels) = gl.texture_pixels(name).unwrap();
+    assert_eq!(
+        (format, side, texels),
+        (
+            vtium_render::gpu::Format::Rgba16f,
+            Size::new(33, 33),
+            &table.rgba16f().unwrap()[..]
+        )
+    );
+    // the same table again makes no call
+    gl.clear_calls();
+    p.set_color_table(&mut gl, Some((7, &table))).unwrap();
+    assert_eq!(gl.calls(), &[]);
+    // another table uploads anew, and keeps present as it is
+    p.set_color_table(&mut gl, Some((8, &table))).unwrap();
+    assert_eq!(
+        gl.calls(),
+        &[
+            Call::CreateVolume(33),
+            Call::Check(Batch::Uploads),
+            Call::FreeTexture
+        ]
+    );
+    // emptying the slot compiles present bare and frees the table
+    gl.clear_calls();
+    p.set_color_table(&mut gl, None).unwrap();
+    assert_eq!(p.color(), Color::None);
+    assert!(!last_compiled(&gl).contains("#define COLOR_STEP"));
+    assert!(gl.calls().contains(&Call::FreeTexture), "{:?}", gl.calls());
+    gl.clear_calls();
+    p.frame(&mut gl, &work, &buffer, 1).unwrap();
+    assert!(
+        gl.calls().contains(&present_draw(&[DISPLAY.rect()])),
+        "{:?}",
+        gl.calls()
+    );
+    assert!(p.take_notes().is_empty());
+}
+
+// A failure the look causes empties the color slot and gives a note: an
+// upload GL refuses, or a present the driver will not compile with the
+// color step. Only GL running out of memory or a lost context fails the
+// call, as a failure of the GPU path. Nothing the failed attempt made is
+// left behind.
+#[cfg(feature = "filters")]
+#[test]
+fn a_color_table_that_fails_empties_the_slot_and_only_serious_errors_fail() {
+    let table = amber();
+    let mut gl = StandIn::new();
+    let mut p = set_up(&mut gl);
+    let live = gl.live();
+    gl.fail_next(Op::CreateVolume, ErrorKind::Gl);
+    p.set_color_table(&mut gl, Some((1, &table))).unwrap();
+    assert_eq!((p.color(), gl.live()), (Color::None, live));
+    let notes = p.take_notes();
+    assert!(
+        notes.len() == 1 && notes[0].contains("uploading the color table"),
+        "{notes:?}"
+    );
+    // an error a check finds after the upload is traced to the table, too
+    gl.raise(ErrorKind::Gl);
+    p.set_color_table(&mut gl, Some((2, &table))).unwrap();
+    assert_eq!((p.color(), gl.live()), (Color::None, live));
+    assert_eq!(p.take_notes().len(), 1);
+    gl.fail_next(Op::Compile, ErrorKind::Compile);
+    p.set_color_table(&mut gl, Some((3, &table))).unwrap();
+    assert_eq!((p.color(), gl.live()), (Color::None, live));
+    let notes = p.take_notes();
+    assert!(
+        notes.len() == 1 && notes[0].contains("compiling the color step"),
+        "{notes:?}"
+    );
+    for kind in [ErrorKind::OutOfMemory, ErrorKind::ContextLost] {
+        let mut gl = StandIn::new();
+        let mut p = set_up(&mut gl);
+        let live = gl.live();
+        gl.fail_next(Op::CreateVolume, kind);
+        assert_eq!(
+            p.set_color_table(&mut gl, Some((1, &table)))
+                .unwrap_err()
+                .kind,
+            kind
+        );
+        assert_eq!(gl.live(), live);
+    }
+}
+
+// A pipeline set up with the color step and no table yet samples the
+// identity table, so every program the pipeline builds is checked with
+// the step joined.
+#[cfg(feature = "filters")]
+#[test]
+fn a_pipeline_set_up_with_the_color_step_samples_the_identity() {
+    let mut gl = StandIn::new();
+    let config = Config {
+        color: Color::Table,
+        ..Config::default()
+    };
+    let p = Pipeline::new(&mut gl, DISPLAY, config).unwrap();
+    assert!(gl.calls().contains(&Call::CreateVolume(33)));
+    assert!(last_compiled(&gl).contains("#define COLOR_STEP"));
+    p.free(&mut gl).unwrap();
+    assert_eq!(gl.live(), (0, 0, 0));
+}

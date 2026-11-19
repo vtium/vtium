@@ -16,3 +16,25 @@ min-dpi = any       # any, or 1 to 1000: the density fonts are sized at
 max-dpi = any
 min-fps = any       # any, refresh or 1 to 1000: the frame rate to keep
 gpu = any           # any; yes for the GPU path only; no for the CPU path only
+
+# Color filters run on both paths, merged into one table, after the turn.
+
+# [color gamma]
+# Raises each channel to the power 1 / gamma.
+# gamma = 1.0       # number, 0.5 to 2: above 1 lightens the middle tones
+
+# [color contrast]
+# Scales each channel's distance from middle gray, then shifts it.
+# contrast = 1.0    # number, 0 to 2: above 1 spreads the tones apart
+# brightness = 0.0  # number, -0.5 to 0.5: added to each channel
+
+# [color tint]
+# Turns the screen toward one color, as a single-color phosphor.
+# color = 255,176,0 # color, r,g,b: the phosphor's color
+# amount = 1.0      # number, 0 to 1: how far toward it
+
+# [color color-blind]
+# Simulates a color vision deficiency, or corrects for it.
+# kind = deuteranopia # protanopia, deuteranopia or tritanopia: the deficiency
+# mode = correct      # simulate or correct: show it, or correct for it
+# amount = 1.0        # number, 0 to 1: how much of the result to show

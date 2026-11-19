@@ -11,11 +11,12 @@
 //!   person composes a path from pieces before adding it.
 //! - PARTS: the palette of displays, inputs and font sets to pick from.
 //!
-//! [`layout`] lays the three parts out on a canvas as tall as they need,
-//! as plain data: boxes, lines and notes. [`State`] is where the highlight
-//! is, which canvas row is at the window's top, and the path in the
-//! editor. [`super::flowdraw`] draws the layout, [`super::paths`] holds the
-//! path model, and the keys are in `flowkeys`.
+//! [`layout`] lays the three parts out as the document of paths, as tall
+//! as they need, as plain data: boxes, lines and notes. [`State`] is where
+//! the highlight is, which row of the document is at the window's top, and
+//! the path in the editor. [`super::flowdraw`] draws the layout,
+//! [`super::paths`] holds the path model, and the keys are in the Flow
+//! tab's module, [`super::tabs::flow`].
 
 use super::flow::{Device, Flow, Kind};
 use super::input::Key;
@@ -194,7 +195,7 @@ pub fn sort(dev: &Device) -> Sort {
     }
 }
 
-/// A box on the canvas.
+/// A box on the document.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Boxed {
     pub obj: Obj,
@@ -245,10 +246,10 @@ pub struct Wire {
     pub stub: bool,
 }
 
-/// What a line of text on the canvas is.
+/// What a line of text on the document is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoteKind {
-    /// An area's heading on the canvas: NEW PATH, PARTS. CONFIGURATION's
+    /// An area's heading on the document: NEW PATH, PARTS. CONFIGURATION's
     /// stays at the top of the screen while its area is in sight.
     Heading,
     /// The editor's words: what the new path needs, or that it is ready.
@@ -265,7 +266,7 @@ pub enum NoteKind {
     Stub,
 }
 
-/// A line of text on the canvas.
+/// A line of text on the document.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Note {
     pub x: usize,
@@ -455,21 +456,21 @@ pub struct Ctx<'a> {
     pub default: bool,
 }
 
-/// The flow laid out on its canvas.
+/// The flow laid out as the document of paths.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Layout {
     pub boxes: Vec<Boxed>,
     pub wires: Vec<Wire>,
     pub notes: Vec<Note>,
-    /// The canvas rows of the rule lines between the parts.
+    /// The document's rows of the rule lines between the parts.
     pub rules: Vec<usize>,
-    /// The canvas's height: the row after its last box.
+    /// The document's height: the row after its last box.
     pub height: usize,
     pub geometry: Option<Geometry>,
     /// The devices connected that no path holds, by sort.
     pub waiting: Vec<Sort>,
-    /// The canvas row of each area's heading, NEW PATH's and PARTS', with
-    /// its words; CONFIGURATION's area starts at the canvas's top.
+    /// The document's row of each area's heading, NEW PATH's and PARTS',
+    /// with its words; CONFIGURATION's area starts at the document's top.
     pub areas: Vec<(usize, &'static str)>,
 }
 
@@ -479,7 +480,7 @@ impl Layout {
         self.boxes.iter().find(|b| b.obj == *obj)
     }
 
-    /// The heading of the area the canvas row `top` is in: the last area
+    /// The heading of the area the document's row `top` is in: the last area
     /// whose heading is above it, else CONFIGURATION.
     pub fn area_at(&self, top: usize) -> &'static str {
         self.areas
@@ -535,12 +536,12 @@ fn isolated(flow: &Flow, p: &Path) -> bool {
 }
 
 /// Lays out the row of the path `p`, its terminal named `name`, from
-/// canvas row `y`. A path of the configuration that roaming inputs reach
-/// ends in a dotted line from the words `roaming inputs` to its terminal.
-/// In the editor, each stage the path has no part for yet shows its empty
-/// place, which Enter fills from that stage's template. A path with "no
-/// input" shows it in its inputs' place, with no line, since nothing types
-/// into its terminal. Returns the row after it.
+/// the document's row `y`. A path of the configuration that roaming
+/// inputs reach ends in a dotted line from the words `roaming inputs` to
+/// its terminal. In the editor, each stage the path has no part for yet
+/// shows its empty place, which Enter fills from that stage's template. A
+/// path with "no input" shows it in its inputs' place, with no line, since
+/// nothing types into its terminal. Returns the row after it.
 fn path_row(
     ctx: &Ctx<'_>,
     out: &mut Layout,
@@ -762,7 +763,7 @@ fn path_row(
     bottom.max(displays).max(y.saturating_add(BOX_ROWS))
 }
 
-/// Lays out the path of the active terminal from canvas row `y`: the
+/// Lays out the path of the active terminal from the document's row `y`: the
 /// heading ROAMING and the sentence that says what roaming means where a
 /// path's displays are, since the active terminal is one of the other
 /// terminals at a time and has none of its own; the active terminal's
@@ -1252,18 +1253,18 @@ pub fn step(layout: &Layout, at: &Obj, key: Key) -> Option<Obj> {
     }
 }
 
-/// Where the highlight is, which canvas row is at the top of the window,
-/// what is open over the document, and the path in the editor.
+/// Where the highlight is, which row of the document is at the top of the
+/// window, what is open over the document, and the path in the editor.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct State {
     /// The highlighted object; `None` until the first layout.
     pub at: Option<Obj>,
-    /// The canvas row at the window's top.
+    /// The document's row at the window's top.
     pub top: usize,
     /// How far below the window's top the highlighted box is, which a
     /// new layout keeps so the page does not jump.
     pub offset: isize,
-    /// The canvas row the highlighted box was last on, to find its
+    /// The document's row the highlighted box was last on, to find its
     /// neighbour when it goes.
     pub last_y: usize,
     /// The object whose second layer is open.
@@ -1340,7 +1341,7 @@ impl State {
             self.top = 0;
             return;
         };
-        // on the first layout the window starts at the canvas's top, so
+        // on the first layout the window starts at the document's top, so
         // the headings above the first box show
         if self.at.is_none() {
             self.offset = isize::try_from(b.y).unwrap_or(0);
@@ -1639,7 +1640,7 @@ pub(crate) mod tests {
                 .map(|n| n.text.as_str())
                 .collect();
             assert_eq!(headings, ["CONFIGURATION", "NEW PATH", "PARTS"]);
-            // each area's heading above its area, on the canvas
+            // each area's heading above its area, on the document
             assert_eq!(l.area_at(0), "CONFIGURATION");
             let (new_at, _) = l.areas[0];
             let (parts_at, _) = l.areas[1];
@@ -1855,7 +1856,7 @@ pub(crate) mod tests {
         s.go(&l, bitdo.clone(), window);
         let before = at(&l, &bitdo).y - s.top;
         // picking two pieces makes the editor's row taller, and the palette
-        // moves down the canvas; the box stays at its height in the window
+        // moves down the document; the box stays at its height in the window
         new.pick(Piece::Input(KBD_PATH.into()));
         new.pick(Piece::Input("id:2dc8:5200".into()));
         let l2 = lay(&f, &new, 80);
@@ -2021,7 +2022,7 @@ pub(crate) mod tests {
                 .expect("the title")
                 .y
         };
-        // CONFIGURATION and its column titles sit at the canvas's top
+        // CONFIGURATION and its column titles sit at the document's top
         assert_eq!(note("CONFIGURATION"), 0);
         assert_eq!(note(words::FLOW_DISPLAYS), 1);
         assert_eq!(note(words::FLOW_TERMINALS), 1);
