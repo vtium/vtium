@@ -581,9 +581,15 @@ fn outcome_with(
         .map(|(name, file)| font_needs(&name, &file, &settings))
         .unwrap_or_default();
     // the font files the font-name frit names by path that a start would
-    // treat as missing
+    // treat as missing; each line names the font set's file and line, so a
+    // line a look's check already holds, for a font set the top level and
+    // a look share, is said once
     if let Some((_, file)) = named_frit(&loaded.config, settings.frits) {
-        needs.warnings.extend(font_files(&file, &settings));
+        needs.warnings.extend(
+            font_files(&file, &settings)
+                .into_iter()
+                .filter(|said| !heads.counted.contains(said)),
+        );
     }
     let missing_fonts = needs.warnings.len().saturating_add(heads.missing_fonts);
     // each vtlook a start would read, read as the start reads it, with
@@ -1443,6 +1449,8 @@ fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
     };
     let mut out = Vec::new();
     for (n, line) in text.lines().enumerate() {
+        // A line may end in a `#` comment, which is not part of the path.
+        let line = line.split('#').next().unwrap_or_default();
         let Some((key, value)) = line.trim().split_once('=') else {
             continue;
         };
@@ -2235,21 +2243,23 @@ mod tests {
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
             path
         };
-        let (good, open, idle) = (
+        let (good, open, idle, italic) = (
             font("good.bdf", 0o644),
             font("open.bdf", 0o666),
             font("idle.otf", 0o644),
+            font("idle-italic.otf", 0o644),
         );
         let frit = dir.join("desk.vtfrit");
         let _ = std::fs::write(
             &frit,
             format!(
-                "source=bdf:{}\nsource=font:Some Family\nsource=bdf:{}\nsource=outline:{}\nstrike=file:{}\nsource=bdf:{}\n",
+                "source=bdf:{}\nsource=font:Some Family\nsource=bdf:{}\nsource=outline:{}\nstrike=file:{}\nsource=bdf:{}\nsource=outline:{} # the italic face\n",
                 good.display(),
                 open.display(),
                 idle.display(),
                 good.display(),
-                dir.join("gone.bdf").display()
+                dir.join("gone.bdf").display(),
+                italic.display()
             ),
         );
         let _ = std::fs::set_permissions(&frit, std::fs::Permissions::from_mode(0o644));
@@ -2279,6 +2289,10 @@ mod tests {
                 format!(
                     "{f}:4: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
                     idle.display()
+                ),
+                format!(
+                    "{f}:7: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+                    italic.display()
                 ),
             ]
         );
@@ -4846,6 +4860,51 @@ mod tests {
         let squeezed = out.stdout.iter().filter(|l| l.contains("squeezed")).count();
         assert_eq!(squeezed, 2, "a note for each look: {:#?}", out.stdout);
         assert_eq!((covered.get(), lacked.get()), (1, 1));
+    }
+
+    // A font file that font-name's set names and that a start treats as
+    // missing is said once, with the font set's file and line, though
+    // font-name and two looks name the same set.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_font_file_line_is_said_once_for_a_set_the_top_level_and_looks_share() {
+        let text = "font-name=desk\nversion = 1\n[look big]\nfont-name = desk\n[look small]\nfont-name = desk\n[head a]\nlook = big\n[head b]\nlook = small\n[rules]\ndisplay * -> a\ndisplay * -> b\n";
+        let (_dir, file, _) = heads_fixture("font-file-once", text, 0o644);
+        let frits = file.with_file_name("frits");
+        std::fs::create_dir_all(&frits).unwrap();
+        let idle = file.with_file_name("idle.bdf");
+        std::fs::write(&idle, "x").unwrap();
+        std::fs::write(
+            frits.join("desk.vtfrit"),
+            format!("source=bdf:{}\nsource=builtin:unscii-8\n", idle.display()),
+        )
+        .unwrap();
+        let host = Host {
+            conf_file: file.with_file_name("absent.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: frits.clone(),
+            frit_trust: font::trust().below(file.parent().unwrap()),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
+        };
+        let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let out = outcome_with(
+            &config::load(&args, &mut config::read_bytes),
+            &host,
+            None,
+            None,
+        );
+        let said: Vec<&String> = out
+            .stderr
+            .iter()
+            .filter(|l| l.contains("is not active"))
+            .collect();
+        assert_eq!(said.len(), 1, "{:#?}", out.stderr);
+        assert!(said[0].contains(&format!("desk.vtfrit:1: The font {}", idle.display())));
     }
 
     // A font that font-name's set needs and this machine lacks is a
