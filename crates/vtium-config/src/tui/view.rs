@@ -32,7 +32,7 @@ use ratatui_core::text::{Line, Span};
 use ratatui_core::widgets::Widget as _;
 use ratatui_widgets::paragraph::Paragraph;
 
-use super::canvas::{Row, printable, span, wrap};
+use super::canvas::{Row, cells, printable, span, wrap};
 use super::color::{Colors, Style, palette};
 use super::layout::{
     FLOW_TOP, Tab, body, item_rows, key_line, key_rows, list_window, message_rows, tab_places,
@@ -47,9 +47,10 @@ pub fn text(row: &Row) -> String {
     row.iter().map(|s| s.text.as_str()).collect()
 }
 
-/// `left` and `right` on one line of `cols`, `right` against the edge.
+/// `left` and `right` on one line of `cols` cells, `right` against the
+/// edge.
 fn sides(left: &str, right: &str, cols: usize) -> String {
-    let (l, r) = (left.chars().count(), right.chars().count());
+    let (l, r) = (cells(left), cells(right));
     let gap = cols.saturating_sub(l.saturating_add(r)).max(1);
     format!("{left}{}{right}", " ".repeat(gap))
 }
@@ -151,18 +152,13 @@ fn status(app: &App) -> String {
     };
     // the room the left side has beside the right side, with the gap
     // between them and the margin after
-    let room = |live: &str| {
-        app.size
-            .cols
-            .saturating_sub(live.chars().count())
-            .saturating_sub(3)
-    };
+    let room = |live: &str| app.size.cols.saturating_sub(cells(live)).saturating_sub(3);
     // the long words where they fit, else the short words for the font
     // sets waiting, else the short words on the right as well; only then
     // is the left side cut
     let long = format!(" {}", left_with(&words::frits_waiting));
     let short = format!(" {}", left_with(&words::frits_waiting_short));
-    let fits = |left: &str, live: &str| left.chars().count() <= room(live);
+    let fits = |left: &str, live: &str| cells(left) <= room(live);
     let (live_long, live_short) = (live_with(false), live_with(true));
     let (left, live) = if fits(&long, &live_long) {
         (long, live_long)

@@ -76,20 +76,6 @@ pub fn printable(text: &str) -> String {
         .collect()
 }
 
-/// `text` in at most `n` characters, cut at its end with `…`.
-pub fn fit(text: &str, n: usize) -> String {
-    let len = text.chars().count();
-    if len <= n {
-        return text.to_owned();
-    }
-    if n == 0 {
-        return String::new();
-    }
-    let mut out: String = text.chars().take(n.saturating_sub(1)).collect();
-    out.push('…');
-    out
-}
-
 /// One character as the console shows it: a base character and the marks
 /// that join it, which the console keeps in one cell of one or two cells'
 /// width.
@@ -243,7 +229,7 @@ pub fn cells(text: &str) -> usize {
 /// with `…`. A wide character that would straddle the end goes whole, so
 /// the result can be a cell short of `n`. The cut never separates a
 /// character from its marks.
-pub fn fit_cells(text: &str, n: usize) -> String {
+pub fn fit(text: &str, n: usize) -> String {
     if cells(text) <= n {
         return text.to_owned();
     }
@@ -283,62 +269,98 @@ pub fn column(row: &Row, cell: usize) -> usize {
     chars.saturating_add(cell.saturating_sub(used))
 }
 
-/// `text` in at most `n` characters, cut in the middle with `…`, so the
-/// end that tells devices apart still shows.
+/// `text` in at most `n` cells of the console's screen, cut in the middle
+/// with `…`, so the end that tells devices apart still shows.
 pub fn mid(text: &str, n: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= n {
+    if cells(text) <= n {
         return text.to_owned();
     }
     if n < 5 {
         return fit(text, n);
     }
+    let shown_text = printable(text);
+    let parts = clusters(&shown_text);
+    // the clusters from one end that fit in `room` cells
+    let take = |room: usize, from_end: bool| -> String {
+        let mut used = 0usize;
+        let mut kept: Vec<&str> = Vec::new();
+        let order: Box<dyn Iterator<Item = &Cluster<'_>>> = if from_end {
+            Box::new(parts.iter().rev())
+        } else {
+            Box::new(parts.iter())
+        };
+        for c in order {
+            used = used.saturating_add(usize::from(shown(c).1));
+            if used > room {
+                break;
+            }
+            kept.push(c.text);
+        }
+        if from_end {
+            kept.reverse();
+        }
+        kept.concat()
+    };
     let head = n.saturating_sub(1).div_ceil(2);
     let tail = n.saturating_sub(1).saturating_sub(head);
-    let mut out: String = chars.iter().take(head).collect();
+    let mut out = take(head, false);
     out.push('…');
-    out.extend(chars.iter().skip(chars.len().saturating_sub(tail)));
+    out.push_str(&take(tail, true));
     out
 }
 
-/// The first of `options` that fits in `n` characters, else the last cut
-/// to `n`.
+/// The first of `options` that fits in `n` cells, else the last cut to
+/// `n`.
 pub fn pick(n: usize, options: &[&str]) -> String {
-    options.iter().find(|o| o.chars().count() <= n).map_or_else(
+    options.iter().find(|o| cells(o) <= n).map_or_else(
         || fit(options.last().copied().unwrap_or(""), n),
         |o| (*o).to_owned(),
     )
 }
 
-/// `text` in lines of at most `width` characters, broken between words,
-/// at most `most` of them, the last cut with `…` where text was left out;
-/// at least one line.
+/// `word` in pieces of at most `width` cells, cut between the characters
+/// the console shows, so a mark stays with its character. A character
+/// wider than `width` is a piece of its own.
+fn pieces(word: &str, width: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut piece = String::new();
+    let mut used = 0usize;
+    for c in clusters(word) {
+        let w = usize::from(shown(&c).1);
+        if used > 0 && used.saturating_add(w) > width {
+            out.push(std::mem::take(&mut piece));
+            used = 0;
+        }
+        piece.push_str(c.text);
+        used = used.saturating_add(w);
+    }
+    out.push(piece);
+    out
+}
+
+/// `text` in lines of at most `width` cells of the console's screen,
+/// broken between words, at most `most` of them, the last cut with `…`
+/// where text was left out; at least one line. A character two cells wide
+/// counts twice, and a mark that joins the character before it counts
+/// nothing.
 pub fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
     let width = width.max(1);
     let mut lines: Vec<String> = Vec::new();
     let mut line = String::new();
+    let mut used = 0usize;
     // a word longer than the line, such as a path, breaks where the line
     // ends
-    let pieces: Vec<String> = text
-        .split(' ')
-        .flat_map(|w| {
-            let chars: Vec<char> = w.chars().collect();
-            if chars.is_empty() {
-                vec![String::new()]
-            } else {
-                chars.chunks(width).map(|c| c.iter().collect()).collect()
-            }
-        })
-        .collect();
-    for word in &pieces {
-        let len = line.chars().count();
-        if len > 0 && len.saturating_add(1).saturating_add(word.chars().count()) > width {
+    for word in text.split(' ').flat_map(|w| pieces(w, width)) {
+        let w = cells(&word);
+        if used > 0 && used.saturating_add(1).saturating_add(w) > width {
             lines.push(std::mem::take(&mut line));
-        }
-        if !line.is_empty() {
+            used = 0;
+        } else if !line.is_empty() {
             line.push(' ');
+            used = used.saturating_add(1);
         }
-        line.push_str(word);
+        line.push_str(&word);
+        used = used.saturating_add(w);
     }
     lines.push(line);
     let most = most.max(1);
@@ -402,12 +424,12 @@ mod tests {
     #[test]
     fn text_is_fitted_and_placed_by_the_console_s_cells() {
         assert_eq!(cells("ab键盘"), 6);
-        assert_eq!(fit_cells("ab键盘", 6), "ab键盘");
+        assert_eq!(fit("ab键盘", 6), "ab键盘");
         // `键` and `…` take 3 cells; `盘` would straddle the end
-        assert_eq!(fit_cells("ab键盘", 5), "ab键…");
-        assert_eq!(fit_cells("ab键盘", 4), "ab…");
-        assert_eq!(fit_cells("", 0), "");
-        assert_eq!(fit_cells("abc", 0), "");
+        assert_eq!(fit("ab键盘", 5), "ab键…");
+        assert_eq!(fit("ab键盘", 4), "ab…");
+        assert_eq!(fit("", 0), "");
+        assert_eq!(fit("abc", 0), "");
         let row = vec![span("a键b", Style::PLAIN)];
         // cell 3 shows `b`, the third character
         assert_eq!(column(&row, 3), 2);
@@ -415,6 +437,27 @@ mod tests {
         assert_eq!(column(&row, 2), 2);
         // the row takes 4 cells, so cell 6 is two blanks past its end
         assert_eq!(column(&row, 6), 5);
+    }
+
+    #[test]
+    fn wrap_and_fit_measure_text_in_the_console_s_cells() {
+        // 键 and 盘 take two cells each on the console, and the marks in
+        // é and கொ join the character before them
+        assert_eq!(fit("键盘键盘", 5), "键盘…");
+        assert_eq!(
+            fit("e\u{301}e\u{301}e\u{301}", 3),
+            "e\u{301}e\u{301}e\u{301}"
+        );
+        assert_eq!(fit("கொகொகொ", 5), "கொகொ…");
+        assert_eq!(wrap("键盘 键盘 键盘", 9, 9), ["键盘 键盘", "键盘"]);
+        // a word wider than the line breaks where the line ends, and
+        // never between a character and its marks
+        assert_eq!(wrap("键盘键盘键", 5, 9), ["键盘", "键盘", "键"]);
+        assert_eq!(wrap("கொகொகொ", 4, 9), ["கொகொ", "கொ"]);
+        // the last line kept marks the text left out
+        assert_eq!(wrap("键盘 键盘 键盘", 9, 1), ["键盘 键…"]);
+        assert_eq!(mid("键盘ab键盘cd键盘", 9), "键盘…键盘");
+        assert_eq!(pick(4, &["键盘键", "键盘"]), "键盘");
     }
 
     #[test]
