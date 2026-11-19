@@ -12,11 +12,12 @@
 //! thing stands comes from [`super::layout`], which update reads too.
 //!
 //! ratatui's widgets draw the tab bar, the status line, the rules, the
-//! message line, the key line, the Help page, the other tabs' lists and
-//! the screen below the minimum. Text that can hold any character, such as
-//! a font's name or its specimen, is written by the console's width rule
-//! ([`fill`]). The Flow view under its tab bar is still drawn on a
-//! [`Canvas`] and copied into its part of the buffer.
+//! message line, the key line, the Help page, the tabs' lists, Restore's
+//! list and the screen below the minimum. Text that can hold any
+//! character, such as a font's name, its specimen or a line of the draft,
+//! is written by the console's width rule ([`fill`]). The Flow view's
+//! document of paths is still drawn on a [`Canvas`] and copied into its
+//! part of the buffer.
 //!
 //! References:
 //! - ADR-1201 D3 and ADR-1403 D7: the views, the minimum size and the
@@ -242,30 +243,27 @@ fn small(app: &App) -> Vec<String> {
 }
 
 /// The Flow view's screens that take the paths' place: the file view
-/// and Restore's list of the installed history.
-fn flow_screen(canvas: &mut Canvas, app: &App) {
+/// and Restore's list of the installed history, over the message and the
+/// key line. The message can hold a font's name, so it is written by the
+/// console's width rule.
+fn flow_screen(app: &App, colors: Colors, buf: &mut Buffer) {
+    let area = buf.area;
     let rows = app.size.rows;
     let keys = key_rows(app);
-    let message = super::layout::flow_message_rows(app);
+    let message: Vec<Row> = super::layout::flow_message_rows(app)
+        .into_iter()
+        .map(|line| vec![span(format!(" {line}"), Style::PLAIN)])
+        .collect();
     let bottom = super::layout::flow_bottom(app);
-    for (i, line) in message.iter().enumerate() {
-        canvas.put(
-            0,
-            bottom.saturating_add(i),
-            &format!(" {line}"),
-            Style::PLAIN,
-        );
-    }
-    for (i, line) in keys.iter().enumerate() {
-        canvas.put(
-            0,
-            rows.saturating_sub(keys.len()).saturating_add(i),
-            &format!(" {line}"),
-            Style::text(palette::GREY),
-        );
-    }
-    if let Some(pager) = app.flow.pager() {
-        pager_screen(canvas, app, pager, bottom);
+    fill(buf, band(area, bottom, message.len()), &message, colors);
+    let key_lines: Vec<Line> = keys
+        .iter()
+        .map(|l| Line::from(styled(format!(" {l}"), Style::text(palette::GREY), colors)))
+        .collect();
+    Paragraph::new(key_lines).render(band(area, rows.saturating_sub(keys.len()), rows), buf);
+    match app.flow.pager() {
+        Some(pager) => pager_screen(app, pager, bottom, colors, buf),
+        None => restore_list(app, colors, buf),
     }
 }
 
@@ -280,7 +278,7 @@ fn flow_screen(canvas: &mut Canvas, app: &App) {
 fn restore_list(app: &App, colors: Colors, buf: &mut Buffer) {
     use ratatui_core::widgets::StatefulWidget;
     use ratatui_widgets::list::{List, ListItem, ListState};
-    let Some((kept, list)) = app.flow.restore().filter(|_| app.flow.pager().is_none()) else {
+    let Some((kept, list)) = app.flow.restore() else {
         return;
     };
     let (room, _) = super::layout::restore_window(app);
@@ -322,20 +320,29 @@ fn restore_list(app: &App, colors: Colors, buf: &mut Buffer) {
 /// The draft in the pager, from row 2 down to `bottom`: its title, then
 /// each line with its number, a line the check complains about marked `!`
 /// in bright red, and the line of the card selected in the flow marked
-/// with [`SELECTED`].
-fn pager_screen(canvas: &mut Canvas, app: &App, pager: super::model::Pager, bottom: usize) {
+/// with [`SELECTED`]. The title and the lines are the draft's own text,
+/// so they are written by the console's width rule.
+fn pager_screen(
+    app: &App,
+    pager: super::model::Pager,
+    bottom: usize,
+    colors: Colors,
+    buf: &mut Buffer,
+) {
     let Some(draft) = &app.shared.draft else {
         return;
     };
-    canvas.put(
-        1,
-        2,
-        &format!("{} · draft {}", words::PAGER_TITLE, draft.name),
-        Style {
-            bold: true,
-            ..Style::PLAIN
-        },
-    );
+    let area = buf.area;
+    let inside = |x: u16, y: usize| {
+        let y = u16::try_from(y).unwrap_or(u16::MAX);
+        Rect::new(x, y, area.width.saturating_sub(x), 1)
+    };
+    let title = format!("{} · draft {}", words::PAGER_TITLE, draft.name);
+    let bold = Style {
+        bold: true,
+        ..Style::PLAIN
+    };
+    fill(buf, inside(1, 2), &[vec![span(title, bold)]], colors);
     let flagged: Vec<usize> = draft
         .problems
         .iter()
@@ -352,8 +359,21 @@ fn pager_screen(canvas: &mut Canvas, app: &App, pager: super::model::Pager, bott
             (" ", Style::text(palette::GREY))
         };
         let shown: String = line.chars().skip(pager.left).take(width).collect();
-        canvas.put(0, row, &format!("{mark}{n:>4} "), style);
-        canvas.put(6, row, &shown, Style::PLAIN);
+        // the number takes the six columns before the line, and a number
+        // wider than that is cut where the line starts
+        let number = inside(0, row).intersection(Rect::new(0, 0, 6, area.height));
+        fill(
+            buf,
+            number,
+            &[vec![span(format!("{mark}{n:>4} "), style)]],
+            colors,
+        );
+        fill(
+            buf,
+            inside(6, row),
+            &[vec![span(shown, Style::PLAIN)]],
+            colors,
+        );
     }
 }
 
@@ -414,9 +434,9 @@ pub fn rows(buf: &ratatui_core::buffer::Buffer) -> Vec<Row> {
 
 /// Draws `app`'s screen into `buf`, its colors read as `colors` says.
 /// ratatui draws the tab bar, the status line, the rules, the message
-/// line, the key line, the Help page and the other tabs' lists. The Flow
-/// view below its tab bar is still drawn on a canvas and copied into its
-/// part of the buffer.
+/// line, the key line, the Help page and the lists. The Flow view's
+/// document of paths is still drawn on a canvas and copied into its part
+/// of the buffer.
 fn view(app: &App, colors: Colors, buf: &mut Buffer) {
     let area = buf.area;
     let (cols, rows) = (app.size.cols, app.size.rows);
@@ -440,16 +460,7 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
     }
     Paragraph::new(plain(status(app))).render(band(area, 1, 1), buf);
     if app.nav.view == View::Flow {
-        let mut canvas = Canvas::new(cols, rows);
-        flow_screen(&mut canvas, app);
-        let drawn = canvas.into_rows();
-        fill(
-            buf,
-            band(area, 2, rows),
-            drawn.get(2..).unwrap_or_default(),
-            colors,
-        );
-        restore_list(app, colors, buf);
+        flow_screen(app, colors, buf);
         return;
     }
     let rule = || plain("-".repeat(cols));
