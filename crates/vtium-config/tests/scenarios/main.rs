@@ -577,6 +577,27 @@ fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
     assert_eq!(font.as_deref(), Some("proof"), "{}", sim.desk.installed);
 }
 
+/// On the Effects tab, `o` does nothing, as the key table's `o.view` row
+/// says. In a vtium console with allow-font-ops off, `o` turns the key on
+/// from Help and Settings today, but the Effects tab is new and takes the
+/// row's meaning from the start.
+///
+/// References:
+/// - ADR-1403 D7, "The same keys in every view": the `o.view` row, which
+///   does nothing outside the Flow view.
+#[test]
+fn o_does_nothing_on_the_effects_tab() {
+    let mut sim = Sim::start(Term::OpsOff, 80, 25);
+    press(&mut sim, &["2"]);
+    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Effects);
+    let before = sim.screen();
+    let did = sim.press(press_of("o"));
+    assert!(did.effects.is_empty(), "{did:?}");
+    assert_eq!(sim.app.shared.unsaved, 0);
+    assert_eq!(sim.desk.writes, 0);
+    assert_eq!(sim.screen(), before);
+}
+
 /// Without a change waiting, the leave question's `y` installs the font
 /// set's removal and quits, and saves nothing.
 #[test]

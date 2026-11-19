@@ -43,6 +43,15 @@ impl Tab for Effects {
         words::KEYS_EFFECTS
     }
 
+    /// Save and Install act here as in the other tabs, and `o` does
+    /// nothing, since it opens Restore in the Flow view alone.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "The same keys in every view": the `o.view` row.
+    fn takes_action(&self, action: char) -> bool {
+        action != 'o'
+    }
+
     fn update(&mut self, _shared: &Shared, _room: Room, _key: Key) -> Vec<Command> {
         Vec::new()
     }
