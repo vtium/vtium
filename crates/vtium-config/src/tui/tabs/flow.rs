@@ -805,7 +805,9 @@ impl Flow {
         key: Key,
     ) -> Vec<Command> {
         match key {
-            Key::Char(c) if typed.chars().count() < vtium_settings::LABEL_MAX => {
+            Key::Char(c)
+                if super::typable(c) && typed.chars().count() < vtium_settings::LABEL_MAX =>
+            {
                 typed.push(c);
                 self.state.typing = Some(typed);
                 Vec::new()
@@ -946,7 +948,7 @@ impl Flow {
         key: Key,
     ) -> Vec<Command> {
         match key {
-            Key::Char(c) if typed.chars().count() < 64 => {
+            Key::Char(c) if super::typable(c) && typed.chars().count() < 64 => {
                 typed.push(c);
                 self.state.typing = Some(typed);
                 Vec::new()
@@ -1153,7 +1155,7 @@ impl Flow {
         key: Key,
     ) -> Vec<Command> {
         match key {
-            Key::Char(c) if typed.chars().count() < 200 => {
+            Key::Char(c) if super::typable(c) && typed.chars().count() < 200 => {
                 typed.push(c);
                 self.state.typing = Some(typed);
                 Vec::new()
@@ -1584,6 +1586,61 @@ mod tests {
         assert_eq!(state(&app).new.displays, std::slice::from_ref(&edid));
         assert_eq!(state(&app).at, Some(Obj::New(Slot::Display(edid))));
     }
+    /// Each value the Flow view types, a part's label, a terminal's name
+    /// and a picker's value, takes printable characters and leaves out
+    /// control characters, as the Settings view's values do. The C1
+    /// control U+009B is CSI to a terminal that reads 8-bit controls, so
+    /// in vtium.conf it would act on the terminal of whoever shows the
+    /// file.
+    #[test]
+    fn the_typed_values_of_the_flow_view_leave_out_control_characters() {
+        let typed = "a\u{9b}31m\u{85}\u{7}\u{1b}b";
+        // a part's label: every keyboard, its detail, then Enter on the
+        // label
+        let mut label = app();
+        highlight(&mut label, Obj::Pal(Slot::Template(Stage::Input)));
+        keys(
+            &mut label,
+            &[Key::Enter, Key::Down, Key::Enter, Key::Enter, Key::Enter],
+        );
+        assert_eq!(state(&label).typing.as_deref(), Some(""), "the label");
+        type_text(&mut label, typed);
+        assert_eq!(state(&label).typing.as_deref(), Some("a31mb"), "the label");
+        // the new path's terminal: its card, then Enter on the name,
+        // which starts from the name the path has
+        let mut name = app_with_new_path();
+        highlight(&mut name, Obj::New(Slot::Terminal));
+        keys(&mut name, &[Key::Enter, Key::Enter]);
+        assert_eq!(state(&name).typing.as_deref(), Some("desk2"), "the name");
+        type_text(&mut name, typed);
+        assert_eq!(
+            state(&name).typing.as_deref(),
+            Some("desk2a31mb"),
+            "the name"
+        );
+        // a picker's value: a display from an empty place in NEW PATH
+        let mut value = app();
+        highlight(&mut value, Obj::New(Slot::Empty(Stage::Display)));
+        keys(
+            &mut value,
+            &[Key::Enter, Key::Down, Key::Enter, Key::End, Key::Enter],
+        );
+        assert_eq!(state(&value).typing.as_deref(), Some(""), "the value");
+        type_text(&mut value, typed);
+        assert_eq!(state(&value).typing.as_deref(), Some("a31mb"), "the value");
+    }
+
+    /// The Flow view with a new path that has a name and every display.
+    fn app_with_new_path() -> App {
+        let mut with = app();
+        with.flow.state.new = Path {
+            name: Some("desk2".into()),
+            displays: vec!["*".into()],
+            ..Default::default()
+        };
+        with
+    }
+
     #[test]
     fn a_part_made_from_a_template_choice_carries_a_label() {
         let mut app = app();
