@@ -5400,7 +5400,7 @@ mod tests {
             vtlook_findings(None, conf, &looks, &folders, &trust),
             [
                 format!(
-                    "{copy}:2: color filter 1 of 1, sepia: checking: found sepia, needs gamma, contrast, tint or color-blind"
+                    "{copy}:2: color filter 1 of 1, sepia: checking: found sepia, needs gamma, contrast, tint, color-blind or cube"
                 ),
                 "/etc/vtium/vtium.conf:3: The vtlook amber has errors, so the heads that use look warm draw the built-in vtlook instead.".to_owned(),
             ]
