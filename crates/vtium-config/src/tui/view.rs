@@ -461,8 +461,9 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
         Paragraph::new(page)
             .scroll((u16::try_from(first).unwrap_or(u16::MAX), 0))
             .render(band(area, 3, room), buf);
-    } else if app.nav.view == View::Settings {
+    } else if matches!(app.nav.view, View::Settings | View::Fonts | View::New) {
         list_body(app, colors, buf, body_area);
+        preview_text(app, colors, buf, body_area);
     } else {
         let drawn = body_rows(app);
         let first = usize::from(body_area.y.saturating_sub(area.y));
@@ -533,6 +534,29 @@ fn list_body(app: &App, colors: Colors, buf: &mut Buffer, area: Rect) {
     }
     if show_tail {
         fill(buf, band(area, shown, tail.len()), &tail, colors);
+    }
+}
+
+/// In a vtium console, which previews a font by drawing the console in
+/// it, the preview's text where a picture would go: as many lines as the
+/// picture's area holds, each cut at the screen's edge, over the body in
+/// `area`. The text can hold any character of a font's specimen, so it is
+/// written by the console's width rule.
+fn preview_text(app: &App, colors: Colors, buf: &mut Buffer, area: Rect) {
+    if !app.shared.text_preview() {
+        return;
+    }
+    let (row, col) = super::layout::picture_at(app);
+    let (_, rows) = super::layout::picture_area(app);
+    let top = u16::try_from(row.saturating_sub(1)).unwrap_or(u16::MAX);
+    let left = u16::try_from(col.saturating_sub(1)).unwrap_or(u16::MAX);
+    for (y, line) in (top..).zip(super::console::lines(app).into_iter().take(rows)) {
+        let row: Row = line
+            .into_iter()
+            .map(|(text, style)| span(text, style))
+            .collect();
+        let place = Rect::new(left, y, buf.area.width.saturating_sub(left), 1).intersection(area);
+        fill(buf, place, &[row], colors);
     }
 }
 

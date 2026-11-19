@@ -12,7 +12,7 @@
 //! - ADR-1206 D2: a tab's state and its update live in the tab's module.
 
 use super::super::input::Key;
-use super::super::listbox::step;
+use super::super::listbox::{ListBox, step};
 use super::super::model::{Font, FontState, Shared, View};
 use super::super::words;
 use super::{Change, Command, Request};
@@ -61,8 +61,11 @@ impl NewFrit {
 /// detailed specimen or the picture of the console, and the new-frit form.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Fonts {
-    /// The highlighted font, counted from 0 in the list of fonts.
-    at: usize,
+    /// The highlighted font, counted from 0 in the list of fonts, and the
+    /// window of the list on screen.
+    list: ListBox,
+    /// The first row of the new-frit form that its window shows.
+    form_offset: usize,
     /// The tab shows the detailed specimen of the highlighted font, as it
     /// does at start, in place of the picture of the console, which `s`
     /// switches to.
@@ -75,7 +78,8 @@ impl Fonts {
     /// The tab at its start, with the font at `at` highlighted.
     pub fn new(at: usize) -> Fonts {
         Fonts {
-            at,
+            list: ListBox::at(at),
+            form_offset: 0,
             detail: true,
             form: NewFrit::default(),
         }
@@ -83,7 +87,29 @@ impl Fonts {
 
     /// The highlighted font, counted from 0 in the list of fonts.
     pub fn at(&self) -> usize {
-        self.at
+        self.list.at
+    }
+
+    /// The first row the window of the list of fonts shows.
+    pub fn offset(&self) -> usize {
+        self.list.offset
+    }
+
+    /// The first row the window of the new-frit form shows.
+    pub fn form_offset(&self) -> usize {
+        self.form_offset
+    }
+
+    /// Keeps the list of fonts in view from its row `row`, which the
+    /// layout gives after every event.
+    pub fn show_from(&mut self, row: usize) {
+        self.list.offset = row;
+    }
+
+    /// Keeps the new-frit form in view from its row `row`, which the
+    /// layout gives after every event.
+    pub fn form_show_from(&mut self, row: usize) {
+        self.form_offset = row;
     }
 
     /// Whether the tab shows the detailed specimen of the highlighted font
@@ -121,13 +147,16 @@ impl Fonts {
     /// Highlights the font named `name`, where the list has it.
     pub fn highlight(&mut self, shared: &Shared, name: &str) {
         if let Some(at) = shared.inputs.fonts.iter().position(|f| f.name == name) {
-            self.at = at;
+            self.list.at = at;
         }
     }
 
     /// Keeps the highlight on the list once fonts have left it.
     pub fn fit(&mut self, shared: &Shared) {
-        self.at = self.at.min(shared.inputs.fonts.len().saturating_sub(1));
+        self.list.at = self
+            .list
+            .at
+            .min(shared.inputs.fonts.len().saturating_sub(1));
     }
 
     /// A character or Backspace typed into the form's highlighted field.
@@ -139,7 +168,7 @@ impl Fonts {
 
     /// The highlighted font.
     fn font<'s>(&self, shared: &'s Shared) -> Option<&'s Font> {
-        shared.inputs.fonts.get(self.at)
+        shared.inputs.fonts.get(self.list.at)
     }
 
     /// A key the navigation module hands to the list. `r` marks the
@@ -168,7 +197,7 @@ impl Fonts {
             }
             _ => {}
         }
-        self.at = step(self.at, shared.inputs.fonts.len(), key);
+        self.list.at = step(self.list.at, shared.inputs.fonts.len(), key);
         match self.font(shared) {
             Some(font)
                 if key == Key::Enter

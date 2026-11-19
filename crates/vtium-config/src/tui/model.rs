@@ -764,7 +764,9 @@ impl App {
         let row = super::layout::list_offset(self);
         match self.nav.view {
             View::Settings => self.settings.show_from(row),
-            View::Fonts | View::New | View::Looks | View::Flow | View::Help => {}
+            View::Fonts => self.fonts.show_from(row),
+            View::New => self.fonts.form_show_from(row),
+            View::Looks | View::Flow | View::Help => {}
         }
     }
 
@@ -773,7 +775,9 @@ impl App {
     pub fn list_offset(&self) -> usize {
         match self.nav.view {
             View::Settings => self.settings.offset(),
-            View::Fonts | View::New | View::Looks | View::Flow | View::Help => 0,
+            View::Fonts => self.fonts.offset(),
+            View::New => self.fonts.form_offset(),
+            View::Looks | View::Flow | View::Help => 0,
         }
     }
 
