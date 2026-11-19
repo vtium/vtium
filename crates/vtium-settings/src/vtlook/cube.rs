@@ -260,6 +260,23 @@ impl Reader {
     }
 }
 
+/// Whether a line whose first word is `word` is a keyword line, `data`
+/// telling whether a data line has come. A keyword vtium reads always is.
+/// Before the data, so is any other word that starts with a letter or `_`,
+/// which the reader then reports as a keyword it does not read. Once the
+/// data has begun, a word that is no keyword starts a data line, and so
+/// does `nan`, `inf` or `infinity` in any case before it, so a value that
+/// is not a finite number is reported as one.
+fn keyword_line(word: &str, data: bool) -> bool {
+    if KEYWORDS.contains(&word) {
+        return true;
+    }
+    let not_finite = ["nan", "inf", "infinity"]
+        .iter()
+        .any(|w| word.eq_ignore_ascii_case(w));
+    !data && !not_finite && word.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+}
+
 /// A number as a `.cube` file writes it: a decimal with an optional sign
 /// and an optional exponent, finite. `None` for anything else, such as
 /// `nan`, `inf`, a hex float or `1e999`.
@@ -338,7 +355,7 @@ pub fn read_cube(bytes: &[u8]) -> Result<Cube, Faults> {
             continue;
         }
         let word = line.split([' ', '\t']).next().unwrap_or_default();
-        if word.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+        if keyword_line(word, r.data) {
             r.keyword(n, word, line);
         } else {
             r.data_line(n, line);
@@ -582,6 +599,30 @@ mod tests {
         );
     }
 
+    // A value that is not a finite number, such as nan or inf, is a data
+    // line with a number vtium refuses, in the first data line and after
+    // it, in any case, and the line counts among the data lines.
+    #[test]
+    fn nan_and_inf_are_numbers_vtium_refuses() {
+        assert_eq!(
+            faults("LUT_1D_SIZE 2\nnan 0 0\n1 1 1\n"),
+            ["2: found \"nan 0 0\", needs three numbers separated by blanks"]
+        );
+        assert_eq!(
+            faults("LUT_1D_SIZE 2\n0 0 0\nInf 1 1\n"),
+            ["3: found \"Inf 1 1\", needs three numbers separated by blanks"]
+        );
+        assert_eq!(
+            faults("LUT_1D_SIZE 2\n0 0 0\n1 infinity 1\n"),
+            ["3: found \"1 infinity 1\", needs three numbers separated by blanks"]
+        );
+        // after the first data line, a word that is no keyword is data
+        assert_eq!(
+            faults("LUT_1D_SIZE 2\n0 0 0\nNaN0 1 1\n"),
+            ["3: found \"NaN0 1 1\", needs three numbers separated by blanks"]
+        );
+    }
+
     // A size line that fails still counts as a size line, so a second
     // size line after it gives the fault for a file with both sizes.
     #[test]
@@ -614,13 +655,13 @@ mod tests {
             [
                 "1: found TITLE x, needs TITLE \"text\"",
                 "2: found TITLE again, needs each keyword once; the first is on line 1",
-                "5: found nan, needs TITLE, LUT_3D_SIZE, LUT_1D_SIZE, DOMAIN_MIN or DOMAIN_MAX",
+                "5: found \"nan 0 0\", needs three numbers separated by blanks",
                 "6: found \"1e999 0 0\", needs three numbers separated by blanks",
                 "7: found \"0 0 0 0\", needs three numbers separated by blanks",
                 "8: found DOMAIN_MIN after the first data line, needs every keyword line before the data",
                 "9: found a control character, needs a line with none but tab",
                 "10: found \"0x1 0 0\", needs three numbers separated by blanks",
-                "10: found 4 data lines, needs 3, LUT_1D_SIZE 3",
+                "10: found 5 data lines, needs 3, LUT_1D_SIZE 3",
             ]
         );
         let bad = read_cube(b"LUT_1D_SIZE 2\n\xff\n").map_err(|f| {
