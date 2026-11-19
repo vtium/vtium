@@ -1,0 +1,25 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft workstation · 1 change · no problems          text preview · t: try live
+--------------------------------------------------------------------------------
+ Font set proof
+ The console reads it without errors.
+ Its fonts, by role:
+ Text: font:JetBrains Mono (missing)
+ Box drawing: vtium's own lines and blocks
+ What it still misses:
+ font:JetBrains Mono: no such family
+ Used by look proof.
+
+ Up and Down scroll the detail, and Esc goes back to the list.
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ ↑↓ scroll  Esc back  Ctrl-C save and quit  q quit

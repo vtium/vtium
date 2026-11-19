@@ -122,3 +122,7 @@ node-effects-79x24	the frame the view draws into ratatui's TestBackend at node e
 node-effects-80x25	the frame the view draws into ratatui's TestBackend at node effects of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
 effects-80x25	the Effects tab: the filter line, then the vtlooks, the color maps with their marks, and the sentence that says there are no shaders
 effects-100x30	the same at 100×30
+looks-card-80x25	the Looks tab with the card of the look proof open: its name, font set, size, color scheme, vtlook and pointer theme lines, and its font set's fonts by role and what they miss
+looks-card-100x30	the same at 100×30
+looks-font-set-80x25	the Looks tab with the detail of the font set proof open: whether it reads, its fonts by role, what it misses, and the looks that use it
+looks-font-set-100x30	the same at 100×30
