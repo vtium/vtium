@@ -1966,7 +1966,7 @@ impl App {
         match &head.painter {
             Some(painter) if painter.known() => painter.path() == crate::painter::Path::Gpu,
             _ if head.painter_refused => false,
-            _ => self.gpu_source(h).is_some(),
+            _ => matches!(self.gpu_source(h), Ok(Some(_))),
         }
     }
 
@@ -4043,6 +4043,12 @@ impl App {
                 Grab::RotateCw | Grab::RotateCcw => {
                     head.orientation = layout::rotate(head.orientation, g == Grab::RotateCw);
                     self.relayout(h);
+                    // A turn swaps which of a display's two densities the
+                    // head's vtlook judges, so each display is checked
+                    // against the vtlook's requirements again, as at a mode
+                    // change.
+                    #[cfg(feature = "filters")]
+                    self.give_colors_again(h);
                 }
                 // One reset a press, of the console shown alone.
                 Grab::Reset if !key.repeat => head.reset_shown(),
@@ -5081,7 +5087,10 @@ impl App {
         if head.painter.is_some() || head.painter_refused || head.views.is_empty() {
             return;
         }
-        let gpu = self.gpu_source(h);
+        let gpu = self.gpu_source(h).unwrap_or_else(|why| {
+            log::warn!("{why}");
+            None
+        });
         let Some(head) = self.heads.get(h) else {
             return;
         };
@@ -5113,31 +5122,43 @@ impl App {
     }
 
     /// Where head `h`'s render thread makes its GL context: nowhere unless
-    /// `hwaccel` is on in a build with `gpu` (ADR-1303 D9); a test's GPU
-    /// where one is set; else the render node of the card that drives the
-    /// head's first display. A card with no render node, such as a
-    /// framebuffer, leaves the head on the CPU path, and says so.
-    fn gpu_source(&self, h: usize) -> Option<crate::painter::GpuSource> {
+    /// `hwaccel` is on in a build with `gpu`; a test's GPU where one is
+    /// set; else the render node of the card that drives the head's first
+    /// display. A card with no render node, such as a framebuffer, leaves
+    /// the head on the CPU path, and the error is the line that says so,
+    /// for the caller that starts the render thread to log once. The
+    /// function itself logs nothing, so a check that only asks which path
+    /// the head draws on can call it as often as it needs.
+    ///
+    /// References:
+    /// - ADR-1303 D9: `hwaccel` and the `gpu` feature decide whether a head draws on the GPU path.
+    fn gpu_source(&self, h: usize) -> Result<Option<crate::painter::GpuSource>, String> {
         if !self.config.switch(&keys::HWACCEL) || !cfg!(feature = "gpu") {
-            return None;
+            return Ok(None);
         }
         if let Some(source) = &self.gpu_source {
-            return Some(source.clone());
+            return Ok(Some(source.clone()));
         }
-        let head = self.heads.get(h)?;
-        let (node, _) = head.views.keys().next()?;
+        let Some(head) = self.heads.get(h) else {
+            return Ok(None);
+        };
+        let Some((node, _)) = head.views.keys().next() else {
+            return Ok(None);
+        };
         #[cfg(feature = "gpu")]
-        match vtium_platform::gpu::render_node(node) {
-            Ok(render) => return Some(crate::painter::GpuSource::RenderNode(render)),
-            Err(e) => log::warn!(
+        return match vtium_platform::gpu::render_node(node) {
+            Ok(render) => Ok(Some(crate::painter::GpuSource::RenderNode(render))),
+            Err(e) => Err(format!(
                 "head {}: {} has no render node ({e}): it draws on the CPU path",
                 head.name(),
                 node.display()
-            ),
-        }
+            )),
+        };
         #[cfg(not(feature = "gpu"))]
-        let _ = node;
-        None
+        {
+            let _ = node;
+            Ok(None)
+        }
     }
 
     /// Takes the frames each head's render thread composed: each display
@@ -5913,6 +5934,9 @@ mod tests {
         /// The bits a pixel of each display's buffer holds, as it reports
         /// them.
         pub(super) bits: Option<u8>,
+        /// The density of each display across and down its mode, as it
+        /// reports it from the display's physical size.
+        pub(super) dpi: (f64, f64),
     }
 
     impl Still {
@@ -5942,6 +5966,7 @@ mod tests {
                 levels: None,
                 size: (320, 160),
                 bits: Some(32),
+                dpi: (72.0, 72.0),
             }
         }
 
@@ -5984,7 +6009,7 @@ mod tests {
             None
         }
         fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
-            Some((72.0, 72.0))
+            Some(self.dpi)
         }
         fn levels(&self, _: DisplayId) -> Option<u8> {
             self.levels
@@ -6357,6 +6382,60 @@ mod tests {
         assert_eq!(holding(&app, &table), [true], "32 bits");
     }
 
+    // A display whose pixels are not square has one density across its
+    // mode and another down it, and a turn swaps which of the two the
+    // head's vtlook judges. Each turn checks the head's displays again,
+    // as a mode change does: here the display meets `min-dpi = 100` down
+    // its mode, loses the vtlook when the head turns a quarter, and takes
+    // the vtlook's table again when the head turns back.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_turn_checks_the_display_against_the_vtlook_s_min_dpi_again() {
+        let (_lp, mut app) = seat(Some(ONE_HEAD), no_fonts());
+        let table = amber(&mut app, "min-dpi = 100");
+        let mut s = Still::new(&[(1, "A")]);
+        s.dpi = (72.0, 144.0);
+        app.add_video(PathBuf::from("/dev/mem0"), Box::new(s));
+        shown(&mut app);
+        assert_eq!(holding(&app, &table), [true], "144 DPI down the mode");
+        let turn = |mods: InputMods, keysym: u32| {
+            InputEvent::Key(KeyEvent {
+                keycode: 0,
+                ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
+                mods,
+                keysyms: vec![keysym],
+                codepoints: vec![None],
+                repeat: false,
+            })
+        };
+        // Logo+= turns the head a quarter clockwise, and Logo+- turns it
+        // back.
+        crate::getty::tests::logged();
+        app.input_event(turn(InputMods::LOGO, 0x3d), Instant::now());
+        assert!(
+            app.heads
+                .first()
+                .is_some_and(|h| matches!(h.orientation, Orientation::Right | Orientation::Left)),
+            "the head turned"
+        );
+        assert_eq!(holding(&app, &table), [false], "72 DPI across, turned");
+        let lines: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.starts_with("vtlook amber:"))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "vtlook amber: display A (320x160, 24 bits) draws the built-in vtlook: requires min-dpi 100"
+            ],
+        );
+        app.input_event(turn(InputMods::LOGO, 0x2d), Instant::now());
+        assert_eq!(holding(&app, &table), [true], "turned back");
+    }
+
     // A vtlook with `gpu = yes` draws on a head the GPU path draws. When
     // the GPU path ends, here at a lost context, the head draws on the CPU
     // path and its display draws the built-in vtlook.
@@ -6390,6 +6469,29 @@ mod tests {
         settle(&mut lp, &mut app, t);
         assert_eq!(path(&app), Some(crate::painter::Path::Cpu));
         assert_eq!(holding(&app, &table), [false], "on the CPU path");
+    }
+
+    // Checking a display against the vtlook asks which path the head draws
+    // on, and that question logs nothing. A head with `hwaccel` on, on a
+    // card with no render node, logs that it draws on the CPU path once:
+    // when its render thread starts, not again at each display that joins
+    // before then.
+    #[cfg(all(feature = "filters", feature = "gpu"))]
+    #[test]
+    fn a_card_with_no_render_node_is_logged_once() {
+        crate::getty::tests::logged();
+        let (_lp, mut app) =
+            seat_with(&["--font-size=16", "--hwaccel"], Some(ONE_HEAD), no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        let lines: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.contains("has no render node"))
+            .collect();
+        assert_eq!(lines.len(), 1, "{lines:?}");
     }
 
     // ADR-1401 D9 and vtium-settings's Identity: a display's order is its

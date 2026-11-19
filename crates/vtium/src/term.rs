@@ -90,7 +90,8 @@ pub struct Term {
 
 /// How many keys' send times a term keeps. A display whose last frame
 /// carried an older key's echo measures its next echo from the oldest key
-/// kept.
+/// kept that the program's output has answered, and measures none when
+/// the output answered only keys older than those kept.
 const KEYS_KEPT: usize = 8;
 
 /// The key-to-present times a term's displays measured: the time from a
@@ -168,16 +169,23 @@ impl Term {
         }
     }
 
-    /// When the oldest key after key number `answered` that the term
-    /// still keeps was sent, `None` when no key came after it.
-    fn first_key_after(&self, answered: u64) -> Option<Instant> {
-        if answered == self.keys {
+    /// When the oldest key was sent that came after key number `seen`,
+    /// that the program's output has answered, and that the term still
+    /// keeps. `None` when no such key exists: the output answered no key
+    /// after `seen`, or every key it answered is older than the keys kept.
+    /// A key sent after the last answer is never returned, because a frame
+    /// taken now does not carry its echo.
+    fn first_key_after(&self, seen: u64) -> Option<Instant> {
+        // Key numbers wrap, so each test measures a distance from `seen`.
+        let answered = self.answered.wrapping_sub(seen);
+        if answered == 0 {
             return None;
         }
-        // Key numbers wrap, so the distance back from the newest key
-        // decides which keys the term still keeps.
-        let back = self.keys.wrapping_sub(answered).min(KEYS_KEPT as u64);
+        let back = self.keys.wrapping_sub(seen).min(KEYS_KEPT as u64);
         let first = self.keys.wrapping_sub(back).wrapping_add(1);
+        if first.wrapping_sub(seen) > answered {
+            return None;
+        }
         self.sent_at.get(kept_slot(first)).copied().flatten()
     }
 
@@ -1002,8 +1010,8 @@ pub struct View {
     /// window is open on this display ([`View::flipped`], ADR-1401 D2).
     flipped_keys: Option<u64>,
     /// The term's answered keys ([`Term::answered`]) when this view's last
-    /// frame was taken, or `None` after a switch to another console's term
-    /// until the next frame is taken. A frame taken while the term has
+    /// frame was taken, or `None` before the view's first frame and after a
+    /// switch to another console's term, until the next frame is taken. A frame taken while the term has
     /// answered more keys carries the echo of the first of them.
     answered: Option<u64>,
     /// When the oldest key was sent whose echo a frame carried that the
@@ -1100,7 +1108,10 @@ impl View {
             since: Age::NEVER,
             wait: Wait::default(),
             flipped_keys: Some(0),
-            answered: Some(0),
+            // A display that joins while vtium runs starts from the keys
+            // the term has already answered, so its first frame times no
+            // key sent before it joined.
+            answered: None,
             echo_owed: None,
             pending: false,
             kept: None,
@@ -1570,9 +1581,7 @@ impl View {
     /// remembers the keys this frame answers.
     fn take_echo(&mut self, term: &Term) -> Option<Instant> {
         let seen = self.answered.replace(term.answered);
-        let new = seen
-            .filter(|&a| a != term.answered)
-            .and_then(|a| term.first_key_after(a));
+        let new = seen.and_then(|a| term.first_key_after(a));
         earliest(self.echo_owed.take(), new)
     }
 
@@ -3593,6 +3602,71 @@ mod tests {
         draw_at(&mut term, &mut first, &mut one, (20, 20));
         draw_at(&mut term, &mut second, &mut two, (20, 20));
         assert_eq!(echo_ms(&term).0, 2, "each echo once on each display");
+    }
+
+    // A display plugged in while vtium runs starts from the keys the term
+    // has already answered, so its first frame times no echo. A key sent
+    // long before the display joined would otherwise give a figure as long
+    // as the time since that key.
+    #[test]
+    fn a_display_added_late_times_no_echo_from_an_old_key() {
+        let hand = Hand::new();
+        let (mut term, mut first) = view_at(&hand);
+        let mut one = Flip::new();
+        turn(&mut term, &mut first, &mut one, &[b"A"]);
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        turn(&mut term, &mut first, &mut one, &[b"b"]);
+        assert_eq!(echo_ms(&term), (1, Some(2)), "the echo at 12");
+        hand.at(5000);
+        let (_, mut second) = view();
+        let mut two = Flip::new();
+        let clock = Rc::clone(&term.clock);
+        second.draw(&mut term, &mut two, &DrawState::default(), &*clock);
+        assert_eq!(two.sent, 1, "the new display's first frame went out");
+        assert_eq!(echo_ms(&term), (1, Some(2)), "the first frame is no echo");
+        // The new display times the next key's echo at its own present.
+        hand.at(5010);
+        term.key_sent();
+        hand.at(5012);
+        assert_eq!(term.parse(b"c", &mut |_| {}), 1);
+        hand.at(5015);
+        second.draw(&mut term, &mut two, &DrawState::default(), &*clock);
+        assert_eq!(echo_ms(&term), (2, Some(5)), "from the key at 5010");
+    }
+
+    // The term keeps the send times of only the last eight keys. When the
+    // program answers a key and eight more keys follow before the next
+    // frame, the answered key's time is gone. The frame then times no echo
+    // rather than one from a later key, whose echo the frame does not carry
+    // and whose figure would be too short. The next frame that carries an
+    // answer times it from the oldest key kept that the answer covers.
+    #[test]
+    fn a_frame_is_timed_only_from_a_key_its_output_answers() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::new();
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        assert_eq!(term.parse(b"b", &mut |_| {}), 1);
+        for ms in 20..28 {
+            hand.at(ms);
+            term.key_sent();
+        }
+        hand.at(30);
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(video.sent, 2, "the answer's frame went out");
+        assert_eq!(echo_ms(&term), (0, None), "the answered key is not kept");
+        // The program answers the eight keys, and the next frame is timed
+        // from the first of them, sent at 20.
+        hand.at(32);
+        assert_eq!(term.parse(b"c", &mut |_| {}), 1);
+        hand.at(35);
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(echo_ms(&term), (1, Some(15)), "from the key at 20");
     }
 
     // ADR-1401 D2: with one buffer, or on a display that says so, as a
