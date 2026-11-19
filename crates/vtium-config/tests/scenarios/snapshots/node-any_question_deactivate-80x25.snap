@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "any.question.deactivate at 80×25, keys: Tab PgDn Up Up Up Space"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+ Show: All effects
+ vtlooks
+   No filter   built in, changes no color
+   amber       preset
+   green       preset, hidden by the administrator's vtlook of this name
+   green       administrator's, does not read
+   sepia       administrator's
+
+ Color maps
+   sepia.cube  active, trusted
+   warm.cube   not active, trusted
+   loose.cube  not active, fails the trust rule
+   mine.cube   not usable
+
+ No shaders are installed. Space activates or deactivates the highlighted color
+ map or shader. Enter opens the highlighted item's detail, or the list of
+ groups on the filter line.
+ Deactivate the color map /etc/vtium/looks/sepia.cube? Look proof uses it, and
+ renders without it once the change is installed. y deactivates it, Esc goes
+ back.
+--------------------------------------------------------------------------------
+ y yes  Esc Ctrl-C cancel

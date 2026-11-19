@@ -55,6 +55,7 @@ pub mod parts;
 pub mod paths;
 pub mod port;
 pub mod replies;
+pub mod resources;
 pub mod shot;
 pub mod tabs;
 pub mod view;
@@ -233,7 +234,36 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         colors_note,
         head: std::env::var("VTIUM_HEAD").ok().filter(|h| !h.is_empty()),
         locale: locale(),
+        // the loop reads them once the store is open, since each color
+        // map's and shader's mark needs the draft's batch
+        effects: resources::Effects::default(),
     })
+}
+
+/// What the Effects tab lists, read from the system's folders and the
+/// person's own: each color map and shader marked as the current draft's
+/// batch and the trust rule judge it for an install through `paths`.
+fn effects(store: &crate::store::Store, paths: &Paths) -> resources::Effects {
+    let session = crate::drafts::Session {
+        store: store.clone(),
+        paths,
+    };
+    let active = crate::batch::Resources::open(&session).ok();
+    let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|c| !c.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
+    resources::find(
+        &resources::Folders::system(config),
+        &vtium_settings::Trust::running_as(euid),
+        &|path| {
+            active
+                .as_ref()
+                .map_or(crate::batch::State::Inactive, |a| a.state(path))
+        },
+        &|path| crate::batch::trusted(path, euid),
+    )
 }
 
 /// The name the specimen's frit takes: a frit's name, never a built-in
@@ -383,6 +413,7 @@ pub fn run(
             return fail.code();
         }
     };
+    inputs.effects = effects(&store, paths);
     let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),

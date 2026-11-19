@@ -100,7 +100,7 @@ flowchart LR
     any --> any_trial
     any --> any_too_small
     classDef planned stroke-dasharray: 5 5
-    class flow_card_list,looks,looks_look,looks_look_list,looks_look_typing,looks_font_set,looks_palette,looks_pointer,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,fonts_filter,fonts_font,effects,effects_filter,effects_effect,any_question_deactivate,any_question_system_font,any_question_window_ops planned
+    class flow_card_list,looks,looks_look,looks_look_list,looks_look_typing,looks_font_set,looks_palette,looks_pointer,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,fonts_filter,fonts_font,any_question_system_font,any_question_window_ops planned
 ```
 
 Each section below names a screen by its place in the tree, says how you open and leave it, and lists its keys. The column "Shown as" gives the word the key line shows beside the key, and a dash marks a key that the key line leaves out.
@@ -578,7 +578,7 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. Among the color schemes and the pointer themes, does nothing, because a color scheme's preview is its 16 colors beside text in its foreground on its background. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the item above. |
@@ -688,8 +688,8 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
-| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
-| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Up | scroll | Scrolls the detail up by a line. |
+| Down | scroll | Scrolls the detail down by a line. |
 
 ## `looks.palette`
 
@@ -711,8 +711,8 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
-| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
-| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Up | scroll | Scrolls the detail up by a line. |
+| Down | scroll | Scrolls the detail down by a line. |
 
 ## `looks.pointer`
 
@@ -734,8 +734,8 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
-| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
-| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Up | scroll | Scrolls the detail up by a line. |
+| Down | scroll | Scrolls the detail down by a line. |
 
 ## `looks.new-frit`
 
@@ -848,7 +848,7 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
 | Enter | open | On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
 | t | try live | Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
 | p | preview | Switches the preview between the sample characters and the picture of the console. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
@@ -902,15 +902,13 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
-| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
-| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Up | scroll | Scrolls the detail up by a line. |
+| Down | scroll | Scrolls the detail down by a line. |
 | Enter | install as system font | On a font from your own folders, asks whether to install it as a system font. The question shows the exact command first. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
 
 ## `effects`
 
 The Effects tab: a line of filters, then one list in three groups, with a preview of the console with the highlighted item applied. The vtlooks come first: No filter, then the presets, then the administrator's vtlooks, where one that takes a preset's name marks the preset as hidden. Then come the color maps and the shaders, each with its active mark and trust mark.
-
-This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: the Effects tab shows one line that says the tab is coming, and lists no color maps or shaders.
 
 **Open it:** Tab from fonts, Shift-Tab from looks; 2 from any tab with nothing open.
 
@@ -939,14 +937,12 @@ This screen is not built as described yet. See [#439](https://github.com/vtium/v
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | open | On the filter line, shows the filters as a list. On a vtlook, a color map or a shader, opens its detail. Not built yet: see [#439](https://github.com/vtium/vtium/issues/439). |
+| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
+| Enter | open | On the filter line, shows the filters as a list. On a vtlook, a color map or a shader, opens its detail. |
 
 ## `effects.filter`
 
 The shared list of the Effects tab's filters, each of which shows one group of the list or all three: vtlooks, color maps or shaders.
-
-This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: the Effects tab lists nothing yet, so it has no filter line.
 
 **Open it:** Enter on the filter line.
 
@@ -973,8 +969,6 @@ This screen is not built as described yet. See [#439](https://github.com/vtium/v
 
 A vtlook's, a color map's or a shader's detail, read-only. A vtlook's shows its file, or built in for No filter, whether it reads or the first error, its filters with their settings, and the color maps and shaders it names, each marked active or not. A color map's or a shader's shows its file, whether it is active, and its trust mark and the check it fails. Each shows the looks that use it.
 
-This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: the Effects tab lists nothing yet, so it has no detail to open.
-
 **Open it:** Enter on a vtlook, a color map or a shader.
 
 **Leave it:** Esc to effects.
@@ -989,8 +983,8 @@ This screen is not built as described yet. See [#439](https://github.com/vtium/v
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
-| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
-| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Up | scroll | Scrolls the detail up by a line. |
+| Down | scroll | Scrolls the detail down by a line. |
 
 ## `settings`
 
@@ -1206,8 +1200,6 @@ A question before an action: Install, Revert, Restore, New, or deleting a look.
 ## `any.question.deactivate`
 
 The question before a font, a color map, a shader, a color scheme or a pointer theme that a look uses is deactivated, which lists those looks.
-
-This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no such question.
 
 **Open it:** Space on an active font, color map, shader, color scheme or pointer theme that a look uses.
 

@@ -11,24 +11,24 @@ description: "flow.file at 100×30, keys: 4 v"
     3 version = 1
     4 [look proof]
     5 font-name = proof
-    6 [head desk]
-    7 look = proof
-    8 [head panel]
-    9 [rules]
-▸  10 display * -> desk
-   11 # comment 1 of the stand-in desk's draft
-   12 # comment 2 of the stand-in desk's draft
-   13 # comment 3 of the stand-in desk's draft
-   14 # comment 4 of the stand-in desk's draft
-   15 # comment 5 of the stand-in desk's draft
-   16 # comment 6 of the stand-in desk's draft
-   17 # comment 7 of the stand-in desk's draft
-   18 # comment 8 of the stand-in desk's draft
-   19 # comment 9 of the stand-in desk's draft
-   20 # comment 10 of the stand-in desk's draft
-   21 # comment 11 of the stand-in desk's draft
-   22 # comment 12 of the stand-in desk's draft
-   23 # comment 13 of the stand-in desk's draft
-   24 # comment 14 of the stand-in desk's draft
-   25 # comment 15 of the stand-in desk's draft
+    6 vtlook = sepia
+    7 [head desk]
+    8 look = proof
+    9 [head panel]
+   10 [rules]
+▸  11 display * -> desk
+   12 # comment 1 of the stand-in desk's draft
+   13 # comment 2 of the stand-in desk's draft
+   14 # comment 3 of the stand-in desk's draft
+   15 # comment 4 of the stand-in desk's draft
+   16 # comment 5 of the stand-in desk's draft
+   17 # comment 6 of the stand-in desk's draft
+   18 # comment 7 of the stand-in desk's draft
+   19 # comment 8 of the stand-in desk's draft
+   20 # comment 9 of the stand-in desk's draft
+   21 # comment 10 of the stand-in desk's draft
+   22 # comment 11 of the stand-in desk's draft
+   23 # comment 12 of the stand-in desk's draft
+   24 # comment 13 of the stand-in desk's draft
+   25 # comment 14 of the stand-in desk's draft
  j k ↑↓ lines  h l ←→ sideways  Esc back  q quit  . more 1/3

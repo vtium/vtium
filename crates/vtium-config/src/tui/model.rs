@@ -148,6 +148,9 @@ pub struct Inputs {
     /// The locale the specimen's line follows, as [`super::locale`] reads
     /// it, for the preview a vtium console draws as text.
     pub locale: String,
+    /// The vtlooks, color maps and shaders the Effects tab lists, with each
+    /// resource's marks, which an activation through the desk updates.
+    pub effects: super::resources::Effects,
 }
 
 /// One thing that happened.
@@ -684,7 +687,7 @@ impl App {
             },
             size,
             fonts: super::tabs::fonts::Fonts::new(font_at),
-            effects: super::tabs::effects::Effects,
+            effects: super::tabs::effects::Effects::default(),
             looks: super::tabs::looks::Looks::new(font_at),
             settings: super::tabs::settings::Settings::default(),
             flow,

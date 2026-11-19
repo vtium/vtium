@@ -5,25 +5,25 @@ description: "effects at 80×25, keys: Tab"
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
  draft mine · no changes · no problems               text preview · t: try live
 --------------------------------------------------------------------------------
- The Effects tab, with the color maps and shaders a look can use, is coming.
+ Show: All effects
+ vtlooks
+   No filter   built in, changes no color
+   amber       preset
+   green       preset, hidden by the administrator's vtlook of this name
+   green       administrator's, does not read
+   sepia       administrator's
 
+ Color maps
+   sepia.cube  active, trusted
+   warm.cube   not active, trusted
+   loose.cube  not active, fails the trust rule
+   mine.cube   not usable
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ No shaders are installed. Space activates or deactivates the highlighted color
+ map or shader. Enter opens the highlighted item's detail, or the list of
+ groups on the filter line.
 
 
 
 --------------------------------------------------------------------------------
- Tab next view  s save  i install  q quit
+ ↑↓ move  Space activate  q quit  . more 1/4

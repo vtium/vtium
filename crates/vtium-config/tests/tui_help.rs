@@ -15,11 +15,16 @@ fn the_help_view_draws_the_keys_from_the_contract_and_about_from_its_source() {
     press(&mut a, Key::Char('6'));
     assert_eq!(a.nav.view, View::Help);
     let joined = |a: &App| text(a).lines().map(str::trim).collect::<Vec<_>>().join(" ");
-    assert!(
-        joined(&a).contains("The Flow view: CONFIGURATION, NEW PATH and PARTS"),
-        "{}",
-        text(&a)
-    );
+    // the tabs before Flow come first, the Effects tab's keys among them,
+    // so the page reaches the Flow view a few pages down
+    let flow = "The Flow view: CONFIGURATION, NEW PATH and PARTS";
+    for _ in 0..10 {
+        if joined(&a).contains(flow) {
+            break;
+        }
+        press(&mut a, Key::PageDown);
+    }
+    assert!(joined(&a).contains(flow), "{}", text(&a));
     press(&mut a, Key::End);
     let end = joined(&a);
     // a command's line wider than the screen goes on under it

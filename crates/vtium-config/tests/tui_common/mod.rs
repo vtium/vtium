@@ -503,6 +503,9 @@ pub struct Desk {
     /// What the step after the install did on the VTs, as an install of
     /// the system's vtium.conf answers; `None` for other directories.
     pub after: Option<vtium_config::vts::Outcome>,
+    /// The resources that are active or that the draft changes, as the
+    /// batch and the draft's changes hold them.
+    pub resources: Vec<(PathBuf, vtium_config::batch::State)>,
 }
 
 pub fn desk() -> Desk {
@@ -513,7 +516,19 @@ pub fn desk() -> Desk {
         plans: Vec::new(),
         ready: false,
         after: None,
+        resources: active(),
     }
+}
+
+/// The fixture's resources that are active at the start.
+pub fn active() -> Vec<(PathBuf, vtium_config::batch::State)> {
+    inputs()
+        .effects
+        .maps
+        .iter()
+        .filter(|m| m.active())
+        .map(|m| (m.path.clone(), m.state))
+        .collect()
 }
 
 impl Desk {
@@ -564,6 +579,11 @@ impl vtium_config::tui::desk::Desk for Desk {
                 no_route: false,
             })),
             Op::Devices => Ok(Done::Present(Default::default())),
+            Op::Resource { path, change } => Ok(vtium_config::tui::fixture::resource_op(
+                &mut self.resources,
+                path,
+                *change,
+            )),
             other => Err(format!("{other:?} is not in these tests")),
         }
     }

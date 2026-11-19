@@ -349,6 +349,17 @@ impl App {
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.flow.show_history(kept),
             Done::Present(present) => self.set_present(present),
+            Done::Resources {
+                states,
+                said,
+                changes,
+            } => {
+                self.shared.inputs.effects.set_states(&states);
+                if let Some(draft) = self.shared.draft.as_mut() {
+                    draft.batch = changes;
+                }
+                return self.say(&said);
+            }
             // only an install answers with this, as [`App::installed`]
             Done::Installed(..) => {}
         }

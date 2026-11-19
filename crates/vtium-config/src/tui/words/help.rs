@@ -25,7 +25,7 @@ pub const HELP_PLANNED: [(&str, &str, &str, &str); 3] = [
     (
         "effects",
         EFFECTS,
-        "will list the color maps and shaders that a look can use. It lists none yet.",
+        "lists the vtlooks, color maps and shaders that a look can use, with whether each is active and passes the trust rule. Space activates or deactivates a color map or shader, and Enter opens an item's detail.",
         KEYS_EFFECTS,
     ),
 ];

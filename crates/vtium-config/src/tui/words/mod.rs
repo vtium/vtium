@@ -13,6 +13,7 @@ mod flow;
 mod fonts;
 mod help;
 mod looks;
+mod resources;
 mod settings;
 
 pub use effects::*;
@@ -20,6 +21,7 @@ pub use flow::*;
 pub use fonts::*;
 pub use help::*;
 pub use looks::*;
+pub use resources::*;
 pub use settings::*;
 
 use std::fmt::Display;

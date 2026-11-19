@@ -11,24 +11,24 @@ description: "help at 100×30, keys: Shift-Tab"
  to make a new font set.
      Enter choose  t try live  s save  n new  r remove  i install  q quit
 
- Effects will list the color maps and shaders that a look can use. It lists none yet.
-     Tab next view  s save  i install  q quit
-
- Looks lists the console's font sizes, automatic first, with a preview of each. Later it will
- manage the looks, each a font set and a size.
-     Enter choose  Tab next view  i install  q quit without installing
-
- The Flow view: CONFIGURATION, NEW PATH and PARTS
-   ↑          Moves to the box above.
-   ↓          Moves to the box below.
-   ←          Moves to the box before, and on to the line before.
-   →          Moves to the box after, and on to the next line.
-   Home       Goes to the first box.
-   End        Goes to the last box.
-   PgUp       Scrolls up by a window.
-   PgDn       Scrolls down by a window.
-   Space      Picks the highlighted part into NEW PATH, or takes it out.
-   Enter      Opens the highlighted box: a part's detail, a path's card, a template's part maker, or
+ The Effects tab: a line of filters, then one list in three groups, with a preview of the console
+ with the highlighted item applied. The vtlooks come first: No filter, then the presets, then the
+ administrator's vtlooks, where one that takes a preset's name marks the preset as hidden. Then
+ come the color maps and the shaders, each with its active mark and trust mark
+   ↑          Moves to the item above.
+   ↓          Moves to the item below.
+   Home       Goes to the first item.
+   End        Goes to the last item.
+   PgUp       Moves up by a page.
+   PgDn       Moves down by a page.
+   Space      On a font, a color map, a shader, a color scheme file or a pointer theme, activates
+              it, or deactivates it when it is active. A pointer theme is activated by its folder,
+              with every file in it. Deactivating asks first when a look uses it. On a vtlook, the
+              built-in font or a built-in color scheme, does nothing.
+   Enter      On the filter line, shows the filters as a list. On a vtlook, a color map or a shader,
+              opens its detail.
+   1          Goes straight to the Fonts tab.
+   3          Goes straight to the Looks tab.
 
 ----------------------------------------------------------------------------------------------------
  ↑↓ scroll  ←→ Help, About  q quit  . more 1/4

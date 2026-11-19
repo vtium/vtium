@@ -49,6 +49,12 @@ pub enum Op {
     Restore(usize),
     /// Reads the devices present again.
     Devices,
+    /// Activates or deactivates the resource at `path` in the draft,
+    /// which keeps the change beside it until the install (ADR-1205 D4).
+    Resource {
+        path: std::path::PathBuf,
+        change: crate::batch::Change,
+    },
 }
 
 /// The current draft as the desk read or wrote it.
@@ -93,6 +99,15 @@ pub enum Done {
     Refused(String, Vec<String>),
     History(Vec<Kept>),
     Present(Present),
+    /// The draft's view of the active resources after [`Op::Resource`]:
+    /// each resource that is active or that the draft changes, with its
+    /// state; what the change says, its warnings included; and how many
+    /// changes the draft makes to the active resources.
+    Resources {
+        states: Vec<(std::path::PathBuf, crate::batch::State)>,
+        said: String,
+        changes: usize,
+    },
 }
 
 /// What the loop hands each [`Op`] to.
@@ -300,6 +315,27 @@ impl Store {
                     .map_err(Fail::File)?
                     .unwrap_or_default();
                 self.write(&text)
+            }
+            Op::Resource { path, change } => {
+                let mut resources = crate::batch::Resources::open(&session)?;
+                let said = match resources.set(path, *change).map_err(Fail::Check)? {
+                    crate::batch::Done::Changed { warnings } => {
+                        let kind = crate::batch::kind(path);
+                        std::iter::once(crate::tui::words::changed(*change, kind))
+                            .chain(warnings)
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    }
+                    crate::batch::Done::AlreadyActive | crate::batch::Done::AlreadyActivates => {
+                        crate::tui::words::ALREADY_ACTIVE.to_owned()
+                    }
+                };
+                resources.save()?;
+                Ok(Done::Resources {
+                    states: resources.list(),
+                    said,
+                    changes: self.store.batch_changes(&resources.name)?.len(),
+                })
             }
             Op::Open | Op::Devices => Err(Fail::Usage(String::new())),
         }
