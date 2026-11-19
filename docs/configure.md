@@ -215,7 +215,7 @@ So after `vtium config install` or the TUI's Install writes `/etc/vtium/vtium.co
 
 ## The TUI
 
-`vtium config tui` opens the TUI, vtium-config's full-screen view of the configuration, in the terminal you run it in. It needs a terminal of at least 80×25 character cells. In a smaller terminal, it shows only the size it needs and the commands, which work at any size. The TUI has five views: Flow, Looks, Fonts, Settings, and Help. It opens on Flow, and Tab moves to the next view. The key line at the bottom of the screen lists the keys that act where you are. When they do not fit on one row, the key line shows them in pages. The first page holds the keys you use most, and the line ends with the page number, as in `. more 1/5`. Press `.` (period) to see the next page. The Help view says what each key does in each view. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists every screen of the TUI, how you open and leave it, and its keys.
+`vtium config tui` opens the TUI, vtium-config's full-screen view of the configuration, in the terminal you run it in. It needs a terminal of at least 80×25 character cells. In a smaller terminal, it shows only the size it needs and the commands, which work at any size. The TUI has six tabs: Fonts, Effects, Looks, Flow, Settings, and Help. It opens on Flow. Tab moves to the next tab and Shift-Tab to the one before, and the keys `1` to `6` go straight to a tab. The key line at the bottom of the screen lists the keys that act where you are. When they do not fit on one row, the key line shows them in pages. The first page holds the keys you use most, and the line ends with the page number, as in `. more 1/5`. Press `.` (period) to see the next page. The Help view says what each key does in each view. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists every screen of the TUI, how you open and leave it, and its keys.
 
 ### The Flow view
 
@@ -343,6 +343,8 @@ Ctrl-C saves the changes that are not saved and quits, without a question. At a 
 The key line lists the keys of the Flow view and of what you open over it, such as a card or the file view. Esc closes what is open, and while something is open the action keys, such as `s` and `i`, do nothing. `q` quits from any screen, except while you type a value, and asks first when changes are not saved. [vtium-config's screens and keys](reference/vtium-config-keys.md) lists what each key does on each screen.
 
 The mouse selects a box with a click and opens it with a second click.
+
+The Effects tab is not built yet. It is to list the color maps and shaders that a look can use. See [the Effects tab issue](https://github.com/vtium/vtium/issues/439).
 
 The Looks view lists the console's sizes until vtium-config edits looks of their own.
 
