@@ -16,8 +16,8 @@
 //! list and the screen below the minimum. Text that can hold any
 //! character, such as a font's name, its specimen or a line of the draft,
 //! is written by the console's width rule ([`fill`]). The Flow view's
-//! document of paths is still drawn on a [`Canvas`] and copied into its
-//! part of the buffer.
+//! layers are still drawn on a [`super::canvas::Canvas`] and copied into
+//! their part of the buffer.
 //!
 //! References:
 //! - ADR-1201 D3 and ADR-1403 D7: the views, the minimum size and the
@@ -30,7 +30,7 @@ use ratatui_core::text::{Line, Span};
 use ratatui_core::widgets::Widget as _;
 use ratatui_widgets::paragraph::Paragraph;
 
-use super::canvas::{Canvas, Row, printable, span, wrap};
+use super::canvas::{Row, printable, span, wrap};
 use super::color::{Colors, Style, palette};
 use super::layout::{
     FLOW_TOP, Tab, body, item_rows, key_line, key_rows, list_window, message_rows, tab_places,
@@ -435,8 +435,8 @@ pub fn rows(buf: &ratatui_core::buffer::Buffer) -> Vec<Row> {
 /// Draws `app`'s screen into `buf`, its colors read as `colors` says.
 /// ratatui draws the tab bar, the status line, the rules, the message
 /// line, the key line, the Help page and the lists. The Flow view's
-/// document of paths is still drawn on a canvas and copied into its part
-/// of the buffer.
+/// layers are still drawn on a canvas and copied into their part of the
+/// buffer.
 fn view(app: &App, colors: Colors, buf: &mut Buffer) {
     let area = buf.area;
     let (cols, rows) = (app.size.cols, app.size.rows);
@@ -447,15 +447,7 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
     }
     Paragraph::new(tab_bar(app, colors)).render(band(area, 0, 1), buf);
     if super::flowlayout::shown(app) {
-        let mut canvas = Canvas::new(cols, rows);
-        super::flowdraw::screen(&mut canvas, app);
-        let drawn = canvas.into_rows();
-        fill(
-            buf,
-            band(area, 1, rows),
-            drawn.get(1..).unwrap_or_default(),
-            colors,
-        );
+        super::flowdraw::render(app, colors, buf);
         return;
     }
     Paragraph::new(plain(status(app))).render(band(area, 1, 1), buf);

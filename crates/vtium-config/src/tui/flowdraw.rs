@@ -17,8 +17,14 @@
 //! and the text inside takes the color the fill picks
 //! ([`super::flowcolor::text_for`]).
 
-use super::canvas::{Canvas, fit, width, wrap};
-use super::color::{Color, Style};
+use ratatui_core::buffer::Buffer;
+use ratatui_core::layout::Rect;
+use ratatui_core::text::{Line, Span as RSpan};
+use ratatui_core::widgets::Widget;
+use ratatui_widgets::paragraph::Paragraph;
+
+use super::canvas::{Canvas, Row, fit, printable, span, width, wrap};
+use super::color::{Color, Colors, Style};
 use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
 use super::flowlayout::{
@@ -29,7 +35,7 @@ use super::flowview::{self, BOX_ROWS, Boxed, Layout, Mood, NoteKind, Obj, Slot, 
 use super::model::{App, Shared};
 use super::parts::{self, Stage};
 use super::paths::{self, Path, Piece};
-use super::words;
+use super::{view, words};
 
 /// The column where a layer's values start.
 const VALUE_X: usize = 34;
@@ -434,11 +440,13 @@ fn edge_labels(
     out
 }
 
-/// The status line: the configuration open, or the breadcrumb to the box
-/// whose layer is open; then whether every device is in a path; then how
-/// the draft stands.
-fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) {
+/// The status line on row 1: the configuration open, or the breadcrumb
+/// to the box whose layer is open; then whether every device is in a
+/// path; then how the draft stands. It starts at column 1, and its parts
+/// stand three columns apart.
+fn status(app: &App, layout: &Layout, crumb: Option<&str>) -> Row {
     let flow = &app.shared.inputs.flow;
+    let cols = app.size.cols;
     let name = flow.draft.as_ref().map_or_else(
         || words::NO_DRAFT.to_owned(),
         |d| format!("draft {}", d.name),
@@ -447,7 +455,6 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
         Some(c) => format!("{name}  ›  {c}"),
         None => name,
     };
-    let mut x = canvas.put(1, 1, &left, bold(Color::BrightWhite));
     let count = |s: flowview::Sort| layout.waiting.iter().filter(|w| **w == s).count();
     let waiting = words::flow_waiting(
         count(flowview::Sort::Keyboard),
@@ -459,7 +466,18 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
     } else {
         app.shared.inputs.flow_colors.style(Role::Waiting)
     };
-    x = canvas.put(x.saturating_add(3), 1, &waiting, style);
+    // the column after the waiting count, counted in characters as the
+    // rest's room is
+    let end = 1usize
+        .saturating_add(left.chars().count())
+        .min(cols)
+        .saturating_add(3)
+        .saturating_add(waiting.chars().count());
+    let mut row = vec![
+        span(left, bold(Color::BrightWhite)),
+        span("   ", Style::PLAIN),
+        span(waiting, style),
+    ];
     let mut rest: Vec<String> = Vec::new();
     if let Some(d) = &flow.draft {
         let state = words::draft_state(&d.name, d.changes, app.shared.unsaved, d.problems);
@@ -475,111 +493,176 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
         }
     }
     if !rest.is_empty() {
-        let room = app.size.cols.saturating_sub(x).saturating_sub(1);
-        canvas.put(
-            x,
-            1,
-            &fit(&format!(" · {}", rest.join(" · ")), room),
+        let room = cols.saturating_sub(end).saturating_sub(1);
+        row.push(span(
+            fit(&format!(" · {}", rest.join(" · ")), room),
             Style::text(Color::Grey),
-        );
+        ));
     }
+    row
 }
 
-/// The key line on the last row.
-fn key_line(canvas: &mut Canvas, app: &App) {
-    let rows = super::layout::key_rows(app);
-    let top = app.size.rows.saturating_sub(rows.len());
-    for (i, row) in rows.iter().enumerate() {
-        canvas.put(1, top.saturating_add(i), row, Style::text(Color::Grey));
-    }
+/// `height` rows of `area` from its row `y` and its column `x`, as far as
+/// its bottom and its right edge.
+fn place(area: Rect, x: usize, y: usize, height: usize) -> Rect {
+    let n = |v: usize| u16::try_from(v).unwrap_or(u16::MAX);
+    Rect::new(n(x), n(y), area.width.saturating_sub(n(x)), n(height)).intersection(area)
 }
 
-/// The message above the key line.
-fn message(canvas: &mut Canvas, app: &App) {
-    let lines = message_rows(&app.shared, app.size.cols);
-    let y = app
-        .size
-        .rows
-        .saturating_sub(super::layout::key_rows(app).len())
-        .saturating_sub(lines.len());
-    for (i, line) in lines.iter().enumerate() {
-        canvas.put(1, y.saturating_add(i), line, Style::PLAIN);
-    }
-}
-
-/// Draws the Flow view on `canvas`, below the tab bar.
-pub fn screen(canvas: &mut Canvas, app: &App) {
+/// Draws the Flow view below the tab bar into `buf`, its colors read as
+/// `colors` says: the status line, the policy line and the window on the
+/// document of paths, or the layer open over it, then the message and
+/// the key line. The status, the policy and the message can hold any
+/// name from vtium.conf or a device, so they are written by the console's
+/// width rule.
+///
+/// References:
+/// - ADR-1206 D1, "The console's width rule decides where the cursor
+///   goes".
+pub fn render(app: &App, colors: Colors, buf: &mut Buffer) {
     let state = app.flow.state();
     let flow = &app.shared.inputs.flow;
-    let layout = layout_of(app.flow.state(), &app.shared, app.size.cols);
-    message(canvas, app);
+    let area = buf.area;
+    let (cols, rows) = (app.size.cols, app.size.rows);
+    let layout = layout_of(state, &app.shared, cols);
+    let keys = super::layout::key_rows(app);
     match &state.layer {
         Some(obj) => {
-            status(canvas, app, &layout, Some(&obj_name(flow, obj)));
-            key_line(canvas, app);
+            let mut canvas = Canvas::new(cols, rows);
             match obj {
                 Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
-                    card_layer(canvas, app, state, obj);
+                    card_layer(&mut canvas, app, state, obj);
                 }
-                Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_) => info_layer(canvas, app, obj),
-                Obj::Others => others_layer(canvas, app),
+                Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_) => {
+                    info_layer(&mut canvas, app, obj);
+                }
+                Obj::Others => others_layer(&mut canvas, app),
                 Obj::Pal(Slot::Template(st)) | Obj::New(Slot::Empty(st)) => match &state.picker {
-                    Some(p) => picker_layer(canvas, app, state, p),
-                    None => make_layer(canvas, app, state, *st),
+                    Some(p) => picker_layer(&mut canvas, app, state, p),
+                    None => make_layer(&mut canvas, app, state, *st),
                 },
-                _ => choices_layer(canvas, app, state, obj),
+                _ => choices_layer(&mut canvas, app, state, obj),
             }
+            let drawn = canvas.into_rows();
+            view::fill(
+                buf,
+                place(area, 0, 2, rows),
+                drawn.get(2..).unwrap_or_default(),
+                colors,
+            );
         }
         None => {
-            status(canvas, app, &layout, None);
-            key_line(canvas, app);
-            canvas.put(
-                1,
-                2,
-                &fit(
-                    &words::flow_policy(&flow.policy),
-                    app.size.cols.saturating_sub(2),
-                ),
-                Style::text(Color::Grey),
+            let policy = fit(&words::flow_policy(&flow.policy), cols.saturating_sub(2));
+            view::fill(
+                buf,
+                place(area, 1, 2, 1),
+                &[vec![span(policy, Style::text(Color::Grey))]],
+                colors,
             );
-            overview(canvas, app, state, &layout);
+            let (top, height) = window(&app.shared, app.size, keys.len());
+            Window {
+                app,
+                layout: &layout,
+                height,
+                colors,
+            }
+            .render(place(area, 0, top, height), buf);
         }
     }
+    let crumb = state.layer.as_ref().map(|o| obj_name(flow, o));
+    view::fill(
+        buf,
+        place(area, 1, 1, 1),
+        &[status(app, &layout, crumb.as_deref())],
+        colors,
+    );
+    let message: Vec<Row> = message_rows(&app.shared, cols)
+        .into_iter()
+        .map(|line| vec![span(line, Style::PLAIN)])
+        .collect();
+    let first = rows
+        .saturating_sub(keys.len())
+        .saturating_sub(message.len());
+    view::fill(buf, place(area, 1, first, message.len()), &message, colors);
+    let key_lines: Vec<Line> = keys
+        .iter()
+        .map(|k| {
+            let style = Style::text(Color::Grey).in_cells(colors);
+            Line::from(RSpan::styled(printable(k), style))
+        })
+        .collect();
+    Paragraph::new(key_lines).render(
+        place(area, 1, rows.saturating_sub(keys.len()), keys.len()),
+        buf,
+    );
 }
 
-/// The window on the document, between the policy line and the message
-/// and key lines, with a label where a wire leaves it.
-fn overview(canvas: &mut Canvas, app: &App, state: &flowview::State, layout: &Layout) {
-    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
-    let doc = window_of(
-        layout,
-        app.size.cols,
-        state.at.as_ref(),
-        state.top,
-        wh,
-        &app.shared.inputs.flow_colors,
-    );
-    put_window(canvas, &doc, state.top, wtop, wh);
-    for (x, y, text) in edge_labels(&app.shared.inputs.flow, layout, state.top, wh) {
-        let row = wtop.saturating_add(y.saturating_sub(state.top));
-        canvas.put(x, row, &text, Style::text(Color::BrightWhite));
+/// The window on the document of paths, between the policy line and the
+/// message and the key line: the rows of the document from the row the
+/// Flow tab keeps at the window's top, with a label where a wire leaves
+/// the window. The document is a picture made of cells, whose lines join
+/// where they cross, so it is drawn on a grid of cells and written into
+/// the buffer by the console's width rule.
+struct Window<'a> {
+    app: &'a App,
+    layout: &'a Layout,
+    /// The rows the window has, which decide the boxes whose titles show.
+    height: usize,
+    colors: Colors,
+}
+
+impl Widget for Window<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let app = self.app;
+        let state = app.flow.state();
+        let cells = window_cells(
+            &app.shared.inputs.flow,
+            self.layout,
+            app.size.cols,
+            state.at.as_ref(),
+            state.top,
+            self.height,
+            &app.shared.inputs.flow_colors,
+        );
+        view::fill(buf, area, &cells.into_rows(), self.colors);
     }
 }
 
-/// Copies `height` rows of the canvas `doc` from row `top` onto `canvas`
-/// from its row `at`: every cell that holds a character, and every blank
-/// cell inside a filled box, so the fill reaches the screen whole.
-fn put_window(canvas: &mut Canvas, doc: &Canvas, top: usize, at: usize, height: usize) {
+/// The cells of a window `height` rows tall on the document, from its row
+/// `top`, with `at` highlighted: every cell of the document that holds a
+/// character, every blank cell inside a filled box, so the fill reaches
+/// the screen whole, and a label where a wire leaves the window. Every
+/// other cell is blank in the terminal's own colors.
+fn window_cells(
+    flow: &Flow,
+    layout: &Layout,
+    cols: usize,
+    at: Option<&Obj>,
+    top: usize,
+    height: usize,
+    pal: &Palette,
+) -> Canvas {
+    let doc = window_of(layout, cols, at, top, height, pal);
+    let mut shown = Canvas::new(cols, height);
     for i in 0..height {
         let y = top.saturating_add(i);
         for x in 0..doc.cols {
             if let (Some(c), Some(s)) = (doc.at(x, y), doc.style_at(x, y))
                 && (c != ' ' || s.back.is_some())
             {
-                canvas.put(x, at.saturating_add(i), &c.to_string(), s);
+                shown.put(x, i, &c.to_string(), s);
             }
         }
     }
+    for (x, y, text) in edge_labels(flow, layout, top, height) {
+        shown.put(
+            x,
+            y.saturating_sub(top),
+            &text,
+            Style::text(Color::BrightWhite),
+        );
+    }
+    shown
 }
 
 /// One choice: `○ text`, or `● text` for what is chosen now, the text in
@@ -1176,7 +1259,6 @@ fn others_layer(canvas: &mut Canvas, app: &App) {
     reason = "a test fails by panicking"
 )]
 mod tests {
-    use super::super::flowlayout::HEAD_ROWS;
     use super::super::flowview::tests::lay;
     use super::super::paths::tests::{EDID_A, KBD_PATH, flow};
     use super::super::paths::{Path, Piece};
@@ -1411,9 +1493,7 @@ mod tests {
         let f = flow();
         let l = lay(&f, &editor(), 100);
         let (pal, _) = crate::tui::flowcolor::parse("[colors]\nterminal-fill = blue\n");
-        let doc = window_of(&l, 100, None, 0, l.height, &pal);
-        let mut screen = Canvas::new(100, l.height + HEAD_ROWS);
-        put_window(&mut screen, &doc, 0, HEAD_ROWS, l.height);
+        let screen = window_cells(&f, &l, 100, None, 0, l.height, &pal);
         let desk = l
             .find(&Obj::Doc("desk".into(), Slot::Terminal))
             .expect("desk");
@@ -1421,12 +1501,12 @@ mod tests {
         assert!(fill.is_some());
         for y in desk.y + 1..desk.bottom() - 1 {
             for x in desk.x + 1..desk.right() - 1 {
-                let s = screen.style_at(x, y + HEAD_ROWS).expect("a cell");
+                let s = screen.style_at(x, y).expect("a cell");
                 assert_eq!(s.back, fill, "at {x},{y}");
             }
         }
         // a blank cell outside every box stays the terminal's own
-        assert_eq!(screen.style_at(0, HEAD_ROWS), Some(Style::PLAIN));
+        assert_eq!(screen.style_at(0, 0), Some(Style::PLAIN));
     }
 
     #[test]
