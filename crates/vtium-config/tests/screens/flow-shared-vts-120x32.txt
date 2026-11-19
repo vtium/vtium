@@ -1,4 +1,4 @@
- Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ Fonts  Effects  Looks  Flow  Settings  Help                            v View file  s Save  i Install  r Revert  n New
  draft bench   All devices are in a path · no changes · no problems
  policy open: a keyboard that no rule names types into the active terminal
  CONFIGURATION
@@ -29,4 +29,4 @@
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  PARTS
  DISPLAYS
- ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  q quit  . more 1/5
