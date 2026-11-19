@@ -8,6 +8,7 @@ mod checks;
 mod explore;
 mod reference;
 mod sim;
+mod snapshots;
 mod state;
 mod tables;
 mod walk;
