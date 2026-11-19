@@ -1926,8 +1926,10 @@ mod tests {
         let pixels = |video: &Flip| -> Vec<u32> {
             video
                 .pixels(0)
-                .chunks_exact(4)
-                .map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| u32::from_le_bytes(*p))
                 .collect()
         };
         let frame = |colors: Option<Arc<Table>>, notice: bool| {
