@@ -407,3 +407,148 @@ fn deactivating_a_font_that_a_look_uses_warns_and_names_the_look() {
     let ran = g.run(&["deactivate", &g.arg("res/mine.ttf")]);
     assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
 }
+
+/// A batch file that vtium refuses counts as missing: vtium uses the list
+/// of a fresh install, `active` shows that list and says why, and the
+/// install writes the fresh list with the draft's change, carrying none
+/// of the refused file's lines.
+#[test]
+fn a_batch_file_that_vtium_refuses_counts_as_missing() {
+    // a file others can write, which lists a font others can write
+    let f = fixture("refused-mode");
+    let evil = f.arg("res/evil.ttf");
+    std::fs::write(f.path("res/evil.ttf"), "a font\n").expect("a font");
+    std::fs::set_permissions(
+        f.path("res/evil.ttf"),
+        std::fs::Permissions::from_mode(0o666),
+    )
+    .expect("its mode");
+    std::fs::write(f.path("etc/batch.conf"), format!("{evil}\n")).expect("a batch file");
+    std::fs::set_permissions(
+        f.path("etc/batch.conf"),
+        std::fs::Permissions::from_mode(0o666),
+    )
+    .expect("its mode");
+    f.desk();
+    let active = f.ok(&["active"]);
+    assert!(!active.out.contains("evil.ttf"), "{}", active.out);
+    for font in fresh_fonts() {
+        assert!(
+            active.out.contains(&format!("font\t{font}\tactive\n")),
+            "{font} missing from {}",
+            active.out
+        );
+    }
+    assert!(
+        active.out.contains(
+            "ROOT/etc/batch.conf: vtium ignores this list of active fonts and effects and uses the list of a fresh install, because"
+        ),
+        "{}",
+        active.out
+    );
+    f.ok(&["activate", &f.arg("res/mine.ttf")]);
+    let install = f.ok(&["install"]);
+    assert!(
+        install.out.contains("vtium ignores this list"),
+        "the install says why it starts from the fresh list: {}",
+        install.out
+    );
+    let listed = f.listed();
+    assert!(!listed.contains(&evil), "{listed:?}");
+    for font in fresh_fonts() {
+        assert!(listed.contains(&font), "{font} missing from {listed:?}");
+    }
+    assert_eq!(listed.last(), Some(&f.arg("res/mine.ttf")));
+    let mode = std::fs::metadata(f.path("etc/batch.conf"))
+        .expect("the batch file")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o644);
+
+    // a file larger than vtium reads
+    let g = fixture("refused-large");
+    let line = format!("{}\n", g.arg("res/other.ttf"));
+    let lines = vtium_settings::batch::BATCH_MAX / line.len() + 1;
+    std::fs::write(g.path("etc/batch.conf"), line.repeat(lines)).expect("a batch file");
+    g.desk();
+    let active = g.ok(&["active"]);
+    assert!(!active.out.contains("other.ttf"), "{}", active.out);
+    assert!(
+        active.out.contains("vtium ignores this list"),
+        "{}",
+        active.out
+    );
+    g.ok(&["activate", &g.arg("res/mine.ttf")]);
+    g.ok(&["install"]);
+    let listed = g.listed();
+    assert!(!listed.contains(&g.arg("res/other.ttf")), "{listed:?}");
+    assert_eq!(listed.last(), Some(&g.arg("res/mine.ttf")));
+}
+
+/// A batch file with a line that is not UTF-8 is still read, as vtium
+/// reads it: vtium ignores that line and uses the others.
+#[test]
+fn a_batch_file_with_a_line_that_is_not_utf_8_is_read_as_vtium_reads_it() {
+    let f = fixture("not-utf8");
+    let mine = f.arg("res/mine.ttf");
+    let mut bytes = b"/res/\xff.ttf\n".to_vec();
+    bytes.extend_from_slice(format!("{mine}\n").as_bytes());
+    std::fs::write(f.path("etc/batch.conf"), bytes).expect("a batch file");
+    f.desk();
+    let active = f.ok(&["active"]);
+    assert!(
+        active.out.contains("font\tROOT/res/mine.ttf\tactive\n"),
+        "{}",
+        active.out
+    );
+    f.ok(&["deactivate", &mine]);
+    // the install cannot keep that line in the file it writes, so it
+    // stops and names the line for root to fix
+    let ran = f.run(&["install"]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.err
+            .contains("ROOT/etc/batch.conf:1: this line is not UTF-8 text."),
+        "{}",
+        ran.err
+    );
+}
+
+/// vtium-config reads the batch file to the same verdict as vtium's own
+/// reader: the same batch, and for a file vtium refuses, the same words.
+#[test]
+fn vtium_config_reads_the_batch_file_as_vtium_reads_it() {
+    use vtium_config::batch::Installed;
+    use vtium_settings::batch::{Batch, Entry, Finding};
+    let f = fixture("same-reader");
+    let file = f.path("etc/batch.conf");
+    let euid = rustix::process::geteuid().as_raw();
+    let trust = vtium_settings::Trust::running_as(euid);
+    let fresh = || Batch::new(vec![Entry::Path(PathBuf::from("/fresh/one.ttf"))]);
+    let compare = |case: &str| {
+        let ours = Installed::read(&file, euid);
+        let theirs = Batch::read(&file, &trust, fresh());
+        assert_eq!(ours.base(&fresh()), theirs.batch, "{case}");
+        match (&ours, theirs.findings.first()) {
+            (Installed::Refused(why), Some(finding @ Finding::Refused { .. })) => {
+                assert_eq!(*why, finding.to_string(), "{case}");
+            }
+            (Installed::Missing, Some(Finding::Missing { .. })) => {}
+            (Installed::Read(_), None | Some(Finding::Line { .. })) => {}
+            (ours, theirs) => panic!("{case}: {ours:?} against {theirs:?}"),
+        }
+    };
+    compare("missing");
+    std::fs::write(&file, format!("{}\nrelative\n", f.arg("res/mine.ttf"))).expect("a batch file");
+    compare("read");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o664)).expect("its mode");
+    compare("its group can write it");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).expect("its mode");
+    let line = format!("{}\n", f.arg("res/mine.ttf"));
+    let lines = vtium_settings::batch::BATCH_MAX / line.len() + 1;
+    std::fs::write(&file, line.repeat(lines)).expect("a batch file");
+    compare("too large");
+    std::fs::remove_file(&file).expect("the file goes");
+    std::fs::create_dir(&file).expect("a folder in its place");
+    compare("a folder");
+}

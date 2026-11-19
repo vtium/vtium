@@ -12,9 +12,12 @@
 //! `NAME.batch` keeps changes, one `activate PATH` or `deactivate PATH`
 //! on each line, and not a copy of the batch file. The install applies
 //! them to the batch file as it is then, so a line root wrote by hand
-//! stays. When no batch file is installed, the install starts from the
-//! list of a fresh install, as vtium does, so the first change never
-//! drops the default fonts.
+//! stays. When no batch file is installed, or vtium refuses the one that
+//! is, the install starts from the list of a fresh install, as vtium does,
+//! so the first change never drops the default fonts. vtium refuses a
+//! batch file that fails the owner and mode check, is too large, or cannot
+//! be read, and vtium-config reads the file the same way
+//! ([`Installed::read`]), so it never builds on lines vtium ignores.
 //!
 //! References:
 //! - ADR-1205 D4: the batch, its file, the trust rule each activated file passes, the list of a fresh install, and a draft keeping its changes to the batch beside it.
@@ -185,11 +188,89 @@ pub fn fresh() -> Batch {
 }
 
 /// The batch the system holds: the one the installed batch file's text
-/// `installed` lists, or `fresh` when no batch file is installed.
+/// `installed` lists, or `fresh` when vtium reads no batch file.
 pub fn base(installed: Option<&str>, fresh: &Batch) -> Batch {
     match installed {
         Some(text) => Batch::parse(text.as_bytes(), Path::new("")).batch,
         None => fresh.clone(),
+    }
+}
+
+/// The installed batch file, as vtium reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Installed {
+    /// No batch file is installed, so vtium uses the list of a fresh
+    /// install.
+    Missing,
+    /// vtium ignores the batch file and uses the list of a fresh install.
+    /// The text says why, file first, in the words of `vtium check-config`.
+    Refused(String),
+    /// vtium reads the batch file: its bytes.
+    Read(Vec<u8>),
+}
+
+impl Installed {
+    /// Reads the batch file at `path` as vtium does when it runs as the
+    /// user `euid`. The file and each folder above it must belong to root
+    /// or to `euid`, and nobody else may write them. vtium reads at most
+    /// [`active::BATCH_MAX`] bytes. A file that fails the check, is larger,
+    /// is not a regular file or cannot be read counts as missing, because
+    /// someone other than root could have written it.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: vtium uses the list of a fresh install in place of a batch file it cannot use.
+    pub fn read(path: &Path, euid: u32) -> Installed {
+        use vtium_settings::batch::{BATCH_MAX, Finding, Unread};
+        let trust = vtium_settings::Trust::running_as(euid);
+        match vtium_settings::read_limited(path, &trust, BATCH_MAX) {
+            Ok(Some(bytes)) => Installed::Read(bytes),
+            Ok(None) => Installed::Missing,
+            Err(rejected) => {
+                let why = rejected
+                    .errors
+                    .into_iter()
+                    .next()
+                    .map_or(Unread::NotAFile, |e| e.problem.into());
+                let finding = Finding::Refused {
+                    path: path.to_path_buf(),
+                    why,
+                };
+                Installed::Refused(finding.to_string())
+            }
+        }
+    }
+
+    /// The batch vtium uses: the one the file lists, or `fresh`, the list
+    /// of a fresh install, when vtium reads no file. A line that vtium
+    /// ignores, such as one that is not UTF-8, lists nothing.
+    pub fn base(&self, fresh: &Batch) -> Batch {
+        match self {
+            Installed::Read(bytes) => Batch::parse(bytes, Path::new("")).batch,
+            Installed::Missing | Installed::Refused(_) => fresh.clone(),
+        }
+    }
+
+    /// The text of the file vtium reads, the one that changes start from,
+    /// or `None` when vtium reads no file and changes start from the list
+    /// of a fresh install. `Err` names the first line of the file at
+    /// `path` that is not UTF-8, which vtium-config cannot keep in a file
+    /// it writes.
+    pub fn text(&self, path: &Path) -> Result<Option<&str>, String> {
+        let Installed::Read(bytes) = self else {
+            return Ok(None);
+        };
+        std::str::from_utf8(bytes).map(Some).map_err(|e| {
+            let before = bytes.get(..e.valid_up_to()).unwrap_or_default();
+            let line = before
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count()
+                .saturating_add(1);
+            format!(
+                "{}:{line}: this line is not UTF-8 text. vtium ignores the line, and vtium-config cannot keep it in the file it writes. Fix the line or remove it as root, then install again.",
+                path.display()
+            )
+        })
     }
 }
 
@@ -543,9 +624,9 @@ pub struct Resources<'a> {
     pub name: String,
     /// The draft's vtium.conf, which [`users`] reads for the warnings.
     pub text: String,
-    /// The batch file is installed: `false` when vtium uses the list of a
-    /// fresh install.
-    pub installed: bool,
+    /// The installed batch file as vtium reads it. When it is missing or
+    /// vtium refuses it, vtium uses the list of a fresh install.
+    pub installed: Installed,
     base: Batch,
     changes: Changes,
     /// The user whose files the trust rule accepts for this install.
@@ -556,15 +637,15 @@ impl<'a> Resources<'a> {
     /// The current draft's active resources.
     pub fn open(session: &'a Session<'a>) -> Result<Resources<'a>, Fail> {
         let (name, text) = session.current()?;
-        let installed = session.installed_batch()?;
-        let base = base(installed.as_deref(), &fresh());
+        let installed = session.installed_batch();
+        let base = installed.base(&fresh());
         let changes = session.store.batch_changes(&name)?;
         let euid = rule_user(&session.paths.targets(), &session.paths.sudo);
         Ok(Resources {
             session,
             name,
             text,
-            installed: installed.is_some(),
+            installed,
             base,
             changes,
             euid,
@@ -735,12 +816,18 @@ fn list(session: &Session<'_>, words: &[String], out: &mut dyn Write) -> Result<
             state.words()
         );
     }
-    if !resources.installed {
-        let _ = writeln!(
-            out,
-            "{} does not exist, so vtium uses the resources of a fresh install.",
-            session.batch_file().display()
-        );
+    match &resources.installed {
+        Installed::Read(_) => {}
+        Installed::Missing => {
+            let _ = writeln!(
+                out,
+                "{} does not exist, so vtium uses the resources of a fresh install.",
+                session.batch_file().display()
+            );
+        }
+        Installed::Refused(why) => {
+            let _ = writeln!(out, "{why}");
+        }
     }
     Ok(())
 }

@@ -928,13 +928,8 @@ fn check_batch(bytes: &[u8], path: &Path) -> Result<(), String> {
     if let Some(finding) = read.findings.first() {
         return Err(finding.to_string());
     }
-    let installed = match std::fs::read(path) {
-        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("{}: {e}", path.display())),
-    };
-    let base = crate::batch::base(installed.as_deref(), &crate::batch::fresh());
     let euid = rustix::process::geteuid().as_raw();
+    let base = crate::batch::Installed::read(path, euid).base(&crate::batch::fresh());
     for vtium_settings::batch::Entry::Path(resource) in read.batch.entries() {
         if !base.holds(resource) {
             crate::batch::trusted(resource, euid)?;
