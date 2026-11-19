@@ -1,7 +1,7 @@
 //! The active resources beside a draft, and the commands `activate`,
 //! `deactivate` and `active`.
 //!
-//! vtium draws only from the active resources: the fonts, color schemes,
+//! vtium uses only the active resources: the fonts, color schemes,
 //! color maps, shaders and pointer themes that the batch file,
 //! `/etc/vtium/batch.conf`, lists one path on each line. The built-in
 //! font is always active and never appears there. A change to that list
@@ -97,7 +97,7 @@ impl Changes {
     /// The text of the `NAME.batch` file of the draft `draft`.
     pub fn text(&self, draft: &str) -> String {
         let mut out = format!(
-            "# The changes that draft {draft} makes to the resources vtium may draw\n# from. vtium-config applies them when it installs the draft.\n"
+            "# The changes that draft {draft} makes to the resources vtium may use.\n# vtium-config applies them when it installs the draft.\n"
         );
         for (path, change) in &self.list {
             out.push_str(&format!("{} {}\n", change.word(), path.display()));
@@ -311,16 +311,18 @@ impl Installed {
     }
 }
 
-/// The comment that opens a batch file vtium-config writes when none is
-/// installed. It is wrapped at 78 columns, as vtium.conf's comments are.
+/// The comment that opens a batch file vtium-config writes when vtium
+/// reads none, because none is installed or vtium refuses the installed
+/// one. It is wrapped at 78 columns, as vtium.conf's comments are.
 pub const HEADER: &str = "\
-# vtium draws only from the resources this file lists: fonts, color
-# schemes, color maps, shaders and pointer themes, one absolute path on each
-# line. The built-in font is always active and is not listed here.
+# vtium uses only the resources this file lists: fonts, color schemes,
+# color maps, shaders and pointer themes, one absolute path on each line.
+# The built-in font is always active and is not listed here.
 #
-# vtium-config wrote this file from the list of a fresh install, the first
-# time a draft changed the active resources. vtium-config activate and
-# vtium-config deactivate change it through a draft, and root can edit it.
+# vtium-config wrote this file from the list of a fresh install, when a
+# draft changed the active resources while vtium used that list.
+# vtium-config activate and vtium-config deactivate change it through a
+# draft, and root can edit it.
 
 ";
 
@@ -503,8 +505,8 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
             |name| format!("Look {name}"),
         );
         let after = user.look.as_ref().map_or_else(
-            || "the looks that take their settings from the top level draw without it".to_owned(),
-            |name| format!("look {name} draws without it"),
+            || "the looks that take their settings from the top level render without it".to_owned(),
+            |name| format!("look {name} renders without it"),
         );
         let mut uses = None;
         if let (Some(frit), Some(frits)) = (&user.frit, places.frits)
@@ -817,7 +819,7 @@ fn change(
         }
         let Some(path) = plain(word) else {
             return Err(Fail::Usage(format!(
-                "{} is not the path of a resource. Give its absolute path without .., such as /usr/share/fonts/TTF/Hack-Regular.ttf.",
+                "{} is not the path of a resource. Give its absolute path, with no .. in it, such as /usr/share/fonts/TTF/Hack-Regular.ttf.",
                 word.escape_debug()
             )));
         };
@@ -1033,13 +1035,13 @@ mod tests {
             palettes: &[&etc, &pkg],
         };
         let big = [
-            "Look big uses this color scheme. Once this change is installed, look big draws without it.",
+            "Look big uses this color scheme. Once this change is installed, look big renders without it.",
         ];
         assert_eq!(users(&pkg.join("dracula.palette"), conf, &places), big);
         assert_eq!(
             users(&pkg.join("top.palette"), conf, &places),
             [
-                "The top level of vtium.conf uses this color scheme. Once this change is installed, the looks that take their settings from the top level draw without it."
+                "The top level of vtium.conf uses this color scheme. Once this change is installed, the looks that take their settings from the top level render without it."
             ]
         );
         // a path that is not the file vtium reads warns of nothing

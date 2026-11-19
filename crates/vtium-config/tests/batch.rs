@@ -404,7 +404,7 @@ fn deactivating_a_font_that_a_look_uses_warns_and_names_the_look() {
     let ran = f.ok(&["deactivate", &mine]);
     assert!(
         ran.out.contains(
-            "Look big uses this font through the font set monoid. Once this change is installed, look big draws without it."
+            "Look big uses this font through the font set monoid. Once this change is installed, look big renders without it."
         ),
         "{}",
         ran.out

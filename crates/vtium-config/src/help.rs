@@ -387,25 +387,25 @@ const TOPICS: &[Topic] = &[
         command: Command::Activate,
         forms: &[form(
             "activate PATH... [--dry-run] [--install]",
-            "let vtium draw from a font, color scheme, color map, shader or pointer theme",
+            "let vtium use a font, color scheme, color map, shader or pointer theme",
         )],
-        detail: "Activates, in the draft, each resource that a PATH names. A resource is a font, color scheme, color map, shader or pointer theme, given by its absolute path. vtium draws only from the active resources, which /etc/vtium/batch.conf lists. activate first checks that root owns the file and each folder above it, and that nobody else can write them. None of them may be a symbolic link. The file must be on a filesystem that stays mounted, so a file on removable media or a network filesystem fails. If any PATH fails, activate changes nothing. The change waits in the draft until you install it. When no batch.conf is installed yet, the install writes one from the resources of a fresh install, with your change. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
+        detail: "Activates, in the draft, each resource that a PATH names. A resource is a font, color scheme, color map, shader or pointer theme, given by its absolute path. vtium uses only the active resources, which /etc/vtium/batch.conf lists. activate first checks that root owns the file and each folder above it, and that nobody else can write them. None of them may be a symbolic link. The file must be on a filesystem that stays mounted, so a file on removable media or a network filesystem fails. If any PATH fails, activate changes nothing. The change waits in the draft until you install it. When no batch.conf is installed yet, the install writes one from the resources of a fresh install, with your change. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
         example: "vtium-config activate /usr/share/fonts/TTF/Hack-Regular.ttf",
     },
     Topic {
         command: Command::Deactivate,
         forms: &[form(
             "deactivate PATH... [--dry-run] [--install]",
-            "stop vtium drawing from a resource",
+            "stop vtium using a resource",
         )],
-        detail: "Deactivates, in the draft, each resource that a PATH names. Once the change is installed, vtium draws without the resource: a font as a missing font, and any other resource as a file that does not exist. When a look uses the resource, deactivate names the look. It can tell this for a font that a font set names by its path, and for a color scheme. It cannot tell this for a font that a font set names by its family, or for a color map or shader. The built-in font is always active, and deactivate refuses it. The change waits in the draft until you install it. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
+        detail: "Deactivates, in the draft, each resource that a PATH names. Once the change is installed, vtium no longer uses the resource: it treats a font as a missing font, and any other resource as a file that does not exist. When a look uses the resource, deactivate names the look. It can tell this for a font that a font set names by its path, and for a color scheme. It cannot tell this for a font that a font set names by its family, or for a color map or shader. The built-in font is always active, and deactivate refuses it. The change waits in the draft until you install it. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
         example: "vtium-config deactivate /usr/share/vtium/fonts/CulletMono-Bold.ttf",
     },
     Topic {
         command: Command::Active,
         forms: &[form(
             "active",
-            "list the resources vtium may draw from, with the draft's changes",
+            "list the resources vtium may use, with the draft's changes",
         )],
         detail: "Lists the active resources, one per line, tab-separated: the kind (font, color scheme, color map, shader or pointer theme), the path, and the state. The built-in font comes first and is always active. A resource the draft activates says activates on install, and one it deactivates says deactivates on install. When no /etc/vtium/batch.conf is installed, the list is the resources of a fresh install, and a last line says so. It changes nothing.",
         example: "vtium-config active",
