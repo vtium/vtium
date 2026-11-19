@@ -23,7 +23,7 @@ use ratatui_core::text::{Line, Span as RSpan};
 use ratatui_core::widgets::Widget;
 use ratatui_widgets::paragraph::Paragraph;
 
-use super::canvas::{Row, column, fit, printable, put, span, wrap};
+use super::canvas::{Row, column, field, fit, printable, put, span, wrap};
 use super::color::{Color, Colors, Style};
 use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
@@ -983,7 +983,8 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
         let here = i == state.line;
         match (&state.typing, here) {
             (Some(t), true) => {
-                at(rows, vx, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+                let room = app.size.cols.saturating_sub(VALUE_X);
+                at(rows, vx, y, &field(t, room), Style::PLAIN.reversed());
             }
             (None, true) => {
                 let choices = card_choices(&app.shared, line);
@@ -1357,7 +1358,8 @@ fn list_layer(
             break;
         }
         if let (Some(t), true) = (typing, i == last) {
-            at(rows, 3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+            let room = app.size.cols.saturating_sub(3);
+            at(rows, 3, y, &field(t, room), Style::PLAIN.reversed());
             y = y.saturating_add(1);
             continue;
         }
@@ -1876,6 +1878,55 @@ mod tests {
             }
             assert!(!after.contains("number"), "{line:?}: {after}");
         }
+    }
+
+    #[test]
+    fn a_long_typed_name_scrolls_so_its_end_and_the_cursor_stay_on_the_screen() {
+        // a card's name may grow to 64 characters, and at 80 columns the
+        // value column has 46 cells
+        let app = app_with_input("kbd");
+        let typed = format!("desk{}END", "x".repeat(57));
+        let state = flowview::State {
+            line: 0,
+            typing: Some(typed),
+            ..flowview::State::default()
+        };
+        let rows = layer(&app, &state, &Obj::New(Slot::Terminal));
+        let row = on_screen(&rows[5]);
+        assert!(row.len() <= 80, "{} cells", row.len());
+        let shown: String = row[VALUE_X..].iter().collect();
+        assert!(shown.starts_with(" …x"), "{shown:?}");
+        assert!(shown.trim_end().ends_with("xEND_"), "{shown:?}");
+    }
+
+    #[test]
+    fn a_long_typed_filter_value_scrolls_so_its_end_and_the_cursor_stay_on_the_screen() {
+        let app = app_with_input("kbd");
+        let typed = format!("{}键END", "y".repeat(190));
+        let mut rows: Vec<Row> = vec![Vec::new(); 25];
+        let list = [
+            ("a".to_owned(), "b".to_owned()),
+            ("type".to_owned(), String::new()),
+        ];
+        list_layer(
+            &mut rows,
+            &app,
+            1,
+            "H",
+            "about",
+            &list,
+            Some(&typed),
+            &[],
+            None,
+        );
+        let row = rows
+            .iter()
+            .map(on_screen)
+            .find(|r| r.contains(&'_'))
+            .expect("the typed value's row");
+        assert!(row.len() <= 80, "{} cells", row.len());
+        let shown: String = row.iter().filter(|c| **c != '\0').collect();
+        assert!(shown.trim_end().ends_with("y键END_"), "{shown:?}");
     }
 
     #[test]

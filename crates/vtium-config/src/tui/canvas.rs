@@ -283,6 +283,30 @@ pub fn pick(n: usize, options: &[&str]) -> String {
     )
 }
 
+/// A value being typed as a one-line field shows it, in at most `n` cells
+/// of the console's screen: ` value_ `, the cursor `_` after the text and
+/// a blank on each side. When the whole value does not fit, the field
+/// scrolls as a one-line field does. It shows the end of the value after
+/// `…`, so the cursor and what the person types last stay in sight.
+pub fn field(typed: &str, n: usize) -> String {
+    let text = printable(typed);
+    if cells(&text).saturating_add(3) <= n {
+        return format!(" {text}_ ");
+    }
+    // the clusters from the end that fit beside ` …`, `_` and a blank
+    let room = n.saturating_sub(4);
+    let mut used = 0usize;
+    let mut start = text.len();
+    for c in clusters(&text).iter().rev() {
+        used = used.saturating_add(usize::from(shown(c).1));
+        if used > room {
+            break;
+        }
+        start = start.saturating_sub(c.text.len());
+    }
+    format!(" …{}_ ", text.get(start..).unwrap_or_default())
+}
+
 /// `word` in pieces of at most `width` cells, cut between the characters
 /// the console shows, so a mark stays with its character. A character
 /// wider than `width` is a piece of its own.
@@ -451,6 +475,16 @@ mod tests {
             .collect();
         assert_eq!(last, [("x", 1), ("e\u{301}", 1)]);
         assert_eq!(cells(&text), 4096);
+    }
+
+    #[test]
+    fn a_typed_value_too_long_for_its_field_shows_its_end_and_the_cursor() {
+        assert_eq!(field("abc", 6), " abc_ ");
+        assert_eq!(field("abcd", 6), " …cd_ ");
+        assert_eq!(field("abcdefgh", 8), " …efgh_ ");
+        // 键 takes two cells, so only one fits in the three after `…`
+        assert_eq!(field("ab键键", 7), " …键_ ");
+        assert_eq!(field("a\tb", 9), " a?b_ ");
     }
 
     #[test]
