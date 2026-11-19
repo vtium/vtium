@@ -137,14 +137,7 @@ pub fn node(app: &App) -> &'static str {
     if super::layout::too_small(app.size) {
         return "any.too-small";
     }
-    match app.nav.view {
-        View::Flow => app.flow.node(),
-        View::Settings => app.settings.node(),
-        View::New => app.fonts.form_node(),
-        View::Looks => app.looks.node(),
-        View::Fonts => app.fonts.node(),
-        View::Help => app.help.node(),
-    }
+    app.tab().node()
 }
 
 /// The kind of state of the node `id`, read from where the id sits in the

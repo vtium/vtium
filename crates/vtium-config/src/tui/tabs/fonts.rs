@@ -11,12 +11,14 @@
 //!   installed like any change.
 //! - ADR-1206 D2: a tab's state and its update live in the tab's module.
 
+use super::super::color::Style;
 use super::super::input::Key;
+use super::super::layout::PICTURE_ROW;
 use super::super::listbox::{Body, ListBox, columns, step, tail};
 use super::super::model::{Font, FontState, Shared, Size, View};
-use super::super::shot::Preview;
+use super::super::shot::{Preview, Source};
 use super::super::words;
-use super::{Change, Command, Request};
+use super::{Change, Command, Request, Room, Tab};
 use crate::specimen::Sources;
 
 /// The new-frit form's fields, in order: its name, three sources, its
@@ -59,6 +61,14 @@ impl NewFrit {
     }
 }
 
+/// The new-frit form, which opens over the list of fonts: the new frit
+/// being made and the first row of the form that its window shows.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Form {
+    frit: NewFrit,
+    offset: usize,
+}
+
 /// Where the Fonts tab stands: the highlighted font, whether it shows the
 /// detailed specimen or the picture of the console, and the new-frit form.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,14 +76,12 @@ pub struct Fonts {
     /// The highlighted font, counted from 0 in the list of fonts, and the
     /// window of the list on screen.
     list: ListBox,
-    /// The first row of the new-frit form that its window shows.
-    form_offset: usize,
     /// The tab shows the detailed specimen of the highlighted font, as it
     /// does at start, in place of the picture of the console, which `s`
     /// switches to.
     detail: bool,
-    /// The new frit being made.
-    form: NewFrit,
+    /// The new-frit form.
+    form: Form,
 }
 
 impl Fonts {
@@ -81,9 +89,8 @@ impl Fonts {
     pub fn new(at: usize) -> Fonts {
         Fonts {
             list: ListBox::at(at),
-            form_offset: 0,
             detail: true,
-            form: NewFrit::default(),
+            form: Form::default(),
         }
     }
 
@@ -97,21 +104,10 @@ impl Fonts {
         self.list.offset
     }
 
-    /// The first row the window of the new-frit form shows.
-    pub fn form_offset(&self) -> usize {
-        self.form_offset
-    }
-
     /// Keeps the list of fonts in view from its row `row`, which the
     /// layout gives after every event.
     pub fn show_from(&mut self, row: usize) {
         self.list.offset = row;
-    }
-
-    /// Keeps the new-frit form in view from its row `row`, which the
-    /// layout gives after every event.
-    pub fn form_show_from(&mut self, row: usize) {
-        self.form_offset = row;
     }
 
     /// Whether the tab shows the detailed specimen of the highlighted font
@@ -122,28 +118,23 @@ impl Fonts {
 
     /// The new frit being made.
     pub fn form(&self) -> &NewFrit {
+        &self.form.frit
+    }
+
+    /// The new-frit form, which answers for the form's level as a tab
+    /// does.
+    pub fn new_frit(&self) -> &Form {
         &self.form
+    }
+
+    /// The new-frit form to change.
+    pub fn new_frit_mut(&mut self) -> &mut Form {
+        &mut self.form
     }
 
     /// The node of the interface tree the list is at.
     pub fn node(&self) -> &'static str {
         "fonts"
-    }
-
-    /// The node of the interface tree the new-frit form is at: a field
-    /// being typed, or the row that adds the frit.
-    pub fn form_node(&self) -> &'static str {
-        if self.form_typing() {
-            "looks.new-frit.typing"
-        } else {
-            "looks.new-frit"
-        }
-    }
-
-    /// Whether the form's highlighted row is a field, whose characters
-    /// are typed into it.
-    pub fn form_typing(&self) -> bool {
-        self.form.at < NEW_FIELDS
     }
 
     /// Highlights the font named `name`, where the list has it, and
@@ -168,13 +159,6 @@ impl Fonts {
     /// The change that shows the highlighted font in the previews.
     fn previewed(&self) -> Command {
         Command::Change(Change::Preview(self.list.at))
-    }
-
-    /// A character or Backspace typed into the form's highlighted field.
-    pub fn type_key(&mut self, key: Key) {
-        if let Some(text) = self.form.fields.get_mut(self.form.at) {
-            super::type_into(text, key);
-        }
     }
 
     /// The highlighted font.
@@ -235,32 +219,10 @@ impl Fonts {
         Body {
             list,
             keep,
-            tail: Preview::fonts(shared, size, self.detail)
+            tail: Tab::preview(self, shared, size)
                 .preview_line()
                 .map(|line| tail(&line, size.cols))
                 .unwrap_or_default(),
-        }
-    }
-
-    /// The new-frit form's body on a screen of `size`: each field with its
-    /// text, the highlighted one with the cursor after it, then the row
-    /// that adds the frit, and under them what a frit is made of.
-    pub fn form_body(&self, size: Size) -> Body {
-        let mut items: Vec<(String, String)> = words::NEW_FIELD_NAMES
-            .iter()
-            .zip(&self.form.fields)
-            .enumerate()
-            .map(|(i, (name, text))| {
-                let cursor = if i == self.form.at { "_" } else { "" };
-                ((*name).to_owned(), format!("{text}{cursor}"))
-            })
-            .collect();
-        items.push((words::NEW_ADD.to_owned(), String::new()));
-        let (list, keep) = columns(&items, self.form.at.min(NEW_FIELDS), 8, size.cols);
-        Body {
-            list,
-            keep,
-            tail: tail(words::NEW_HINT, size.cols),
         }
     }
 
@@ -357,6 +319,53 @@ impl Fonts {
             Err(why) => vec![say(words::remove_refused(&name, why))],
         }
     }
+}
+
+impl Form {
+    /// The node of the interface tree the form is at: a field being
+    /// typed, or the row that adds the frit.
+    pub fn node(&self) -> &'static str {
+        if self.typing() {
+            "looks.new-frit.typing"
+        } else {
+            "looks.new-frit"
+        }
+    }
+
+    /// Whether the form's highlighted row is a field, whose characters
+    /// are typed into it.
+    pub fn typing(&self) -> bool {
+        self.frit.at < NEW_FIELDS
+    }
+
+    /// A character or Backspace typed into the form's highlighted field.
+    pub fn type_key(&mut self, key: Key) {
+        if let Some(text) = self.frit.fields.get_mut(self.frit.at) {
+            super::type_into(text, key);
+        }
+    }
+
+    /// The form's body on a screen of `size`: each field with its
+    /// text, the highlighted one with the cursor after it, then the row
+    /// that adds the frit, and under them what a frit is made of.
+    pub fn body(&self, size: Size) -> Body {
+        let mut items: Vec<(String, String)> = words::NEW_FIELD_NAMES
+            .iter()
+            .zip(&self.frit.fields)
+            .enumerate()
+            .map(|(i, (name, text))| {
+                let cursor = if i == self.frit.at { "_" } else { "" };
+                ((*name).to_owned(), format!("{text}{cursor}"))
+            })
+            .collect();
+        items.push((words::NEW_ADD.to_owned(), String::new()));
+        let (list, keep) = columns(&items, self.frit.at.min(NEW_FIELDS), 8, size.cols);
+        Body {
+            list,
+            keep,
+            tail: tail(words::NEW_HINT, size.cols),
+        }
+    }
 
     /// A key the navigation module hands to the new-frit form. Esc goes
     /// back to the list, and the form keeps what its fields hold. The form
@@ -365,28 +374,28 @@ impl Fonts {
     /// the last row, Up and Down move back onto the fields, and Enter adds
     /// the frit to the save, once the frit reader takes it, and goes back
     /// to the list.
-    pub fn form_update(&mut self, shared: &Shared, key: Key) -> Vec<Command> {
+    pub fn update(&mut self, shared: &Shared, key: Key) -> Vec<Command> {
         if key == Key::Escape {
-            self.form.at = 0;
-            self.form_offset = 0;
+            self.frit.at = 0;
+            self.offset = 0;
             return vec![Command::Request(Request::Go(View::Fonts))];
         }
         let rows = NEW_FIELDS.saturating_add(1);
-        let at = self.form.at;
+        let at = self.frit.at;
         // while a field is typed, only Enter (keep, next field) and Esc
         // act, as while a Settings value is typed
         if at < NEW_FIELDS && key != Key::Enter {
             return Vec::new();
         }
-        self.form.at = match key {
+        self.frit.at = match key {
             Key::Enter if at < NEW_FIELDS => at.saturating_add(1),
             _ => step(at, rows, key),
         };
         if key != Key::Enter || at != NEW_FIELDS {
             return Vec::new();
         }
-        let name = self.form.name();
-        let text = self.form.text();
+        let name = self.frit.name();
+        let text = self.frit.text();
         let path = shared.inputs.frits.join(format!("{name}.vtfrit"));
         let read =
             if !crate::frit::valid_name(&name) || crate::frit::RESERVED.contains(&name.as_str()) {
@@ -409,7 +418,7 @@ impl Fonts {
                 pending.frits.retain(|(n, _)| *n != name);
                 pending.removals.retain(|n| *n != name);
                 pending.frits.push((name.clone(), text));
-                self.form = NewFrit::default();
+                self.frit = NewFrit::default();
                 vec![
                     Command::Change(Change::Pending(pending)),
                     Command::Change(Change::Say(words::new_added(&name))),
@@ -418,5 +427,139 @@ impl Fonts {
             }
             Err(why) => vec![Command::Change(Change::Say(words::new_refused(why)))],
         }
+    }
+}
+
+impl Tab for Fonts {
+    fn name(&self) -> &'static str {
+        words::FONTS
+    }
+
+    fn node(&self) -> &'static str {
+        Fonts::node(self)
+    }
+
+    fn body(&self, shared: &Shared, size: Size) -> Body {
+        Fonts::body(self, shared, size)
+    }
+
+    fn offset(&self) -> usize {
+        Fonts::offset(self)
+    }
+
+    fn show_from(&mut self, row: usize) {
+        Fonts::show_from(self, row);
+    }
+
+    /// Below the list of fonts and the sentences under it, at the left
+    /// edge, since the fonts' notes reach across the screen.
+    fn picture_at(&self, shared: &Shared, size: Size) -> (usize, usize) {
+        let body = Fonts::body(self, shared, size);
+        (
+            PICTURE_ROW
+                .saturating_add(body.list.len())
+                .saturating_add(body.tail.len())
+                .saturating_add(1),
+            2,
+        )
+    }
+
+    /// The highlighted font at the draft's size: its detailed specimen,
+    /// or the picture of the TUI's screen in it.
+    fn preview<'a>(&self, shared: &'a Shared, size: Size) -> Preview<'a> {
+        Preview::of(
+            shared,
+            size,
+            Source::Font {
+                font: self.font(shared),
+                detail: self.detail,
+            },
+        )
+    }
+
+    /// The detailed specimen's lines for the locale, then its line of
+    /// superscripts and subscripts, each run with its style.
+    fn console_lines(&self, shared: &Shared) -> Vec<Vec<(&'static str, Style)>> {
+        let mut out: Vec<Vec<(&'static str, Style)>> =
+            crate::specimen::detail_lines(&shared.inputs.locale)
+                .into_iter()
+                .map(|line| vec![(line, Style::PLAIN)])
+                .collect();
+        out.push(
+            crate::specimen::SCRIPT_LINE
+                .iter()
+                .map(|&(run, script)| {
+                    (
+                        run,
+                        Style {
+                            script,
+                            ..Style::PLAIN
+                        },
+                    )
+                })
+                .collect(),
+        );
+        out
+    }
+
+    fn planned_keys(&self, shared: &Shared) -> &'static str {
+        if shared.text_preview() {
+            words::KEYS_FONTS_LIVE
+        } else {
+            words::KEYS_FONTS
+        }
+    }
+
+    /// `s` is the tab's own key, so Save does not take it.
+    fn takes_action(&self, action: char) -> bool {
+        action != 's'
+    }
+
+    fn update(&mut self, shared: &Shared, _room: Room, key: Key) -> Vec<Command> {
+        Fonts::update(self, shared, key)
+    }
+}
+
+impl Tab for Form {
+    /// The form shows under the Fonts tab's name.
+    fn name(&self) -> &'static str {
+        words::FONTS
+    }
+
+    fn node(&self) -> &'static str {
+        Form::node(self)
+    }
+
+    fn body(&self, _shared: &Shared, size: Size) -> Body {
+        Form::body(self, size)
+    }
+
+    fn offset(&self) -> usize {
+        self.offset
+    }
+
+    fn show_from(&mut self, row: usize) {
+        self.offset = row;
+    }
+
+    fn planned_keys(&self, _shared: &Shared) -> &'static str {
+        words::KEYS_NEW
+    }
+
+    fn typing(&self) -> bool {
+        Form::typing(self)
+    }
+
+    fn type_key(&mut self, key: Key) {
+        Form::type_key(self, key);
+    }
+
+    /// The form is open over the Fonts tab, so no action key acts in it.
+    fn takes_action(&self, _action: char) -> bool {
+        false
+    }
+
+    fn update(&mut self, shared: &Shared, _room: Room, key: Key) -> Vec<Command> {
+        Form::update(self, shared, key)
     }
 }

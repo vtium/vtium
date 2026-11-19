@@ -228,34 +228,16 @@ fn esc_target(node: &TreeRow) -> Option<String> {
     tree_row(target).map(|n| n.id.clone())
 }
 
-/// What the TUI does today where the tables plan something else, as their
-/// notes say, so that the walks reach a value being typed. `n.view.fonts`
-/// says that `n` in the Fonts tab opens the form for a new font set, which
-/// the tree's `looks.new-frit.typing` opens on its first field.
-/// `esc.typing` says that Esc on a field of the form closes the form. The
-/// form opens under the Fonts tab today, as the `now` column of
-/// `looks.new-frit` says, so Esc on a field or on the add row goes back to
-/// the Fonts tab.
-const TODAY: &[(&str, &str, &str)] = &[
-    ("fonts", "n", "looks.new-frit.typing"),
-    ("looks.new-frit.typing", "Esc", "fonts"),
-    ("looks.new-frit", "Esc", "fonts"),
-];
-
-/// The fields of the form for a new font set, as the TUI has them today:
-/// the name, three fonts, the character cell and the size. Enter on a
-/// field goes to the next, and Enter on the last field goes to the form's
-/// add row, as the tree's `looks.new-frit.typing` says. The tree plans a
-/// field for each role in place of these, so the count is not in the
-/// tables yet.
-pub const FORM_FIELDS: usize = 6;
-
 /// What `key`, by the alphabet's name, does in the node `from`, as far as
 /// the tables decide it whatever the tab holds; `None` where they do not.
 pub fn expect(from: &str, key: &str) -> Option<Expect> {
     let node = tree_row(from)?;
     let kind = kind(from);
-    if let Some((_, _, to)) = TODAY.iter().find(|(f, k, _)| *f == from && *k == key) {
+    if let Some((_, _, to)) = super::tabs::TABS
+        .iter()
+        .flat_map(|t| t.today)
+        .find(|(f, k, _)| *f == from && *k == key)
+    {
         return Some(Expect::At((*to).to_owned()));
     }
     if key == "Shrink" {

@@ -26,7 +26,7 @@ use super::color::Style;
 use super::desk::Op;
 use super::edit::Change;
 use super::flow::{Flow, Look};
-use super::model::{App, Effect, Live, Shared, View};
+use super::model::{App, Effect, Live, Shared};
 use super::words;
 
 /// Where the font the console shows is saved.
@@ -39,38 +39,10 @@ pub enum Place {
     Top,
 }
 
-/// The Fonts view's preview text for `locale`: the detailed specimen's
-/// lines, then its line of superscripts and subscripts, each run with its
-/// style.
-pub fn fonts_lines(locale: &str) -> Vec<Vec<(&'static str, Style)>> {
-    let mut out: Vec<Vec<(&'static str, Style)>> = crate::specimen::detail_lines(locale)
-        .into_iter()
-        .map(|line| vec![(line, Style::PLAIN)])
-        .collect();
-    out.push(
-        crate::specimen::SCRIPT_LINE
-            .iter()
-            .map(|&(run, script)| {
-                (
-                    run,
-                    Style {
-                        script,
-                        ..Style::PLAIN
-                    },
-                )
-            })
-            .collect(),
-    );
-    out
-}
-
-/// The preview text of `app`'s view, empty for a view with none.
+/// The preview text of `app`'s open tab, as the tab gives it, empty for a
+/// tab with none.
 pub fn lines(app: &App) -> Vec<Vec<(&'static str, Style)>> {
-    match app.nav.view {
-        View::Fonts => fonts_lines(&app.shared.inputs.locale),
-        View::Looks => super::shot::sample_rows(),
-        _ => Vec::new(),
-    }
+    app.tab().console_lines(&app.shared)
 }
 
 impl Shared {

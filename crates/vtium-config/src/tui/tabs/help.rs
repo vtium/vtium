@@ -15,7 +15,7 @@ use super::super::contract::{NODES, Node};
 use super::super::input::Key;
 use super::super::model::{Shared, Size};
 use super::super::words;
-use super::Command;
+use super::{Command, Room, Tab};
 
 /// The widest a key column of the Help page grows; keys wider than this
 /// push their meaning onto the rows below.
@@ -337,5 +337,44 @@ impl Help {
             _ => {}
         }
         Vec::new()
+    }
+}
+
+impl Tab for Help {
+    fn name(&self) -> &'static str {
+        words::HELP
+    }
+
+    /// The Help tab's tab bar shows no action.
+    fn actions(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+
+    fn node(&self) -> &'static str {
+        Help::node(self)
+    }
+
+    fn page(&self, shared: &Shared, size: Size) -> Option<(Vec<Line<'static>>, usize)> {
+        Some((Help::page(self, shared, size), self.top()))
+    }
+
+    /// Install and Save do not act where the tab bar shows no action;
+    /// `o` still turns `allow-font-ops` on.
+    fn takes_action(&self, action: char) -> bool {
+        !matches!(action, 'i' | 's')
+    }
+
+    /// The page's rows on the screen of `room`, scrolled in the rows of
+    /// the body.
+    fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
+        let rows = self.rows(shared, room.size);
+        Help::update(
+            self,
+            key,
+            Page {
+                rows,
+                room: room.body,
+            },
+        )
     }
 }

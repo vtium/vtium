@@ -14,9 +14,9 @@
 //!   tab.
 
 use super::canvas::wrap;
-use super::listbox::{Body, LIST_MIN, prose};
+use super::listbox::{Body, LIST_MIN};
 use super::model::{App, Size, View};
-use super::words;
+use super::tabs::Room;
 
 /// The smallest grid a view is drawn in: below it, the one screen that
 /// says so.
@@ -36,50 +36,35 @@ pub fn too_small(size: Size) -> bool {
 /// The body of `app`'s view, which the open tab lays out from its own
 /// state, the shared part and the terminal's size.
 pub fn body(app: &App) -> Body {
-    match app.nav.view {
-        View::Fonts => app.fonts.body(&app.shared, app.size),
-        View::New => app.fonts.form_body(app.size),
-        View::Looks => app.looks.body(&app.shared, app.size),
-        View::Settings => app.settings.body(&app.shared, app.size),
-        // the Help view draws its page itself, and the Flow view draws on
-        // the canvas itself
-        View::Help | View::Flow => Body::default(),
-    }
+    app.tab().body(&app.shared, app.size)
 }
 
-/// Where a picture goes, row and column from 1: in the Looks view beside
-/// the list of sizes, below the rule under the tabs; in the Fonts view
-/// below the list of fonts, whose notes reach across the screen.
+/// Where a picture goes in the open tab, row and column from 1, as the
+/// tab places it.
 pub fn picture_at(app: &App) -> (usize, usize) {
-    match app.nav.view {
-        View::Fonts => {
-            let body = body(app);
-            (
-                PICTURE_ROW
-                    .saturating_add(body.list.len())
-                    .saturating_add(body.tail.len())
-                    .saturating_add(1),
-                2,
-            )
-        }
-        // in the document's place, below the status lines
-        View::Flow => (FLOW_TOP.saturating_add(1), 2),
-        // below the sentence above the sizes and its blank row
-        View::Looks => (
-            PICTURE_ROW
-                .saturating_add(prose(words::LOOKS_SIZES, app.size.cols).len())
-                .saturating_add(1),
-            PICTURE_COL,
-        ),
-        _ => (PICTURE_ROW, PICTURE_COL),
+    app.tab().picture_at(&app.shared, app.size)
+}
+
+/// What the shell of the screen leaves the open tab: the terminal's size,
+/// the rows of the key line, and the rows of the body between the rule
+/// under the tab bar and the message.
+pub fn room(app: &App) -> Room {
+    Room {
+        size: app.size,
+        keys: key_rows(app).len(),
+        body: list_window(app, 0, 0).0,
     }
 }
 
-const PICTURE_ROW: usize = 4;
+/// The first row a picture takes by default, from 1: the row under the
+/// rule below the tab bar.
+pub const PICTURE_ROW: usize = 4;
 
 /// The Flow view's first row of columns, from 0.
 pub const FLOW_TOP: usize = 4;
-const PICTURE_COL: usize = 26;
+
+/// The first column a picture takes by default, from 1: beside a list.
+pub const PICTURE_COL: usize = 26;
 /// One place in the tab bar: a view's name, or an action's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -91,28 +76,17 @@ pub enum Tab {
 /// views on the left, the current one marked, and the actions against the
 /// right edge, in their short forms where the long ones do not fit.
 pub fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
-    let names = [
-        words::FLOW,
-        words::LOOKS,
-        words::FONTS,
-        words::SETTINGS,
-        words::HELP,
-    ];
     let mut out = Vec::new();
     let mut x = 0usize;
-    for (view, name) in View::TABS.iter().zip(names) {
-        let text = format!(" {name} ");
+    for view in View::TABS.iter() {
+        let text = format!(" {} ", app.tab_of(*view).name());
         let w = text.chars().count();
         out.push((Tab::View(*view), x, text));
         x = x.saturating_add(w);
     }
     let tabs_end = x;
     let actions = |long: bool, gap: usize| -> Vec<String> {
-        let list: &[(&str, &str)] = match app.nav.view.tab() {
-            View::Flow => &words::FLOW_ACTIONS,
-            View::Help => &[],
-            _ => &words::ACTIONS,
-        };
+        let list = app.tab_of(app.nav.view.tab()).actions();
         list.iter()
             .map(|(l, s)| {
                 let name = if long { l } else { s };
@@ -163,20 +137,6 @@ pub fn tab_at(app: &App, col: usize, row: usize) -> Option<View> {
 /// The most rows the message line wraps to.
 pub const MESSAGE_ROWS: usize = 3;
 
-/// The hand-written keys of a view whose node of the interface tree is
-/// still planned: Looks, Fonts and the new-frit form. Their work
-/// rebuilds them and moves their nodes to supported, and the key line then
-/// comes from the contract, as everywhere else.
-fn planned_keys(app: &App) -> &'static str {
-    match app.nav.view {
-        View::Looks => words::KEYS_LOOKS,
-        View::Fonts if app.shared.text_preview() => words::KEYS_FONTS_LIVE,
-        View::Fonts => words::KEYS_FONTS,
-        View::New => words::KEYS_NEW,
-        View::Flow | View::Settings | View::Help => "",
-    }
-}
-
 /// The key line for the state `app` is in, each key and what it does two
 /// spaces apart: the page that shows of the key line that the contract
 /// gives the node of the interface tree the TUI is in.
@@ -193,7 +153,9 @@ pub fn key_line(app: &App) -> &'static str {
             .or_else(|| pages.first())
             .copied()
             .unwrap_or_default(),
-        None => planned_keys(app),
+        // a node still planned keeps the key line its tab writes by hand,
+        // until its work moves the node to supported
+        None => app.tab().planned_keys(&app.shared),
     }
 }
 

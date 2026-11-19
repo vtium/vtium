@@ -18,7 +18,7 @@ use std::time::Duration;
 use vtium_font::Cell;
 
 use super::input::Key;
-use super::model::{App, Effect, Font, FontState, Live, Shared, Size, View};
+use super::model::{App, Effect, Font, FontState, Live, Shared, Size};
 use super::words;
 use crate::specimen::Shot;
 
@@ -229,58 +229,64 @@ impl Covered {
     }
 }
 
-/// The parts of the model that a view's preview reads: the open view, the
-/// shared part and the terminal's size, whether the Fonts tab shows the
-/// font's detailed specimen, and the size the Looks tab highlights. The
-/// font the preview shows comes from the shared part, which the Fonts tab
-/// keeps on its highlight. Update and the layout both read the preview
-/// through this, and neither changes it.
+/// What a tab previews, and in which font. A tab that previews chooses its
+/// own font, so no tab reads another tab's highlight.
+#[derive(Clone, Copy, Debug)]
+pub enum Source<'a> {
+    /// The tab previews nothing.
+    Nothing,
+    /// `font` at the draft's size: its detailed specimen where `detail` is
+    /// set, and otherwise the picture of the TUI's screen drawn in it.
+    Font {
+        font: Option<&'a Font>,
+        detail: bool,
+    },
+    /// `font` at `points` on the sample screen of [`PREVIEW_SCREEN`]
+    /// pixels. A size of 0 is automatic, which has no preview.
+    Size { font: Option<&'a Font>, points: u32 },
+}
+
+/// The parts of the model that the open tab's preview reads: the shared
+/// part, the terminal's size, and what the tab previews. Update and the
+/// layout both read the preview through this, and neither changes it.
 #[derive(Clone, Copy, Debug)]
 pub struct Preview<'a> {
-    pub view: View,
     pub shared: &'a Shared,
     pub size: Size,
-    /// The Fonts view shows the detailed specimen of the font.
-    pub detail: bool,
-    /// The size the Looks view highlights, in points, 0 for automatic.
-    pub points: u32,
+    pub source: Source<'a>,
 }
 
 impl<'a> Preview<'a> {
-    /// The Fonts view's preview: the font the previews show, at the
-    /// draft's size, as its detailed specimen where `detail` says so.
-    pub fn fonts(shared: &'a Shared, size: Size, detail: bool) -> Preview<'a> {
+    /// The preview of `source`, on the shared part and a screen of `size`.
+    pub fn of(shared: &'a Shared, size: Size, source: Source<'a>) -> Preview<'a> {
         Preview {
-            view: View::Fonts,
             shared,
             size,
-            detail,
-            points: 0,
+            source,
         }
     }
 
-    /// The Looks view's preview: the font the previews show, at `points`,
-    /// 0 for automatic.
-    pub fn looks(shared: &'a Shared, size: Size, points: u32) -> Preview<'a> {
-        Preview {
-            view: View::Looks,
-            shared,
-            size,
-            detail: false,
-            points,
-        }
+    /// The preview of a tab that previews nothing.
+    pub fn nothing(shared: &'a Shared, size: Size) -> Preview<'a> {
+        Preview::of(shared, size, Source::Nothing)
     }
 
     /// The font the preview shows.
     pub fn font(&self) -> Option<&'a Font> {
-        self.shared.preview_font()
+        match self.source {
+            Source::Font { font, .. } | Source::Size { font, .. } => font,
+            Source::Nothing => None,
+        }
     }
 
-    /// The change the view previews now, if any: the highlighted font in
-    /// the Fonts view at the draft's size; the highlighted size of the
-    /// highlighted font in the Looks view, automatic having none; and on a
-    /// look's card in the Flow view, the look with the value under the
-    /// cursor of its frit, size or cell.
+    /// Whether the picture shows the sample screen, which the Looks tab
+    /// draws at a size's cell, in place of the TUI's own screen.
+    pub fn sample(&self) -> bool {
+        matches!(self.source, Source::Size { .. })
+    }
+
+    /// The change the tab previews now, if any: a font at the draft's
+    /// size, or a font at a size, automatic having none.
     pub fn wanted(&self) -> Option<Wanted> {
         if super::layout::too_small(self.size) {
             return None;
@@ -293,26 +299,26 @@ impl<'a> Preview<'a> {
                 .find(|f| f.name == name)
                 .is_some_and(|f| !matches!(f.state, FontState::Refused(_)))
         };
-        match self.view {
-            View::Fonts => {
+        match self.source {
+            Source::Font { detail, .. } => {
                 let font = self.font()?.name.clone();
                 readable(&font).then(|| Wanted {
                     font,
                     points: draft_points(self.shared),
                     cell: None,
-                    detail: self.detail,
+                    detail,
                 })
             }
-            View::Looks => {
+            Source::Size { points, .. } => {
                 let font = self.font()?.name.clone();
-                (readable(&font) && self.points > 0).then_some(Wanted {
+                (readable(&font) && points > 0).then_some(Wanted {
                     font,
-                    points: self.points,
+                    points,
                     cell: None,
                     detail: false,
                 })
             }
-            _ => None,
+            Source::Nothing => None,
         }
     }
 
@@ -320,12 +326,12 @@ impl<'a> Preview<'a> {
     /// picture shows; with no pictures, the summary of the change.
     pub fn preview_line(&self) -> Option<String> {
         if self.shared.text_preview() && !super::layout::too_small(self.size) {
-            return match self.view {
-                View::Fonts => Some(words::console_font_caption(
+            return match self.source {
+                Source::Font { .. } => Some(words::console_font_caption(
                     self.shared.shown_font.as_deref(),
                 )),
-                View::Looks => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
-                _ => None,
+                Source::Size { .. } => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
+                Source::Nothing => None,
             };
         }
         let wanted = self.wanted()?;
@@ -410,15 +416,10 @@ fn picture_max((cols, rows): (usize, usize), size: Size) -> (u32, u32) {
 }
 
 impl App {
-    /// The parts of the model that the open view's preview reads.
+    /// The parts of the model that the open tab's preview reads, with
+    /// what the tab previews.
     pub fn preview(&self) -> Preview<'_> {
-        Preview {
-            view: self.nav.view,
-            shared: &self.shared,
-            size: self.size,
-            detail: self.fonts.detail(),
-            points: self.looks.points(),
-        }
+        self.tab().preview(&self.shared, self.size)
     }
 
     /// The most pixels the picture takes in the open view.
@@ -552,7 +553,7 @@ impl App {
         // the Looks view draws a nominal screen of sample content at the
         // look's cell; the caption still counts the real display's grid.
         // Elsewhere the loop draws the TUI's own screen at the grid.
-        let looks = self.nav.view == View::Looks;
+        let looks = self.preview().sample();
         let (display, grid, screen) = if looks {
             let shown = (
                 across(PREVIEW_SCREEN.0, cell.width).min(GRID_MAX.0),
@@ -609,10 +610,7 @@ impl App {
             .asked
             .as_ref()
             .is_some_and(|a| self.preview().wanted().as_ref() == Some(&a.wanted));
-        if !matches!(self.nav.view, View::Looks | View::Fonts | View::Flow)
-            || self.shared.leaving.is_some()
-            || !current
-        {
+        if self.shared.leaving.is_some() || !current {
             return out;
         }
         match result {

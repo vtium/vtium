@@ -9,13 +9,12 @@
 //! `layer`, `typing`, `question`, `trial` and `too-small`, each narrowed
 //! by a name after a colon.
 
-use vtium_config::tui::flowview::{Obj, Slot};
 use vtium_config::tui::layout::too_small;
-use vtium_config::tui::model::{App, FontState, Then, View};
+use vtium_config::tui::model::{App, Then, View};
 use vtium_config::tui::nav;
-use vtium_settings::keys::Kind;
 
 use super::sim::Sim;
+use super::tabs;
 
 /// The kind of state, as the key table names it.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -114,15 +113,14 @@ impl std::fmt::Display for Abs {
     }
 }
 
+/// The name the abstract state gives `view`, as its tab's part of the walk
+/// names it.
 pub fn view_name(view: View) -> &'static str {
-    match view {
-        View::Flow => "flow",
-        View::Looks => "looks",
-        View::Fonts => "fonts",
-        View::Settings => "settings",
-        View::Help => "help",
-        View::New => "new-frit",
-    }
+    tabs::TABS
+        .iter()
+        .flat_map(|t| t.views)
+        .find(|(v, _)| *v == view)
+        .map_or("", |(_, name)| *name)
 }
 
 /// The abstract state of `sim`.
@@ -160,20 +158,13 @@ pub fn of(sim: &Sim) -> Abs {
     abs.narrow = narrow.to_owned();
     // the highlight matters only to the keys of a view with nothing open
     // over it, and a view's own name narrows it, as in `view:flow`
-    // a part maker's line, and the picker's, decide what Enter opens: a
-    // part, the picker, or the value typed after Other…
-    if matches!(abs.narrow.as_str(), "flow-maker" | "picker") {
-        abs.focus = format!("line {}", app.flow.state().line);
-    }
-    // the new-frit form's row: Enter steps from field to field, and the
-    // last row adds the font set
-    if abs.narrow == "new-frit" {
-        abs.focus = format!("row {}", app.fonts.form().at);
-    }
-    // a Settings key's kind decides what Enter opens on it: its typing,
-    // or its values as a list
-    if abs.narrow == "settings-section" {
-        abs.focus = key_kind(app.settings.key());
+    // in some layers, what the highlight is on decides what Enter opens,
+    // as the tab's part of the walk says
+    if let Some(focus) = tabs::TABS
+        .iter()
+        .find_map(|t| (t.layer_focus)(app, &abs.narrow))
+    {
+        abs.focus = focus;
     }
     if abs.kind == StateKind::View {
         abs.focus = focus(app);
@@ -213,124 +204,18 @@ fn open(app: &App, at: &str) -> (StateKind, &'static str) {
             },
         );
     }
-    let narrow = NARROW
+    let narrow = tabs::TABS
         .iter()
+        .flat_map(|t| t.narrow)
         .find(|(node, _)| *node == at)
         .map_or("", |(_, narrow)| *narrow);
     (kind, narrow)
 }
 
-/// The name the key table narrows each layer and typed value with, by the
-/// node of the tree it is.
-const NARROW: &[(&str, &str)] = &[
-    ("flow.card.typing", "flow-name"),
-    ("flow.detail.typing", "flow-label"),
-    ("flow.maker.picker.typing", "flow-value"),
-    ("settings.section.typing", "settings"),
-    ("looks.new-frit.typing", "new-frit"),
-    ("looks.new-frit", "new-frit"),
-    ("settings.section", "settings-section"),
-    ("settings.section.list", "settings-list"),
-    ("flow.file", "file-view"),
-    ("flow.restore", "restore"),
-    ("flow.maker.picker", "picker"),
-    ("flow.card", "flow-card"),
-    ("flow.new-card", "flow-new-card"),
-    ("flow.info", "flow-info"),
-    ("flow.maker", "flow-maker"),
-    ("flow.others", "flow-others"),
-    ("flow.detail", "flow-detail"),
-    ("flow.detail.choices", "flow-choice"),
-];
-
-/// What the highlight is on, where the keys act on it differently: the
-/// kind of font in the Fonts view and the row its new-frit form is on, the
-/// kind of setting in Settings, the kind of box in Flow, the page in Help.
+/// What the highlight is on, where the keys act on it differently, as the
+/// open tab's part of the walk says.
 fn focus(app: &App) -> String {
-    match app.nav.view {
-        View::Fonts => {
-            let kind = match app.font() {
-                None => "none",
-                Some(font) if app.shared.pending.removals.contains(&font.name) => "marked",
-                Some(font) => match font.state {
-                    FontState::Reads => "frit",
-                    FontState::BuiltIn => "builtin",
-                    FontState::Refused(_) => "refused",
-                },
-            };
-            // the row the new-frit form is on decides where `n` opens it,
-            // so a form left on another row than the first is a state of
-            // its own
-            match app.fonts.form().at {
-                0 => kind.into(),
-                row => format!("{kind}, form on row {row}"),
-            }
-        }
-        View::Help => if app.help.about() { "about" } else { "help" }.into(),
-        View::Flow => {
-            let obj = match &app.flow.state().at {
-                None => return "none".into(),
-                Some(obj) => obj,
-            };
-            let (place, slot) = match obj {
-                Obj::Doc(_, s) => ("doc", s),
-                Obj::New(s) => ("new", s),
-                Obj::Pal(s) => ("parts", s),
-                Obj::Roam(s) => ("active", s),
-                Obj::Nothing(s) => ("nothing", s),
-                Obj::Others => return "others".into(),
-            };
-            let slot = match slot {
-                Slot::Display(_) => "display",
-                // a keyboard and a pointer sit apart in PARTS, and the box
-                // of other inputs comes after them; the slot holds the
-                // selector that names the device
-                Slot::Input(name) => {
-                    let sort = app
-                        .shared
-                        .inputs
-                        .flow
-                        .inputs
-                        .iter()
-                        .find(|d| {
-                            d.name == *name || d.keys.iter().any(|k| k.starts_with(name.as_str()))
-                        })
-                        .map(vtium_config::tui::flowview::sort);
-                    match sort {
-                        Some(vtium_config::tui::flowview::Sort::Keyboard) => "keyboard",
-                        Some(vtium_config::tui::flowview::Sort::Pointer) => "pointer",
-                        _ if name == "*" => "any input",
-                        _ => "input",
-                    }
-                }
-                Slot::Terminal => "terminal",
-                Slot::Font(_) => "font",
-                Slot::Special(_) => "special",
-                Slot::Template(_) => "template",
-                Slot::Empty(_) => "empty",
-            };
-            format!("{place} {slot}")
-        }
-        // on the list of sections, the first section apart from the
-        // rest, so the walk opens a section other than the first
-        View::Settings if app.settings.section_at() == 0 => "first".into(),
-        View::Settings => "later".into(),
-        View::Looks | View::New => String::new(),
-    }
-}
-
-/// The kind of a Settings key, as far as Enter on it differs: a switch or
-/// a choice opens its values as a list, and a key binding or any other
-/// key starts typing.
-fn key_kind(key: Option<&vtium_settings::keys::Key>) -> String {
-    match key.map(|k| k.kind) {
-        Some(Kind::Switch) => "switch",
-        Some(Kind::Choice(_)) => "choice",
-        Some(Kind::KeyBinding) => "binding",
-        Some(_) => "value",
-        None => "none",
-    }
-    .into()
+    (tabs::of(app.nav.view).focus)(app)
 }
 
 /// What the screen shows, read from its text and its tab bar alone,
@@ -368,18 +253,18 @@ impl Shown {
         &self.rows
     }
 
-    fn row(&self, at: usize) -> &str {
+    pub fn row(&self, at: usize) -> &str {
         self.rows.get(at).map_or("", String::as_str)
     }
 
     /// Whether a row starts with `text`.
-    fn any(&self, text: &str) -> bool {
+    pub fn any(&self, text: &str) -> bool {
         self.rows.iter().any(|r| r.starts_with(text))
     }
 
     /// Whether a row under the tab bar's two lines, up to row 5, starts
     /// with `title`.
-    fn top(&self, title: &str) -> bool {
+    pub fn top(&self, title: &str) -> bool {
         self.rows
             .iter()
             .take(6)
@@ -387,61 +272,13 @@ impl Shown {
             .any(|r| r.starts_with(title))
     }
 
-    /// The nodes the screen can be showing. A layer of the Flow view puts
-    /// its name after a `›` on row 1 and its title on row 3, and the file
-    /// view and Restore's list show their titles near the top. The
-    /// Settings tab says under its list what Enter does there, which tells
-    /// the list of sections, a section, a list of values and a value being
-    /// typed apart. The new-frit form shows its add row, highlighted when
-    /// the form is on it. Some layers of the Flow view share a title, so
-    /// one screen can name a few nodes.
+    /// The nodes the screen can be showing, as the part of the walk of the
+    /// tab that the tab bar highlights reads them from the screen's rows.
     pub fn nodes(&self) -> &'static [&'static str] {
-        let title = self.row(3);
-        match self.tab.as_str() {
-            "flow" if self.row(1).contains("  ›  ") => {
-                if title.starts_with(" OTHER INPUTS") {
-                    &["flow.others"]
-                } else if title.starts_with(" THE NEW PATH'S TERMINAL") {
-                    &["flow.new-card", "flow.card.typing"]
-                } else if title.starts_with(" TERMINAL ") {
-                    &["flow.card", "flow.card.typing"]
-                } else if title.contains(" PART ") {
-                    &["flow.detail", "flow.detail.choices", "flow.detail.typing"]
-                } else if title.starts_with(" ADD A") {
-                    &["flow.maker"]
-                } else {
-                    &["flow.info", "flow.maker.picker", "flow.maker.picker.typing"]
-                }
-            }
-            "flow" if self.top(" The draft (read only)") => &["flow.file"],
-            "flow" if self.top(" Restore an earlier vtium.conf") => &["flow.restore"],
-            "flow" => &["flow"],
-            "settings" if self.any(" Press Enter to open a section") => &["settings"],
-            "settings" if self.any(" Press Enter to type a setting's value") => {
-                &["settings.section"]
-            }
-            "settings" if self.any(" Press Enter to pick the highlighted value") => {
-                &["settings.section.list"]
-            }
-            "settings" if self.any(" Type the value and press Enter") => {
-                &["settings.section.typing"]
-            }
-            "fonts"
-                if self
-                    .rows
-                    .iter()
-                    .any(|r| r.starts_with(" > Add this font set")) =>
-            {
-                &["looks.new-frit"]
-            }
-            "fonts" if self.rows.iter().any(|r| r.contains("Add this font set")) => {
-                &["looks.new-frit.typing"]
-            }
-            "fonts" => &["fonts"],
-            "looks" => &["looks"],
-            "help" => &["help"],
-            _ => &[],
-        }
+        tabs::TABS
+            .iter()
+            .find(|t| t.bar == self.tab)
+            .map_or(&[], |t| (t.shown)(self))
     }
 
     /// Whether the screen can be showing the node `node`. A question, the
