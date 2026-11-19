@@ -124,3 +124,7 @@ effects-80x25	the Effects tab: the filter line, then the vtlooks, the color maps
 effects-100x30	the same at 100×30
 effects-amber-80x25	the Effects tab in a terminal that shows pictures, with the preset amber highlighted: the list, the sentences under it, and the line beside the picture, which names the vtlook the sample screen is drawn through
 effects-amber-100x30	the same at 100×30
+looks-card-80x25	the Looks tab with the card of the look proof open: its name, font set, size, color scheme, vtlook and pointer theme lines, and its font set's fonts by role and what they miss
+looks-card-100x30	the same at 100×30
+looks-font-set-80x25	the Looks tab with the detail of the font set proof open: whether it reads, its fonts by role, what it misses, and the looks that use it
+looks-font-set-100x30	the same at 100×30

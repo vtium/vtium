@@ -690,11 +690,16 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     );
     to_fonts(&mut c);
     c.until("decided", |s| s.screen.contains("t: try live"));
-    // a size on the Looks tab, so the draft differs from the system's
-    // vtium.conf whatever it holds
+    // a new look on the Looks tab, so the draft differs from the system's
+    // vtium.conf whatever it holds: n makes it, Enter keeps its name, and
+    // Esc closes its card
     c.key(b"3");
-    c.key(b"\x1b[B");
+    c.key(b"n");
+    c.until("the card", |s| s.screen.contains("Type the look's name"));
     c.key(b"\r");
+    c.until("the name kept", |s| s.screen.contains("Enter on a line shows"));
+    c.key(b"\x1b");
+    c.until("the list", |s| s.screen.contains(" Font sets"));
     c.key(b"i");
     c.until("asked", |s| s.screen.contains("Install the draft?"));
     let program = env!("CARGO_BIN_EXE_vtium-config");

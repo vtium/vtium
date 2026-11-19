@@ -37,7 +37,7 @@ use super::explore::ALPHABET;
 use super::reference::{self, Expect};
 use super::sim::{Sim, Term};
 use super::state;
-use super::tabs::fonts::FORM_FIELDS;
+use super::tabs::looks::FORM_FIELDS;
 
 /// How many random sequences each run tries.
 const CASES: u32 = 64;
@@ -86,8 +86,14 @@ impl RefState {
                 if over && id != self.node {
                     next.under.push(self.node.clone());
                 }
+                // a node belongs to the tab its id starts with, as the form
+                // for a new font set belongs to the Looks tab when `n`
+                // opens it from the Fonts tab
+                let root = id.split('.').next().unwrap_or("");
                 if reference::kind(&id) == "view" {
                     next.tab.clone_from(&id);
+                } else if !over && !id.starts_with("any.") && reference::kind(root) == "view" {
+                    root.clone_into(&mut next.tab);
                 }
                 next.node = id;
             }
@@ -325,12 +331,19 @@ fn the_sequences_proptest_found_replay_as_the_tables_say() {
 /// The new-frit form opens on its first field each time `n` opens it,
 /// after Esc left it on its add row or on a field in the middle. The
 /// reference counts the six fields, so it knows on which Enter the form
-/// reaches its add row.
+/// reaches its add row. Esc goes back to the Looks tab, which the form
+/// belongs to, and `1` goes back to the Fonts tab, whose `n` opens the
+/// form today.
 #[test]
 fn the_new_frit_form_opens_on_its_first_field_after_esc() {
     let fields = ["Enter"; FORM_FIELDS];
-    let from_the_add_row = [&["n"][..], &fields, &["Esc", "n"], &fields, &["Esc"]].concat();
-    let from_a_field = [&["n", "Enter", "Enter", "Esc", "n"][..], &fields, &["Esc"]].concat();
+    let from_the_add_row = [&["n"][..], &fields, &["Esc", "1", "n"], &fields, &["Esc"]].concat();
+    let from_a_field = [
+        &["n", "Enter", "Enter", "Esc", "1", "n"][..],
+        &fields,
+        &["Esc"],
+    ]
+    .concat();
     for term in Term::ALL {
         for keys in [&from_the_add_row, &from_a_field] {
             replay(term, keys).unwrap_or_else(|e| panic!("{e}"));

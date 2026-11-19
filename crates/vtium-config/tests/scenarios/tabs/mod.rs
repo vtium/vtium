@@ -59,11 +59,6 @@ pub fn of(view: View) -> &'static Tab {
         .unwrap_or(&flow::TAB)
 }
 
-/// A tab's focus where the highlight decides nothing.
-pub fn no_focus(_: &App) -> String {
-    String::new()
-}
-
 /// A tab's layer focus where no layer's highlight decides what Enter
 /// opens.
 pub fn no_layer_focus(_: &App, _: &str) -> Option<String> {

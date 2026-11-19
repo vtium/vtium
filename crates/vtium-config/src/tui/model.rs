@@ -265,7 +265,7 @@ pub enum View {
     /// Help and About.
     Help,
     /// `new`'s guided flow: a frit made from fonts, installed like any
-    /// change (ADR-1201 D9). It belongs to the Fonts view.
+    /// change (ADR-1201 D9). It belongs to the Looks tab.
     New,
     /// The Effects tab, which says only that it is coming.
     Effects,
@@ -287,11 +287,11 @@ impl View {
         View::Help,
     ];
 
-    /// The tab the view shows under: its own, or the Fonts view's for the
+    /// The tab the view shows under: its own, or the Looks tab's for the
     /// new-frit view.
     pub const fn tab(self) -> View {
         match self {
-            View::New => View::Fonts,
+            View::New => View::Looks,
             v => v,
         }
     }
@@ -694,7 +694,7 @@ impl App {
             size,
             fonts: super::tabs::fonts::Fonts::new(font_at),
             effects: super::tabs::effects::Effects::default(),
-            looks: super::tabs::looks::Looks::new(font_at),
+            looks: super::tabs::looks::Looks::default(),
             settings: super::tabs::settings::Settings::default(),
             flow,
             help: super::tabs::help::Help::default(),
@@ -790,7 +790,7 @@ impl App {
         match view {
             View::Flow => &self.flow,
             View::Fonts => &self.fonts,
-            View::New => self.fonts.new_frit(),
+            View::New => self.looks.new_frit(),
             View::Effects => &self.effects,
             View::Looks => &self.looks,
             View::Settings => &self.settings,
@@ -803,7 +803,7 @@ impl App {
         let tab: &mut dyn super::tabs::Tab = match self.nav.view {
             View::Flow => &mut self.flow,
             View::Fonts => &mut self.fonts,
-            View::New => self.fonts.new_frit_mut(),
+            View::New => self.looks.new_frit_mut(),
             View::Effects => &mut self.effects,
             View::Looks => &mut self.looks,
             View::Settings => &mut self.settings,
@@ -891,14 +891,6 @@ impl App {
         if super::nav::node(self) != node {
             self.nav.key_page = 0;
         }
-        // the Fonts tab tells update each move of its highlight, and update
-        // hands it to the Looks tab, so the Looks tab previews the font the
-        // Fonts tab highlights after every event
-        debug_assert_eq!(
-            self.looks.font(),
-            self.fonts.at(),
-            "the Looks tab previews the font the Fonts tab highlights"
-        );
         out
     }
 
@@ -970,9 +962,9 @@ impl App {
         }
     }
 
-    /// The size the size view highlights, in points, 0 for automatic.
+    /// The size the Looks tab previews, in points, 0 for automatic.
     pub fn size(&self) -> u32 {
-        self.looks.points()
+        self.looks.points(&self.shared)
     }
 
     /// Whether a query the TUI sent is still outstanding, so the reader
@@ -1275,7 +1267,9 @@ impl App {
                 Command::Change(Change::SaveTried) => effects.extend(self.save_tried()),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
                 Command::Change(Change::Quiet) => self.shared.message = None,
-                Command::Change(Change::Preview(at)) => self.looks.show_font(at),
+                // the Looks tab previews its own highlight, so a move of
+                // the Fonts tab's highlight changes nothing more
+                Command::Change(Change::Preview(_)) => {}
                 Command::Change(Change::Make { changes, select }) => {
                     effects.extend(self.make(changes, select));
                 }
