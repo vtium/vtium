@@ -175,6 +175,12 @@ pub enum Event {
     },
     /// The picture [`Effect::Picture`] asked for, or why there is none.
     Pictured(Result<crate::specimen::Picture, String>),
+    /// A picture drawn through the effect the Effects tab previews, and
+    /// what became of the effect.
+    Filtered {
+        picture: crate::specimen::Picture,
+        outcome: crate::specimen::Outcome,
+    },
     /// The detailed specimen [`Effect::Specimen`] asked for, and what it
     /// gives, or why there is none.
     Detailed {
@@ -940,6 +946,7 @@ impl App {
             Event::Installed(result) => self.installed(result),
             Event::Celled { font, height, cell } => self.celled(&font, height, cell),
             Event::Pictured(result) => self.pictured(result),
+            Event::Filtered { picture, outcome } => self.filtered(picture, outcome),
             Event::Detailed {
                 font,
                 height,

@@ -1,6 +1,8 @@
 //! What the Effects tab says: the tab's name, its filter line and groups,
 //! each vtlook's marks, the detail of a vtlook, a color map or a shader,
-//! and the sentences under the list that say what the keys do.
+//! the sentences under the list that say what the keys do, and the line
+//! beside the preview, which says what the picture shows and, where it
+//! shows the console without the effect, why.
 //!
 //! References:
 //! - ADR-1205 D2: the words on screen, effect, color map, shader, active,
@@ -41,7 +43,7 @@ pub const VTLOOK_HIDDEN: &str = "hidden by the administrator's vtlook of this na
 pub const VTLOOK_BROKEN: &str = "does not read";
 
 /// What the tab says under the list, while nothing is open over it.
-pub const EFFECTS_HINT: &str = "Space activates or deactivates the highlighted color map or shader. Enter opens the highlighted item's detail, or the list of groups on the filter line.";
+pub const EFFECTS_HINT: &str = "Space activates or deactivates a color map or shader. Enter opens an item's detail, or the list of groups.";
 
 /// What the tab says under the list of groups.
 pub const EFFECTS_FILTER_HINT: &str = "Press Enter to show the highlighted group.";
@@ -124,4 +126,69 @@ pub fn detail_users(looks: &[String]) -> String {
     } else {
         format!("Used by {}.", looks.join(", "))
     }
+}
+
+/// The line beside the preview of an effect in a terminal that shows no
+/// pictures.
+pub const EFFECT_NO_PICTURES: &str =
+    "This terminal does not support images, so vtium-config cannot show effects.";
+
+/// The line beside the preview of the filter line or of No filter.
+pub const EFFECT_PLAIN: &str = "The picture shows the sample screen with no filter.";
+
+/// The line beside the preview of a vtlook.
+pub fn effect_vtlook(name: &str) -> String {
+    format!("The picture shows the sample screen through the vtlook {name}.")
+}
+
+/// The line beside the preview of a color map.
+pub fn effect_map(name: &str) -> String {
+    format!("The picture shows the sample screen through the color map {name}.")
+}
+
+/// What the line adds for a vtlook whose spatial filters the picture
+/// leaves out.
+pub const EFFECT_COLOR_ONLY: &str =
+    "It leaves out the vtlook's spatial filters, which only the GPU draws.";
+
+/// The line beside the preview of an effect that vtium cannot use, with
+/// why, a phrase that follows "because".
+pub fn effect_without(why: &str) -> String {
+    format!("The picture shows the sample screen without this effect, because {why}.")
+}
+
+/// The line beside the preview of an effect whose colors vtium cannot
+/// build, with the first error of the vtlook reader.
+pub fn effect_failed(error: &str) -> String {
+    let error = error.trim_end_matches('.');
+    format!(
+        "The picture shows the sample screen without this effect, because vtium cannot build its colors: {error}."
+    )
+}
+
+/// Why the picture shows no shader.
+pub const EFFECT_SHADER: &str =
+    "a shader runs only on the GPU, and vtium-config draws this picture on the CPU";
+
+/// Why the picture shows no vtlook that does not read.
+pub const EFFECT_VTLOOK_BROKEN: &str =
+    "this vtlook does not read, so vtium renders the built-in vtlook in its place";
+
+/// Why vtium cannot use a color map, in the words of its mark.
+pub const MAP_OWN: &str = "is in your own folder, where vtium cannot use it";
+pub const MAP_INACTIVE: &str = "is not active, so vtium treats it as missing";
+pub const MAP_UNTRUSTED: &str = "fails the trust rule, so vtium treats it as missing";
+pub const MAP_MISSING: &str = "is not installed";
+
+/// Why the picture shows no highlighted color map.
+pub fn map_unusable(why: &str) -> String {
+    format!("this color map {why}")
+}
+
+/// Why the picture shows no vtlook that names a color map vtium cannot
+/// use.
+pub fn vtlook_map_unusable(map: &str, why: &str) -> String {
+    format!(
+        "this vtlook names the color map {map}, which {why}, so vtium renders the built-in vtlook in its place"
+    )
 }

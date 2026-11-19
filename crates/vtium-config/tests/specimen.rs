@@ -127,6 +127,7 @@ fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit()
             palette: "legacy".to_owned(),
             color: true,
             max: (320, 300),
+            filter: None,
         };
         let p = paint(&shot).unwrap_or_else(|e| panic!("{font}: {e}"));
         // the line's 14 columns, and as many of its rows as 300 pixels

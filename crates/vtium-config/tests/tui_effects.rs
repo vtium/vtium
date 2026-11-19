@@ -227,3 +227,229 @@ fn space_on_a_color_map_vtium_cannot_use_says_why() {
     ));
     assert!(text(&a).contains("the file is not active"));
 }
+
+/// The screen the loop draws in a terminal of `cols` by `rows` that shows
+/// pictures, `ops` saying whether it is a vtium console that switches its
+/// font, after `keys`; and the console, which keeps each picture asked
+/// for.
+fn pictured(ops: bool, cols: usize, rows: usize, keys: &[&[u8]]) -> (String, Console) {
+    let grid = (cols, rows);
+    let mut c = Console::vtium(cols, rows, ops, "unifont")
+        .takes("proof", grid)
+        .takes("unifont", grid)
+        .keys(keys);
+    c.graphics = true;
+    drive(&mut c, inputs()).expect("the loop");
+    let screen = c.seen.clone().expect("the screen");
+    (screen, c)
+}
+
+/// The screen's text as one line, so a sentence wrapped across rows reads
+/// whole.
+fn joined(screen: &str) -> String {
+    screen.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The keys from the Flow view to the Effects tab's item at `place`, 1
+/// for No filter.
+fn to_item(place: usize) -> Vec<&'static [u8]> {
+    let mut keys: Vec<&'static [u8]> = vec![TO_EFFECTS];
+    keys.extend(std::iter::repeat_n(DOWN, place));
+    keys
+}
+
+// The preview of a preset asks for the sample screen drawn through the
+// preset's file, with the draft's active color maps as the only ones it
+// may read, and the line beside it names the vtlook. No filter asks for
+// the plain sample screen, and its line says so. In a vtium console that
+// switches its font, the Effects tab still previews as a picture, since
+// the console's own text cannot show an effect.
+#[test]
+fn a_preset_is_previewed_through_its_file_and_no_filter_plain() {
+    use vtium_config::specimen::{Filter, Filtered};
+    for ops in [false, true] {
+        let (screen, c) = pictured(ops, 100, 30, &to_item(2));
+        let shot = c.shots.last().expect("a picture");
+        assert_eq!(
+            shot.filter,
+            Some(Filtered {
+                filter: Filter::Vtlook {
+                    name: "amber".to_owned(),
+                    file: "/usr/share/vtium/looks/amber.vtlook".into(),
+                },
+                active: vec!["/etc/vtium/looks/sepia.cube".into()],
+            }),
+            "ops {ops}"
+        );
+        let first = vtium_config::tui::view::text(&shot.screen[0]);
+        assert!(first.starts_with("user@desk:~/notes$ ls -l"), "{first}");
+        assert!(
+            joined(&screen)
+                .contains("The picture shows the sample screen through the vtlook amber."),
+            "{screen}"
+        );
+        // with VTIUM_CONFIG_EFFECT_PPM=FILE, the picture as the glyph
+        // helper draws it and the preset in this checkout colors it, for
+        // the maintainer's review
+        if let Some(out) = std::env::var_os("VTIUM_CONFIG_EFFECT_PPM") {
+            draw_amber(shot, &out);
+        }
+        let (screen, c) = pictured(ops, 100, 30, &to_item(1));
+        assert_eq!(c.shots.last().expect("a picture").filter, None);
+        assert!(
+            joined(&screen).contains("The picture shows the sample screen with no filter."),
+            "{screen}"
+        );
+    }
+}
+
+/// Writes `shot` as the glyph helper draws it, through the amber preset
+/// in this checkout, to the PPM file `out`.
+fn draw_amber(shot: &vtium_config::specimen::Shot, out: &std::ffi::OsStr) {
+    use vtium_config::specimen::{Filter, Filtered, Outcome};
+    let helper = vtium_config::specimen::Helper::at(env!("CARGO_BIN_EXE_vtium-config"));
+    let frit = vtium_config::tui::frit_text(Path::new("/nonexistent"), &shot.font)
+        .expect("a built-in font's frit");
+    let mut picture =
+        vtium_config::specimen::screen(&helper, &frit, shot, "C").expect("the picture");
+    let looks = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vtium/install/looks")
+        .canonicalize()
+        .expect("the presets");
+    let euid = rustix::process::geteuid().as_raw();
+    let outcome = vtium_config::specimen::through(
+        &mut picture,
+        &Filtered {
+            filter: Filter::Vtlook {
+                name: "amber".to_owned(),
+                file: looks.join("amber.vtlook"),
+            },
+            active: Vec::new(),
+        },
+        &looks,
+        &vtium_settings::Trust::running_as(euid),
+        vtium_settings::cullet::Rule::running_as(euid),
+    );
+    assert_eq!(outcome, Outcome::Applied);
+    let mut ppm = format!("P6\n{} {}\n255\n", picture.width, picture.height).into_bytes();
+    for px in picture.rgba.chunks(4) {
+        ppm.extend_from_slice(px.get(..3).unwrap_or_default());
+    }
+    std::fs::write(out, ppm).expect("the picture's file");
+}
+
+// A color map that is not active, one that fails the trust rule, one in
+// the person's own folder, a vtlook that does not read and a shader each
+// leave the picture plain, and the line beside it says why. A vtlook that
+// names an active color map is drawn through.
+#[test]
+fn an_effect_vtium_cannot_use_leaves_the_picture_plain_and_says_why() {
+    let because = |place: usize, why: &str| {
+        let (screen, c) = pictured(false, 100, 30, &to_item(place));
+        assert_eq!(c.shots.last().expect("a picture").filter, None, "{screen}");
+        let want =
+            format!("The picture shows the sample screen without this effect, because {why}.");
+        assert!(joined(&screen).contains(&want), "{want}\n{screen}");
+    };
+    because(
+        4,
+        "this vtlook does not read, so vtium renders the built-in vtlook in its place",
+    );
+    because(
+        7,
+        "this color map is not active, so vtium treats it as missing",
+    );
+    because(
+        8,
+        "this color map fails the trust rule, so vtium treats it as missing",
+    );
+    because(
+        9,
+        "this color map is in your own folder, where vtium cannot use it",
+    );
+    let (_, c) = pictured(false, 100, 30, &to_item(5));
+    assert!(
+        c.shots.last().expect("a picture").filter.is_some(),
+        "sepia names the active sepia.cube"
+    );
+}
+
+// The line beside a picture drawn through an effect says what became of
+// the effect: a vtlook whose colors vtium cannot build leaves the picture
+// plain, and the line gives the reader's first error; a vtlook with
+// spatial filters shows its colors and says what it leaves out.
+#[test]
+fn the_line_says_what_became_of_the_effect() {
+    use vtium_config::specimen::{Outcome, Picture};
+    let answer = |outcome: Outcome| {
+        let mut a = app(100, 30);
+        press(&mut a, Key::Char('2'));
+        to(&mut a, "amber");
+        // another terminal, which shows pictures from here on and has
+        // asked for none, so the next key asks for the font's cell toward
+        // the picture of amber
+        a.shared.live = vtium_config::tui::model::Live::NotVtium;
+        a.shared.graphics = true;
+        a.shared.drawing = false;
+        a.shared.asked = None;
+        let asked = press(&mut a, Key::Char('z'));
+        let Some((font, height)) = asked.iter().find_map(|e| match e {
+            Effect::Cell { font, height } => Some((font.clone(), *height)),
+            _ => None,
+        }) else {
+            panic!("no cell asked for: {asked:?}");
+        };
+        let cell = vtium_font::Cell {
+            width: 8,
+            height: 16,
+        };
+        let drawn = a.event(Event::Celled {
+            font,
+            height,
+            cell: Ok((cell, 16)),
+        });
+        assert!(
+            drawn
+                .iter()
+                .any(|e| matches!(e, Effect::Picture(shot) if shot.filter.is_some())),
+            "{drawn:?}"
+        );
+        a.event(Event::Filtered {
+            picture: Picture {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 255],
+            },
+            outcome,
+        });
+        joined(&text(&a))
+    };
+    let shown = answer(Outcome::Failed(
+        "color filter 1 of 1, cube: reading: the file is missing.".into(),
+    ));
+    assert!(
+        shown.contains("without this effect, because vtium cannot build its colors: color filter 1 of 1, cube: reading: the file is missing."),
+        "{shown}"
+    );
+    let shown = answer(Outcome::ColorOnly);
+    assert!(
+        shown.contains("through the vtlook amber. It leaves out the vtlook's spatial filters, which only the GPU draws."),
+        "{shown}"
+    );
+}
+
+// The Effects tab with the preset amber highlighted, in a terminal that
+// shows pictures: the list, the sentences under it, and the line beside
+// the picture.
+#[test]
+fn the_effects_tab_previews_a_preset_at_80x25_and_100x30() {
+    for (cols, rows) in [(80, 25), (100, 30)] {
+        let (screen, c) = pictured(false, cols, rows, &to_item(2));
+        assert!(
+            joined(&screen).contains("through the vtlook amber."),
+            "{screen}"
+        );
+        let bytes = c.written.get(..c.seen_at).unwrap_or_default().to_vec();
+        golden(&format!("effects-amber-{cols}x{rows}"), &screen, &bytes);
+    }
+}

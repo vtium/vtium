@@ -88,6 +88,11 @@ pub enum Drawn {
         cell: Result<(vtium_font::Cell, u32), String>,
     },
     Pictured(Result<crate::specimen::Picture, String>),
+    /// A picture drawn through an effect, and what became of the effect.
+    Filtered {
+        picture: crate::specimen::Picture,
+        outcome: crate::specimen::Outcome,
+    },
     /// The detailed specimen, and what it gives: the cell, the grid on the
     /// display and how many of its characters the font draws itself.
     Detailed {
@@ -108,6 +113,7 @@ impl Drawn {
         match self {
             Drawn::Celled { font, height, cell } => Event::Celled { font, height, cell },
             Drawn::Pictured(p) => Event::Pictured(p),
+            Drawn::Filtered { picture, outcome } => Event::Filtered { picture, outcome },
             Drawn::Detailed {
                 font,
                 height,
@@ -343,6 +349,28 @@ pub type Painter = std::sync::Arc<
     dyn Fn(&crate::specimen::Shot) -> Result<crate::specimen::Picture, String> + Send + Sync,
 >;
 
+/// Draws a picture through an effect, on the painter's thread, and says
+/// what became of the effect.
+pub type Filterer = std::sync::Arc<
+    dyn Fn(&mut crate::specimen::Picture, &crate::specimen::Filtered) -> crate::specimen::Outcome
+        + Send
+        + Sync,
+>;
+
+/// What the loop answers for the picture `shot` asks for: the picture
+/// `paint` draws, and where the shot carries an effect, the picture drawn
+/// through it by `filter`, with what became of the effect. A shot with no
+/// effect, such as No filter's, keeps the painter's pixels.
+fn painted(shot: &crate::specimen::Shot, paint: &Painter, filter: &Filterer) -> Drawn {
+    match (paint(shot), &shot.filter) {
+        (Ok(mut picture), Some(filtered)) => {
+            let outcome = filter(&mut picture, filtered);
+            Drawn::Filtered { picture, outcome }
+        }
+        (painted, _) => Drawn::Pictured(painted),
+    }
+}
+
 /// Draws a font's detailed specimen at a pixel height in at most so many
 /// pixels, on a thread of its own.
 pub type Detailer = std::sync::Arc<
@@ -370,6 +398,7 @@ pub type Finder = Box<dyn FnOnce(Vec<String>) -> Vec<(String, super::model::Sour
 /// What the real port asks the glyph helper through.
 pub struct Tools {
     pub painter: Painter,
+    pub filterer: Filterer,
     pub measurer: Measurer,
     pub detailer: Detailer,
     pub summarizer: Summarizer,
@@ -711,16 +740,17 @@ impl Port for Tty {
             std::sync::Arc::clone(&self.tools.painter),
             std::sync::Arc::clone(&self.tools.summarizer),
             std::sync::Arc::clone(&self.tools.detailer),
+            std::sync::Arc::clone(&self.tools.filterer),
         );
         let drawn = self.drawn.clone();
         std::thread::spawn(move || {
-            let (measure, paint, summarize, detail) = tools;
+            let (measure, paint, summarize, detail, filter) = tools;
             let answer = match ask {
                 Draw::Cell { font, height } => {
                     let cell = measure(&font, height);
                     Drawn::Celled { font, height, cell }
                 }
-                Draw::Picture(shot) => Drawn::Pictured(paint(&shot)),
+                Draw::Picture(shot) => painted(&shot, &paint, &filter),
                 Draw::Specimen {
                     font,
                     height,
@@ -785,5 +815,56 @@ mod tests {
         let off = super::super::model::MOUSE_OFF;
         assert!(LEAVE.windows(off.len()).any(|w| w == off), "{LEAVE:?}");
         assert!(LEAVE.ends_with(b"\x1b[?25h\x1b[?1049l"), "{LEAVE:?}");
+    }
+
+    /// A shot with no effect keeps the painter's pixels and is answered as
+    /// any picture; a shot with one is drawn through it, and the answer
+    /// says what became of it.
+    #[test]
+    fn a_picture_is_drawn_through_its_effect_and_one_without_keeps_its_pixels() {
+        use crate::specimen::{Filter, Filtered, Outcome, Picture, Shot};
+        let grey = Picture {
+            width: 1,
+            height: 1,
+            rgba: vec![128, 128, 128, 255],
+        };
+        let painted_grey = grey.clone();
+        let paint: Painter = std::sync::Arc::new(move |_| Ok(painted_grey.clone()));
+        let filter: Filterer = std::sync::Arc::new(|picture, _| {
+            picture.rgba = vec![255, 176, 0, 255];
+            Outcome::Applied
+        });
+        let mut shot = Shot {
+            font: "unifont".to_owned(),
+            height: 16,
+            cell: vtium_font::Cell {
+                width: 8,
+                height: 16,
+            },
+            face_height: 16,
+            display: (640, 480),
+            grid: (80, 30),
+            screen: Vec::new(),
+            palette: String::new(),
+            color: true,
+            max: (8, 16),
+            filter: None,
+        };
+        assert_eq!(painted(&shot, &paint, &filter), Drawn::Pictured(Ok(grey)));
+        shot.filter = Some(Filtered {
+            filter: Filter::Cube("/etc/vtium/looks/warm.cube".into()),
+            active: Vec::new(),
+        });
+        assert_eq!(
+            painted(&shot, &paint, &filter),
+            Drawn::Filtered {
+                picture: Picture {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![255, 176, 0, 255],
+                },
+                outcome: Outcome::Applied,
+            }
+        );
     }
 }
