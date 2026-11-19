@@ -932,6 +932,19 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
 mod tests {
     use super::*;
 
+    // `vtium config set palette` takes a built-in palette's name or a
+    // file's name, and refuses a value that breaks the name rule.
+    #[test]
+    fn a_name_key_takes_a_built_in_or_a_file_s_name() {
+        for value in ["nord", "catppuccin-mocha"] {
+            assert_eq!(
+                set_edit(&keys::PALETTE, value),
+                Ok(Edit::Set("palette", value))
+            );
+        }
+        assert!(set_edit(&keys::PALETTE, "../nord").is_err());
+    }
+
     // The report names a strike whose file has another SHA-256 by the
     // strike's own file, with the page of the source the strike belongs
     // to, as it names a source's file.

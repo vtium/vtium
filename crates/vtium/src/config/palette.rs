@@ -174,6 +174,25 @@ mod tests {
         Trust::owner(me).below(dir)
     }
 
+    // The top level and the command line take a built-in palette's name
+    // or a file's name in `palette`, and refuse a value that breaks the
+    // name rule, which leaves the value below it.
+    #[test]
+    fn the_top_level_palette_takes_a_built_in_or_a_file_s_name() {
+        for value in ["nord", "catppuccin-mocha"] {
+            let loaded = crate::config::load(&[], &mut |_: &Path| {
+                Ok(Some(format!("palette = {value}\n").into_bytes()))
+            });
+            assert_eq!(loaded.reports.len(), 0, "{value}");
+            assert_eq!(loaded.config.text(&keys::PALETTE), Some(value));
+        }
+        let loaded = crate::config::load(&["--palette=../nord".into()], &mut |_: &Path| {
+            Ok(Some(b"palette = vga\n".to_vec()))
+        });
+        assert_eq!(loaded.reports.len(), 1);
+        assert_eq!(loaded.config.text(&keys::PALETTE), Some("vga"));
+    }
+
     // A palette file that reads cleanly is the palette; one that fails, and
     // a name no folder holds, give the palette below it, and vtium logs one
     // line for each file the first time, whatever asks for it again.

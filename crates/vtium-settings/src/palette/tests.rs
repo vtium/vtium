@@ -457,3 +457,23 @@ fn a_long_ignored_key_is_listed_once() {
     assert_eq!(listed, [(long.as_str(), 1), (other.as_str(), 3)]);
     assert!(ignored[0].quoted().to_string().ends_with("...\""));
 }
+
+// A look section's `palette` takes a built-in palette's name or a file's
+// name, and the section reader refuses a value that breaks the name rule,
+// which drops the look.
+#[test]
+fn a_look_s_palette_takes_a_built_in_or_a_file_s_name() {
+    let palette = |value: &str| {
+        let text = format!("version = 1\n[look warm]\npalette = {value}\n");
+        crate::sections(text.as_bytes())
+            .and_then(|r| r.parsed.config.looks.into_iter().find(|l| l.name == "warm"))
+            .and_then(|l| l.settings.into_iter().find(|s| s.key.name == "palette"))
+            .map(|s| s.value)
+    };
+    assert_eq!(palette("legacy").as_deref(), Some("legacy"));
+    assert_eq!(
+        palette("catppuccin-mocha").as_deref(),
+        Some("catppuccin-mocha")
+    );
+    assert_eq!(palette("../catppuccin-mocha"), None);
+}
