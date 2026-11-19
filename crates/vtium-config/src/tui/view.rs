@@ -244,7 +244,7 @@ fn body(app: &App) -> Body {
             }
         }
         View::Help => Body {
-            keep: app.help_at,
+            keep: app.help.top(),
             list: help_rows(app),
             tail: Vec::new(),
         },
@@ -444,7 +444,7 @@ pub fn help_rows(app: &App) -> Vec<Row> {
         ..Style::PLAIN
     };
     let mut rows = Vec::new();
-    if app.about {
+    if app.help.about() {
         let mut out = Vec::new();
         crate::banner::about(&mut out);
         for line in String::from_utf8_lossy(&out).lines() {

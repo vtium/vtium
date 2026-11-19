@@ -44,6 +44,7 @@ pub mod port;
 pub mod replies;
 pub mod settings;
 pub mod shot;
+pub mod tabs;
 pub mod view;
 pub mod words;
 

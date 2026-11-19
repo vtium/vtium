@@ -459,10 +459,8 @@ pub struct App {
     pub settings: super::settings::Settings,
     /// The Flow view's selected item.
     pub flow_at: Item,
-    /// The Help view shows About.
-    pub about: bool,
-    /// The Help view's first row in sight.
-    pub help_at: usize,
+    /// The Help tab's state.
+    pub help: super::tabs::help::Help,
     /// The value being typed for the highlighted setting, while it is
     /// edited.
     pub editing: Option<String>,
@@ -578,8 +576,7 @@ impl App {
             size_at: 0,
             settings: super::settings::Settings::default(),
             flow_at,
-            about: false,
-            help_at: 0,
+            help: super::tabs::help::Help::default(),
             editing: None,
             new_frit: NewFrit::default(),
             pager: None,
@@ -1083,32 +1080,9 @@ impl App {
             }
             View::Settings => self.settings_key(key),
             View::Help => {
-                match key {
-                    Key::Left | Key::Right => {
-                        self.about = !self.about;
-                        self.help_at = 0;
-                    }
-                    // the top row of the page moves by a line, or by the
-                    // rows the screen shows, and stops where the page's
-                    // last row is at the bottom of the screen
-                    Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                        let (rows, room) = super::view::help_window(self);
-                        let last = rows.saturating_sub(room);
-                        let page = room.max(1);
-                        let at = self.help_at.min(last);
-                        self.help_at = match key {
-                            Key::Up => at.saturating_sub(1),
-                            Key::Down => at.saturating_add(1),
-                            Key::PageUp => at.saturating_sub(page),
-                            Key::PageDown => at.saturating_add(page),
-                            Key::Home => 0,
-                            _ => last,
-                        }
-                        .min(last);
-                    }
-                    _ => {}
-                }
-                Vec::new()
+                let (rows, room) = super::view::help_window(self);
+                let commands = self.help.key(key, super::tabs::help::Page { rows, room });
+                self.perform(commands)
             }
             View::New if key == Key::Escape => self.set_view(View::Fonts),
             View::New => {
@@ -1116,6 +1090,22 @@ impl App {
                 Vec::new()
             }
         }
+    }
+
+    /// Performs the commands a tab's update returned, and returns the
+    /// effects for the loop.
+    ///
+    /// References:
+    /// - ADR-1206 D2: update performs a tab's commands in one place.
+    fn perform(&mut self, commands: Vec<super::tabs::Command>) -> Vec<Effect> {
+        use super::tabs::Command;
+        let mut effects = Vec::new();
+        for command in commands {
+            match command {
+                Command::Effect(effect) => effects.push(effect),
+            }
+        }
+        effects
     }
 
     /// A key below the TUI's minimum size, where no view is drawn: `q`

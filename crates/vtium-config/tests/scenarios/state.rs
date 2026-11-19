@@ -261,7 +261,7 @@ fn focus(app: &App) -> String {
                 FontState::Refused(_) => "refused".into(),
             }
         }
-        View::Help => if app.about { "about" } else { "help" }.into(),
+        View::Help => if app.help.about() { "about" } else { "help" }.into(),
         View::Flow => {
             let obj = match &app.flow_view.at {
                 None => return "none".into(),

@@ -171,7 +171,7 @@ pub fn node(app: &App) -> &'static str {
         View::New => "looks.new-frit",
         View::Looks => "looks",
         View::Fonts => "fonts",
-        View::Help => "help",
+        View::Help => app.help.node(),
     }
 }
 

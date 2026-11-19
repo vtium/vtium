@@ -3277,7 +3277,7 @@ mod flow_view {
         );
         assert!(text(&a).lines().all(|l| l.chars().count() <= 80));
         press(&mut a, Key::Right);
-        assert!(a.about);
+        assert!(a.help.about());
         assert!(
             joined(&a).contains("vtium-config sets up the vtium console"),
             "{}",
