@@ -332,3 +332,130 @@ fn key_kind(key: Option<&vtium_settings::keys::Key>) -> String {
     }
     .into()
 }
+
+/// What the screen shows, read from its text and its tab bar alone,
+/// without the navigation module: the tab the tab bar highlights, and the
+/// rows as text. The walks compare it with the node that the navigation
+/// module names, so a tab whose `node` names the wrong node fails on the
+/// screen as well as in the map.
+pub struct Shown {
+    /// The tab the tab bar highlights, by its id: the reversed text on
+    /// row 0, as `fonts`.
+    pub tab: String,
+    rows: Vec<String>,
+}
+
+impl Shown {
+    pub fn of(sim: &Sim) -> Shown {
+        let screen = vtium_config::tui::view::screen(&sim.app);
+        let tab = screen
+            .first()
+            .map(|row| {
+                row.iter()
+                    .filter(|s| s.style.reverse)
+                    .map(|s| s.text.as_str())
+                    .collect::<String>()
+                    .trim()
+                    .to_lowercase()
+            })
+            .unwrap_or_default();
+        let rows = screen.iter().map(vtium_config::tui::view::text).collect();
+        Shown { tab, rows }
+    }
+
+    /// The screen's rows as text.
+    pub fn rows(&self) -> &[String] {
+        &self.rows
+    }
+
+    fn row(&self, at: usize) -> &str {
+        self.rows.get(at).map_or("", String::as_str)
+    }
+
+    /// Whether a row starts with `text`.
+    fn any(&self, text: &str) -> bool {
+        self.rows.iter().any(|r| r.starts_with(text))
+    }
+
+    /// Whether a row under the tab bar's two lines, up to row 5, starts
+    /// with `title`.
+    fn top(&self, title: &str) -> bool {
+        self.rows
+            .iter()
+            .take(6)
+            .skip(1)
+            .any(|r| r.starts_with(title))
+    }
+
+    /// The nodes the screen can be showing. A layer of the Flow view puts
+    /// its name after a `›` on row 1 and its title on row 3, and the file
+    /// view and Restore's list show their titles near the top. The
+    /// Settings tab says under its list what Enter does there, which tells
+    /// the list of sections, a section, a list of values and a value being
+    /// typed apart. The new-frit form shows its add row, highlighted when
+    /// the form is on it. Some layers of the Flow view share a title, so
+    /// one screen can name a few nodes.
+    pub fn nodes(&self) -> &'static [&'static str] {
+        let title = self.row(3);
+        match self.tab.as_str() {
+            "flow" if self.row(1).contains("  ›  ") => {
+                if title.starts_with(" OTHER INPUTS") {
+                    &["flow.others"]
+                } else if title.starts_with(" THE NEW PATH'S TERMINAL") {
+                    &["flow.new-card", "flow.card.typing"]
+                } else if title.starts_with(" TERMINAL ") {
+                    &["flow.card", "flow.card.typing"]
+                } else if title.contains(" PART ") {
+                    &["flow.detail", "flow.detail.choices", "flow.detail.typing"]
+                } else if title.starts_with(" ADD A") {
+                    &["flow.maker"]
+                } else {
+                    &["flow.info", "flow.maker.picker", "flow.maker.picker.typing"]
+                }
+            }
+            "flow" if self.top(" The draft (read only)") => &["flow.file"],
+            "flow" if self.top(" Restore an earlier vtium.conf") => &["flow.restore"],
+            "flow" => &["flow"],
+            "settings" if self.any(" Press Enter to open a section") => &["settings"],
+            "settings" if self.any(" Press Enter to type a setting's value") => {
+                &["settings.section"]
+            }
+            "settings" if self.any(" Press Enter to pick the highlighted value") => {
+                &["settings.section.list"]
+            }
+            "settings" if self.any(" Type the value and press Enter") => {
+                &["settings.section.typing"]
+            }
+            "fonts"
+                if self
+                    .rows
+                    .iter()
+                    .any(|r| r.starts_with(" > Add this font set")) =>
+            {
+                &["looks.new-frit"]
+            }
+            "fonts" if self.rows.iter().any(|r| r.contains("Add this font set")) => {
+                &["looks.new-frit.typing"]
+            }
+            "fonts" => &["fonts"],
+            "looks" => &["looks"],
+            "help" => &["help"],
+            _ => &[],
+        }
+    }
+
+    /// Whether the screen can be showing the node `node`. A question, the
+    /// live trial and the screen below the minimum size draw over a node
+    /// and are not read here.
+    pub fn agrees(&self, node: &str) -> Result<(), String> {
+        let nodes = self.nodes();
+        if node.starts_with("any.") || nodes.contains(&node) {
+            Ok(())
+        } else {
+            Err(format!(
+                "the screen shows {nodes:?} under the tab {:?}, and the TUI is in {node}",
+                self.tab
+            ))
+        }
+    }
+}

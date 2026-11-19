@@ -165,7 +165,8 @@ impl ReferenceStateMachine for Reference {
 }
 
 /// Whether the TUI after a key agrees with the reference: the exit, the
-/// node, and the tab the tab bar highlights.
+/// node, the tab the tab bar highlights, and the node the screen shows,
+/// which [`state::Shown`] reads from the screen alone.
 fn compare(sim: &Sim, want: &RefState) -> Result<(), String> {
     if let Some(status) = want.left {
         return if sim.exited == Some(status) {
@@ -190,29 +191,14 @@ fn compare(sim: &Sim, want: &RefState) -> Result<(), String> {
     if node == "any.too-small" {
         return Ok(());
     }
-    let lit = highlighted(sim);
-    if lit != want.tab {
+    let shown = state::Shown::of(sim);
+    if shown.tab != want.tab {
         return Err(format!(
-            "the tab bar highlights {lit:?}, and the tables say {}",
-            want.tab
+            "the tab bar highlights {:?}, and the tables say {}",
+            shown.tab, want.tab
         ));
     }
-    Ok(())
-}
-
-/// The tab the tab bar highlights, by its id: the reversed text on row 0.
-fn highlighted(sim: &Sim) -> String {
-    vtium_config::tui::view::screen(&sim.app)
-        .first()
-        .map(|row| {
-            row.iter()
-                .filter(|s| s.style.reverse)
-                .map(|s| s.text.as_str())
-                .collect::<String>()
-                .trim()
-                .to_lowercase()
-        })
-        .unwrap_or_default()
+    shown.agrees(&want.node)
 }
 
 /// Presses `keys`, by the alphabet's names, in a TUI started in `term`,
