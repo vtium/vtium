@@ -91,10 +91,6 @@ pub struct Cluster<'a> {
     pub width: u16,
 }
 
-/// The most characters [`clusters`] hands the console's terminal at once:
-/// as many as a line of the terminal's widest holds, at two cells each.
-const SEGMENT_CHARS: usize = (vtium_term::COLUMNS_MAX - 1) / 2;
-
 /// The characters `text` shows as on the console, each a base character
 /// with the marks that join it, in order. Every character of `text` is in
 /// one cluster, so the clusters' texts joined give `text` back.
@@ -104,100 +100,30 @@ const SEGMENT_CHARS: usize = (vtium_term::COLUMNS_MAX - 1) / 2;
 /// console's rule gives the whole cluster. So a row laid out a character
 /// to a cell does not match the console's cells, and neither do the
 /// clusters of Unicode's own tables, which ratatui reads. vtium-config
-/// asks vtium-term, the console's own terminal: it writes the text on a
-/// line of a terminal of its own and reads back the line's cells. Plain
-/// ASCII text joins nothing, so it skips that step.
+/// asks vtium-term, the console's own terminal, which cuts the text into
+/// clusters and measures each one exactly as its screen does when the
+/// text is printed. Plain ASCII text joins nothing, so it skips that step.
 ///
 /// References:
 /// - ADR-1206 D1, "The console's width rule decides where the cursor
 ///   goes": the console's clusters and widths lay the TUI's text out.
 pub fn clusters(text: &str) -> Vec<Cluster<'_>> {
-    let mut out = Vec::new();
     if text.is_ascii() {
-        for i in 0..text.len() {
-            out.push(Cluster {
+        return (0..text.len())
+            .map(|i| Cluster {
                 text: text.get(i..i.saturating_add(1)).unwrap_or_default(),
                 chars: 1,
                 width: 1,
-            });
-        }
-        return out;
-    }
-    let mut rest = text;
-    while !rest.is_empty() {
-        let end = rest
-            .char_indices()
-            .nth(SEGMENT_CHARS)
-            .map_or(rest.len(), |(i, _)| i);
-        let (piece, after) = rest.split_at(end);
-        segment(piece, &mut out);
-        rest = after;
-    }
-    out
-}
-
-/// Appends the clusters of `piece` to `out`, as a vtium-term line shows
-/// `piece` written on it.
-fn segment<'a>(piece: &'a str, out: &mut Vec<Cluster<'a>>) {
-    use vtium_term::{Glyph, Width};
-    let chars = piece.chars().count();
-    let mut term = vtium_term::Terminal::new(chars.saturating_mul(2).saturating_add(1), 1, 0);
-    let _ = term.input(piece.as_bytes());
-    let screen = term.screen();
-    let written = screen.cursor().0;
-    // the text of each cell the console wrote, leaving out the second
-    // cell of a wide character
-    let glyphs: Vec<String> = screen.line(0).map_or_else(Vec::new, |line| {
-        line.cells()
-            .iter()
-            .take(written)
-            .filter(|c| matches!(c.width(), Width::Narrow | Width::Wide))
-            .map(|&c| match line.glyph(c) {
-                Glyph::Char(ch) => ch.to_string(),
-                Glyph::Cluster(s) => s.to_owned(),
-                Glyph::Empty => " ".to_owned(),
             })
-            .collect()
-    });
-    let mut push = |text: &'a str| {
-        if !text.is_empty() {
-            out.push(Cluster {
-                text,
-                chars: text.chars().count(),
-                width: super::backend::console_width(text),
-            });
-        }
-    };
-    let mut at = 0usize;
-    for (k, glyph) in glyphs.iter().enumerate() {
-        let left = piece.get(at..).unwrap_or_default();
-        // marks at the start of the text join nothing, and the console
-        // leaves them out; they make a cluster of their own
-        let Some(skip) = left.find(glyph.as_str()) else {
-            break;
-        };
-        push(left.get(..skip).unwrap_or_default());
-        let begin = at.saturating_add(skip);
-        at = begin.saturating_add(glyph.len());
-        // the marks past the most a cluster keeps, which the console
-        // drops, stay with their cluster
-        let next = glyphs.get(k.saturating_add(1));
-        while let Some(c) = piece.get(at..).and_then(|s| s.chars().next()) {
-            if next.is_some_and(|n| piece.get(at..).is_some_and(|s| s.starts_with(n.as_str()))) {
-                break;
-            }
-            at = at.saturating_add(c.len_utf8());
-        }
-        push(piece.get(begin..at).unwrap_or_default());
+            .collect();
     }
-    // whatever the line did not show, a character to a cluster
-    let left = piece.get(at..).unwrap_or_default();
-    for (i, c) in left.char_indices() {
-        push(
-            left.get(i..i.saturating_add(c.len_utf8()))
-                .unwrap_or_default(),
-        );
-    }
+    vtium_term::clusters(text, vtium_term::ClusterWidth::Double)
+        .map(|(text, width)| Cluster {
+            text,
+            chars: text.chars().count(),
+            width: u16::from(width),
+        })
+        .collect()
 }
 
 /// The symbol a cell of the TUI holds for `cluster`, and the cells it
@@ -469,6 +395,23 @@ mod tests {
         let lines = wrap("é\tabcdefghij klmnop", 6, 9);
         assert_eq!(lines, ["é?abcd", "efghij", "klmnop"]);
         assert_eq!(wrap("é\x1b[5Cab", 9, 9), ["é?[5Cab"]);
+    }
+
+    #[test]
+    fn a_long_text_keeps_each_character_with_its_marks() {
+        // 4,094 characters, then e and its accent, which a cut every
+        // 4,095 characters would split
+        let mut text = "é".repeat(4094);
+        text.push_str("e\u{301}x");
+        let parts = clusters(&text);
+        let last: Vec<(&str, u16)> = parts
+            .iter()
+            .rev()
+            .take(2)
+            .map(|c| (c.text, c.width))
+            .collect();
+        assert_eq!(last, [("x", 1), ("e\u{301}", 1)]);
+        assert_eq!(cells(&text), 4096);
     }
 
     #[test]
