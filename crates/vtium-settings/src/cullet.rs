@@ -457,7 +457,10 @@ pub fn open_in_theme(
     let depth = walk.crossed.len();
     // the steps left to take, the next one last, so that a link's target
     // goes on top of the steps that follow the link
-    let mut todo: Vec<Option<OsString>> = inside.iter().rev().cloned().map(Some).collect();
+    let mut todo: Vec<Option<OsString>> = Vec::with_capacity(inside.len());
+    for name in inside.iter().rev() {
+        todo.push(Some(name.clone()));
+    }
     let mut links = 0_usize;
     // the link whose target is being walked, which `..` past the theme
     // folder names; `names` refuses `..` in the path itself
@@ -494,7 +497,11 @@ pub fn open_in_theme(
                         return Err(walk.refuse(leaves()));
                     };
                     walk.crossed.truncate(depth);
-                    t.into_iter().skip(root.len()).map(Some).collect()
+                    let mut below = Vec::with_capacity(t.len());
+                    for name in t.into_iter().skip(root.len()) {
+                        below.push(Some(name));
+                    }
+                    below
                 } else {
                     steps(&target)
                 };
