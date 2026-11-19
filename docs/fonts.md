@@ -47,7 +47,7 @@ Here, "first" means the file in the font directory that is listed first, and wit
 
 vtium ships ready-made frits for Arabic, Hebrew, the Indic scripts, Thai, Lao and Vietnamese, whose marks need room above and below the letters. It also ships four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters. See [Fonts for other scripts](fonts-for-scripts.md) for details.
 
-vtium's service unit runs vtium as root. When vtium runs as root, it starts the font helper as the user `nobody`. The font helper looks for outline fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. It never sees a font installed in your home directory, for example under `~/.local/share/fonts`. To use such a font, copy it into `/usr/local/share/fonts`:
+vtium's service unit runs vtium as root. When vtium runs as root, it starts the font helper as the user `nobody`. The font helper looks for outline fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`, and renders only the fonts that are active. A font installed in your home directory, for example under `~/.local/share/fonts`, is never active. To use such a font, copy it into `/usr/local/share/fonts`, then activate it as [Active fonts](#active-fonts) describes:
 
 ```
 $ sudo install -Dm644 -t /usr/local/share/fonts/monoid-nerd-font-mono ~/.local/share/fonts/monoid-nerd-font-mono/*.ttf
@@ -55,6 +55,30 @@ $ sudo install -Dm644 -t /usr/local/share/fonts/monoid-nerd-font-mono ~/.local/s
 ```
 
 The first line runs through sudo from your own shell on purpose. Your shell turns `~` and `*.ttf` into the files in your home directory before sudo runs. In a root shell, `~` would be root's home directory. The font helper reads the font directories itself and does not use the fontconfig cache. The second line, `fc-cache -f`, updates that cache for the other programs on the machine.
+
+## Active fonts
+
+vtium renders only the fonts that are active. A font is active when `/etc/vtium/batch.conf` lists its file. The file holds one absolute path on each line, and a line that starts with `#` is a comment. Only root can change the file, so only root decides which fonts the console renders. The same file lists the other resources that a look uses, such as color schemes.
+
+A fresh install activates the fonts that vtium ships in `/usr/share/vtium/fonts`: Terminus, GNU Unifont and Cullet Mono. It also activates the console font that `FONT=` names in `/etc/vconsole.conf`, and the color schemes in `/usr/share/vtium/palettes`. vtium uses this list while `batch.conf` does not exist, so the default font set `terminus` works with no setup. The built-in fonts are always active.
+
+To activate another font, add the path of each of its files to `batch.conf`. Once the file exists, vtium uses only the paths it lists. So when you create the file, list the fonts and color schemes that vtium ships too:
+
+```
+$ ls -d /usr/share/vtium/fonts/* /usr/share/vtium/palettes/* | sudo tee /etc/vtium/batch.conf
+$ echo /usr/local/share/fonts/monoid-nerd-font-mono/MonoidNerdFontMono-Regular.ttf | sudo tee -a /etc/vtium/batch.conf
+```
+
+A listed font file must also pass four checks:
+
+- Root owns the file and every folder above it.
+- Neither the group nor other users can write the file or any of those folders.
+- Neither the file nor any folder on its path is a symbolic link.
+- The filesystem that holds the file stays mounted while the system runs. A network filesystem, a FUSE filesystem, an automounted filesystem and a removable disk, such as a USB stick, fail this check.
+
+vtium treats a font that is not listed, or that fails a check, as missing. vtium then renders the font's characters from the next font in the frit. It logs one line for the file, once a boot, which names the file and the check it failed.
+
+A font in your home folder no longer renders, even when you name its folder in the `font-paths` key of `vtium.conf`. You own that folder, not root, so the font fails the first check. A program you run as yourself could change that font while the console uses it. Install the font as a system font instead, as [An outline font](#an-outline-font) shows, and then list it in `batch.conf`. See [the trust rule issue](https://github.com/vtium/vtium/issues/438) and [the font-paths issue](https://github.com/vtium/vtium/issues/441).
 
 ## A console font
 
@@ -178,7 +202,7 @@ To install a missing font, use one of these two ways:
 - Search your distribution's packages for the font's name, and install the package that provides it. Many distributions package common fonts, such as JetBrains Mono, Noto Color Emoji and the Nerd Fonts builds.
 - Download the font from its page, and copy its files into `/usr/local/share/fonts`. The font helper looks for fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. See [An outline font](#an-outline-font) for details.
 
-vtium uses the font from its next start. You don't need to change the frit. Run `vtium config fonts` again to check that the font is found.
+Then list the font's files in `/etc/vtium/batch.conf`, as [Active fonts](#active-fonts) describes. vtium uses the font from its next start. You don't need to change the frit. Run `vtium config fonts` again to check that the font is found.
 
 [crates/vtium-config/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md#what-a-source-needs) describes each of the four lines in full.
 
