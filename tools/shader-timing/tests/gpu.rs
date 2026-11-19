@@ -106,14 +106,26 @@ fn both_clocks_wait_for_the_gpu_to_finish_the_frame() {
         wall_light.0
     );
     if bench.timer_queries() {
-        // llvmpipe's query times only part of the frame, and the part
-        // grows with the work done for each pixel, so the GPU's clock also
-        // reads well over four times as long for sixteen times the work
         let (light, heavy) = (gpu_light.unwrap().0, gpu_heavy.unwrap().0);
-        assert!(
-            heavy > 4.0 * light,
-            "the GPU's clock reads {heavy} ms for 640 rounds and {light} ms for 40"
-        );
+        // llvmpipe's query brackets the draws faithfully only when each of
+        // llvmpipe's draw threads has a CPU of its own. Then the GPU's
+        // clock also reads well over four times as long for sixteen times
+        // the work, and a query that ends before the draws reads about the
+        // same for both. With fewer CPUs the ratio says nothing either way:
+        // a query ended before the draws passed 20 of 20 runs on 4 CPUs
+        // with 32 draw threads, and 10 of 10 on 16 CPUs held by taskset,
+        // and the correct code failed 10 of 60 runs on 2 CPUs and 1 of 60
+        // on 4. On 32 CPUs the ended-early query failed 20 of 20 runs and
+        // the correct code passed 20 of 20. So the test holds the GPU's
+        // clock to the ratio only on a host with at least 32 CPUs, which
+        // is where `make gates` runs, and leaves it out on CI's runners.
+        let cpus = std::thread::available_parallelism().map_or(1, |n| n.get());
+        if cpus >= 32 {
+            assert!(
+                heavy > 4.0 * light,
+                "the GPU's clock reads {heavy} ms for 640 rounds and {light} ms for 40"
+            );
+        }
         // The query lies inside the CPU's clock, between the two glFinish
         // calls, so the GPU's clock never reads more than the CPU's. The
         // test holds the GPU's clock to no share of the CPU's: how much of
