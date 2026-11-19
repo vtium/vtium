@@ -1175,7 +1175,7 @@ fn palette_findings(
         };
         match palette::read(name, folders, trust) {
             Ok(Some(scheme)) => notes.extend(scheme.ignored.iter().map(|i| {
-                let follows = matches!(i.key.raw(), "config-file" | "theme");
+                let follows = matches!(i.key.as_str(), "config-file" | "theme");
                 let why = if follows {
                     "vtium never follows it, so a color scheme sets colors and nothing else"
                 } else {
@@ -1185,7 +1185,7 @@ fn palette_findings(
                     "{}:{}: The color scheme {name} sets {}, which vtium ignores: {why}.",
                     scheme.file.display(),
                     i.line,
-                    i.key
+                    i.quoted()
                 )
             })),
             Ok(None) => {

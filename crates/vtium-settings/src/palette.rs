@@ -85,8 +85,18 @@ pub fn named(name: &str) -> bool {
 /// sets it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ignored {
-    pub key: Quoted,
+    /// The key as the file writes it, which [`Ignored::quoted`] shows.
+    pub key: String,
     pub line: usize,
+}
+
+impl Ignored {
+    /// The key quoted for a screen or a log: cut to its first characters
+    /// and escaped, so a control character in the file never reaches a
+    /// console as itself.
+    pub fn quoted(&self) -> Quoted {
+        Quoted::new(&self.key)
+    }
 }
 
 /// A palette file that reads cleanly.
@@ -266,9 +276,9 @@ pub fn parse(bytes: &[u8]) -> Parsed {
         }
         let result = match key_value(line) {
             Some((key, value)) => setting(&mut palette, key, value).map(|known| {
-                if !known && ignored.iter().all(|i| i.key.raw() != key) {
+                if !known && ignored.iter().all(|i| i.key != key) {
                     ignored.push(Ignored {
-                        key: Quoted::new(key),
+                        key: key.to_owned(),
                         line: n,
                     });
                 }

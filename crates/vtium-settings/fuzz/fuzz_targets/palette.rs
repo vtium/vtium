@@ -40,7 +40,7 @@ fuzz_target!(|data: &[u8]| {
             assert!(data.len() <= PALETTE_FILE_MAX);
             let mut last = 0;
             for (i, key) in ignored.iter().enumerate() {
-                assert!(!READ.contains(&key.key.raw()), "{:?}", key.key);
+                assert!(!READ.contains(&key.key.as_str()), "{:?}", key.key);
                 assert!((1..=lines).contains(&key.line));
                 assert!(key.line > last, "the ignored keys are in the file's order");
                 last = key.line;
@@ -49,7 +49,7 @@ fuzz_target!(|data: &[u8]| {
                     "{:?} listed twice",
                     key.key
                 );
-                assert!(!key.key.to_string().chars().any(char::is_control));
+                assert!(!key.quoted().to_string().chars().any(char::is_control));
             }
         }
         Err((faults, more)) => {

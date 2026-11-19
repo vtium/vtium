@@ -129,7 +129,7 @@ fn other_keys_are_ignored_and_listed_once() {
     let Ok((palette, ignored)) = parse(text.as_bytes()) else {
         panic!("reads cleanly");
     };
-    let listed: Vec<(&str, usize)> = ignored.iter().map(|i| (i.key.raw(), i.line)).collect();
+    let listed: Vec<(&str, usize)> = ignored.iter().map(|i| (i.key.as_str(), i.line)).collect();
     assert_eq!(
         listed,
         [
@@ -440,4 +440,20 @@ fn the_log_line_names_the_scheme_the_line_and_the_rest() {
         Reason::PastLastColor(Quoted::new("256")).to_string(),
         "The color number \"256\" is past 255, the last of the 256 colors."
     );
+}
+
+// A key longer than a quote shows is still listed once, however many
+// lines set it, and two keys that share their first characters are two
+// keys. The fuzz target found the first case listed twice.
+#[test]
+fn a_long_ignored_key_is_listed_once() {
+    let long = "k".repeat(crate::bounds::QUOTE_MAX.saturating_add(10));
+    let other = format!("{long}x");
+    let text = format!("{long} = 1\n{long} = 2\n{other} = 3\n");
+    let Ok((_, ignored)) = parse(text.as_bytes()) else {
+        panic!("reads cleanly");
+    };
+    let listed: Vec<(&str, usize)> = ignored.iter().map(|i| (i.key.as_str(), i.line)).collect();
+    assert_eq!(listed, [(long.as_str(), 1), (other.as_str(), 3)]);
+    assert!(ignored[0].quoted().to_string().ends_with("...\""));
 }
