@@ -476,7 +476,7 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
             uses = Some(format!("this font through the font set {frit}"));
         }
         if let Some(palette) = &user.palette
-            && places.palettes.iter().any(|dir| dir.join(palette) == path)
+            && palette_file(places.palettes, palette).as_deref() == Some(path)
         {
             uses = Some("this color scheme".to_owned());
         }
@@ -487,6 +487,21 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
         }
     }
     out
+}
+
+/// The file vtium reads for the color scheme `name`: `NAME.palette` in
+/// the first of `folders` that holds one, so the administrator's copy in
+/// `/etc/vtium/palettes` shadows the package's. `None` for a scheme built
+/// into vtium, which has no file, and for a name no file can take.
+fn palette_file(folders: &[&Path], name: &str) -> Option<PathBuf> {
+    use vtium_settings::palette::{SUFFIX, built_in, named};
+    if built_in(name) || !named(name) {
+        return None;
+    }
+    folders
+        .iter()
+        .map(|dir| dir.join(format!("{name}{SUFFIX}")))
+        .find(|file| file.symlink_metadata().is_ok())
 }
 
 /// Whether the font set `name` in the folder `frits` names the font file
@@ -912,24 +927,39 @@ mod tests {
 
     #[test]
     fn a_look_that_names_a_color_scheme_is_warned_of() {
+        // vtium reads a look's `palette = NAME` from NAME.palette in the
+        // first folder that holds one, so the administrator's file
+        // shadows the package's
+        let root = std::env::temp_dir().join(format!("vtium-config-users-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (etc, pkg) = (root.join("etc"), root.join("pkg"));
+        std::fs::create_dir_all(&etc).unwrap();
+        std::fs::create_dir_all(&pkg).unwrap();
+        for file in [pkg.join("dracula.palette"), pkg.join("top.palette")] {
+            std::fs::write(file, "palette = 0=#000000\n").unwrap();
+        }
         let conf = "palette = top\nversion = 1\n[look big]\npalette = dracula\n";
-        let dir = Path::new("/p");
         let places = Places {
             frits: None,
-            palettes: &[dir],
+            palettes: &[&etc, &pkg],
         };
+        let big = [
+            "Look big uses this color scheme. Once this change is installed, look big draws without it.",
+        ];
+        assert_eq!(users(&pkg.join("dracula.palette"), conf, &places), big);
         assert_eq!(
-            users(Path::new("/p/dracula"), conf, &places),
-            [
-                "Look big uses this color scheme. Once this change is installed, look big draws without it."
-            ]
-        );
-        assert_eq!(
-            users(Path::new("/p/top"), conf, &places),
+            users(&pkg.join("top.palette"), conf, &places),
             [
                 "The top level of vtium.conf uses this color scheme. Once this change is installed, the looks that take their settings from the top level draw without it."
             ]
         );
-        assert!(users(Path::new("/q/dracula"), conf, &places).is_empty());
+        // a path that is not the file vtium reads warns of nothing
+        assert!(users(&pkg.join("dracula"), conf, &places).is_empty());
+        assert!(users(&root.join("q/dracula.palette"), conf, &places).is_empty());
+        // once the administrator's copy exists, vtium reads that one
+        std::fs::write(etc.join("dracula.palette"), "palette = 0=#000000\n").unwrap();
+        assert!(users(&pkg.join("dracula.palette"), conf, &places).is_empty());
+        assert_eq!(users(&etc.join("dracula.palette"), conf, &places), big);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
