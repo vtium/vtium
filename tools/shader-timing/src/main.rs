@@ -216,7 +216,7 @@ fn main() -> ExitCode {
         Some("list") if args.len() == 1 => match source::catalog() {
             Ok(shaders) => {
                 for p in plans(&shaders) {
-                    println!("{}\t{}\t{}", p.label(), p.texels(Mode::Plain), p.work());
+                    println!("{}\t{}\t{}", p.label(), p.reads(), p.work());
                 }
                 for s in &shaders {
                     println!("# {}: {}", s.name, s.origin);

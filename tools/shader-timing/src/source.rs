@@ -8,16 +8,20 @@
 //!
 //! The harness rewrites each read of `iChannel0` to a function of its own,
 //! whose body depends on the read mode. That lets one file be timed with
-//! the read vtium plans for Ghostty's dialect and with the cheaper and
-//! dearer reads beside it.
+//! each way of reading the frame that vtium has weighed: a plain read, a
+//! smooth read blended in the shader or by the GPU's own filter, and a
+//! smooth read in linear light.
 //!
 //! References:
-//! - ADR-1304 D18: the smooth read, which blends four plain reads in the
-//!   shader, and the list of shaders the measurement runs.
+//! - ADR-1304 D18: the list of shaders the measurement runs, and the smooth
+//!   read, which uses the GPU's own linear filter since the maintainer's
+//!   decision of 2026-11-18. The harness also times the blend in the
+//!   shader, which the record proposed before that decision.
 //! - ADR-1304 D20: a Ghostty shader's `texture` read is a smooth read in
-//!   linear light, and its output is encoded before the next filter reads it.
-//! - ADR-1304 D3: a chain shares one pass, so each read of a later filter
-//!   runs the earlier filter again.
+//!   linear light, and its output is encoded before the next pass reads it.
+//! - ADR-1304 D3: a filter that reads pixels other than its own runs as a
+//!   pass of its own. The harness also times crt then bloom sharing one
+//!   pass, where each read of bloom runs crt again, to price that choice.
 
 /// One shader file and what its header states.
 #[derive(Clone, Debug, PartialEq)]
@@ -115,14 +119,15 @@ pub enum Mode {
     /// One `texelFetch` of the pixel whose square holds the place: vtium's
     /// plain read, `SPATIAL_IN`.
     Plain,
-    /// Four `texelFetch`es blended in the shader in encoded color: vtium's
-    /// `SPATIAL_SMOOTH`.
+    /// Four `texelFetch`es blended in the shader in encoded color: the
+    /// smooth read as ADR-1304 D18 proposed it before 2026-11-18.
     Smooth,
-    /// The smooth read with each pixel decoded to linear light first, and
-    /// the output encoded again: what vtium plans for a shader in Ghostty's
-    /// dialect.
+    /// The smooth read blended in the shader, with each pixel decoded to
+    /// linear light first and the output encoded again: Ghostty's dialect
+    /// as ADR-1304 D20 proposed it before 2026-11-18.
     Ghostty,
-    /// GL's own linear filtering through `texture`, as Ghostty reads.
+    /// GL's own linear filtering through `texture`, as Ghostty reads and
+    /// as vtium's `SPATIAL_SMOOTH` reads.
     GlLinear,
 }
 
@@ -140,15 +145,6 @@ impl Mode {
 
     pub fn parse(text: &str) -> Option<Mode> {
         Mode::ALL.into_iter().find(|m| m.name() == text)
-    }
-
-    /// Plain reads one texel a read; the smooth reads count as 4, as the
-    /// checker counts them. GL's own filter is counted as one read.
-    pub fn texels(self) -> u32 {
-        match self {
-            Mode::Plain | Mode::GlLinear => 1,
-            Mode::Smooth | Mode::Ghostty => 4,
-        }
     }
 
     /// Whether the frame's texture is sampled with GL_LINEAR.
