@@ -31,7 +31,7 @@
 //!    resource it activates against the trust rule, as the user `apply`
 //!    runs as; and the edited vtium.conf, both its parts in
 //!    one run, with the console's own `vtium check-config`, so the verdict
-//!    before writing is the verdict at the next start (ADR-1403 D3);
+//!    before writing is the verdict at the next start;
 //! 4. writes the frits, then the batch file, then vtium.conf, so
 //!    vtium.conf never names a frit or a resource that is not yet there,
 //!    and removes frits last; each file goes in
@@ -43,6 +43,9 @@
 //!    when it wrote them all.
 //!
 //! The draft stays after `apply`, so a user can run it again.
+//!
+//! References:
+//! - ADR-1403 D3: the console's own check judges vtium.conf before `apply` writes it.
 
 use std::ffi::OsString;
 use std::fs::File;

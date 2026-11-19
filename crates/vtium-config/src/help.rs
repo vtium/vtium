@@ -125,9 +125,12 @@ impl Command {
         }
     }
 
-    /// Whether the command is one of the flow's (ADR-1403 D8), which work
-    /// on the draft. `activate`, `deactivate` and `active` work on the
-    /// draft too, through [`crate::batch`].
+    /// Whether the command is one of the flow's commands, which work on
+    /// the draft. `activate`, `deactivate` and `active` work on the draft
+    /// too, through [`crate::batch`].
+    ///
+    /// References:
+    /// - ADR-1403 D8: the flow's commands, and the draft they work on.
     pub const fn flow(self) -> bool {
         matches!(
             self,

@@ -480,11 +480,14 @@ impl Session<'_> {
     /// fails (exit 1), printing what the check found. A draft whose only
     /// problem is that it wires no complete route is readied with the
     /// plan's `no_route` set, and the caller asks the person, or takes
-    /// `--force`, before it installs it (ADR-1403 D8). The plan writes
-    /// vtium.conf when the draft differs from it, and the batch file when
-    /// the draft changes the active resources ([`Session::batch_edit`]).
-    /// `None` when the draft is the installed file already and changes no
-    /// resource, and the installed file then becomes its base.
+    /// `--force`, before it installs it. The plan writes vtium.conf when
+    /// the draft differs from it, and the batch file when the draft changes
+    /// the active resources ([`Session::batch_edit`]). `None` when the
+    /// draft is the installed file already and changes no resource, and
+    /// the installed file then becomes its base.
+    ///
+    /// References:
+    /// - ADR-1403 D8: Install asks before it installs a draft with no complete route, and `--force` skips that one question.
     pub fn prepare(
         &self,
         name: &str,

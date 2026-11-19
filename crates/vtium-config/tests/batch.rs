@@ -1,8 +1,11 @@
-//! The active resources beside a draft (ADR-1205 D4): `activate`,
-//! `deactivate` and `active`, run as the binary against a fixture whose
-//! configuration directory stands in for `/etc/vtium`, so the install runs
-//! `apply` as the user and writes the fixture's `batch.conf`. The stand-in
-//! `vtium` passes every vtium.conf.
+//! The active resources beside a draft: `activate`, `deactivate` and
+//! `active`, run as the binary against a fixture whose configuration
+//! directory stands in for `/etc/vtium`, so the install runs `apply` as
+//! the user and writes the fixture's `batch.conf`. The stand-in `vtium`
+//! passes every vtium.conf.
+//!
+//! References:
+//! - ADR-1205 D4: the batch, its file, the trust rule, and a draft keeping its changes to the batch beside it.
 
 #[path = "common/home.rs"]
 mod home;
