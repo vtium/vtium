@@ -211,6 +211,16 @@ pub enum Effect {
     /// Draws the picture of the console the shot names (ADR-1201 D4),
     /// then sends [`Event::Pictured`].
     Picture(crate::specimen::Shot),
+    /// A picture of the TUI's own screen at another size: the loop draws
+    /// the view at `shot.grid` into `shot.screen`, with no picture on it,
+    /// then asks for the picture as [`Effect::Picture`] does. The loop
+    /// draws the screen because update never draws.
+    ///
+    /// References:
+    /// - ADR-1206 D4, "Drawing takes the size as an argument": the view
+    ///   draws the picture of the console at the picture's size, and
+    ///   nothing overwrites the model's size to draw.
+    ScreenPicture(crate::specimen::Shot),
     /// Summarizes the specimen of the font `font` at `height` pixels, for
     /// a terminal that draws no pictures, then sends [`Event::Summarized`].
     Summary { font: String, height: u32 },

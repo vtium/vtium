@@ -309,7 +309,9 @@ impl Sim {
                     height,
                     cell: Err("no helper in the scenarios".into()),
                 },
-                Effect::Picture(_) => Event::Pictured(Err("no helper in the scenarios".into())),
+                Effect::Picture(_) | Effect::ScreenPicture(_) => {
+                    Event::Pictured(Err("no helper in the scenarios".into()))
+                }
                 Effect::Summary { font, height } => Event::Summarized {
                     font,
                     height,

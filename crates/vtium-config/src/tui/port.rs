@@ -33,7 +33,7 @@ use vtium_platform::watch::Watch;
 use super::desk::Desk;
 use super::desk::Done;
 use super::input::Decoder;
-use super::model::{App, Effect, Event, Inputs, Live};
+use super::model::{self, App, Effect, Event, Inputs, Live};
 use super::view;
 use crate::apply::{Ask, Runner};
 
@@ -208,6 +208,16 @@ pub fn drive_with(
                     }
                     Effect::Cell { font, height } => port.draw(Draw::Cell { font, height }),
                     Effect::Picture(shot) => port.draw(Draw::Picture(shot)),
+                    Effect::ScreenPicture(mut shot) => {
+                        let (cols, rows) = shot.grid;
+                        let size = model::Size {
+                            cols,
+                            rows,
+                            ..app.size
+                        };
+                        shot.screen = view::screen_at(&app, size);
+                        port.draw(Draw::Picture(shot));
+                    }
                     Effect::Specimen {
                         font,
                         height,

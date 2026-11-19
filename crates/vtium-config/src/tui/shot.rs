@@ -7,9 +7,11 @@
 //! A picture is asked for in two steps. The TUI first asks the glyph
 //! helper for the font's cell at the change's size ([`Effect::Cell`]),
 //! since the cell decides the grid the change gives on the display. It
-//! then lays its own screen out again at that grid and asks for the
-//! picture of it ([`Effect::Picture`]). Where the terminal draws no kitty
-//! graphics, it asks for a line of text instead ([`Effect::Summary`]).
+//! then asks the loop to draw its own screen at that grid and to ask for
+//! the picture of it ([`Effect::ScreenPicture`]); the Looks view's sample
+//! screen goes in the request itself ([`Effect::Picture`]). Where the
+//! terminal draws no kitty graphics, it asks for a line of text instead
+//! ([`Effect::Summary`]).
 
 use std::time::Duration;
 
@@ -475,21 +477,23 @@ impl App {
             grid,
         });
         // the Looks view draws a nominal screen of sample content at the
-        // look's cell; the caption still counts the real display's grid
-        let (display, grid, screen) = if self.nav.view == View::Looks {
+        // look's cell; the caption still counts the real display's grid.
+        // Elsewhere the loop draws the TUI's own screen at the grid.
+        let looks = self.nav.view == View::Looks;
+        let (display, grid, screen) = if looks {
             let shown = (
                 across(PREVIEW_SCREEN.0, cell.width).min(GRID_MAX.0),
                 across(PREVIEW_SCREEN.1, cell.height).min(GRID_MAX.1),
             );
             (PREVIEW_SCREEN, shown, sample_screen(shown))
         } else {
-            (display, grid, self.screen_at(grid))
+            (display, grid, Vec::new())
         };
         let palette = self
             .conf_text()
             .and_then(|c| vtium_settings::setting(c, "palette"))
             .unwrap_or_default();
-        vec![Effect::Picture(Shot {
+        let shot = Shot {
             font,
             height,
             cell,
@@ -500,26 +504,12 @@ impl App {
             palette,
             color: self.shared.inputs.color,
             max: self.picture_room(),
-        })]
-    }
-
-    /// The TUI's screen as it would be at `grid`, with no picture on it.
-    fn screen_at(&mut self, (cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
-        let kept = (
-            self.size.cols,
-            self.size.rows,
-            self.shared.picture,
-            self.shared.shot.take(),
-        );
-        (self.size.cols, self.size.rows, self.shared.picture) = (cols, rows, false);
-        let screen = super::view::screen(self);
-        (
-            self.size.cols,
-            self.size.rows,
-            self.shared.picture,
-            self.shared.shot,
-        ) = kept;
-        screen
+        };
+        vec![if looks {
+            Effect::Picture(shot)
+        } else {
+            Effect::ScreenPicture(shot)
+        }]
     }
 
     /// Deletes the picture on the screen, if any.

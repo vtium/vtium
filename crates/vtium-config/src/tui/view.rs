@@ -19,7 +19,7 @@ use super::layout::{
     Body, FLOW_TOP, MESSAGE_ROWS, Tab, body, item_rows, key_line, key_rows, list_window,
     message_rows, tab_places, too_small,
 };
-use super::model::{App, Live, Then, View};
+use super::model::{App, Live, Size, Then, View};
 use super::words;
 
 /// The row's text, without its styles.
@@ -317,6 +317,17 @@ fn pager_screen(canvas: &mut Canvas, app: &App, pager: super::model::Pager, bott
 
 /// The mark the file view puts before the line of the highlighted box.
 pub const SELECTED: &str = "▸";
+
+/// The screen as it would be in a terminal of `size`, with no picture on
+/// it and no caption beside one: what a picture of the console shows. It
+/// draws a copy of the model at that size, so the model keeps its own size.
+pub fn screen_at(app: &App, size: Size) -> Vec<Row> {
+    let mut frame = app.clone();
+    frame.size = size;
+    frame.shared.picture = false;
+    frame.shared.shot = None;
+    screen(&frame)
+}
 
 /// The screen for `app`: exactly `app.rows` rows, none wider than
 /// `app.cols`.

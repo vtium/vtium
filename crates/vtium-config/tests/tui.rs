@@ -1977,6 +1977,68 @@ fn one_preview_is_drawn_at_a_time() {
     );
 }
 
+/// The picture of the console in the Fonts view shows the TUI's own screen
+/// at the grid the font's cell gives. Update asks the loop to draw that
+/// screen, so the effect carries no screen of its own, and the view draws
+/// it at the picture's size while the model keeps the terminal's size.
+///
+/// References:
+/// - ADR-1206 D4, "Drawing takes the size as an argument".
+#[test]
+fn the_picture_of_the_console_is_drawn_at_its_own_size_and_the_model_keeps_its_size() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Effect, Event, Size};
+    use vtium_config::tui::view::{as_text, screen, screen_at};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Graphics(true),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    app.event(Event::Detailed {
+        font: "unifont".into(),
+        height: 16,
+        result: Err("none".into()),
+    });
+    // `s` turns the detailed specimen off, so the Fonts view asks for the
+    // font's cell toward a picture of the console
+    let asked = app.event(Event::Input(Input::Key(Key::Char('s'))));
+    assert!(
+        matches!(asked.as_slice(), [Effect::Cell { .. }]),
+        "{asked:?}"
+    );
+    let cell = Ok((
+        Cell {
+            width: 8,
+            height: 16,
+        },
+        16,
+    ));
+    let picture = app.event(Event::Celled {
+        font: "unifont".into(),
+        height: 16,
+        cell,
+    });
+    let [Effect::ScreenPicture(shot)] = picture.as_slice() else {
+        panic!("a picture of the TUI's screen: {picture:?}");
+    };
+    assert!(shot.screen.is_empty(), "the loop draws the screen");
+    let (cols, rows) = shot.grid;
+    assert_ne!((cols, rows), (80, 25), "the picture's grid is its own");
+    let before = as_text(&screen(&app));
+    let size = Size {
+        cols,
+        rows,
+        ..app.size
+    };
+    let drawn = screen_at(&app, size);
+    assert_eq!(drawn.len(), rows);
+    assert_eq!((app.size.cols, app.size.rows), (80, 25));
+    assert_eq!(as_text(&screen(&app)), before);
+}
+
 /// A picture that comes after the highlight moved is not shown: no
 /// picture is sent, and the next is asked for, for the size highlighted
 /// now (ADR-1201 D4).
