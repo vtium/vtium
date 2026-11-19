@@ -908,7 +908,9 @@ mod tests {
             shown.iter().any(|row| row == " ab \u{BCA}.xYz"),
             "{shown:#?}"
         );
-        // the screen the tests read lays the row out by the same rule
+        // the screen the tests read lays the row out by the same rule: the
+        // vowel sign's character takes one cell, so the row's text, read
+        // back cell by cell, fills the 80 cells under `single`
         let rows: Vec<String> = screen(&app)
             .iter()
             .map(|r| r.iter().map(|s| s.text.as_str()).collect::<String>())
@@ -918,7 +920,8 @@ mod tests {
             .find(|r| r.contains('Y'))
             .cloned()
             .unwrap_or_default();
-        assert_eq!(super::super::canvas::cells(row.trim_end()), 9, "{row:?}");
+        let _single = super::super::canvas::measure_by(vtium_term::ClusterWidth::Single);
+        assert_eq!(super::super::canvas::cells(&row), 80, "{row:?}");
     }
 
     #[test]
