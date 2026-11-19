@@ -110,6 +110,15 @@ pub const PACKAGE_POINTERS: &str = match option_env!("VTIUM_PACKAGE_POINTERS") {
     None => "/usr/share/vtium/pointers.svg",
 };
 
+/// Why the font helper refuses a font file the batch does not list, as
+/// what follows "because" in its reason.
+pub const NOT_ACTIVE: &str = "it is not among the active fonts.";
+
+/// What follows a refused font file's path in the font helper's reason,
+/// before why vtium refuses the file. `vtium check-config` reads the path
+/// and the why back from the helper's answer to a sources query.
+pub const MISSING_BECAUSE: &str = ": vtium treats this file as missing, because ";
+
 /// The most bytes vtium reads of vconsole.conf or the kernel command line.
 const SMALL_FILE_MAX: u64 = 64 * 1024;
 

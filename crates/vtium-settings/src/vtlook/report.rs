@@ -260,8 +260,8 @@ mod tests {
         missing.part = None;
         missing.stage = Stage::Reading;
         missing.message = "the file does not exist.".to_owned();
-        let line = log_line(&Failure::of(vec![missing.clone(), missing], 0), "desk")
-            .unwrap_or_default();
+        let line =
+            log_line(&Failure::of(vec![missing.clone(), missing], 0), "desk").unwrap_or_default();
         assert!(
             line.contains("reading: the file does not exist; 1 more error; head desk"),
             "{line}"

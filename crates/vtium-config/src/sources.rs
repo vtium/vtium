@@ -86,8 +86,9 @@ pub enum Gate {
 }
 
 /// Why a file the batch does not list is refused, as what follows
-/// "because" in [`SourceError::Refused`].
-pub const NOT_ACTIVE: &str = "it is not among the active fonts.";
+/// "because" in [`SourceError::Refused`], and what follows a refused font
+/// file's path in that reason.
+pub use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
 
 impl Gate {
     /// Whether a search may take `path` as a candidate: any file through
@@ -319,11 +320,9 @@ impl std::fmt::Display for SourceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SourceError::Missing(why) | SourceError::Failed(why) => f.write_str(why),
-            SourceError::Refused { path, because } => write!(
-                f,
-                "{}: vtium treats this file as missing, because {because}",
-                path.display()
-            ),
+            SourceError::Refused { path, because } => {
+                write!(f, "{}{MISSING_BECAUSE}{because}", path.display())
+            }
         }
     }
 }

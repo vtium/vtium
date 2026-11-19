@@ -1549,6 +1549,19 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
             out.notes.push(font_needs::refused(name, font, value));
             continue;
         }
+        // a font this machine has and the font helper refuses, because the
+        // batch does not list its file or the file fails the trust rule,
+        // is a font a start treats as missing, though installing it again
+        // would not help; a font named by its path is the font file line's
+        // to report, with the font set's file and line
+        if kind == "missing"
+            && let Some((path, because)) = value.split_once(vtium_settings::batch::MISSING_BECAUSE)
+        {
+            if named == check_config::font_needs::Named::ByName {
+                out.warnings.push(refused_font(name, font, path, because));
+            }
+            continue;
+        }
         let (version, url) = needs_of(&frit.text, line, spelling);
         let version = version.as_deref();
         let (said, missing) = match kind {
@@ -1584,6 +1597,27 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
         }
     }
     out
+}
+
+/// check-config's warning on the font `font` that the font set `set`
+/// needs and that the font helper treats as missing, though this machine
+/// has its file at `path`, `because` the batch does not list the file or
+/// the file fails the trust rule. A file that is not active comes with how
+/// to activate it.
+///
+/// References:
+/// - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
+fn refused_font(set: &str, font: &str, path: &str, because: &str) -> String {
+    if because == vtium_settings::batch::NOT_ACTIVE {
+        format!(
+            "Font set {set} needs the font {font}, and its file {path} is not active, so vtium treats the font as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+            b = vtium_settings::batch::BATCH_FILE
+        )
+    } else {
+        format!(
+            "Font set {set} needs the font {font}, and vtium treats its file {path} as missing, because {because} vtium draws the font's characters from the next font in the set."
+        )
+    }
 }
 
 /// The font a source's or a strike's `spelling` names, as a person knows
@@ -4974,6 +5008,35 @@ mod tests {
             "{:#?}",
             refused.stdout
         );
+        // a font this machine has and the font helper refuses, by name,
+        // is a warning on a file a start treats as missing, with what to
+        // do in place of installing it
+        let b = vtium_settings::batch::BATCH_FILE;
+        let idle = check(
+            "missing\t1\tfont:Gone Mono\t/usr/share/fonts/gone.otf: vtium treats this file as missing, because it is not among the active fonts.",
+        );
+        assert_eq!(idle.status, vtium_settings::CHECK_MISSING_FONTS);
+        assert_eq!(
+            idle.stderr,
+            [format!(
+                "Font set desk needs the font Gone Mono, and its file /usr/share/fonts/gone.otf is not active, so vtium treats the font as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own."
+            )]
+        );
+        let open = check(
+            "missing\t1\tfont:Gone Mono\t/usr/share/fonts/gone.otf: vtium treats this file as missing, because other users can change \"/usr/share/fonts/gone.otf\" (mode 666). Run `chmod go-w /usr/share/fonts/gone.otf` so that only its owner can change it.",
+        );
+        assert_eq!(
+            open.stderr,
+            [
+                "Font set desk needs the font Gone Mono, and vtium treats its file /usr/share/fonts/gone.otf as missing, because other users can change \"/usr/share/fonts/gone.otf\" (mode 666). Run `chmod go-w /usr/share/fonts/gone.otf` so that only its owner can change it. vtium draws the font's characters from the next font in the set."
+            ]
+        );
+        // a font named by its path that the helper refuses is the font
+        // file line's to report, with the font set's file and line
+        let by_path = check(
+            "missing\t4\tbdf:/usr/share/fonts/gone.bdf\t/usr/share/fonts/gone.bdf: vtium treats this file as missing, because it is not among the active fonts.",
+        );
+        assert_eq!((by_path.status, by_path.stderr), (0, Vec::<String>::new()));
         let older = check("older\t2\tfont:Old Mono\t3.000");
         assert_eq!((older.status, older.stderr), (0, Vec::<String>::new()));
         assert!(
