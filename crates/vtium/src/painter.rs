@@ -66,7 +66,7 @@ use std::time::{Duration, Instant};
 
 use vtium_platform::display::DisplayId;
 
-use crate::term::{Composed, Job};
+use crate::term::{Composed, EchoFigures, Job};
 
 /// The render thread's stack, in bytes: the vtium tests compose in 64 KiB
 /// in a debug build and in 16 KiB optimised.
@@ -735,7 +735,11 @@ pub fn let_go(painters: impl IntoIterator<Item = Painter>, clock: &dyn Fn() -> I
 
 /// A head's frame times since its last line: the frames presented, and
 /// the time each took to compose into its display's buffer, logged at
-/// debug level at most once a second while the head draws.
+/// debug level at most once a second while the head draws. The line also
+/// gives the key-to-present times its displays measured since the last
+/// line, when a key's echo was presented: the time from a key vtium sent
+/// to the program until a display presented the frame that carries the
+/// program's answer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Figures {
     frames: u32,
@@ -756,18 +760,29 @@ impl Figures {
         }
     }
 
-    /// The line for the head `name` once it is due at `now`, the figures
+    /// The line for the head `name` once it is due at `now`, with the
+    /// key-to-present times in `echoes`, the figures and the times
     /// starting again.
-    pub fn line(&mut self, name: &str, now: Instant) -> Option<String> {
+    pub fn line(&mut self, name: &str, echoes: &mut EchoFigures, now: Instant) -> Option<String> {
         self.due.filter(|&d| d <= now)?;
         let f = std::mem::take(self);
-        let mean = |sum: Duration| sum.checked_div(f.frames.max(1)).unwrap_or_default();
-        Some(format!(
+        let e = std::mem::take(echoes);
+        let mean = |sum: Duration, n: u32| sum.checked_div(n.max(1)).unwrap_or_default();
+        let mut line = format!(
             "head {name}: {} frames, compose mean {} max {} us",
             f.frames,
-            mean(f.compose.0).as_micros(),
+            mean(f.compose.0, f.frames).as_micros(),
             f.compose.1.as_micros(),
-        ))
+        );
+        if e.count > 0 {
+            line.push_str(&format!(
+                ", {} key echoes, key to present mean {} max {} us",
+                e.count,
+                mean(e.sum, e.count).as_micros(),
+                e.max.as_micros(),
+            ));
+        }
+        Some(line)
     }
 }
 
@@ -1892,11 +1907,51 @@ mod tests {
         };
         f.frame(ms(2), t0);
         f.frame(ms(4), t0);
-        assert_eq!(f.line("desk", t0), None, "not due");
+        let mut none = EchoFigures::default();
+        assert_eq!(f.line("desk", &mut none, t0), None, "not due");
         assert_eq!(
-            f.line("desk", t0 + Duration::from_secs(1)).as_deref(),
+            f.line("desk", &mut none, t0 + Duration::from_secs(1))
+                .as_deref(),
             Some("head desk: 2 frames, compose mean 3000 max 4000 us")
         );
         assert_eq!(f, Figures::default());
+    }
+
+    // The frame figures' line gives the key-to-present times of the keys
+    // whose echo the head's displays presented since the last line, and
+    // takes them, so the next line starts again.
+    #[test]
+    fn the_figures_line_gives_the_key_to_present_times() {
+        let t0 = Instant::now();
+        let us = Duration::from_micros;
+        let mut f = Figures {
+            due: Some(t0),
+            ..Figures::default()
+        };
+        f.frame(us(500), t0);
+        let mut echoes = EchoFigures {
+            count: 2,
+            sum: us(3000),
+            max: us(2000),
+        };
+        assert_eq!(
+            f.line("desk", &mut echoes, t0).as_deref(),
+            Some(
+                "head desk: 1 frames, compose mean 500 max 500 us, \
+                 2 key echoes, key to present mean 1500 max 2000 us"
+            )
+        );
+        assert_eq!(echoes, EchoFigures::default(), "the times start again");
+        let mut f = Figures {
+            due: Some(t0 + Duration::from_secs(1)),
+            ..Figures::default()
+        };
+        let mut echoes = EchoFigures {
+            count: 1,
+            sum: us(700),
+            max: us(700),
+        };
+        assert_eq!(f.line("desk", &mut echoes, t0), None, "not due");
+        assert_eq!(echoes.count, 1, "kept for the line that is due");
     }
 }
