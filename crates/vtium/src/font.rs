@@ -2735,11 +2735,14 @@ mod tests {
         batch::Batch::system(&places, trust)
     }
 
-    // ADR-1205 D4 and its note of 2026-11-18: with no batch file, the
+    // With no batch file, the
     // batch is the list of a fresh install. It holds every font file the
     // default set terminus and its fallback layer name, and the console
     // font vconsole.conf names, so the default set draws with no setup. A
     // batch file that root wrote replaces the list.
+    //
+    // References:
+    // - ADR-1205 D4, its note of 2026-11-18: with no batch file, the batch is the list of a fresh install.
     #[test]
     fn with_no_batch_file_the_default_set_and_the_console_font_are_active() {
         let d = Scratch::new("fresh-batch");

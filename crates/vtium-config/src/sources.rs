@@ -1822,8 +1822,11 @@ mod tests {
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
     }
 
-    // ADR-1205 D4: through an active gate, a font file the batch lists and
+    // Through an active gate, a font file the batch lists and
     // that passes the trust rule reads as it does through an open gate
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn an_active_font_that_passes_the_rule_reads() {
         let t = Tree::new("gate-pass");
@@ -1838,8 +1841,11 @@ mod tests {
         assert_eq!(r.font, b"font bytes");
     }
 
-    // ADR-1205 D4: a font file the batch does not list is not active, and
+    // A font file the batch does not list is not active, and
     // counts as missing, whatever else it passes
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_font_the_batch_does_not_list_is_refused() {
         let t = Tree::new("gate-unlisted");
@@ -1866,8 +1872,11 @@ mod tests {
         assert!(resolve(&source("f", Origin::File(font), None), &h).is_ok());
     }
 
-    // ADR-1205 D4: a font file its group can write fails the rule, even
+    // A font file its group can write fails the rule, even
     // when the batch lists it, and the refusal names the file and the mode
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_group_writable_font_is_refused() {
         let t = Tree::new("gate-writable");
@@ -1887,9 +1896,12 @@ mod tests {
         assert!(resolve(&source("f", Origin::Bdf(font), None), &h).is_ok());
     }
 
-    // ADR-1205 D4: a font reached through a symbolic link fails the rule,
+    // A font reached through a symbolic link fails the rule,
     // the link as the file and a link as a folder on the way, even when the
     // batch lists the link's path
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_font_through_a_symbolic_link_is_refused() {
         let t = Tree::new("gate-link");
@@ -1916,8 +1928,11 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4: the gate judges the filesystem that holds the file by
+    // The gate judges the filesystem that holds the file by
     // the mount table it is given, and refuses a network filesystem
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_font_on_a_network_filesystem_is_refused() {
         let t = Tree::new("gate-nfs");
@@ -1946,10 +1961,14 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4 on ADR-1200 D25: a font in a user's own folder, which
+    // A font in a user's own folder, which
     // `font-paths` names, is no active font. The batch does not list it,
     // so a family search through an active gate never takes it; and listed,
     // it fails the rule, because root does not own the folder
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
+    // - ADR-1200 D25: `font-paths` names folders of a user's own fonts.
     #[test]
     fn a_font_in_a_users_folder_that_font_paths_names_is_not_active() {
         use vtium_settings::Trust;
@@ -1992,10 +2011,13 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4: a family search through an active gate takes only the
+    // A family search through an active gate takes only the
     // fonts the batch lists, so an active font of the family draws even
     // when a font that is not active comes first in the search's order;
     // a family the machine lacks is missing, as through an open gate
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_family_search_takes_the_active_font_of_the_family() {
         let t = Tree::new("gate-family");
@@ -2018,8 +2040,11 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4: a kbd font, found as setfont finds it, draws only while
+    // A kbd font, found as setfont finds it, draws only while
     // the batch lists the file found
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_kbd_font_draws_only_while_the_batch_lists_it() {
         let t = Tree::new("gate-kbd");

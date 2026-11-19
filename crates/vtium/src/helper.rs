@@ -3031,9 +3031,12 @@ mod tests {
         assert!(s.helper.busy());
     }
 
-    // ADR-1205 D4: each helper the console starts is told the active fonts
+    // Each helper the console starts is told the active fonts
     // first, before any request reads a frit: the account whose files pass
     // the trust rule and each path the batch lists, in the helper's layout
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
     #[test]
     fn each_helper_is_told_the_active_fonts_first() {
         let paths = [
@@ -3135,8 +3138,11 @@ mod tests {
         assert_eq!(s.helper.launcher.active(), Some(after.as_slice()));
     }
 
-    // ADR-1205 D4: the active fonts' paths stop before they pass the
+    // The active fonts' paths stop before they pass the
     // helper's bound, so the helper never refuses the request
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
     #[test]
     fn the_active_fonts_stop_at_the_helpers_bound() {
         let long = |i: usize| Entry::Path(PathBuf::from(format!("/{i:03}{}", "x".repeat(996))));
@@ -5447,8 +5453,11 @@ mod tests {
         assert!(why.contains("is not absolute"), "{why}");
     }
 
-    // ADR-1205 D4: the configured helper is told the active fonts, under
+    // The configured helper is told the active fonts, under
     // the account vtium runs as, whatever the system's batch holds
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
     #[test]
     fn a_configured_helper_is_told_the_active_fonts() {
         let args = [std::ffi::OsString::from(format!(

@@ -73,8 +73,11 @@ fn bdf(height: u32) -> String {
     )
 }
 
-// ADR-1205 D4: a font file the batch does not list is refused, and the
+// A font file the batch does not list is refused, and the
 // answer names the file and why; listed, the same file reads
+//
+// References:
+// - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
 #[test]
 fn the_helper_reads_a_font_only_while_the_batch_lists_it() {
     let d = Scratch::new("active-fonts-listed");
@@ -93,10 +96,13 @@ fn the_helper_reads_a_font_only_while_the_batch_lists_it() {
     assert_eq!(sources(&d, "listed", &text, &listed), "");
 }
 
-// ADR-1205 D4 and its note of 2026-11-18: with no batch file, the list of
+// With no batch file, the list of
 // a fresh install makes the default set's fonts active, so the default set
 // terminus draws every source with no setup. Here the package's font
 // folder is the test's own, holding a font of each name the package ships
+//
+// References:
+// - ADR-1205 D4, its note of 2026-11-18: with no batch file, the batch is the list of a fresh install.
 #[test]
 fn the_list_of_a_fresh_install_draws_the_default_set() {
     let d = Scratch::new("active-fonts-fresh");
