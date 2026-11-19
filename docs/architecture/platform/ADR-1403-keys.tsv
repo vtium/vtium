@@ -45,11 +45,11 @@ n.question	n	question	Answers no. Nothing changes.	supported		ADR-1403 D7	#412	n
 i.question.leave	i	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 l.question.leave	l	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 other.question	any other key	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-	
-s.view	s	view	Saves the changes that are not saved into the draft.	supported	it acts in Flow, Looks and Settings, whose tab bars show Save	ADR-1403 D7		save	
+s.view	s	view	Saves the changes that are not saved into the draft.	supported	it acts in Effects, Looks, Flow and Settings, whose tab bars show Save	ADR-1403 D7		save	
 s.view.fonts	s	view:fonts	Saves the changes that are not saved into the draft.	planned	today the Fonts view's tab bar shows Save, but outside a vtium console s switches the preview between the specimen and the picture of the console	ADR-1205 D1; ADR-1403 D10	#375	save	
 s.view.help	s	view:help	Does nothing here.	supported	Help's tab bar shows no action	ADR-1403 D7		-	
 s.layer.file-view	s	layer:file-view	Saves the changes that are not saved into the draft. The file view stays open and shows the file as it now stands.	supported		ADR-1403 D7		save	
-i.view	i	view	Saves, then asks whether to install the draft.	supported	it acts in Flow, Looks and Settings, whose tab bars show Install	ADR-1403 D7		install	
+i.view	i	view	Saves, then asks whether to install the draft.	supported	it acts in Effects, Looks, Flow and Settings, whose tab bars show Install	ADR-1403 D7		install	
 i.view.help	i	view:help	Does nothing here.	supported		ADR-1403 D7	#412	-	
 i.layer.file-view	i	layer:file-view	Saves, then asks whether to install the draft. The file view stays open.	supported		ADR-1403 D7		install	
 action.layer	s i r n v o	layer	Do nothing until you close what is open with Esc.	supported	the file view is the exception, where s and i act	ADR-1403 D7	#412	-	
