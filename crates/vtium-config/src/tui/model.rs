@@ -766,13 +766,19 @@ impl App {
     /// the row its layout gives, as after every event. The window's rows
     /// change with the highlight, the terminal's size, the message line
     /// and the sentences under the list, so update settles the window
-    /// after every event, not only after a key or a resize.
+    /// after every event, not only after a key or a resize. In the Flow
+    /// view the list is Restore's list of the installed history.
     ///
     /// References:
     /// - ADR-1206 D4, "A list's selection lives in the tab's state": update
     ///   keeps the selection in view through the tab's layout, and each
     ///   tab has a hook that fits the offset to the rows it has.
     pub fn lists_settle(&mut self) {
+        if self.nav.view == View::Flow {
+            let (_, first) = super::layout::restore_window(self);
+            self.flow.restore_show_from(first);
+            return;
+        }
         let row = super::layout::list_offset(self);
         match self.nav.view {
             View::Settings => self.settings.show_from(row),

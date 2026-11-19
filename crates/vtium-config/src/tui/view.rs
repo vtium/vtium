@@ -32,8 +32,8 @@ use ratatui_widgets::paragraph::Paragraph;
 use super::canvas::{Canvas, Row, printable, span, wrap};
 use super::color::{Colors, Style, palette};
 use super::layout::{
-    FLOW_TOP, MESSAGE_ROWS, Tab, body, item_rows, key_line, key_rows, list_window, message_rows,
-    tab_places, too_small,
+    FLOW_TOP, Tab, body, item_rows, key_line, key_rows, list_window, message_rows, tab_places,
+    too_small,
 };
 use super::listbox::Body;
 use super::model::{App, Live, Size, Then, View};
@@ -244,18 +244,10 @@ fn small(app: &App) -> Vec<String> {
 /// The Flow view's screens that take the paths' place: the file view
 /// and Restore's list of the installed history.
 fn flow_screen(canvas: &mut Canvas, app: &App) {
-    let (cols, rows) = (app.size.cols, app.size.rows);
+    let rows = app.size.rows;
     let keys = key_rows(app);
-    let message = app
-        .shared
-        .message
-        .clone()
-        .or_else(|| app.preview().preview_line())
-        .map(|m| wrap(&m, cols.saturating_sub(2), MESSAGE_ROWS))
-        .unwrap_or_default();
-    let bottom = rows
-        .saturating_sub(keys.len())
-        .saturating_sub(message.len());
+    let message = super::layout::flow_message_rows(app);
+    let bottom = super::layout::flow_bottom(app);
     for (i, line) in message.iter().enumerate() {
         canvas.put(
             0,
@@ -274,45 +266,57 @@ fn flow_screen(canvas: &mut Canvas, app: &App) {
     }
     if let Some(pager) = app.flow.pager() {
         pager_screen(canvas, app, pager, bottom);
-        return;
-    }
-    if let Some((kept, at)) = app.flow.restore() {
-        let room = bottom.saturating_sub(FLOW_TOP).max(1);
-        for (i, row) in restore_rows(kept, *at, room).iter().enumerate() {
-            let mut x = 1usize;
-            for (text, style) in row {
-                x = canvas.put(x, FLOW_TOP.saturating_add(i), text, *style);
-            }
-        }
     }
 }
 
-/// Restore's list of the installed history, at most `room` files around
-/// the highlighted one, under its title.
-fn restore_rows(kept: &[super::desk::Kept], at: usize, room: usize) -> Vec<Vec<(String, Style)>> {
-    let first = at
-        .saturating_add(1)
-        .saturating_sub(room)
-        .min(kept.len().saturating_sub(room));
-    let mut out = vec![vec![(
-        words::RESTORE_TITLE.to_owned(),
-        Style {
-            bold: true,
-            ..Style::PLAIN
-        },
-    )]];
-    for (i, k) in kept.iter().enumerate().skip(first).take(room) {
-        let style = if i == at {
-            Style::PLAIN.reversed()
-        } else {
-            Style::PLAIN
-        };
-        out.push(vec![(
-            format!(" {:>2}  {} ", i.saturating_add(1), k.name),
-            style,
-        )]);
-    }
-    out
+/// Restore's list of the installed history under its title, drawn by
+/// ratatui's List from a copy of the Flow tab's list state. The window
+/// ends on the row above the message, so the entries never cover the
+/// message or the key line.
+///
+/// References:
+/// - ADR-1206 D4, "A list's selection lives in the tab's state": the view
+///   draws from a copy, so drawing never changes the model.
+fn restore_list(app: &App, colors: Colors, buf: &mut Buffer) {
+    use ratatui_core::widgets::StatefulWidget;
+    use ratatui_widgets::list::{List, ListItem, ListState};
+    let Some((kept, list)) = app.flow.restore().filter(|_| app.flow.pager().is_none()) else {
+        return;
+    };
+    let (room, _) = super::layout::restore_window(app);
+    let inside = Rect {
+        x: 1,
+        width: buf.area.width.saturating_sub(1),
+        ..buf.area
+    };
+    let title = Style {
+        bold: true,
+        ..Style::PLAIN
+    };
+    Paragraph::new(Line::from(styled(words::RESTORE_TITLE, title, colors)))
+        .render(band(inside, FLOW_TOP, 1), buf);
+    let items: Vec<ListItem> = kept
+        .iter()
+        .enumerate()
+        .map(|(i, k)| {
+            let style = if i == list.at {
+                Style::PLAIN.reversed()
+            } else {
+                Style::PLAIN
+            };
+            let text = format!(" {:>2}  {} ", i.saturating_add(1), k.name);
+            ListItem::new(Line::from(styled(text, style, colors)))
+        })
+        .collect();
+    let mut state = ListState::default()
+        .with_offset(list.offset)
+        .with_selected(Some(list.at));
+    StatefulWidget::render(
+        List::new(items),
+        band(inside, FLOW_TOP.saturating_add(1), room),
+        buf,
+        &mut state,
+    );
 }
 
 /// The draft in the pager, from row 2 down to `bottom`: its title, then
@@ -445,6 +449,7 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
             drawn.get(2..).unwrap_or_default(),
             colors,
         );
+        restore_list(app, colors, buf);
         return;
     }
     let rule = || plain("-".repeat(cols));

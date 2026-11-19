@@ -4552,7 +4552,9 @@ mod draft_flow {
 /// References:
 /// - ADR-1206 D4, "A list's selection lives in the tab's state".
 mod list_window {
+    use vtium_config::tui::desk::Kept;
     use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::layout;
     use vtium_config::tui::model::{App, Event, Size, View};
     use vtium_config::tui::view;
 
@@ -4613,6 +4615,76 @@ mod list_window {
         app.event(Event::Resize(size));
         assert_eq!(app.settings.offset(), end - 1 - 5);
         assert_eq!(highlighted(&app).map(|(y, _)| y), Some(row + 5));
+    }
+
+    /// The Flow view at 80 × 25 with Restore's list open on a history of
+    /// 40 files, longer than the list's window.
+    fn long_history() -> App {
+        let mut i = super::inputs();
+        i.view = View::Flow;
+        let mut app = App::new(i, 80, 25).0;
+        let kept = (0..40)
+            .map(|n| Kept {
+                name: format!("DRAFT-{n}.conf"),
+                text: String::new(),
+            })
+            .collect();
+        app.flow.show_history(kept);
+        app.event(Event::Resize(app.size));
+        app
+    }
+
+    /// Restore's window ends above the message and the key line, so the
+    /// key line stays whole whichever entry is highlighted, and the
+    /// highlighted entry is always on the screen.
+    #[test]
+    fn restore_s_list_of_a_long_history_keeps_the_key_line_whole_and_the_highlight_in_view() {
+        let mut app = long_history();
+        let keys = format!(" {}", layout::key_line(&app));
+        let mut at = 0usize;
+        let moves = [Key::Down; 25].into_iter().chain([
+            Key::PageDown,
+            Key::End,
+            Key::Up,
+            Key::PageUp,
+            Key::Home,
+        ]);
+        for key in moves {
+            press(&mut app, key);
+            at = match key {
+                Key::Down => at + 1,
+                Key::Up => at - 1,
+                Key::PageDown => (at + 10).min(39),
+                Key::PageUp => at.saturating_sub(10),
+                Key::End => 39,
+                _ => 0,
+            };
+            let screen = view::screen(&app);
+            assert_eq!(
+                view::text(&screen[24]).trim_end(),
+                keys.trim_end(),
+                "{key:?}: {}",
+                view::as_text(&screen)
+            );
+            let (row, entry) = highlighted(&app).expect("a highlighted entry");
+            assert_eq!(entry, format!("{}  DRAFT-{at}.conf", at + 1), "{key:?}");
+            // 19 entries show on rows 5 to 23, under the title on row 4,
+            // and the highlighted one is the window's last once the list
+            // has scrolled
+            assert_eq!(row, 5 + at.min(18), "{key:?}");
+            let (_, list) = app.flow.restore().expect("Restore's list");
+            assert_eq!(list.offset, at.saturating_sub(18), "{key:?}");
+        }
+        // a message of three rows takes the rows above the key line, and
+        // the window ends above the message
+        app.shared.message = Some("word ".repeat(40));
+        press(&mut app, Key::End);
+        let screen = view::screen(&app);
+        let (row, entry) = highlighted(&app).expect("a highlighted entry");
+        assert_eq!(entry, "40  DRAFT-39.conf");
+        assert_eq!(row, 20, "{}", view::as_text(&screen));
+        assert!(view::text(&screen[21]).starts_with(" word word"));
+        assert_eq!(view::text(&screen[24]).trim_end(), keys.trim_end());
     }
 
     #[test]

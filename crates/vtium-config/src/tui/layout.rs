@@ -290,6 +290,45 @@ pub fn list_offset(app: &App) -> usize {
     keep.saturating_add(1).saturating_sub(room)
 }
 
+/// The rows of the message under the Flow view's file view and Restore's
+/// list: the message, or else the line that says which font the preview
+/// shows, wrapped to at most [`MESSAGE_ROWS`] rows.
+pub fn flow_message_rows(app: &App) -> Vec<String> {
+    app.shared
+        .message
+        .clone()
+        .or_else(|| app.preview().preview_line())
+        .map(|m| wrap(&m, app.size.cols.saturating_sub(2), MESSAGE_ROWS))
+        .unwrap_or_default()
+}
+
+/// The first row of the message under the file view and Restore's list,
+/// which is the row under the last one they draw on.
+pub fn flow_bottom(app: &App) -> usize {
+    app.size
+        .rows
+        .saturating_sub(key_rows(app).len())
+        .saturating_sub(flow_message_rows(app).len())
+}
+
+/// Restore's window: how many entries of the installed history show
+/// under its title, at least one, and the first entry it shows. The
+/// window ends on the row above the message, and it starts at the entry
+/// that puts the highlighted one on its last row, or at the first entry
+/// while the highlighted one fits above that.
+pub fn restore_window(app: &App) -> (usize, usize) {
+    let room = flow_bottom(app)
+        .saturating_sub(FLOW_TOP.saturating_add(1))
+        .max(1);
+    let first = app.flow.restore().map_or(0, |(kept, list)| {
+        list.at
+            .saturating_add(1)
+            .saturating_sub(room)
+            .min(kept.len().saturating_sub(room))
+    });
+    (room, first)
+}
+
 /// The Help view's page: how many rows it has, and how many of them the
 /// screen shows at once. The page's top row goes as far as the row that
 /// puts the page's last row at the bottom of the screen.

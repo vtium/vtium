@@ -27,6 +27,7 @@ use super::super::edit::Change as DraftChange;
 use super::super::flow::{Device, Flow as Wiring, Item, Kind, New};
 use super::super::flowview::{self, Obj, Slot, State};
 use super::super::input::Key;
+use super::super::listbox::ListBox;
 use super::super::model::{Live, Pager, Shared, Size, Then, step};
 use super::super::parts::{self, Make, Pick, Stage};
 use super::super::paths::{self, Adding, Doc, Path, Picked, Piece};
@@ -43,8 +44,9 @@ pub struct Flow {
     at: Item,
     /// The read-only file view over the draft, when it is open.
     pager: Option<Pager>,
-    /// The installed history Restore lists, and the entry highlighted.
-    restore: Option<(Vec<Kept>, usize)>,
+    /// The installed history Restore lists, the entry highlighted, and
+    /// the first entry its window shows.
+    restore: Option<(Vec<Kept>, ListBox)>,
     /// The item to select once the desk answers the change in flight.
     select_after: Option<Item>,
 }
@@ -76,10 +78,20 @@ impl Flow {
         self.pager
     }
 
-    /// Restore's list of the installed history and its highlighted entry,
-    /// when the list is open.
-    pub fn restore(&self) -> Option<&(Vec<Kept>, usize)> {
-        self.restore.as_ref()
+    /// Restore's list of the installed history, with its highlighted
+    /// entry and the first entry its window shows, when the list is open.
+    pub fn restore(&self) -> Option<(&[Kept], ListBox)> {
+        self.restore
+            .as_ref()
+            .map(|(kept, list)| (kept.as_slice(), *list))
+    }
+
+    /// Starts Restore's window at the entry `first`, which the layout
+    /// gives so the highlighted entry shows.
+    pub fn restore_show_from(&mut self, first: usize) {
+        if let Some((_, list)) = self.restore.as_mut() {
+            list.offset = first;
+        }
     }
 
     /// Carries the selected item over a rebuild of the flow from `old` to
@@ -114,7 +126,7 @@ impl Flow {
     /// Opens Restore's list on `kept`, the installed history, with its
     /// first entry highlighted.
     pub fn show_history(&mut self, kept: Vec<Kept>) {
-        self.restore = Some((kept, 0));
+        self.restore = Some((kept, ListBox::at(0)));
     }
 
     /// Opens the pager at the line of the card selected in the flow.
@@ -162,14 +174,17 @@ impl Flow {
     /// Enter asks to copy the file into the draft, and Esc closes it. `q`
     /// quits, as it does everywhere.
     pub(crate) fn restore_key(&mut self, shared: &Shared, key: Key) -> Vec<Command> {
-        let Some((kept, at)) = self.restore.as_mut() else {
+        let Some((kept, list)) = self.restore.as_mut() else {
             return Vec::new();
         };
         match key {
             Key::Escape => self.restore = None,
             Key::Enter => {
-                let n = at.saturating_add(1);
-                let restored = kept.get(*at).map(|k| k.text.clone()).unwrap_or_default();
+                let n = list.at.saturating_add(1);
+                let restored = kept
+                    .get(list.at)
+                    .map(|k| k.text.clone())
+                    .unwrap_or_default();
                 let now = shared
                     .draft
                     .as_ref()
@@ -185,7 +200,7 @@ impl Flow {
                     then: Then::Desk(Op::Restore(n)),
                 })];
             }
-            _ => *at = step(*at, kept.len(), key),
+            _ => list.at = step(list.at, kept.len(), key),
         }
         Vec::new()
     }
