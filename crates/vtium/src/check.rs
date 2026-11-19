@@ -1174,20 +1174,35 @@ fn palette_findings(
             top.chain(looks).collect::<Vec<_>>()
         };
         match palette::read(name, folders, trust) {
-            Ok(Some(scheme)) => notes.extend(scheme.ignored.iter().map(|i| {
-                let follows = matches!(i.key.as_str(), "config-file" | "theme");
-                let why = if follows {
-                    "vtium never follows it, so a color scheme sets colors and nothing else"
-                } else {
-                    "it is not a color vtium reads"
+            Ok(Some(scheme)) => {
+                notes.extend(scheme.ignored.iter().map(|i| {
+                    let follows = matches!(i.key.as_str(), "config-file" | "theme");
+                    let why = if follows {
+                        "vtium never follows it, so a color scheme sets colors and nothing else"
+                    } else {
+                        "it is not a color vtium reads"
+                    };
+                    format!(
+                        "{}:{}: The color scheme {name} sets {}, which vtium ignores: {why}.",
+                        scheme.file.display(),
+                        i.line,
+                        i.quoted()
+                    )
+                }));
+                // the reader lists the first keys it ignores and counts the
+                // rest, so one note stands for all of those
+                let keys = match scheme.more_ignored {
+                    0 => None,
+                    1 => Some("1 more key".to_owned()),
+                    n => Some(format!("{n} more keys")),
                 };
-                format!(
-                    "{}:{}: The color scheme {name} sets {}, which vtium ignores: {why}.",
-                    scheme.file.display(),
-                    i.line,
-                    i.quoted()
-                )
-            })),
+                notes.extend(keys.map(|keys| {
+                    format!(
+                        "{}: The color scheme {name} sets {keys} that vtium ignores.",
+                        scheme.file.display()
+                    )
+                }));
+            }
             Ok(None) => {
                 let folders: Vec<String> =
                     folders.iter().map(|f| f.display().to_string()).collect();
@@ -1753,6 +1768,42 @@ mod tests {
             let conf = format!("palette={name}\n");
             assert_eq!(run_with(&[], &conf), (Vec::new(), 0), "{name}");
         }
+    }
+
+    // A color scheme that sets many keys vtium ignores gives one note for
+    // each of the first ERRORS_MAX keys and one note that counts the rest.
+    #[test]
+    fn check_config_counts_the_ignored_keys_past_the_bound() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = Scratch::new("check-palette-keys");
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let path = dir.join("many.palette");
+        let text: String = (0..vtium_settings::ERRORS_MAX + 7)
+            .map(|i| format!("k{i} = 1\n"))
+            .collect();
+        std::fs::write(&path, text).unwrap_or_default();
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+        let me = std::fs::metadata(&*dir).map_or(0, |m| m.uid());
+        let trust = Trust::owner(me).below(&dir);
+        let (counted, notes) = palette_findings(
+            Some(("many", "/etc/vtium/vtium.conf:1".to_owned())),
+            Path::new("/etc/vtium/vtium.conf"),
+            &[],
+            &[&*dir],
+            &trust,
+        );
+        assert_eq!(counted, Vec::<String>::new());
+        assert_eq!(notes.len(), vtium_settings::ERRORS_MAX + 1);
+        assert_eq!(
+            notes.last().map(String::as_str),
+            Some(
+                format!(
+                    "{}: The color scheme many sets 7 more keys that vtium ignores.",
+                    path.display()
+                )
+                .as_str()
+            )
+        );
     }
 
     // check-config reads each color scheme vtium.conf names, at the top

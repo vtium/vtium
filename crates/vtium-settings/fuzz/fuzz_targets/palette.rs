@@ -5,7 +5,8 @@
 //! must never panic. The target also checks that the reader's answer is
 //! consistent. A file that reads cleanly lists each ignored key once, on
 //! a line the file has, in the file's order, and never lists a key vtium
-//! reads. A file that fails names at least one error and at most
+//! reads. It lists at most `ERRORS_MAX` of them, and counts the rest only
+//! when the list is full. A file that fails names at least one error and at most
 //! `ERRORS_MAX`, each on a line the file has, and a file over the bound
 //! fails as too large whatever it holds. The log line and every reason
 //! print without a control character, so nothing the file holds reaches a
@@ -36,8 +37,10 @@ fuzz_target!(|data: &[u8]| {
     // bound is never read line by line
     let lines = data.split(|&b| b == b'\n').count();
     match parse(data) {
-        Ok((_, ignored)) => {
+        Ok((_, ignored, more_ignored)) => {
             assert!(data.len() <= PALETTE_FILE_MAX);
+            assert!(ignored.len() <= ERRORS_MAX);
+            assert!(more_ignored == 0 || ignored.len() == ERRORS_MAX);
             let mut last = 0;
             for (i, key) in ignored.iter().enumerate() {
                 assert!(!READ.contains(&key.key.as_str()), "{:?}", key.key);

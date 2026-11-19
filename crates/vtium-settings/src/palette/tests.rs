@@ -20,7 +20,7 @@ fn legacy() -> Palette {
 /// The palette `text` reads as, or the test fails with its errors.
 fn colors(text: &str) -> Palette {
     match parse(text.as_bytes()) {
-        Ok((palette, _)) => palette,
+        Ok((palette, _, _)) => palette,
         Err(e) => panic!("{text:?}: {e:?}"),
     }
 }
@@ -126,7 +126,7 @@ fn a_color_is_hex_with_or_without_the_hash_or_an_x11_name() {
 #[test]
 fn other_keys_are_ignored_and_listed_once() {
     let text = "cursor-text = #000000\nfont-family = \"Fira Code\"\ncursor-text = #ffffff\nconfig-file = /etc/passwd\ntheme = dracula\nforeground = #010203\n";
-    let Ok((palette, ignored)) = parse(text.as_bytes()) else {
+    let Ok((palette, ignored, _)) = parse(text.as_bytes()) else {
         panic!("reads cleanly");
     };
     let listed: Vec<(&str, usize)> = ignored.iter().map(|i| (i.key.as_str(), i.line)).collect();
@@ -450,12 +450,33 @@ fn a_long_ignored_key_is_listed_once() {
     let long = "k".repeat(crate::bounds::QUOTE_MAX.saturating_add(10));
     let other = format!("{long}x");
     let text = format!("{long} = 1\n{long} = 2\n{other} = 3\n");
-    let Ok((_, ignored)) = parse(text.as_bytes()) else {
+    let Ok((_, ignored, _)) = parse(text.as_bytes()) else {
         panic!("reads cleanly");
     };
     let listed: Vec<(&str, usize)> = ignored.iter().map(|i| (i.key.as_str(), i.line)).collect();
     assert_eq!(listed, [(long.as_str(), 1), (other.as_str(), 3)]);
     assert!(ignored[0].quoted().to_string().ends_with("...\""));
+}
+
+// The reader lists the first ERRORS_MAX keys it ignores, each once, and
+// counts the other keys, so a file of many unknown keys gives a list of
+// bounded length. A key set again past the bound is counted once.
+#[test]
+fn the_ignored_keys_past_the_bound_are_counted() {
+    let mut text = String::new();
+    for i in 0..ERRORS_MAX + 5 {
+        text.push_str(&format!("k{i} = 1\n"));
+    }
+    text.push_str("k0 = 2\nk66 = 2\nbackground = #000000\n");
+    let Ok((palette, ignored, more)) = parse(text.as_bytes()) else {
+        panic!("reads cleanly");
+    };
+    assert_eq!(palette.bg(), Rgb::new(0, 0, 0));
+    assert_eq!(ignored.len(), ERRORS_MAX);
+    assert_eq!((ignored[0].key.as_str(), ignored[0].line), ("k0", 1));
+    let last = &ignored[ERRORS_MAX - 1];
+    assert_eq!((last.key.as_str(), last.line), ("k63", 64));
+    assert_eq!(more, 5);
 }
 
 // A look section's `palette` takes a built-in palette's name or a file's
