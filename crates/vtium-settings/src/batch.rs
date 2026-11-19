@@ -22,7 +22,7 @@
 //! file. [`Batch::holds`] answers whether a path is in the batch.
 //!
 //! References:
-//! - ADR-1205 D4: the batch, its file, the fresh-install list and the note of 2026-11-18 on a missing file.
+//! - ADR-1205 D4: the batch, its file, the fresh-install list, the note of 2026-11-18 on a missing file, and the note of 2026-11-19 on where the console font is found and on a batch file vtium cannot use.
 //! - ADR-1205 D10: the palettes the package ships are active from the first start.
 //! - ADR-1401 D10: the owner and mode check the batch file passes, as vtium.conf does.
 
@@ -78,6 +78,16 @@ pub const FRESH_FONTS: [&str; 21] = [
 /// The longest line vtium reads as a path: `PATH_MAX`, the longest path
 /// the kernel takes, with its terminating zero.
 const PATH_MAX: usize = 4096;
+
+/// The folders where kbd keeps its console fonts on the distributions vtium
+/// knows: Arch's and Fedora's, the older `/lib` one, and Debian's. A console
+/// font that vconsole.conf names by kbd's name is active only in these.
+pub const CONSOLE_FONT_FOLDERS: [&str; 4] = [
+    "/usr/share/kbd/consolefonts",
+    "/usr/lib/kbd/consolefonts",
+    "/lib/kbd/consolefonts",
+    "/usr/share/consolefonts",
+];
 
 /// The suffixes kbd's console fonts carry, longest first, which a file
 /// name loses to give the name vconsole.conf's `FONT=` uses.
@@ -202,10 +212,6 @@ impl fmt::Display for Unread {
 pub enum Entry {
     /// A resource by its absolute path.
     Path(PathBuf),
-    /// The console font that vconsole.conf's `FONT=` names by kbd's
-    /// name, such as `ter-v16n`: any file of that name, less kbd's font
-    /// suffixes, in a folder named `consolefonts`.
-    ConsoleFont(String),
 }
 
 /// The batch: the resources vtium may draw from.
@@ -288,16 +294,29 @@ impl Batch {
     /// vconsole.conf's `FONT=` names, and every file in `palettes`, the
     /// folder of the palettes the package ships. The built-in font is
     /// always active besides.
-    pub fn fresh_install(fonts: &Path, palettes: &Path, console_font: Option<&str>) -> Batch {
+    ///
+    /// vconsole.conf names the console font by an absolute path or by
+    /// kbd's name, such as `ter-v16n`. vtium looks for a font by kbd's
+    /// name in `console_font_folders`, normally [`CONSOLE_FONT_FOLDERS`],
+    /// and lists each regular file there whose name is the font's name
+    /// with one of kbd's suffixes or none. A file of that name in any
+    /// other folder is not active.
+    pub fn fresh_install(
+        fonts: &Path,
+        palettes: &Path,
+        console_font: Option<&str>,
+        console_font_folders: &[&Path],
+    ) -> Batch {
         let mut entries: Vec<Entry> = FRESH_FONTS
             .iter()
             .map(|f| Entry::Path(fonts.join(f)))
             .collect();
         if let Some(font) = console_font.filter(|f| !f.is_empty()) {
-            entries.push(match plain(font) {
-                Ok(path) => Entry::Path(path),
-                Err(_) => Entry::ConsoleFont(font.to_owned()),
-            });
+            if let Ok(path) = plain(font) {
+                entries.push(Entry::Path(path));
+            } else {
+                entries.extend(console_fonts(font, console_font_folders).map(Entry::Path));
+            }
         }
         let mut shipped: Vec<PathBuf> = std::fs::read_dir(palettes)
             .into_iter()
@@ -340,34 +359,30 @@ impl Batch {
     }
 
     /// Whether the batch holds the resource at `path`: an entry of the
-    /// same path once `.` and doubled slashes are dropped, or the console
-    /// font's entry for a file of its name in a `consolefonts` folder. A
-    /// relative path, one holding `..`, or one that is not UTF-8, which no
-    /// line of the batch file can name, is never in the batch.
+    /// same path once `.` and doubled slashes are dropped. A relative
+    /// path, one holding `..`, or one that is not UTF-8, which no line of
+    /// the batch file can name, is never in the batch.
     pub fn holds(&self, path: &Path) -> bool {
         let Some(Ok(path)) = path.to_str().map(plain) else {
             return false;
         };
-        self.entries.iter().any(|e| match e {
-            Entry::Path(p) => *p == path,
-            Entry::ConsoleFont(name) => console_font_is(&path, name),
-        })
+        self.entries.iter().any(|Entry::Path(p)| *p == path)
     }
 }
 
-/// Whether `path` is kbd's console font `name`: a file in a folder named
-/// `consolefonts`, whose name less one of kbd's suffixes is `name`.
-fn console_font_is(path: &Path, name: &str) -> bool {
-    let in_kbd = path
-        .parent()
-        .and_then(Path::file_name)
-        .is_some_and(|d| d == "consolefonts");
-    let Some(file) = path.file_name().and_then(|f| f.to_str()) else {
-        return false;
-    };
-    in_kbd
-        && (file == name
-            || CONSOLE_FONT_SUFFIXES
-                .iter()
-                .any(|s| file.strip_suffix(s) == Some(name)))
+/// The regular files in `folders` that are kbd's console font `name`: the
+/// file named `name`, and each file named `name` with one of kbd's
+/// suffixes. A name that is not one plain file name, such as one holding
+/// `/` or `..`, names no file.
+fn console_fonts<'a>(name: &'a str, folders: &'a [&Path]) -> impl Iterator<Item = PathBuf> + 'a {
+    let plain_name = !name.contains('/') && name != "." && name != "..";
+    folders
+        .iter()
+        .filter(move |_| plain_name)
+        .flat_map(move |folder| {
+            std::iter::once(String::new())
+                .chain(CONSOLE_FONT_SUFFIXES.iter().map(|s| (*s).to_owned()))
+                .map(move |suffix| folder.join(format!("{name}{suffix}")))
+        })
+        .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
 }

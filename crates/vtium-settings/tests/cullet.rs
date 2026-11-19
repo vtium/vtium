@@ -1,5 +1,4 @@
-//! The trust rule on resource files, the mount check and the batch
-//! (ADR-1205 D4, D10).
+//! The trust rule on resource files, the mount check and the batch.
 //!
 //! No test runs as root, so each trusts its own user's files and root's
 //! folders with [`Trust::owner`], below a fixture folder of its own with
@@ -8,6 +7,10 @@
 //! running system's mount table, where the fixture sits on a local
 //! filesystem; the mount check's own tests feed it mount tables and sysfs
 //! folders written for the test.
+//!
+//! References:
+//! - ADR-1205 D4: the trust rule, the mount check, the batch and the list of a fresh install.
+//! - ADR-1205 D10: the palettes the package ships are active from the first start.
 
 use std::fs;
 use std::io::Read;
@@ -17,7 +20,8 @@ use std::path::{Path, PathBuf};
 use vtium_settings::Trust;
 use vtium_settings::Untrusted;
 use vtium_settings::batch::{
-    BATCH_MAX, Batch, Entry, FRESH_FONTS, Finding, LineFault, Unread, vconsole,
+    BATCH_MAX, Batch, CONSOLE_FONT_FOLDERS, Entry, FRESH_FONTS, Finding, LineFault, Unread,
+    vconsole,
 };
 use vtium_settings::cullet::{Check, Opened, Refused, Rule, open, open_in_theme};
 use vtium_settings::mounts::{Mounts, Place, Unsteady};
@@ -359,27 +363,74 @@ const MOUNTINFO: &str = "\
 37 22 8:18 / /media/my\\040disk rw shared:9 - ext4 /dev/sdb2 rw
 ";
 
-/// A sysfs folder for the fixtures: sda, a fixed disk with partitions
-/// sda1 and sda2, and sdb, a removable disk with partitions sdb1 and
-/// sdb2, each reached from `dev/block/MAJ:MIN` by a link, as the kernel
-/// lays sysfs out.
+/// A sysfs folder for the fixtures, laid out as the kernel lays sysfs out,
+/// each device reached from `dev/block/MAJ:MIN` by a link:
+///
+/// - sda (8:0), a fixed SATA disk with partitions sda1 and sda2;
+/// - sdb (8:16), a removable disk with partitions sdb1 and sdb2;
+/// - sdc (8:32), a USB disk that reports itself fixed, with sdc1;
+/// - dm-0 (253:0), an encrypted volume on sdb1, and dm-1 (253:1) on sdc1;
+/// - md0 (9:0), a RAID array of sda1 and sda2, and dm-2 (253:2) on md0.
 fn sysfs(dir: &Path) -> PathBuf {
     let sys = dir.join("sys");
-    for (disk, removable, parts) in [
-        ("sda", "0", [(1, "8:1"), (2, "8:2")]),
-        ("sdb", "1", [(1, "8:17"), (2, "8:18")]),
+    mkdir(&sys.join("dev/block"), 0o755);
+    let link = |dev: &str, to: &Path| {
+        symlink(to, sys.join("dev/block").join(dev)).expect("the device link");
+    };
+    let mut parts = std::collections::BTreeMap::new();
+    for (bus, disk, dev, removable, partitions) in [
+        (
+            "ata1/host0",
+            "sda",
+            "8:0",
+            "0",
+            &[(1, "8:1"), (2, "8:2")][..],
+        ),
+        (
+            "usb1/1-1/host1",
+            "sdb",
+            "8:16",
+            "1",
+            &[(1, "8:17"), (2, "8:18")][..],
+        ),
+        ("usb2/2-1/host2", "sdc", "8:32", "0", &[(1, "8:33")][..]),
     ] {
-        let d = sys.join("devices/pci0000:00/usb1/block").join(disk);
+        let d = sys
+            .join("devices/pci0000:00")
+            .join(bus)
+            .join("block")
+            .join(disk);
         mkdir(&d, 0o755);
         fs::write(d.join("removable"), format!("{removable}\n")).expect("removable");
-        for (n, dev) in parts {
+        link(dev, &d);
+        for &(n, dev) in partitions {
             let p = d.join(format!("{disk}{n}"));
             mkdir(&p, 0o755);
             fs::write(p.join("partition"), format!("{n}\n")).expect("partition");
-            mkdir(&sys.join("dev/block"), 0o755);
-            symlink(&p, sys.join("dev/block").join(dev)).expect("the device link");
+            link(dev, &p);
+            parts.insert(format!("{disk}{n}"), p);
         }
     }
+    let virt = sys.join("devices/virtual/block");
+    let stacked = |name: &str, dev: &str, below: &[&Path]| {
+        let d = virt.join(name);
+        mkdir(&d.join("slaves"), 0o755);
+        fs::write(d.join("removable"), "0\n").expect("removable");
+        for b in below {
+            let n = b.file_name().expect("a device's name");
+            symlink(b, d.join("slaves").join(n)).expect("the slave link");
+        }
+        link(dev, &d);
+        d
+    };
+    mkdir(&sys.join("class/block"), 0o755);
+    for (name, p) in &parts {
+        symlink(p, sys.join("class/block").join(name)).expect("the class link");
+    }
+    stacked("dm-0", "253:0", &[&parts["sdb1"]]);
+    stacked("dm-1", "253:1", &[&parts["sdc1"]]);
+    let md0 = stacked("md0", "9:0", &[&parts["sda1"], &parts["sda2"]]);
+    stacked("dm-2", "253:2", &[&md0]);
     sys
 }
 
@@ -436,47 +487,70 @@ fn the_mount_check_refuses_network_fuse_automounted_and_removable_filesystems() 
         judge((8, 17), "/media/stick/a.bdf"),
         Err(Unsteady::Removable {
             point: "/media/stick".into(),
-            source: "/dev/sdb1".into()
+            disk: "/dev/sdb".into()
         })
     );
     assert_eq!(
         judge((8, 18), "/media/my disk/a.bdf"),
         Err(Unsteady::Removable {
             point: "/media/my disk".into(),
-            source: "/dev/sdb2".into()
+            disk: "/dev/sdb".into()
         })
     );
 }
 
+// The root filesystem on a removable disk passes, and so does every other
+// filesystem on that disk, directly or beneath an encrypted volume. A
+// filesystem on another removable or USB disk still fails.
 #[test]
 fn the_root_filesystem_on_a_removable_disk_passes() {
     let dir = fixture("mounts-root");
-    let table = "22 1 8:17 / / rw - ext4 /dev/sdb1 rw\n23 22 8:18 / /home rw - ext4 /dev/sdb2 rw\n";
+    let table = "\
+22 1 8:17 / / rw - ext4 /dev/sdb1 rw
+23 22 8:18 / /home rw - ext4 /dev/sdb2 rw
+24 22 253:0 / /secret rw - ext4 /dev/mapper/secret rw
+25 22 8:33 / /media/usb rw - ext4 /dev/sdc1 rw
+";
     let mounts = Mounts::parse(table, &sysfs(&dir));
     assert_eq!(mounts.judge(&place((8, 17), "/usr/share/a")), Ok(()));
-    assert!(matches!(
-        mounts.judge(&place((8, 18), "/home/a")),
-        Err(Unsteady::Removable { .. })
-    ));
+    assert_eq!(mounts.judge(&place((8, 18), "/home/a")), Ok(()));
+    assert_eq!(mounts.judge(&place((253, 0), "/secret/a")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((8, 33), "/media/usb/a")),
+        Err(Unsteady::UsbDisk {
+            point: "/media/usb".into(),
+            disk: "/dev/sdc".into()
+        })
+    );
 }
 
 // btrfs reports a subvolume's own device number, which the mount table
 // does not hold: vtium finds the mount by its mount ID, and without one
-// by the longest mount point above the path.
+// by its device number, then by the longest mount point above the path
+// whose own folder has the file's device number.
 #[test]
 fn the_mount_is_found_by_its_id_then_its_device_then_its_mount_point() {
-    let table = "\
+    let dir = fixture("find");
+    let meta = fs::metadata(&dir).expect("the fixture");
+    let here = (rustix::fs::major(meta.dev()), rustix::fs::minor(meta.dev()));
+    let table = format!(
+        "\
 33 2 0:30 /@ / rw - btrfs /dev/nvme0n1p2 rw
 55 33 0:30 /@home /home rw - btrfs /dev/nvme0n1p2 rw
 60 33 0:50 / /srv rw - nfs4 server:/srv rw
-";
-    let mounts = Mounts::parse(table, Path::new("/nonexistent-sys"));
-    let by_id = Place {
-        mount_id: Some(55),
-        dev: (0, 61),
-        path: "/srv/x".into(),
+61 33 0:31 /@sub {} rw - btrfs /dev/nvme0n1p2 rw
+",
+        dir.display()
+    );
+    let mounts = Mounts::parse(&table, Path::new("/nonexistent-sys"));
+    let by_id = |id, path: &str| Place {
+        mount_id: Some(id),
+        dev: (0, 99),
+        path: path.into(),
     };
-    assert_eq!(mounts.find(&by_id).map(|m| m.id), Some(55));
+    assert_eq!(mounts.find(&by_id(55, "/home/x")).map(|m| m.id), Some(55));
+    // a line whose mount point is not above the path is stale
+    assert_eq!(mounts.find(&by_id(55, "/srv/x")).map(|m| m.id), None);
     // the same device mounted twice: the mount point above the path wins
     assert_eq!(
         mounts.find(&place((0, 30), "/home/a")).map(|m| m.id),
@@ -486,19 +560,50 @@ fn the_mount_is_found_by_its_id_then_its_device_then_its_mount_point() {
         mounts.find(&place((0, 30), "/usr/a")).map(|m| m.id),
         Some(33)
     );
-    // a subvolume's device number the table lacks
-    assert_eq!(
-        mounts.find(&place((0, 61), "/srv/x")).map(|m| m.id),
-        Some(60)
-    );
-    assert_eq!(
-        mounts.find(&place((0, 61), "/usr/x")).map(|m| m.id),
-        Some(33)
-    );
+    // a subvolume's device number the table lacks: the mount point above
+    // the path counts only when its own folder has the file's device
+    let file = dir.join("a.bdf");
+    let file = file.to_str().expect("a UTF-8 fixture path");
+    assert_eq!(mounts.find(&place(here, file)).map(|m| m.id), Some(61));
+    assert_eq!(mounts.find(&place((0, 99), file)).map(|m| m.id), None);
+    assert_eq!(mounts.find(&place((0, 61), "/srv/x")).map(|m| m.id), None);
     assert_eq!(
         Mounts::parse("", Path::new("/")).judge(&place((0, 61), "/usr/x")),
         Err(Unsteady::Unknown {
             path: "/usr/x".into()
+        })
+    );
+}
+
+// A mount table read from a file is read again once when a file's mount is
+// missing, so a mount made after the first read is judged by its own line.
+#[test]
+fn a_mount_missing_from_the_table_is_looked_up_again_in_the_file() {
+    let dir = fixture("read-again");
+    let info = dir.join("mountinfo");
+    fs::write(&info, "22 1 8:2 / / rw - ext4 /dev/sda2 rw\n").expect("the table");
+    let mounts = Mounts::read(&info, Path::new("/nonexistent-sys")).expect("the table");
+    let at = |id| Place {
+        mount_id: Some(id),
+        dev: (0, 77),
+        path: "/run/media/me/net/x.ttf".into(),
+    };
+    fs::write(
+        &info,
+        "22 1 8:2 / / rw - ext4 /dev/sda2 rw\n40 22 0:77 / /run/media/me/net rw - nfs4 server:/x rw\n",
+    )
+    .expect("the table with a newer mount");
+    assert_eq!(
+        mounts.judge(&at(40)),
+        Err(Unsteady::Network {
+            point: "/run/media/me/net".into(),
+            fstype: "nfs4".into()
+        })
+    );
+    assert_eq!(
+        mounts.judge(&at(41)),
+        Err(Unsteady::Unknown {
+            path: "/run/media/me/net/x.ttf".into()
         })
     );
 }
@@ -651,37 +756,79 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
     }
     mkdir(&palettes.join("folder"), 0o755);
     let fonts = Path::new("/usr/share/vtium/fonts");
-    let batch = Batch::fresh_install(fonts, &palettes, Some("ter-v16n"));
+    // kbd's folders, and a folder of the same name elsewhere
+    let share = dir.join("usr/share/kbd/consolefonts");
+    let lib = dir.join("usr/lib/kbd/consolefonts");
+    let old = dir.join("lib/kbd/consolefonts");
+    let stick = dir.join("run/media/me/STICK/consolefonts");
+    for (folder, files) in [
+        (
+            &share,
+            &["ter-v16n.psf.gz", "ter-v32n.psf.gz", "ter-v16b.psf.gz"][..],
+        ),
+        (&lib, &["ter-v16n.psfu"][..]),
+        (&old, &["ter-v16n"][..]),
+        (&stick, &["ter-v16n.psf.gz"][..]),
+    ] {
+        mkdir(folder, 0o755);
+        for f in files {
+            write(&folder.join(f), b"PSF", 0o644);
+        }
+    }
+    mkdir(&share.join("ter-v16n.cp"), 0o755);
+    let kbd: [&Path; 3] = [&share, &lib, &old];
+    let batch = Batch::fresh_install(fonts, &palettes, Some("ter-v16n"), &kbd);
     for f in FRESH_FONTS {
         assert!(batch.holds(&fonts.join(f)), "{f}");
     }
     assert!(batch.holds(&palettes.join("Kiln")));
     assert!(batch.holds(&palettes.join("Dracula")));
     assert!(!batch.holds(&palettes.join("folder")));
-    assert!(batch.holds(Path::new("/usr/share/kbd/consolefonts/ter-v16n.psf.gz")));
-    assert!(batch.holds(Path::new("/usr/lib/kbd/consolefonts/ter-v16n.psfu")));
-    assert!(!batch.holds(Path::new("/usr/share/kbd/consolefonts/ter-v32n.psf.gz")));
+    assert!(batch.holds(&share.join("ter-v16n.psf.gz")));
+    assert!(batch.holds(&lib.join("ter-v16n.psfu")));
+    assert!(!batch.holds(&share.join("ter-v32n.psf.gz")));
+    assert!(!batch.holds(&share.join("ter-v16n.cp")));
+    assert!(!batch.holds(&stick.join("ter-v16n.psf.gz")));
     assert!(!batch.holds(Path::new("/home/me/ter-v16n.psf.gz")));
+    assert!(!batch.holds(Path::new(
+        "/run/media/me/STICK/consolefonts/ter-v16n.psf.gz"
+    )));
+    assert!(!batch.holds(Path::new("/home/me/consolefonts/ter-v16n.psf.gz")));
     assert!(!batch.holds(Path::new("/usr/share/vtium/fonts/other.ttf")));
-    // the palettes are listed after the fonts, sorted by name
+    // the console font resolves to the files found, then come the
+    // palettes, sorted by name
     assert_eq!(
-        &batch.entries()[FRESH_FONTS.len() + 1..],
+        &batch.entries()[FRESH_FONTS.len()..],
         [
+            Entry::Path(share.join("ter-v16n.psf.gz")),
+            Entry::Path(lib.join("ter-v16n.psfu")),
+            Entry::Path(old.join("ter-v16n")),
             Entry::Path(palettes.join("Dracula")),
             Entry::Path(palettes.join("Kiln"))
         ]
     );
+    // a name that is not one plain file name names no file
+    for odd in ["../consolefonts/ter-v16n", "STICK/ter-v16n", ".."] {
+        assert_eq!(
+            Batch::fresh_install(fonts, &dir.join("none"), Some(odd), &kbd)
+                .entries()
+                .len(),
+            FRESH_FONTS.len(),
+            "{odd}"
+        );
+    }
 
     // a console font named by its path, no console font, no palettes
     let by_path = Batch::fresh_install(
         fonts,
         &dir.join("none"),
         Some("/usr/share/kbd/consolefonts/x.psf"),
+        &kbd,
     );
     assert!(by_path.holds(Path::new("/usr/share/kbd/consolefonts/x.psf")));
     assert_eq!(by_path.entries().len(), FRESH_FONTS.len() + 1);
     assert_eq!(
-        Batch::fresh_install(fonts, &dir.join("none"), None)
+        Batch::fresh_install(fonts, &dir.join("none"), None, &kbd)
             .entries()
             .len(),
         FRESH_FONTS.len()
@@ -743,4 +890,365 @@ fn vconsole_conf_is_read_as_systemd_vconsole_setup_reads_it() {
     assert_eq!(vconsole("FONT=x\nFONT=\n", "").font, None);
     assert_eq!(vconsole("FONT=x\n", "vconsole.font=").font, None);
     assert_eq!(vconsole("#FONT=x\n", "").font, None);
+}
+
+// A mount made after vtium read the mount table, such as a USB stick that
+// udisks mounts later, has a mount ID the table lacks. vtium never judges
+// such a file by another line, such as `/`'s.
+#[test]
+fn a_mount_id_the_table_lacks_fails_closed() {
+    let mounts = Mounts::parse("22 1 8:2 / / rw - ext4 /dev/sda2 rw\n", Path::new("/sys"));
+    for dev in [(0, 77), (8, 17), (8, 2)] {
+        let place = Place {
+            mount_id: Some(99),
+            dev,
+            path: "/media/usb/fonts/x.ttf".into(),
+        };
+        assert_eq!(
+            mounts.judge(&place),
+            Err(Unsteady::Unknown {
+                path: "/media/usb/fonts/x.ttf".into()
+            }),
+            "{dev:?}"
+        );
+    }
+}
+
+// When vtium cannot read from sysfs whether a disk is removable, as inside
+// a sandbox that hides /sys, the file fails. The root filesystem stays
+// exempt, and a filesystem with no block device, such as tmpfs, passes.
+#[test]
+fn a_disk_whose_removable_flag_vtium_cannot_read_fails() {
+    let table = "\
+22 1 8:2 / / rw - ext4 /dev/sda2 rw
+40 22 8:17 / /media/usb rw - ext4 /dev/sdb1 rw
+41 22 0:25 / /run rw - tmpfs tmpfs rw
+";
+    let mounts = Mounts::parse(table, Path::new("/nonexistent-sys"));
+    assert_eq!(
+        mounts.judge(&place((8, 17), "/media/usb/a.ttf")),
+        Err(Unsteady::UnknownDisk {
+            point: "/media/usb".into(),
+            source: "/dev/sdb1".into()
+        })
+    );
+    assert_eq!(mounts.judge(&place((8, 2), "/usr/a.ttf")), Ok(()));
+    assert_eq!(mounts.judge(&place((0, 25), "/run/a.ttf")), Ok(()));
+}
+
+// A filesystem on a stacked device is judged by every device beneath it:
+// an encrypted volume on a removable stick fails, and so does one on a USB
+// disk that reports itself fixed. A volume on a RAID array of fixed disks
+// passes.
+#[test]
+fn a_stacked_device_is_judged_by_the_disks_beneath_it() {
+    let dir = fixture("mounts-stacked");
+    let table = "\
+22 1 8:2 / / rw - ext4 /dev/sda2 rw
+40 22 253:0 / /media/luks rw - ext4 /dev/mapper/luks rw
+41 22 253:1 / /media/usb rw - ext4 /dev/mapper/usb rw
+42 22 253:2 / /srv rw - ext4 /dev/mapper/raid rw
+43 22 8:33 / /media/plain rw - ext4 /dev/sdc1 rw
+";
+    let mounts = Mounts::parse(table, &sysfs(&dir));
+    assert_eq!(
+        mounts.judge(&place((253, 0), "/media/luks/a.ttf")),
+        Err(Unsteady::Removable {
+            point: "/media/luks".into(),
+            disk: "/dev/sdb".into()
+        })
+    );
+    assert_eq!(
+        mounts.judge(&place((253, 1), "/media/usb/a.ttf")),
+        Err(Unsteady::UsbDisk {
+            point: "/media/usb".into(),
+            disk: "/dev/sdc".into()
+        })
+    );
+    assert_eq!(
+        mounts.judge(&place((8, 33), "/media/plain/a.ttf")),
+        Err(Unsteady::UsbDisk {
+            point: "/media/plain".into(),
+            disk: "/dev/sdc".into()
+        })
+    );
+    assert_eq!(mounts.judge(&place((253, 2), "/srv/a.ttf")), Ok(()));
+}
+
+// A loop device is judged by the filesystem that holds its backing file,
+// and a loop device whose backing file sits on the loop device itself is
+// refused once the stack grows too deep.
+#[test]
+fn a_loop_device_is_judged_by_where_its_backing_file_sits() {
+    let dir = fixture("mounts-loop");
+    let sys = sysfs(&dir);
+    let image = dir.join("disk.img");
+    write(&image, b"image", 0o644);
+    let loop0 = sys.join("devices/virtual/block/loop0");
+    mkdir(&loop0.join("loop"), 0o755);
+    mkdir(&loop0.join("slaves"), 0o755);
+    fs::write(loop0.join("removable"), "0\n").expect("removable");
+    let mut backing = image.as_os_str().as_encoded_bytes().to_vec();
+    backing.push(b'\n');
+    fs::write(loop0.join("loop/backing_file"), backing).expect("backing_file");
+    symlink(&loop0, sys.join("dev/block/7:0")).expect("the device link");
+
+    // the real mount table, with the image's own mount rewritten
+    let real = system();
+    let id = real
+        .find(&Place::at(&image).expect("where the image sits"))
+        .expect("the image's mount")
+        .id;
+    let table = |rest: &str| -> String {
+        let real = fs::read_to_string("/proc/self/mountinfo").expect("the mount table");
+        let mut out: String = real
+            .lines()
+            .map(|l| {
+                if l.split(' ').next() == Some(&id.to_string()) {
+                    let (head, _) = l.split_once(" - ").expect("a mount line");
+                    let mut f: Vec<&str> = head.split(' ').collect();
+                    let dev = rest.split(' ').next().expect("a device");
+                    f[2] = dev;
+                    format!("{} - {}\n", f.join(" "), &rest[dev.len() + 1..])
+                } else {
+                    format!("{l}\n")
+                }
+            })
+            .collect();
+        out.push_str("900 1 7:0 / /mnt/iso ro - iso9660 /dev/loop0 ro\n");
+        out
+    };
+    let iso = place((7, 0), "/mnt/iso/a.ttf");
+    let on = |rest| Mounts::parse(table(rest), &sys).judge(&iso);
+    assert_eq!(on("0:99 tmpfs tmpfs rw"), Ok(()));
+    assert_eq!(
+        on("0:99 nfs4 server:/x rw"),
+        Err(Unsteady::Backing {
+            point: "/mnt/iso".into(),
+            file: image.clone(),
+            why: Box::new(Unsteady::Network {
+                point: real
+                    .list()
+                    .iter()
+                    .find(|m| m.id == id)
+                    .expect("it")
+                    .point
+                    .clone(),
+                fstype: "nfs4".into()
+            })
+        })
+    );
+    let removable = on("8:17 ext4 /dev/sdb1 rw").expect_err("an image on a removable disk");
+    assert!(
+        matches!(&removable, Unsteady::Backing { why, .. } if matches!(**why, Unsteady::Removable { .. })),
+        "{removable:?}"
+    );
+    // the image sits on the loop device it backs
+    let mut deepest = on("7:0 ext4 /dev/loop0 rw").expect_err("a loop that never ends");
+    let mut steps = 0;
+    while let Unsteady::Backing { why, .. } = deepest {
+        deepest = *why;
+        steps += 1;
+    }
+    assert!(
+        matches!(deepest, Unsteady::UnknownDisk { .. }),
+        "{deepest:?}"
+    );
+    assert!(steps > 1, "{steps}");
+}
+
+// btrfs reports an anonymous device number, major 0, in the mount table,
+// so vtium finds its disk by the device the mount's source names. A
+// btrfs filesystem on a removable stick fails; tmpfs, which names no
+// device, passes; and a device that sysfs does not know fails.
+#[test]
+fn a_filesystem_with_an_anonymous_device_is_judged_by_its_source() {
+    let dir = fixture("mounts-anonymous");
+    let table = "\
+22 1 0:30 /@ / rw - btrfs /dev/sda2 rw
+40 22 0:60 / /run/media/me/stick rw - btrfs /dev/sdb1 rw
+41 22 0:61 /@home /home rw - btrfs /dev/sda2 rw
+42 22 0:25 / /run rw - tmpfs tmpfs rw
+43 22 0:62 / /run/media/me/gone rw - btrfs /dev/vtium-test-none rw
+";
+    let mounts = Mounts::parse(table, &sysfs(&dir));
+    assert_eq!(
+        mounts.judge(&place((0, 60), "/run/media/me/stick/a.ttf")),
+        Err(Unsteady::Removable {
+            point: "/run/media/me/stick".into(),
+            disk: "/dev/sdb".into()
+        })
+    );
+    assert_eq!(mounts.judge(&place((0, 61), "/home/a.ttf")), Ok(()));
+    assert_eq!(mounts.judge(&place((0, 25), "/run/a.ttf")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((0, 62), "/run/media/me/gone/a.ttf")),
+        Err(Unsteady::UnknownDisk {
+            point: "/run/media/me/gone".into(),
+            source: "/dev/vtium-test-none".into()
+        })
+    );
+}
+
+// The kernel passes any byte but space, tab, newline and backslash through
+// the mount table as it is, and any user can make a FUSE mount on a folder
+// whose name is not UTF-8. Such a line keeps its mount point as bytes, and
+// the lines around it still read.
+#[test]
+fn a_mount_point_that_is_not_utf8_does_not_spoil_the_table() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = fixture("mounts-bytes");
+    let info = dir.join("mountinfo");
+    let mut table = b"22 1 8:2 / / rw - ext4 /dev/sda2 rw\n".to_vec();
+    table.extend(b"40 22 0:70 / /home/me/\xff rw - fuse.sshfs me@host:/ rw\n");
+    table.extend(b"41 22 0:71 / /mnt/nfs rw - nfs4 server:/x rw\n");
+    fs::write(&info, &table).expect("the table");
+    let mounts = Mounts::read(&info, Path::new("/nonexistent-sys")).expect("the table reads");
+    let odd = PathBuf::from(std::ffi::OsStr::from_bytes(b"/home/me/\xff"));
+    assert_eq!(
+        mounts.list().iter().map(|m| m.id).collect::<Vec<_>>(),
+        [22, 40, 41]
+    );
+    assert_eq!(mounts.list()[1].point, odd);
+    assert_eq!(
+        mounts.judge(&Place {
+            mount_id: Some(40),
+            dev: (0, 70),
+            path: odd.join("a.ttf"),
+        }),
+        Err(Unsteady::Fuse {
+            point: odd.clone(),
+            fstype: "fuse.sshfs".into()
+        })
+    );
+    assert!(matches!(
+        mounts.judge(&place((0, 71), "/mnt/nfs/a.ttf")),
+        Err(Unsteady::Network { .. })
+    ));
+}
+
+#[test]
+fn the_console_font_folders_are_kbds() {
+    assert_eq!(
+        CONSOLE_FONT_FOLDERS,
+        [
+            "/usr/share/kbd/consolefonts",
+            "/usr/lib/kbd/consolefonts",
+            "/lib/kbd/consolefonts",
+            "/usr/share/consolefonts",
+        ]
+    );
+}
+
+/// A sysfs folder for a system that boots from a USB stick: sda (8:0), a
+/// USB stick that reports itself fixed, with partitions sda1 to sda3;
+/// sdb (8:16), a second USB disk, with sdb1; dm-0 (253:0), an encrypted
+/// volume on sda2; and md0 (9:0), an array of sda3 and sdb1.
+fn boot_stick(dir: &Path) -> PathBuf {
+    let sys = dir.join("sys");
+    mkdir(&sys.join("dev/block"), 0o755);
+    let link = |dev: &str, to: &Path| {
+        symlink(to, sys.join("dev/block").join(dev)).expect("the device link");
+    };
+    let mut parts = std::collections::BTreeMap::new();
+    for (bus, disk, dev, partitions) in [
+        (
+            "usb1/1-1/host0",
+            "sda",
+            "8:0",
+            &[(1, "8:1"), (2, "8:2"), (3, "8:3")][..],
+        ),
+        ("usb2/2-1/host1", "sdb", "8:16", &[(1, "8:17")][..]),
+    ] {
+        let d = sys
+            .join("devices/pci0000:00")
+            .join(bus)
+            .join("block")
+            .join(disk);
+        mkdir(&d, 0o755);
+        fs::write(d.join("removable"), "0\n").expect("removable");
+        link(dev, &d);
+        for &(n, dev) in partitions {
+            let p = d.join(format!("{disk}{n}"));
+            mkdir(&p, 0o755);
+            fs::write(p.join("partition"), format!("{n}\n")).expect("partition");
+            link(dev, &p);
+            parts.insert(format!("{disk}{n}"), p);
+        }
+    }
+    let dm0 = sys.join("devices/virtual/block/dm-0");
+    mkdir(&dm0.join("slaves"), 0o755);
+    fs::write(dm0.join("removable"), "0\n").expect("removable");
+    symlink(&parts["sda2"], dm0.join("slaves/sda2")).expect("the slave link");
+    link("253:0", &dm0);
+    let md0 = sys.join("devices/virtual/block/md0");
+    mkdir(&md0.join("slaves"), 0o755);
+    fs::write(md0.join("removable"), "0\n").expect("removable");
+    for name in ["sda3", "sdb1"] {
+        symlink(&parts[name], md0.join("slaves").join(name)).expect("the slave link");
+    }
+    link("9:0", &md0);
+    sys
+}
+
+// The maintainer decided on 2026-11-19 that a disk on the USB bus counts as
+// removable, unless it is the disk that holds the root filesystem. So the
+// other partitions of a USB boot stick pass, directly or beneath an
+// encrypted root, while a second USB disk still fails.
+#[test]
+fn the_disk_that_holds_the_root_filesystem_is_exempt_from_the_removable_rules() {
+    let dir = fixture("mounts-boot-stick");
+    let sys = boot_stick(&dir);
+    let usb_sdb = |point: &str| {
+        Err(Unsteady::UsbDisk {
+            point: point.into(),
+            disk: "/dev/sdb".into(),
+        })
+    };
+
+    let plain = "\
+22 1 8:2 / / rw - ext4 /dev/sda2 rw
+23 22 8:3 / /home rw - ext4 /dev/sda3 rw
+24 22 8:17 / /media/other rw - ext4 /dev/sdb1 rw
+25 22 9:0 / /srv rw - ext4 /dev/md0 rw
+";
+    let mounts = Mounts::parse(plain, &sys);
+    assert_eq!(mounts.judge(&place((8, 2), "/usr/a.ttf")), Ok(()));
+    assert_eq!(mounts.judge(&place((8, 3), "/home/a.ttf")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((8, 17), "/media/other/a.ttf")),
+        usb_sdb("/media/other")
+    );
+    // an array that also spans the second USB disk is not exempt
+    assert!(matches!(
+        mounts.judge(&place((9, 0), "/srv/a.ttf")),
+        Err(Unsteady::UsbDisk { .. })
+    ));
+
+    let encrypted = "\
+22 1 253:0 / / rw - ext4 /dev/mapper/root rw
+23 22 8:1 / /boot rw - vfat /dev/sda1 rw
+24 22 8:17 / /media/other rw - ext4 /dev/sdb1 rw
+";
+    let mounts = Mounts::parse(encrypted, &sys);
+    assert_eq!(mounts.judge(&place((8, 1), "/boot/a.ttf")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((8, 17), "/media/other/a.ttf")),
+        usb_sdb("/media/other")
+    );
+
+    // when vtium cannot find the root's disk, only / itself stays exempt
+    let unknown = "\
+22 1 8:99 / / rw - ext4 /dev/sdz2 rw
+23 22 8:3 / /home rw - ext4 /dev/sda3 rw
+";
+    let mounts = Mounts::parse(unknown, &sys);
+    assert_eq!(mounts.judge(&place((8, 99), "/usr/a.ttf")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((8, 3), "/home/a.ttf")),
+        Err(Unsteady::UsbDisk {
+            point: "/home".into(),
+            disk: "/dev/sda".into()
+        })
+    );
 }

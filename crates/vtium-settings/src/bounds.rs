@@ -204,7 +204,10 @@ pub const VTLOOK_FILE_MAX: usize = VTLOOK_FILE.value as usize;
 pub const VTLOOK_SECTIONS_MAX: usize = VTLOOK_SECTIONS.value as usize;
 
 /// Bytes of the batch file; vtium ignores a longer one and uses the list
-/// of a fresh install (ADR-1205 D4).
+/// of a fresh install.
+///
+/// References:
+/// - ADR-1205 D4: the batch file, and the list of a fresh install that vtium uses in its place.
 pub const BATCH_MAX: usize = BATCH.value as usize;
 
 #[cfg(test)]

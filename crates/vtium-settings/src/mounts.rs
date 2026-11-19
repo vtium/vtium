@@ -6,9 +6,16 @@
 //! vtium while it runs fails: a network filesystem, a FUSE filesystem
 //! served by a user's program, an automounted filesystem, and a removable
 //! disk. vtium reads the kernel's mount table, `/proc/self/mountinfo`, and
-//! sysfs's `removable` attribute of a disk. [`Mounts::parse`] takes both
-//! as parameters, so a test feeds it a mount table and a sysfs folder of
-//! its own.
+//! each block device's folder in sysfs. A filesystem such as btrfs, which
+//! reports an anonymous device number, is judged by the device its mount's
+//! source names. A device-mapper or md device is
+//! judged by the disks beneath it, and a loop device by the filesystem
+//! that holds its backing file. A disk counts as removable when its
+//! `removable` flag is 1 or when it sits on a USB bus, unless it is a disk
+//! beneath the root filesystem. When vtium cannot
+//! read a disk's folder, the file fails. [`Mounts::parse`] takes the table
+//! and the sysfs folder as parameters, so a test feeds it a mount table
+//! and a sysfs folder of its own.
 //!
 //! vtium finds the mount that holds an open file by the mount ID that
 //! `statx` reports for the file's descriptor, which is the first field of
@@ -22,6 +29,7 @@
 //! - ADR-1205 D4: a resource is activated only from a filesystem that is mounted at boot and stays mounted, and the note of 2026-11-19 states how vtium tells one.
 
 use std::fmt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 /// The kernel's mount table of the reading process's mount namespace.
@@ -56,6 +64,18 @@ const NETWORK: [&str; 18] = [
     "davfs",
 ];
 
+/// Whether a disk on a USB bus counts as removable even when its own
+/// `removable` flag is 0, as many USB disks report. Setting this to `false`
+/// leaves the flag alone to decide.
+///
+/// References:
+/// - ADR-1205 D4, the note of 2026-11-19: the maintainer's decision that a USB disk counts as removable unless it holds the root filesystem.
+const USB_IS_REMOVABLE: bool = true;
+
+/// How many devices deep vtium follows a stack of loop, device-mapper and
+/// md devices before it gives up and refuses the file.
+const STACK_MAX: usize = 8;
+
 /// One line of the mount table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mount {
@@ -74,10 +94,18 @@ pub struct Mount {
 }
 
 /// The mount table and the sysfs folder to read disks' attributes from.
+///
+/// A table read from a file, as [`Mounts::system`] reads it, may be read
+/// before the files it judges are opened. A file on a mount made after
+/// that has a mount ID the table lacks, so [`Mounts::judge`] reads the
+/// file again once when it cannot find a file's mount, and refuses the
+/// file if the mount is still missing. A table that [`Mounts::parse`]
+/// made from text has no file to read again.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Mounts {
     list: Vec<Mount>,
     sys: PathBuf,
+    source: Option<PathBuf>,
 }
 
 /// Where a file sits, as the mount check needs it: the mount ID `statx`
@@ -95,6 +123,23 @@ pub struct Place {
 }
 
 impl Place {
+    /// Where the file at `path` sits, looked up by its path without
+    /// following a symbolic link at its end.
+    pub fn at(path: &Path) -> std::io::Result<Place> {
+        use rustix::fs::{AtFlags, CWD, StatxFlags};
+        let x = rustix::fs::statx(
+            CWD,
+            path,
+            AtFlags::SYMLINK_NOFOLLOW,
+            StatxFlags::BASIC_STATS | StatxFlags::MNT_ID,
+        )?;
+        Ok(Place {
+            mount_id: (x.stx_mask & StatxFlags::MNT_ID.bits() != 0).then_some(x.stx_mnt_id),
+            dev: (x.stx_dev_major, x.stx_dev_minor),
+            path: path.to_path_buf(),
+        })
+    }
+
     /// Where the file open on `fd` sits, reached by `path`.
     pub fn of(fd: impl rustix::fd::AsFd, path: &Path) -> std::io::Result<Place> {
         use rustix::fs::{AtFlags, StatxFlags};
@@ -126,8 +171,23 @@ pub enum Unsteady {
     Automount { point: PathBuf },
     /// A filesystem mounted below the automount point `automount`.
     BelowAutomount { point: PathBuf, automount: PathBuf },
-    /// A filesystem on a removable disk, `source`.
-    Removable { point: PathBuf, source: String },
+    /// A filesystem on the removable disk `disk`, such as `/dev/sdb`,
+    /// directly or beneath a device-mapper, md or partition device.
+    Removable { point: PathBuf, disk: String },
+    /// A filesystem on the disk `disk`, which sits on a USB bus and can be
+    /// unplugged, whatever its `removable` flag says.
+    UsbDisk { point: PathBuf, disk: String },
+    /// A filesystem on a loop device whose backing file `file` fails the
+    /// mount check for the reason `why`.
+    Backing {
+        point: PathBuf,
+        file: PathBuf,
+        why: Box<Unsteady>,
+    },
+    /// vtium cannot read from sysfs whether the device `source`, mounted
+    /// at `point`, is on a removable disk, so it cannot tell whether the
+    /// filesystem stays mounted.
+    UnknownDisk { point: PathBuf, source: String },
     /// No line of the mount table holds the file, so vtium cannot tell
     /// what holds it.
     Unknown { path: PathBuf },
@@ -158,9 +218,25 @@ impl fmt::Display for Unsteady {
                 point.display(),
                 automount.display()
             ),
-            Unsteady::Removable { point, source } => write!(
+            Unsteady::Removable { point, disk } => write!(
                 f,
-                "it sits on {}, which is on the removable disk {source}",
+                "it sits on {}, which is on the removable disk {disk}",
+                point.display()
+            ),
+            Unsteady::UsbDisk { point, disk } => write!(
+                f,
+                "it sits on {}, which is on {disk}, a disk on a USB bus that can be unplugged",
+                point.display()
+            ),
+            Unsteady::Backing { point, file, why } => write!(
+                f,
+                "it sits on {}, a loop device that reads the file {}, and that file fails the same check: {why}",
+                point.display(),
+                file.display()
+            ),
+            Unsteady::UnknownDisk { point, source } => write!(
+                f,
+                "it sits on {}, and vtium cannot read from sysfs whether {source} is on a removable disk",
                 point.display()
             ),
             Unsteady::Unknown { path } => write!(
@@ -172,10 +248,18 @@ impl fmt::Display for Unsteady {
     }
 }
 
+/// The device number of the folder or file at `path`, without following a
+/// symbolic link.
+fn device_of(path: &Path) -> Option<(u32, u32)> {
+    let dev = std::os::unix::fs::MetadataExt::dev(&std::fs::symlink_metadata(path).ok()?);
+    Some((rustix::fs::major(dev), rustix::fs::minor(dev)))
+}
+
 /// Undoes the mount table's octal escapes, `\040` for a space, `\011` for
-/// a tab, `\012` for a newline and `\134` for a backslash.
-fn unescape(field: &str) -> String {
-    let bytes = field.as_bytes();
+/// a tab, `\012` for a newline and `\134` for a backslash. The kernel
+/// passes every other byte through as it is, so the result is bytes, which
+/// need not be UTF-8.
+fn unescape(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0_usize;
     while let Some(&b) = bytes.get(i) {
@@ -200,22 +284,35 @@ fn unescape(field: &str) -> String {
             }
         }
     }
-    String::from_utf8_lossy(&out).into_owned()
+    out
+}
+
+/// A field of the mount table as text, for the fields vtium compares with
+/// names it knows. A byte that is not UTF-8 becomes U+FFFD.
+fn text(field: &[u8]) -> String {
+    String::from_utf8_lossy(&unescape(field)).into_owned()
+}
+
+/// A number field of the mount table.
+fn number<T: std::str::FromStr>(field: &[u8]) -> Option<T> {
+    std::str::from_utf8(field).ok()?.parse().ok()
 }
 
 /// Reads one line of the mount table: `None` for a line of another shape.
-fn line(text: &str) -> Option<Mount> {
-    let (head, tail) = text.split_once(" - ")?;
-    let mut head = head.split(' ');
-    let id = head.next()?.parse().ok()?;
-    let parent = head.next()?.parse().ok()?;
-    let (major, minor) = head.next()?.split_once(':')?;
-    let dev = (major.parse().ok()?, minor.parse().ok()?);
+/// The mount point stays bytes, since a folder's name need not be UTF-8.
+fn line(bytes: &[u8]) -> Option<Mount> {
+    let split = bytes.windows(3).position(|w| w == b" - ")?;
+    let (head, tail) = (bytes.get(..split)?, bytes.get(split.checked_add(3)?..)?);
+    let mut head = head.split(|&b| b == b' ');
+    let id = number(head.next()?)?;
+    let parent = number(head.next()?)?;
+    let mut dev = head.next()?.splitn(2, |&b| b == b':');
+    let dev = (number(dev.next()?)?, number(dev.next()?)?);
     let _root = head.next()?;
-    let point = PathBuf::from(unescape(head.next()?));
-    let mut tail = tail.split(' ');
-    let fstype = unescape(tail.next()?);
-    let source = unescape(tail.next()?);
+    let point = PathBuf::from(std::ffi::OsString::from_vec(unescape(head.next()?)));
+    let mut tail = tail.split(|&b| b == b' ');
+    let fstype = text(tail.next()?);
+    let source = text(tail.next()?);
     Some(Mount {
         id,
         parent,
@@ -227,20 +324,35 @@ fn line(text: &str) -> Option<Mount> {
 }
 
 impl Mounts {
-    /// Reads the mount table's text, skipping any line of another shape,
+    /// Reads the mount table's bytes, skipping any line of another shape,
     /// with `sys` as the folder sysfs is mounted on.
-    pub fn parse(mountinfo: &str, sys: &Path) -> Mounts {
+    pub fn parse(mountinfo: impl AsRef<[u8]>, sys: &Path) -> Mounts {
         Mounts {
-            list: mountinfo.lines().filter_map(line).collect(),
+            list: mountinfo
+                .as_ref()
+                .split(|&b| b == b'\n')
+                .filter_map(line)
+                .collect(),
             sys: sys.to_path_buf(),
+            source: None,
         }
+    }
+
+    /// Reads the mount table from the file `mountinfo`, with `sys` as the
+    /// folder sysfs is mounted on. [`Mounts::judge`] reads the file again
+    /// when it cannot find a file's mount.
+    pub fn read(mountinfo: &Path, sys: &Path) -> std::io::Result<Mounts> {
+        let bytes = std::fs::read(mountinfo)?;
+        Ok(Mounts {
+            source: Some(mountinfo.to_path_buf()),
+            ..Mounts::parse(bytes, sys)
+        })
     }
 
     /// The running system's mount table, [`MOUNTINFO`], and sysfs at
     /// [`SYS`].
     pub fn system() -> std::io::Result<Mounts> {
-        let text = std::fs::read_to_string(MOUNTINFO)?;
-        Ok(Mounts::parse(&text, Path::new(SYS)))
+        Mounts::read(Path::new(MOUNTINFO), Path::new(SYS))
     }
 
     /// The mounts, in the table's order.
@@ -248,51 +360,85 @@ impl Mounts {
         &self.list
     }
 
-    /// The mount that holds the file at `place`: the line with its mount
-    /// ID; failing that, a line with its device number, the one with the
-    /// longest mount point above the path; failing that, the line with
-    /// the longest mount point above the path. Of two mounts on one
-    /// point, the later one sits on top and wins.
+    /// The mount that holds the file at `place`, or `None` when this table
+    /// has no line that is surely the file's own mount.
+    ///
+    /// When the kernel reports a mount ID, only the line with that ID
+    /// counts, and only while its mount point lies above the path. A line
+    /// whose mount point does not is a stale line whose ID the kernel has
+    /// since given to another mount. Without a mount ID, the line with the
+    /// file's device number and the longest mount point above the path
+    /// counts. btrfs gives each subvolume a device number of its own, which
+    /// the table does not hold, so the line with the longest mount point
+    /// above the path then counts, but only when the mount point's own
+    /// folder has the file's device number. Of two mounts on one point,
+    /// the later one sits on top and wins.
     pub fn find(&self, place: &Place) -> Option<&Mount> {
-        if let Some(id) = place.mount_id
-            && let Some(m) = self.list.iter().find(|m| m.id == id)
-        {
-            return Some(m);
+        let above = |m: &&Mount| place.path.starts_with(&m.point);
+        if let Some(id) = place.mount_id {
+            return self.list.iter().filter(|m| m.id == id).find(above);
         }
-        let deepest = |m: &&Mount| {
-            if place.path.starts_with(&m.point) {
-                m.point.components().count()
-            } else {
-                0
-            }
-        };
+        let deepest = |m: &&Mount| m.point.components().count();
         let by_dev = self
             .list
             .iter()
             .filter(|m| m.dev == place.dev)
+            .filter(above)
             .max_by_key(deepest);
         if by_dev.is_some() {
             return by_dev;
         }
         self.list
             .iter()
-            .filter(|m| place.path.starts_with(&m.point))
+            .filter(above)
             .max_by_key(deepest)
+            .filter(|m| device_of(&m.point) == Some(place.dev))
     }
 
     /// Whether the filesystem holding the file at `place` stays mounted:
     /// it is neither a network filesystem, a FUSE filesystem, an
     /// automount point, a filesystem below one, nor a filesystem on a
-    /// removable disk. The filesystem mounted on `/` is never refused as
-    /// removable, because the root filesystem stays mounted for the
-    /// system's life whatever disk holds it, as on a system that boots
-    /// from a USB stick.
+    /// removable disk. The root filesystem stays mounted for the system's
+    /// life whatever disk holds it, as on a system that boots from a USB
+    /// stick. So the filesystem mounted on `/` is never refused as
+    /// removable, and neither is a filesystem whose disks all lie beneath
+    /// `/`, such as `/home` on another partition of the boot stick. When
+    /// vtium cannot find the disks beneath `/`, only `/` is exempt.
+    ///
+    /// When this table holds no line for the file's mount, vtium reads the
+    /// table's file again once, since the mount may be newer than the
+    /// table, and refuses the file if the mount is still missing.
     pub fn judge(&self, place: &Place) -> Result<(), Unsteady> {
-        let Some(mount) = self.find(place) else {
-            return Err(Unsteady::Unknown {
-                path: place.path.clone(),
-            });
+        self.judge_at(place, 0)
+    }
+
+    /// [`Mounts::judge`] for a file `depth` steps down a stack of loop
+    /// devices.
+    fn judge_at(&self, place: &Place, depth: usize) -> Result<(), Unsteady> {
+        let unknown = || Unsteady::Unknown {
+            path: place.path.clone(),
         };
+        let again;
+        let (table, mount) = match self.find(place) {
+            Some(mount) => (self, mount),
+            None => {
+                again = self.read_again().ok_or_else(unknown)?;
+                let mount = again.find(place).ok_or_else(unknown)?;
+                (&again, mount)
+            }
+        };
+        table.verdict(mount, depth)
+    }
+
+    /// The mount table read again from its file, or `None` for a table
+    /// made from text or a file vtium cannot read.
+    fn read_again(&self) -> Option<Mounts> {
+        Mounts::read(self.source.as_deref()?, &self.sys).ok()
+    }
+
+    /// Whether the filesystem of `mount`, a line of this table, stays
+    /// mounted.
+    fn verdict(&self, mount: &Mount, depth: usize) -> Result<(), Unsteady> {
         let point = || mount.point.clone();
         let fstype = mount.fstype.as_str();
         if NETWORK.contains(&fstype) || fstype.starts_with("nfs") {
@@ -316,13 +462,38 @@ impl Mounts {
                 automount: automount.point.clone(),
             });
         }
-        if mount.point != Path::new("/") && self.removable(mount.dev) {
-            return Err(Unsteady::Removable {
+        // The root filesystem stays mounted whatever disk holds it.
+        if mount.point == Path::new("/") {
+            return Ok(());
+        }
+        let found = match self.block_dir(mount) {
+            Err(found) => Err(found),
+            // a filesystem with no block device, such as tmpfs
+            Ok(None) => Ok(()),
+            // the other filesystems on the disk that holds the root
+            // filesystem stay mounted with it, as on a USB boot stick
+            Ok(Some(dir)) if self.on_root_disks(&dir) => Ok(()),
+            Ok(Some(dir)) => self.device_at(&dir, depth),
+        };
+        found.map_err(|found| match found {
+            Found::Removable(disk) => Unsteady::Removable {
+                point: point(),
+                disk,
+            },
+            Found::Usb(disk) => Unsteady::UsbDisk {
+                point: point(),
+                disk,
+            },
+            Found::Backing(file, why) => Unsteady::Backing {
+                point: point(),
+                file,
+                why: Box::new(why),
+            },
+            Found::Unread => Unsteady::UnknownDisk {
                 point: point(),
                 source: mount.source.clone(),
-            });
-        }
-        Ok(())
+            },
+        })
     }
 
     /// The nearest automount point among the mounts that `mount` sits on,
@@ -343,19 +514,162 @@ impl Mounts {
         None
     }
 
-    /// Whether sysfs marks the block device `dev` removable: its own
-    /// `removable` attribute, or for a partition, which has none, its
-    /// disk's. A device sysfs does not know, such as the anonymous device
-    /// of tmpfs or btrfs, is not removable.
-    fn removable(&self, (major, minor): (u32, u32)) -> bool {
-        let dev = self.sys.join(format!("dev/block/{major}:{minor}"));
-        let read = |p: PathBuf| std::fs::read_to_string(p).ok();
-        let flag = read(dev.join("removable")).or_else(|| {
-            dev.join("partition")
-                .exists()
-                .then(|| read(dev.join("../removable")))
-                .flatten()
-        });
-        flag.is_some_and(|f| f.trim() == "1")
+    /// The sysfs folder of the block device that holds `mount`, or `None`
+    /// for a filesystem on no block device, such as tmpfs. A major number
+    /// of 0 is an anonymous device. btrfs reports one even on a disk, so
+    /// vtium then finds the device by the `/dev` path in the mount's
+    /// source. sysfs knows the device by the name of the node that the
+    /// path leads to, such as `dm-0` for `/dev/mapper/home`. When vtium
+    /// cannot resolve the path, as inside a sandbox without `/dev`, it uses
+    /// the name the path gives.
+    fn block_dir(&self, mount: &Mount) -> Result<Option<PathBuf>, Found> {
+        let (major, minor) = mount.dev;
+        let link = if major != 0 {
+            self.sys.join(format!("dev/block/{major}:{minor}"))
+        } else if mount.source.starts_with("/dev/") {
+            let source = Path::new(&mount.source);
+            let node = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+            let name = node.file_name().ok_or(Found::Unread)?;
+            self.sys.join("class/block").join(name)
+        } else {
+            return Ok(None);
+        };
+        std::fs::canonicalize(link)
+            .map(Some)
+            .map_err(|_| Found::Unread)
     }
+
+    /// Whether every disk beneath the device folder `dir` also lies beneath
+    /// the filesystem mounted on `/`. `false` when vtium cannot tell, for
+    /// either device, so then only `/` itself stays exempt.
+    fn on_root_disks(&self, dir: &Path) -> bool {
+        let Some(root) = self.list.iter().rev().find(|m| m.point == Path::new("/")) else {
+            return false;
+        };
+        let Ok(Some(root_dir)) = self.block_dir(root) else {
+            return false;
+        };
+        let (mut roots, mut mine) = (Vec::new(), Vec::new());
+        if disks(&root_dir, 0, &mut roots).is_none() || disks(dir, 0, &mut mine).is_none() {
+            return false;
+        }
+        !mine.is_empty() && mine.iter().all(|d| roots.contains(d))
+    }
+
+    /// Whether the block device whose sysfs folder is `dir` is on a
+    /// removable disk. A partition is judged by its disk. A loop device is
+    /// judged by the filesystem that holds its backing file, which the
+    /// whole mount check judges in turn. A device-mapper or md device is
+    /// judged by every device beneath it, which sysfs lists in its
+    /// `slaves` folder, down to the disks. A disk is removable when its
+    /// `removable` flag is 1, or when it sits on a USB bus.
+    fn device_at(&self, dir: &Path, depth: usize) -> Result<(), Found> {
+        if depth > STACK_MAX {
+            return Err(Found::Unread);
+        }
+        let below = depth.saturating_add(1);
+        let dir = if dir.join("partition").exists() {
+            dir.parent().ok_or(Found::Unread)?
+        } else {
+            dir
+        };
+        match std::fs::read(dir.join("loop/backing_file")) {
+            Ok(bytes) => return self.backing(&bytes, below),
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(Found::Unread),
+            Err(_) => {}
+        }
+        let slaves = match std::fs::read_dir(dir.join("slaves")) {
+            Ok(entries) => entries
+                .map(|e| e.and_then(|e| std::fs::canonicalize(e.path())))
+                .collect::<std::io::Result<Vec<PathBuf>>>()
+                .map_err(|_| Found::Unread)?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(_) => return Err(Found::Unread),
+        };
+        if !slaves.is_empty() {
+            return slaves.iter().try_for_each(|s| self.device_at(s, below));
+        }
+        let flag = std::fs::read_to_string(dir.join("removable")).map_err(|_| Found::Unread)?;
+        let name = dir
+            .file_name()
+            .ok_or(Found::Unread)?
+            .to_string_lossy()
+            .replace('!', "/");
+        let disk = format!("/dev/{name}");
+        if flag.trim() == "1" {
+            return Err(Found::Removable(disk));
+        }
+        if USB_IS_REMOVABLE && self.on_usb(dir) {
+            return Err(Found::Usb(disk));
+        }
+        Ok(())
+    }
+
+    /// Judges the backing file of a loop device, whose path the kernel
+    /// gives as `bytes` followed by a newline, `depth` steps down.
+    fn backing(&self, bytes: &[u8], depth: usize) -> Result<(), Found> {
+        let bytes = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+        let file = PathBuf::from(std::ffi::OsStr::from_bytes(bytes));
+        let place = Place::at(&file).map_err(|_| Found::Unread)?;
+        self.judge_at(&place, depth)
+            .map_err(|why| Found::Backing(file, why))
+    }
+
+    /// Whether the device folder `dir` sits below a USB host controller in
+    /// sysfs's device tree, whose folders are named `usb1`, `usb2` and on.
+    fn on_usb(&self, dir: &Path) -> bool {
+        let sys = std::fs::canonicalize(&self.sys).unwrap_or_else(|_| self.sys.clone());
+        dir.strip_prefix(&sys).unwrap_or(dir).components().any(|c| {
+            c.as_os_str()
+                .to_str()
+                .and_then(|n| n.strip_prefix("usb"))
+                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+        })
+    }
+}
+
+/// Adds to `out` the sysfs folders of the disks beneath the device folder
+/// `dir`: the disk of a partition, and every disk beneath a device-mapper
+/// or md device's `slaves`. `None` when vtium cannot read a folder, meets a
+/// loop device, or follows the stack deeper than [`STACK_MAX`].
+fn disks(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Option<()> {
+    if depth > STACK_MAX {
+        return None;
+    }
+    let dir = if dir.join("partition").exists() {
+        dir.parent()?
+    } else {
+        dir
+    };
+    if dir.join("loop").exists() {
+        return None;
+    }
+    let slaves = match std::fs::read_dir(dir.join("slaves")) {
+        Ok(entries) => entries
+            .map(|e| e.and_then(|e| std::fs::canonicalize(e.path())))
+            .collect::<std::io::Result<Vec<PathBuf>>>()
+            .ok()?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(_) => return None,
+    };
+    if slaves.is_empty() {
+        out.push(dir.to_path_buf());
+        return Some(());
+    }
+    slaves
+        .iter()
+        .try_for_each(|s| disks(s, depth.saturating_add(1), out))
+}
+
+/// What the walk down a block device's stack found.
+enum Found {
+    /// A disk whose `removable` flag is 1, by its name in `/dev`.
+    Removable(String),
+    /// A disk on a USB bus, by its name in `/dev`.
+    Usb(String),
+    /// A loop device's backing file, which fails the mount check.
+    Backing(PathBuf, Unsteady),
+    /// vtium cannot read the device's folder in sysfs, or the stack is
+    /// deeper than [`STACK_MAX`].
+    Unread,
 }
