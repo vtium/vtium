@@ -74,10 +74,18 @@ pub struct Mount {
 }
 
 /// The mount table and the sysfs folder to read disks' attributes from.
+///
+/// A table read from a file, as [`Mounts::system`] reads it, may be read
+/// before the files it judges are opened. A file on a mount made after
+/// that has a mount ID the table lacks, so [`Mounts::judge`] reads the
+/// file again once when it cannot find a file's mount, and refuses the
+/// file if the mount is still missing. A table that [`Mounts::parse`]
+/// made from text has no file to read again.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Mounts {
     list: Vec<Mount>,
     sys: PathBuf,
+    source: Option<PathBuf>,
 }
 
 /// Where a file sits, as the mount check needs it: the mount ID `statx`
@@ -172,6 +180,13 @@ impl fmt::Display for Unsteady {
     }
 }
 
+/// The device number of the folder or file at `path`, without following a
+/// symbolic link.
+fn device_of(path: &Path) -> Option<(u32, u32)> {
+    let dev = std::os::unix::fs::MetadataExt::dev(&std::fs::symlink_metadata(path).ok()?);
+    Some((rustix::fs::major(dev), rustix::fs::minor(dev)))
+}
+
 /// Undoes the mount table's octal escapes, `\040` for a space, `\011` for
 /// a tab, `\012` for a newline and `\134` for a backslash.
 fn unescape(field: &str) -> String {
@@ -233,14 +248,25 @@ impl Mounts {
         Mounts {
             list: mountinfo.lines().filter_map(line).collect(),
             sys: sys.to_path_buf(),
+            source: None,
         }
+    }
+
+    /// Reads the mount table from the file `mountinfo`, with `sys` as the
+    /// folder sysfs is mounted on. [`Mounts::judge`] reads the file again
+    /// when it cannot find a file's mount.
+    pub fn read(mountinfo: &Path, sys: &Path) -> std::io::Result<Mounts> {
+        let text = std::fs::read_to_string(mountinfo)?;
+        Ok(Mounts {
+            source: Some(mountinfo.to_path_buf()),
+            ..Mounts::parse(&text, sys)
+        })
     }
 
     /// The running system's mount table, [`MOUNTINFO`], and sysfs at
     /// [`SYS`].
     pub fn system() -> std::io::Result<Mounts> {
-        let text = std::fs::read_to_string(MOUNTINFO)?;
-        Ok(Mounts::parse(&text, Path::new(SYS)))
+        Mounts::read(Path::new(MOUNTINFO), Path::new(SYS))
     }
 
     /// The mounts, in the table's order.
@@ -248,36 +274,39 @@ impl Mounts {
         &self.list
     }
 
-    /// The mount that holds the file at `place`: the line with its mount
-    /// ID; failing that, a line with its device number, the one with the
-    /// longest mount point above the path; failing that, the line with
-    /// the longest mount point above the path. Of two mounts on one
-    /// point, the later one sits on top and wins.
+    /// The mount that holds the file at `place`, or `None` when this table
+    /// has no line that is surely the file's own mount.
+    ///
+    /// When the kernel reports a mount ID, only the line with that ID
+    /// counts, and only while its mount point lies above the path. A line
+    /// whose mount point does not is a stale line whose ID the kernel has
+    /// since given to another mount. Without a mount ID, the line with the
+    /// file's device number and the longest mount point above the path
+    /// counts. btrfs gives each subvolume a device number of its own, which
+    /// the table does not hold, so the line with the longest mount point
+    /// above the path then counts, but only when the mount point's own
+    /// folder has the file's device number. Of two mounts on one point,
+    /// the later one sits on top and wins.
     pub fn find(&self, place: &Place) -> Option<&Mount> {
-        if let Some(id) = place.mount_id
-            && let Some(m) = self.list.iter().find(|m| m.id == id)
-        {
-            return Some(m);
+        let above = |m: &&Mount| place.path.starts_with(&m.point);
+        if let Some(id) = place.mount_id {
+            return self.list.iter().filter(|m| m.id == id).find(above);
         }
-        let deepest = |m: &&Mount| {
-            if place.path.starts_with(&m.point) {
-                m.point.components().count()
-            } else {
-                0
-            }
-        };
+        let deepest = |m: &&Mount| m.point.components().count();
         let by_dev = self
             .list
             .iter()
             .filter(|m| m.dev == place.dev)
+            .filter(above)
             .max_by_key(deepest);
         if by_dev.is_some() {
             return by_dev;
         }
         self.list
             .iter()
-            .filter(|m| place.path.starts_with(&m.point))
+            .filter(above)
             .max_by_key(deepest)
+            .filter(|m| device_of(&m.point) == Some(place.dev))
     }
 
     /// Whether the filesystem holding the file at `place` stays mounted:
@@ -287,12 +316,35 @@ impl Mounts {
     /// removable, because the root filesystem stays mounted for the
     /// system's life whatever disk holds it, as on a system that boots
     /// from a USB stick.
+    ///
+    /// When this table holds no line for the file's mount, vtium reads the
+    /// table's file again once, since the mount may be newer than the
+    /// table, and refuses the file if the mount is still missing.
     pub fn judge(&self, place: &Place) -> Result<(), Unsteady> {
-        let Some(mount) = self.find(place) else {
-            return Err(Unsteady::Unknown {
-                path: place.path.clone(),
-            });
+        let unknown = || Unsteady::Unknown {
+            path: place.path.clone(),
         };
+        let again;
+        let (table, mount) = match self.find(place) {
+            Some(mount) => (self, mount),
+            None => {
+                again = self.read_again().ok_or_else(unknown)?;
+                let mount = again.find(place).ok_or_else(unknown)?;
+                (&again, mount)
+            }
+        };
+        table.verdict(mount)
+    }
+
+    /// The mount table read again from its file, or `None` for a table
+    /// made from text or a file vtium cannot read.
+    fn read_again(&self) -> Option<Mounts> {
+        Mounts::read(self.source.as_deref()?, &self.sys).ok()
+    }
+
+    /// Whether the filesystem of `mount`, a line of this table, stays
+    /// mounted.
+    fn verdict(&self, mount: &Mount) -> Result<(), Unsteady> {
         let point = || mount.point.clone();
         let fstype = mount.fstype.as_str();
         if NETWORK.contains(&fstype) || fstype.starts_with("nfs") {

@@ -462,21 +462,31 @@ fn the_root_filesystem_on_a_removable_disk_passes() {
 
 // btrfs reports a subvolume's own device number, which the mount table
 // does not hold: vtium finds the mount by its mount ID, and without one
-// by the longest mount point above the path.
+// by its device number, then by the longest mount point above the path
+// whose own folder has the file's device number.
 #[test]
 fn the_mount_is_found_by_its_id_then_its_device_then_its_mount_point() {
-    let table = "\
+    let dir = fixture("find");
+    let meta = fs::metadata(&dir).expect("the fixture");
+    let here = (rustix::fs::major(meta.dev()), rustix::fs::minor(meta.dev()));
+    let table = format!(
+        "\
 33 2 0:30 /@ / rw - btrfs /dev/nvme0n1p2 rw
 55 33 0:30 /@home /home rw - btrfs /dev/nvme0n1p2 rw
 60 33 0:50 / /srv rw - nfs4 server:/srv rw
-";
-    let mounts = Mounts::parse(table, Path::new("/nonexistent-sys"));
-    let by_id = Place {
-        mount_id: Some(55),
-        dev: (0, 61),
-        path: "/srv/x".into(),
+61 33 0:31 /@sub {} rw - btrfs /dev/nvme0n1p2 rw
+",
+        dir.display()
+    );
+    let mounts = Mounts::parse(&table, Path::new("/nonexistent-sys"));
+    let by_id = |id, path: &str| Place {
+        mount_id: Some(id),
+        dev: (0, 99),
+        path: path.into(),
     };
-    assert_eq!(mounts.find(&by_id).map(|m| m.id), Some(55));
+    assert_eq!(mounts.find(&by_id(55, "/home/x")).map(|m| m.id), Some(55));
+    // a line whose mount point is not above the path is stale
+    assert_eq!(mounts.find(&by_id(55, "/srv/x")).map(|m| m.id), None);
     // the same device mounted twice: the mount point above the path wins
     assert_eq!(
         mounts.find(&place((0, 30), "/home/a")).map(|m| m.id),
@@ -486,19 +496,50 @@ fn the_mount_is_found_by_its_id_then_its_device_then_its_mount_point() {
         mounts.find(&place((0, 30), "/usr/a")).map(|m| m.id),
         Some(33)
     );
-    // a subvolume's device number the table lacks
-    assert_eq!(
-        mounts.find(&place((0, 61), "/srv/x")).map(|m| m.id),
-        Some(60)
-    );
-    assert_eq!(
-        mounts.find(&place((0, 61), "/usr/x")).map(|m| m.id),
-        Some(33)
-    );
+    // a subvolume's device number the table lacks: the mount point above
+    // the path counts only when its own folder has the file's device
+    let file = dir.join("a.bdf");
+    let file = file.to_str().expect("a UTF-8 fixture path");
+    assert_eq!(mounts.find(&place(here, file)).map(|m| m.id), Some(61));
+    assert_eq!(mounts.find(&place((0, 99), file)).map(|m| m.id), None);
+    assert_eq!(mounts.find(&place((0, 61), "/srv/x")).map(|m| m.id), None);
     assert_eq!(
         Mounts::parse("", Path::new("/")).judge(&place((0, 61), "/usr/x")),
         Err(Unsteady::Unknown {
             path: "/usr/x".into()
+        })
+    );
+}
+
+// A mount table read from a file is read again once when a file's mount is
+// missing, so a mount made after the first read is judged by its own line.
+#[test]
+fn a_mount_missing_from_the_table_is_looked_up_again_in_the_file() {
+    let dir = fixture("read-again");
+    let info = dir.join("mountinfo");
+    fs::write(&info, "22 1 8:2 / / rw - ext4 /dev/sda2 rw\n").expect("the table");
+    let mounts = Mounts::read(&info, Path::new("/nonexistent-sys")).expect("the table");
+    let at = |id| Place {
+        mount_id: Some(id),
+        dev: (0, 77),
+        path: "/run/media/me/net/x.ttf".into(),
+    };
+    fs::write(
+        &info,
+        "22 1 8:2 / / rw - ext4 /dev/sda2 rw\n40 22 0:77 / /run/media/me/net rw - nfs4 server:/x rw\n",
+    )
+    .expect("the table with a newer mount");
+    assert_eq!(
+        mounts.judge(&at(40)),
+        Err(Unsteady::Network {
+            point: "/run/media/me/net".into(),
+            fstype: "nfs4".into()
+        })
+    );
+    assert_eq!(
+        mounts.judge(&at(41)),
+        Err(Unsteady::Unknown {
+            path: "/run/media/me/net/x.ttf".into()
         })
     );
 }
@@ -743,4 +784,26 @@ fn vconsole_conf_is_read_as_systemd_vconsole_setup_reads_it() {
     assert_eq!(vconsole("FONT=x\nFONT=\n", "").font, None);
     assert_eq!(vconsole("FONT=x\n", "vconsole.font=").font, None);
     assert_eq!(vconsole("#FONT=x\n", "").font, None);
+}
+
+// A mount made after vtium read the mount table, such as a USB stick that
+// udisks mounts later, has a mount ID the table lacks. vtium never judges
+// such a file by another line, such as `/`'s.
+#[test]
+fn a_mount_id_the_table_lacks_fails_closed() {
+    let mounts = Mounts::parse("22 1 8:2 / / rw - ext4 /dev/sda2 rw\n", Path::new("/sys"));
+    for dev in [(0, 77), (8, 17), (8, 2)] {
+        let place = Place {
+            mount_id: Some(99),
+            dev,
+            path: "/media/usb/fonts/x.ttf".into(),
+        };
+        assert_eq!(
+            mounts.judge(&place),
+            Err(Unsteady::Unknown {
+                path: "/media/usb/fonts/x.ttf".into()
+            }),
+            "{dev:?}"
+        );
+    }
 }
