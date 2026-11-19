@@ -4936,7 +4936,10 @@ mod tests {
             .filter(|l| l.contains("is not active"))
             .collect();
         assert_eq!(said.len(), 1, "{:#?}", out.stderr);
-        assert!(said[0].contains(&format!("desk.vtfrit:1: The font {}", idle.display())));
+        assert!(
+            said.first()
+                .is_some_and(|l| l.contains(&format!("desk.vtfrit:1: The font {}", idle.display())))
+        );
     }
 
     // A font that font-name's set needs and this machine lacks is a
