@@ -460,9 +460,11 @@ pub(super) fn load(file: &Path, gate: &Gate) -> Result<Cube, Unread> {
         Err(refused) => return missing(refused.check.to_string()),
     };
     let too_large = || {
-        Err(Unread::Missing(format!(
-            "The file is larger than {CUBE_FILE_MAX} bytes, the most a .cube file may hold."
-        )))
+        missing(format!(
+            "it is larger than {} MiB ({} bytes), the most a .cube file may hold.",
+            CUBE_FILE_MAX >> 20,
+            grouped(CUBE_FILE_MAX)
+        ))
     };
     if opened.meta.len() > u64::try_from(CUBE_FILE_MAX).unwrap_or(u64::MAX) {
         return too_large();
@@ -472,16 +474,22 @@ pub(super) fn load(file: &Path, gate: &Gate) -> Result<Cube, Unread> {
         .unwrap_or(u64::MAX)
         .saturating_add(1);
     if let Err(e) = opened.file.take(bound).read_to_end(&mut bytes) {
-        return Err(Unread::Missing(format!(
-            "vtium cannot read the file: {}.",
-            e.kind()
-        )));
+        return missing(format!("vtium cannot read it: {}.", e.kind()));
     }
     if bytes.len() > CUBE_FILE_MAX {
         // the file grew after vtium looked at its size
         return too_large();
     }
     read_cube(&bytes).map_err(Unread::Faults)
+}
+
+/// `n` in decimal with a comma between each group of three digits, as
+/// 16,777,216.
+fn grouped(n: usize) -> String {
+    let digits: Vec<char> = n.to_string().chars().collect();
+    let mut groups: Vec<String> = digits.rchunks(3).map(|g| g.iter().collect()).collect();
+    groups.reverse();
+    groups.join(",")
 }
 
 #[cfg(test)]
@@ -525,7 +533,13 @@ mod tests {
         assert_eq!(one.shape(), Shape::One(2));
     }
 
-    // Each fault of ADR-1304 D14's table gives its report, on its line.
+    // Each fault in the record's table gives its report, on its line: a
+    // keyword vtium does not read, a 3D or 1D size out of range, both
+    // sizes in one file, a line that is not three numbers, the wrong count
+    // of data lines, and a domain other than 0 to 1.
+    //
+    // References:
+    // - ADR-1304 D14: the table of faults and the report of each.
     #[test]
     fn each_fault_names_its_line_what_it_found_and_what_it_needs() {
         assert_eq!(

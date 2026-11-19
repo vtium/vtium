@@ -100,7 +100,7 @@ fn cube_map(
     let read = match gate {
         Some(gate) => load(&path, gate),
         None => Err(Unread::Missing(
-            "vtium treats the file as missing, because it reads a .cube file only through the batch and the trust rule, and this check has neither.".to_owned(),
+            "vtium treats the file as missing, because it reads a .cube file only after checking the file against the batch and the trust rule, and this table was built without either.".to_owned(),
         )),
     };
     match read {
@@ -400,7 +400,10 @@ mod tests {
 
     // A .cube file's faults are of the checking stage, each on its line
     // of the .cube file, and the log line names the first and counts the
-    // rest, as ADR-1304 D14's table shows them.
+    // rest: a size out of range and a keyword vtium does not read.
+    //
+    // References:
+    // - ADR-1304 D14: the table of faults and the log line of each.
     #[test]
     fn a_cube_s_faults_are_reported_on_its_lines() {
         let f = Fixture::new("cube-faults");
@@ -479,7 +482,7 @@ mod tests {
         assert_eq!(
             f.table(text, &batch),
             Err(vec![format!(
-                "{}: color filter 1 of 1, cube: reading: The file is larger than 16777216 bytes, the most a .cube file may hold.",
+                "{}: color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is larger than 16 MiB (16,777,216 bytes), the most a .cube file may hold.",
                 f.dir.join("big.cube").display()
             )])
         );
@@ -500,7 +503,7 @@ mod tests {
         assert_eq!(
             said,
             [
-                "/etc/vtium/looks/warm.cube: color filter 1 of 1, cube: reading: vtium treats the file as missing, because it reads a .cube file only through the batch and the trust rule, and this check has neither."
+                "/etc/vtium/looks/warm.cube: color filter 1 of 1, cube: reading: vtium treats the file as missing, because it reads a .cube file only after checking the file against the batch and the trust rule, and this table was built without either."
             ]
         );
     }

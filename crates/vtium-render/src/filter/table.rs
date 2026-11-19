@@ -603,9 +603,13 @@ mod tests {
         );
     }
 
-    // The warm table of ADR-1304 D14 scales each channel by a constant, so
-    // the merged table takes it exactly: a mid gray becomes 0.5, 0.475 and
+    // The warm table, 2 a side, keeps red and lowers green by 5 per cent
+    // and blue by 15 per cent. It scales each channel by a constant, so the
+    // merged table takes it exactly: a mid gray becomes 0.5, 0.475 and
     // 0.425.
+    //
+    // References:
+    // - ADR-1304 D14: warm.cube, one of the record's example files.
     #[test]
     fn the_warm_cube_scales_each_channel() {
         let mut entries = Vec::new();
@@ -628,10 +632,14 @@ mod tests {
         );
     }
 
-    // The darken table of ADR-1304 D14, a 1D table of 5 points sampled
-    // from a gamma of 0.8, gives the merged table of a gamma filter at 0.8
-    // within the curve's own sampling: a straight line between 5 points
-    // lies within 0.015 of the curve.
+    // The darken table, a 1D table of 5 points sampled from a gamma of 0.8,
+    // gives the merged table of a gamma filter at 0.8 within the curve's
+    // own sampling: a straight line between 5 points lies within 0.015 of
+    // the curve.
+    //
+    // References:
+    // - ADR-1304 D14: darken.cube, one of the record's example files.
+    // - ADR-1304 Verification: a 1D table reads as the curve it samples.
     #[test]
     fn the_darken_curve_follows_a_gamma_of_0_8() {
         let points = [0.0, 0.1768, 0.4204, 0.6986, 1.0].map(|x| [x; 3]);
