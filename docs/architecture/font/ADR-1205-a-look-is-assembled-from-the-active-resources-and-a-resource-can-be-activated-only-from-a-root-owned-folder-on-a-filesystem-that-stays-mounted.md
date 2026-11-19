@@ -130,6 +130,9 @@ considered:
     said: "I'm not interested in interacting with wimer … let's make an original scheme in the same spirit. 'glassfish' maybe as a name or something like that. maybe not glassfish but...idunno something"
     via: steering session chat, 2026-11-19, after the steering session laid out the copyright and trademark risks of shipping Monokai's colors under another name
     covers: [Monokai]
+  - operator: aaronsb
+    said: "I like kiln … something like that [as the name of the original scheme in Monokai's spirit]"
+    via: steering session chat, 2026-11-19, after the steering session suggested Night Market, Kiln and Lanternfish
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -420,9 +423,9 @@ Here a head that takes the look `evening` draws Catppuccin Mocha's colors, and t
 | Catppuccin | `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha` | `themes/*.conf` of github.com/catppuccin/ghostty | MIT, "Copyright (c) 2021 Catppuccin" |
 | Tokyo Night | `tokyo-night`, `tokyo-night-storm`, `tokyo-night-moon`, `tokyo-night-day` | `extras/ghostty/` of github.com/folke/tokyonight.nvim | Apache-2.0, with no NOTICE file. The scheme began as Enkia's Visual Studio Code theme, which is MIT. |
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` | the palette in github.com/gruvbox-community/gruvbox, written out as Ghostty's format | MIT, "Copyright (c) 2018 Pavel Pertsev", the author of the original morhetz/gruvbox, whose README states MIT/X11 |
-| An original scheme in Monokai's spirit | one file, its name chosen by the maintainer | vtium's own, its colors chosen independently: a warm near-black background, saturated accents and a light warm foreground | vtium's license. The file claims no lineage from Monokai and names no Monokai. |
+| Kiln, an original scheme in Monokai's spirit | `kiln`, the maintainer's working name of 2026-11-19, settled when the maintainer judges its colors | vtium's own, its colors chosen independently: a warm near-black background, saturated accents and a light warm foreground | vtium's license. The file claims no lineage from Monokai and names no Monokai. |
 
-Nord and Solarized are already built-in palettes. vtium does not ship Monokai. Wimer Hazenberg's TextMate theme of 2006 carries no license from its author, who now sells Monokai Pro, and a port's license, such as the MIT of github.com/ku1ik/vim-monokai, cannot grant more than the port's author holds. The maintainer decided on 2026-11-19 that vtium ships an original scheme in the same spirit instead (`considered`). The slice that builds palettes chooses its colors without sampling Monokai's, and the maintainer judges them by eye on the picture page, as with the green and white presets. Its name is the maintainer's, and it does not pun on Monokai, since a name that calls the mark to mind is what trademark law guards against. A person can still import Monokai as a file of their own.
+Nord and Solarized are already built-in palettes. vtium does not ship Monokai. Wimer Hazenberg's TextMate theme of 2006 carries no license from its author, who now sells Monokai Pro, and a port's license, such as the MIT of github.com/ku1ik/vim-monokai, cannot grant more than the port's author holds. The maintainer decided on 2026-11-19 that vtium ships an original scheme in the same spirit instead (`considered`). The slice that builds palettes chooses its colors without sampling Monokai's, and the maintainer judges them by eye on the picture page, as with the green and white presets. The maintainer named it Kiln, a warm dark chamber with glowing glazes, as a working name: "I like kiln … something like that" (`considered`). The name does not pun on Monokai, since a name that calls the mark to mind is what trademark law guards against, and a search on 2026-11-19 found no color scheme named Kiln. A person can still import Monokai as a file of their own.
 
 **What D10 changes in other records.**
 
