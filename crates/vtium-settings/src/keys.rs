@@ -119,6 +119,17 @@ pub fn absolute(text: &str) -> bool {
     std::path::Path::new(text).is_absolute()
 }
 
+/// Whether `text` is a [`Kind::Name`] value of `words`: one of them, or
+/// a file's name by the rule for a head's name.
+pub fn name(words: &[&str], text: &str) -> bool {
+    words.contains(&text) || crate::parse::good_name(text)
+}
+
+/// Why vtium refuses a [`Kind::Name`] value that is neither one of its
+/// words nor a file's name, as the console's reading and vtium-config say
+/// it.
+pub const NOT_A_NAME: &str = "a name is one of the listed names, or 1 to 64 of the characters A-Z a-z 0-9 . _ + -, with no path";
+
 /// The smallest and largest side of a cell that a frit's `cell=` line
 /// and a look's `cell` state, in pixels: from minspec's 8 pixels to an 8K
 /// display's large sizes, as far as a glyph two cells wide still fits a
@@ -176,6 +187,12 @@ pub enum Kind {
     Paths,
     /// One of a fixed set of words.
     Choice(&'static [&'static str]),
+    /// A name: one of the listed words, which name things that need no
+    /// file, or the name of a file in a folder vtium reads, by the rule for
+    /// a head's name, 1 to 64 of `A-Z a-z 0-9 . _ + -` ([`name`]), so it
+    /// never holds a path. Whether such a file exists is not the key
+    /// table's to say: the reader of the file does.
+    Name(&'static [&'static str]),
     /// A color, `r,g,b`, each 0 to 255.
     Rgb,
     /// A display mode, `[GPU][CONNECTOR]WxH[@RATE]`. Each line adds one,
@@ -869,7 +886,7 @@ pub const MODE: Key = Key {
 pub const PALETTE: Key = Key {
     name: "palette",
     short: None,
-    kind: Kind::Choice(&[
+    kind: Kind::Name(&[
         "legacy",
         "custom",
         "nord",
@@ -883,9 +900,10 @@ pub const PALETTE: Key = Key {
     ]),
     default: Default::Text("legacy"),
     scope: Scope::Anywhere,
-    levels: TOP,
-    what: "The sixteen basic colors, and the default text and background colors.\n\n\
-           The value is the name of a palette, or `custom`, which takes the colors from the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.",
+    levels: TOP_LOOK,
+    what: "The color scheme: the 16 basic colors, the default text and background colors, and the cursor and selection colors.\n\n\
+           The value names a built-in palette, `custom`, which takes the colors from the `palette-*` keys, or a file `NAME.palette` in `/etc/vtium/palettes` or `/usr/share/vtium/palettes`. A look's own `palette` wins.\n\n\
+           [docs] A palette file uses Ghostty's theme format. When the file is missing or has an error, the heads that name it draw the palette this top-level key names, and vtium logs one line. See [Color schemes](palettes.md).",
 };
 
 pub const PALETTE_BLACK: Key = Key {
@@ -2770,8 +2788,8 @@ mod tests {
         assert_eq!(MOUSE.what_line(), MOUSE.what);
     }
 
-    // A look takes the font and display keys, its cell and the login
-    // picture's keys. A head takes `login`, every other key is the top
+    // A look takes the font and display keys, its cell, the login
+    // picture's keys and its palette. A head takes `login`, every other key is the top
     // level's alone, and a key the command line alone sets has no level.
     // `cell` is the one key only a section sets.
     //
@@ -2779,12 +2797,14 @@ mod tests {
     // - ADR-1403 D5: the three levels of a key.
     // - ADR-1200 D16: the font and display keys a look takes.
     // - ADR-1100 D17, "The keys": the login picture's keys are look keys.
+    // - ADR-1205 D10: `palette` is a look key.
     #[test]
     fn each_key_names_the_levels_that_may_set_it() {
         let names = |level| at(level).map(|k| k.name).collect::<Vec<_>>();
         assert_eq!(
             names(Level::Look),
             [
+                "palette",
                 "font-engine",
                 "font-name",
                 "font-size",
@@ -2852,6 +2872,7 @@ mod tests {
                         | Kind::Command
                         | Kind::Path
                         | Kind::Choice(_)
+                        | Kind::Name(_)
                         | Kind::Number { .. }
                         | Kind::Cell
                 ),
@@ -2921,5 +2942,29 @@ mod tests {
             let refused = std::panic::catch_unwind(|| build_display_buffers(Some(value)));
             assert!(refused.is_err(), "{value:?}");
         }
+    }
+
+    // `palette` lists the palettes that need no file, vtium-term's and
+    // `custom`, and takes a palette file's name besides, at the top level
+    // and in a look.
+    // covers: color.palette.named
+    #[test]
+    fn palette_names_a_built_in_palette_or_a_file() {
+        let words = match PALETTE.kind {
+            Kind::Name(words) => words,
+            _ => &[],
+        };
+        let mut words = words.to_vec();
+        words.sort_unstable();
+        let mut want: Vec<&str> = vtium_term::PALETTE_NAMES.to_vec();
+        want.push("custom");
+        want.sort_unstable();
+        assert_eq!(words, want);
+        assert!(name(&words, "legacy"));
+        assert!(name(&words, "catppuccin-mocha"));
+        for refused in ["", "../x", "a b", "/etc/passwd", &"x".repeat(65)] {
+            assert!(!name(&words, refused), "{refused:?}");
+        }
+        assert_eq!(PALETTE.levels, Levels::TOP_LOOK);
     }
 }

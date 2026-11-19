@@ -130,9 +130,17 @@ const BATCH: Bound = Bound {
     cite: "vtium's own: about a thousand paths of 60 bytes, far more than the fonts, color maps, shaders, palettes and pointer themes a console uses, read whole at each start like vtium.conf",
 };
 
+const PALETTE_FILE: Bound = Bound {
+    name: "PALETTE_FILE_MAX",
+    value: 16 * 1024,
+    what: "Bytes of a palette file, a color scheme",
+    past: "The file counts as missing, and the heads that name it draw the palette vtium.conf's top level names",
+    cite: "ADR-1205 D10; a file that sets all 256 colors and every other key it may set is under 7 KiB",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 14] = [
+pub(crate) const BOUNDS: [Bound; 15] = [
     FILE,
     LINE,
     NAME,
@@ -147,6 +155,7 @@ pub(crate) const BOUNDS: [Bound; 14] = [
     VTLOOK_FILE,
     VTLOOK_SECTIONS,
     BATCH,
+    PALETTE_FILE,
 ];
 
 /// Bytes of vtium.conf; past them every section is dropped but for the
@@ -209,6 +218,9 @@ pub const VTLOOK_SECTIONS_MAX: usize = VTLOOK_SECTIONS.value as usize;
 /// References:
 /// - ADR-1205 D4: the batch file, and the list of a fresh install that vtium uses in its place.
 pub const BATCH_MAX: usize = BATCH.value as usize;
+
+/// Bytes of a palette file (ADR-1205 D10).
+pub const PALETTE_FILE_MAX: usize = PALETTE_FILE.value as usize;
 
 #[cfg(test)]
 #[expect(clippy::panic, reason = "a test fails by panicking")]

@@ -48,7 +48,9 @@
 //! [`key_line`] reads one top-level line by vtium.conf's one comment rule. [`keys`] is the table of every key vtium.conf and the
 //! console's command line take, with its type, default, bound and
 //! description, which the console reads its configuration by and
-//! vtium-config shows (ADR-1201 D1).
+//! vtium-config shows (ADR-1201 D1). [`palette`] reads palette files, the
+//! color schemes a look can name beside the built-in palettes (ADR-1205
+//! D10).
 //!
 //! ```
 //! use vtium_settings::{Class, Identity, Place, parse};
@@ -73,6 +75,7 @@ mod matching;
 mod messages;
 pub mod mounts;
 mod outcome;
+pub mod palette;
 mod parse;
 mod place;
 mod route;
@@ -85,8 +88,8 @@ mod write;
 
 pub use bounds::{
     CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
-    LINE_MAX, LOOKS_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX, VT_MAX, VTLOOK_FILE_MAX,
-    VTLOOK_SECTIONS_MAX,
+    LINE_MAX, LOOKS_MAX, NAME_MAX, PALETTE_FILE_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX, VT_MAX,
+    VTLOOK_FILE_MAX, VTLOOK_SECTIONS_MAX,
 };
 pub use conf::{ConfEdit, Edit, KeyLine, edit_conf, key_line, setting, switch};
 pub use config::{

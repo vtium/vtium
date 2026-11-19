@@ -264,11 +264,12 @@
 
 # -- Palette -----------------------------------------------------------------
 
-## palette: The sixteen basic colors, and the default text and background
-## colors.
+## palette: The color scheme: the 16 basic colors, the default text and
+## background colors, and the cursor and selection colors.
 ##
-## The value is the name of a palette, or `custom`, which takes the colors
-## from the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.
+## The value names a built-in palette, `custom`, which takes the colors from
+## the `palette-*` keys, or a file `NAME.palette` in `/etc/vtium/palettes` or
+## `/usr/share/vtium/palettes`. A look's own `palette` wins.
 #
 ## palette-black: Color 0 (black) when `palette = custom`.
 ## palette-red: Color 1 (red) when `palette = custom`.

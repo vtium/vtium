@@ -293,13 +293,15 @@ Set it in the top level, or on vtium's command line with \fB\-\-cluster\-width=V
 The sixteen basic colors, the default text and background colors, and the colors of underlines and strikethrough.
 .TP
 \fBpalette\fR
-The sixteen basic colors, and the default text and background colors.
+The color scheme: the 16 basic colors, the default text and background colors, and the cursor and selection colors.
 .IP
-The value is the name of a palette, or \fBcustom\fR, which takes the colors from the \fBpalette\-*\fR keys. Colors 16 to 255 are xterm's in every palette.
+The value names a built-in palette, \fBcustom\fR, which takes the colors from the \fBpalette\-*\fR keys, or a file \fBNAME.palette\fR in \fB/etc/vtium/palettes\fR or \fB/usr/share/vtium/palettes\fR. A look's own \fBpalette\fR wins.
 .IP
-It takes one of \fBlegacy\fR, \fBcustom\fR, \fBnord\fR, \fBsolarized\fR, \fBsolarized\-black\fR, \fBsolarized\-white\fR, \fBsoft\-black\fR, \fBbase16\-dark\fR, \fBbase16\-light\fR, \fBvga\fR. Default: \fBlegacy\fR.
+A palette file uses Ghostty's theme format. When the file is missing or has an error, the heads that name it draw the palette this top-level key names, and vtium logs one line. See Color schemes <https://vtium.github.io/vtium/palettes/>.
 .IP
-Set it in the top level, or on vtium's command line with \fB\-\-palette=VALUE\fR.
+It takes a name: one of \fBlegacy\fR, \fBcustom\fR, \fBnord\fR, \fBsolarized\fR, \fBsolarized\-black\fR, \fBsolarized\-white\fR, \fBsoft\-black\fR, \fBbase16\-dark\fR, \fBbase16\-light\fR, \fBvga\fR, or a file's name: 1 to 64 of the characters A-Z a-z 0-9 . _ + \-. Default: \fBlegacy\fR.
+.IP
+Set it in the top level or a \fB[look NAME]\fR section, or on vtium's command line with \fB\-\-palette=VALUE\fR.
 .TP
 \fBpalette-black\fR
 Color 0 (black) when \fBpalette = custom\fR.

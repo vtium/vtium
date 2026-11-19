@@ -42,7 +42,7 @@ fn layer_focus(app: &App, narrow: &str) -> Option<String> {
 fn key_kind(key: Option<&vtium_settings::keys::Key>) -> String {
     match key.map(|k| k.kind) {
         Some(Kind::Switch) => "switch",
-        Some(Kind::Choice(_)) => "choice",
+        Some(Kind::Choice(_) | Kind::Name(_)) => "choice",
         Some(Kind::KeyBinding) => "binding",
         Some(_) => "value",
         None => "none",

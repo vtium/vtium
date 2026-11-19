@@ -578,12 +578,28 @@ fn outcome_with(
         Path::new(vtium_settings::vtlook::LOOKS),
         &settings.trust,
     );
+    // each color scheme a start would read, read as the start reads it
+    let top_palette = loaded
+        .config
+        .text(&keys::PALETTE)
+        .zip(loaded.config.origin(&keys::PALETTE))
+        .filter(|(_, origin)| !(heads.refused && matches!(origin, Origin::File { .. })))
+        .map(|(name, origin)| (name, origin.to_string()));
+    let folders = vtium_settings::palette::FOLDERS.map(Path::new);
+    let (schemes, scheme_notes) = palette_findings(
+        top_palette,
+        path,
+        &heads.palettes,
+        &folders,
+        &settings.trust,
+    );
     let stderr: Vec<String> = stderr
         .into_iter()
         .chain(refused)
         .chain(layers)
         .chain(needs.warnings)
         .chain(vtlooks)
+        .chain(schemes)
         .collect();
     let problems = stderr.len().saturating_add(heads.counted.len());
     let status = match problems {
@@ -598,6 +614,7 @@ fn outcome_with(
             .chain(root_refuses)
             .chain(needs.notes)
             .chain(heads.notes)
+            .chain(scheme_notes)
             .collect(),
         status,
     }
@@ -702,6 +719,10 @@ pub struct HeadCheck {
     /// than the built-in one: the look's name, the vtlook's and the line
     /// of its `vtlook`, for check-config to read.
     pub vtlooks: Vec<(String, String, usize)>,
+    /// The palette file each look of the file that a start runs names,
+    /// other than a built-in palette: the look's name, the palette's and
+    /// the line of its `palette`, for check-config to read.
+    pub palettes: Vec<(String, String, usize)>,
 }
 
 /// Whether `a` and `b` name one file, by its device and inode once
@@ -1094,6 +1115,118 @@ fn vtlook_findings(
     top.into_iter().chain(looks).collect()
 }
 
+/// The heads that a color scheme named at the top level are for.
+const TOP_SCHEME_HEADS: &str = "the heads whose look names no color scheme of its own";
+
+/// What the heads draw in place of a color scheme the top level names
+/// that fails, and of one a look names.
+const TOP_INSTEAD: &str = "draw the color scheme legacy instead";
+const LOOK_INSTEAD: &str = "draw the color scheme that vtium.conf's top level names instead";
+
+/// What check-config says of the palette files, the color schemes, that a
+/// start would read: `top`, the one vtium.conf's top level or the command
+/// line names, with where it is named, and those its looks name in
+/// `looks`, each with its look's name and its line in the vtium.conf at
+/// `conf`. Only a name that is not a built-in palette names a file. The
+/// first list counts against the file, and the second is notes.
+///
+/// It reads each named file once from `folders` under `trust`, as the
+/// start reads it. A name no folder holds is a warning, since the heads
+/// that name it draw the palette below it. A file with errors lists each
+/// error with its file and line, then each place in vtium.conf that names
+/// the file. A file that takes the name of a built-in palette, which vtium
+/// never reads, is listed too. Each key a file sets that vtium ignores is
+/// a note, once for each file.
+///
+/// References:
+/// - ADR-1205 D10: what check-config says of a palette file: its errors, the keys vtium ignores, a file named like a built-in palette, and a name that matches no palette.
+fn palette_findings(
+    top: Option<(&str, String)>,
+    conf: &Path,
+    looks: &[(String, String, usize)],
+    folders: &[&Path],
+    trust: &Trust,
+) -> (Vec<String>, Vec<String>) {
+    use vtium_settings::palette;
+    let mut names: Vec<&str> = top.iter().map(|(name, _)| *name).collect();
+    for (_, name, _) in looks {
+        if !names.contains(&name.as_str()) {
+            names.push(name);
+        }
+    }
+    let (mut counted, mut notes) = (Vec::new(), Vec::new());
+    for name in names.into_iter().filter(|n| !palette::built_in(n)) {
+        // a line for each place that names the scheme, saying `said` of
+        // the heads that place is for and what they draw instead
+        let places = |said: &dyn Fn(&str, &str) -> String| {
+            let top = top
+                .iter()
+                .filter(|(top, _)| *top == name)
+                .map(|(_, at)| format!("{at}: {}", said(TOP_SCHEME_HEADS, TOP_INSTEAD)));
+            let looks =
+                looks
+                    .iter()
+                    .filter(|(_, named, _)| named == name)
+                    .map(|(look, _, line)| {
+                        let heads = format!("the heads that use look {look}");
+                        at(conf, Some(*line), said(&heads, LOOK_INSTEAD)).to_string()
+                    });
+            top.chain(looks).collect::<Vec<_>>()
+        };
+        match palette::read(name, folders, trust) {
+            Ok(Some(scheme)) => notes.extend(scheme.ignored.iter().map(|i| {
+                let follows = matches!(i.key.as_str(), "config-file" | "theme");
+                let why = if follows {
+                    "vtium never follows it, so a color scheme sets colors and nothing else"
+                } else {
+                    "it is not a color vtium reads"
+                };
+                format!(
+                    "{}:{}: The color scheme {name} sets {}, which vtium ignores: {why}.",
+                    scheme.file.display(),
+                    i.line,
+                    i.quoted()
+                )
+            })),
+            Ok(None) => {
+                let folders: Vec<String> =
+                    folders.iter().map(|f| f.display().to_string()).collect();
+                counted.extend(places(&|heads, instead| {
+                    format!(
+                        "The color scheme {name} does not exist. No built-in color scheme has that name, and there is no file {name}{} in {}. So {heads} {instead}.",
+                        palette::SUFFIX,
+                        folders.join(" or ")
+                    )
+                }));
+            }
+            Err(failure) => {
+                let file = failure.file.display().to_string();
+                counted.extend(failure.faults.iter().map(|f| match f.line {
+                    Some(line) => format!("{file}:{line}: {}", f.reason),
+                    None => format!("{file}: {}", f.reason),
+                }));
+                if failure.more > 0 {
+                    counted.push(format!(
+                        "{file}: {}",
+                        crate::notice::more_errors(failure.more)
+                    ));
+                }
+                counted.extend(places(&|heads, instead| {
+                    format!("The color scheme {name} has errors, so {heads} {instead}.")
+                }));
+            }
+        }
+    }
+    // a file that takes a built-in palette's name is never read, so only
+    // the check can say so
+    counted.extend(palette::shadowing(folders).iter().flat_map(|f| {
+        f.faults
+            .iter()
+            .map(move |fault| format!("{}: {}", f.file.display(), fault.reason))
+    }));
+    (counted, notes)
+}
+
 /// What [`font_needs`] says of a font set's fonts: the warnings on fonts
 /// this machine lacks, which count against the file with a status of
 /// their own, and the notes, which do not count.
@@ -1334,6 +1467,19 @@ fn findings(
             .filter_map(|l| {
                 let name = vtium_settings::vtlook::chosen(l.vtlook.as_deref())?;
                 Some((l.name.clone(), name.to_owned(), l.vtlook_line))
+            })
+            .collect();
+        out.palettes = parsed
+            .config
+            .looks
+            .iter()
+            .filter_map(|l| {
+                let s = l
+                    .settings
+                    .iter()
+                    .find(|s| s.key.name == keys::PALETTE.name)?;
+                let file = !vtium_settings::palette::built_in(&s.value);
+                file.then(|| (l.name.clone(), s.value.clone(), s.line))
             })
             .collect();
     }
@@ -1589,22 +1735,113 @@ mod tests {
     }
 
     #[test]
-    fn a_palette_vtium_does_not_hold_is_reported() {
-        let (lines, status) = run_with(&["--palette=frob"], "palette=nord\n");
+    fn a_palette_name_that_could_name_no_file_is_reported() {
+        let (lines, status) = run_with(&["--palette=../frob"], "palette=nord\n");
         assert_eq!(status, 1);
-        assert_eq!(
-            lines,
-            [
-                "argument 2: palette=\"frob\" is not a value this setting takes. It takes legacy, \
-                 custom, nord, solarized, solarized-black, solarized-white, soft-black, \
-                 base16-dark, base16-light, or vga. Because of this error, vtium ignores this \
-                 setting."
-            ]
+        assert_eq!(lines.len(), 1, "{lines:?}");
+        assert!(
+            lines
+                .first()
+                .is_some_and(|l| l.starts_with("argument 2: palette=\"../frob\"")
+                    && l.contains(keys::NOT_A_NAME)),
+            "{lines:?}"
         );
-        for name in vtium_term::PALETTE_NAMES.iter().chain(&["custom"]) {
+        for name in vtium_term::PALETTE_NAMES
+            .iter()
+            .chain(&["custom", "dracula"])
+        {
             let conf = format!("palette={name}\n");
             assert_eq!(run_with(&[], &conf), (Vec::new(), 0), "{name}");
         }
+    }
+
+    // check-config reads each color scheme vtium.conf names, at the top
+    // level and in a look, as the start reads it: a scheme with errors
+    // lists each error with its file and line and then each place that
+    // names it; a name no folder holds and no built-in palette has is a
+    // warning; a file named like a built-in palette is listed; and each
+    // key a scheme sets that vtium ignores is a note, once.
+    // covers: color.palette.named
+    #[test]
+    fn check_config_reports_the_color_schemes_vtium_conf_names() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = Scratch::new("check-palettes");
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let write = |name: &str, text: &str| {
+            let path = dir.join(format!("{name}.palette"));
+            std::fs::write(&path, text).unwrap_or_default();
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+            path
+        };
+        let good = write(
+            "good",
+            "# a theme\ncursor-text = #000000\nbackground = #000000\ncursor-text = #111111\nconfig-file = /etc/x\n",
+        );
+        let broken = write(
+            "broken",
+            "background = #000000\nnope\nforeground = notacolor\n",
+        );
+        let legacy = write("legacy", "background = #000000\n");
+        let me = std::fs::metadata(&*dir).map_or(0, |m| m.uid());
+        let trust = Trust::owner(me).below(&dir);
+        let conf = Path::new("/etc/vtium/vtium.conf");
+        let looks = [
+            ("warm".to_owned(), "broken".to_owned(), 4),
+            ("cool".to_owned(), "absent".to_owned(), 6),
+            ("plain".to_owned(), "good".to_owned(), 8),
+        ];
+        let (counted, notes) = palette_findings(
+            Some(("broken", "/etc/vtium/vtium.conf:1".to_owned())),
+            conf,
+            &looks,
+            &[&*dir],
+            &trust,
+        );
+        let (b, l) = (broken.display(), legacy.display());
+        assert_eq!(
+            counted,
+            [
+                format!(
+                    "{b}:2: This line is not a setting. Each line of a color scheme reads key = value, or is a comment that starts with #."
+                ),
+                format!(
+                    "{b}:3: The color \"notacolor\" of foreground is not one vtium can read. A color is #rrggbb, rrggbb or an X11 color name such as DarkSlateGray."
+                ),
+                "/etc/vtium/vtium.conf:1: The color scheme broken has errors, so the heads whose look names no color scheme of its own draw the color scheme legacy instead.".to_owned(),
+                "/etc/vtium/vtium.conf:4: The color scheme broken has errors, so the heads that use look warm draw the color scheme that vtium.conf's top level names instead.".to_owned(),
+                format!(
+                    "/etc/vtium/vtium.conf:6: The color scheme absent does not exist. No built-in color scheme has that name, and there is no file absent.palette in {}. So the heads that use look cool draw the color scheme that vtium.conf's top level names instead.",
+                    dir.display()
+                ),
+                format!(
+                    "{l}: The file takes the name of the built-in color scheme legacy, so vtium never reads it. Give the file another name."
+                ),
+            ]
+        );
+        let g = good.display();
+        assert_eq!(
+            notes,
+            [
+                format!(
+                    "{g}:2: The color scheme good sets \"cursor-text\", which vtium ignores: it is not a color vtium reads."
+                ),
+                format!(
+                    "{g}:5: The color scheme good sets \"config-file\", which vtium ignores: vtium never follows it, so a color scheme sets colors and nothing else."
+                ),
+            ]
+        );
+        // a built-in palette and custom name no file
+        let (counted, notes) = palette_findings(
+            Some(("nord", "argument 2".to_owned())),
+            conf,
+            &[("warm".to_owned(), "custom".to_owned(), 4)],
+            &[Path::new("/nonexistent/vtium/palettes")],
+            &trust,
+        );
+        assert_eq!(
+            (counted, notes),
+            (Vec::<String>::new(), Vec::<String>::new())
+        );
     }
 
     #[test]
@@ -3501,6 +3738,7 @@ mod tests {
                 refused: false,
                 missing_fonts: 0,
                 vtlooks: Vec::new(),
+                palettes: Vec::new(),
             }
         );
         assert_eq!(
@@ -3511,6 +3749,7 @@ mod tests {
                 refused: false,
                 missing_fonts: 0,
                 vtlooks: Vec::new(),
+                palettes: Vec::new(),
             }
         );
     }
@@ -3634,6 +3873,7 @@ mod tests {
             refused: false,
             missing_fonts: 0,
             vtlooks: Vec::new(),
+            palettes: Vec::new(),
         };
         assert_eq!(
             conf_file(&file, false, &trust, &machine(true), &caps(4)),
