@@ -194,8 +194,8 @@ pub struct Caption {
     pub grid: (usize, usize),
 }
 
-/// The cells a picture on the screen covers: its first row and column,
-/// counted from 0, and how many columns and rows it takes.
+/// The cells under a picture on the screen: the picture's first row and
+/// column, counted from 0, and how many columns and rows it takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Covered {
     pub row: usize,
