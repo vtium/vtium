@@ -1,8 +1,8 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "help at 80×25, keys: 6"
+description: "help at 80×25, keys: Shift-Tab"
 ---
- Flow  Looks  Fonts  Settings  Help
+ Fonts  Effects  Looks  Flow  Settings  Help
  draft mine · no changes · no problems               text preview · t: try live
 --------------------------------------------------------------------------------
  The Flow view: CONFIGURATION, NEW PATH and PARTS
@@ -18,12 +18,12 @@ description: "help at 80×25, keys: 6"
    Enter      Opens the highlighted box: a part's detail, a path's card, a
               template's part maker, or the list of other inputs.
    1          Goes straight to the Fonts tab.
+   2          Goes straight to the Effects tab.
    3          Goes straight to the Looks tab.
    5          Goes straight to the Settings tab.
    6          Goes straight to the Help tab.
    s          Saves the changes that are not saved into the draft.
    i          Saves, then asks whether to install the draft.
-   r          Asks whether to throw away the draft's changes and copy the
 
 --------------------------------------------------------------------------------
  ↑↓ scroll  ←→ Help, About  q quit  . more 1/4

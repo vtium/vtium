@@ -2,7 +2,7 @@
 source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "flow.new-card at 80×25, keys: 4 e Enter"
 ---
- Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ Fonts  Effects  Looks  Flow  Settings  Help   View file Save Install Revert New
  draft mine  ›  new path   1 keyboard, 1 pointer and 1 display in no path yet …
 
  THE NEW PATH'S TERMINAL · every VT

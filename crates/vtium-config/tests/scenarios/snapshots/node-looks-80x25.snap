@@ -1,8 +1,8 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "looks at 80×25, keys: Shift-Tab"
+description: "looks at 80×25, keys: 3"
 ---
- Flow  Looks  Fonts  Settings  Help                               Save  Install
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
  draft mine · no changes · no problems               text preview · t: try live
 --------------------------------------------------------------------------------
  Font sizes for the console, in points.

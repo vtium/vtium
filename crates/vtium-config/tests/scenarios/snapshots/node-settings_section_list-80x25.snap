@@ -1,8 +1,8 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "settings.section.list at 80×25, keys: Tab Down Enter Enter"
+description: "settings.section.list at 80×25, keys: 5 Down Enter Enter"
 ---
- Flow  Looks  Fonts  Settings  Help                               Save  Install
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
  draft mine · no changes · no problems               text preview · t: try live
 --------------------------------------------------------------------------------
  Settings › Colors › palette
