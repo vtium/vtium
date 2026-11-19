@@ -23,7 +23,7 @@ use ratatui_core::text::{Line, Span as RSpan};
 use ratatui_core::widgets::Widget;
 use ratatui_widgets::paragraph::Paragraph;
 
-use super::canvas::{Row, fit, printable, put, span, width, wrap};
+use super::canvas::{Row, column, fit, fit_cells, printable, put, span, wrap};
 use super::color::{Color, Colors, Style};
 use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
@@ -915,30 +915,30 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
     let first = state.line.saturating_add(1).saturating_sub(room);
     let mut y = 5usize;
     for (i, line) in lines.iter().enumerate().skip(first).take(room) {
+        // the label is cut with `…` to end a blank cell before the value
+        // column, counted in the console's cells, so a long device name
+        // never runs under the value. The value starts at the character
+        // column that the console shows at VALUE_X, so a wide character in
+        // the label does not push the value right.
         at(
             rows,
             3,
             y,
-            &card_label(flow, line),
+            &fit_cells(&card_label(flow, line), VALUE_X.saturating_sub(4)),
             Style::text(Color::Grey),
         );
+        let vx = rows.get(y).map_or(VALUE_X, |r| column(r, VALUE_X));
         let here = i == state.line;
         match (&state.typing, here) {
             (Some(t), true) => {
-                at(
-                    rows,
-                    VALUE_X,
-                    y,
-                    &format!(" {t}_ "),
-                    Style::PLAIN.reversed(),
-                );
+                at(rows, vx, y, &format!(" {t}_ "), Style::PLAIN.reversed());
             }
             (None, true) => {
                 let choices = card_choices(&app.shared, line);
                 if choices.is_empty() {
                     let x = at(
                         rows,
-                        VALUE_X,
+                        vx,
                         y,
                         &format!(" {} ", card_words(&app.shared, &path, line)),
                         Style::PLAIN.reversed(),
@@ -953,36 +953,45 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
                 } else {
                     let chosen = card_chosen(&app.shared, &path, line);
                     // the row starts late enough that the cursor's choice
-                    // shows, each choice taking its mark, its words and a gap
+                    // shows, each choice taking its mark, its words and a
+                    // gap, counted in the console's cells
                     let room = app.size.cols.saturating_sub(VALUE_X);
                     let span = |a: usize, b: usize| -> usize {
                         choices
                             .iter()
                             .take(b.saturating_add(1))
                             .skip(a)
-                            .map(|(w, _)| width(w).saturating_add(5))
+                            .map(|(w, _)| super::canvas::cells(w).saturating_add(5))
                             .sum()
                     };
                     let mut first = 0usize;
                     while first < state.pick && span(first, state.pick) > room {
                         first = first.saturating_add(1);
                     }
-                    let mut x = VALUE_X;
+                    let mut x = vx;
+                    let mut cell = VALUE_X;
                     for (k, (w, _)) in choices.iter().enumerate().skip(first) {
-                        if x.saturating_add(width(w)).saturating_add(3) >= app.size.cols {
+                        if cell
+                            .saturating_add(super::canvas::cells(w))
+                            .saturating_add(3)
+                            >= app.size.cols
+                        {
                             break;
                         }
                         let on = chosen == Some(k) && !matches!(line, CardLine::Part(_));
                         x = choice(rows, x, y, w, on, k == state.pick);
+                        cell = cell
+                            .saturating_add(super::canvas::cells(w))
+                            .saturating_add(5);
                     }
                 }
             }
             _ => {
                 at(
                     rows,
-                    VALUE_X,
+                    vx,
                     y,
-                    &fit(
+                    &fit_cells(
                         &card_words(&app.shared, &path, line),
                         app.size.cols.saturating_sub(VALUE_X).saturating_sub(1),
                     ),
@@ -1275,10 +1284,11 @@ fn list_layer(
     let mut y = top;
     let last = list.len().saturating_sub(1);
     // the details line up in a column after the longest choice, as far as
-    // half the screen
-    let column = list
+    // half the screen, counted in the console's cells so a wide character
+    // in a name moves no detail out of its column
+    let detail_x = list
         .iter()
-        .map(|(t, _)| width(t))
+        .map(|(t, _)| super::canvas::cells(t))
         .max()
         .unwrap_or(0)
         .saturating_add(9)
@@ -1299,17 +1309,19 @@ fn list_layer(
             y = y.saturating_add(1);
             continue;
         }
-        let x = choice(
+        let title = fit_cells(title, app.size.cols.saturating_sub(10));
+        choice(rows, 3, y, &title, false, i == line);
+        // the choice takes its mark, a blank, its words and a gap of three
+        let cell = super::canvas::cells(&title).saturating_add(8).max(detail_x);
+        let x = rows.get(y).map_or(cell, |r| column(r, cell));
+        let room = app.size.cols.saturating_sub(cell).saturating_sub(1);
+        at(
             rows,
-            3,
+            x,
             y,
-            &fit(title, app.size.cols.saturating_sub(10)),
-            false,
-            i == line,
+            &fit_cells(detail, room),
+            Style::text(Color::Grey),
         );
-        let x = x.max(column);
-        let room = app.size.cols.saturating_sub(x).saturating_sub(1);
-        at(rows, x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
     if let Some(note) = note {
@@ -1355,13 +1367,17 @@ fn others_layer(rows: &mut [Row], app: &App) {
         let Some(dev) = flow.inputs.get(d) else {
             continue;
         };
+        // the name is cut in the console's cells to end before the rule's
+        // column, and the rule starts at the character column the console
+        // shows there
         at(
             rows,
             3,
             y,
-            &fit(&dev.name, vx.saturating_sub(4)),
+            &fit_cells(&dev.name, vx.saturating_sub(4)),
             Style::text(Color::White),
         );
+        let x = rows.get(y).map_or(vx, |r| column(r, vx));
         let caught = match dev.rule.and_then(|r| flow.rules.get(r).map(|x| (r, x))) {
             Some((r, x)) => format!(
                 "rule {}: {} -> {}",
@@ -1373,9 +1389,9 @@ fn others_layer(rows: &mut [Row], app: &App) {
         };
         at(
             rows,
-            vx,
+            x,
             y,
-            &fit(&caught, app.size.cols.saturating_sub(vx).saturating_sub(1)),
+            &fit_cells(&caught, app.size.cols.saturating_sub(vx).saturating_sub(1)),
             Style::text(Color::Grey),
         );
         y = y.saturating_add(1);
@@ -1736,32 +1752,165 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_card_s_values_start_at_their_column_whatever_the_label() {
-        let app = flow_app(1);
+    /// A row as the screen shows it, one entry for each cell: each
+    /// character takes as many cells as the console's width rule gives it,
+    /// and the cell a wide character covers holds `\0`.
+    fn on_screen(row: &Row) -> Vec<char> {
+        let mut out = Vec::new();
+        for c in text(row) {
+            let width = super::super::backend::console_width(&c.to_string()).max(1);
+            out.push(c);
+            out.extend(std::iter::repeat_n('\0', usize::from(width) - 1));
+        }
+        out
+    }
+
+    /// The Flow view at 80×25 with one more input, called `name`, whose
+    /// key is `id:aaaa:0000`.
+    fn app_with_input(name: &str) -> App {
+        let mut i = crate::tui::fixture::inputs();
+        i.view = crate::tui::model::View::Flow;
+        let first = i.flow.inputs.first().cloned().expect("an input");
+        i.flow.inputs.push(crate::tui::flow::Device {
+            name: name.to_owned(),
+            keys: vec!["id:aaaa:0000".to_owned()],
+            found: true,
+            rule: None,
+            ..first
+        });
+        App::new(i, 80, 25).0
+    }
+
+    /// The layer of a card in the editor that holds the input called
+    /// `name`, with the cursor on `line`, or on the input's own line.
+    fn card_with_input(name: &str, line: Option<usize>) -> (App, Vec<Row>) {
+        let app = app_with_input(name);
         let mut editor = Path::default();
         editor.pick(Piece::Input("id:aaaa:0000".into()));
+        let part = CardLine::Part(Piece::Input("id:aaaa:0000".into()));
+        let own = card_lines(&editor, true)
+            .iter()
+            .position(|l| *l == part)
+            .expect("the part's line");
         let state = flowview::State {
-            new: editor.clone(),
+            new: editor,
+            line: line.unwrap_or(own),
             ..flowview::State::default()
         };
         let rows = layer(&app, &state, &Obj::New(Slot::Terminal));
-        let label = card_label(
-            &app.shared.inputs.flow,
-            &CardLine::Part(Piece::Input("id:aaaa:0000".into())),
-        );
-        assert!(label.chars().count() > VALUE_X - 3, "{label}");
+        (app, rows)
+    }
+
+    /// The screen row of the card's line that starts with `Input`.
+    fn input_line(rows: &[Row]) -> Vec<char> {
+        rows.iter()
+            .map(on_screen)
+            .find(|t| t.len() > 3 && t[3..].starts_with(&['I', 'n', 'p', 'u', 't']))
+            .expect("the part's line")
+    }
+
+    #[test]
+    fn a_long_part_label_is_cut_before_the_value_column_and_the_value_shows_whole() {
+        let name = "A rather long input device name number 0";
+        // the cursor on the card's first line, then on the part's own
+        for line in [Some(0), None] {
+            let (_, rows) = card_with_input(name, line);
+            let row = input_line(&rows);
+            // the label fills the room before the value column, less one
+            // blank cell, and ends in `…`
+            let label: String = format!("Input {name}").chars().take(VALUE_X - 5).collect();
+            let shown: String = row[3..VALUE_X].iter().collect();
+            assert_eq!(shown, format!("{label}… "), "{line:?}");
+            let after: String = row[VALUE_X..].iter().collect();
+            if line.is_some() {
+                assert_eq!(after.trim_end(), words::CONNECTED);
+            } else {
+                // the part's choices start at the value column with a mark
+                assert!(after.starts_with(['○', '●']), "{after}");
+            }
+            assert!(!after.contains("number"), "{line:?}: {after}");
+        }
+    }
+
+    #[test]
+    fn a_wide_part_label_is_cut_by_the_console_s_cells_before_the_value_column() {
+        // twenty characters two cells wide: forty cells, under the thirty
+        // characters the label has room for, so cutting by characters
+        // keeps them all
+        let name = "键盘".repeat(10);
+        let (_, rows) = card_with_input(&name, Some(0));
+        let row = input_line(&rows);
+        // `Input ` takes 6 cells, eleven wide characters 22, `…` one, so
+        // the label takes 29 of its 30 cells, and two blank cells part it
+        // from the value
+        let wide: String = name.chars().take(11).flat_map(|c| [c, '\0']).collect();
+        let shown: String = row[3..VALUE_X].iter().collect();
+        assert_eq!(shown, format!("Input {wide}…  "));
+        let after: String = row[VALUE_X..].iter().collect();
+        assert_eq!(after.trim_end(), words::CONNECTED);
+    }
+
+    #[test]
+    fn a_picker_s_details_share_one_column_of_cells_whatever_the_names() {
+        // ten characters two cells wide in one name
+        let name = "键盘".repeat(5);
+        let app = app_with_input(&name);
+        let state = flowview::State {
+            picker: Some(flowview::Picker {
+                stage: Stage::Input,
+                key: "name",
+                from_new: false,
+            }),
+            ..flowview::State::default()
+        };
+        let rows = layer(&app, &state, &Obj::Pal(Slot::Template(Stage::Input)));
+        // a value's row: its mark, `name:` and the name without blanks,
+        // then blanks, then the names of the devices it matches
+        let starts: Vec<(usize, Vec<char>)> = rows
+            .iter()
+            .map(on_screen)
+            .filter(|r| r.len() > 10 && r[5..].starts_with(&['n', 'a', 'm', 'e', ':']))
+            .map(|r| {
+                let gap = r.iter().skip(5).position(|c| *c == ' ').expect("a gap") + 5;
+                let at = r
+                    .iter()
+                    .skip(gap)
+                    .position(|c| *c != ' ')
+                    .expect("a detail")
+                    + gap;
+                (at, r)
+            })
+            .collect();
+        assert!(starts.len() > 1, "{starts:?}");
+        let column = starts[0].0;
+        assert!(starts.iter().all(|(at, _)| *at == column), "{starts:?}");
+        let wide = starts
+            .iter()
+            .find(|(_, r)| r.contains(&'键'))
+            .expect("the wide name's row");
+        let detail: String = wide.1[column..].iter().filter(|c| **c != '\0').collect();
+        assert_eq!(detail.trim_end(), name);
+    }
+
+    #[test]
+    fn the_box_of_other_inputs_cuts_a_wide_name_before_the_rule_s_column() {
+        // twenty-five characters two cells wide: fifty cells, more than
+        // the 36 the name has room for at 80 columns
+        let name = "键盘".repeat(12) + "键";
+        let app = app_with_input(&name);
+        let rows = layer(&app, &flowview::State::default(), &Obj::Others);
         let row = rows
             .iter()
-            .map(text)
-            .find(|t| t.len() > 3 && t[3..].starts_with(&['I', 'n', 'p', 'u', 't']))
-            .expect("the part's line");
-        // the label shows up to the value's column, and the value starts
-        // there
-        let shown: String = row[3..VALUE_X].iter().collect();
-        assert_eq!(shown, label.chars().take(VALUE_X - 3).collect::<String>());
-        let value: String = row[VALUE_X..].iter().take(words::CONNECTED.len()).collect();
-        assert_eq!(value, words::CONNECTED);
+            .map(on_screen)
+            .find(|r| r.contains(&'键'))
+            .expect("the wide name's row");
+        // the rule's column is half of 80 columns, so the name has 36
+        // cells: seventeen wide characters, `…` and two blank cells
+        let wide: String = name.chars().take(17).flat_map(|c| [c, '\0']).collect();
+        let shown: String = row[3..40].iter().collect();
+        assert_eq!(shown, format!("{wide}…  "));
+        let rule: String = row[40..].iter().collect();
+        assert!(rule.starts_with(words::FLOW_NO_RULE), "{rule}");
     }
 
     #[test]

@@ -90,6 +90,62 @@ pub fn fit(text: &str, n: usize) -> String {
     out
 }
 
+/// How many cells the console gives `c` on the screen, as `view::fill`
+/// lays a row out: the console's width rule for the character, and at
+/// least one cell, since a control shows as `?`.
+fn cells_of(c: char) -> usize {
+    let mut symbol = [0u8; 4];
+    usize::from(super::backend::console_width(c.encode_utf8(&mut symbol)).max(1))
+}
+
+/// How many cells `text` takes on the console's screen. A character the
+/// console draws two cells wide counts twice, so a name in Chinese takes
+/// twice as many cells as it has characters.
+pub fn cells(text: &str) -> usize {
+    text.chars().map(cells_of).sum()
+}
+
+/// `text` in at most `n` cells of the console's screen, cut at its end
+/// with `…`. A wide character that would straddle the end goes whole, so
+/// the result can be a cell short of `n`.
+pub fn fit_cells(text: &str, n: usize) -> String {
+    if cells(text) <= n {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut used = 0usize;
+    for c in text.chars() {
+        let w = cells_of(c);
+        if used.saturating_add(w).saturating_add(1) > n {
+            break;
+        }
+        out.push(c);
+        used = used.saturating_add(w);
+    }
+    if n > 0 {
+        out.push('…');
+    }
+    out
+}
+
+/// The character column of `row` that the console shows at screen cell
+/// `cell`. Text written there with [`put`] starts at that cell, however
+/// many wide characters come before it. Past the row's end, each missing
+/// cell is a blank that [`put`] pads with. A cell inside a wide character
+/// gives the column after it.
+pub fn column(row: &Row, cell: usize) -> usize {
+    let mut used = 0usize;
+    let mut chars = 0usize;
+    for c in row.iter().flat_map(|s| s.text.chars()) {
+        if used >= cell {
+            return chars;
+        }
+        used = used.saturating_add(cells_of(c));
+        chars = chars.saturating_add(1);
+    }
+    chars.saturating_add(cell.saturating_sub(used))
+}
+
 /// `text` in at most `n` characters, cut in the middle with `…`, so the
 /// end that tells devices apart still shows.
 pub fn mid(text: &str, n: usize) -> String {
@@ -204,6 +260,24 @@ mod tests {
             ["configured,", "not found"]
         );
         assert_eq!(wrap("a b c d e f", 3, 2), ["a b", "c …"]);
+    }
+
+    #[test]
+    fn text_is_fitted_and_placed_by_the_console_s_cells() {
+        assert_eq!(cells("ab键盘"), 6);
+        assert_eq!(fit_cells("ab键盘", 6), "ab键盘");
+        // `键` and `…` take 3 cells; `盘` would straddle the end
+        assert_eq!(fit_cells("ab键盘", 5), "ab键…");
+        assert_eq!(fit_cells("ab键盘", 4), "ab…");
+        assert_eq!(fit_cells("", 0), "");
+        assert_eq!(fit_cells("abc", 0), "");
+        let row = vec![span("a键b", Style::PLAIN)];
+        // cell 3 shows `b`, the third character
+        assert_eq!(column(&row, 3), 2);
+        // cell 2 is inside `键`, so text goes after it
+        assert_eq!(column(&row, 2), 2);
+        // the row takes 4 cells, so cell 6 is two blanks past its end
+        assert_eq!(column(&row, 6), 5);
     }
 
     #[test]

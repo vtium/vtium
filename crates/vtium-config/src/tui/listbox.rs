@@ -15,7 +15,7 @@
 //!   every set of items, its keys, and the picker's look.
 //! - ADR-1201 D3: the Settings view and the Looks tab show their sets in it.
 
-use super::canvas::{Row, span, wrap};
+use super::canvas::{Row, cells, span, wrap};
 use super::color::{Color, Style};
 use super::input::Key;
 
@@ -123,15 +123,23 @@ pub fn step(at: usize, n: usize, key: Key) -> usize {
 /// detail on the rows below it.
 const NAME_MAX: usize = 32;
 
+/// `name` and the blanks after it that make it `width` cells of the
+/// console's screen wide, so a name with wide characters lines its detail
+/// up with the others.
+fn padded(name: &str, width: usize) -> String {
+    format!("{name}{}", " ".repeat(width.saturating_sub(cells(name))))
+}
+
 /// The list's rows on a screen `cols` wide, with the item `at`
 /// highlighted, and the index of the last row of that item, which the
 /// screen keeps in sight. Each detail lines up in a column after the
 /// names, and wraps by words under that column. A name wider than the
-/// column has its detail start on the row below.
+/// column has its detail start on the row below. The names are measured
+/// in the console's cells.
 pub fn rows(items: &[Item], at: usize, marks: Marks, cols: usize) -> (Vec<Row>, usize) {
     let width = items
         .iter()
-        .map(|i| i.name.chars().count())
+        .map(|i| cells(&i.name))
         .max()
         .unwrap_or(0)
         .min(NAME_MAX)
@@ -162,7 +170,7 @@ pub fn rows(items: &[Item], at: usize, marks: Marks, cols: usize) -> (Vec<Row>, 
         } else {
             Style::PLAIN
         };
-        let long = item.name.chars().count() > width;
+        let long = cells(&item.name) > width;
         let mut details = wrap(&item.detail, room, usize::MAX).into_iter();
         let mut first: Row = Vec::new();
         match marks {
@@ -181,7 +189,7 @@ pub fn rows(items: &[Item], at: usize, marks: Marks, cols: usize) -> (Vec<Row>, 
         let name = if long {
             item.name.clone()
         } else {
-            format!("{:<width$}", item.name)
+            padded(&item.name, width)
         };
         first.push(span(name, name_style));
         if !long && let Some(d) = details.next().filter(|d| !d.is_empty()) {
@@ -240,8 +248,9 @@ pub fn columns(
     let mut keep = 0;
     for (i, (name, note)) in items.iter().enumerate() {
         let mark = if i == at { '>' } else { ' ' };
-        // a name longer than its column has its note on the rows below
-        let long = name.chars().count() > width;
+        // a name wider than its column, in the console's cells, has its
+        // note on the rows below
+        let long = cells(name) > width;
         let parts = std::iter::repeat_n(String::new(), usize::from(long)).chain(
             wrap(note, room, usize::MAX)
                 .into_iter()
@@ -249,7 +258,7 @@ pub fn columns(
         );
         for (n, part) in parts.enumerate() {
             let line = if n == 0 {
-                format!(" {mark} {name:<width$} {part}")
+                format!(" {mark} {} {part}", padded(name, width))
             } else {
                 format!("{:column$}{part}", "")
             };
@@ -390,5 +399,36 @@ mod tests {
             Some("detail")
         );
         assert!(lines.iter().all(|l| l.chars().count() <= 40), "{lines:#?}");
+    }
+
+    #[test]
+    fn a_name_with_wide_characters_lines_its_detail_up_by_the_console_s_cells() {
+        // four characters two cells wide take 8 cells, as many as
+        // `abcdefgh`, so both details start in the same cell
+        let items = [
+            Item::new("键盘键盘", "wide"),
+            Item::new("abcdefgh", "narrow"),
+        ];
+        let (list, _) = rows(&items, 0, Marks::None, 80);
+        let lines: Vec<String> = list.iter().map(text).collect();
+        let line = |i: usize| lines.get(i).map_or("", String::as_str);
+        assert_eq!(line(0), "   键盘键盘  wide");
+        assert_eq!(line(1), "   abcdefgh  narrow");
+        let pairs = [
+            ("键盘键盘".to_owned(), "wide".to_owned()),
+            ("abcdefgh".to_owned(), "narrow".to_owned()),
+        ];
+        let (list, _) = columns(&pairs, 1, 8, 80);
+        let lines: Vec<String> = list.iter().map(text).collect();
+        let line = |i: usize| lines.get(i).map_or("", String::as_str);
+        assert_eq!(line(0), "   键盘键盘 wide");
+        assert_eq!(line(1), " > abcdefgh narrow");
+        // a name wider than the column in cells, though not in
+        // characters, puts its detail on the row below
+        let (list, _) = columns(&[("键盘键盘键".to_owned(), "wide".to_owned())], 0, 8, 80);
+        let lines: Vec<String> = list.iter().map(text).collect();
+        let line = |i: usize| lines.get(i).map_or("", String::as_str);
+        assert_eq!(line(0).trim_end(), " > 键盘键盘键");
+        assert_eq!(line(1).trim(), "wide");
     }
 }
