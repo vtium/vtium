@@ -525,6 +525,9 @@ considered:
     said: "Accept D10, keep both [flow.info and flow.new-card stay as nodes of their own]"
     via: the steering session, 2026-11-18, the maintainer's answer on accepting D10 with the two parked nodes kept
     paraphrase: true
+  - operator: aaronsb
+    said: "1. yes, for your reason plus it doesn't break the flow or completely block the user which is frustrating, and it pushes towards a sane fix 2. agree"
+    via: "the steering session's chat, 2026-11-19, answering card R's two probes on the Looks and Effects rows: (1) a look may pick a vtlook that does not read, with the reason shown; (2) p does nothing on a color scheme"
 status: accepted
 date: 2026-11-04
 deciders:
@@ -1493,6 +1496,8 @@ The two nodes that the code review of the generated key lines split out of the F
 > - Space activates a pointer theme by its folder, with every file in it.
 >
 > Two points wait for the maintainer, and the rows follow the lean of each until the maintainer answers. First, a look can pick a vtlook that does not read, such as one that names a color map that is not active, and the list shows why it does not read. The lean is yes, because the person can activate the color map afterwards, and until then the look draws the built-in vtlook, as any vtlook that fails does. Second, `p` does nothing on a color scheme, because a scheme's preview is its 16 colors beside text, which has no second form. The lean is to keep it so until someone asks for a picture of the console in the scheme's colors.
+
+> Note 2026-11-19, later the same day: the maintainer answered the two questions the rows left open (`considered`). A look may pick a vtlook that has an error: the card shows the reason beside the choice, and the head draws "No filter" until the file is fixed, because blocking the pick would stop the person mid-task, and showing the reason points to the fix. The key `p` does nothing on a color scheme, since a scheme's preview is already its 16 colors beside text.
 
 ## The maintainer's answers
 
