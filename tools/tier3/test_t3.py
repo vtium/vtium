@@ -7887,6 +7887,14 @@ class KeyEchoTest(unittest.TestCase):
         self.assertEqual(got["note"], "debug is off for this variant, so vtium logs no "
                                       "frame-times line")
 
+    def test_a_window_without_keys_fails(self):
+        # The screen's name chooses the key-echo figures, so a window that
+        # leaves out keys= fails instead of reading as another benchmark's.
+        got = t3_bench.measure(self.serial(), self.EVENT.replace(" keys=54", ""), self.CONF)
+        self.assertEqual(got["error"], "the key-echo screen reported no keys= count, so the "
+                                       "check cannot tell how many keys were typed")
+        self.assertEqual(t3_keyecho.CASE, t3_bench.KEY_ECHO)
+
     def test_the_minspec_variant_runs_the_check_with_debug_logging(self):
         v = t3_scenario.VARIANTS["2d-potato-min"]
         self.assertEqual(v["checks"], [t3_keyecho.CASE])

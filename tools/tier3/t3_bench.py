@@ -47,6 +47,10 @@ _FIGURES = re.compile(r"\[\s*(\d+\.\d+)\] vtium\[(\d+)\]: render: head (.+?): (\
 _FIGURES_START = re.compile(r"(?:\[\s*(\d+\.\d+)\] )?vtium\[\d+\]: render: head ")
 _FIGURES_ECHOES = re.compile(r"\d+ key echoes, key to present mean ")
 
+# The key-echo check's screen (t3_keyecho.CASE), whose window measure reads
+# as key-echo figures whatever counts it reports.
+KEY_ECHO = "key-echo"
+
 # A console without a render timer logs this when its configuration names
 # render-timer. vtium reads render-timer in every build, so the line comes
 # only from another console's log.
@@ -147,17 +151,21 @@ def echo_figures(serial_text, start, end, counts, config):
     """The report entry of the key-echo screen (t3_keyecho), whose window
     reports "keys", the keys the driver typed, and "read", the keys the
     echoing program read. "error", which fails the case, is set when the
-    program read fewer keys than were typed, when a frame-times line stamped
-    in the window cannot be read (unread_figure_lines), when vtium measured
-    more echoes than keys, and when no line in the window gives an echo
-    while debug logging is on."""
-    out = {"seconds": round(end - start, 2), "keys": counts["keys"],
+    window does not report "keys", when the program read fewer keys than
+    were typed, when a frame-times line stamped in the window cannot be read
+    (unread_figure_lines), when vtium measured more echoes than keys, and
+    when no line in the window gives an echo while debug logging is on.
+    measure sends a window here by the screen's name, KEY_ECHO."""
+    out = {"seconds": round(end - start, 2), "keys": counts.get("keys"),
            "keys_read": counts.get("read", 0)}
     out.update(key_echoes(figure_lines(serial_text), start, end))
     out["figure_lines_unread"] = sum(
         1 for t in unread_figure_lines(serial_text) if t is not None and start < t <= end)
     unread = out["figure_lines_unread"]
-    if out["keys_read"] < out["keys"]:
+    if out["keys"] is None:
+        out["error"] = ("the key-echo screen reported no keys= count, so the check cannot tell "
+                        "how many keys were typed")
+    elif out["keys_read"] < out["keys"]:
         out["error"] = ("the echoing program read %d of the %d keys typed"
                         % (out["keys_read"], out["keys"]))
     elif unread:
@@ -347,7 +355,7 @@ def measure(serial_text, event_line, config):
     if window is None:
         return {"error": "the screen reported no benchmark window: %r" % event_line}
     name, start, end, counts = window
-    if "keys" in counts:
+    if name == KEY_ECHO:
         return echo_figures(serial_text, start, end, counts, config)
     out = summarize(timer_lines(serial_text), counts.get("lines"), start, end)
     out.update(program(counts, end - start))
