@@ -920,7 +920,7 @@ This screen is not built as described yet. See [#439](https://github.com/vtium/v
 
 The shared list of the Effects tab's filters: color maps or shaders.
 
-This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: vtium-config has no Effects tab.
+This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: the Effects tab lists nothing yet, so it has no filter line.
 
 **Open it:** Enter on the filter line.
 
@@ -947,7 +947,7 @@ This screen is not built as described yet. See [#439](https://github.com/vtium/v
 
 A color map's or a shader's detail, read-only: its file, whether it is active, its trust mark and the check it fails, and the looks whose vtlook names it.
 
-This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: vtium-config has no Effects tab.
+This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: the Effects tab lists nothing yet, so it has no detail to open.
 
 **Open it:** Enter on a color map or a shader.
 
