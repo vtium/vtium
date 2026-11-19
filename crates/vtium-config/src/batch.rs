@@ -175,8 +175,13 @@ pub fn resource_changes(n: usize) -> String {
 
 /// `word` as a path the batch file can list: an absolute path without
 /// `..`, with `.` and doubled slashes dropped, read as vtium reads a line
-/// of the batch file.
+/// of the batch file. A path that holds a control character, such as a tab
+/// or an escape, is refused: `active` separates its fields with tabs, and
+/// an escape would reach the terminal raw when a command prints the path.
 pub fn plain(word: &str) -> Option<PathBuf> {
+    if word.chars().any(char::is_control) {
+        return None;
+    }
     let read = Batch::parse(word.as_bytes(), Path::new(""));
     match (read.findings.as_slice(), read.batch.entries()) {
         ([], [Entry::Path(path)]) => Some(path.clone()),
@@ -808,7 +813,8 @@ fn change(
         }
         let Some(path) = plain(word) else {
             return Err(Fail::Usage(format!(
-                "{word} is not the path of a resource. Give its absolute path without .., such as /usr/share/fonts/TTF/Hack-Regular.ttf."
+                "{} is not the path of a resource. Give its absolute path without .., such as /usr/share/fonts/TTF/Hack-Regular.ttf.",
+                word.escape_debug()
             )));
         };
         let line = format!("{}	{}", kind(&path), path.display());
@@ -927,6 +933,7 @@ mod tests {
             "activate /a/../b",
             "install /a",
             "activate",
+            "activate /a/\tb.ttf",
         ] {
             let fail = Changes::parse(bad, Path::new("d.batch")).unwrap_err();
             assert!(fail.text().starts_with("d.batch line 1: "), "{bad}");
@@ -986,6 +993,18 @@ mod tests {
         assert_eq!(plain("a/b"), None);
         assert_eq!(plain("/a/../b"), None);
         assert_eq!(plain("/a\n/b"), None);
+        // a control character would break `active`'s tab-separated fields
+        // or reach the terminal raw
+        for bad in [
+            "/a\tb.ttf",
+            "/a\u{1b}[31mb.ttf",
+            "/a\rb",
+            "/a\u{7f}b",
+            "/a\u{9b}b",
+        ] {
+            assert_eq!(plain(bad), None, "{bad:?}");
+        }
+        assert_eq!(plain("/a b.ttf"), Some(PathBuf::from("/a b.ttf")));
     }
 
     #[test]

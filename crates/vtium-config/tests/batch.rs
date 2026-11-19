@@ -289,7 +289,12 @@ fn an_activation_that_fails_the_trust_rule_is_refused_and_nothing_is_kept() {
     std::os::unix::fs::symlink(f.path("res/mine.ttf"), f.path("res/link.ttf")).expect("a link");
     let ran = f.run(&["activate", &f.arg("res/link.ttf")]);
     assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
-    for bad in ["relative.ttf", "/a/../b.ttf"] {
+    for bad in [
+        "relative.ttf",
+        "/a/../b.ttf",
+        "/a/\tb.ttf",
+        "/a/\u{1b}b.ttf",
+    ] {
         let ran = f.run(&["activate", bad]);
         assert_eq!(ran.status, 2, "{bad}: {}{}", ran.out, ran.err);
     }
