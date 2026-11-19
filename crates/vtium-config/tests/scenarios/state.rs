@@ -168,7 +168,7 @@ pub fn of(sim: &Sim) -> Abs {
     // the new-frit form's row: Enter steps from field to field, and the
     // last row adds the font set
     if abs.narrow == "new-frit" {
-        abs.focus = format!("row {}", app.new_frit.at);
+        abs.focus = format!("row {}", app.fonts.form().at);
     }
     // a Settings key's kind decides what Enter opens on it: its typing,
     // or its values as a list

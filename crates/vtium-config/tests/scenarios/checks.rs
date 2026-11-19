@@ -289,7 +289,7 @@ impl Seen<'_> {
             .clone()
             .or_else(|| app.settings.editing().map(str::to_owned))
             .or_else(|| match app.nav.view {
-                View::New => app.new_frit.fields.get(app.new_frit.at).cloned(),
+                View::New => app.fonts.form().fields.get(app.fonts.form().at).cloned(),
                 _ => None,
             })
     }
@@ -1121,7 +1121,7 @@ fn goes_to_tab(s: &Seen<'_>) -> Result<(), String> {
         return Err("the digit quit or changed what the person made".into());
     }
     if s.after.app.flow_view.at != s.before.app.flow_view.at
-        || s.after.app.font_at != s.before.app.font_at
+        || s.after.app.fonts.at() != s.before.app.fonts.at()
         || s.after.app.settings.section_at() != s.before.app.settings.section_at()
     {
         return Err("a tab lost the item it had highlighted".into());

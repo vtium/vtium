@@ -12,11 +12,12 @@
 //! - ADR-1206 D4: a tab's update calls its own state, the shared part
 //!   read-only and words.rs, and never another tab's module.
 
+pub mod fonts;
 pub mod help;
 pub mod settings;
 
 use super::input::Key;
-use super::model::{Effect, TYPED_MAX};
+use super::model::{Effect, Pending, TYPED_MAX, View};
 
 /// What a tab's update asks for, which update performs once the tab's
 /// update returns.
@@ -26,6 +27,8 @@ pub enum Command {
     Effect(Effect),
     /// A change to the shared part of the model.
     Change(Change),
+    /// A request to the navigation module.
+    Request(Request),
 }
 
 /// A change to the shared part of the model, which update makes.
@@ -37,6 +40,21 @@ pub enum Change {
         key: &'static str,
         value: Option<String>,
     },
+    /// Puts this line on the message line.
+    Say(String),
+    /// Replaces the frits that wait for the install with these.
+    Pending(Pending),
+    /// Saves the font the console shows, which the live trial put there.
+    SaveTried,
+    /// Tries this font on the live console.
+    Try(String),
+}
+
+/// A request to the navigation module.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Request {
+    /// Goes to this view.
+    Go(View),
 }
 
 /// A character or Backspace typed into `text`, the value being edited. A

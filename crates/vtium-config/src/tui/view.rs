@@ -15,7 +15,8 @@
 use super::canvas::{Canvas, Row, Span, span, wrap};
 use super::color::{Style, palette};
 use super::listbox::{self, Item, Marks};
-use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Then, View};
+use super::model::{App, DpiFrom, FontState, Live, SIZES, Then, View};
+use super::tabs::fonts::NEW_FIELDS;
 use super::words;
 use crate::specimen::Sources;
 use vtium_settings::keys::Kind as KeyKind;
@@ -164,7 +165,7 @@ fn body(app: &App) -> Body {
                     (f.name.clone(), note)
                 })
                 .collect();
-            let (list, keep) = list(&items, app.font_at, width, cols);
+            let (list, keep) = list(&items, app.fonts.at(), width, cols);
             Body {
                 list,
                 keep,
@@ -228,15 +229,15 @@ fn body(app: &App) -> Body {
         View::New => {
             let mut items: Vec<(String, String)> = words::NEW_FIELD_NAMES
                 .iter()
-                .zip(&app.new_frit.fields)
+                .zip(&app.fonts.form().fields)
                 .enumerate()
                 .map(|(i, (name, text))| {
-                    let cursor = if i == app.new_frit.at { "_" } else { "" };
+                    let cursor = if i == app.fonts.form().at { "_" } else { "" };
                     ((*name).to_owned(), format!("{text}{cursor}"))
                 })
                 .collect();
             items.push((words::NEW_ADD.to_owned(), String::new()));
-            let (list, keep) = list(&items, app.new_frit.at.min(NEW_FIELDS), 8, cols);
+            let (list, keep) = list(&items, app.fonts.form().at.min(NEW_FIELDS), 8, cols);
             Body {
                 list,
                 keep,

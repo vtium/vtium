@@ -51,7 +51,7 @@
 use super::contract;
 use super::flowview::{Obj, Slot};
 use super::input::Key;
-use super::model::{App, Confirm, NEW_FIELDS, Then, View};
+use super::model::{App, Confirm, Then, View};
 
 /// Where the person is in the TUI: the open tab, the question over
 /// everything when one is open, the live trial, and the key line's page.
@@ -164,10 +164,9 @@ pub fn node(app: &App) -> &'static str {
             Some(_) => "flow.detail.choices",
         },
         View::Settings => app.settings.node(),
-        View::New if app.new_frit.at < NEW_FIELDS => "looks.new-frit.typing",
-        View::New => "looks.new-frit",
+        View::New => app.fonts.form_node(),
         View::Looks => "looks",
-        View::Fonts => "fonts",
+        View::Fonts => app.fonts.node(),
         View::Help => app.help.node(),
     }
 }

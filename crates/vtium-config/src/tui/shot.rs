@@ -209,7 +209,7 @@ impl App {
                     font,
                     points: self.draft_points(),
                     cell: None,
-                    detail: self.detail,
+                    detail: self.fonts.detail(),
                 })
             }
             View::Looks => {

@@ -220,9 +220,7 @@ impl App {
                 let Some(f) = f else {
                     return self.tell(words::DEFAULT_FONT_PREVIEW);
                 };
-                if let Some(at) = self.shared.inputs.fonts.iter().position(|x| x.name == *f) {
-                    self.font_at = at;
-                }
+                self.fonts.highlight(&self.shared, f);
                 self.set_view(View::Fonts)
             }
             _ => {

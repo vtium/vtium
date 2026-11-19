@@ -304,46 +304,6 @@ impl Pending {
     }
 }
 
-/// The new-frit view's fields, in order: its name, three sources, its
-/// cell and its size; the row after them adds the frit to the save.
-pub const NEW_FIELDS: usize = 6;
-
-/// The new frit being made.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct NewFrit {
-    /// The fields' text: name, source 1 to 3, cell, size.
-    pub fields: [String; NEW_FIELDS],
-    /// The highlighted row: a field, or [`NEW_FIELDS`] for the add row.
-    pub at: usize,
-}
-
-impl NewFrit {
-    /// The frit's name: the name field, else one made from the first
-    /// source.
-    pub fn name(&self) -> String {
-        let [name, first, ..] = &self.fields;
-        if name.trim().is_empty() {
-            crate::commands::name_from(first.trim())
-        } else {
-            name.trim().to_owned()
-        }
-    }
-
-    /// The frit's text, from its fields.
-    pub fn text(&self) -> String {
-        let [_, a, b, c, cell, size] = &self.fields;
-        let fonts: Vec<String> = [a, b, c]
-            .iter()
-            .map(|f| f.trim().to_owned())
-            .filter(|f| !f.is_empty())
-            .collect();
-        fn opt(f: &str) -> Option<&str> {
-            Some(f.trim()).filter(|t| !t.is_empty())
-        }
-        crate::commands::frit_from(&self.name(), &fonts, opt(cell), opt(size))
-    }
-}
-
 /// What the answers at start have said so far.
 #[derive(Clone, Debug, Default)]
 struct Answers {
@@ -476,6 +436,58 @@ impl Shared {
         let (v, set) = crate::commands::value_text(key, self.conf_text());
         (v, !set)
     }
+
+    /// The frits an install writes and removes with the draft, frits
+    /// first, as apply writes them. Refused when the draft names a frit
+    /// it removes, or moves the frits' directory while frits change,
+    /// since they would go to the directory the TUI started with.
+    pub fn frit_plan(&self) -> Result<Plan, String> {
+        self.frit_plan_of(&self.pending)
+    }
+
+    /// The install's frits as [`Shared::frit_plan`] says, with `p` in
+    /// place of the frits that wait for the install now.
+    pub fn frit_plan_of(&self, p: &Pending) -> Result<Plan, String> {
+        let mut files = Vec::new();
+        for (name, text) in &p.frits {
+            let path = self.inputs.frits.join(format!("{name}.vtfrit"));
+            let old = self
+                .inputs
+                .installed
+                .get(name)
+                .and_then(|b| String::from_utf8(b.clone()).ok());
+            files.push(FileEdit {
+                path,
+                old,
+                new: text.clone(),
+            });
+        }
+        let key = keys::FONT_FRITS.name;
+        if !p.is_empty() && self.drafted(key) != self.configured(key) {
+            return Err(crate::apply::FRITS_MOVE_FIRST.to_owned());
+        }
+        let mut removals = Vec::new();
+        for name in &p.removals {
+            if let Some(why) = crate::commands::removal_refusal(name, self.conf_text()) {
+                return Err(why);
+            }
+            let old = self
+                .inputs
+                .installed
+                .get(name)
+                .cloned()
+                .ok_or_else(|| super::words::remove_unread(name))?;
+            removals.push(Removal {
+                path: self.inputs.frits.join(format!("{name}.vtfrit")),
+                old,
+            });
+        }
+        Ok(Plan {
+            files,
+            removals,
+            no_route: false,
+        })
+    }
 }
 
 /// The TUI's state.
@@ -489,19 +501,15 @@ pub struct App {
     pub shared: Shared,
     /// The terminal's grid and its cell in pixels.
     pub size: Size,
-    /// The Fonts view shows the detailed specimen of the highlighted font,
-    /// as it does at start, in place of the picture of the console, which
-    /// `s` switches to (ADR-1201 D4).
-    pub detail: bool,
-    pub font_at: usize,
     pub size_at: usize,
+    /// The Fonts tab's state.
+    pub fonts: super::tabs::fonts::Fonts,
     /// The Settings tab's state.
     pub settings: super::tabs::settings::Settings,
     /// The Flow view's selected item.
     pub flow_at: Item,
     /// The Help tab's state.
     pub help: super::tabs::help::Help,
-    pub new_frit: NewFrit,
     /// The read-only pager over the draft, when it is open.
     pub pager: Option<Pager>,
     /// The installed history Restore lists, and the entry highlighted.
@@ -608,13 +616,11 @@ impl App {
                 unsaved: 0,
             },
             size,
-            detail: true,
-            font_at,
+            fonts: super::tabs::fonts::Fonts::new(font_at),
             size_at: 0,
             settings: super::tabs::settings::Settings::default(),
             flow_at,
             help: super::tabs::help::Help::default(),
-            new_frit: NewFrit::default(),
             pager: None,
             restore: None,
             select_after: None,
@@ -694,7 +700,7 @@ impl App {
 
     /// The highlighted font.
     pub fn font(&self) -> Option<&Font> {
-        self.shared.inputs.fonts.get(self.font_at)
+        self.shared.inputs.fonts.get(self.fonts.at())
     }
 
     /// The installed vtium.conf's value of `key`.
@@ -910,9 +916,7 @@ impl App {
             (true, Some(font)) => {
                 self.shared.start_font = Some(font.clone());
                 self.shared.shown_font = Some(font.clone());
-                if let Some(at) = self.shared.inputs.fonts.iter().position(|f| f.name == font) {
-                    self.font_at = at;
-                }
+                self.fonts.highlight(&self.shared, &font);
                 Live::On
             }
             (true, None) => Live::OpsOff,
@@ -1027,7 +1031,7 @@ impl App {
     /// drops what is typed in the settings view.
     fn typing(&self) -> bool {
         match self.nav.view {
-            View::New => self.new_frit.at < NEW_FIELDS,
+            View::New => self.fonts.form_typing(),
             View::Settings => self.settings.editing().is_some(),
             _ => false,
         }
@@ -1091,7 +1095,10 @@ impl App {
         }
         match self.nav.view {
             View::Flow => Vec::new(),
-            View::Fonts => self.fonts_key(key),
+            View::Fonts => {
+                let commands = self.fonts.update(&self.shared, key);
+                self.perform(commands)
+            }
             View::Looks => {
                 let n = SIZES.len().saturating_add(1);
                 self.size_at = step(self.size_at, n, key);
@@ -1112,28 +1119,40 @@ impl App {
                     .update(key, super::tabs::help::Page { rows, room });
                 self.perform(commands)
             }
-            View::New if key == Key::Escape => self.set_view(View::Fonts),
             View::New => {
-                self.new_key(key);
-                Vec::new()
+                let commands = self.fonts.form_update(&self.shared, key);
+                self.perform(commands)
             }
         }
     }
 
-    /// Performs the commands a tab's update returned: each change to the
-    /// shared part, in order, and returns the effects for the loop.
+    /// Performs the commands a tab's update returned: the changes to the
+    /// shared part first, in order, then the requests to the navigation
+    /// module, and returns the effects for the loop.
     ///
     /// References:
     /// - ADR-1206 D2: update performs a tab's commands in one place.
     fn perform(&mut self, commands: Vec<super::tabs::Command>) -> Vec<Effect> {
-        use super::tabs::{Change, Command};
+        use super::tabs::{Change, Command, Request};
         let mut effects = Vec::new();
+        let mut requests = Vec::new();
         for command in commands {
             match command {
                 Command::Effect(effect) => effects.push(effect),
                 Command::Change(Change::Top { key, value }) => {
                     effects.extend(self.top(key, value.as_deref()));
                 }
+                Command::Change(Change::Say(line)) => self.shared.message = Some(line),
+                Command::Change(Change::Pending(pending)) => self.shared.pending = pending,
+                Command::Change(Change::SaveTried) => effects.extend(self.save_tried()),
+                Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
+                Command::Request(request) => requests.push(request),
+            }
+        }
+        // the requests to the navigation module follow the changes
+        for request in requests {
+            match request {
+                Request::Go(view) => effects.extend(self.set_view(view)),
             }
         }
         effects
@@ -1155,15 +1174,7 @@ impl App {
                 let Some(start) = self.shared.start_font.clone() else {
                     return Vec::new();
                 };
-                if let Some(at) = self
-                    .shared
-                    .inputs
-                    .fonts
-                    .iter()
-                    .position(|f| f.name == start)
-                {
-                    self.font_at = at;
-                }
+                self.fonts.highlight(&self.shared, &start);
                 self.shared.want = Some(start);
                 self.follow()
             }
@@ -1223,100 +1234,10 @@ impl App {
         Vec::new()
     }
 
-    fn fonts_key(&mut self, key: Key) -> Vec<Effect> {
-        if key == Key::Char('r') {
-            self.remove_key();
-            return Vec::new();
-        }
-        if key == Key::Char('n') {
-            return self.set_view(View::New);
-        }
-        // in a vtium console the preview is text and needs no switch, so
-        // `s` saves the font the console shows, as Save does elsewhere
-        if key == Key::Char('s') && self.text_preview() {
-            return self.save_tried();
-        }
-        if key == Key::Char('s') {
-            self.detail = !self.detail;
-            return Vec::new();
-        }
-        if key == Key::Char('t') {
-            let name = self
-                .font()
-                .filter(|f| !matches!(f.state, FontState::Refused(_)))
-                .map(|f| f.name.clone());
-            return match name {
-                Some(name) => self.try_live(name),
-                None => Vec::new(),
-            };
-        }
-        let n = self.shared.inputs.fonts.len();
-        self.font_at = step(self.font_at, n, key);
-        let mut out = Vec::new();
-        if key == Key::Enter
-            && let Some(font) = self.font()
-            && !matches!(font.state, FontState::Refused(_))
-            && !self.shared.refused.contains(&font.name)
-        {
-            let name = font.name.clone();
-            out.extend(self.top("font-name", Some(&name)));
-        }
-        out
-    }
-
-    /// `r` in the fonts view: the highlighted frit is removed when the user
-    /// saves, or, when a save already removes it, no longer is. The TUI
-    /// refuses what `remove-frit` refuses, by vtium.conf, its top level and
-    /// its looks, both as it is and as the save leaves it, and a frit the save
-    /// replaces with a new one. The save view lists the frit's file among
-    /// what the save changes, and `apply` removes it, as it removes the
-    /// frit of `remove-frit`'s draft.
-    fn remove_key(&mut self) {
-        let Some(name) = self.font().map(|f| f.name.clone()) else {
-            return;
-        };
-        if let Some(at) = self.shared.pending.removals.iter().position(|n| *n == name) {
-            self.shared.pending.removals.remove(at);
-            self.shared.message = Some(super::words::remove_dropped(&name));
-            return;
-        }
-        let refused = crate::commands::removal_refusal(&name, self.conf_text())
-            .or_else(|| {
-                self.shared
-                    .pending
-                    .frits
-                    .iter()
-                    .any(|(n, _)| *n == name)
-                    .then(|| super::words::remove_replaced(&name))
-            })
-            .or_else(|| {
-                (!self.shared.inputs.installed.contains_key(&name))
-                    .then(|| super::words::remove_unread(&name))
-            });
-        if let Some(why) = refused {
-            self.shared.message = Some(super::words::remove_refused(&name, why));
-            return;
-        }
-        self.shared.pending.removals.push(name.clone());
-        // the install as it would be with the removal: refused when the
-        // draft names the frit
-        match self.frit_plan() {
-            Ok(_) => self.shared.message = Some(super::words::remove_pending(&name)),
-            Err(why) => {
-                self.shared.pending.removals.retain(|n| *n != name);
-                self.shared.message = Some(super::words::remove_refused(&name, why));
-            }
-        }
-    }
-
     /// A character or Backspace typed into the field being edited.
     fn type_key(&mut self, key: Key) -> Vec<Effect> {
         match self.nav.view {
-            View::New => {
-                if let Some(text) = self.new_frit.fields.get_mut(self.new_frit.at) {
-                    super::tabs::type_into(text, key);
-                }
-            }
+            View::New => self.fonts.type_key(key),
             _ => self.settings.type_key(key),
         }
         Vec::new()
@@ -1337,104 +1258,10 @@ impl App {
         )
     }
 
-    /// A key in the new-frit view: on a field, Enter moves to the next
-    /// and every other key but Esc does nothing; on the last row, Up and
-    /// Down move back onto the fields, and Enter adds the frit to the
-    /// save, once the frit reader takes it, and shows the save.
-    fn new_key(&mut self, key: Key) {
-        let rows = NEW_FIELDS.saturating_add(1);
-        let at = self.new_frit.at;
-        // while a field is typed, only Enter (keep, next field) and Esc
-        // act, as while a Settings value is typed
-        if at < NEW_FIELDS && key != Key::Enter {
-            return;
-        }
-        self.new_frit.at = match key {
-            Key::Enter if at < NEW_FIELDS => at.saturating_add(1),
-            _ => step(at, rows, key),
-        };
-        if key != Key::Enter || at != NEW_FIELDS {
-            return;
-        }
-        let name = self.new_frit.name();
-        let text = self.new_frit.text();
-        let path = self.shared.inputs.frits.join(format!("{name}.vtfrit"));
-        let read =
-            if !crate::frit::valid_name(&name) || crate::frit::RESERVED.contains(&name.as_str()) {
-                Err(super::words::NEW_BAD_NAME.to_owned())
-            } else if self
-                .shared
-                .inputs
-                .installed
-                .get(&name)
-                .is_some_and(|b| std::str::from_utf8(b).is_err())
-            {
-                Err(super::words::new_replaces_binary(&name))
-            } else {
-                crate::frit::Frit::parse(text.as_bytes(), &path, &name)
-                    .map(|_| ())
-                    .map_err(|e| e.why)
-            };
-        match read {
-            Ok(()) => {
-                self.shared.pending.frits.retain(|(n, _)| *n != name);
-                self.shared.pending.removals.retain(|n| *n != name);
-                self.shared.pending.frits.push((name.clone(), text));
-                self.new_frit = NewFrit::default();
-                self.shared.message = Some(super::words::new_added(&name));
-                self.nav.view = View::Fonts;
-            }
-            Err(why) => self.shared.message = Some(super::words::new_refused(why)),
-        }
-    }
-
-    /// The frits an install writes and removes with the draft, frits
-    /// first, as apply writes them. Refused when the draft names a frit
-    /// it removes, or moves the frits' directory while frits change,
-    /// since they would go to the directory the TUI started with.
+    /// The frits an install writes and removes, as [`Shared::frit_plan`]
+    /// says.
     pub fn frit_plan(&self) -> Result<Plan, String> {
-        let p = &self.shared.pending;
-        let mut files = Vec::new();
-        for (name, text) in &p.frits {
-            let path = self.shared.inputs.frits.join(format!("{name}.vtfrit"));
-            let old = self
-                .shared
-                .inputs
-                .installed
-                .get(name)
-                .and_then(|b| String::from_utf8(b.clone()).ok());
-            files.push(FileEdit {
-                path,
-                old,
-                new: text.clone(),
-            });
-        }
-        let key = keys::FONT_FRITS.name;
-        if !p.is_empty() && self.drafted(key) != self.configured(key) {
-            return Err(crate::apply::FRITS_MOVE_FIRST.to_owned());
-        }
-        let mut removals = Vec::new();
-        for name in &p.removals {
-            if let Some(why) = crate::commands::removal_refusal(name, self.conf_text()) {
-                return Err(why);
-            }
-            let old = self
-                .shared
-                .inputs
-                .installed
-                .get(name)
-                .cloned()
-                .ok_or_else(|| super::words::remove_unread(name))?;
-            removals.push(Removal {
-                path: self.shared.inputs.frits.join(format!("{name}.vtfrit")),
-                old,
-            });
-        }
-        Ok(Plan {
-            files,
-            removals,
-            no_route: false,
-        })
+        self.shared.frit_plan()
     }
 
     /// After an install: the frits it removed leave the list, nothing is
@@ -1453,9 +1280,7 @@ impl App {
         for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
-        self.font_at = self
-            .font_at
-            .min(self.shared.inputs.fonts.len().saturating_sub(1));
+        self.fonts.fit(&self.shared);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one

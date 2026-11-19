@@ -2115,13 +2115,13 @@ fn any_other_key_during_the_live_trial_puts_the_font_back() {
     use vtium_config::tui::model::{Effect, Event};
     for key in [Key::Down, Key::Char('q'), Key::Enter, Key::Char('t')] {
         let mut app = trying_tiny5();
-        let at = app.font_at;
+        let at = app.fonts.at();
         assert_eq!(
             app.event(Event::Input(Input::Key(key))),
             [Effect::Write(model::switch("unifont"))],
             "{key:?}"
         );
-        assert_eq!(app.font_at, at, "{key:?} moved the highlight");
+        assert_eq!(app.fonts.at(), at, "{key:?} moved the highlight");
         assert!(
             app.nav.trial.is_none() && app.shared.leaving.is_none(),
             "{key:?}"

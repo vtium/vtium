@@ -638,18 +638,22 @@ fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
     press(&mut sim, &["n", "x"]);
     assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::New);
     assert_eq!(
-        sim.app.new_frit.fields.first().map(String::as_str),
+        sim.app.fonts.form().fields.first().map(String::as_str),
         Some("x")
     );
     for moving in ["Up", "Down", "Home", "End", "PgUp", "PgDn", "Left", "Right"] {
         let mut typed = sim.clone();
         let did = typed.press(press_of(moving));
-        assert_eq!(typed.app.new_frit, sim.app.new_frit, "{moving} moved");
+        assert_eq!(
+            typed.app.fonts.form(),
+            sim.app.fonts.form(),
+            "{moving} moved"
+        );
         assert!(did.effects.is_empty(), "{moving}: {did:?}");
     }
     let mut kept = sim.clone();
     press(&mut kept, &["Enter"]);
-    assert_eq!(kept.app.new_frit.at, 1);
+    assert_eq!(kept.app.fonts.form().at, 1);
     press(&mut sim, &["Esc"]);
     assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Fonts);
 }
