@@ -13,8 +13,9 @@
 //! Flow view lays the paths and parts out, [`flowdraw`] how it draws them
 //! and [`flowcolor`] their colors, [`canvas`] the cells a screen is drawn
 //! into, [`color`] its colors, [`input`] the decoder of what the terminal
-//! sends, [`words`] the catalog of what the TUI says, and [`port`] the
-//! loop and the terminal it runs on. [`gather`] reads what the TUI starts
+//! sends, [`replies`] the queue of who asked the terminal what, [`words`]
+//! the catalog of what the TUI says, and [`port`] the loop and the
+//! terminal it runs on. [`gather`] reads what the TUI starts
 //! from: the frits as text, never a font file (D3), and vtium.conf, which
 //! holds the heads, looks and rules too.
 
@@ -40,6 +41,7 @@ pub mod nav;
 pub mod parts;
 pub mod paths;
 pub mod port;
+pub mod replies;
 pub mod settings;
 pub mod shot;
 pub mod view;

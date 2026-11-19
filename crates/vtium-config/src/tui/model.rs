@@ -21,6 +21,7 @@ use super::desk::{Done, Kept, Op, Opened};
 use super::edit::Change as DraftChange;
 use super::flow::{Flow, Item};
 use super::input::{Button, Input, Key, Mouse, Reply};
+use super::replies::{Answer, Asker, Batch, Query, Queue};
 use crate::draft::{FileEdit, Plan, Removal};
 
 /// How long the TUI waits for the terminal's answers at start, and for
@@ -31,16 +32,34 @@ pub const WAIT: Duration = crate::switch::WAIT;
 /// terminal checks and does not keep.
 pub const QUERY_ID: u32 = 31;
 
-/// The four requests the TUI writes at start (D4): XTVERSION, the OSC 50
-/// query, kitty's graphics query and DA1, in that order.
-pub fn probe() -> Vec<u8> {
-    format!("\x1b[>q\x1b]50;?\x1b\\\x1b_Gi={QUERY_ID},s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c")
-        .into_bytes()
+/// The requests the TUI writes at start (D4): XTVERSION, the OSC 50 query
+/// and kitty's graphics query, in that order. [`Queue::send`] adds DA1,
+/// the fourth.
+fn start_batch() -> Batch {
+    Batch::new(Asker::Start)
+        .ask(Query::Version)
+        .ask(Query::Font)
+        .ask(Query::Graphics)
 }
 
-/// `OSC 50 ; NAME ST` and the query after it, the bytes `set` sends.
+/// The bytes of the four requests at start, DA1 last.
+pub fn probe() -> Vec<u8> {
+    Queue::default().send(start_batch())
+}
+
+/// The bytes of one font switch: `OSC 50 ; NAME ST`, the query
+/// `OSC 50 ; ? ST`, and DA1, which ends every batch.
 pub fn switch(name: &str) -> Vec<u8> {
-    format!("\x1b]50;{name}\x1b\\\x1b]50;?\x1b\\").into_bytes()
+    Queue::default().send(switch_batch(Asker::Switch, &[], name))
+}
+
+/// The batch that writes `before`, switches the console to `name` and asks
+/// which font it draws then.
+fn switch_batch(asker: Asker, before: &[u8], name: &str) -> Batch {
+    Batch::new(asker)
+        .write(before)
+        .write(format!("\x1b]50;{name}\x1b\\").as_bytes())
+        .ask(Query::Font)
 }
 
 /// A font the TUI lists.
@@ -404,8 +423,8 @@ pub struct App {
     pub summary: Option<(String, u32, Result<crate::specimen::Summary, String>)>,
     /// The sources each frit lacks, as the helper found them.
     pub sources: std::collections::BTreeMap<String, SourcesFound>,
-    /// OSC 50 replies still due before the TUI may leave.
-    replies_due: usize,
+    /// The queries sent and not yet settled, each with who asked it.
+    replies: Queue,
     /// The draft the Flow view shows, as the desk last read or wrote it.
     pub draft: Option<Opened>,
     /// The devices present, which the flow places on the draft.
@@ -522,7 +541,7 @@ impl App {
             cell_px: None,
             summary: None,
             sources: std::collections::BTreeMap::new(),
-            replies_due: 0,
+            replies: Queue::default(),
             draft: None,
             present: crate::flowmodel::Present::default(),
             confirm: None,
@@ -545,7 +564,10 @@ impl App {
             .message
             .take()
             .or_else(|| app.inputs.colors_note.clone());
-        let mut first = vec![Effect::Write(probe()), Effect::Wait(WAIT)];
+        let mut first = vec![
+            Effect::Write(app.replies.send(start_batch())),
+            Effect::Wait(WAIT),
+        ];
         if app.inputs.desk {
             first.push(Effect::Desk(Op::Open));
         }
@@ -715,44 +737,89 @@ impl App {
         }
     }
 
+    /// Whether a query the TUI sent is still outstanding, so the reader
+    /// keeps an ESC that ends a read for the next read.
+    pub fn awaiting(&self) -> bool {
+        self.replies.awaiting()
+    }
+
+    /// A reply from the terminal, which the queue of askers hands to the
+    /// part of the TUI that asked. Once the TUI is leaving and every query
+    /// is settled, it leaves.
     fn reply(&mut self, reply: Reply) -> Vec<Effect> {
-        if self.live == Live::Asking {
-            match reply {
-                Reply::Version(v) => self.answers.version = Some(v),
-                Reply::Font(f) => self.answers.font = Some(f),
-                Reply::Graphics(ok) => self.answers.graphics |= ok,
-                Reply::Attributes => {
-                    self.decide();
-                    return self.started();
+        let heard = self.replies.answer(reply);
+        let settled = !heard.is_empty();
+        let mut out = Vec::new();
+        for (asker, answer) in heard {
+            out.extend(match asker {
+                Asker::Start => self.start_answer(answer),
+                Asker::Switch => self.switch_answer(answer),
+                Asker::Leave => {
+                    if let Answer::Reply(Reply::Font(name)) = answer {
+                        self.shown_font = Some(name);
+                    }
+                    Vec::new()
                 }
+            });
+        }
+        if let Some(status) = self.leaving
+            && settled
+            && !self.replies.awaiting()
+        {
+            out.push(Effect::Exit(status));
+        }
+        out
+    }
+
+    /// What the four requests at start hear back, until DA1's reply
+    /// settles what the terminal is.
+    fn start_answer(&mut self, answer: Answer) -> Vec<Effect> {
+        if self.live != Live::Asking {
+            return Vec::new();
+        }
+        match answer {
+            Answer::Reply(Reply::Version(v)) => self.answers.version = Some(v),
+            Answer::Reply(Reply::Font(f)) => self.answers.font = Some(f),
+            Answer::Reply(Reply::Graphics(ok)) => self.answers.graphics |= ok,
+            Answer::Reply(Reply::Attributes) => {
+                self.decide();
+                return self.started();
             }
-            return Vec::new();
+            Answer::Unanswered(_) => {}
         }
-        let Reply::Font(name) = reply else {
-            return Vec::new();
+        Vec::new()
+    }
+
+    /// What the font switch in flight hears back: the font the console
+    /// draws now, or that the console left the query unanswered. A font
+    /// the console did not take is marked refused, and the next switch
+    /// goes once no other is in flight.
+    fn switch_answer(&mut self, answer: Answer) -> Vec<Effect> {
+        let shown = match answer {
+            Answer::Reply(Reply::Font(name)) => Some(name),
+            Answer::Unanswered(Query::Font) => None,
+            _ => return Vec::new(),
         };
+        let asked = self.in_flight.take();
         if self.leaving.is_some() {
-            self.replies_due = self.replies_due.saturating_sub(1);
-            self.in_flight = None;
-            self.shown_font = Some(name);
-            return match (self.replies_due, self.leaving) {
-                (0, Some(status)) => vec![Effect::Exit(status)],
-                _ => Vec::new(),
-            };
+            self.shown_font = shown.or(self.shown_font.take());
+            return Vec::new();
         }
-        if let Some(asked) = self.in_flight.take()
-            && asked != name
+        if let Some(asked) = asked
+            && shown.as_ref() != Some(&asked)
         {
             self.refused.insert(asked.clone());
             if self.want.as_deref() == Some(asked.as_str()) {
-                self.want = Some(name.clone());
+                self.want = shown.clone().or_else(|| self.shown_font.clone());
             }
             if self.trial.as_ref().is_some_and(|t| t.font == asked) {
                 self.trial = None;
                 self.message = Some(super::words::trial_refused(&asked));
             }
         }
-        self.shown_font = Some(name);
+        if shown.is_some() {
+            self.shown_font = shown;
+        }
         self.follow()
     }
 
@@ -797,8 +864,12 @@ impl App {
         self.say_live_off();
     }
 
+    /// The end of a wait: at start, the deadline for a terminal that does
+    /// not answer DA1, so the TUI decides from the answers that came and
+    /// forgets the queries, which no reply will settle now.
     fn timeout(&mut self) -> Vec<Effect> {
         if self.live == Live::Asking {
+            self.replies.clear();
             self.decide();
             return self.started();
         }
@@ -821,8 +892,9 @@ impl App {
         if self.shown_font.as_deref() == Some(&name) || self.refused.contains(&name) {
             return Vec::new();
         }
-        self.in_flight = Some(name.clone());
-        vec![Effect::Write(switch(&name))]
+        let bytes = self.replies.send(switch_batch(Asker::Switch, &[], &name));
+        self.in_flight = Some(name);
+        vec![Effect::Write(bytes)]
     }
 
     /// Leaves with `status`, giving the console its start font back first
@@ -848,20 +920,24 @@ impl App {
         if mouse {
             bytes.extend_from_slice(MOUSE_OFF);
         }
-        match (&self.live, &self.start_font) {
+        match (&self.live, self.start_font.clone()) {
             (Live::On, Some(start)) if back => {
-                bytes.extend(switch(start));
-                self.replies_due = usize::from(self.in_flight.is_some()).saturating_add(1);
+                let bytes = self
+                    .replies
+                    .send(switch_batch(Asker::Leave, &bytes, &start));
                 self.leaving = Some(status);
                 self.message = Some(super::words::LEAVING.to_owned());
                 vec![Effect::Write(bytes), Effect::Wait(WAIT)]
             }
-            // the switch in flight gives the start font back: its reply
-            // is waited for, and nothing is sent again
-            (Live::On, Some(_)) if self.in_flight.is_some() => {
-                self.replies_due = 1;
+            // a query is still outstanding: the switch in flight, which
+            // gives the start font back, so nothing is sent again, or the
+            // DA1 after a switch already answered. The TUI waits for the
+            // replies, so that none reaches the shell after it leaves.
+            (Live::On, Some(_)) if self.replies.awaiting() => {
                 self.leaving = Some(status);
-                self.message = Some(super::words::LEAVING.to_owned());
+                if self.in_flight.is_some() {
+                    self.message = Some(super::words::LEAVING.to_owned());
+                }
                 let mut out = Vec::new();
                 if !bytes.is_empty() {
                     out.push(Effect::Write(bytes));

@@ -88,6 +88,11 @@ struct Console {
     hold_sources: bool,
     /// A save writes each file of its plan, as the privileged step would.
     installs: bool,
+    /// The replies to a font switch reach the TUI in two reads, the first
+    /// ending in the ESC that begins DA1's reply.
+    cut_replies: bool,
+    /// How many times the console cut a switch's replies so.
+    cuts: usize,
 }
 
 impl Console {
@@ -127,6 +132,8 @@ impl Console {
             sources_asked: Vec::new(),
             hold_sources: false,
             installs: false,
+            cut_replies: false,
+            cuts: 0,
         }
     }
 
@@ -213,8 +220,16 @@ impl Port for Console {
                     let ok = format!("\x1b_Gi={};OK\x1b\\", model::QUERY_ID);
                     replies.splice(at..at, ok.into_bytes());
                 }
-                if !replies.is_empty() {
-                    self.pending.push_back(Wake::Bytes(replies));
+                let da1 = replies.windows(3).position(|w| w == b"\x1b[?");
+                match da1 {
+                    Some(at) if self.cut_replies && bytes.starts_with(b"\x1b]50;") => {
+                        let rest = replies.split_off(at + 1);
+                        self.pending.push_back(Wake::Bytes(replies));
+                        self.pending.push_back(Wake::Bytes(rest));
+                        self.cuts += 1;
+                    }
+                    _ if !replies.is_empty() => self.pending.push_back(Wake::Bytes(replies)),
+                    _ => {}
                 }
             }
             Answerer::Da1Only { .. } => {
@@ -690,6 +705,29 @@ fn leaving_with_a_switch_in_flight_waits_for_both_replies() {
         c.panic_bytes.is_empty(),
         "the font is back, so nothing is written again"
     );
+}
+
+/// The replies to the live trial's switch reach the TUI in two reads, the
+/// first ending in the ESC that begins DA1's reply. While DA1's reply is
+/// awaited, that ESC waits for the next read and begins the reply, so it
+/// is not the Esc key, which would put the font back.
+#[test]
+fn an_esc_that_ends_a_read_while_da1_is_awaited_begins_its_reply() {
+    let mut c = console().keys(&[UP, b"t", b"k"]);
+    c.cut_replies = true;
+    assert_eq!(run(&mut c), 143);
+    assert_eq!(c.cuts, 2, "both switches' replies came in two reads");
+    let before = String::from_utf8_lossy(&c.written[..c.seen_at]).into_owned();
+    assert!(
+        before.contains("\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\\x1b[c"),
+        "{before:?}"
+    );
+    assert!(
+        !before.contains("\x1b]50;unifont"),
+        "k kept tiny5, and no Esc put unifont back: {before:?}"
+    );
+    // leaving gives the start font back
+    assert_eq!(c.switches(), ["tiny5", "unifont"]);
 }
 
 #[test]
@@ -1786,10 +1824,9 @@ fn a_console_that_never_answers_the_give_back_is_left_after_the_wait() {
             Effect::Wait(vtium_config::tui::shot::TICK)
         ]
     );
-    assert_eq!(
-        app.event(Event::Input(Input::Reply(Reply::Font("tiny5".into())))),
-        []
-    );
+    for reply in [Reply::Font("tiny5".into()), Reply::Attributes] {
+        assert_eq!(app.event(Event::Input(Input::Reply(reply))), []);
+    }
     assert_eq!(app.event(Event::Input(Input::Key(Key::Char('k')))), []);
     let leave = app.event(Event::Input(Input::Key(Key::Char('q'))));
     assert_eq!(
@@ -1826,11 +1863,70 @@ fn trying_tiny5() -> vtium_config::tui::model::App {
             Effect::Wait(vtium_config::tui::shot::TICK)
         ]
     );
-    assert_eq!(
-        app.event(Event::Input(Input::Reply(Reply::Font("tiny5".into())))),
-        []
-    );
+    for reply in [Reply::Font("tiny5".into()), Reply::Attributes] {
+        assert_eq!(app.event(Event::Input(Input::Reply(reply))), []);
+    }
     app
+}
+
+/// A terminal that does not answer DA1 by the deadline at start leaves no
+/// query outstanding, so an Esc after it is the Esc key at once, and a DA1
+/// reply that comes late changes nothing.
+#[test]
+fn the_deadline_at_start_settles_the_four_requests() {
+    use vtium_config::tui::input::{Input, Reply};
+    use vtium_config::tui::model::{App, Event, Live};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    assert!(app.awaiting(), "the four requests are outstanding");
+    app.event(Event::Input(Input::Reply(Reply::Version(
+        "vtium(test)".into(),
+    ))));
+    app.event(Event::Timeout);
+    assert!(!app.awaiting());
+    assert_eq!(app.live, Live::OpsOff);
+    assert_eq!(app.event(Event::Input(Input::Reply(Reply::Attributes))), []);
+    assert_eq!(app.live, Live::OpsOff);
+}
+
+/// Each font switch is one batch, which DA1 ends. A console that answers
+/// DA1 and not the switch's query leaves the switch unanswered: the TUI
+/// marks the font refused, ends the trial, and sends it no second time.
+#[test]
+fn a_switch_whose_query_goes_unanswered_marks_its_font_refused_at_da1() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{Effect, Event};
+    assert_eq!(
+        model::switch("tiny5"),
+        b"\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\\x1b[c"
+    );
+    let (mut app, _) = vtium_config::tui::model::App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Font("unifont".into()),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    assert!(!app.awaiting(), "DA1's reply settled the start");
+    app.event(Event::Input(Input::Key(Key::Up)));
+    let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        tried,
+        [
+            Effect::Write(b"\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\\x1b[c".to_vec()),
+            Effect::Wait(vtium_config::tui::shot::TICK)
+        ]
+    );
+    assert!(app.awaiting());
+    assert_eq!(app.event(Event::Input(Input::Reply(Reply::Attributes))), []);
+    assert!(!app.awaiting());
+    assert!(app.refused.contains("tiny5"), "{:?}", app.refused);
+    assert!(app.in_flight.is_none() && app.trial.is_none());
+    assert_eq!(
+        app.message.as_deref(),
+        Some(vtium_config::tui::words::trial_refused("tiny5").as_str())
+    );
+    assert_eq!(app.event(Event::Input(Input::Key(Key::Char('t')))), []);
 }
 
 /// One preview is drawn at a time: a highlight that moves while one is
@@ -2047,8 +2143,14 @@ fn leaving_with_the_start_font_in_flight_sends_it_once() {
         "no second switch: {leave:?}"
     );
     assert!(leave.contains(&Effect::Wait(model::WAIT)), "{leave:?}");
+    // the TUI leaves at DA1's reply, which settles the switch, so no reply
+    // reaches the shell after it
     assert_eq!(
         app.event(Event::Input(Input::Reply(Reply::Font("unifont".into())))),
+        []
+    );
+    assert_eq!(
+        app.event(Event::Input(Input::Reply(Reply::Attributes))),
         [Effect::Exit(0)]
     );
 }
@@ -2068,7 +2170,9 @@ fn leaving_during_the_live_trial_gives_the_start_font_back() {
             "{event:?}"
         );
         assert!(app.trial.is_none());
-        let done = app.event(Event::Input(Input::Reply(Reply::Font("unifont".into()))));
+        let font = app.event(Event::Input(Input::Reply(Reply::Font("unifont".into()))));
+        assert_eq!(font, [], "{event:?}");
+        let done = app.event(Event::Input(Input::Reply(Reply::Attributes)));
         assert!(matches!(done.as_slice(), [Effect::Exit(_)]), "{done:?}");
     }
 }

@@ -229,18 +229,8 @@ impl Sim {
             exited: None,
         };
         let mut did = Did::default();
+        // the stand-in terminal answers the four requests at start
         sim.answer(first, &mut did);
-        let replies = match term {
-            Term::Vtium => vec![
-                Reply::Version("vtium(0.1.0)".into()),
-                Reply::Font(START_FONT.into()),
-            ],
-            Term::OpsOff => vec![Reply::Version("vtium(0.1.0)".into())],
-            Term::Other => vec![Reply::Version("XTerm(390)".into())],
-        };
-        for reply in replies.into_iter().chain([Reply::Attributes]) {
-            sim.event(Event::Input(Input::Reply(reply)), &mut did);
-        }
         sim
     }
 
@@ -328,8 +318,11 @@ impl Sim {
     }
 
     /// The stand-in terminal reads `bytes`: it follows mouse reporting,
-    /// and in a vtium console that switches fonts, it takes each OSC 50
-    /// switch and answers each OSC 50 query with the font it draws.
+    /// and answers the TUI's queries in the order they come, as every
+    /// terminal of the VT100 line does. XTVERSION gets the terminal's
+    /// name. In a vtium console that switches fonts, it takes each OSC 50
+    /// switch and answers each OSC 50 query with the font it draws. DA1
+    /// gets its reply in every terminal.
     fn terminal(&mut self, bytes: &[u8], did: &mut Did) -> Vec<Reply> {
         let text = String::from_utf8_lossy(bytes);
         if text.contains("\x1b[?1000h") {
@@ -341,20 +334,36 @@ impl Sim {
             did.effects.push("mouse off".into());
         }
         let mut replies = Vec::new();
-        for osc in text.split("\x1b]50;").skip(1) {
-            let Some((name, _)) = osc.split_once("\x1b\\") else {
-                continue;
-            };
-            if name == "?" {
-                if self.term == Term::Vtium {
-                    replies.push(Reply::Font(self.console_font.clone()));
+        let mut rest = text.as_ref();
+        while let Some(at) = rest.find('\x1b') {
+            rest = &rest[at..];
+            if let Some(after) = rest.strip_prefix("\x1b[>q") {
+                replies.push(Reply::Version(match self.term {
+                    Term::Vtium | Term::OpsOff => "vtium(0.1.0)".into(),
+                    Term::Other => "XTerm(390)".into(),
+                }));
+                rest = after;
+            } else if let Some(after) = rest.strip_prefix("\x1b[c") {
+                replies.push(Reply::Attributes);
+                rest = after;
+            } else if let Some(osc) = rest.strip_prefix("\x1b]50;") {
+                let Some((name, after)) = osc.split_once("\x1b\\") else {
+                    break;
+                };
+                rest = after;
+                if name == "?" {
+                    if self.term == Term::Vtium {
+                        replies.push(Reply::Font(self.console_font.clone()));
+                    }
+                    continue;
                 }
-                continue;
-            }
-            did.switches = did.switches.saturating_add(1);
-            did.effects.push("switch".into());
-            if self.term == Term::Vtium && name != "broken" {
-                self.console_font = name.to_owned();
+                did.switches = did.switches.saturating_add(1);
+                did.effects.push("switch".into());
+                if self.term == Term::Vtium && name != "broken" {
+                    self.console_font = name.to_owned();
+                }
+            } else {
+                rest = &rest[1..];
             }
         }
         replies

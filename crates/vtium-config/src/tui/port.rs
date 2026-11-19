@@ -3,7 +3,9 @@
 //!
 //! [`drive`] is the one loop: it takes what the [`Port`] gives, decodes the
 //! bytes into keys and replies, hands each to the state machine, carries
-//! out the effects, and draws the screen whole after each turn. A test
+//! out the effects, and draws the screen whole after each turn. The
+//! decoder asks the state machine before each input whether a reply is
+//! awaited, which decides what an ESC that ends a read is. A test
 //! drives the same loop through a port of its own.
 //!
 //! [`Tty`] is the real port, the terminal on standard input and output: in
@@ -232,7 +234,10 @@ pub fn drive_with(
         port.write(&view::draw(&app))?;
         for wake in port.wait()? {
             let events = match wake {
-                Wake::Bytes(bytes) => decoder.feed(&bytes).into_iter().map(Event::Input).collect(),
+                Wake::Bytes(bytes) => {
+                    decoder.push(&bytes);
+                    Vec::new()
+                }
                 Wake::Resize => {
                     let (cols, rows) = port.size();
                     app.cell_px = port.cell_px();
@@ -246,6 +251,12 @@ pub fn drive_with(
             };
             for event in events {
                 queue.extend(app.event(event));
+            }
+            // each input is decoded while the model says whether it awaits
+            // a reply, so a reply that settles the last query, or the
+            // deadline at start, decides what a lone ESC after it is
+            while let Some(input) = decoder.next(app.awaiting()) {
+                queue.extend(app.event(Event::Input(input)));
             }
         }
     }
