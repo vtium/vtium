@@ -2,7 +2,7 @@
 
 A vtlook (a look file) chooses the frame filters for a head. A frame filter changes the finished picture before the display shows it, such as a color correction or a CRT effect. This page describes the file: where it lives, its syntax, its display requirements, the built-in vtlook, and the errors vtium reports.
 
-vtium has four color filters, which change the color of each pixel: `gamma`, `contrast`, `tint` and `color-blind`. Spatial filters, which read the pixels around each pixel, such as scanlines, are not built yet. See [the frame filters issue](https://github.com/vtium/vtium/issues/219) for the filters as they arrive.
+vtium has four color filters, which change the color of each pixel: `gamma`, `contrast`, `tint` and `color-blind`. You can write a vtlook with them, name it in vtium.conf and check it. The console does not draw a vtlook's filters on its displays yet, and spatial filters, which read the pixels around each pixel, such as scanlines, are not built yet. See [the frame filters issue](https://github.com/vtium/vtium/issues/219) for the filters as they arrive.
 
 ## Where a vtlook lives
 
@@ -39,7 +39,7 @@ A vtlook holds at most one `[requires]` section, and at most 32 sections in all.
 
 ## Color filters
 
-A color filter changes each pixel's color using that color alone. vtium merges a vtlook's color filters into one color table, applying them in the order of their sections. Each pixel then costs one lookup in the table, however many filters the vtlook holds. The table reaches everything on the display: the text, the border, the mouse pointer and vtium's own notices. While a head's vtlook holds a filter, vtium draws the mouse pointer into the picture instead of on the display's cursor plane, so the filters change the pointer too.
+A color filter changes each pixel's color using that color alone. vtium merges a vtlook's color filters into one color table, applying them in the order of their sections. Each pixel then costs one lookup in the table, however many filters the vtlook holds.
 
 | Filter | Parameters, with their defaults | What it does |
 |---|---|---|
@@ -91,13 +91,7 @@ The `[requires]` section says which displays the vtlook suits. Every key takes `
 | `min-fps` | `any`, `refresh` or a whole number from 1 to 1000 | the filters keep this many frames a second; `refresh` is the display's refresh rate |
 | `gpu` | `any`, `yes` or `no` | `yes` needs the GPU path, and `no` needs the CPU path |
 
-A minimum above its maximum is an error. A display that does not meet the requirements draws the built-in vtlook, and the head's other displays keep the vtlook. vtium logs one line that names the display and the first requirement it misses:
-
-```text
-vtlook amber: display DP-1 (1280x800, 1 bit) draws the built-in vtlook: requires min-depth 24
-```
-
-vtium checks each display when the display joins the head and when its mode changes. A display that meets the requirements again takes the vtlook back.
+A minimum above its maximum is an error. vtium reads and checks the requirements now. Until the console draws a vtlook's filters, every display draws the built-in vtlook whatever the requirements say.
 
 ## The built-in vtlook
 
