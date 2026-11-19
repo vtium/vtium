@@ -300,6 +300,14 @@ Every run, a guide's included, stages the system's frits and those in `tools/vt/
 
 The installed vtium runs with the system's configuration, not the review's. It reads `/etc/vtium/vtium.conf` and the frits (font set files) in `/etc/vtium/fonts`, and so does the packaged vtium. Neither target writes, moves or removes any of these files. So a setting there applies to both installed vtiums.
 
+vtium renders only the fonts that `/etc/vtium/batch.conf` lists, and every vtium on this machine reads that one file: both installed vtiums and each review run. When the file does not exist, vtium uses the list of a fresh install, which [Active fonts](fonts.md#active-fonts) describes. The review's frits in `tools/vt/sections/frits/` name fonts beyond that list, such as DejaVu Sans Mono, the Noto fonts, JetBrains Mono, Monoid and kbd's Terminus PSF fonts. Until `batch.conf` lists them, vtium treats them as missing and renders those steps in its built-in font. The same holds for a font that `/etc/vtium/vtium.conf` names for the development VT. Neither target writes `batch.conf`, because the packaged vtium reads it too, and the choice of what is active belongs to root.
+
+To activate the review's fonts, first create `batch.conf` from the list of a fresh install if it does not exist, as [Active fonts](fonts.md#active-fonts) shows. Then add the files that the review's frits name:
+
+```sh
+sed -n 's/^source=\(outline\|file\|bdf\|hex\)://p' tools/vt/sections/frits/*.vtfrit | sort -u | sudo tee -a /etc/vtium/batch.conf
+```
+
 If uninstall cannot run, put VT N back by hand. These commands undo what install did on VT N alone:
 
 ```sh
