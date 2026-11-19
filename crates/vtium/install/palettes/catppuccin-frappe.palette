@@ -1,0 +1,35 @@
+# Catppuccin Frappé, a color scheme for vtium.
+#
+# Source: the file themes/catppuccin-frappe.conf of
+# https://github.com/catppuccin/ghostty, at commit
+# 92b40c1137b647bdc21f999c098d19d3f59a0227.
+# Author: Catppuccin.
+# License: MIT. vtium installs the license's text with its other license
+# notices, as palettes/catppuccin-LICENSE in vtium's license folder, which is
+# /usr/share/licenses/vtium on most systems.
+#
+# The lines below are the source file's, in Ghostty's theme format. vtium adds
+# these opening comments and leaves out the keys cursor-text and
+# split-divider-color, which vtium does not read.
+
+palette = 0=#51576d
+palette = 1=#e78284
+palette = 2=#a6d189
+palette = 3=#e5c890
+palette = 4=#8caaee
+palette = 5=#f4b8e4
+palette = 6=#81c8be
+palette = 7=#a5adce
+palette = 8=#626880
+palette = 9=#e67172
+palette = 10=#8ec772
+palette = 11=#d9ba73
+palette = 12=#7b9ef0
+palette = 13=#f2a4db
+palette = 14=#5abfb5
+palette = 15=#b5bfe2
+background = 303446
+foreground = c6d0f5
+cursor-color = f2d5cf
+selection-background = 44495d
+selection-foreground = c6d0f5

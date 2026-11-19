@@ -1,0 +1,34 @@
+# Dracula, a color scheme for vtium.
+#
+# Source: the file dracula of https://github.com/dracula/ghostty, at commit
+# b0e64590232331d9837c82cc1c5138e11ea39f76.
+# Author: Dracula Theme.
+# License: MIT. vtium installs the license's text with its other license
+# notices, as palettes/dracula-LICENSE in vtium's license folder, which is
+# /usr/share/licenses/vtium on most systems.
+#
+# The lines below are the source file's, in Ghostty's theme format. vtium adds
+# these opening comments and leaves out the key cursor-text, which vtium does
+# not read.
+
+palette = 0=#21222c
+palette = 1=#ff5555
+palette = 2=#50fa7b
+palette = 3=#f1fa8c
+palette = 4=#bd93f9
+palette = 5=#ff79c6
+palette = 6=#8be9fd
+palette = 7=#f8f8f2
+palette = 8=#6272a4
+palette = 9=#ff6e6e
+palette = 10=#69ff94
+palette = 11=#ffffa5
+palette = 12=#d6acff
+palette = 13=#ff92df
+palette = 14=#a4ffff
+palette = 15=#ffffff
+background = #282a36
+foreground = #f8f8f2
+cursor-color = #f8f8f2
+selection-foreground = #f8f8f2
+selection-background = #44475a

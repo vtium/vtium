@@ -1,0 +1,55 @@
+# Gruvbox Dark, a color scheme for vtium.
+#
+# Source: the file colors/gruvbox.vim of
+# https://github.com/gruvbox-community/gruvbox, at commit
+# 180ad85971343df68be3422a5630fa84e45a9ab2.
+# Author: Pavel Pertsev (morhetz), and the gruvbox community.
+# License: MIT. vtium installs the license's text with its other license
+# notices, as palettes/gruvbox-LICENSE in vtium's license folder, which is
+# /usr/share/licenses/vtium on most systems.
+#
+# vtium writes these lines in Ghostty's theme format from the palette in
+# colors/gruvbox.vim, at the file's default medium contrast. Colors 0 to 15
+# follow the file's g:terminal_ansi_colors list, and each is named here after
+# that file's palette entry:
+#
+#    0  bg0, which is dark0
+#    1  neutral_red
+#    2  neutral_green
+#    3  neutral_yellow
+#    4  neutral_blue
+#    5  neutral_purple
+#    6  neutral_aqua
+#    7  fg4, which is light4
+#    8  gray, which is gray_245
+#    9  red, which is bright_red
+#   10  green, which is bright_green
+#   11  yellow, which is bright_yellow
+#   12  blue, which is bright_blue
+#   13  purple, which is bright_purple
+#   14  aqua, which is bright_aqua
+#   15  fg1, which is light1
+#
+# The background is dark0 and the foreground light1, as in the file's Normal
+# group. The file draws the cursor and the selection by inverting the cell, so
+# this file sets neither color.
+
+palette = 0=#282828
+palette = 1=#cc241d
+palette = 2=#98971a
+palette = 3=#d79921
+palette = 4=#458588
+palette = 5=#b16286
+palette = 6=#689d6a
+palette = 7=#a89984
+palette = 8=#928374
+palette = 9=#fb4934
+palette = 10=#b8bb26
+palette = 11=#fabd2f
+palette = 12=#83a598
+palette = 13=#d3869b
+palette = 14=#8ec07c
+palette = 15=#ebdbb2
+
+background = #282828
+foreground = #ebdbb2
