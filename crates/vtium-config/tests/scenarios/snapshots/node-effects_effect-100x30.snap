@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "effects.effect at 100×30, keys: Tab Down Enter"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft mine · no changes · no problems                                   text preview · t: try live
+----------------------------------------------------------------------------------------------------
+ vtlook No filter
+ File: none, it is built into vtium
+ It reads without errors.
+ It has no filter, so it changes no color.
+ No look uses it.
+
+ This detail changes nothing. Esc goes back to the list.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ ↑↓ scroll  Esc back  Ctrl-C save and quit  q quit

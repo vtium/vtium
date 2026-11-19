@@ -9,18 +9,18 @@ ops-off any.question.confirm	y	ops-off flow(doc display)	restore
 ops-off any.question.confirm	y	ops-off flow(doc display)	revert
 ops-off any.question.confirm	y	ops-off flow(new empty)	new
 ops-off any.question.confirm	y	ops-off fonts(frit)	install
-ops-off any.question.confirm +pending	Ctrl-C	ops-off effects +pending	
+ops-off any.question.confirm +pending	Ctrl-C	ops-off effects(filter) +pending	
 ops-off any.question.confirm +pending	Ctrl-C	ops-off flow(doc display) +pending	
 ops-off any.question.confirm +pending	Ctrl-C	ops-off fonts(marked) +pending	
 ops-off any.question.confirm +pending	Ctrl-C	ops-off looks +pending	
 ops-off any.question.confirm +pending	Ctrl-C	ops-off settings(first) +pending	
-ops-off any.question.confirm +pending	Esc	ops-off effects +pending	
+ops-off any.question.confirm +pending	Esc	ops-off effects(filter) +pending	
 ops-off any.question.confirm +pending	Esc	ops-off flow(doc display) +pending	
 ops-off any.question.confirm +pending	Esc	ops-off fonts(marked) +pending	
 ops-off any.question.confirm +pending	Esc	ops-off looks +pending	
 ops-off any.question.confirm +pending	Esc	ops-off settings(first) +pending	
 ops-off any.question.confirm +pending	Shrink	ops-off any.question.confirm below 80×25 +pending	
-ops-off any.question.confirm +pending	y	ops-off effects	install
+ops-off any.question.confirm +pending	y	ops-off effects(filter)	install
 ops-off any.question.confirm +pending	y	ops-off flow(doc display)	install
 ops-off any.question.confirm +pending	y	ops-off flow(doc display) +pending	restore
 ops-off any.question.confirm +pending	y	ops-off flow(doc display) +pending	revert
@@ -66,14 +66,46 @@ ops-off any.question.confirm below 80×25 +unsaved +pending	Grow	ops-off any.que
 ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small +pending	new
 ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small +pending	restore
 ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small +pending	revert
-ops-off any.question.leave +pending	Ctrl-C	ops-off effects +pending	
+ops-off any.question.deactivate	Ctrl-C	ops-off effects(color map: active, trusted, used)	
+ops-off any.question.deactivate	Esc	ops-off effects(color map: active, trusted, used)	
+ops-off any.question.deactivate	Shrink	ops-off any.question.deactivate below 80×25	
+ops-off any.question.deactivate	y	ops-off effects(color map: deactivates on install, trusted, used)	resource
+ops-off any.question.deactivate +pending	Ctrl-C	ops-off effects(color map: active, trusted, used) +pending	
+ops-off any.question.deactivate +pending	Esc	ops-off effects(color map: active, trusted, used) +pending	
+ops-off any.question.deactivate +pending	Shrink	ops-off any.question.deactivate below 80×25 +pending	
+ops-off any.question.deactivate +pending	y	ops-off effects(color map: deactivates on install, trusted, used) +pending	resource
+ops-off any.question.deactivate +unsaved	Ctrl-C	ops-off effects(color map: active, trusted, used) +unsaved	
+ops-off any.question.deactivate +unsaved	Esc	ops-off effects(color map: active, trusted, used) +unsaved	
+ops-off any.question.deactivate +unsaved	Shrink	ops-off any.question.deactivate below 80×25 +unsaved	
+ops-off any.question.deactivate +unsaved	y	ops-off effects(color map: deactivates on install, trusted, used) +unsaved	resource
+ops-off any.question.deactivate +unsaved +pending	Ctrl-C	ops-off effects(color map: active, trusted, used) +unsaved +pending	
+ops-off any.question.deactivate +unsaved +pending	Esc	ops-off effects(color map: active, trusted, used) +unsaved +pending	
+ops-off any.question.deactivate +unsaved +pending	Shrink	ops-off any.question.deactivate below 80×25 +unsaved +pending	
+ops-off any.question.deactivate +unsaved +pending	y	ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	resource
+ops-off any.question.deactivate below 80×25	Ctrl-C	ops-off any.too-small	
+ops-off any.question.deactivate below 80×25	Esc	ops-off any.too-small	
+ops-off any.question.deactivate below 80×25	Grow	ops-off any.question.deactivate	
+ops-off any.question.deactivate below 80×25	y	ops-off any.too-small	resource
+ops-off any.question.deactivate below 80×25 +pending	Ctrl-C	ops-off any.too-small +pending	
+ops-off any.question.deactivate below 80×25 +pending	Esc	ops-off any.too-small +pending	
+ops-off any.question.deactivate below 80×25 +pending	Grow	ops-off any.question.deactivate +pending	
+ops-off any.question.deactivate below 80×25 +pending	y	ops-off any.too-small +pending	resource
+ops-off any.question.deactivate below 80×25 +unsaved	Ctrl-C	ops-off any.too-small +unsaved	
+ops-off any.question.deactivate below 80×25 +unsaved	Esc	ops-off any.too-small +unsaved	
+ops-off any.question.deactivate below 80×25 +unsaved	Grow	ops-off any.question.deactivate +unsaved	
+ops-off any.question.deactivate below 80×25 +unsaved	y	ops-off any.too-small +unsaved	resource
+ops-off any.question.deactivate below 80×25 +unsaved +pending	Ctrl-C	ops-off any.too-small +unsaved +pending	
+ops-off any.question.deactivate below 80×25 +unsaved +pending	Esc	ops-off any.too-small +unsaved +pending	
+ops-off any.question.deactivate below 80×25 +unsaved +pending	Grow	ops-off any.question.deactivate +unsaved +pending	
+ops-off any.question.deactivate below 80×25 +unsaved +pending	y	ops-off any.too-small +unsaved +pending	resource
+ops-off any.question.leave +pending	Ctrl-C	ops-off effects(filter) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off flow(doc display) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off fonts(marked) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off help(help) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off looks +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off looks.new-frit(row 6) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off settings(first) +pending	
-ops-off any.question.leave +pending	Esc	ops-off effects +pending	
+ops-off any.question.leave +pending	Esc	ops-off effects(filter) +pending	
 ops-off any.question.leave +pending	Esc	ops-off flow(doc display) +pending	
 ops-off any.question.leave +pending	Esc	ops-off fonts(marked) +pending	
 ops-off any.question.leave +pending	Esc	ops-off help(help) +pending	
@@ -85,14 +117,14 @@ ops-off any.question.leave +pending	n	ops-off left	exit 0
 ops-off any.question.leave +pending	n	ops-off left	mouse off, exit 0
 ops-off any.question.leave +pending	y	ops-off left	prepare, install, exit 0
 ops-off any.question.leave +pending	y	ops-off left	prepare, install, mouse off, exit 0
-ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off effects +unsaved +pending	
+ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off effects(filter) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off flow(doc display) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off fonts(marked) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off help(help) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off looks +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off looks.new-frit(row 6) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off settings(first) +unsaved +pending	
-ops-off any.question.leave +unsaved +pending	Esc	ops-off effects +unsaved +pending	
+ops-off any.question.leave +unsaved +pending	Esc	ops-off effects(filter) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off help(help) +unsaved +pending	
@@ -102,7 +134,7 @@ ops-off any.question.leave +unsaved +pending	Esc	ops-off settings(first) +unsave
 ops-off any.question.leave +unsaved +pending	Shrink	ops-off any.question.leave below 80×25 +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	n	ops-off left	save, exit 0
 ops-off any.question.leave +unsaved +pending	n	ops-off left	save, mouse off, exit 0
-ops-off any.question.leave +unsaved +pending	y	ops-off effects +pending	save, prepare
+ops-off any.question.leave +unsaved +pending	y	ops-off effects(filter) +pending	save, prepare
 ops-off any.question.leave +unsaved +pending	y	ops-off flow(doc display) +pending	save, prepare
 ops-off any.question.leave +unsaved +pending	y	ops-off fonts(marked) +pending	save, prepare
 ops-off any.question.leave +unsaved +pending	y	ops-off help(help) +pending	save, prepare
@@ -119,14 +151,14 @@ ops-off any.question.leave below 80×25 +unsaved +pending	Esc	ops-off any.too-sm
 ops-off any.question.leave below 80×25 +unsaved +pending	Grow	ops-off any.question.leave +unsaved +pending	
 ops-off any.question.leave below 80×25 +unsaved +pending	n	ops-off left	save, exit 0
 ops-off any.question.leave below 80×25 +unsaved +pending	y	ops-off any.too-small +pending	save, prepare
-ops-off any.question.quit +unsaved	Ctrl-C	ops-off effects +unsaved	
+ops-off any.question.quit +unsaved	Ctrl-C	ops-off effects(filter) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off flow(doc display) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off fonts(builtin) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off help(help) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks.new-frit(row 6) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off settings(first) +unsaved	
-ops-off any.question.quit +unsaved	Esc	ops-off effects +unsaved	
+ops-off any.question.quit +unsaved	Esc	ops-off effects(filter) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off flow(doc display) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off fonts(builtin) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off help(help) +unsaved	
@@ -155,59 +187,629 @@ ops-off any.too-small +unsaved	q	ops-off any.question.quit below 80×25 +unsaved
 ops-off any.too-small +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off any.too-small +unsaved +pending	Grow	ops-off fonts(marked) +unsaved +pending	
 ops-off any.too-small +unsaved +pending	q	ops-off any.question.leave below 80×25 +unsaved +pending	
-ops-off effects	1	ops-off fonts(builtin)	
-ops-off effects	3	ops-off looks	
-ops-off effects	4	ops-off flow(doc display)	mouse on
-ops-off effects	5	ops-off settings(first)	
-ops-off effects	6	ops-off help(help)	
-ops-off effects	Ctrl-C	ops-off left	exit 130
-ops-off effects	Shift-Tab	ops-off fonts(builtin)	
-ops-off effects	Shrink	ops-off any.too-small	
-ops-off effects	Tab	ops-off looks	
-ops-off effects	i	ops-off effects	prepare
-ops-off effects	q	ops-off left	exit 0
-ops-off effects +pending	1	ops-off fonts(marked) +pending	
-ops-off effects +pending	3	ops-off looks +pending	
-ops-off effects +pending	4	ops-off flow(doc display) +pending	mouse on
-ops-off effects +pending	5	ops-off settings(first) +pending	
-ops-off effects +pending	6	ops-off help(help) +pending	
-ops-off effects +pending	Ctrl-C	ops-off left	exit 130
-ops-off effects +pending	Shift-Tab	ops-off fonts(marked) +pending	
-ops-off effects +pending	Shrink	ops-off any.too-small +pending	
-ops-off effects +pending	Tab	ops-off looks +pending	
-ops-off effects +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off effects +pending	q	ops-off any.question.leave +pending	
-ops-off effects +unsaved	1	ops-off fonts(builtin) +unsaved	
-ops-off effects +unsaved	3	ops-off looks +unsaved	
-ops-off effects +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
-ops-off effects +unsaved	5	ops-off settings(first) +unsaved	
-ops-off effects +unsaved	6	ops-off help(help) +unsaved	
-ops-off effects +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off effects +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
-ops-off effects +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off effects +unsaved	Tab	ops-off looks +unsaved	
-ops-off effects +unsaved	i	ops-off effects	save, prepare
-ops-off effects +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off effects +unsaved	s	ops-off effects	save
-ops-off effects +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
-ops-off effects +unsaved +pending	3	ops-off looks +unsaved +pending	
-ops-off effects +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
-ops-off effects +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
-ops-off effects +unsaved +pending	6	ops-off help(help) +unsaved +pending	
-ops-off effects +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off effects +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
-ops-off effects +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off effects +unsaved +pending	Tab	ops-off looks +unsaved +pending	
-ops-off effects +unsaved +pending	i	ops-off effects +pending	save, prepare
-ops-off effects +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off effects +unsaved +pending	s	ops-off effects +pending	save
+ops-off effects(color map: activates on install, trusted)	1	ops-off fonts(builtin)	
+ops-off effects(color map: activates on install, trusted)	3	ops-off looks	
+ops-off effects(color map: activates on install, trusted)	4	ops-off flow(doc display)	mouse on
+ops-off effects(color map: activates on install, trusted)	5	ops-off settings(first)	
+ops-off effects(color map: activates on install, trusted)	6	ops-off help(help)	
+ops-off effects(color map: activates on install, trusted)	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: activates on install, trusted)	Down	ops-off effects(color map: not active, fails the trust rule)	
+ops-off effects(color map: activates on install, trusted)	End	ops-off effects(color map: not usable)	
+ops-off effects(color map: activates on install, trusted)	Enter	ops-off effects.effect	
+ops-off effects(color map: activates on install, trusted)	Home	ops-off effects(filter)	
+ops-off effects(color map: activates on install, trusted)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(color map: activates on install, trusted)	PgUp	ops-off effects(filter)	
+ops-off effects(color map: activates on install, trusted)	Shift-Tab	ops-off fonts(builtin)	
+ops-off effects(color map: activates on install, trusted)	Shrink	ops-off any.too-small	
+ops-off effects(color map: activates on install, trusted)	Space	ops-off effects(color map: not active, trusted)	resource
+ops-off effects(color map: activates on install, trusted)	Tab	ops-off looks	
+ops-off effects(color map: activates on install, trusted)	Up	ops-off effects(color map: active, trusted, used)	
+ops-off effects(color map: activates on install, trusted)	i	ops-off effects(color map: activates on install, trusted)	prepare
+ops-off effects(color map: activates on install, trusted)	q	ops-off left	exit 0
+ops-off effects(color map: activates on install, trusted) +pending	1	ops-off fonts(marked) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	3	ops-off looks +pending	
+ops-off effects(color map: activates on install, trusted) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off effects(color map: activates on install, trusted) +pending	5	ops-off settings(first) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	6	ops-off help(help) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: activates on install, trusted) +pending	Down	ops-off effects(color map: not active, fails the trust rule) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	End	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	Enter	ops-off effects.effect +pending	
+ops-off effects(color map: activates on install, trusted) +pending	Home	ops-off effects(filter) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	PgDn	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	PgUp	ops-off effects(filter) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	Shift-Tab	ops-off fonts(marked) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects(color map: activates on install, trusted) +pending	Space	ops-off effects(color map: not active, trusted) +pending	resource
+ops-off effects(color map: activates on install, trusted) +pending	Tab	ops-off looks +pending	
+ops-off effects(color map: activates on install, trusted) +pending	Up	ops-off effects(color map: active, trusted, used) +pending	
+ops-off effects(color map: activates on install, trusted) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off effects(color map: activates on install, trusted) +pending	q	ops-off any.question.leave +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	3	ops-off looks +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(color map: activates on install, trusted) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: activates on install, trusted) +unsaved	Down	ops-off effects(color map: not active, fails the trust rule) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Space	ops-off effects(color map: not active, trusted) +unsaved	resource
+ops-off effects(color map: activates on install, trusted) +unsaved	Tab	ops-off looks +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Up	ops-off effects(color map: active, trusted, used) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	i	ops-off effects(color map: activates on install, trusted)	save, prepare
+ops-off effects(color map: activates on install, trusted) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	s	ops-off effects(color map: activates on install, trusted)	save
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Down	ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	End	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Enter	ops-off effects.effect +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Home	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	PgDn	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	PgUp	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Space	ops-off effects(color map: not active, trusted) +unsaved +pending	resource
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Tab	ops-off looks +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	Up	ops-off effects(color map: active, trusted, used) +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	i	ops-off effects(color map: activates on install, trusted) +pending	save, prepare
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects(color map: activates on install, trusted) +unsaved +pending	s	ops-off effects(color map: activates on install, trusted) +pending	save
+ops-off effects(color map: active, trusted, used)	1	ops-off fonts(builtin)	
+ops-off effects(color map: active, trusted, used)	3	ops-off looks	
+ops-off effects(color map: active, trusted, used)	4	ops-off flow(doc display)	mouse on
+ops-off effects(color map: active, trusted, used)	5	ops-off settings(first)	
+ops-off effects(color map: active, trusted, used)	6	ops-off help(help)	
+ops-off effects(color map: active, trusted, used)	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: active, trusted, used)	Down	ops-off effects(color map: not active, trusted)	
+ops-off effects(color map: active, trusted, used)	End	ops-off effects(color map: not usable)	
+ops-off effects(color map: active, trusted, used)	Enter	ops-off effects.effect	
+ops-off effects(color map: active, trusted, used)	Home	ops-off effects(filter)	
+ops-off effects(color map: active, trusted, used)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(color map: active, trusted, used)	PgUp	ops-off effects(filter)	
+ops-off effects(color map: active, trusted, used)	Shift-Tab	ops-off fonts(builtin)	
+ops-off effects(color map: active, trusted, used)	Shrink	ops-off any.too-small	
+ops-off effects(color map: active, trusted, used)	Space	ops-off any.question.deactivate	
+ops-off effects(color map: active, trusted, used)	Tab	ops-off looks	
+ops-off effects(color map: active, trusted, used)	Up	ops-off effects(vtlook)	
+ops-off effects(color map: active, trusted, used)	i	ops-off effects(color map: active, trusted, used)	prepare
+ops-off effects(color map: active, trusted, used)	q	ops-off left	exit 0
+ops-off effects(color map: active, trusted, used) +pending	1	ops-off fonts(marked) +pending	
+ops-off effects(color map: active, trusted, used) +pending	3	ops-off looks +pending	
+ops-off effects(color map: active, trusted, used) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off effects(color map: active, trusted, used) +pending	5	ops-off settings(first) +pending	
+ops-off effects(color map: active, trusted, used) +pending	6	ops-off help(help) +pending	
+ops-off effects(color map: active, trusted, used) +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: active, trusted, used) +pending	Down	ops-off effects(color map: not active, trusted) +pending	
+ops-off effects(color map: active, trusted, used) +pending	End	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: active, trusted, used) +pending	Enter	ops-off effects.effect +pending	
+ops-off effects(color map: active, trusted, used) +pending	Home	ops-off effects(filter) +pending	
+ops-off effects(color map: active, trusted, used) +pending	PgDn	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: active, trusted, used) +pending	PgUp	ops-off effects(filter) +pending	
+ops-off effects(color map: active, trusted, used) +pending	Shift-Tab	ops-off fonts(marked) +pending	
+ops-off effects(color map: active, trusted, used) +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects(color map: active, trusted, used) +pending	Space	ops-off any.question.deactivate +pending	
+ops-off effects(color map: active, trusted, used) +pending	Tab	ops-off looks +pending	
+ops-off effects(color map: active, trusted, used) +pending	Up	ops-off effects(vtlook) +pending	
+ops-off effects(color map: active, trusted, used) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off effects(color map: active, trusted, used) +pending	q	ops-off any.question.leave +pending	
+ops-off effects(color map: active, trusted, used) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	3	ops-off looks +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(color map: active, trusted, used) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: active, trusted, used) +unsaved	Down	ops-off effects(color map: not active, trusted) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	Space	ops-off any.question.deactivate +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	Tab	ops-off looks +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	Up	ops-off effects(vtlook) +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	i	ops-off effects(color map: active, trusted, used)	save, prepare
+ops-off effects(color map: active, trusted, used) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(color map: active, trusted, used) +unsaved	s	ops-off effects(color map: active, trusted, used)	save
+ops-off effects(color map: active, trusted, used) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off effects(color map: active, trusted, used) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Down	ops-off effects(color map: not active, trusted) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	End	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Enter	ops-off effects.effect +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Home	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	PgDn	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	PgUp	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Space	ops-off any.question.deactivate +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Tab	ops-off looks +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	Up	ops-off effects(vtlook) +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	i	ops-off effects(color map: active, trusted, used) +pending	save, prepare
+ops-off effects(color map: active, trusted, used) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects(color map: active, trusted, used) +unsaved +pending	s	ops-off effects(color map: active, trusted, used) +pending	save
+ops-off effects(color map: deactivates on install, trusted, used)	1	ops-off fonts(builtin)	
+ops-off effects(color map: deactivates on install, trusted, used)	3	ops-off looks	
+ops-off effects(color map: deactivates on install, trusted, used)	4	ops-off flow(doc display)	mouse on
+ops-off effects(color map: deactivates on install, trusted, used)	5	ops-off settings(first)	
+ops-off effects(color map: deactivates on install, trusted, used)	6	ops-off help(help)	
+ops-off effects(color map: deactivates on install, trusted, used)	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: deactivates on install, trusted, used)	Down	ops-off effects(color map: not active, trusted)	
+ops-off effects(color map: deactivates on install, trusted, used)	End	ops-off effects(color map: not usable)	
+ops-off effects(color map: deactivates on install, trusted, used)	Enter	ops-off effects.effect	
+ops-off effects(color map: deactivates on install, trusted, used)	Home	ops-off effects(filter)	
+ops-off effects(color map: deactivates on install, trusted, used)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(color map: deactivates on install, trusted, used)	PgUp	ops-off effects(filter)	
+ops-off effects(color map: deactivates on install, trusted, used)	Shift-Tab	ops-off fonts(builtin)	
+ops-off effects(color map: deactivates on install, trusted, used)	Shrink	ops-off any.too-small	
+ops-off effects(color map: deactivates on install, trusted, used)	Space	ops-off effects(color map: active, trusted, used)	resource
+ops-off effects(color map: deactivates on install, trusted, used)	Tab	ops-off looks	
+ops-off effects(color map: deactivates on install, trusted, used)	Up	ops-off effects(vtlook)	
+ops-off effects(color map: deactivates on install, trusted, used)	i	ops-off effects(color map: deactivates on install, trusted, used)	prepare
+ops-off effects(color map: deactivates on install, trusted, used)	q	ops-off left	exit 0
+ops-off effects(color map: deactivates on install, trusted, used) +pending	1	ops-off fonts(marked) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	3	ops-off looks +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off effects(color map: deactivates on install, trusted, used) +pending	5	ops-off settings(first) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	6	ops-off help(help) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Down	ops-off effects(color map: not active, trusted) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	End	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Enter	ops-off effects.effect +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Home	ops-off effects(filter) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	PgDn	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	PgUp	ops-off effects(filter) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Shift-Tab	ops-off fonts(marked) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Space	ops-off effects(color map: active, trusted, used) +pending	resource
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Tab	ops-off looks +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	Up	ops-off effects(vtlook) +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off effects(color map: deactivates on install, trusted, used) +pending	q	ops-off any.question.leave +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	3	ops-off looks +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Down	ops-off effects(color map: not active, trusted) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Space	ops-off effects(color map: active, trusted, used) +unsaved	resource
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Tab	ops-off looks +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Up	ops-off effects(vtlook) +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	i	ops-off effects(color map: deactivates on install, trusted, used)	save, prepare
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved	s	ops-off effects(color map: deactivates on install, trusted, used)	save
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Down	ops-off effects(color map: not active, trusted) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	End	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Enter	ops-off effects.effect +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Home	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	PgDn	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	PgUp	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Space	ops-off effects(color map: active, trusted, used) +unsaved +pending	resource
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Tab	ops-off looks +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	Up	ops-off effects(vtlook) +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	i	ops-off effects(color map: deactivates on install, trusted, used) +pending	save, prepare
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	s	ops-off effects(color map: deactivates on install, trusted, used) +pending	save
+ops-off effects(color map: not active, fails the trust rule)	1	ops-off fonts(builtin)	
+ops-off effects(color map: not active, fails the trust rule)	3	ops-off looks	
+ops-off effects(color map: not active, fails the trust rule)	4	ops-off flow(doc display)	mouse on
+ops-off effects(color map: not active, fails the trust rule)	5	ops-off settings(first)	
+ops-off effects(color map: not active, fails the trust rule)	6	ops-off help(help)	
+ops-off effects(color map: not active, fails the trust rule)	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: not active, fails the trust rule)	Down	ops-off effects(color map: not usable)	
+ops-off effects(color map: not active, fails the trust rule)	End	ops-off effects(color map: not usable)	
+ops-off effects(color map: not active, fails the trust rule)	Enter	ops-off effects.effect	
+ops-off effects(color map: not active, fails the trust rule)	Home	ops-off effects(filter)	
+ops-off effects(color map: not active, fails the trust rule)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(color map: not active, fails the trust rule)	PgUp	ops-off effects(filter)	
+ops-off effects(color map: not active, fails the trust rule)	Shift-Tab	ops-off fonts(builtin)	
+ops-off effects(color map: not active, fails the trust rule)	Shrink	ops-off any.too-small	
+ops-off effects(color map: not active, fails the trust rule)	Tab	ops-off looks	
+ops-off effects(color map: not active, fails the trust rule)	Up	ops-off effects(color map: not active, trusted)	
+ops-off effects(color map: not active, fails the trust rule)	i	ops-off effects(color map: not active, fails the trust rule)	prepare
+ops-off effects(color map: not active, fails the trust rule)	q	ops-off left	exit 0
+ops-off effects(color map: not active, fails the trust rule) +pending	1	ops-off fonts(marked) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	3	ops-off looks +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off effects(color map: not active, fails the trust rule) +pending	5	ops-off settings(first) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	6	ops-off help(help) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: not active, fails the trust rule) +pending	Down	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	End	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	Enter	ops-off effects.effect +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	Home	ops-off effects(filter) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	PgDn	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	PgUp	ops-off effects(filter) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	Shift-Tab	ops-off fonts(marked) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	Tab	ops-off looks +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	Up	ops-off effects(color map: not active, trusted) +pending	
+ops-off effects(color map: not active, fails the trust rule) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off effects(color map: not active, fails the trust rule) +pending	q	ops-off any.question.leave +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	3	ops-off looks +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(color map: not active, fails the trust rule) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Down	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Tab	ops-off looks +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Up	ops-off effects(color map: not active, trusted) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	i	ops-off effects(color map: not active, fails the trust rule)	save, prepare
+ops-off effects(color map: not active, fails the trust rule) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	s	ops-off effects(color map: not active, fails the trust rule)	save
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	Down	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	End	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	Enter	ops-off effects.effect +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	Home	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	PgDn	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	PgUp	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	Tab	ops-off looks +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	Up	ops-off effects(color map: not active, trusted) +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	i	ops-off effects(color map: not active, fails the trust rule) +pending	save, prepare
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	s	ops-off effects(color map: not active, fails the trust rule) +pending	save
+ops-off effects(color map: not active, trusted)	1	ops-off fonts(builtin)	
+ops-off effects(color map: not active, trusted)	3	ops-off looks	
+ops-off effects(color map: not active, trusted)	4	ops-off flow(doc display)	mouse on
+ops-off effects(color map: not active, trusted)	5	ops-off settings(first)	
+ops-off effects(color map: not active, trusted)	6	ops-off help(help)	
+ops-off effects(color map: not active, trusted)	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: not active, trusted)	Down	ops-off effects(color map: not active, fails the trust rule)	
+ops-off effects(color map: not active, trusted)	End	ops-off effects(color map: not usable)	
+ops-off effects(color map: not active, trusted)	Enter	ops-off effects.effect	
+ops-off effects(color map: not active, trusted)	Home	ops-off effects(filter)	
+ops-off effects(color map: not active, trusted)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(color map: not active, trusted)	PgUp	ops-off effects(filter)	
+ops-off effects(color map: not active, trusted)	Shift-Tab	ops-off fonts(builtin)	
+ops-off effects(color map: not active, trusted)	Shrink	ops-off any.too-small	
+ops-off effects(color map: not active, trusted)	Space	ops-off effects(color map: activates on install, trusted)	resource
+ops-off effects(color map: not active, trusted)	Tab	ops-off looks	
+ops-off effects(color map: not active, trusted)	Up	ops-off effects(color map: active, trusted, used)	
+ops-off effects(color map: not active, trusted)	i	ops-off effects(color map: not active, trusted)	prepare
+ops-off effects(color map: not active, trusted)	q	ops-off left	exit 0
+ops-off effects(color map: not active, trusted) +pending	1	ops-off fonts(marked) +pending	
+ops-off effects(color map: not active, trusted) +pending	3	ops-off looks +pending	
+ops-off effects(color map: not active, trusted) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off effects(color map: not active, trusted) +pending	5	ops-off settings(first) +pending	
+ops-off effects(color map: not active, trusted) +pending	6	ops-off help(help) +pending	
+ops-off effects(color map: not active, trusted) +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: not active, trusted) +pending	Down	ops-off effects(color map: not active, fails the trust rule) +pending	
+ops-off effects(color map: not active, trusted) +pending	End	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: not active, trusted) +pending	Enter	ops-off effects.effect +pending	
+ops-off effects(color map: not active, trusted) +pending	Home	ops-off effects(filter) +pending	
+ops-off effects(color map: not active, trusted) +pending	PgDn	ops-off effects(color map: not usable) +pending	
+ops-off effects(color map: not active, trusted) +pending	PgUp	ops-off effects(filter) +pending	
+ops-off effects(color map: not active, trusted) +pending	Shift-Tab	ops-off fonts(marked) +pending	
+ops-off effects(color map: not active, trusted) +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects(color map: not active, trusted) +pending	Space	ops-off effects(color map: activates on install, trusted) +pending	resource
+ops-off effects(color map: not active, trusted) +pending	Tab	ops-off looks +pending	
+ops-off effects(color map: not active, trusted) +pending	Up	ops-off effects(color map: active, trusted, used) +pending	
+ops-off effects(color map: not active, trusted) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off effects(color map: not active, trusted) +pending	q	ops-off any.question.leave +pending	
+ops-off effects(color map: not active, trusted) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	3	ops-off looks +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(color map: not active, trusted) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: not active, trusted) +unsaved	Down	ops-off effects(color map: not active, fails the trust rule) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Space	ops-off effects(color map: activates on install, trusted) +unsaved	resource
+ops-off effects(color map: not active, trusted) +unsaved	Tab	ops-off looks +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Up	ops-off effects(color map: active, trusted, used) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	i	ops-off effects(color map: not active, trusted)	save, prepare
+ops-off effects(color map: not active, trusted) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	s	ops-off effects(color map: not active, trusted)	save
+ops-off effects(color map: not active, trusted) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off effects(color map: not active, trusted) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: not active, trusted) +unsaved +pending	Down	ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	End	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	Enter	ops-off effects.effect +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	Home	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	PgDn	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	PgUp	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	Space	ops-off effects(color map: activates on install, trusted) +unsaved +pending	resource
+ops-off effects(color map: not active, trusted) +unsaved +pending	Tab	ops-off looks +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	Up	ops-off effects(color map: active, trusted, used) +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	i	ops-off effects(color map: not active, trusted) +pending	save, prepare
+ops-off effects(color map: not active, trusted) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects(color map: not active, trusted) +unsaved +pending	s	ops-off effects(color map: not active, trusted) +pending	save
+ops-off effects(color map: not usable)	1	ops-off fonts(builtin)	
+ops-off effects(color map: not usable)	3	ops-off looks	
+ops-off effects(color map: not usable)	4	ops-off flow(doc display)	mouse on
+ops-off effects(color map: not usable)	5	ops-off settings(first)	
+ops-off effects(color map: not usable)	6	ops-off help(help)	
+ops-off effects(color map: not usable)	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: not usable)	Enter	ops-off effects.effect	
+ops-off effects(color map: not usable)	Home	ops-off effects(filter)	
+ops-off effects(color map: not usable)	PgUp	ops-off effects(filter)	
+ops-off effects(color map: not usable)	Shift-Tab	ops-off fonts(builtin)	
+ops-off effects(color map: not usable)	Shrink	ops-off any.too-small	
+ops-off effects(color map: not usable)	Tab	ops-off looks	
+ops-off effects(color map: not usable)	Up	ops-off effects(color map: not active, fails the trust rule)	
+ops-off effects(color map: not usable)	i	ops-off effects(color map: not usable)	prepare
+ops-off effects(color map: not usable)	q	ops-off left	exit 0
+ops-off effects(color map: not usable) +pending	1	ops-off fonts(marked) +pending	
+ops-off effects(color map: not usable) +pending	3	ops-off looks +pending	
+ops-off effects(color map: not usable) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off effects(color map: not usable) +pending	5	ops-off settings(first) +pending	
+ops-off effects(color map: not usable) +pending	6	ops-off help(help) +pending	
+ops-off effects(color map: not usable) +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: not usable) +pending	Enter	ops-off effects.effect +pending	
+ops-off effects(color map: not usable) +pending	Home	ops-off effects(filter) +pending	
+ops-off effects(color map: not usable) +pending	PgUp	ops-off effects(filter) +pending	
+ops-off effects(color map: not usable) +pending	Shift-Tab	ops-off fonts(marked) +pending	
+ops-off effects(color map: not usable) +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects(color map: not usable) +pending	Tab	ops-off looks +pending	
+ops-off effects(color map: not usable) +pending	Up	ops-off effects(color map: not active, fails the trust rule) +pending	
+ops-off effects(color map: not usable) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off effects(color map: not usable) +pending	q	ops-off any.question.leave +pending	
+ops-off effects(color map: not usable) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: not usable) +unsaved	3	ops-off looks +unsaved	
+ops-off effects(color map: not usable) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(color map: not usable) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(color map: not usable) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(color map: not usable) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: not usable) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(color map: not usable) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(color map: not usable) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(color map: not usable) +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
+ops-off effects(color map: not usable) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(color map: not usable) +unsaved	Tab	ops-off looks +unsaved	
+ops-off effects(color map: not usable) +unsaved	Up	ops-off effects(color map: not active, fails the trust rule) +unsaved	
+ops-off effects(color map: not usable) +unsaved	i	ops-off effects(color map: not usable)	save, prepare
+ops-off effects(color map: not usable) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(color map: not usable) +unsaved	s	ops-off effects(color map: not usable)	save
+ops-off effects(color map: not usable) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off effects(color map: not usable) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: not usable) +unsaved +pending	Enter	ops-off effects.effect +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	Home	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	PgUp	ops-off effects(filter) +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	Tab	ops-off looks +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	Up	ops-off effects(color map: not active, fails the trust rule) +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	i	ops-off effects(color map: not usable) +pending	save, prepare
+ops-off effects(color map: not usable) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects(color map: not usable) +unsaved +pending	s	ops-off effects(color map: not usable) +pending	save
+ops-off effects(filter)	1	ops-off fonts(builtin)	
+ops-off effects(filter)	3	ops-off looks	
+ops-off effects(filter)	4	ops-off flow(doc display)	mouse on
+ops-off effects(filter)	5	ops-off settings(first)	
+ops-off effects(filter)	6	ops-off help(help)	
+ops-off effects(filter)	Ctrl-C	ops-off left	exit 130
+ops-off effects(filter)	Down	ops-off effects(vtlook)	
+ops-off effects(filter)	End	ops-off effects(color map: not usable)	
+ops-off effects(filter)	Enter	ops-off effects.filter	
+ops-off effects(filter)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(filter)	Shift-Tab	ops-off fonts(builtin)	
+ops-off effects(filter)	Shrink	ops-off any.too-small	
+ops-off effects(filter)	Tab	ops-off looks	
+ops-off effects(filter)	i	ops-off effects(filter)	prepare
+ops-off effects(filter)	q	ops-off left	exit 0
+ops-off effects(filter) +pending	1	ops-off fonts(marked) +pending	
+ops-off effects(filter) +pending	3	ops-off looks +pending	
+ops-off effects(filter) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off effects(filter) +pending	5	ops-off settings(first) +pending	
+ops-off effects(filter) +pending	6	ops-off help(help) +pending	
+ops-off effects(filter) +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects(filter) +pending	Down	ops-off effects(vtlook) +pending	
+ops-off effects(filter) +pending	End	ops-off effects(color map: not usable) +pending	
+ops-off effects(filter) +pending	Enter	ops-off effects.filter +pending	
+ops-off effects(filter) +pending	PgDn	ops-off effects(color map: not usable) +pending	
+ops-off effects(filter) +pending	Shift-Tab	ops-off fonts(marked) +pending	
+ops-off effects(filter) +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects(filter) +pending	Tab	ops-off looks +pending	
+ops-off effects(filter) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off effects(filter) +pending	q	ops-off any.question.leave +pending	
+ops-off effects(filter) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off effects(filter) +unsaved	3	ops-off looks +unsaved	
+ops-off effects(filter) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(filter) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(filter) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(filter) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(filter) +unsaved	Down	ops-off effects(vtlook) +unsaved	
+ops-off effects(filter) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(filter) +unsaved	Enter	ops-off effects.filter +unsaved	
+ops-off effects(filter) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(filter) +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
+ops-off effects(filter) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(filter) +unsaved	Tab	ops-off looks +unsaved	
+ops-off effects(filter) +unsaved	i	ops-off effects(filter)	save, prepare
+ops-off effects(filter) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(filter) +unsaved	s	ops-off effects(filter)	save
+ops-off effects(filter) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off effects(filter) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(filter) +unsaved +pending	Down	ops-off effects(vtlook) +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	End	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	Enter	ops-off effects.filter +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	PgDn	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	Tab	ops-off looks +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	i	ops-off effects(filter) +pending	save, prepare
+ops-off effects(filter) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects(filter) +unsaved +pending	s	ops-off effects(filter) +pending	save
+ops-off effects(vtlook)	1	ops-off fonts(builtin)	
+ops-off effects(vtlook)	3	ops-off looks	
+ops-off effects(vtlook)	4	ops-off flow(doc display)	mouse on
+ops-off effects(vtlook)	5	ops-off settings(first)	
+ops-off effects(vtlook)	6	ops-off help(help)	
+ops-off effects(vtlook)	Ctrl-C	ops-off left	exit 130
+ops-off effects(vtlook)	End	ops-off effects(color map: not usable)	
+ops-off effects(vtlook)	Enter	ops-off effects.effect	
+ops-off effects(vtlook)	Home	ops-off effects(filter)	
+ops-off effects(vtlook)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(vtlook)	PgUp	ops-off effects(filter)	
+ops-off effects(vtlook)	Shift-Tab	ops-off fonts(builtin)	
+ops-off effects(vtlook)	Shrink	ops-off any.too-small	
+ops-off effects(vtlook)	Tab	ops-off looks	
+ops-off effects(vtlook)	Up	ops-off effects(filter)	
+ops-off effects(vtlook)	i	ops-off effects(vtlook)	prepare
+ops-off effects(vtlook)	q	ops-off left	exit 0
+ops-off effects(vtlook) +pending	1	ops-off fonts(marked) +pending	
+ops-off effects(vtlook) +pending	3	ops-off looks +pending	
+ops-off effects(vtlook) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off effects(vtlook) +pending	5	ops-off settings(first) +pending	
+ops-off effects(vtlook) +pending	6	ops-off help(help) +pending	
+ops-off effects(vtlook) +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects(vtlook) +pending	End	ops-off effects(color map: not usable) +pending	
+ops-off effects(vtlook) +pending	Enter	ops-off effects.effect +pending	
+ops-off effects(vtlook) +pending	Home	ops-off effects(filter) +pending	
+ops-off effects(vtlook) +pending	PgDn	ops-off effects(color map: not usable) +pending	
+ops-off effects(vtlook) +pending	PgUp	ops-off effects(filter) +pending	
+ops-off effects(vtlook) +pending	Shift-Tab	ops-off fonts(marked) +pending	
+ops-off effects(vtlook) +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects(vtlook) +pending	Tab	ops-off looks +pending	
+ops-off effects(vtlook) +pending	Up	ops-off effects(filter) +pending	
+ops-off effects(vtlook) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off effects(vtlook) +pending	q	ops-off any.question.leave +pending	
+ops-off effects(vtlook) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off effects(vtlook) +unsaved	3	ops-off looks +unsaved	
+ops-off effects(vtlook) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(vtlook) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(vtlook) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(vtlook) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(vtlook) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(vtlook) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(vtlook) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(vtlook) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(vtlook) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(vtlook) +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved	
+ops-off effects(vtlook) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(vtlook) +unsaved	Tab	ops-off looks +unsaved	
+ops-off effects(vtlook) +unsaved	Up	ops-off effects(filter) +unsaved	
+ops-off effects(vtlook) +unsaved	i	ops-off effects(vtlook)	save, prepare
+ops-off effects(vtlook) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(vtlook) +unsaved	s	ops-off effects(vtlook)	save
+ops-off effects(vtlook) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off effects(vtlook) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(vtlook) +unsaved +pending	End	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	Enter	ops-off effects.effect +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	Home	ops-off effects(filter) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	PgDn	ops-off effects(color map: not usable) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	PgUp	ops-off effects(filter) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	Tab	ops-off looks +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	Up	ops-off effects(filter) +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	i	ops-off effects(vtlook) +pending	save, prepare
+ops-off effects(vtlook) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects(vtlook) +unsaved +pending	s	ops-off effects(vtlook) +pending	save
+ops-off effects.effect	Ctrl-C	ops-off left	exit 130
+ops-off effects.effect	Esc	ops-off effects(vtlook)	
+ops-off effects.effect	Shrink	ops-off any.too-small	
+ops-off effects.effect	q	ops-off left	exit 0
+ops-off effects.effect +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects.effect +pending	Esc	ops-off effects(vtlook) +pending	
+ops-off effects.effect +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects.effect +pending	q	ops-off any.question.leave +pending	
+ops-off effects.effect +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects.effect +unsaved	Esc	ops-off effects(vtlook) +unsaved	
+ops-off effects.effect +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects.effect +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects.effect +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects.effect +unsaved +pending	Esc	ops-off effects(vtlook) +unsaved +pending	
+ops-off effects.effect +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects.effect +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off effects.filter	Ctrl-C	ops-off left	exit 130
+ops-off effects.filter	Enter	ops-off effects(filter)	
+ops-off effects.filter	Esc	ops-off effects(filter)	
+ops-off effects.filter	Shrink	ops-off any.too-small	
+ops-off effects.filter	q	ops-off left	exit 0
+ops-off effects.filter +pending	Ctrl-C	ops-off left	exit 130
+ops-off effects.filter +pending	Enter	ops-off effects(filter) +pending	
+ops-off effects.filter +pending	Esc	ops-off effects(filter) +pending	
+ops-off effects.filter +pending	Shrink	ops-off any.too-small +pending	
+ops-off effects.filter +pending	q	ops-off any.question.leave +pending	
+ops-off effects.filter +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects.filter +unsaved	Enter	ops-off effects(filter) +unsaved	
+ops-off effects.filter +unsaved	Esc	ops-off effects(filter) +unsaved	
+ops-off effects.filter +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects.filter +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects.filter +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off effects.filter +unsaved +pending	Enter	ops-off effects(filter) +unsaved +pending	
+ops-off effects.filter +unsaved +pending	Esc	ops-off effects(filter) +unsaved +pending	
+ops-off effects.filter +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off effects.filter +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow(doc display)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(doc display)	2	ops-off effects	mouse off
+ops-off flow(doc display)	2	ops-off effects(filter)	mouse off
 ops-off flow(doc display)	3	ops-off looks	mouse off
 ops-off flow(doc display)	5	ops-off settings(first)	mouse off
 ops-off flow(doc display)	6	ops-off help(help)	mouse off
 ops-off flow(doc display)	Click box	ops-off flow(doc terminal)	
-ops-off flow(doc display)	Click tab	ops-off effects	mouse off
+ops-off flow(doc display)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(doc display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc display)	Down	ops-off flow(doc terminal)	
 ops-off flow(doc display)	End	ops-off flow(parts font)	
@@ -227,12 +829,12 @@ ops-off flow(doc display)	q	ops-off left	mouse off, exit 0
 ops-off flow(doc display)	r	ops-off any.question.confirm	
 ops-off flow(doc display)	v	ops-off flow.file	
 ops-off flow(doc display) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(doc display) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(doc display) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(doc display) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(doc display) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(doc display) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(doc display) +pending	Click box	ops-off flow(doc terminal) +pending	
-ops-off flow(doc display) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(doc display) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(doc display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc display) +pending	Down	ops-off flow(doc terminal) +pending	
 ops-off flow(doc display) +pending	End	ops-off flow(parts font) +pending	
@@ -252,12 +854,12 @@ ops-off flow(doc display) +pending	q	ops-off any.question.leave +pending
 ops-off flow(doc display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(doc display) +pending	v	ops-off flow.file +pending	
 ops-off flow(doc display) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(doc display) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(doc display) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(doc display) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Click box	ops-off flow(doc terminal) +unsaved	
-ops-off flow(doc display) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(doc display) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc display) +unsaved	Down	ops-off flow(doc terminal) +unsaved	
 ops-off flow(doc display) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -278,12 +880,12 @@ ops-off flow(doc display) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(doc display) +unsaved	s	ops-off flow(doc display)	save
 ops-off flow(doc display) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(doc display) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(doc display) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(doc display) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	Click box	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(doc display) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(doc display) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc display) +unsaved +pending	Down	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -304,11 +906,11 @@ ops-off flow(doc display) +unsaved +pending	r	ops-off any.question.confirm +unsa
 ops-off flow(doc display) +unsaved +pending	s	ops-off flow(doc display) +pending	save
 ops-off flow(doc display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(doc terminal)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(doc terminal)	2	ops-off effects	mouse off
+ops-off flow(doc terminal)	2	ops-off effects(filter)	mouse off
 ops-off flow(doc terminal)	3	ops-off looks	mouse off
 ops-off flow(doc terminal)	5	ops-off settings(first)	mouse off
 ops-off flow(doc terminal)	6	ops-off help(help)	mouse off
-ops-off flow(doc terminal)	Click tab	ops-off effects	mouse off
+ops-off flow(doc terminal)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(doc terminal)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc terminal)	Down	ops-off flow(new empty)	
 ops-off flow(doc terminal)	End	ops-off flow(parts font)	
@@ -329,11 +931,11 @@ ops-off flow(doc terminal)	q	ops-off left	mouse off, exit 0
 ops-off flow(doc terminal)	r	ops-off any.question.confirm	
 ops-off flow(doc terminal)	v	ops-off flow.file	
 ops-off flow(doc terminal) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(doc terminal) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(doc terminal) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(doc terminal) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(doc terminal) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(doc terminal) +pending	6	ops-off help(help) +pending	mouse off
-ops-off flow(doc terminal) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(doc terminal) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(doc terminal) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc terminal) +pending	Down	ops-off flow(new empty) +pending	
 ops-off flow(doc terminal) +pending	End	ops-off flow(parts font) +pending	
@@ -354,11 +956,11 @@ ops-off flow(doc terminal) +pending	q	ops-off any.question.leave +pending
 ops-off flow(doc terminal) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(doc terminal) +pending	v	ops-off flow.file +pending	
 ops-off flow(doc terminal) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(doc terminal) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(doc terminal) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	6	ops-off help(help) +unsaved	mouse off
-ops-off flow(doc terminal) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(doc terminal) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc terminal) +unsaved	Down	ops-off flow(new empty) +unsaved	
 ops-off flow(doc terminal) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -380,11 +982,11 @@ ops-off flow(doc terminal) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(doc terminal) +unsaved	s	ops-off flow(doc terminal)	save
 ops-off flow(doc terminal) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(doc terminal) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(doc terminal) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(doc terminal) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
-ops-off flow(doc terminal) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(doc terminal) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc terminal) +unsaved +pending	Down	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -406,12 +1008,12 @@ ops-off flow(doc terminal) +unsaved +pending	r	ops-off any.question.confirm +uns
 ops-off flow(doc terminal) +unsaved +pending	s	ops-off flow(doc terminal) +pending	save
 ops-off flow(doc terminal) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(new display)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(new display)	2	ops-off effects	mouse off
+ops-off flow(new display)	2	ops-off effects(filter)	mouse off
 ops-off flow(new display)	3	ops-off looks	mouse off
 ops-off flow(new display)	5	ops-off settings(first)	mouse off
 ops-off flow(new display)	6	ops-off help(help)	mouse off
 ops-off flow(new display)	Click box	ops-off flow(new terminal)	
-ops-off flow(new display)	Click tab	ops-off effects	mouse off
+ops-off flow(new display)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(new display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new display)	Down	ops-off flow(parts template)	
 ops-off flow(new display)	End	ops-off flow(parts font)	
@@ -437,12 +1039,12 @@ ops-off flow(new display)	q	ops-off left	mouse off, exit 0
 ops-off flow(new display)	r	ops-off any.question.confirm	
 ops-off flow(new display)	v	ops-off flow.file	
 ops-off flow(new display) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(new display) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(new display) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(new display) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(new display) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(new display) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(new display) +pending	Click box	ops-off flow(new terminal) +pending	
-ops-off flow(new display) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(new display) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(new display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new display) +pending	Down	ops-off flow(parts template) +pending	
 ops-off flow(new display) +pending	End	ops-off flow(parts font) +pending	
@@ -468,12 +1070,12 @@ ops-off flow(new display) +pending	q	ops-off any.question.leave +pending
 ops-off flow(new display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new display) +pending	v	ops-off flow.file +pending	
 ops-off flow(new display) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(new display) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(new display) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(new display) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(new display) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(new display) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(new display) +unsaved	Click box	ops-off flow(new terminal) +unsaved	
-ops-off flow(new display) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(new display) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(new display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new display) +unsaved	Down	ops-off flow(parts template) +unsaved	
 ops-off flow(new display) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -500,12 +1102,12 @@ ops-off flow(new display) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(new display) +unsaved	s	ops-off flow(new display)	save
 ops-off flow(new display) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(new display) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(new display) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	Click box	ops-off flow(new terminal) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(new display) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new display) +unsaved +pending	Down	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -532,12 +1134,12 @@ ops-off flow(new display) +unsaved +pending	r	ops-off any.question.confirm +unsa
 ops-off flow(new display) +unsaved +pending	s	ops-off flow(new display) +pending	save
 ops-off flow(new display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(new empty)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(new empty)	2	ops-off effects	mouse off
+ops-off flow(new empty)	2	ops-off effects(filter)	mouse off
 ops-off flow(new empty)	3	ops-off looks	mouse off
 ops-off flow(new empty)	5	ops-off settings(first)	mouse off
 ops-off flow(new empty)	6	ops-off help(help)	mouse off
 ops-off flow(new empty)	Click box	ops-off flow(doc terminal)	
-ops-off flow(new empty)	Click tab	ops-off effects	mouse off
+ops-off flow(new empty)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(new empty)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new empty)	Down	ops-off flow(parts display)	
 ops-off flow(new empty)	End	ops-off flow(parts font)	
@@ -558,12 +1160,12 @@ ops-off flow(new empty)	q	ops-off left	mouse off, exit 0
 ops-off flow(new empty)	r	ops-off any.question.confirm	
 ops-off flow(new empty)	v	ops-off flow.file	
 ops-off flow(new empty) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(new empty) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(new empty) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(new empty) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(new empty) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(new empty) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(new empty) +pending	Click box	ops-off flow(doc terminal) +pending	
-ops-off flow(new empty) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(new empty) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(new empty) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new empty) +pending	Down	ops-off flow(parts display) +pending	
 ops-off flow(new empty) +pending	End	ops-off flow(parts font) +pending	
@@ -584,12 +1186,12 @@ ops-off flow(new empty) +pending	q	ops-off any.question.leave +pending
 ops-off flow(new empty) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new empty) +pending	v	ops-off flow.file +pending	
 ops-off flow(new empty) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(new empty) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(new empty) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(new empty) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(new empty) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(new empty) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(new empty) +unsaved	Click box	ops-off flow(doc terminal) +unsaved	
-ops-off flow(new empty) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(new empty) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(new empty) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new empty) +unsaved	Down	ops-off flow(parts display) +unsaved	
 ops-off flow(new empty) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -611,12 +1213,12 @@ ops-off flow(new empty) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(new empty) +unsaved	s	ops-off flow(new empty)	save
 ops-off flow(new empty) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(new empty) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(new empty) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(new empty) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	Click box	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(new empty) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(new empty) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new empty) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -638,12 +1240,12 @@ ops-off flow(new empty) +unsaved +pending	r	ops-off any.question.confirm +unsave
 ops-off flow(new empty) +unsaved +pending	s	ops-off flow(new empty) +pending	save
 ops-off flow(new empty) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(new terminal)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(new terminal)	2	ops-off effects	mouse off
+ops-off flow(new terminal)	2	ops-off effects(filter)	mouse off
 ops-off flow(new terminal)	3	ops-off looks	mouse off
 ops-off flow(new terminal)	5	ops-off settings(first)	mouse off
 ops-off flow(new terminal)	6	ops-off help(help)	mouse off
 ops-off flow(new terminal)	Click box	ops-off flow.new-card	
-ops-off flow(new terminal)	Click tab	ops-off effects	mouse off
+ops-off flow(new terminal)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(new terminal)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new terminal)	Down	ops-off flow(parts display)	
 ops-off flow(new terminal)	End	ops-off flow(parts font)	
@@ -668,12 +1270,12 @@ ops-off flow(new terminal)	q	ops-off left	mouse off, exit 0
 ops-off flow(new terminal)	r	ops-off any.question.confirm	
 ops-off flow(new terminal)	v	ops-off flow.file	
 ops-off flow(new terminal) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(new terminal) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(new terminal) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(new terminal) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(new terminal) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(new terminal) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(new terminal) +pending	Click box	ops-off flow.new-card +pending	
-ops-off flow(new terminal) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(new terminal) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(new terminal) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new terminal) +pending	Down	ops-off flow(parts display) +pending	
 ops-off flow(new terminal) +pending	End	ops-off flow(parts font) +pending	
@@ -698,12 +1300,12 @@ ops-off flow(new terminal) +pending	q	ops-off any.question.leave +pending
 ops-off flow(new terminal) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new terminal) +pending	v	ops-off flow.file +pending	
 ops-off flow(new terminal) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(new terminal) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(new terminal) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	Click box	ops-off flow.new-card +unsaved	
-ops-off flow(new terminal) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(new terminal) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new terminal) +unsaved	Down	ops-off flow(parts display) +unsaved	
 ops-off flow(new terminal) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -729,12 +1331,12 @@ ops-off flow(new terminal) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(new terminal) +unsaved	s	ops-off flow(new terminal)	save
 ops-off flow(new terminal) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(new terminal) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(new terminal) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(new terminal) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	Click box	ops-off flow.new-card +unsaved +pending	
-ops-off flow(new terminal) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(new terminal) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new terminal) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -760,12 +1362,12 @@ ops-off flow(new terminal) +unsaved +pending	r	ops-off any.question.confirm +uns
 ops-off flow(new terminal) +unsaved +pending	s	ops-off flow(new terminal) +pending	save
 ops-off flow(new terminal) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(others)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(others)	2	ops-off effects	mouse off
+ops-off flow(others)	2	ops-off effects(filter)	mouse off
 ops-off flow(others)	3	ops-off looks	mouse off
 ops-off flow(others)	5	ops-off settings(first)	mouse off
 ops-off flow(others)	6	ops-off help(help)	mouse off
 ops-off flow(others)	Click box	ops-off flow(parts special)	
-ops-off flow(others)	Click tab	ops-off effects	mouse off
+ops-off flow(others)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(others)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(others)	Down	ops-off flow(parts font)	
 ops-off flow(others)	End	ops-off flow(parts font)	
@@ -788,12 +1390,12 @@ ops-off flow(others)	q	ops-off left	mouse off, exit 0
 ops-off flow(others)	r	ops-off any.question.confirm	
 ops-off flow(others)	v	ops-off flow.file	
 ops-off flow(others) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(others) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(others) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(others) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(others) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(others) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(others) +pending	Click box	ops-off flow(parts special) +pending	
-ops-off flow(others) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(others) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(others) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(others) +pending	Down	ops-off flow(parts font) +pending	
 ops-off flow(others) +pending	End	ops-off flow(parts font) +pending	
@@ -816,12 +1418,12 @@ ops-off flow(others) +pending	q	ops-off any.question.leave +pending
 ops-off flow(others) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(others) +pending	v	ops-off flow.file +pending	
 ops-off flow(others) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(others) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(others) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(others) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(others) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(others) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(others) +unsaved	Click box	ops-off flow(parts special) +unsaved	
-ops-off flow(others) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(others) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(others) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(others) +unsaved	Down	ops-off flow(parts font) +unsaved	
 ops-off flow(others) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -845,12 +1447,12 @@ ops-off flow(others) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(others) +unsaved	s	ops-off flow(others)	save
 ops-off flow(others) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(others) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(others) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(others) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	Click box	ops-off flow(parts special) +unsaved +pending	
-ops-off flow(others) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(others) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(others) +unsaved +pending	Down	ops-off flow(parts font) +unsaved +pending	
 ops-off flow(others) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -874,12 +1476,12 @@ ops-off flow(others) +unsaved +pending	r	ops-off any.question.confirm +unsaved +
 ops-off flow(others) +unsaved +pending	s	ops-off flow(others) +pending	save
 ops-off flow(others) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts any input)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(parts any input)	2	ops-off effects	mouse off
+ops-off flow(parts any input)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts any input)	3	ops-off looks	mouse off
 ops-off flow(parts any input)	5	ops-off settings(first)	mouse off
 ops-off flow(parts any input)	6	ops-off help(help)	mouse off
 ops-off flow(parts any input)	Click box	ops-off flow(parts template)	
-ops-off flow(parts any input)	Click tab	ops-off effects	mouse off
+ops-off flow(parts any input)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts any input)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts any input)	Down	ops-off flow(parts pointer)	
 ops-off flow(parts any input)	End	ops-off flow(parts font)	
@@ -902,12 +1504,12 @@ ops-off flow(parts any input)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts any input)	r	ops-off any.question.confirm	
 ops-off flow(parts any input)	v	ops-off flow.file	
 ops-off flow(parts any input) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(parts any input) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(parts any input) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts any input) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(parts any input) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(parts any input) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts any input) +pending	Click box	ops-off flow(parts template) +pending	
-ops-off flow(parts any input) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(parts any input) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts any input) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts any input) +pending	Down	ops-off flow(parts pointer) +pending	
 ops-off flow(parts any input) +pending	End	ops-off flow(parts font) +pending	
@@ -930,12 +1532,12 @@ ops-off flow(parts any input) +pending	q	ops-off any.question.leave +pending
 ops-off flow(parts any input) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts any input) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts any input) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(parts any input) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(parts any input) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	Click box	ops-off flow(parts template) +unsaved	
-ops-off flow(parts any input) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(parts any input) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts any input) +unsaved	Down	ops-off flow(parts pointer) +unsaved	
 ops-off flow(parts any input) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -959,12 +1561,12 @@ ops-off flow(parts any input) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(parts any input) +unsaved	s	ops-off flow(parts any input)	save
 ops-off flow(parts any input) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(parts any input) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(parts any input) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts any input) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts any input) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts any input) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts any input) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts any input) +unsaved +pending	Click box	ops-off flow(parts template) +unsaved +pending	
-ops-off flow(parts any input) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts any input) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts any input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts any input) +unsaved +pending	Down	ops-off flow(parts pointer) +unsaved +pending	
 ops-off flow(parts any input) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -988,11 +1590,11 @@ ops-off flow(parts any input) +unsaved +pending	r	ops-off any.question.confirm +
 ops-off flow(parts any input) +unsaved +pending	s	ops-off flow(parts any input) +pending	save
 ops-off flow(parts any input) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts display)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(parts display)	2	ops-off effects	mouse off
+ops-off flow(parts display)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts display)	3	ops-off looks	mouse off
 ops-off flow(parts display)	5	ops-off settings(first)	mouse off
 ops-off flow(parts display)	6	ops-off help(help)	mouse off
-ops-off flow(parts display)	Click tab	ops-off effects	mouse off
+ops-off flow(parts display)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts display)	Down	ops-off flow(parts template)	
 ops-off flow(parts display)	End	ops-off flow(parts font)	
@@ -1015,11 +1617,11 @@ ops-off flow(parts display)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts display)	r	ops-off any.question.confirm	
 ops-off flow(parts display)	v	ops-off flow.file	
 ops-off flow(parts display) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(parts display) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(parts display) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts display) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(parts display) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(parts display) +pending	6	ops-off help(help) +pending	mouse off
-ops-off flow(parts display) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(parts display) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts display) +pending	Down	ops-off flow(parts template) +pending	
 ops-off flow(parts display) +pending	End	ops-off flow(parts font) +pending	
@@ -1042,11 +1644,11 @@ ops-off flow(parts display) +pending	q	ops-off any.question.leave +pending
 ops-off flow(parts display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts display) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts display) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(parts display) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(parts display) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts display) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(parts display) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts display) +unsaved	6	ops-off help(help) +unsaved	mouse off
-ops-off flow(parts display) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(parts display) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts display) +unsaved	Down	ops-off flow(parts template) +unsaved	
 ops-off flow(parts display) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -1070,11 +1672,11 @@ ops-off flow(parts display) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(parts display) +unsaved	s	ops-off flow(parts display)	save
 ops-off flow(parts display) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(parts display) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(parts display) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts display) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
-ops-off flow(parts display) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts display) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts display) +unsaved +pending	Down	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -1098,11 +1700,11 @@ ops-off flow(parts display) +unsaved +pending	r	ops-off any.question.confirm +un
 ops-off flow(parts display) +unsaved +pending	s	ops-off flow(parts display) +pending	save
 ops-off flow(parts display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts font)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(parts font)	2	ops-off effects	mouse off
+ops-off flow(parts font)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts font)	3	ops-off looks	mouse off
 ops-off flow(parts font)	5	ops-off settings(first)	mouse off
 ops-off flow(parts font)	6	ops-off help(help)	mouse off
-ops-off flow(parts font)	Click tab	ops-off effects	mouse off
+ops-off flow(parts font)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts font)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts font)	Home	ops-off flow(doc display)	
 ops-off flow(parts font)	PgUp	ops-off flow(parts special)	
@@ -1117,11 +1719,11 @@ ops-off flow(parts font)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts font)	r	ops-off any.question.confirm	
 ops-off flow(parts font)	v	ops-off flow.file	
 ops-off flow(parts font) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(parts font) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(parts font) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts font) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(parts font) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(parts font) +pending	6	ops-off help(help) +pending	mouse off
-ops-off flow(parts font) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(parts font) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts font) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts font) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts font) +pending	PgUp	ops-off flow(parts special) +pending	
@@ -1136,11 +1738,11 @@ ops-off flow(parts font) +pending	q	ops-off any.question.leave +pending
 ops-off flow(parts font) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts font) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts font) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(parts font) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts font) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(parts font) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts font) +unsaved	6	ops-off help(help) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(parts font) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts font) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts font) +unsaved	Home	ops-off flow(doc display) +unsaved	
 ops-off flow(parts font) +unsaved	PgUp	ops-off flow(parts special) +unsaved	
@@ -1156,11 +1758,11 @@ ops-off flow(parts font) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(parts font) +unsaved	s	ops-off flow(parts font)	save
 ops-off flow(parts font) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(parts font) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts font) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts font) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts font) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
 ops-off flow(parts font) +unsaved +pending	PgUp	ops-off flow(parts special) +unsaved +pending	
@@ -1176,11 +1778,11 @@ ops-off flow(parts font) +unsaved +pending	r	ops-off any.question.confirm +unsav
 ops-off flow(parts font) +unsaved +pending	s	ops-off flow(parts font) +pending	save
 ops-off flow(parts font) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts input)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(parts input)	2	ops-off effects	mouse off
+ops-off flow(parts input)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts input)	3	ops-off looks	mouse off
 ops-off flow(parts input)	5	ops-off settings(first)	mouse off
 ops-off flow(parts input)	6	ops-off help(help)	mouse off
-ops-off flow(parts input)	Click tab	ops-off effects	mouse off
+ops-off flow(parts input)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts input)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts input)	Down	ops-off flow(parts any input)	
 ops-off flow(parts input)	End	ops-off flow(parts font)	
@@ -1203,11 +1805,11 @@ ops-off flow(parts input)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts input)	r	ops-off any.question.confirm	
 ops-off flow(parts input)	v	ops-off flow.file	
 ops-off flow(parts input) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(parts input) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(parts input) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts input) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(parts input) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(parts input) +pending	6	ops-off help(help) +pending	mouse off
-ops-off flow(parts input) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(parts input) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts input) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts input) +pending	Down	ops-off flow(parts any input) +pending	
 ops-off flow(parts input) +pending	End	ops-off flow(parts font) +pending	
@@ -1230,11 +1832,11 @@ ops-off flow(parts input) +pending	q	ops-off any.question.leave +pending
 ops-off flow(parts input) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts input) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts input) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(parts input) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(parts input) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts input) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(parts input) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts input) +unsaved	6	ops-off help(help) +unsaved	mouse off
-ops-off flow(parts input) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(parts input) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts input) +unsaved	Down	ops-off flow(parts any input) +unsaved	
 ops-off flow(parts input) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -1258,11 +1860,11 @@ ops-off flow(parts input) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(parts input) +unsaved	s	ops-off flow(parts input)	save
 ops-off flow(parts input) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(parts input) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(parts input) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts input) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
-ops-off flow(parts input) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts input) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts input) +unsaved +pending	Down	ops-off flow(parts any input) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -1286,11 +1888,11 @@ ops-off flow(parts input) +unsaved +pending	r	ops-off any.question.confirm +unsa
 ops-off flow(parts input) +unsaved +pending	s	ops-off flow(parts input) +pending	save
 ops-off flow(parts input) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts keyboard)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(parts keyboard)	2	ops-off effects	mouse off
+ops-off flow(parts keyboard)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts keyboard)	3	ops-off looks	mouse off
 ops-off flow(parts keyboard)	5	ops-off settings(first)	mouse off
 ops-off flow(parts keyboard)	6	ops-off help(help)	mouse off
-ops-off flow(parts keyboard)	Click tab	ops-off effects	mouse off
+ops-off flow(parts keyboard)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts keyboard)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts keyboard)	End	ops-off flow(parts font)	
 ops-off flow(parts keyboard)	Enter	ops-off flow.detail	
@@ -1311,11 +1913,11 @@ ops-off flow(parts keyboard)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts keyboard)	r	ops-off any.question.confirm	
 ops-off flow(parts keyboard)	v	ops-off flow.file	
 ops-off flow(parts keyboard) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(parts keyboard) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(parts keyboard) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts keyboard) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(parts keyboard) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(parts keyboard) +pending	6	ops-off help(help) +pending	mouse off
-ops-off flow(parts keyboard) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(parts keyboard) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts keyboard) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts keyboard) +pending	End	ops-off flow(parts font) +pending	
 ops-off flow(parts keyboard) +pending	Enter	ops-off flow.detail +pending	
@@ -1336,11 +1938,11 @@ ops-off flow(parts keyboard) +pending	q	ops-off any.question.leave +pending
 ops-off flow(parts keyboard) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts keyboard) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts keyboard) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(parts keyboard) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(parts keyboard) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts keyboard) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(parts keyboard) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts keyboard) +unsaved	6	ops-off help(help) +unsaved	mouse off
-ops-off flow(parts keyboard) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(parts keyboard) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts keyboard) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts keyboard) +unsaved	End	ops-off flow(parts font) +unsaved	
 ops-off flow(parts keyboard) +unsaved	Enter	ops-off flow.detail +unsaved	
@@ -1362,11 +1964,11 @@ ops-off flow(parts keyboard) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(parts keyboard) +unsaved	s	ops-off flow(parts keyboard)	save
 ops-off flow(parts keyboard) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(parts keyboard) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(parts keyboard) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts keyboard) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts keyboard) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts keyboard) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts keyboard) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
-ops-off flow(parts keyboard) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts keyboard) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts keyboard) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts keyboard) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
 ops-off flow(parts keyboard) +unsaved +pending	Enter	ops-off flow.detail +unsaved +pending	
@@ -1388,12 +1990,12 @@ ops-off flow(parts keyboard) +unsaved +pending	r	ops-off any.question.confirm +u
 ops-off flow(parts keyboard) +unsaved +pending	s	ops-off flow(parts keyboard) +pending	save
 ops-off flow(parts keyboard) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts pointer)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(parts pointer)	2	ops-off effects	mouse off
+ops-off flow(parts pointer)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts pointer)	3	ops-off looks	mouse off
 ops-off flow(parts pointer)	5	ops-off settings(first)	mouse off
 ops-off flow(parts pointer)	6	ops-off help(help)	mouse off
 ops-off flow(parts pointer)	Click box	ops-off flow(parts special)	
-ops-off flow(parts pointer)	Click tab	ops-off effects	mouse off
+ops-off flow(parts pointer)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts pointer)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts pointer)	Down	ops-off flow(parts font)	
 ops-off flow(parts pointer)	End	ops-off flow(parts font)	
@@ -1416,12 +2018,12 @@ ops-off flow(parts pointer)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts pointer)	r	ops-off any.question.confirm	
 ops-off flow(parts pointer)	v	ops-off flow.file	
 ops-off flow(parts pointer) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(parts pointer) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(parts pointer) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts pointer) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(parts pointer) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(parts pointer) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts pointer) +pending	Click box	ops-off flow(parts special) +pending	
-ops-off flow(parts pointer) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(parts pointer) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts pointer) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts pointer) +pending	Down	ops-off flow(parts font) +pending	
 ops-off flow(parts pointer) +pending	End	ops-off flow(parts font) +pending	
@@ -1444,12 +2046,12 @@ ops-off flow(parts pointer) +pending	q	ops-off any.question.leave +pending
 ops-off flow(parts pointer) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts pointer) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts pointer) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(parts pointer) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(parts pointer) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	Click box	ops-off flow(parts special) +unsaved	
-ops-off flow(parts pointer) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(parts pointer) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts pointer) +unsaved	Down	ops-off flow(parts font) +unsaved	
 ops-off flow(parts pointer) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -1473,12 +2075,12 @@ ops-off flow(parts pointer) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(parts pointer) +unsaved	s	ops-off flow(parts pointer)	save
 ops-off flow(parts pointer) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(parts pointer) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(parts pointer) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts pointer) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	Click box	ops-off flow(parts special) +unsaved +pending	
-ops-off flow(parts pointer) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts pointer) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts pointer) +unsaved +pending	Down	ops-off flow(parts font) +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -1502,11 +2104,11 @@ ops-off flow(parts pointer) +unsaved +pending	r	ops-off any.question.confirm +un
 ops-off flow(parts pointer) +unsaved +pending	s	ops-off flow(parts pointer) +pending	save
 ops-off flow(parts pointer) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts special)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(parts special)	2	ops-off effects	mouse off
+ops-off flow(parts special)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts special)	3	ops-off looks	mouse off
 ops-off flow(parts special)	5	ops-off settings(first)	mouse off
 ops-off flow(parts special)	6	ops-off help(help)	mouse off
-ops-off flow(parts special)	Click tab	ops-off effects	mouse off
+ops-off flow(parts special)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts special)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts special)	Down	ops-off flow(parts input)	
 ops-off flow(parts special)	End	ops-off flow(parts font)	
@@ -1528,11 +2130,11 @@ ops-off flow(parts special)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts special)	r	ops-off any.question.confirm	
 ops-off flow(parts special)	v	ops-off flow.file	
 ops-off flow(parts special) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(parts special) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(parts special) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts special) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(parts special) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(parts special) +pending	6	ops-off help(help) +pending	mouse off
-ops-off flow(parts special) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(parts special) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts special) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts special) +pending	Down	ops-off flow(parts input) +pending	
 ops-off flow(parts special) +pending	End	ops-off flow(parts font) +pending	
@@ -1554,11 +2156,11 @@ ops-off flow(parts special) +pending	q	ops-off any.question.leave +pending
 ops-off flow(parts special) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts special) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts special) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(parts special) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(parts special) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(parts special) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	6	ops-off help(help) +unsaved	mouse off
-ops-off flow(parts special) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(parts special) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved	Down	ops-off flow(parts input) +unsaved	
 ops-off flow(parts special) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -1581,11 +2183,11 @@ ops-off flow(parts special) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(parts special) +unsaved	s	ops-off flow(parts special)	save
 ops-off flow(parts special) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(parts special) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(parts special) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts special) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
-ops-off flow(parts special) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts special) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved +pending	Down	ops-off flow(parts input) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -1608,12 +2210,12 @@ ops-off flow(parts special) +unsaved +pending	r	ops-off any.question.confirm +un
 ops-off flow(parts special) +unsaved +pending	s	ops-off flow(parts special) +pending	save
 ops-off flow(parts special) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts template)	1	ops-off fonts(builtin)	mouse off
-ops-off flow(parts template)	2	ops-off effects	mouse off
+ops-off flow(parts template)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts template)	3	ops-off looks	mouse off
 ops-off flow(parts template)	5	ops-off settings(first)	mouse off
 ops-off flow(parts template)	6	ops-off help(help)	mouse off
 ops-off flow(parts template)	Click box	ops-off flow(parts display)	
-ops-off flow(parts template)	Click tab	ops-off effects	mouse off
+ops-off flow(parts template)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts template)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts template)	Down	ops-off flow(parts display)	
 ops-off flow(parts template)	End	ops-off flow(parts font)	
@@ -1636,12 +2238,12 @@ ops-off flow(parts template)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts template)	r	ops-off any.question.confirm	
 ops-off flow(parts template)	v	ops-off flow.file	
 ops-off flow(parts template) +pending	1	ops-off fonts(marked) +pending	mouse off
-ops-off flow(parts template) +pending	2	ops-off effects +pending	mouse off
+ops-off flow(parts template) +pending	2	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts template) +pending	3	ops-off looks +pending	mouse off
 ops-off flow(parts template) +pending	5	ops-off settings(first) +pending	mouse off
 ops-off flow(parts template) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts template) +pending	Click box	ops-off flow(parts display) +pending	
-ops-off flow(parts template) +pending	Click tab	ops-off effects +pending	mouse off
+ops-off flow(parts template) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts template) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts template) +pending	Down	ops-off flow(parts display) +pending	
 ops-off flow(parts template) +pending	End	ops-off flow(parts font) +pending	
@@ -1664,12 +2266,12 @@ ops-off flow(parts template) +pending	q	ops-off any.question.leave +pending
 ops-off flow(parts template) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts template) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts template) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
-ops-off flow(parts template) +unsaved	2	ops-off effects +unsaved	mouse off
+ops-off flow(parts template) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	3	ops-off looks +unsaved	mouse off
 ops-off flow(parts template) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Click box	ops-off flow(parts display) +unsaved	
-ops-off flow(parts template) +unsaved	Click tab	ops-off effects +unsaved	mouse off
+ops-off flow(parts template) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts template) +unsaved	Down	ops-off flow(parts display) +unsaved	
 ops-off flow(parts template) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -1693,12 +2295,12 @@ ops-off flow(parts template) +unsaved	r	ops-off any.question.confirm +unsaved
 ops-off flow(parts template) +unsaved	s	ops-off flow(parts template)	save
 ops-off flow(parts template) +unsaved	v	ops-off flow.file +unsaved	
 ops-off flow(parts template) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
-ops-off flow(parts template) +unsaved +pending	2	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts template) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	Click box	ops-off flow(parts display) +unsaved +pending	
-ops-off flow(parts template) +unsaved +pending	Click tab	ops-off effects +unsaved +pending	mouse off
+ops-off flow(parts template) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts template) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(parts template) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -2259,7 +2861,7 @@ ops-off flow.restore +unsaved +pending	Enter	ops-off any.question.confirm +unsav
 ops-off flow.restore +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pending	
 ops-off flow.restore +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.restore +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off fonts(builtin)	2	ops-off effects	
+ops-off fonts(builtin)	2	ops-off effects(filter)	
 ops-off fonts(builtin)	3	ops-off looks	
 ops-off fonts(builtin)	4	ops-off flow(doc display)	mouse on
 ops-off fonts(builtin)	5	ops-off settings(first)	
@@ -2270,13 +2872,13 @@ ops-off fonts(builtin)	Home	ops-off fonts(refused)
 ops-off fonts(builtin)	PgUp	ops-off fonts(refused)	
 ops-off fonts(builtin)	Shift-Tab	ops-off help(help)	
 ops-off fonts(builtin)	Shrink	ops-off any.too-small	
-ops-off fonts(builtin)	Tab	ops-off effects	
+ops-off fonts(builtin)	Tab	ops-off effects(filter)	
 ops-off fonts(builtin)	Up	ops-off fonts(frit)	
 ops-off fonts(builtin)	i	ops-off fonts(builtin)	prepare
 ops-off fonts(builtin)	n	ops-off looks.new-frit.typing(row 0)	
 ops-off fonts(builtin)	o	ops-off fonts(builtin) +unsaved	check
 ops-off fonts(builtin)	q	ops-off left	exit 0
-ops-off fonts(builtin) +pending	2	ops-off effects +pending	
+ops-off fonts(builtin) +pending	2	ops-off effects(filter) +pending	
 ops-off fonts(builtin) +pending	3	ops-off looks +pending	
 ops-off fonts(builtin) +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off fonts(builtin) +pending	5	ops-off settings(first) +pending	
@@ -2287,13 +2889,13 @@ ops-off fonts(builtin) +pending	Home	ops-off fonts(refused) +pending
 ops-off fonts(builtin) +pending	PgUp	ops-off fonts(refused) +pending	
 ops-off fonts(builtin) +pending	Shift-Tab	ops-off help(help) +pending	
 ops-off fonts(builtin) +pending	Shrink	ops-off any.too-small +pending	
-ops-off fonts(builtin) +pending	Tab	ops-off effects +pending	
+ops-off fonts(builtin) +pending	Tab	ops-off effects(filter) +pending	
 ops-off fonts(builtin) +pending	Up	ops-off fonts(marked) +pending	
 ops-off fonts(builtin) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(builtin) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(builtin) +pending	o	ops-off fonts(builtin) +unsaved +pending	check
 ops-off fonts(builtin) +pending	q	ops-off any.question.leave +pending	
-ops-off fonts(builtin) +unsaved	2	ops-off effects +unsaved	
+ops-off fonts(builtin) +unsaved	2	ops-off effects(filter) +unsaved	
 ops-off fonts(builtin) +unsaved	3	ops-off looks +unsaved	
 ops-off fonts(builtin) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(builtin) +unsaved	5	ops-off settings(first) +unsaved	
@@ -2304,13 +2906,13 @@ ops-off fonts(builtin) +unsaved	Home	ops-off fonts(refused) +unsaved
 ops-off fonts(builtin) +unsaved	PgUp	ops-off fonts(refused) +unsaved	
 ops-off fonts(builtin) +unsaved	Shift-Tab	ops-off help(help) +unsaved	
 ops-off fonts(builtin) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off fonts(builtin) +unsaved	Tab	ops-off effects +unsaved	
+ops-off fonts(builtin) +unsaved	Tab	ops-off effects(filter) +unsaved	
 ops-off fonts(builtin) +unsaved	Up	ops-off fonts(frit) +unsaved	
 ops-off fonts(builtin) +unsaved	i	ops-off fonts(builtin)	save, prepare
 ops-off fonts(builtin) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
 ops-off fonts(builtin) +unsaved	o	ops-off fonts(builtin) +unsaved	check
 ops-off fonts(builtin) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off fonts(builtin) +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off fonts(builtin) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	3	ops-off looks +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off fonts(builtin) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
@@ -2321,13 +2923,13 @@ ops-off fonts(builtin) +unsaved +pending	Home	ops-off fonts(refused) +unsaved +p
 ops-off fonts(builtin) +unsaved +pending	PgUp	ops-off fonts(refused) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off fonts(builtin) +unsaved +pending	Tab	ops-off effects +unsaved +pending	
+ops-off fonts(builtin) +unsaved +pending	Tab	ops-off effects(filter) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	Up	ops-off fonts(marked) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off fonts(builtin) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	o	ops-off fonts(builtin) +unsaved +pending	check
 ops-off fonts(builtin) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off fonts(frit)	2	ops-off effects	
+ops-off fonts(frit)	2	ops-off effects(filter)	
 ops-off fonts(frit)	3	ops-off looks	
 ops-off fonts(frit)	4	ops-off flow(doc display)	mouse on
 ops-off fonts(frit)	5	ops-off settings(first)	
@@ -2341,13 +2943,13 @@ ops-off fonts(frit)	PgDn	ops-off fonts(builtin)
 ops-off fonts(frit)	PgUp	ops-off fonts(refused)	
 ops-off fonts(frit)	Shift-Tab	ops-off help(help)	
 ops-off fonts(frit)	Shrink	ops-off any.too-small	
-ops-off fonts(frit)	Tab	ops-off effects	
+ops-off fonts(frit)	Tab	ops-off effects(filter)	
 ops-off fonts(frit)	i	ops-off fonts(frit)	prepare
 ops-off fonts(frit)	n	ops-off looks.new-frit.typing(row 0)	
 ops-off fonts(frit)	o	ops-off fonts(frit) +unsaved	check
 ops-off fonts(frit)	q	ops-off left	exit 0
 ops-off fonts(frit)	r	ops-off fonts(marked) +pending	
-ops-off fonts(frit) +pending	2	ops-off effects +pending	
+ops-off fonts(frit) +pending	2	ops-off effects(filter) +pending	
 ops-off fonts(frit) +pending	3	ops-off looks +pending	
 ops-off fonts(frit) +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off fonts(frit) +pending	5	ops-off settings(first) +pending	
@@ -2361,12 +2963,12 @@ ops-off fonts(frit) +pending	PgDn	ops-off fonts(builtin) +pending
 ops-off fonts(frit) +pending	PgUp	ops-off fonts(refused) +pending	
 ops-off fonts(frit) +pending	Shift-Tab	ops-off help(help) +pending	
 ops-off fonts(frit) +pending	Shrink	ops-off any.too-small +pending	
-ops-off fonts(frit) +pending	Tab	ops-off effects +pending	
+ops-off fonts(frit) +pending	Tab	ops-off effects(filter) +pending	
 ops-off fonts(frit) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(frit) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(frit) +pending	o	ops-off fonts(frit) +unsaved +pending	check
 ops-off fonts(frit) +pending	q	ops-off any.question.leave +pending	
-ops-off fonts(frit) +unsaved	2	ops-off effects +unsaved	
+ops-off fonts(frit) +unsaved	2	ops-off effects(filter) +unsaved	
 ops-off fonts(frit) +unsaved	3	ops-off looks +unsaved	
 ops-off fonts(frit) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(frit) +unsaved	5	ops-off settings(first) +unsaved	
@@ -2380,12 +2982,12 @@ ops-off fonts(frit) +unsaved	PgDn	ops-off fonts(builtin) +unsaved
 ops-off fonts(frit) +unsaved	PgUp	ops-off fonts(refused) +unsaved	
 ops-off fonts(frit) +unsaved	Shift-Tab	ops-off help(help) +unsaved	
 ops-off fonts(frit) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off fonts(frit) +unsaved	Tab	ops-off effects +unsaved	
+ops-off fonts(frit) +unsaved	Tab	ops-off effects(filter) +unsaved	
 ops-off fonts(frit) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off fonts(frit) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
 ops-off fonts(frit) +unsaved	o	ops-off fonts(frit) +unsaved	check
 ops-off fonts(frit) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off fonts(frit) +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off fonts(frit) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	3	ops-off looks +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off fonts(frit) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
@@ -2399,12 +3001,12 @@ ops-off fonts(frit) +unsaved +pending	PgDn	ops-off fonts(builtin) +unsaved +pend
 ops-off fonts(frit) +unsaved +pending	PgUp	ops-off fonts(refused) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off fonts(frit) +unsaved +pending	Tab	ops-off effects +unsaved +pending	
+ops-off fonts(frit) +unsaved +pending	Tab	ops-off effects(filter) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off fonts(frit) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	o	ops-off fonts(frit) +unsaved +pending	check
 ops-off fonts(frit) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off fonts(marked) +pending	2	ops-off effects +pending	
+ops-off fonts(marked) +pending	2	ops-off effects(filter) +pending	
 ops-off fonts(marked) +pending	3	ops-off looks +pending	
 ops-off fonts(marked) +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off fonts(marked) +pending	5	ops-off settings(first) +pending	
@@ -2418,14 +3020,14 @@ ops-off fonts(marked) +pending	PgDn	ops-off fonts(builtin) +pending
 ops-off fonts(marked) +pending	PgUp	ops-off fonts(refused) +pending	
 ops-off fonts(marked) +pending	Shift-Tab	ops-off help(help) +pending	
 ops-off fonts(marked) +pending	Shrink	ops-off any.too-small +pending	
-ops-off fonts(marked) +pending	Tab	ops-off effects +pending	
+ops-off fonts(marked) +pending	Tab	ops-off effects(filter) +pending	
 ops-off fonts(marked) +pending	Up	ops-off fonts(frit) +pending	
 ops-off fonts(marked) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(marked) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(marked) +pending	o	ops-off fonts(marked) +unsaved +pending	check
 ops-off fonts(marked) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(marked) +pending	r	ops-off fonts(frit)	
-ops-off fonts(marked) +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off fonts(marked) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	3	ops-off looks +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off fonts(marked) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
@@ -2439,14 +3041,14 @@ ops-off fonts(marked) +unsaved +pending	PgDn	ops-off fonts(builtin) +unsaved +pe
 ops-off fonts(marked) +unsaved +pending	PgUp	ops-off fonts(refused) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off fonts(marked) +unsaved +pending	Tab	ops-off effects +unsaved +pending	
+ops-off fonts(marked) +unsaved +pending	Tab	ops-off effects(filter) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	Up	ops-off fonts(frit) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	i	ops-off fonts(marked) +pending	save, prepare
 ops-off fonts(marked) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	o	ops-off fonts(marked) +unsaved +pending	check
 ops-off fonts(marked) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	r	ops-off fonts(frit) +unsaved	
-ops-off fonts(refused)	2	ops-off effects	
+ops-off fonts(refused)	2	ops-off effects(filter)	
 ops-off fonts(refused)	3	ops-off looks	
 ops-off fonts(refused)	4	ops-off flow(doc display)	mouse on
 ops-off fonts(refused)	5	ops-off settings(first)	
@@ -2457,13 +3059,13 @@ ops-off fonts(refused)	End	ops-off fonts(builtin)
 ops-off fonts(refused)	PgDn	ops-off fonts(builtin)	
 ops-off fonts(refused)	Shift-Tab	ops-off help(help)	
 ops-off fonts(refused)	Shrink	ops-off any.too-small	
-ops-off fonts(refused)	Tab	ops-off effects	
+ops-off fonts(refused)	Tab	ops-off effects(filter)	
 ops-off fonts(refused)	i	ops-off fonts(refused)	prepare
 ops-off fonts(refused)	n	ops-off looks.new-frit.typing(row 0)	
 ops-off fonts(refused)	o	ops-off fonts(refused) +unsaved	check
 ops-off fonts(refused)	q	ops-off left	exit 0
 ops-off fonts(refused)	r	ops-off fonts(marked) +pending	
-ops-off fonts(refused) +pending	2	ops-off effects +pending	
+ops-off fonts(refused) +pending	2	ops-off effects(filter) +pending	
 ops-off fonts(refused) +pending	3	ops-off looks +pending	
 ops-off fonts(refused) +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off fonts(refused) +pending	5	ops-off settings(first) +pending	
@@ -2474,13 +3076,13 @@ ops-off fonts(refused) +pending	End	ops-off fonts(builtin) +pending
 ops-off fonts(refused) +pending	PgDn	ops-off fonts(builtin) +pending	
 ops-off fonts(refused) +pending	Shift-Tab	ops-off help(help) +pending	
 ops-off fonts(refused) +pending	Shrink	ops-off any.too-small +pending	
-ops-off fonts(refused) +pending	Tab	ops-off effects +pending	
+ops-off fonts(refused) +pending	Tab	ops-off effects(filter) +pending	
 ops-off fonts(refused) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(refused) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(refused) +pending	o	ops-off fonts(refused) +unsaved +pending	check
 ops-off fonts(refused) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(refused) +pending	r	ops-off fonts(marked) +pending	
-ops-off fonts(refused) +unsaved	2	ops-off effects +unsaved	
+ops-off fonts(refused) +unsaved	2	ops-off effects(filter) +unsaved	
 ops-off fonts(refused) +unsaved	3	ops-off looks +unsaved	
 ops-off fonts(refused) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(refused) +unsaved	5	ops-off settings(first) +unsaved	
@@ -2491,13 +3093,13 @@ ops-off fonts(refused) +unsaved	End	ops-off fonts(builtin) +unsaved
 ops-off fonts(refused) +unsaved	PgDn	ops-off fonts(builtin) +unsaved	
 ops-off fonts(refused) +unsaved	Shift-Tab	ops-off help(help) +unsaved	
 ops-off fonts(refused) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off fonts(refused) +unsaved	Tab	ops-off effects +unsaved	
+ops-off fonts(refused) +unsaved	Tab	ops-off effects(filter) +unsaved	
 ops-off fonts(refused) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off fonts(refused) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
 ops-off fonts(refused) +unsaved	o	ops-off fonts(refused) +unsaved	check
 ops-off fonts(refused) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off fonts(refused) +unsaved	r	ops-off fonts(marked) +unsaved +pending	
-ops-off fonts(refused) +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off fonts(refused) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	3	ops-off looks +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off fonts(refused) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
@@ -2508,14 +3110,14 @@ ops-off fonts(refused) +unsaved +pending	End	ops-off fonts(builtin) +unsaved +pe
 ops-off fonts(refused) +unsaved +pending	PgDn	ops-off fonts(builtin) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off fonts(refused) +unsaved +pending	Tab	ops-off effects +unsaved +pending	
+ops-off fonts(refused) +unsaved +pending	Tab	ops-off effects(filter) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off fonts(refused) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	o	ops-off fonts(refused) +unsaved +pending	check
 ops-off fonts(refused) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	r	ops-off fonts(marked) +unsaved +pending	
 ops-off help(about)	1	ops-off fonts(builtin)	
-ops-off help(about)	2	ops-off effects	
+ops-off help(about)	2	ops-off effects(filter)	
 ops-off help(about)	3	ops-off looks	
 ops-off help(about)	4	ops-off flow(doc display)	mouse on
 ops-off help(about)	5	ops-off settings(first)	
@@ -2528,7 +3130,7 @@ ops-off help(about)	Tab	ops-off fonts(builtin)
 ops-off help(about)	o	ops-off help(about) +unsaved	check
 ops-off help(about)	q	ops-off left	exit 0
 ops-off help(about) +pending	1	ops-off fonts(marked) +pending	
-ops-off help(about) +pending	2	ops-off effects +pending	
+ops-off help(about) +pending	2	ops-off effects(filter) +pending	
 ops-off help(about) +pending	3	ops-off looks +pending	
 ops-off help(about) +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off help(about) +pending	5	ops-off settings(first) +pending	
@@ -2541,7 +3143,7 @@ ops-off help(about) +pending	Tab	ops-off fonts(marked) +pending
 ops-off help(about) +pending	o	ops-off help(about) +unsaved +pending	check
 ops-off help(about) +pending	q	ops-off any.question.leave +pending	
 ops-off help(about) +unsaved	1	ops-off fonts(builtin) +unsaved	
-ops-off help(about) +unsaved	2	ops-off effects +unsaved	
+ops-off help(about) +unsaved	2	ops-off effects(filter) +unsaved	
 ops-off help(about) +unsaved	3	ops-off looks +unsaved	
 ops-off help(about) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off help(about) +unsaved	5	ops-off settings(first) +unsaved	
@@ -2554,7 +3156,7 @@ ops-off help(about) +unsaved	Tab	ops-off fonts(builtin) +unsaved
 ops-off help(about) +unsaved	o	ops-off help(about) +unsaved	check
 ops-off help(about) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off help(about) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
-ops-off help(about) +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off help(about) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off help(about) +unsaved +pending	3	ops-off looks +unsaved +pending	
 ops-off help(about) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off help(about) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
@@ -2567,7 +3169,7 @@ ops-off help(about) +unsaved +pending	Tab	ops-off fonts(marked) +unsaved +pendin
 ops-off help(about) +unsaved +pending	o	ops-off help(about) +unsaved +pending	check
 ops-off help(about) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off help(help)	1	ops-off fonts(builtin)	
-ops-off help(help)	2	ops-off effects	
+ops-off help(help)	2	ops-off effects(filter)	
 ops-off help(help)	3	ops-off looks	
 ops-off help(help)	4	ops-off flow(doc display)	mouse on
 ops-off help(help)	5	ops-off settings(first)	
@@ -2580,7 +3182,7 @@ ops-off help(help)	Tab	ops-off fonts(builtin)
 ops-off help(help)	o	ops-off help(help) +unsaved	check
 ops-off help(help)	q	ops-off left	exit 0
 ops-off help(help) +pending	1	ops-off fonts(marked) +pending	
-ops-off help(help) +pending	2	ops-off effects +pending	
+ops-off help(help) +pending	2	ops-off effects(filter) +pending	
 ops-off help(help) +pending	3	ops-off looks +pending	
 ops-off help(help) +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off help(help) +pending	5	ops-off settings(first) +pending	
@@ -2593,7 +3195,7 @@ ops-off help(help) +pending	Tab	ops-off fonts(marked) +pending
 ops-off help(help) +pending	o	ops-off help(help) +unsaved +pending	check
 ops-off help(help) +pending	q	ops-off any.question.leave +pending	
 ops-off help(help) +unsaved	1	ops-off fonts(builtin) +unsaved	
-ops-off help(help) +unsaved	2	ops-off effects +unsaved	
+ops-off help(help) +unsaved	2	ops-off effects(filter) +unsaved	
 ops-off help(help) +unsaved	3	ops-off looks +unsaved	
 ops-off help(help) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off help(help) +unsaved	5	ops-off settings(first) +unsaved	
@@ -2606,7 +3208,7 @@ ops-off help(help) +unsaved	Tab	ops-off fonts(builtin) +unsaved
 ops-off help(help) +unsaved	o	ops-off help(help) +unsaved	check
 ops-off help(help) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off help(help) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
-ops-off help(help) +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off help(help) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off help(help) +unsaved +pending	3	ops-off looks +unsaved +pending	
 ops-off help(help) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off help(help) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
@@ -2619,39 +3221,39 @@ ops-off help(help) +unsaved +pending	Tab	ops-off fonts(marked) +unsaved +pending
 ops-off help(help) +unsaved +pending	o	ops-off help(help) +unsaved +pending	check
 ops-off help(help) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off looks	1	ops-off fonts(builtin)	
-ops-off looks	2	ops-off effects	
+ops-off looks	2	ops-off effects(filter)	
 ops-off looks	4	ops-off flow(doc display)	mouse on
 ops-off looks	5	ops-off settings(first)	
 ops-off looks	6	ops-off help(help)	
 ops-off looks	Ctrl-C	ops-off left	exit 130
 ops-off looks	Enter	ops-off looks +unsaved	check
-ops-off looks	Shift-Tab	ops-off effects	
+ops-off looks	Shift-Tab	ops-off effects(filter)	
 ops-off looks	Shrink	ops-off any.too-small	
 ops-off looks	Tab	ops-off flow(doc display)	mouse on
 ops-off looks	i	ops-off looks	prepare
 ops-off looks	o	ops-off looks +unsaved	check
 ops-off looks	q	ops-off left	exit 0
 ops-off looks +pending	1	ops-off fonts(marked) +pending	
-ops-off looks +pending	2	ops-off effects +pending	
+ops-off looks +pending	2	ops-off effects(filter) +pending	
 ops-off looks +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off looks +pending	5	ops-off settings(first) +pending	
 ops-off looks +pending	6	ops-off help(help) +pending	
 ops-off looks +pending	Ctrl-C	ops-off left	exit 130
 ops-off looks +pending	Enter	ops-off looks +unsaved +pending	check
-ops-off looks +pending	Shift-Tab	ops-off effects +pending	
+ops-off looks +pending	Shift-Tab	ops-off effects(filter) +pending	
 ops-off looks +pending	Shrink	ops-off any.too-small +pending	
 ops-off looks +pending	Tab	ops-off flow(doc display) +pending	mouse on
 ops-off looks +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off looks +pending	o	ops-off looks +unsaved +pending	check
 ops-off looks +pending	q	ops-off any.question.leave +pending	
 ops-off looks +unsaved	1	ops-off fonts(builtin) +unsaved	
-ops-off looks +unsaved	2	ops-off effects +unsaved	
+ops-off looks +unsaved	2	ops-off effects(filter) +unsaved	
 ops-off looks +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off looks +unsaved	5	ops-off settings(first) +unsaved	
 ops-off looks +unsaved	6	ops-off help(help) +unsaved	
 ops-off looks +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off looks +unsaved	Enter	ops-off looks +unsaved	check
-ops-off looks +unsaved	Shift-Tab	ops-off effects +unsaved	
+ops-off looks +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
 ops-off looks +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off looks +unsaved	Tab	ops-off flow(doc display) +unsaved	mouse on
 ops-off looks +unsaved	i	ops-off looks	save, prepare
@@ -2659,13 +3261,13 @@ ops-off looks +unsaved	o	ops-off looks +unsaved	check
 ops-off looks +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off looks +unsaved	s	ops-off looks	save
 ops-off looks +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
-ops-off looks +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off looks +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off looks +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off looks +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
 ops-off looks +unsaved +pending	6	ops-off help(help) +unsaved +pending	
 ops-off looks +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off looks +unsaved +pending	Enter	ops-off looks +unsaved +pending	check
-ops-off looks +unsaved +pending	Shift-Tab	ops-off effects +unsaved +pending	
+ops-off looks +unsaved +pending	Shift-Tab	ops-off effects(filter) +unsaved +pending	
 ops-off looks +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off looks +unsaved +pending	Tab	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off looks +unsaved +pending	i	ops-off looks +pending	save, prepare
@@ -2797,7 +3399,7 @@ ops-off looks.new-frit.typing(row 5) +unsaved +pending	Enter	ops-off looks.new-f
 ops-off looks.new-frit.typing(row 5) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
 ops-off looks.new-frit.typing(row 5) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off settings(first)	1	ops-off fonts(builtin)	
-ops-off settings(first)	2	ops-off effects	
+ops-off settings(first)	2	ops-off effects(filter)	
 ops-off settings(first)	3	ops-off looks	
 ops-off settings(first)	4	ops-off flow(doc display)	mouse on
 ops-off settings(first)	6	ops-off help(help)	
@@ -2813,7 +3415,7 @@ ops-off settings(first)	i	ops-off settings(first)	prepare
 ops-off settings(first)	o	ops-off settings(first) +unsaved	check
 ops-off settings(first)	q	ops-off left	exit 0
 ops-off settings(first) +pending	1	ops-off fonts(marked) +pending	
-ops-off settings(first) +pending	2	ops-off effects +pending	
+ops-off settings(first) +pending	2	ops-off effects(filter) +pending	
 ops-off settings(first) +pending	3	ops-off looks +pending	
 ops-off settings(first) +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off settings(first) +pending	6	ops-off help(help) +pending	
@@ -2829,7 +3431,7 @@ ops-off settings(first) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off settings(first) +pending	o	ops-off settings(first) +unsaved +pending	check
 ops-off settings(first) +pending	q	ops-off any.question.leave +pending	
 ops-off settings(first) +unsaved	1	ops-off fonts(builtin) +unsaved	
-ops-off settings(first) +unsaved	2	ops-off effects +unsaved	
+ops-off settings(first) +unsaved	2	ops-off effects(filter) +unsaved	
 ops-off settings(first) +unsaved	3	ops-off looks +unsaved	
 ops-off settings(first) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off settings(first) +unsaved	6	ops-off help(help) +unsaved	
@@ -2846,7 +3448,7 @@ ops-off settings(first) +unsaved	o	ops-off settings(first) +unsaved	check
 ops-off settings(first) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off settings(first) +unsaved	s	ops-off settings(first)	save
 ops-off settings(first) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
-ops-off settings(first) +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off settings(first) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off settings(first) +unsaved +pending	3	ops-off looks +unsaved +pending	
 ops-off settings(first) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off settings(first) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
@@ -2863,7 +3465,7 @@ ops-off settings(first) +unsaved +pending	o	ops-off settings(first) +unsaved +pe
 ops-off settings(first) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off settings(first) +unsaved +pending	s	ops-off settings(first) +pending	save
 ops-off settings(later)	1	ops-off fonts(builtin)	
-ops-off settings(later)	2	ops-off effects	
+ops-off settings(later)	2	ops-off effects(filter)	
 ops-off settings(later)	3	ops-off looks	
 ops-off settings(later)	4	ops-off flow(doc display)	mouse on
 ops-off settings(later)	6	ops-off help(help)	
@@ -2879,7 +3481,7 @@ ops-off settings(later)	i	ops-off settings(later)	prepare
 ops-off settings(later)	o	ops-off settings(later) +unsaved	check
 ops-off settings(later)	q	ops-off left	exit 0
 ops-off settings(later) +pending	1	ops-off fonts(marked) +pending	
-ops-off settings(later) +pending	2	ops-off effects +pending	
+ops-off settings(later) +pending	2	ops-off effects(filter) +pending	
 ops-off settings(later) +pending	3	ops-off looks +pending	
 ops-off settings(later) +pending	4	ops-off flow(doc display) +pending	mouse on
 ops-off settings(later) +pending	6	ops-off help(help) +pending	
@@ -2895,7 +3497,7 @@ ops-off settings(later) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off settings(later) +pending	o	ops-off settings(later) +unsaved +pending	check
 ops-off settings(later) +pending	q	ops-off any.question.leave +pending	
 ops-off settings(later) +unsaved	1	ops-off fonts(builtin) +unsaved	
-ops-off settings(later) +unsaved	2	ops-off effects +unsaved	
+ops-off settings(later) +unsaved	2	ops-off effects(filter) +unsaved	
 ops-off settings(later) +unsaved	3	ops-off looks +unsaved	
 ops-off settings(later) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off settings(later) +unsaved	6	ops-off help(help) +unsaved	
@@ -2912,7 +3514,7 @@ ops-off settings(later) +unsaved	o	ops-off settings(later) +unsaved	check
 ops-off settings(later) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off settings(later) +unsaved	s	ops-off settings(later)	save
 ops-off settings(later) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
-ops-off settings(later) +unsaved +pending	2	ops-off effects +unsaved +pending	
+ops-off settings(later) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
 ops-off settings(later) +unsaved +pending	3	ops-off looks +unsaved +pending	
 ops-off settings(later) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off settings(later) +unsaved +pending	6	ops-off help(help) +unsaved +pending	

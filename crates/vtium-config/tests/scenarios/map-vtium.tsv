@@ -9,18 +9,18 @@ vtium any.question.confirm	y	vtium flow(doc display)	restore
 vtium any.question.confirm	y	vtium flow(doc display)	revert
 vtium any.question.confirm	y	vtium flow(new empty)	new
 vtium any.question.confirm	y	vtium fonts(frit)	install
-vtium any.question.confirm +pending	Ctrl-C	vtium effects +pending	
+vtium any.question.confirm +pending	Ctrl-C	vtium effects(filter) +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium flow(doc display) +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium fonts(marked) +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium looks +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium settings(first) +pending	
-vtium any.question.confirm +pending	Esc	vtium effects +pending	
+vtium any.question.confirm +pending	Esc	vtium effects(filter) +pending	
 vtium any.question.confirm +pending	Esc	vtium flow(doc display) +pending	
 vtium any.question.confirm +pending	Esc	vtium fonts(marked) +pending	
 vtium any.question.confirm +pending	Esc	vtium looks +pending	
 vtium any.question.confirm +pending	Esc	vtium settings(first) +pending	
 vtium any.question.confirm +pending	Shrink	vtium any.question.confirm below 80×25 +pending	
-vtium any.question.confirm +pending	y	vtium effects	install
+vtium any.question.confirm +pending	y	vtium effects(filter)	install
 vtium any.question.confirm +pending	y	vtium flow(doc display)	install
 vtium any.question.confirm +pending	y	vtium flow(doc display) +pending	restore
 vtium any.question.confirm +pending	y	vtium flow(doc display) +pending	revert
@@ -66,14 +66,46 @@ vtium any.question.confirm below 80×25 +unsaved +pending	Grow	vtium any.questio
 vtium any.question.confirm below 80×25 +unsaved +pending	y	vtium any.too-small +pending	new
 vtium any.question.confirm below 80×25 +unsaved +pending	y	vtium any.too-small +pending	restore
 vtium any.question.confirm below 80×25 +unsaved +pending	y	vtium any.too-small +pending	revert
-vtium any.question.leave +pending	Ctrl-C	vtium effects +pending	
+vtium any.question.deactivate	Ctrl-C	vtium effects(color map: active, trusted, used)	
+vtium any.question.deactivate	Esc	vtium effects(color map: active, trusted, used)	
+vtium any.question.deactivate	Shrink	vtium any.question.deactivate below 80×25	
+vtium any.question.deactivate	y	vtium effects(color map: deactivates on install, trusted, used)	resource
+vtium any.question.deactivate +pending	Ctrl-C	vtium effects(color map: active, trusted, used) +pending	
+vtium any.question.deactivate +pending	Esc	vtium effects(color map: active, trusted, used) +pending	
+vtium any.question.deactivate +pending	Shrink	vtium any.question.deactivate below 80×25 +pending	
+vtium any.question.deactivate +pending	y	vtium effects(color map: deactivates on install, trusted, used) +pending	resource
+vtium any.question.deactivate +unsaved	Ctrl-C	vtium effects(color map: active, trusted, used) +unsaved	
+vtium any.question.deactivate +unsaved	Esc	vtium effects(color map: active, trusted, used) +unsaved	
+vtium any.question.deactivate +unsaved	Shrink	vtium any.question.deactivate below 80×25 +unsaved	
+vtium any.question.deactivate +unsaved	y	vtium effects(color map: deactivates on install, trusted, used) +unsaved	resource
+vtium any.question.deactivate +unsaved +pending	Ctrl-C	vtium effects(color map: active, trusted, used) +unsaved +pending	
+vtium any.question.deactivate +unsaved +pending	Esc	vtium effects(color map: active, trusted, used) +unsaved +pending	
+vtium any.question.deactivate +unsaved +pending	Shrink	vtium any.question.deactivate below 80×25 +unsaved +pending	
+vtium any.question.deactivate +unsaved +pending	y	vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	resource
+vtium any.question.deactivate below 80×25	Ctrl-C	vtium any.too-small	
+vtium any.question.deactivate below 80×25	Esc	vtium any.too-small	
+vtium any.question.deactivate below 80×25	Grow	vtium any.question.deactivate	
+vtium any.question.deactivate below 80×25	y	vtium any.too-small	resource
+vtium any.question.deactivate below 80×25 +pending	Ctrl-C	vtium any.too-small +pending	
+vtium any.question.deactivate below 80×25 +pending	Esc	vtium any.too-small +pending	
+vtium any.question.deactivate below 80×25 +pending	Grow	vtium any.question.deactivate +pending	
+vtium any.question.deactivate below 80×25 +pending	y	vtium any.too-small +pending	resource
+vtium any.question.deactivate below 80×25 +unsaved	Ctrl-C	vtium any.too-small +unsaved	
+vtium any.question.deactivate below 80×25 +unsaved	Esc	vtium any.too-small +unsaved	
+vtium any.question.deactivate below 80×25 +unsaved	Grow	vtium any.question.deactivate +unsaved	
+vtium any.question.deactivate below 80×25 +unsaved	y	vtium any.too-small +unsaved	resource
+vtium any.question.deactivate below 80×25 +unsaved +pending	Ctrl-C	vtium any.too-small +unsaved +pending	
+vtium any.question.deactivate below 80×25 +unsaved +pending	Esc	vtium any.too-small +unsaved +pending	
+vtium any.question.deactivate below 80×25 +unsaved +pending	Grow	vtium any.question.deactivate +unsaved +pending	
+vtium any.question.deactivate below 80×25 +unsaved +pending	y	vtium any.too-small +unsaved +pending	resource
+vtium any.question.leave +pending	Ctrl-C	vtium effects(filter) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium flow(doc display) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium fonts(marked) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium help(help) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium looks +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium looks.new-frit(row 6) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium settings(first) +pending	
-vtium any.question.leave +pending	Esc	vtium effects +pending	
+vtium any.question.leave +pending	Esc	vtium effects(filter) +pending	
 vtium any.question.leave +pending	Esc	vtium flow(doc display) +pending	
 vtium any.question.leave +pending	Esc	vtium fonts(marked) +pending	
 vtium any.question.leave +pending	Esc	vtium help(help) +pending	
@@ -85,14 +117,14 @@ vtium any.question.leave +pending	n	vtium left	exit 0
 vtium any.question.leave +pending	n	vtium left	mouse off, exit 0
 vtium any.question.leave +pending	y	vtium left	prepare, install, exit 0
 vtium any.question.leave +pending	y	vtium left	prepare, install, mouse off, exit 0
-vtium any.question.leave +unsaved +pending	Ctrl-C	vtium effects +unsaved +pending	
+vtium any.question.leave +unsaved +pending	Ctrl-C	vtium effects(filter) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium flow(doc display) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium fonts(marked) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium help(help) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks.new-frit(row 6) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium settings(first) +unsaved +pending	
-vtium any.question.leave +unsaved +pending	Esc	vtium effects +unsaved +pending	
+vtium any.question.leave +unsaved +pending	Esc	vtium effects(filter) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium flow(doc display) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium fonts(marked) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium help(help) +unsaved +pending	
@@ -102,7 +134,7 @@ vtium any.question.leave +unsaved +pending	Esc	vtium settings(first) +unsaved +p
 vtium any.question.leave +unsaved +pending	Shrink	vtium any.question.leave below 80×25 +unsaved +pending	
 vtium any.question.leave +unsaved +pending	n	vtium left	save, exit 0
 vtium any.question.leave +unsaved +pending	n	vtium left	save, mouse off, exit 0
-vtium any.question.leave +unsaved +pending	y	vtium effects +pending	save, prepare
+vtium any.question.leave +unsaved +pending	y	vtium effects(filter) +pending	save, prepare
 vtium any.question.leave +unsaved +pending	y	vtium flow(doc display) +pending	save, prepare
 vtium any.question.leave +unsaved +pending	y	vtium fonts(marked) +pending	save, prepare
 vtium any.question.leave +unsaved +pending	y	vtium help(help) +pending	save, prepare
@@ -119,14 +151,14 @@ vtium any.question.leave below 80×25 +unsaved +pending	Esc	vtium any.too-small 
 vtium any.question.leave below 80×25 +unsaved +pending	Grow	vtium any.question.leave +unsaved +pending	
 vtium any.question.leave below 80×25 +unsaved +pending	n	vtium left	save, exit 0
 vtium any.question.leave below 80×25 +unsaved +pending	y	vtium any.too-small +pending	save, prepare
-vtium any.question.quit +unsaved	Ctrl-C	vtium effects +unsaved	
+vtium any.question.quit +unsaved	Ctrl-C	vtium effects(filter) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium flow(doc display) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium fonts(builtin) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium help(help) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium looks +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium looks.new-frit(row 6) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium settings(first) +unsaved	
-vtium any.question.quit +unsaved	Esc	vtium effects +unsaved	
+vtium any.question.quit +unsaved	Esc	vtium effects(filter) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium flow(doc display) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium fonts(builtin) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium help(help) +unsaved	
@@ -571,59 +603,629 @@ vtium any.trial below 80×25 +unsaved +pending	w	vtium any.too-small +unsaved +p
 vtium any.trial below 80×25 +unsaved +pending	x	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	y	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	z	vtium any.too-small +unsaved +pending	switch
-vtium effects	1	vtium fonts(builtin)	
-vtium effects	3	vtium looks	
-vtium effects	4	vtium flow(doc display)	mouse on
-vtium effects	5	vtium settings(first)	
-vtium effects	6	vtium help(help)	
-vtium effects	Ctrl-C	vtium left	exit 130
-vtium effects	Shift-Tab	vtium fonts(builtin)	
-vtium effects	Shrink	vtium any.too-small	
-vtium effects	Tab	vtium looks	
-vtium effects	i	vtium effects	prepare
-vtium effects	q	vtium left	exit 0
-vtium effects +pending	1	vtium fonts(marked) +pending	
-vtium effects +pending	3	vtium looks +pending	
-vtium effects +pending	4	vtium flow(doc display) +pending	mouse on
-vtium effects +pending	5	vtium settings(first) +pending	
-vtium effects +pending	6	vtium help(help) +pending	
-vtium effects +pending	Ctrl-C	vtium left	exit 130
-vtium effects +pending	Shift-Tab	vtium fonts(marked) +pending	
-vtium effects +pending	Shrink	vtium any.too-small +pending	
-vtium effects +pending	Tab	vtium looks +pending	
-vtium effects +pending	i	vtium any.question.confirm +pending	prepare
-vtium effects +pending	q	vtium any.question.leave +pending	
-vtium effects +unsaved	1	vtium fonts(builtin) +unsaved	
-vtium effects +unsaved	3	vtium looks +unsaved	
-vtium effects +unsaved	4	vtium flow(doc display) +unsaved	mouse on
-vtium effects +unsaved	5	vtium settings(first) +unsaved	
-vtium effects +unsaved	6	vtium help(help) +unsaved	
-vtium effects +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium effects +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
-vtium effects +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium effects +unsaved	Tab	vtium looks +unsaved	
-vtium effects +unsaved	i	vtium effects	save, prepare
-vtium effects +unsaved	q	vtium any.question.quit +unsaved	
-vtium effects +unsaved	s	vtium effects	save
-vtium effects +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
-vtium effects +unsaved +pending	3	vtium looks +unsaved +pending	
-vtium effects +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
-vtium effects +unsaved +pending	5	vtium settings(first) +unsaved +pending	
-vtium effects +unsaved +pending	6	vtium help(help) +unsaved +pending	
-vtium effects +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium effects +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
-vtium effects +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium effects +unsaved +pending	Tab	vtium looks +unsaved +pending	
-vtium effects +unsaved +pending	i	vtium effects +pending	save, prepare
-vtium effects +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
-vtium effects +unsaved +pending	s	vtium effects +pending	save
+vtium effects(color map: activates on install, trusted)	1	vtium fonts(builtin)	
+vtium effects(color map: activates on install, trusted)	3	vtium looks	
+vtium effects(color map: activates on install, trusted)	4	vtium flow(doc display)	mouse on
+vtium effects(color map: activates on install, trusted)	5	vtium settings(first)	
+vtium effects(color map: activates on install, trusted)	6	vtium help(help)	
+vtium effects(color map: activates on install, trusted)	Ctrl-C	vtium left	exit 130
+vtium effects(color map: activates on install, trusted)	Down	vtium effects(color map: not active, fails the trust rule)	
+vtium effects(color map: activates on install, trusted)	End	vtium effects(color map: not usable)	
+vtium effects(color map: activates on install, trusted)	Enter	vtium effects.effect	
+vtium effects(color map: activates on install, trusted)	Home	vtium effects(filter)	
+vtium effects(color map: activates on install, trusted)	PgDn	vtium effects(color map: not usable)	
+vtium effects(color map: activates on install, trusted)	PgUp	vtium effects(filter)	
+vtium effects(color map: activates on install, trusted)	Shift-Tab	vtium fonts(builtin)	
+vtium effects(color map: activates on install, trusted)	Shrink	vtium any.too-small	
+vtium effects(color map: activates on install, trusted)	Space	vtium effects(color map: not active, trusted)	resource
+vtium effects(color map: activates on install, trusted)	Tab	vtium looks	
+vtium effects(color map: activates on install, trusted)	Up	vtium effects(color map: active, trusted, used)	
+vtium effects(color map: activates on install, trusted)	i	vtium effects(color map: activates on install, trusted)	prepare
+vtium effects(color map: activates on install, trusted)	q	vtium left	exit 0
+vtium effects(color map: activates on install, trusted) +pending	1	vtium fonts(marked) +pending	
+vtium effects(color map: activates on install, trusted) +pending	3	vtium looks +pending	
+vtium effects(color map: activates on install, trusted) +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects(color map: activates on install, trusted) +pending	5	vtium settings(first) +pending	
+vtium effects(color map: activates on install, trusted) +pending	6	vtium help(help) +pending	
+vtium effects(color map: activates on install, trusted) +pending	Ctrl-C	vtium left	exit 130
+vtium effects(color map: activates on install, trusted) +pending	Down	vtium effects(color map: not active, fails the trust rule) +pending	
+vtium effects(color map: activates on install, trusted) +pending	End	vtium effects(color map: not usable) +pending	
+vtium effects(color map: activates on install, trusted) +pending	Enter	vtium effects.effect +pending	
+vtium effects(color map: activates on install, trusted) +pending	Home	vtium effects(filter) +pending	
+vtium effects(color map: activates on install, trusted) +pending	PgDn	vtium effects(color map: not usable) +pending	
+vtium effects(color map: activates on install, trusted) +pending	PgUp	vtium effects(filter) +pending	
+vtium effects(color map: activates on install, trusted) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects(color map: activates on install, trusted) +pending	Shrink	vtium any.too-small +pending	
+vtium effects(color map: activates on install, trusted) +pending	Space	vtium effects(color map: not active, trusted) +pending	resource
+vtium effects(color map: activates on install, trusted) +pending	Tab	vtium looks +pending	
+vtium effects(color map: activates on install, trusted) +pending	Up	vtium effects(color map: active, trusted, used) +pending	
+vtium effects(color map: activates on install, trusted) +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects(color map: activates on install, trusted) +pending	q	vtium any.question.leave +pending	
+vtium effects(color map: activates on install, trusted) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	3	vtium looks +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects(color map: activates on install, trusted) +unsaved	5	vtium settings(first) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	6	vtium help(help) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: activates on install, trusted) +unsaved	Down	vtium effects(color map: not active, fails the trust rule) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	End	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	Enter	vtium effects.effect +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	Home	vtium effects(filter) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	PgDn	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	PgUp	vtium effects(filter) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	Space	vtium effects(color map: not active, trusted) +unsaved	resource
+vtium effects(color map: activates on install, trusted) +unsaved	Tab	vtium looks +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	Up	vtium effects(color map: active, trusted, used) +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	i	vtium effects(color map: activates on install, trusted)	save, prepare
+vtium effects(color map: activates on install, trusted) +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects(color map: activates on install, trusted) +unsaved	s	vtium effects(color map: activates on install, trusted)	save
+vtium effects(color map: activates on install, trusted) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects(color map: activates on install, trusted) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Down	vtium effects(color map: not active, fails the trust rule) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	End	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Enter	vtium effects.effect +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Home	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	PgDn	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	PgUp	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Space	vtium effects(color map: not active, trusted) +unsaved +pending	resource
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	Up	vtium effects(color map: active, trusted, used) +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	i	vtium effects(color map: activates on install, trusted) +pending	save, prepare
+vtium effects(color map: activates on install, trusted) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects(color map: activates on install, trusted) +unsaved +pending	s	vtium effects(color map: activates on install, trusted) +pending	save
+vtium effects(color map: active, trusted, used)	1	vtium fonts(builtin)	
+vtium effects(color map: active, trusted, used)	3	vtium looks	
+vtium effects(color map: active, trusted, used)	4	vtium flow(doc display)	mouse on
+vtium effects(color map: active, trusted, used)	5	vtium settings(first)	
+vtium effects(color map: active, trusted, used)	6	vtium help(help)	
+vtium effects(color map: active, trusted, used)	Ctrl-C	vtium left	exit 130
+vtium effects(color map: active, trusted, used)	Down	vtium effects(color map: not active, trusted)	
+vtium effects(color map: active, trusted, used)	End	vtium effects(color map: not usable)	
+vtium effects(color map: active, trusted, used)	Enter	vtium effects.effect	
+vtium effects(color map: active, trusted, used)	Home	vtium effects(filter)	
+vtium effects(color map: active, trusted, used)	PgDn	vtium effects(color map: not usable)	
+vtium effects(color map: active, trusted, used)	PgUp	vtium effects(filter)	
+vtium effects(color map: active, trusted, used)	Shift-Tab	vtium fonts(builtin)	
+vtium effects(color map: active, trusted, used)	Shrink	vtium any.too-small	
+vtium effects(color map: active, trusted, used)	Space	vtium any.question.deactivate	
+vtium effects(color map: active, trusted, used)	Tab	vtium looks	
+vtium effects(color map: active, trusted, used)	Up	vtium effects(vtlook)	
+vtium effects(color map: active, trusted, used)	i	vtium effects(color map: active, trusted, used)	prepare
+vtium effects(color map: active, trusted, used)	q	vtium left	exit 0
+vtium effects(color map: active, trusted, used) +pending	1	vtium fonts(marked) +pending	
+vtium effects(color map: active, trusted, used) +pending	3	vtium looks +pending	
+vtium effects(color map: active, trusted, used) +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects(color map: active, trusted, used) +pending	5	vtium settings(first) +pending	
+vtium effects(color map: active, trusted, used) +pending	6	vtium help(help) +pending	
+vtium effects(color map: active, trusted, used) +pending	Ctrl-C	vtium left	exit 130
+vtium effects(color map: active, trusted, used) +pending	Down	vtium effects(color map: not active, trusted) +pending	
+vtium effects(color map: active, trusted, used) +pending	End	vtium effects(color map: not usable) +pending	
+vtium effects(color map: active, trusted, used) +pending	Enter	vtium effects.effect +pending	
+vtium effects(color map: active, trusted, used) +pending	Home	vtium effects(filter) +pending	
+vtium effects(color map: active, trusted, used) +pending	PgDn	vtium effects(color map: not usable) +pending	
+vtium effects(color map: active, trusted, used) +pending	PgUp	vtium effects(filter) +pending	
+vtium effects(color map: active, trusted, used) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects(color map: active, trusted, used) +pending	Shrink	vtium any.too-small +pending	
+vtium effects(color map: active, trusted, used) +pending	Space	vtium any.question.deactivate +pending	
+vtium effects(color map: active, trusted, used) +pending	Tab	vtium looks +pending	
+vtium effects(color map: active, trusted, used) +pending	Up	vtium effects(vtlook) +pending	
+vtium effects(color map: active, trusted, used) +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects(color map: active, trusted, used) +pending	q	vtium any.question.leave +pending	
+vtium effects(color map: active, trusted, used) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	3	vtium looks +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects(color map: active, trusted, used) +unsaved	5	vtium settings(first) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	6	vtium help(help) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: active, trusted, used) +unsaved	Down	vtium effects(color map: not active, trusted) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	End	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	Enter	vtium effects.effect +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	Home	vtium effects(filter) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	PgDn	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	PgUp	vtium effects(filter) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	Space	vtium any.question.deactivate +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	Tab	vtium looks +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	Up	vtium effects(vtlook) +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	i	vtium effects(color map: active, trusted, used)	save, prepare
+vtium effects(color map: active, trusted, used) +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects(color map: active, trusted, used) +unsaved	s	vtium effects(color map: active, trusted, used)	save
+vtium effects(color map: active, trusted, used) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects(color map: active, trusted, used) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: active, trusted, used) +unsaved +pending	Down	vtium effects(color map: not active, trusted) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	End	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	Enter	vtium effects.effect +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	Home	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	PgDn	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	PgUp	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	Space	vtium any.question.deactivate +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	Up	vtium effects(vtlook) +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	i	vtium effects(color map: active, trusted, used) +pending	save, prepare
+vtium effects(color map: active, trusted, used) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects(color map: active, trusted, used) +unsaved +pending	s	vtium effects(color map: active, trusted, used) +pending	save
+vtium effects(color map: deactivates on install, trusted, used)	1	vtium fonts(builtin)	
+vtium effects(color map: deactivates on install, trusted, used)	3	vtium looks	
+vtium effects(color map: deactivates on install, trusted, used)	4	vtium flow(doc display)	mouse on
+vtium effects(color map: deactivates on install, trusted, used)	5	vtium settings(first)	
+vtium effects(color map: deactivates on install, trusted, used)	6	vtium help(help)	
+vtium effects(color map: deactivates on install, trusted, used)	Ctrl-C	vtium left	exit 130
+vtium effects(color map: deactivates on install, trusted, used)	Down	vtium effects(color map: not active, trusted)	
+vtium effects(color map: deactivates on install, trusted, used)	End	vtium effects(color map: not usable)	
+vtium effects(color map: deactivates on install, trusted, used)	Enter	vtium effects.effect	
+vtium effects(color map: deactivates on install, trusted, used)	Home	vtium effects(filter)	
+vtium effects(color map: deactivates on install, trusted, used)	PgDn	vtium effects(color map: not usable)	
+vtium effects(color map: deactivates on install, trusted, used)	PgUp	vtium effects(filter)	
+vtium effects(color map: deactivates on install, trusted, used)	Shift-Tab	vtium fonts(builtin)	
+vtium effects(color map: deactivates on install, trusted, used)	Shrink	vtium any.too-small	
+vtium effects(color map: deactivates on install, trusted, used)	Space	vtium effects(color map: active, trusted, used)	resource
+vtium effects(color map: deactivates on install, trusted, used)	Tab	vtium looks	
+vtium effects(color map: deactivates on install, trusted, used)	Up	vtium effects(vtlook)	
+vtium effects(color map: deactivates on install, trusted, used)	i	vtium effects(color map: deactivates on install, trusted, used)	prepare
+vtium effects(color map: deactivates on install, trusted, used)	q	vtium left	exit 0
+vtium effects(color map: deactivates on install, trusted, used) +pending	1	vtium fonts(marked) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	3	vtium looks +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects(color map: deactivates on install, trusted, used) +pending	5	vtium settings(first) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	6	vtium help(help) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	Ctrl-C	vtium left	exit 130
+vtium effects(color map: deactivates on install, trusted, used) +pending	Down	vtium effects(color map: not active, trusted) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	End	vtium effects(color map: not usable) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	Enter	vtium effects.effect +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	Home	vtium effects(filter) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	PgDn	vtium effects(color map: not usable) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	PgUp	vtium effects(filter) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	Shrink	vtium any.too-small +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	Space	vtium effects(color map: active, trusted, used) +pending	resource
+vtium effects(color map: deactivates on install, trusted, used) +pending	Tab	vtium looks +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	Up	vtium effects(vtlook) +pending	
+vtium effects(color map: deactivates on install, trusted, used) +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects(color map: deactivates on install, trusted, used) +pending	q	vtium any.question.leave +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	3	vtium looks +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	5	vtium settings(first) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	6	vtium help(help) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Down	vtium effects(color map: not active, trusted) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	End	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Enter	vtium effects.effect +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Home	vtium effects(filter) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	PgDn	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	PgUp	vtium effects(filter) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Space	vtium effects(color map: active, trusted, used) +unsaved	resource
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Tab	vtium looks +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	Up	vtium effects(vtlook) +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	i	vtium effects(color map: deactivates on install, trusted, used)	save, prepare
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved	s	vtium effects(color map: deactivates on install, trusted, used)	save
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Down	vtium effects(color map: not active, trusted) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	End	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Enter	vtium effects.effect +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Home	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	PgDn	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	PgUp	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Space	vtium effects(color map: active, trusted, used) +unsaved +pending	resource
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	Up	vtium effects(vtlook) +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	i	vtium effects(color map: deactivates on install, trusted, used) +pending	save, prepare
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects(color map: deactivates on install, trusted, used) +unsaved +pending	s	vtium effects(color map: deactivates on install, trusted, used) +pending	save
+vtium effects(color map: not active, fails the trust rule)	1	vtium fonts(builtin)	
+vtium effects(color map: not active, fails the trust rule)	3	vtium looks	
+vtium effects(color map: not active, fails the trust rule)	4	vtium flow(doc display)	mouse on
+vtium effects(color map: not active, fails the trust rule)	5	vtium settings(first)	
+vtium effects(color map: not active, fails the trust rule)	6	vtium help(help)	
+vtium effects(color map: not active, fails the trust rule)	Ctrl-C	vtium left	exit 130
+vtium effects(color map: not active, fails the trust rule)	Down	vtium effects(color map: not usable)	
+vtium effects(color map: not active, fails the trust rule)	End	vtium effects(color map: not usable)	
+vtium effects(color map: not active, fails the trust rule)	Enter	vtium effects.effect	
+vtium effects(color map: not active, fails the trust rule)	Home	vtium effects(filter)	
+vtium effects(color map: not active, fails the trust rule)	PgDn	vtium effects(color map: not usable)	
+vtium effects(color map: not active, fails the trust rule)	PgUp	vtium effects(filter)	
+vtium effects(color map: not active, fails the trust rule)	Shift-Tab	vtium fonts(builtin)	
+vtium effects(color map: not active, fails the trust rule)	Shrink	vtium any.too-small	
+vtium effects(color map: not active, fails the trust rule)	Tab	vtium looks	
+vtium effects(color map: not active, fails the trust rule)	Up	vtium effects(color map: not active, trusted)	
+vtium effects(color map: not active, fails the trust rule)	i	vtium effects(color map: not active, fails the trust rule)	prepare
+vtium effects(color map: not active, fails the trust rule)	q	vtium left	exit 0
+vtium effects(color map: not active, fails the trust rule) +pending	1	vtium fonts(marked) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	3	vtium looks +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects(color map: not active, fails the trust rule) +pending	5	vtium settings(first) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	6	vtium help(help) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	Ctrl-C	vtium left	exit 130
+vtium effects(color map: not active, fails the trust rule) +pending	Down	vtium effects(color map: not usable) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	End	vtium effects(color map: not usable) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	Enter	vtium effects.effect +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	Home	vtium effects(filter) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	PgDn	vtium effects(color map: not usable) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	PgUp	vtium effects(filter) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	Shrink	vtium any.too-small +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	Tab	vtium looks +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	Up	vtium effects(color map: not active, trusted) +pending	
+vtium effects(color map: not active, fails the trust rule) +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects(color map: not active, fails the trust rule) +pending	q	vtium any.question.leave +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	3	vtium looks +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects(color map: not active, fails the trust rule) +unsaved	5	vtium settings(first) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	6	vtium help(help) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: not active, fails the trust rule) +unsaved	Down	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	End	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	Enter	vtium effects.effect +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	Home	vtium effects(filter) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	PgDn	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	PgUp	vtium effects(filter) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	Tab	vtium looks +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	Up	vtium effects(color map: not active, trusted) +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	i	vtium effects(color map: not active, fails the trust rule)	save, prepare
+vtium effects(color map: not active, fails the trust rule) +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects(color map: not active, fails the trust rule) +unsaved	s	vtium effects(color map: not active, fails the trust rule)	save
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	Down	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	End	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	Enter	vtium effects.effect +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	Home	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	PgDn	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	PgUp	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	Up	vtium effects(color map: not active, trusted) +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	i	vtium effects(color map: not active, fails the trust rule) +pending	save, prepare
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects(color map: not active, fails the trust rule) +unsaved +pending	s	vtium effects(color map: not active, fails the trust rule) +pending	save
+vtium effects(color map: not active, trusted)	1	vtium fonts(builtin)	
+vtium effects(color map: not active, trusted)	3	vtium looks	
+vtium effects(color map: not active, trusted)	4	vtium flow(doc display)	mouse on
+vtium effects(color map: not active, trusted)	5	vtium settings(first)	
+vtium effects(color map: not active, trusted)	6	vtium help(help)	
+vtium effects(color map: not active, trusted)	Ctrl-C	vtium left	exit 130
+vtium effects(color map: not active, trusted)	Down	vtium effects(color map: not active, fails the trust rule)	
+vtium effects(color map: not active, trusted)	End	vtium effects(color map: not usable)	
+vtium effects(color map: not active, trusted)	Enter	vtium effects.effect	
+vtium effects(color map: not active, trusted)	Home	vtium effects(filter)	
+vtium effects(color map: not active, trusted)	PgDn	vtium effects(color map: not usable)	
+vtium effects(color map: not active, trusted)	PgUp	vtium effects(filter)	
+vtium effects(color map: not active, trusted)	Shift-Tab	vtium fonts(builtin)	
+vtium effects(color map: not active, trusted)	Shrink	vtium any.too-small	
+vtium effects(color map: not active, trusted)	Space	vtium effects(color map: activates on install, trusted)	resource
+vtium effects(color map: not active, trusted)	Tab	vtium looks	
+vtium effects(color map: not active, trusted)	Up	vtium effects(color map: active, trusted, used)	
+vtium effects(color map: not active, trusted)	i	vtium effects(color map: not active, trusted)	prepare
+vtium effects(color map: not active, trusted)	q	vtium left	exit 0
+vtium effects(color map: not active, trusted) +pending	1	vtium fonts(marked) +pending	
+vtium effects(color map: not active, trusted) +pending	3	vtium looks +pending	
+vtium effects(color map: not active, trusted) +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects(color map: not active, trusted) +pending	5	vtium settings(first) +pending	
+vtium effects(color map: not active, trusted) +pending	6	vtium help(help) +pending	
+vtium effects(color map: not active, trusted) +pending	Ctrl-C	vtium left	exit 130
+vtium effects(color map: not active, trusted) +pending	Down	vtium effects(color map: not active, fails the trust rule) +pending	
+vtium effects(color map: not active, trusted) +pending	End	vtium effects(color map: not usable) +pending	
+vtium effects(color map: not active, trusted) +pending	Enter	vtium effects.effect +pending	
+vtium effects(color map: not active, trusted) +pending	Home	vtium effects(filter) +pending	
+vtium effects(color map: not active, trusted) +pending	PgDn	vtium effects(color map: not usable) +pending	
+vtium effects(color map: not active, trusted) +pending	PgUp	vtium effects(filter) +pending	
+vtium effects(color map: not active, trusted) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects(color map: not active, trusted) +pending	Shrink	vtium any.too-small +pending	
+vtium effects(color map: not active, trusted) +pending	Space	vtium effects(color map: activates on install, trusted) +pending	resource
+vtium effects(color map: not active, trusted) +pending	Tab	vtium looks +pending	
+vtium effects(color map: not active, trusted) +pending	Up	vtium effects(color map: active, trusted, used) +pending	
+vtium effects(color map: not active, trusted) +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects(color map: not active, trusted) +pending	q	vtium any.question.leave +pending	
+vtium effects(color map: not active, trusted) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	3	vtium looks +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects(color map: not active, trusted) +unsaved	5	vtium settings(first) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	6	vtium help(help) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: not active, trusted) +unsaved	Down	vtium effects(color map: not active, fails the trust rule) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	End	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	Enter	vtium effects.effect +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	Home	vtium effects(filter) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	PgDn	vtium effects(color map: not usable) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	PgUp	vtium effects(filter) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	Space	vtium effects(color map: activates on install, trusted) +unsaved	resource
+vtium effects(color map: not active, trusted) +unsaved	Tab	vtium looks +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	Up	vtium effects(color map: active, trusted, used) +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	i	vtium effects(color map: not active, trusted)	save, prepare
+vtium effects(color map: not active, trusted) +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects(color map: not active, trusted) +unsaved	s	vtium effects(color map: not active, trusted)	save
+vtium effects(color map: not active, trusted) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects(color map: not active, trusted) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: not active, trusted) +unsaved +pending	Down	vtium effects(color map: not active, fails the trust rule) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	End	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	Enter	vtium effects.effect +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	Home	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	PgDn	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	PgUp	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	Space	vtium effects(color map: activates on install, trusted) +unsaved +pending	resource
+vtium effects(color map: not active, trusted) +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	Up	vtium effects(color map: active, trusted, used) +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	i	vtium effects(color map: not active, trusted) +pending	save, prepare
+vtium effects(color map: not active, trusted) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects(color map: not active, trusted) +unsaved +pending	s	vtium effects(color map: not active, trusted) +pending	save
+vtium effects(color map: not usable)	1	vtium fonts(builtin)	
+vtium effects(color map: not usable)	3	vtium looks	
+vtium effects(color map: not usable)	4	vtium flow(doc display)	mouse on
+vtium effects(color map: not usable)	5	vtium settings(first)	
+vtium effects(color map: not usable)	6	vtium help(help)	
+vtium effects(color map: not usable)	Ctrl-C	vtium left	exit 130
+vtium effects(color map: not usable)	Enter	vtium effects.effect	
+vtium effects(color map: not usable)	Home	vtium effects(filter)	
+vtium effects(color map: not usable)	PgUp	vtium effects(filter)	
+vtium effects(color map: not usable)	Shift-Tab	vtium fonts(builtin)	
+vtium effects(color map: not usable)	Shrink	vtium any.too-small	
+vtium effects(color map: not usable)	Tab	vtium looks	
+vtium effects(color map: not usable)	Up	vtium effects(color map: not active, fails the trust rule)	
+vtium effects(color map: not usable)	i	vtium effects(color map: not usable)	prepare
+vtium effects(color map: not usable)	q	vtium left	exit 0
+vtium effects(color map: not usable) +pending	1	vtium fonts(marked) +pending	
+vtium effects(color map: not usable) +pending	3	vtium looks +pending	
+vtium effects(color map: not usable) +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects(color map: not usable) +pending	5	vtium settings(first) +pending	
+vtium effects(color map: not usable) +pending	6	vtium help(help) +pending	
+vtium effects(color map: not usable) +pending	Ctrl-C	vtium left	exit 130
+vtium effects(color map: not usable) +pending	Enter	vtium effects.effect +pending	
+vtium effects(color map: not usable) +pending	Home	vtium effects(filter) +pending	
+vtium effects(color map: not usable) +pending	PgUp	vtium effects(filter) +pending	
+vtium effects(color map: not usable) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects(color map: not usable) +pending	Shrink	vtium any.too-small +pending	
+vtium effects(color map: not usable) +pending	Tab	vtium looks +pending	
+vtium effects(color map: not usable) +pending	Up	vtium effects(color map: not active, fails the trust rule) +pending	
+vtium effects(color map: not usable) +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects(color map: not usable) +pending	q	vtium any.question.leave +pending	
+vtium effects(color map: not usable) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects(color map: not usable) +unsaved	3	vtium looks +unsaved	
+vtium effects(color map: not usable) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects(color map: not usable) +unsaved	5	vtium settings(first) +unsaved	
+vtium effects(color map: not usable) +unsaved	6	vtium help(help) +unsaved	
+vtium effects(color map: not usable) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: not usable) +unsaved	Enter	vtium effects.effect +unsaved	
+vtium effects(color map: not usable) +unsaved	Home	vtium effects(filter) +unsaved	
+vtium effects(color map: not usable) +unsaved	PgUp	vtium effects(filter) +unsaved	
+vtium effects(color map: not usable) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects(color map: not usable) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects(color map: not usable) +unsaved	Tab	vtium looks +unsaved	
+vtium effects(color map: not usable) +unsaved	Up	vtium effects(color map: not active, fails the trust rule) +unsaved	
+vtium effects(color map: not usable) +unsaved	i	vtium effects(color map: not usable)	save, prepare
+vtium effects(color map: not usable) +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects(color map: not usable) +unsaved	s	vtium effects(color map: not usable)	save
+vtium effects(color map: not usable) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects(color map: not usable) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects(color map: not usable) +unsaved +pending	Enter	vtium effects.effect +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	Home	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	PgUp	vtium effects(filter) +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	Up	vtium effects(color map: not active, fails the trust rule) +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	i	vtium effects(color map: not usable) +pending	save, prepare
+vtium effects(color map: not usable) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects(color map: not usable) +unsaved +pending	s	vtium effects(color map: not usable) +pending	save
+vtium effects(filter)	1	vtium fonts(builtin)	
+vtium effects(filter)	3	vtium looks	
+vtium effects(filter)	4	vtium flow(doc display)	mouse on
+vtium effects(filter)	5	vtium settings(first)	
+vtium effects(filter)	6	vtium help(help)	
+vtium effects(filter)	Ctrl-C	vtium left	exit 130
+vtium effects(filter)	Down	vtium effects(vtlook)	
+vtium effects(filter)	End	vtium effects(color map: not usable)	
+vtium effects(filter)	Enter	vtium effects.filter	
+vtium effects(filter)	PgDn	vtium effects(color map: not usable)	
+vtium effects(filter)	Shift-Tab	vtium fonts(builtin)	
+vtium effects(filter)	Shrink	vtium any.too-small	
+vtium effects(filter)	Tab	vtium looks	
+vtium effects(filter)	i	vtium effects(filter)	prepare
+vtium effects(filter)	q	vtium left	exit 0
+vtium effects(filter) +pending	1	vtium fonts(marked) +pending	
+vtium effects(filter) +pending	3	vtium looks +pending	
+vtium effects(filter) +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects(filter) +pending	5	vtium settings(first) +pending	
+vtium effects(filter) +pending	6	vtium help(help) +pending	
+vtium effects(filter) +pending	Ctrl-C	vtium left	exit 130
+vtium effects(filter) +pending	Down	vtium effects(vtlook) +pending	
+vtium effects(filter) +pending	End	vtium effects(color map: not usable) +pending	
+vtium effects(filter) +pending	Enter	vtium effects.filter +pending	
+vtium effects(filter) +pending	PgDn	vtium effects(color map: not usable) +pending	
+vtium effects(filter) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects(filter) +pending	Shrink	vtium any.too-small +pending	
+vtium effects(filter) +pending	Tab	vtium looks +pending	
+vtium effects(filter) +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects(filter) +pending	q	vtium any.question.leave +pending	
+vtium effects(filter) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects(filter) +unsaved	3	vtium looks +unsaved	
+vtium effects(filter) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects(filter) +unsaved	5	vtium settings(first) +unsaved	
+vtium effects(filter) +unsaved	6	vtium help(help) +unsaved	
+vtium effects(filter) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects(filter) +unsaved	Down	vtium effects(vtlook) +unsaved	
+vtium effects(filter) +unsaved	End	vtium effects(color map: not usable) +unsaved	
+vtium effects(filter) +unsaved	Enter	vtium effects.filter +unsaved	
+vtium effects(filter) +unsaved	PgDn	vtium effects(color map: not usable) +unsaved	
+vtium effects(filter) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects(filter) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects(filter) +unsaved	Tab	vtium looks +unsaved	
+vtium effects(filter) +unsaved	i	vtium effects(filter)	save, prepare
+vtium effects(filter) +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects(filter) +unsaved	s	vtium effects(filter)	save
+vtium effects(filter) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects(filter) +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects(filter) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects(filter) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects(filter) +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects(filter) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects(filter) +unsaved +pending	Down	vtium effects(vtlook) +unsaved +pending	
+vtium effects(filter) +unsaved +pending	End	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(filter) +unsaved +pending	Enter	vtium effects.filter +unsaved +pending	
+vtium effects(filter) +unsaved +pending	PgDn	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(filter) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects(filter) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects(filter) +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects(filter) +unsaved +pending	i	vtium effects(filter) +pending	save, prepare
+vtium effects(filter) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects(filter) +unsaved +pending	s	vtium effects(filter) +pending	save
+vtium effects(vtlook)	1	vtium fonts(builtin)	
+vtium effects(vtlook)	3	vtium looks	
+vtium effects(vtlook)	4	vtium flow(doc display)	mouse on
+vtium effects(vtlook)	5	vtium settings(first)	
+vtium effects(vtlook)	6	vtium help(help)	
+vtium effects(vtlook)	Ctrl-C	vtium left	exit 130
+vtium effects(vtlook)	End	vtium effects(color map: not usable)	
+vtium effects(vtlook)	Enter	vtium effects.effect	
+vtium effects(vtlook)	Home	vtium effects(filter)	
+vtium effects(vtlook)	PgDn	vtium effects(color map: not usable)	
+vtium effects(vtlook)	PgUp	vtium effects(filter)	
+vtium effects(vtlook)	Shift-Tab	vtium fonts(builtin)	
+vtium effects(vtlook)	Shrink	vtium any.too-small	
+vtium effects(vtlook)	Tab	vtium looks	
+vtium effects(vtlook)	Up	vtium effects(filter)	
+vtium effects(vtlook)	i	vtium effects(vtlook)	prepare
+vtium effects(vtlook)	q	vtium left	exit 0
+vtium effects(vtlook) +pending	1	vtium fonts(marked) +pending	
+vtium effects(vtlook) +pending	3	vtium looks +pending	
+vtium effects(vtlook) +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects(vtlook) +pending	5	vtium settings(first) +pending	
+vtium effects(vtlook) +pending	6	vtium help(help) +pending	
+vtium effects(vtlook) +pending	Ctrl-C	vtium left	exit 130
+vtium effects(vtlook) +pending	End	vtium effects(color map: not usable) +pending	
+vtium effects(vtlook) +pending	Enter	vtium effects.effect +pending	
+vtium effects(vtlook) +pending	Home	vtium effects(filter) +pending	
+vtium effects(vtlook) +pending	PgDn	vtium effects(color map: not usable) +pending	
+vtium effects(vtlook) +pending	PgUp	vtium effects(filter) +pending	
+vtium effects(vtlook) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects(vtlook) +pending	Shrink	vtium any.too-small +pending	
+vtium effects(vtlook) +pending	Tab	vtium looks +pending	
+vtium effects(vtlook) +pending	Up	vtium effects(filter) +pending	
+vtium effects(vtlook) +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects(vtlook) +pending	q	vtium any.question.leave +pending	
+vtium effects(vtlook) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects(vtlook) +unsaved	3	vtium looks +unsaved	
+vtium effects(vtlook) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects(vtlook) +unsaved	5	vtium settings(first) +unsaved	
+vtium effects(vtlook) +unsaved	6	vtium help(help) +unsaved	
+vtium effects(vtlook) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects(vtlook) +unsaved	End	vtium effects(color map: not usable) +unsaved	
+vtium effects(vtlook) +unsaved	Enter	vtium effects.effect +unsaved	
+vtium effects(vtlook) +unsaved	Home	vtium effects(filter) +unsaved	
+vtium effects(vtlook) +unsaved	PgDn	vtium effects(color map: not usable) +unsaved	
+vtium effects(vtlook) +unsaved	PgUp	vtium effects(filter) +unsaved	
+vtium effects(vtlook) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects(vtlook) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects(vtlook) +unsaved	Tab	vtium looks +unsaved	
+vtium effects(vtlook) +unsaved	Up	vtium effects(filter) +unsaved	
+vtium effects(vtlook) +unsaved	i	vtium effects(vtlook)	save, prepare
+vtium effects(vtlook) +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects(vtlook) +unsaved	s	vtium effects(vtlook)	save
+vtium effects(vtlook) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects(vtlook) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects(vtlook) +unsaved +pending	End	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	Enter	vtium effects.effect +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	Home	vtium effects(filter) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	PgDn	vtium effects(color map: not usable) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	PgUp	vtium effects(filter) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	Up	vtium effects(filter) +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	i	vtium effects(vtlook) +pending	save, prepare
+vtium effects(vtlook) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects(vtlook) +unsaved +pending	s	vtium effects(vtlook) +pending	save
+vtium effects.effect	Ctrl-C	vtium left	exit 130
+vtium effects.effect	Esc	vtium effects(vtlook)	
+vtium effects.effect	Shrink	vtium any.too-small	
+vtium effects.effect	q	vtium left	exit 0
+vtium effects.effect +pending	Ctrl-C	vtium left	exit 130
+vtium effects.effect +pending	Esc	vtium effects(vtlook) +pending	
+vtium effects.effect +pending	Shrink	vtium any.too-small +pending	
+vtium effects.effect +pending	q	vtium any.question.leave +pending	
+vtium effects.effect +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects.effect +unsaved	Esc	vtium effects(vtlook) +unsaved	
+vtium effects.effect +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects.effect +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects.effect +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects.effect +unsaved +pending	Esc	vtium effects(vtlook) +unsaved +pending	
+vtium effects.effect +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects.effect +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects.filter	Ctrl-C	vtium left	exit 130
+vtium effects.filter	Enter	vtium effects(filter)	
+vtium effects.filter	Esc	vtium effects(filter)	
+vtium effects.filter	Shrink	vtium any.too-small	
+vtium effects.filter	q	vtium left	exit 0
+vtium effects.filter +pending	Ctrl-C	vtium left	exit 130
+vtium effects.filter +pending	Enter	vtium effects(filter) +pending	
+vtium effects.filter +pending	Esc	vtium effects(filter) +pending	
+vtium effects.filter +pending	Shrink	vtium any.too-small +pending	
+vtium effects.filter +pending	q	vtium any.question.leave +pending	
+vtium effects.filter +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects.filter +unsaved	Enter	vtium effects(filter) +unsaved	
+vtium effects.filter +unsaved	Esc	vtium effects(filter) +unsaved	
+vtium effects.filter +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects.filter +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects.filter +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects.filter +unsaved +pending	Enter	vtium effects(filter) +unsaved +pending	
+vtium effects.filter +unsaved +pending	Esc	vtium effects(filter) +unsaved +pending	
+vtium effects.filter +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects.filter +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium flow(doc display)	1	vtium fonts(builtin)	mouse off
-vtium flow(doc display)	2	vtium effects	mouse off
+vtium flow(doc display)	2	vtium effects(filter)	mouse off
 vtium flow(doc display)	3	vtium looks	mouse off
 vtium flow(doc display)	5	vtium settings(first)	mouse off
 vtium flow(doc display)	6	vtium help(help)	mouse off
 vtium flow(doc display)	Click box	vtium flow(doc terminal)	
-vtium flow(doc display)	Click tab	vtium effects	mouse off
+vtium flow(doc display)	Click tab	vtium effects(filter)	mouse off
 vtium flow(doc display)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc display)	Down	vtium flow(doc terminal)	
 vtium flow(doc display)	End	vtium flow(parts font)	
@@ -643,12 +1245,12 @@ vtium flow(doc display)	q	vtium left	mouse off, exit 0
 vtium flow(doc display)	r	vtium any.question.confirm	
 vtium flow(doc display)	v	vtium flow.file	
 vtium flow(doc display) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(doc display) +pending	2	vtium effects +pending	mouse off
+vtium flow(doc display) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(doc display) +pending	3	vtium looks +pending	mouse off
 vtium flow(doc display) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(doc display) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(doc display) +pending	Click box	vtium flow(doc terminal) +pending	
-vtium flow(doc display) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(doc display) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(doc display) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc display) +pending	Down	vtium flow(doc terminal) +pending	
 vtium flow(doc display) +pending	End	vtium flow(parts font) +pending	
@@ -668,12 +1270,12 @@ vtium flow(doc display) +pending	q	vtium any.question.leave +pending
 vtium flow(doc display) +pending	r	vtium any.question.confirm +pending	
 vtium flow(doc display) +pending	v	vtium flow.file +pending	
 vtium flow(doc display) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(doc display) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(doc display) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(doc display) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(doc display) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(doc display) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(doc display) +unsaved	Click box	vtium flow(doc terminal) +unsaved	
-vtium flow(doc display) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(doc display) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(doc display) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc display) +unsaved	Down	vtium flow(doc terminal) +unsaved	
 vtium flow(doc display) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -694,12 +1296,12 @@ vtium flow(doc display) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(doc display) +unsaved	s	vtium flow(doc display)	save
 vtium flow(doc display) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(doc display) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(doc display) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(doc display) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	Click box	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(doc display) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(doc display) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc display) +unsaved +pending	Down	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -720,11 +1322,11 @@ vtium flow(doc display) +unsaved +pending	r	vtium any.question.confirm +unsaved 
 vtium flow(doc display) +unsaved +pending	s	vtium flow(doc display) +pending	save
 vtium flow(doc display) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(doc terminal)	1	vtium fonts(builtin)	mouse off
-vtium flow(doc terminal)	2	vtium effects	mouse off
+vtium flow(doc terminal)	2	vtium effects(filter)	mouse off
 vtium flow(doc terminal)	3	vtium looks	mouse off
 vtium flow(doc terminal)	5	vtium settings(first)	mouse off
 vtium flow(doc terminal)	6	vtium help(help)	mouse off
-vtium flow(doc terminal)	Click tab	vtium effects	mouse off
+vtium flow(doc terminal)	Click tab	vtium effects(filter)	mouse off
 vtium flow(doc terminal)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc terminal)	Down	vtium flow(new empty)	
 vtium flow(doc terminal)	End	vtium flow(parts font)	
@@ -745,11 +1347,11 @@ vtium flow(doc terminal)	q	vtium left	mouse off, exit 0
 vtium flow(doc terminal)	r	vtium any.question.confirm	
 vtium flow(doc terminal)	v	vtium flow.file	
 vtium flow(doc terminal) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(doc terminal) +pending	2	vtium effects +pending	mouse off
+vtium flow(doc terminal) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(doc terminal) +pending	3	vtium looks +pending	mouse off
 vtium flow(doc terminal) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(doc terminal) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(doc terminal) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(doc terminal) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(doc terminal) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc terminal) +pending	Down	vtium flow(new empty) +pending	
 vtium flow(doc terminal) +pending	End	vtium flow(parts font) +pending	
@@ -770,11 +1372,11 @@ vtium flow(doc terminal) +pending	q	vtium any.question.leave +pending
 vtium flow(doc terminal) +pending	r	vtium any.question.confirm +pending	
 vtium flow(doc terminal) +pending	v	vtium flow.file +pending	
 vtium flow(doc terminal) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(doc terminal) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(doc terminal) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(doc terminal) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(doc terminal) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc terminal) +unsaved	Down	vtium flow(new empty) +unsaved	
 vtium flow(doc terminal) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -796,11 +1398,11 @@ vtium flow(doc terminal) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(doc terminal) +unsaved	s	vtium flow(doc terminal)	save
 vtium flow(doc terminal) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(doc terminal) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(doc terminal) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(doc terminal) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(doc terminal) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(doc terminal) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc terminal) +unsaved +pending	Down	vtium flow(new empty) +unsaved +pending	
 vtium flow(doc terminal) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -822,12 +1424,12 @@ vtium flow(doc terminal) +unsaved +pending	r	vtium any.question.confirm +unsaved
 vtium flow(doc terminal) +unsaved +pending	s	vtium flow(doc terminal) +pending	save
 vtium flow(doc terminal) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(new display)	1	vtium fonts(builtin)	mouse off
-vtium flow(new display)	2	vtium effects	mouse off
+vtium flow(new display)	2	vtium effects(filter)	mouse off
 vtium flow(new display)	3	vtium looks	mouse off
 vtium flow(new display)	5	vtium settings(first)	mouse off
 vtium flow(new display)	6	vtium help(help)	mouse off
 vtium flow(new display)	Click box	vtium flow(new terminal)	
-vtium flow(new display)	Click tab	vtium effects	mouse off
+vtium flow(new display)	Click tab	vtium effects(filter)	mouse off
 vtium flow(new display)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new display)	Down	vtium flow(parts template)	
 vtium flow(new display)	End	vtium flow(parts font)	
@@ -853,12 +1455,12 @@ vtium flow(new display)	q	vtium left	mouse off, exit 0
 vtium flow(new display)	r	vtium any.question.confirm	
 vtium flow(new display)	v	vtium flow.file	
 vtium flow(new display) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(new display) +pending	2	vtium effects +pending	mouse off
+vtium flow(new display) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(new display) +pending	3	vtium looks +pending	mouse off
 vtium flow(new display) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(new display) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(new display) +pending	Click box	vtium flow(new terminal) +pending	
-vtium flow(new display) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(new display) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(new display) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new display) +pending	Down	vtium flow(parts template) +pending	
 vtium flow(new display) +pending	End	vtium flow(parts font) +pending	
@@ -884,12 +1486,12 @@ vtium flow(new display) +pending	q	vtium any.question.leave +pending
 vtium flow(new display) +pending	r	vtium any.question.confirm +pending	
 vtium flow(new display) +pending	v	vtium flow.file +pending	
 vtium flow(new display) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(new display) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(new display) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(new display) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(new display) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(new display) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(new display) +unsaved	Click box	vtium flow(new terminal) +unsaved	
-vtium flow(new display) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(new display) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(new display) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new display) +unsaved	Down	vtium flow(parts template) +unsaved	
 vtium flow(new display) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -916,12 +1518,12 @@ vtium flow(new display) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(new display) +unsaved	s	vtium flow(new display)	save
 vtium flow(new display) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(new display) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(new display) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(new display) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	Click box	vtium flow(new terminal) +unsaved +pending	
-vtium flow(new display) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(new display) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new display) +unsaved +pending	Down	vtium flow(parts template) +unsaved +pending	
 vtium flow(new display) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -948,12 +1550,12 @@ vtium flow(new display) +unsaved +pending	r	vtium any.question.confirm +unsaved 
 vtium flow(new display) +unsaved +pending	s	vtium flow(new display) +pending	save
 vtium flow(new display) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(new empty)	1	vtium fonts(builtin)	mouse off
-vtium flow(new empty)	2	vtium effects	mouse off
+vtium flow(new empty)	2	vtium effects(filter)	mouse off
 vtium flow(new empty)	3	vtium looks	mouse off
 vtium flow(new empty)	5	vtium settings(first)	mouse off
 vtium flow(new empty)	6	vtium help(help)	mouse off
 vtium flow(new empty)	Click box	vtium flow(doc terminal)	
-vtium flow(new empty)	Click tab	vtium effects	mouse off
+vtium flow(new empty)	Click tab	vtium effects(filter)	mouse off
 vtium flow(new empty)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new empty)	Down	vtium flow(parts display)	
 vtium flow(new empty)	End	vtium flow(parts font)	
@@ -974,12 +1576,12 @@ vtium flow(new empty)	q	vtium left	mouse off, exit 0
 vtium flow(new empty)	r	vtium any.question.confirm	
 vtium flow(new empty)	v	vtium flow.file	
 vtium flow(new empty) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(new empty) +pending	2	vtium effects +pending	mouse off
+vtium flow(new empty) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(new empty) +pending	3	vtium looks +pending	mouse off
 vtium flow(new empty) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(new empty) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(new empty) +pending	Click box	vtium flow(doc terminal) +pending	
-vtium flow(new empty) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(new empty) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(new empty) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new empty) +pending	Down	vtium flow(parts display) +pending	
 vtium flow(new empty) +pending	End	vtium flow(parts font) +pending	
@@ -1000,12 +1602,12 @@ vtium flow(new empty) +pending	q	vtium any.question.leave +pending
 vtium flow(new empty) +pending	r	vtium any.question.confirm +pending	
 vtium flow(new empty) +pending	v	vtium flow.file +pending	
 vtium flow(new empty) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(new empty) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(new empty) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(new empty) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(new empty) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(new empty) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(new empty) +unsaved	Click box	vtium flow(doc terminal) +unsaved	
-vtium flow(new empty) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(new empty) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(new empty) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new empty) +unsaved	Down	vtium flow(parts display) +unsaved	
 vtium flow(new empty) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1027,12 +1629,12 @@ vtium flow(new empty) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(new empty) +unsaved	s	vtium flow(new empty)	save
 vtium flow(new empty) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(new empty) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(new empty) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(new empty) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	Click box	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(new empty) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(new empty) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new empty) +unsaved +pending	Down	vtium flow(parts display) +unsaved +pending	
 vtium flow(new empty) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1054,12 +1656,12 @@ vtium flow(new empty) +unsaved +pending	r	vtium any.question.confirm +unsaved +p
 vtium flow(new empty) +unsaved +pending	s	vtium flow(new empty) +pending	save
 vtium flow(new empty) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(new terminal)	1	vtium fonts(builtin)	mouse off
-vtium flow(new terminal)	2	vtium effects	mouse off
+vtium flow(new terminal)	2	vtium effects(filter)	mouse off
 vtium flow(new terminal)	3	vtium looks	mouse off
 vtium flow(new terminal)	5	vtium settings(first)	mouse off
 vtium flow(new terminal)	6	vtium help(help)	mouse off
 vtium flow(new terminal)	Click box	vtium flow.new-card	
-vtium flow(new terminal)	Click tab	vtium effects	mouse off
+vtium flow(new terminal)	Click tab	vtium effects(filter)	mouse off
 vtium flow(new terminal)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new terminal)	Down	vtium flow(parts display)	
 vtium flow(new terminal)	End	vtium flow(parts font)	
@@ -1084,12 +1686,12 @@ vtium flow(new terminal)	q	vtium left	mouse off, exit 0
 vtium flow(new terminal)	r	vtium any.question.confirm	
 vtium flow(new terminal)	v	vtium flow.file	
 vtium flow(new terminal) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(new terminal) +pending	2	vtium effects +pending	mouse off
+vtium flow(new terminal) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(new terminal) +pending	3	vtium looks +pending	mouse off
 vtium flow(new terminal) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(new terminal) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(new terminal) +pending	Click box	vtium flow.new-card +pending	
-vtium flow(new terminal) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(new terminal) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(new terminal) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new terminal) +pending	Down	vtium flow(parts display) +pending	
 vtium flow(new terminal) +pending	End	vtium flow(parts font) +pending	
@@ -1114,12 +1716,12 @@ vtium flow(new terminal) +pending	q	vtium any.question.leave +pending
 vtium flow(new terminal) +pending	r	vtium any.question.confirm +pending	
 vtium flow(new terminal) +pending	v	vtium flow.file +pending	
 vtium flow(new terminal) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(new terminal) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(new terminal) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(new terminal) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(new terminal) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(new terminal) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(new terminal) +unsaved	Click box	vtium flow.new-card +unsaved	
-vtium flow(new terminal) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(new terminal) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(new terminal) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new terminal) +unsaved	Down	vtium flow(parts display) +unsaved	
 vtium flow(new terminal) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1145,12 +1747,12 @@ vtium flow(new terminal) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(new terminal) +unsaved	s	vtium flow(new terminal)	save
 vtium flow(new terminal) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(new terminal) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(new terminal) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(new terminal) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	Click box	vtium flow.new-card +unsaved +pending	
-vtium flow(new terminal) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(new terminal) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new terminal) +unsaved +pending	Down	vtium flow(parts display) +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1176,12 +1778,12 @@ vtium flow(new terminal) +unsaved +pending	r	vtium any.question.confirm +unsaved
 vtium flow(new terminal) +unsaved +pending	s	vtium flow(new terminal) +pending	save
 vtium flow(new terminal) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(others)	1	vtium fonts(builtin)	mouse off
-vtium flow(others)	2	vtium effects	mouse off
+vtium flow(others)	2	vtium effects(filter)	mouse off
 vtium flow(others)	3	vtium looks	mouse off
 vtium flow(others)	5	vtium settings(first)	mouse off
 vtium flow(others)	6	vtium help(help)	mouse off
 vtium flow(others)	Click box	vtium flow(parts special)	
-vtium flow(others)	Click tab	vtium effects	mouse off
+vtium flow(others)	Click tab	vtium effects(filter)	mouse off
 vtium flow(others)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(others)	Down	vtium flow(parts font)	
 vtium flow(others)	End	vtium flow(parts font)	
@@ -1204,12 +1806,12 @@ vtium flow(others)	q	vtium left	mouse off, exit 0
 vtium flow(others)	r	vtium any.question.confirm	
 vtium flow(others)	v	vtium flow.file	
 vtium flow(others) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(others) +pending	2	vtium effects +pending	mouse off
+vtium flow(others) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(others) +pending	3	vtium looks +pending	mouse off
 vtium flow(others) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(others) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(others) +pending	Click box	vtium flow(parts special) +pending	
-vtium flow(others) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(others) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(others) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(others) +pending	Down	vtium flow(parts font) +pending	
 vtium flow(others) +pending	End	vtium flow(parts font) +pending	
@@ -1232,12 +1834,12 @@ vtium flow(others) +pending	q	vtium any.question.leave +pending
 vtium flow(others) +pending	r	vtium any.question.confirm +pending	
 vtium flow(others) +pending	v	vtium flow.file +pending	
 vtium flow(others) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(others) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(others) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(others) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(others) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(others) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(others) +unsaved	Click box	vtium flow(parts special) +unsaved	
-vtium flow(others) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(others) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(others) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(others) +unsaved	Down	vtium flow(parts font) +unsaved	
 vtium flow(others) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1261,12 +1863,12 @@ vtium flow(others) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(others) +unsaved	s	vtium flow(others)	save
 vtium flow(others) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(others) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(others) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(others) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	Click box	vtium flow(parts special) +unsaved +pending	
-vtium flow(others) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(others) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(others) +unsaved +pending	Down	vtium flow(parts font) +unsaved +pending	
 vtium flow(others) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1290,12 +1892,12 @@ vtium flow(others) +unsaved +pending	r	vtium any.question.confirm +unsaved +pend
 vtium flow(others) +unsaved +pending	s	vtium flow(others) +pending	save
 vtium flow(others) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts any input)	1	vtium fonts(builtin)	mouse off
-vtium flow(parts any input)	2	vtium effects	mouse off
+vtium flow(parts any input)	2	vtium effects(filter)	mouse off
 vtium flow(parts any input)	3	vtium looks	mouse off
 vtium flow(parts any input)	5	vtium settings(first)	mouse off
 vtium flow(parts any input)	6	vtium help(help)	mouse off
 vtium flow(parts any input)	Click box	vtium flow(parts template)	
-vtium flow(parts any input)	Click tab	vtium effects	mouse off
+vtium flow(parts any input)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts any input)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts any input)	Down	vtium flow(parts pointer)	
 vtium flow(parts any input)	End	vtium flow(parts font)	
@@ -1318,12 +1920,12 @@ vtium flow(parts any input)	q	vtium left	mouse off, exit 0
 vtium flow(parts any input)	r	vtium any.question.confirm	
 vtium flow(parts any input)	v	vtium flow.file	
 vtium flow(parts any input) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(parts any input) +pending	2	vtium effects +pending	mouse off
+vtium flow(parts any input) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts any input) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts any input) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts any input) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(parts any input) +pending	Click box	vtium flow(parts template) +pending	
-vtium flow(parts any input) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(parts any input) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts any input) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts any input) +pending	Down	vtium flow(parts pointer) +pending	
 vtium flow(parts any input) +pending	End	vtium flow(parts font) +pending	
@@ -1346,12 +1948,12 @@ vtium flow(parts any input) +pending	q	vtium any.question.leave +pending
 vtium flow(parts any input) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts any input) +pending	v	vtium flow.file +pending	
 vtium flow(parts any input) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(parts any input) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(parts any input) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts any input) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	Click box	vtium flow(parts template) +unsaved	
-vtium flow(parts any input) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(parts any input) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts any input) +unsaved	Down	vtium flow(parts pointer) +unsaved	
 vtium flow(parts any input) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1375,12 +1977,12 @@ vtium flow(parts any input) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts any input) +unsaved	s	vtium flow(parts any input)	save
 vtium flow(parts any input) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts any input) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(parts any input) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(parts any input) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	Click box	vtium flow(parts template) +unsaved +pending	
-vtium flow(parts any input) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(parts any input) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts any input) +unsaved +pending	Down	vtium flow(parts pointer) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1404,11 +2006,11 @@ vtium flow(parts any input) +unsaved +pending	r	vtium any.question.confirm +unsa
 vtium flow(parts any input) +unsaved +pending	s	vtium flow(parts any input) +pending	save
 vtium flow(parts any input) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts display)	1	vtium fonts(builtin)	mouse off
-vtium flow(parts display)	2	vtium effects	mouse off
+vtium flow(parts display)	2	vtium effects(filter)	mouse off
 vtium flow(parts display)	3	vtium looks	mouse off
 vtium flow(parts display)	5	vtium settings(first)	mouse off
 vtium flow(parts display)	6	vtium help(help)	mouse off
-vtium flow(parts display)	Click tab	vtium effects	mouse off
+vtium flow(parts display)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts display)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts display)	Down	vtium flow(parts template)	
 vtium flow(parts display)	End	vtium flow(parts font)	
@@ -1431,11 +2033,11 @@ vtium flow(parts display)	q	vtium left	mouse off, exit 0
 vtium flow(parts display)	r	vtium any.question.confirm	
 vtium flow(parts display)	v	vtium flow.file	
 vtium flow(parts display) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(parts display) +pending	2	vtium effects +pending	mouse off
+vtium flow(parts display) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts display) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts display) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts display) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts display) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(parts display) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts display) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts display) +pending	Down	vtium flow(parts template) +pending	
 vtium flow(parts display) +pending	End	vtium flow(parts font) +pending	
@@ -1458,11 +2060,11 @@ vtium flow(parts display) +pending	q	vtium any.question.leave +pending
 vtium flow(parts display) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts display) +pending	v	vtium flow.file +pending	
 vtium flow(parts display) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(parts display) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(parts display) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts display) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts display) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts display) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts display) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(parts display) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts display) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts display) +unsaved	Down	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1486,11 +2088,11 @@ vtium flow(parts display) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts display) +unsaved	s	vtium flow(parts display)	save
 vtium flow(parts display) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts display) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(parts display) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(parts display) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts display) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(parts display) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts display) +unsaved +pending	Down	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1514,11 +2116,11 @@ vtium flow(parts display) +unsaved +pending	r	vtium any.question.confirm +unsave
 vtium flow(parts display) +unsaved +pending	s	vtium flow(parts display) +pending	save
 vtium flow(parts display) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts font)	1	vtium fonts(builtin)	mouse off
-vtium flow(parts font)	2	vtium effects	mouse off
+vtium flow(parts font)	2	vtium effects(filter)	mouse off
 vtium flow(parts font)	3	vtium looks	mouse off
 vtium flow(parts font)	5	vtium settings(first)	mouse off
 vtium flow(parts font)	6	vtium help(help)	mouse off
-vtium flow(parts font)	Click tab	vtium effects	mouse off
+vtium flow(parts font)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts font)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts font)	Home	vtium flow(doc display)	
 vtium flow(parts font)	PgUp	vtium flow(parts special)	
@@ -1533,11 +2135,11 @@ vtium flow(parts font)	q	vtium left	mouse off, exit 0
 vtium flow(parts font)	r	vtium any.question.confirm	
 vtium flow(parts font)	v	vtium flow.file	
 vtium flow(parts font) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(parts font) +pending	2	vtium effects +pending	mouse off
+vtium flow(parts font) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts font) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts font) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts font) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts font) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(parts font) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts font) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts font) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts font) +pending	PgUp	vtium flow(parts special) +pending	
@@ -1552,11 +2154,11 @@ vtium flow(parts font) +pending	q	vtium any.question.leave +pending
 vtium flow(parts font) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts font) +pending	v	vtium flow.file +pending	
 vtium flow(parts font) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(parts font) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(parts font) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts font) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts font) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts font) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts font) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(parts font) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts font) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts font) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(parts font) +unsaved	PgUp	vtium flow(parts special) +unsaved	
@@ -1572,11 +2174,11 @@ vtium flow(parts font) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts font) +unsaved	s	vtium flow(parts font)	save
 vtium flow(parts font) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts font) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(parts font) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(parts font) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts font) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(parts font) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts font) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(parts font) +unsaved +pending	PgUp	vtium flow(parts special) +unsaved +pending	
@@ -1592,11 +2194,11 @@ vtium flow(parts font) +unsaved +pending	r	vtium any.question.confirm +unsaved +
 vtium flow(parts font) +unsaved +pending	s	vtium flow(parts font) +pending	save
 vtium flow(parts font) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts input)	1	vtium fonts(builtin)	mouse off
-vtium flow(parts input)	2	vtium effects	mouse off
+vtium flow(parts input)	2	vtium effects(filter)	mouse off
 vtium flow(parts input)	3	vtium looks	mouse off
 vtium flow(parts input)	5	vtium settings(first)	mouse off
 vtium flow(parts input)	6	vtium help(help)	mouse off
-vtium flow(parts input)	Click tab	vtium effects	mouse off
+vtium flow(parts input)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts input)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts input)	Down	vtium flow(parts any input)	
 vtium flow(parts input)	End	vtium flow(parts font)	
@@ -1619,11 +2221,11 @@ vtium flow(parts input)	q	vtium left	mouse off, exit 0
 vtium flow(parts input)	r	vtium any.question.confirm	
 vtium flow(parts input)	v	vtium flow.file	
 vtium flow(parts input) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(parts input) +pending	2	vtium effects +pending	mouse off
+vtium flow(parts input) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts input) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts input) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts input) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts input) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(parts input) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts input) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts input) +pending	Down	vtium flow(parts any input) +pending	
 vtium flow(parts input) +pending	End	vtium flow(parts font) +pending	
@@ -1646,11 +2248,11 @@ vtium flow(parts input) +pending	q	vtium any.question.leave +pending
 vtium flow(parts input) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts input) +pending	v	vtium flow.file +pending	
 vtium flow(parts input) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(parts input) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(parts input) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts input) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts input) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts input) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts input) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(parts input) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts input) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts input) +unsaved	Down	vtium flow(parts any input) +unsaved	
 vtium flow(parts input) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1674,11 +2276,11 @@ vtium flow(parts input) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts input) +unsaved	s	vtium flow(parts input)	save
 vtium flow(parts input) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts input) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(parts input) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(parts input) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts input) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(parts input) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts input) +unsaved +pending	Down	vtium flow(parts any input) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1702,11 +2304,11 @@ vtium flow(parts input) +unsaved +pending	r	vtium any.question.confirm +unsaved 
 vtium flow(parts input) +unsaved +pending	s	vtium flow(parts input) +pending	save
 vtium flow(parts input) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts keyboard)	1	vtium fonts(builtin)	mouse off
-vtium flow(parts keyboard)	2	vtium effects	mouse off
+vtium flow(parts keyboard)	2	vtium effects(filter)	mouse off
 vtium flow(parts keyboard)	3	vtium looks	mouse off
 vtium flow(parts keyboard)	5	vtium settings(first)	mouse off
 vtium flow(parts keyboard)	6	vtium help(help)	mouse off
-vtium flow(parts keyboard)	Click tab	vtium effects	mouse off
+vtium flow(parts keyboard)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts keyboard)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts keyboard)	End	vtium flow(parts font)	
 vtium flow(parts keyboard)	Enter	vtium flow.detail	
@@ -1727,11 +2329,11 @@ vtium flow(parts keyboard)	q	vtium left	mouse off, exit 0
 vtium flow(parts keyboard)	r	vtium any.question.confirm	
 vtium flow(parts keyboard)	v	vtium flow.file	
 vtium flow(parts keyboard) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(parts keyboard) +pending	2	vtium effects +pending	mouse off
+vtium flow(parts keyboard) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts keyboard) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts keyboard) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts keyboard) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts keyboard) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(parts keyboard) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts keyboard) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts keyboard) +pending	End	vtium flow(parts font) +pending	
 vtium flow(parts keyboard) +pending	Enter	vtium flow.detail +pending	
@@ -1752,11 +2354,11 @@ vtium flow(parts keyboard) +pending	q	vtium any.question.leave +pending
 vtium flow(parts keyboard) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts keyboard) +pending	v	vtium flow.file +pending	
 vtium flow(parts keyboard) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(parts keyboard) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(parts keyboard) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts keyboard) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(parts keyboard) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts keyboard) +unsaved	End	vtium flow(parts font) +unsaved	
 vtium flow(parts keyboard) +unsaved	Enter	vtium flow.detail +unsaved	
@@ -1778,11 +2380,11 @@ vtium flow(parts keyboard) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts keyboard) +unsaved	s	vtium flow(parts keyboard)	save
 vtium flow(parts keyboard) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts keyboard) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(parts keyboard) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(parts keyboard) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts keyboard) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(parts keyboard) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts keyboard) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
@@ -1804,12 +2406,12 @@ vtium flow(parts keyboard) +unsaved +pending	r	vtium any.question.confirm +unsav
 vtium flow(parts keyboard) +unsaved +pending	s	vtium flow(parts keyboard) +pending	save
 vtium flow(parts keyboard) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts pointer)	1	vtium fonts(builtin)	mouse off
-vtium flow(parts pointer)	2	vtium effects	mouse off
+vtium flow(parts pointer)	2	vtium effects(filter)	mouse off
 vtium flow(parts pointer)	3	vtium looks	mouse off
 vtium flow(parts pointer)	5	vtium settings(first)	mouse off
 vtium flow(parts pointer)	6	vtium help(help)	mouse off
 vtium flow(parts pointer)	Click box	vtium flow(parts special)	
-vtium flow(parts pointer)	Click tab	vtium effects	mouse off
+vtium flow(parts pointer)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts pointer)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts pointer)	Down	vtium flow(parts font)	
 vtium flow(parts pointer)	End	vtium flow(parts font)	
@@ -1832,12 +2434,12 @@ vtium flow(parts pointer)	q	vtium left	mouse off, exit 0
 vtium flow(parts pointer)	r	vtium any.question.confirm	
 vtium flow(parts pointer)	v	vtium flow.file	
 vtium flow(parts pointer) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(parts pointer) +pending	2	vtium effects +pending	mouse off
+vtium flow(parts pointer) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts pointer) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts pointer) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts pointer) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(parts pointer) +pending	Click box	vtium flow(parts special) +pending	
-vtium flow(parts pointer) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(parts pointer) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts pointer) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts pointer) +pending	Down	vtium flow(parts font) +pending	
 vtium flow(parts pointer) +pending	End	vtium flow(parts font) +pending	
@@ -1860,12 +2462,12 @@ vtium flow(parts pointer) +pending	q	vtium any.question.leave +pending
 vtium flow(parts pointer) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts pointer) +pending	v	vtium flow.file +pending	
 vtium flow(parts pointer) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(parts pointer) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(parts pointer) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	Click box	vtium flow(parts special) +unsaved	
-vtium flow(parts pointer) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(parts pointer) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts pointer) +unsaved	Down	vtium flow(parts font) +unsaved	
 vtium flow(parts pointer) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1889,12 +2491,12 @@ vtium flow(parts pointer) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts pointer) +unsaved	s	vtium flow(parts pointer)	save
 vtium flow(parts pointer) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts pointer) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(parts pointer) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(parts pointer) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	Click box	vtium flow(parts special) +unsaved +pending	
-vtium flow(parts pointer) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(parts pointer) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts pointer) +unsaved +pending	Down	vtium flow(parts font) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1918,11 +2520,11 @@ vtium flow(parts pointer) +unsaved +pending	r	vtium any.question.confirm +unsave
 vtium flow(parts pointer) +unsaved +pending	s	vtium flow(parts pointer) +pending	save
 vtium flow(parts pointer) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts special)	1	vtium fonts(builtin)	mouse off
-vtium flow(parts special)	2	vtium effects	mouse off
+vtium flow(parts special)	2	vtium effects(filter)	mouse off
 vtium flow(parts special)	3	vtium looks	mouse off
 vtium flow(parts special)	5	vtium settings(first)	mouse off
 vtium flow(parts special)	6	vtium help(help)	mouse off
-vtium flow(parts special)	Click tab	vtium effects	mouse off
+vtium flow(parts special)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts special)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts special)	Down	vtium flow(parts input)	
 vtium flow(parts special)	End	vtium flow(parts font)	
@@ -1944,11 +2546,11 @@ vtium flow(parts special)	q	vtium left	mouse off, exit 0
 vtium flow(parts special)	r	vtium any.question.confirm	
 vtium flow(parts special)	v	vtium flow.file	
 vtium flow(parts special) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(parts special) +pending	2	vtium effects +pending	mouse off
+vtium flow(parts special) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts special) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts special) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts special) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts special) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(parts special) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts special) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts special) +pending	Down	vtium flow(parts input) +pending	
 vtium flow(parts special) +pending	End	vtium flow(parts font) +pending	
@@ -1970,11 +2572,11 @@ vtium flow(parts special) +pending	q	vtium any.question.leave +pending
 vtium flow(parts special) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts special) +pending	v	vtium flow.file +pending	
 vtium flow(parts special) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(parts special) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(parts special) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts special) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts special) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts special) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts special) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(parts special) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts special) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts special) +unsaved	Down	vtium flow(parts input) +unsaved	
 vtium flow(parts special) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1997,11 +2599,11 @@ vtium flow(parts special) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts special) +unsaved	s	vtium flow(parts special)	save
 vtium flow(parts special) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts special) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(parts special) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(parts special) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts special) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(parts special) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts special) +unsaved +pending	Down	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -2024,11 +2626,11 @@ vtium flow(parts special) +unsaved +pending	r	vtium any.question.confirm +unsave
 vtium flow(parts special) +unsaved +pending	s	vtium flow(parts special) +pending	save
 vtium flow(parts special) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts template)	1	vtium fonts(builtin)	mouse off
-vtium flow(parts template)	2	vtium effects	mouse off
+vtium flow(parts template)	2	vtium effects(filter)	mouse off
 vtium flow(parts template)	3	vtium looks	mouse off
 vtium flow(parts template)	5	vtium settings(first)	mouse off
 vtium flow(parts template)	6	vtium help(help)	mouse off
-vtium flow(parts template)	Click tab	vtium effects	mouse off
+vtium flow(parts template)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts template)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts template)	Down	vtium flow(parts display)	
 vtium flow(parts template)	End	vtium flow(parts font)	
@@ -2051,12 +2653,12 @@ vtium flow(parts template)	q	vtium left	mouse off, exit 0
 vtium flow(parts template)	r	vtium any.question.confirm	
 vtium flow(parts template)	v	vtium flow.file	
 vtium flow(parts template) +pending	1	vtium fonts(marked) +pending	mouse off
-vtium flow(parts template) +pending	2	vtium effects +pending	mouse off
+vtium flow(parts template) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts template) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts template) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts template) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(parts template) +pending	Click box	vtium flow(parts display) +pending	
-vtium flow(parts template) +pending	Click tab	vtium effects +pending	mouse off
+vtium flow(parts template) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts template) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts template) +pending	Down	vtium flow(parts display) +pending	
 vtium flow(parts template) +pending	End	vtium flow(parts font) +pending	
@@ -2079,12 +2681,12 @@ vtium flow(parts template) +pending	q	vtium any.question.leave +pending
 vtium flow(parts template) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts template) +pending	v	vtium flow.file +pending	
 vtium flow(parts template) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
-vtium flow(parts template) +unsaved	2	vtium effects +unsaved	mouse off
+vtium flow(parts template) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts template) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts template) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts template) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(parts template) +unsaved	Click box	vtium flow(parts display) +unsaved	
-vtium flow(parts template) +unsaved	Click tab	vtium effects +unsaved	mouse off
+vtium flow(parts template) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts template) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts template) +unsaved	Down	vtium flow(parts display) +unsaved	
 vtium flow(parts template) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -2108,12 +2710,12 @@ vtium flow(parts template) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts template) +unsaved	s	vtium flow(parts template)	save
 vtium flow(parts template) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts template) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
-vtium flow(parts template) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
+vtium flow(parts template) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	Click box	vtium flow(parts display) +unsaved +pending	
-vtium flow(parts template) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
+vtium flow(parts template) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts template) +unsaved +pending	Down	vtium flow(parts display) +unsaved +pending	
 vtium flow(parts template) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -2674,7 +3276,7 @@ vtium flow.restore +unsaved +pending	Enter	vtium any.question.confirm +unsaved +
 vtium flow.restore +unsaved +pending	Esc	vtium flow(doc display) +unsaved +pending	
 vtium flow.restore +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow.restore +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
-vtium fonts(builtin)	2	vtium effects	
+vtium fonts(builtin)	2	vtium effects(filter)	
 vtium fonts(builtin)	3	vtium looks	
 vtium fonts(builtin)	4	vtium flow(doc display)	mouse on
 vtium fonts(builtin)	5	vtium settings(first)	
@@ -2685,12 +3287,12 @@ vtium fonts(builtin)	Home	vtium fonts(refused)
 vtium fonts(builtin)	PgUp	vtium fonts(refused)	
 vtium fonts(builtin)	Shift-Tab	vtium help(help)	
 vtium fonts(builtin)	Shrink	vtium any.too-small	
-vtium fonts(builtin)	Tab	vtium effects	
+vtium fonts(builtin)	Tab	vtium effects(filter)	
 vtium fonts(builtin)	Up	vtium fonts(frit)	
 vtium fonts(builtin)	i	vtium fonts(builtin)	prepare
 vtium fonts(builtin)	n	vtium looks.new-frit.typing(row 0)	
 vtium fonts(builtin)	q	vtium left	exit 0
-vtium fonts(builtin) +pending	2	vtium effects +pending	
+vtium fonts(builtin) +pending	2	vtium effects(filter) +pending	
 vtium fonts(builtin) +pending	3	vtium looks +pending	
 vtium fonts(builtin) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium fonts(builtin) +pending	5	vtium settings(first) +pending	
@@ -2701,12 +3303,12 @@ vtium fonts(builtin) +pending	Home	vtium fonts(refused) +pending
 vtium fonts(builtin) +pending	PgUp	vtium fonts(refused) +pending	
 vtium fonts(builtin) +pending	Shift-Tab	vtium help(help) +pending	
 vtium fonts(builtin) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(builtin) +pending	Tab	vtium effects +pending	
+vtium fonts(builtin) +pending	Tab	vtium effects(filter) +pending	
 vtium fonts(builtin) +pending	Up	vtium fonts(marked) +pending	
 vtium fonts(builtin) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(builtin) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(builtin) +pending	q	vtium any.question.leave +pending	
-vtium fonts(builtin) +unsaved	2	vtium effects +unsaved	
+vtium fonts(builtin) +unsaved	2	vtium effects(filter) +unsaved	
 vtium fonts(builtin) +unsaved	3	vtium looks +unsaved	
 vtium fonts(builtin) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium fonts(builtin) +unsaved	5	vtium settings(first) +unsaved	
@@ -2717,12 +3319,12 @@ vtium fonts(builtin) +unsaved	Home	vtium fonts(refused) +unsaved
 vtium fonts(builtin) +unsaved	PgUp	vtium fonts(refused) +unsaved	
 vtium fonts(builtin) +unsaved	Shift-Tab	vtium help(help) +unsaved	
 vtium fonts(builtin) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(builtin) +unsaved	Tab	vtium effects +unsaved	
+vtium fonts(builtin) +unsaved	Tab	vtium effects(filter) +unsaved	
 vtium fonts(builtin) +unsaved	Up	vtium fonts(frit) +unsaved	
 vtium fonts(builtin) +unsaved	i	vtium fonts(builtin)	save, prepare
 vtium fonts(builtin) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
 vtium fonts(builtin) +unsaved	q	vtium any.question.quit +unsaved	
-vtium fonts(builtin) +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium fonts(builtin) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium fonts(builtin) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2733,12 +3335,12 @@ vtium fonts(builtin) +unsaved +pending	Home	vtium fonts(refused) +unsaved +pendi
 vtium fonts(builtin) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(builtin) +unsaved +pending	Tab	vtium effects +unsaved +pending	
+vtium fonts(builtin) +unsaved +pending	Tab	vtium effects(filter) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	Up	vtium fonts(marked) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium fonts(builtin) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
-vtium fonts(frit)	2	vtium effects	
+vtium fonts(frit)	2	vtium effects(filter)	
 vtium fonts(frit)	3	vtium looks	
 vtium fonts(frit)	4	vtium flow(doc display)	mouse on
 vtium fonts(frit)	5	vtium settings(first)	
@@ -2752,13 +3354,13 @@ vtium fonts(frit)	PgDn	vtium fonts(builtin)
 vtium fonts(frit)	PgUp	vtium fonts(refused)	
 vtium fonts(frit)	Shift-Tab	vtium help(help)	
 vtium fonts(frit)	Shrink	vtium any.too-small	
-vtium fonts(frit)	Tab	vtium effects	
+vtium fonts(frit)	Tab	vtium effects(filter)	
 vtium fonts(frit)	i	vtium fonts(frit)	prepare
 vtium fonts(frit)	n	vtium looks.new-frit.typing(row 0)	
 vtium fonts(frit)	q	vtium left	exit 0
 vtium fonts(frit)	r	vtium fonts(marked) +pending	
 vtium fonts(frit)	t	vtium any.trial	switch
-vtium fonts(frit) +pending	2	vtium effects +pending	
+vtium fonts(frit) +pending	2	vtium effects(filter) +pending	
 vtium fonts(frit) +pending	3	vtium looks +pending	
 vtium fonts(frit) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium fonts(frit) +pending	5	vtium settings(first) +pending	
@@ -2772,12 +3374,12 @@ vtium fonts(frit) +pending	PgDn	vtium fonts(builtin) +pending
 vtium fonts(frit) +pending	PgUp	vtium fonts(refused) +pending	
 vtium fonts(frit) +pending	Shift-Tab	vtium help(help) +pending	
 vtium fonts(frit) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(frit) +pending	Tab	vtium effects +pending	
+vtium fonts(frit) +pending	Tab	vtium effects(filter) +pending	
 vtium fonts(frit) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(frit) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(frit) +pending	q	vtium any.question.leave +pending	
 vtium fonts(frit) +pending	t	vtium any.trial +pending	switch
-vtium fonts(frit) +unsaved	2	vtium effects +unsaved	
+vtium fonts(frit) +unsaved	2	vtium effects(filter) +unsaved	
 vtium fonts(frit) +unsaved	3	vtium looks +unsaved	
 vtium fonts(frit) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium fonts(frit) +unsaved	5	vtium settings(first) +unsaved	
@@ -2791,12 +3393,12 @@ vtium fonts(frit) +unsaved	PgDn	vtium fonts(builtin) +unsaved
 vtium fonts(frit) +unsaved	PgUp	vtium fonts(refused) +unsaved	
 vtium fonts(frit) +unsaved	Shift-Tab	vtium help(help) +unsaved	
 vtium fonts(frit) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(frit) +unsaved	Tab	vtium effects +unsaved	
+vtium fonts(frit) +unsaved	Tab	vtium effects(filter) +unsaved	
 vtium fonts(frit) +unsaved	i	vtium any.question.confirm	save, prepare
 vtium fonts(frit) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
 vtium fonts(frit) +unsaved	q	vtium any.question.quit +unsaved	
 vtium fonts(frit) +unsaved	t	vtium any.trial +unsaved	switch
-vtium fonts(frit) +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium fonts(frit) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium fonts(frit) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2810,12 +3412,12 @@ vtium fonts(frit) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pending
 vtium fonts(frit) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(frit) +unsaved +pending	Tab	vtium effects +unsaved +pending	
+vtium fonts(frit) +unsaved +pending	Tab	vtium effects(filter) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium fonts(frit) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	t	vtium any.trial +unsaved +pending	switch
-vtium fonts(marked) +pending	2	vtium effects +pending	
+vtium fonts(marked) +pending	2	vtium effects(filter) +pending	
 vtium fonts(marked) +pending	3	vtium looks +pending	
 vtium fonts(marked) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium fonts(marked) +pending	5	vtium settings(first) +pending	
@@ -2829,14 +3431,14 @@ vtium fonts(marked) +pending	PgDn	vtium fonts(builtin) +pending
 vtium fonts(marked) +pending	PgUp	vtium fonts(refused) +pending	
 vtium fonts(marked) +pending	Shift-Tab	vtium help(help) +pending	
 vtium fonts(marked) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(marked) +pending	Tab	vtium effects +pending	
+vtium fonts(marked) +pending	Tab	vtium effects(filter) +pending	
 vtium fonts(marked) +pending	Up	vtium fonts(frit) +pending	
 vtium fonts(marked) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(marked) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(marked) +pending	q	vtium any.question.leave +pending	
 vtium fonts(marked) +pending	r	vtium fonts(frit)	
 vtium fonts(marked) +pending	t	vtium any.trial +pending	switch
-vtium fonts(marked) +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium fonts(marked) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium fonts(marked) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2850,14 +3452,14 @@ vtium fonts(marked) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pendin
 vtium fonts(marked) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(marked) +unsaved +pending	Tab	vtium effects +unsaved +pending	
+vtium fonts(marked) +unsaved +pending	Tab	vtium effects(filter) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	Up	vtium fonts(frit) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	i	vtium fonts(marked) +pending	save, prepare
 vtium fonts(marked) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	r	vtium fonts(frit) +unsaved	
 vtium fonts(marked) +unsaved +pending	t	vtium any.trial +unsaved +pending	switch
-vtium fonts(refused)	2	vtium effects	
+vtium fonts(refused)	2	vtium effects(filter)	
 vtium fonts(refused)	3	vtium looks	
 vtium fonts(refused)	4	vtium flow(doc display)	mouse on
 vtium fonts(refused)	5	vtium settings(first)	
@@ -2868,12 +3470,12 @@ vtium fonts(refused)	End	vtium fonts(builtin)
 vtium fonts(refused)	PgDn	vtium fonts(builtin)	
 vtium fonts(refused)	Shift-Tab	vtium help(help)	
 vtium fonts(refused)	Shrink	vtium any.too-small	
-vtium fonts(refused)	Tab	vtium effects	
+vtium fonts(refused)	Tab	vtium effects(filter)	
 vtium fonts(refused)	i	vtium fonts(refused)	prepare
 vtium fonts(refused)	n	vtium looks.new-frit.typing(row 0)	
 vtium fonts(refused)	q	vtium left	exit 0
 vtium fonts(refused)	r	vtium fonts(marked) +pending	
-vtium fonts(refused) +pending	2	vtium effects +pending	
+vtium fonts(refused) +pending	2	vtium effects(filter) +pending	
 vtium fonts(refused) +pending	3	vtium looks +pending	
 vtium fonts(refused) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium fonts(refused) +pending	5	vtium settings(first) +pending	
@@ -2884,12 +3486,12 @@ vtium fonts(refused) +pending	End	vtium fonts(builtin) +pending
 vtium fonts(refused) +pending	PgDn	vtium fonts(builtin) +pending	
 vtium fonts(refused) +pending	Shift-Tab	vtium help(help) +pending	
 vtium fonts(refused) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(refused) +pending	Tab	vtium effects +pending	
+vtium fonts(refused) +pending	Tab	vtium effects(filter) +pending	
 vtium fonts(refused) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(refused) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(refused) +pending	q	vtium any.question.leave +pending	
 vtium fonts(refused) +pending	r	vtium fonts(marked) +pending	
-vtium fonts(refused) +unsaved	2	vtium effects +unsaved	
+vtium fonts(refused) +unsaved	2	vtium effects(filter) +unsaved	
 vtium fonts(refused) +unsaved	3	vtium looks +unsaved	
 vtium fonts(refused) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium fonts(refused) +unsaved	5	vtium settings(first) +unsaved	
@@ -2900,12 +3502,12 @@ vtium fonts(refused) +unsaved	End	vtium fonts(builtin) +unsaved
 vtium fonts(refused) +unsaved	PgDn	vtium fonts(builtin) +unsaved	
 vtium fonts(refused) +unsaved	Shift-Tab	vtium help(help) +unsaved	
 vtium fonts(refused) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(refused) +unsaved	Tab	vtium effects +unsaved	
+vtium fonts(refused) +unsaved	Tab	vtium effects(filter) +unsaved	
 vtium fonts(refused) +unsaved	i	vtium fonts(refused)	save, prepare
 vtium fonts(refused) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
 vtium fonts(refused) +unsaved	q	vtium any.question.quit +unsaved	
 vtium fonts(refused) +unsaved	r	vtium fonts(marked) +unsaved +pending	
-vtium fonts(refused) +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium fonts(refused) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium fonts(refused) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2916,12 +3518,12 @@ vtium fonts(refused) +unsaved +pending	End	vtium fonts(builtin) +unsaved +pendin
 vtium fonts(refused) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(refused) +unsaved +pending	Tab	vtium effects +unsaved +pending	
+vtium fonts(refused) +unsaved +pending	Tab	vtium effects(filter) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	i	vtium fonts(refused) +pending	save, prepare
 vtium fonts(refused) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium help(about)	1	vtium fonts(builtin)	
-vtium help(about)	2	vtium effects	
+vtium help(about)	2	vtium effects(filter)	
 vtium help(about)	3	vtium looks	
 vtium help(about)	4	vtium flow(doc display)	mouse on
 vtium help(about)	5	vtium settings(first)	
@@ -2933,7 +3535,7 @@ vtium help(about)	Shrink	vtium any.too-small
 vtium help(about)	Tab	vtium fonts(builtin)	
 vtium help(about)	q	vtium left	exit 0
 vtium help(about) +pending	1	vtium fonts(marked) +pending	
-vtium help(about) +pending	2	vtium effects +pending	
+vtium help(about) +pending	2	vtium effects(filter) +pending	
 vtium help(about) +pending	3	vtium looks +pending	
 vtium help(about) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium help(about) +pending	5	vtium settings(first) +pending	
@@ -2945,7 +3547,7 @@ vtium help(about) +pending	Shrink	vtium any.too-small +pending
 vtium help(about) +pending	Tab	vtium fonts(marked) +pending	
 vtium help(about) +pending	q	vtium any.question.leave +pending	
 vtium help(about) +unsaved	1	vtium fonts(builtin) +unsaved	
-vtium help(about) +unsaved	2	vtium effects +unsaved	
+vtium help(about) +unsaved	2	vtium effects(filter) +unsaved	
 vtium help(about) +unsaved	3	vtium looks +unsaved	
 vtium help(about) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium help(about) +unsaved	5	vtium settings(first) +unsaved	
@@ -2957,7 +3559,7 @@ vtium help(about) +unsaved	Shrink	vtium any.too-small +unsaved
 vtium help(about) +unsaved	Tab	vtium fonts(builtin) +unsaved	
 vtium help(about) +unsaved	q	vtium any.question.quit +unsaved	
 vtium help(about) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
-vtium help(about) +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium help(about) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium help(about) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium help(about) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium help(about) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2969,7 +3571,7 @@ vtium help(about) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending
 vtium help(about) +unsaved +pending	Tab	vtium fonts(marked) +unsaved +pending	
 vtium help(about) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium help(help)	1	vtium fonts(builtin)	
-vtium help(help)	2	vtium effects	
+vtium help(help)	2	vtium effects(filter)	
 vtium help(help)	3	vtium looks	
 vtium help(help)	4	vtium flow(doc display)	mouse on
 vtium help(help)	5	vtium settings(first)	
@@ -2981,7 +3583,7 @@ vtium help(help)	Shrink	vtium any.too-small
 vtium help(help)	Tab	vtium fonts(builtin)	
 vtium help(help)	q	vtium left	exit 0
 vtium help(help) +pending	1	vtium fonts(marked) +pending	
-vtium help(help) +pending	2	vtium effects +pending	
+vtium help(help) +pending	2	vtium effects(filter) +pending	
 vtium help(help) +pending	3	vtium looks +pending	
 vtium help(help) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium help(help) +pending	5	vtium settings(first) +pending	
@@ -2993,7 +3595,7 @@ vtium help(help) +pending	Shrink	vtium any.too-small +pending
 vtium help(help) +pending	Tab	vtium fonts(marked) +pending	
 vtium help(help) +pending	q	vtium any.question.leave +pending	
 vtium help(help) +unsaved	1	vtium fonts(builtin) +unsaved	
-vtium help(help) +unsaved	2	vtium effects +unsaved	
+vtium help(help) +unsaved	2	vtium effects(filter) +unsaved	
 vtium help(help) +unsaved	3	vtium looks +unsaved	
 vtium help(help) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium help(help) +unsaved	5	vtium settings(first) +unsaved	
@@ -3005,7 +3607,7 @@ vtium help(help) +unsaved	Shrink	vtium any.too-small +unsaved
 vtium help(help) +unsaved	Tab	vtium fonts(builtin) +unsaved	
 vtium help(help) +unsaved	q	vtium any.question.quit +unsaved	
 vtium help(help) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
-vtium help(help) +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium help(help) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium help(help) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium help(help) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium help(help) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -3017,50 +3619,50 @@ vtium help(help) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending
 vtium help(help) +unsaved +pending	Tab	vtium fonts(marked) +unsaved +pending	
 vtium help(help) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium looks	1	vtium fonts(builtin)	
-vtium looks	2	vtium effects	
+vtium looks	2	vtium effects(filter)	
 vtium looks	4	vtium flow(doc display)	mouse on
 vtium looks	5	vtium settings(first)	
 vtium looks	6	vtium help(help)	
 vtium looks	Ctrl-C	vtium left	exit 130
 vtium looks	Enter	vtium looks +unsaved	check
-vtium looks	Shift-Tab	vtium effects	
+vtium looks	Shift-Tab	vtium effects(filter)	
 vtium looks	Shrink	vtium any.too-small	
 vtium looks	Tab	vtium flow(doc display)	mouse on
 vtium looks	i	vtium looks	prepare
 vtium looks	q	vtium left	exit 0
 vtium looks +pending	1	vtium fonts(marked) +pending	
-vtium looks +pending	2	vtium effects +pending	
+vtium looks +pending	2	vtium effects(filter) +pending	
 vtium looks +pending	4	vtium flow(doc display) +pending	mouse on
 vtium looks +pending	5	vtium settings(first) +pending	
 vtium looks +pending	6	vtium help(help) +pending	
 vtium looks +pending	Ctrl-C	vtium left	exit 130
 vtium looks +pending	Enter	vtium looks +unsaved +pending	check
-vtium looks +pending	Shift-Tab	vtium effects +pending	
+vtium looks +pending	Shift-Tab	vtium effects(filter) +pending	
 vtium looks +pending	Shrink	vtium any.too-small +pending	
 vtium looks +pending	Tab	vtium flow(doc display) +pending	mouse on
 vtium looks +pending	i	vtium any.question.confirm +pending	prepare
 vtium looks +pending	q	vtium any.question.leave +pending	
 vtium looks +unsaved	1	vtium fonts(builtin) +unsaved	
-vtium looks +unsaved	2	vtium effects +unsaved	
+vtium looks +unsaved	2	vtium effects(filter) +unsaved	
 vtium looks +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium looks +unsaved	5	vtium settings(first) +unsaved	
 vtium looks +unsaved	6	vtium help(help) +unsaved	
 vtium looks +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium looks +unsaved	Enter	vtium looks +unsaved	check
-vtium looks +unsaved	Shift-Tab	vtium effects +unsaved	
+vtium looks +unsaved	Shift-Tab	vtium effects(filter) +unsaved	
 vtium looks +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium looks +unsaved	Tab	vtium flow(doc display) +unsaved	mouse on
 vtium looks +unsaved	i	vtium looks	save, prepare
 vtium looks +unsaved	q	vtium any.question.quit +unsaved	
 vtium looks +unsaved	s	vtium looks	save
 vtium looks +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
-vtium looks +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium looks +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium looks +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium looks +unsaved +pending	5	vtium settings(first) +unsaved +pending	
 vtium looks +unsaved +pending	6	vtium help(help) +unsaved +pending	
 vtium looks +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium looks +unsaved +pending	Enter	vtium looks +unsaved +pending	check
-vtium looks +unsaved +pending	Shift-Tab	vtium effects +unsaved +pending	
+vtium looks +unsaved +pending	Shift-Tab	vtium effects(filter) +unsaved +pending	
 vtium looks +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium looks +unsaved +pending	Tab	vtium flow(doc display) +unsaved +pending	mouse on
 vtium looks +unsaved +pending	i	vtium looks +pending	save, prepare
@@ -3191,7 +3793,7 @@ vtium looks.new-frit.typing(row 5) +unsaved +pending	Enter	vtium looks.new-frit(
 vtium looks.new-frit.typing(row 5) +unsaved +pending	Esc	vtium fonts(marked) +unsaved +pending	
 vtium looks.new-frit.typing(row 5) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium settings(first)	1	vtium fonts(builtin)	
-vtium settings(first)	2	vtium effects	
+vtium settings(first)	2	vtium effects(filter)	
 vtium settings(first)	3	vtium looks	
 vtium settings(first)	4	vtium flow(doc display)	mouse on
 vtium settings(first)	6	vtium help(help)	
@@ -3206,7 +3808,7 @@ vtium settings(first)	Tab	vtium help(help)
 vtium settings(first)	i	vtium settings(first)	prepare
 vtium settings(first)	q	vtium left	exit 0
 vtium settings(first) +pending	1	vtium fonts(marked) +pending	
-vtium settings(first) +pending	2	vtium effects +pending	
+vtium settings(first) +pending	2	vtium effects(filter) +pending	
 vtium settings(first) +pending	3	vtium looks +pending	
 vtium settings(first) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium settings(first) +pending	6	vtium help(help) +pending	
@@ -3221,7 +3823,7 @@ vtium settings(first) +pending	Tab	vtium help(help) +pending
 vtium settings(first) +pending	i	vtium any.question.confirm +pending	prepare
 vtium settings(first) +pending	q	vtium any.question.leave +pending	
 vtium settings(first) +unsaved	1	vtium fonts(builtin) +unsaved	
-vtium settings(first) +unsaved	2	vtium effects +unsaved	
+vtium settings(first) +unsaved	2	vtium effects(filter) +unsaved	
 vtium settings(first) +unsaved	3	vtium looks +unsaved	
 vtium settings(first) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium settings(first) +unsaved	6	vtium help(help) +unsaved	
@@ -3237,7 +3839,7 @@ vtium settings(first) +unsaved	i	vtium settings(first)	save, prepare
 vtium settings(first) +unsaved	q	vtium any.question.quit +unsaved	
 vtium settings(first) +unsaved	s	vtium settings(first)	save
 vtium settings(first) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
-vtium settings(first) +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium settings(first) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium settings(first) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium settings(first) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium settings(first) +unsaved +pending	6	vtium help(help) +unsaved +pending	
@@ -3253,7 +3855,7 @@ vtium settings(first) +unsaved +pending	i	vtium settings(first) +pending	save, p
 vtium settings(first) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium settings(first) +unsaved +pending	s	vtium settings(first) +pending	save
 vtium settings(later)	1	vtium fonts(builtin)	
-vtium settings(later)	2	vtium effects	
+vtium settings(later)	2	vtium effects(filter)	
 vtium settings(later)	3	vtium looks	
 vtium settings(later)	4	vtium flow(doc display)	mouse on
 vtium settings(later)	6	vtium help(help)	
@@ -3268,7 +3870,7 @@ vtium settings(later)	Up	vtium settings(first)
 vtium settings(later)	i	vtium settings(later)	prepare
 vtium settings(later)	q	vtium left	exit 0
 vtium settings(later) +pending	1	vtium fonts(marked) +pending	
-vtium settings(later) +pending	2	vtium effects +pending	
+vtium settings(later) +pending	2	vtium effects(filter) +pending	
 vtium settings(later) +pending	3	vtium looks +pending	
 vtium settings(later) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium settings(later) +pending	6	vtium help(help) +pending	
@@ -3283,7 +3885,7 @@ vtium settings(later) +pending	Up	vtium settings(first) +pending
 vtium settings(later) +pending	i	vtium any.question.confirm +pending	prepare
 vtium settings(later) +pending	q	vtium any.question.leave +pending	
 vtium settings(later) +unsaved	1	vtium fonts(builtin) +unsaved	
-vtium settings(later) +unsaved	2	vtium effects +unsaved	
+vtium settings(later) +unsaved	2	vtium effects(filter) +unsaved	
 vtium settings(later) +unsaved	3	vtium looks +unsaved	
 vtium settings(later) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium settings(later) +unsaved	6	vtium help(help) +unsaved	
@@ -3299,7 +3901,7 @@ vtium settings(later) +unsaved	i	vtium settings(later)	save, prepare
 vtium settings(later) +unsaved	q	vtium any.question.quit +unsaved	
 vtium settings(later) +unsaved	s	vtium settings(later)	save
 vtium settings(later) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
-vtium settings(later) +unsaved +pending	2	vtium effects +unsaved +pending	
+vtium settings(later) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	
 vtium settings(later) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium settings(later) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium settings(later) +unsaved +pending	6	vtium help(help) +unsaved +pending	
