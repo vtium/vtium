@@ -216,7 +216,14 @@ fn a_login_whose_batch_changed_drops_the_stored_glyphs() {
         !holds(&app),
         "a font the batch gains draws the characters it has"
     );
-    assert!(!kept(&app), "the own cell is asked for again");
+    assert!(
+        !kept(&app),
+        "the own cell the first batch gave is forgotten"
+    );
+    assert!(
+        !app.frits.get("t").unwrap().own.is_empty(),
+        "the head's font is resolved again, and asks for its own cell"
+    );
     assert_eq!(
         app.frits.get("t").unwrap().asked,
         [at],
