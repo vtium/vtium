@@ -29,9 +29,11 @@ mod color_blind;
 mod contrast;
 mod gamma;
 mod math;
+mod slot;
 mod table;
 mod tint;
 
+pub(crate) use slot::Colored;
 pub use table::{Lookup, Table};
 
 /// The layer a filter runs in. The spatial filters run first, then the

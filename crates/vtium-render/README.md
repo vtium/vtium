@@ -21,6 +21,7 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 | `src/filter/mod.rs` | With `filters`: the frame filters' declarations. Each names its filter, its layer and its parameters, each with a kind, a range, a default and a line of help. `COLOR` is the one list of the color filters, and `Map` is one color filter with its parameters set (ADR-1304 D1, D10). |
 | `src/filter/gamma.rs`, `contrast.rs`, `tint.rs`, `color_blind.rs` | With `filters`: each color filter's declaration beside its function from one color to another (ADR-1304 D8). |
 | `src/filter/table.rs` | With `filters`: `Table`, a look's color filters merged into one lattice 33 a side of half floats, and `Lookup`, the CPU path's trilinear lookup in it (ADR-1304 D2). |
+| `src/filter/slot.rs` | With `filters`: the CPU path's color slot, a target that looks each pixel it writes up in the head's color table, between the pointer's blend and the 1-bit cut (ADR-1303 D4). |
 | `src/filter/math.rs` | With `filters`: the power, exponential and logarithm the table is built from, from correctly rounded operations alone, and the conversions to and from half floats, so every machine builds the same table (ADR-1304 D2). |
 | `src/mono.rs` | `Depth`. A 1-bit display's colors by cell, its coverage cut at half, and a color glyph's stand-in. |
 | `src/target.rs` | `Target`, the write-only display buffer. `Canvas`, a buffer in memory. `Mapped`, a mapped dumb buffer. `Orientation` and `Rect`. |

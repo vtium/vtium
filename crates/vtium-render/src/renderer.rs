@@ -738,6 +738,13 @@ pub struct Renderer<F> {
     pointer_line: Vec<u32>,
     /// The line a run is thresholded in, on a 1-bit display.
     mono_line: Vec<u32>,
+    /// The lookup in the head's color table, `None` with no color filter
+    /// ([`Renderer::set_color_table`]).
+    #[cfg(feature = "filters")]
+    color: Option<crate::filter::Lookup>,
+    /// The line a run is looked up in, on its way through the color slot.
+    #[cfg(feature = "filters")]
+    color_line: Vec<u32>,
     /// The configured underline and strike colors through the frame being
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
@@ -1031,6 +1038,10 @@ impl<F: Face> Renderer<F> {
             pointer: None,
             pointer_line: Vec::new(),
             mono_line: Vec::new(),
+            #[cfg(feature = "filters")]
+            color: None,
+            #[cfg(feature = "filters")]
+            color_line: Vec::new(),
             deco: (None, None),
             changed: Vec::new(),
             shown_missing: Vec::new(),
@@ -1100,6 +1111,42 @@ impl<F: Face> Renderer<F> {
     /// the frame again on the CPU path.
     pub fn forget_history(&mut self) {
         self.grid = None;
+    }
+
+    /// Sets the head's color table, the look's color filters merged, or
+    /// `None` for a look with no color filter. Every pixel the CPU path
+    /// writes afterwards, the pointer's and those that
+    /// [`Renderer::colored`] writes included, is looked up in it. A change
+    /// of table changes every pixel, so the next frame draws whole, as
+    /// does the first frame into each other buffer. The only failure is a
+    /// want of memory for the lookup, which leaves the table as it was.
+    ///
+    /// References:
+    /// - ADR-1304 D2: a change of the look's color filters makes the CPU path draw its frame whole.
+    #[cfg(feature = "filters")]
+    pub fn set_color_table(
+        &mut self,
+        table: Option<&crate::filter::Table>,
+    ) -> Result<(), std::collections::TryReserveError> {
+        self.color = table.map(crate::filter::Lookup::new).transpose()?;
+        self.forget_history();
+        Ok(())
+    }
+
+    /// Whether the head's look holds a color filter, so that every pixel
+    /// passes through the color slot.
+    #[cfg(feature = "filters")]
+    pub fn colors(&self) -> bool {
+        self.color.is_some()
+    }
+
+    /// `target` with the color slot in front of it: vtium's notices and the
+    /// focus mark, which reach the display's buffer beside the renderer's
+    /// frame, write through it so that the look's color filters reach them
+    /// too. With no color table it writes through unchanged.
+    #[cfg(feature = "filters")]
+    pub fn colored<'a, T: Target + ?Sized>(&'a mut self, target: &'a mut T) -> impl Target + 'a {
+        crate::filter::Colored::new(target, self.color.as_mut(), &mut self.color_line)
     }
 
     /// Something other than the renderer drew over the display area `area`
@@ -1345,6 +1392,12 @@ impl<F: Face> Renderer<F> {
         let mut line = core::mem::take(&mut self.pointer_line);
         let mut mono_line = core::mem::take(&mut self.mono_line);
         let mut target = Threshold::new(target, self.config.depth, &mut mono_line);
+        // the color slot, between the pointer's blend and a 1-bit cut
+        #[cfg(feature = "filters")]
+        let (mut color, mut color_line) =
+            (self.color.take(), core::mem::take(&mut self.color_line));
+        #[cfg(feature = "filters")]
+        let mut target = crate::filter::Colored::new(&mut target, color.as_mut(), &mut color_line);
         let mut out = Over::new(&mut target, plan.pointer.map(|p| (&arrow, p.at)), &mut line);
         let reaching = self.compose.cache.reaching();
         if reaching && !self.reaches_kept {
@@ -1359,6 +1412,11 @@ impl<F: Face> Renderer<F> {
             drawn = self.paint(&plan, frame, state, &mut Cpu(&mut out));
         }
         let (cells, rows) = drawn;
+        #[cfg(feature = "filters")]
+        {
+            self.color = color;
+            self.color_line = color_line;
+        }
         self.arrow = arrow;
         self.pointer_line = line;
         self.mono_line = mono_line;
