@@ -86,7 +86,7 @@ RELR_LINK := -C link-arg=-Wl,-z,pack-relative-relocs
 # linker keeps one copy of each set of functions whose machine code and
 # relocations are the same, and points every caller at that copy. Generic
 # code instantiated for types of the same layout folds this way, and the
-# binary shrinks by about 42 KB, which keeps it under the 4,259,840-byte
+# binary shrinks by about 42 KB, which keeps it under the 4,325,376-byte
 # budget that tier 3 holds the minspec binary to. The mode is all, not safe:
 # safe folds only functions whose address no code takes, and rustc emits no
 # address-significance table to tell the linker which those are, so safe
@@ -113,7 +113,7 @@ ICF_LINK := -C link-arg=-Wl,--icf=all
 # on, as calloop-0.14.4/src/sys.rs. rustc applies the last prefix that
 # matches a path, so the crates.io prefix, the more specific one, comes
 # last and wins over the cargo home's. The binary shrinks
-# by about 2.6 KB, which counts against the 4,259,840-byte budget that tier
+# by about 2.6 KB, which counts against the 4,325,376-byte budget that tier
 # 3 holds the minspec binary to, and its size no longer depends on where
 # the cargo home is. vtium's own sources already appear as paths relative
 # to the workspace, such as crates/vtium/src/main.rs. The flags go to every

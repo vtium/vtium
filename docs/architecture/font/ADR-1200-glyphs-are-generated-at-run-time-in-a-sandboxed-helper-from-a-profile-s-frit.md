@@ -367,6 +367,9 @@ considered:
     said: "Behind a bitmap first font, outline glyphs draw 1-bit by default, with render= to override, as proposed."
     via: the steering session's questions on 2026-11-14, on the text records
     paraphrase: true
+  - operator: aaronsb
+    said: "a. we are just keeping a low footprint because it keeps us honest about size changes"
+    via: the steering session's chat, 2026-11-19, choosing to raise the minspec budget to 4 MiB + 128 KiB after the trust library's size was measured and trimmed
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
