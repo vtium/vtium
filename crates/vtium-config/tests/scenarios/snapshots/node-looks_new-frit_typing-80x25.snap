@@ -2,7 +2,7 @@
 source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "looks.new-frit.typing at 80×25, keys: n"
 ---
- Flow  Looks  Fonts  Settings  Help                               Save  Install
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
  draft mine · no changes · no problems               text preview · t: try live
 --------------------------------------------------------------------------------
  > Name     _

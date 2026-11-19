@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "effects at 80×25, keys: Tab"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+ The Effects tab, with the color maps and shaders a look can use, is coming.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ Tab next view  s save  i install  q quit

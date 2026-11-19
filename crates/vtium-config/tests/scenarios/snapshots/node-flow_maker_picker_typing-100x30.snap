@@ -2,7 +2,7 @@
 source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "flow.maker.picker.typing at 100×30, keys: 4 PgDn Enter Down Enter Down Enter"
 ---
- Flow  Looks  Fonts  Settings  Help                 v View file  s Save  i Install  r Revert  n New
+ Fonts  Effects  Looks  Flow  Settings  Help        v View file  s Save  i Install  r Revert  n New
  draft mine  ›  Display   1 keyboard and 1 pointer in no path yet · no changes · no problems · not…
 
  THIS MONITOR

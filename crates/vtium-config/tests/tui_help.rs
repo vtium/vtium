@@ -12,7 +12,7 @@ use vtium_config::tui::model::{App, View};
 fn the_help_view_draws_the_keys_from_the_contract_and_about_from_its_source() {
     let mut a = app(80, 25);
     assert_eq!(a.flow.at(), Item::Display(0));
-    press(&mut a, Key::BackTab);
+    press(&mut a, Key::Char('6'));
     assert_eq!(a.nav.view, View::Help);
     let joined = |a: &App| text(a).lines().map(str::trim).collect::<Vec<_>>().join(" ");
     assert!(
@@ -55,7 +55,7 @@ fn the_help_page_shows_every_key_of_every_node_the_contract_gives() {
     let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     for (cols, rows) in [(80, 25), (100, 30)] {
         let mut a = app(cols, rows);
-        press(&mut a, Key::BackTab);
+        press(&mut a, Key::Char('6'));
         assert_eq!(a.nav.view, View::Help);
         let page = words(
             &a.help
@@ -96,9 +96,9 @@ fn the_help_page_shows_every_key_of_every_node_the_contract_gives() {
 #[test]
 fn the_help_page_scrolls_by_its_window_and_up_moves_it_at_once_from_the_bottom() {
     let mut a = app(80, 25);
-    press(&mut a, Key::BackTab);
-    let (rows, room) = vtium_config::tui::layout::help_window(&a);
-    let len = rows.len;
+    press(&mut a, Key::Char('6'));
+    let room = vtium_config::tui::layout::room(&a).body;
+    let len = a.help.rows(&a.shared, a.size).len;
     assert!(len > room.saturating_mul(2), "{len} rows, {room} shown");
     // the screen's first row of the page, the row under the tab bar's
     // rule, is the page's row `at`
@@ -157,14 +157,14 @@ fn page_up_and_page_down_keep_each_entry_of_the_help_page_on_one_screen() {
     };
     for (cols, rows) in [(80, 25), (100, 30)] {
         let mut a = app(cols, rows);
-        press(&mut a, Key::BackTab);
+        press(&mut a, Key::Char('6'));
         let page: Vec<String> = a
             .help
             .page(&a.shared, a.size)
             .iter()
             .map(ToString::to_string)
             .collect();
-        let (_, room) = vtium_config::tui::layout::help_window(&a);
+        let room = vtium_config::tui::layout::room(&a).body;
         let last = page.len().saturating_sub(room);
         let mut tops = vec![a.help.top()];
         for key in [Key::PageDown, Key::PageUp] {

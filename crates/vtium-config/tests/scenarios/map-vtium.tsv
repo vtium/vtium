@@ -9,15 +9,18 @@ vtium any.question.confirm	y	vtium flow(doc display)	restore
 vtium any.question.confirm	y	vtium flow(doc display)	revert
 vtium any.question.confirm	y	vtium flow(new empty)	new
 vtium any.question.confirm	y	vtium fonts(frit)	install
+vtium any.question.confirm +pending	Ctrl-C	vtium effects +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium flow(doc display) +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium fonts(marked) +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium looks +pending	
 vtium any.question.confirm +pending	Ctrl-C	vtium settings(first) +pending	
+vtium any.question.confirm +pending	Esc	vtium effects +pending	
 vtium any.question.confirm +pending	Esc	vtium flow(doc display) +pending	
 vtium any.question.confirm +pending	Esc	vtium fonts(marked) +pending	
 vtium any.question.confirm +pending	Esc	vtium looks +pending	
 vtium any.question.confirm +pending	Esc	vtium settings(first) +pending	
 vtium any.question.confirm +pending	Shrink	vtium any.question.confirm below 80×25 +pending	
+vtium any.question.confirm +pending	y	vtium effects	install
 vtium any.question.confirm +pending	y	vtium flow(doc display)	install
 vtium any.question.confirm +pending	y	vtium flow(doc display) +pending	restore
 vtium any.question.confirm +pending	y	vtium flow(doc display) +pending	revert
@@ -63,12 +66,14 @@ vtium any.question.confirm below 80×25 +unsaved +pending	Grow	vtium any.questio
 vtium any.question.confirm below 80×25 +unsaved +pending	y	vtium any.too-small +pending	new
 vtium any.question.confirm below 80×25 +unsaved +pending	y	vtium any.too-small +pending	restore
 vtium any.question.confirm below 80×25 +unsaved +pending	y	vtium any.too-small +pending	revert
+vtium any.question.leave +pending	Ctrl-C	vtium effects +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium flow(doc display) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium fonts(marked) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium help(help) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium looks +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium looks.new-frit(row 6) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium settings(first) +pending	
+vtium any.question.leave +pending	Esc	vtium effects +pending	
 vtium any.question.leave +pending	Esc	vtium flow(doc display) +pending	
 vtium any.question.leave +pending	Esc	vtium fonts(marked) +pending	
 vtium any.question.leave +pending	Esc	vtium help(help) +pending	
@@ -80,12 +85,14 @@ vtium any.question.leave +pending	n	vtium left	exit 0
 vtium any.question.leave +pending	n	vtium left	mouse off, exit 0
 vtium any.question.leave +pending	y	vtium left	prepare, install, exit 0
 vtium any.question.leave +pending	y	vtium left	prepare, install, mouse off, exit 0
+vtium any.question.leave +unsaved +pending	Ctrl-C	vtium effects +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium flow(doc display) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium fonts(marked) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium help(help) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks.new-frit(row 6) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium settings(first) +unsaved +pending	
+vtium any.question.leave +unsaved +pending	Esc	vtium effects +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium flow(doc display) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium fonts(marked) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium help(help) +unsaved +pending	
@@ -95,6 +102,7 @@ vtium any.question.leave +unsaved +pending	Esc	vtium settings(first) +unsaved +p
 vtium any.question.leave +unsaved +pending	Shrink	vtium any.question.leave below 80×25 +unsaved +pending	
 vtium any.question.leave +unsaved +pending	n	vtium left	save, exit 0
 vtium any.question.leave +unsaved +pending	n	vtium left	save, mouse off, exit 0
+vtium any.question.leave +unsaved +pending	y	vtium effects +pending	save, prepare
 vtium any.question.leave +unsaved +pending	y	vtium flow(doc display) +pending	save, prepare
 vtium any.question.leave +unsaved +pending	y	vtium fonts(marked) +pending	save, prepare
 vtium any.question.leave +unsaved +pending	y	vtium help(help) +pending	save, prepare
@@ -111,12 +119,14 @@ vtium any.question.leave below 80×25 +unsaved +pending	Esc	vtium any.too-small 
 vtium any.question.leave below 80×25 +unsaved +pending	Grow	vtium any.question.leave +unsaved +pending	
 vtium any.question.leave below 80×25 +unsaved +pending	n	vtium left	save, exit 0
 vtium any.question.leave below 80×25 +unsaved +pending	y	vtium any.too-small +pending	save, prepare
+vtium any.question.quit +unsaved	Ctrl-C	vtium effects +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium flow(doc display) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium fonts(builtin) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium help(help) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium looks +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium looks.new-frit(row 6) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium settings(first) +unsaved	
+vtium any.question.quit +unsaved	Esc	vtium effects +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium flow(doc display) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium fonts(builtin) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium help(help) +unsaved	
@@ -561,21 +571,68 @@ vtium any.trial below 80×25 +unsaved +pending	w	vtium any.too-small +unsaved +p
 vtium any.trial below 80×25 +unsaved +pending	x	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	y	vtium any.too-small +unsaved +pending	switch
 vtium any.trial below 80×25 +unsaved +pending	z	vtium any.too-small +unsaved +pending	switch
+vtium effects	1	vtium fonts(builtin)	
+vtium effects	3	vtium looks	
+vtium effects	4	vtium flow(doc display)	mouse on
+vtium effects	5	vtium settings(first)	
+vtium effects	6	vtium help(help)	
+vtium effects	Ctrl-C	vtium left	exit 130
+vtium effects	Shift-Tab	vtium fonts(builtin)	
+vtium effects	Shrink	vtium any.too-small	
+vtium effects	Tab	vtium looks	
+vtium effects	i	vtium effects	prepare
+vtium effects	q	vtium left	exit 0
+vtium effects +pending	1	vtium fonts(marked) +pending	
+vtium effects +pending	3	vtium looks +pending	
+vtium effects +pending	4	vtium flow(doc display) +pending	mouse on
+vtium effects +pending	5	vtium settings(first) +pending	
+vtium effects +pending	6	vtium help(help) +pending	
+vtium effects +pending	Ctrl-C	vtium left	exit 130
+vtium effects +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium effects +pending	Shrink	vtium any.too-small +pending	
+vtium effects +pending	Tab	vtium looks +pending	
+vtium effects +pending	i	vtium any.question.confirm +pending	prepare
+vtium effects +pending	q	vtium any.question.leave +pending	
+vtium effects +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium effects +unsaved	3	vtium looks +unsaved	
+vtium effects +unsaved	4	vtium flow(doc display) +unsaved	mouse on
+vtium effects +unsaved	5	vtium settings(first) +unsaved	
+vtium effects +unsaved	6	vtium help(help) +unsaved	
+vtium effects +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium effects +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium effects +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium effects +unsaved	Tab	vtium looks +unsaved	
+vtium effects +unsaved	i	vtium effects	save, prepare
+vtium effects +unsaved	q	vtium any.question.quit +unsaved	
+vtium effects +unsaved	s	vtium effects	save
+vtium effects +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium effects +unsaved +pending	3	vtium looks +unsaved +pending	
+vtium effects +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
+vtium effects +unsaved +pending	5	vtium settings(first) +unsaved +pending	
+vtium effects +unsaved +pending	6	vtium help(help) +unsaved +pending	
+vtium effects +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium effects +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium effects +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium effects +unsaved +pending	Tab	vtium looks +unsaved +pending	
+vtium effects +unsaved +pending	i	vtium effects +pending	save, prepare
+vtium effects +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium effects +unsaved +pending	s	vtium effects +pending	save
 vtium flow(doc display)	1	vtium fonts(builtin)	mouse off
+vtium flow(doc display)	2	vtium effects	mouse off
 vtium flow(doc display)	3	vtium looks	mouse off
 vtium flow(doc display)	5	vtium settings(first)	mouse off
 vtium flow(doc display)	6	vtium help(help)	mouse off
 vtium flow(doc display)	Click box	vtium flow(doc terminal)	
-vtium flow(doc display)	Click tab	vtium looks	mouse off
+vtium flow(doc display)	Click tab	vtium effects	mouse off
 vtium flow(doc display)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc display)	Down	vtium flow(doc terminal)	
 vtium flow(doc display)	End	vtium flow(parts font)	
 vtium flow(doc display)	Enter	vtium flow.info	
 vtium flow(doc display)	PgDn	vtium flow(parts template)	
 vtium flow(doc display)	Right	vtium flow(doc terminal)	
-vtium flow(doc display)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(doc display)	Shift-Tab	vtium looks	mouse off
 vtium flow(doc display)	Shrink	vtium any.too-small	
-vtium flow(doc display)	Tab	vtium looks	mouse off
+vtium flow(doc display)	Tab	vtium settings(first)	mouse off
 vtium flow(doc display)	Wheel down	vtium flow(doc terminal)	
 vtium flow(doc display)	d	vtium flow(doc display)	devices
 vtium flow(doc display)	e	vtium flow(new terminal)	
@@ -586,20 +643,21 @@ vtium flow(doc display)	q	vtium left	mouse off, exit 0
 vtium flow(doc display)	r	vtium any.question.confirm	
 vtium flow(doc display)	v	vtium flow.file	
 vtium flow(doc display) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(doc display) +pending	2	vtium effects +pending	mouse off
 vtium flow(doc display) +pending	3	vtium looks +pending	mouse off
 vtium flow(doc display) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(doc display) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(doc display) +pending	Click box	vtium flow(doc terminal) +pending	
-vtium flow(doc display) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(doc display) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(doc display) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc display) +pending	Down	vtium flow(doc terminal) +pending	
 vtium flow(doc display) +pending	End	vtium flow(parts font) +pending	
 vtium flow(doc display) +pending	Enter	vtium flow.info +pending	
 vtium flow(doc display) +pending	PgDn	vtium flow(parts template) +pending	
 vtium flow(doc display) +pending	Right	vtium flow(doc terminal) +pending	
-vtium flow(doc display) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(doc display) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(doc display) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(doc display) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(doc display) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(doc display) +pending	Wheel down	vtium flow(doc terminal) +pending	
 vtium flow(doc display) +pending	d	vtium flow(doc display) +pending	devices
 vtium flow(doc display) +pending	e	vtium flow(new terminal) +pending	
@@ -610,20 +668,21 @@ vtium flow(doc display) +pending	q	vtium any.question.leave +pending
 vtium flow(doc display) +pending	r	vtium any.question.confirm +pending	
 vtium flow(doc display) +pending	v	vtium flow.file +pending	
 vtium flow(doc display) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(doc display) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(doc display) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(doc display) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(doc display) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(doc display) +unsaved	Click box	vtium flow(doc terminal) +unsaved	
-vtium flow(doc display) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(doc display) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(doc display) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc display) +unsaved	Down	vtium flow(doc terminal) +unsaved	
 vtium flow(doc display) +unsaved	End	vtium flow(parts font) +unsaved	
 vtium flow(doc display) +unsaved	Enter	vtium flow.info +unsaved	
 vtium flow(doc display) +unsaved	PgDn	vtium flow(parts template) +unsaved	
 vtium flow(doc display) +unsaved	Right	vtium flow(doc terminal) +unsaved	
-vtium flow(doc display) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(doc display) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(doc display) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(doc display) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(doc display) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(doc display) +unsaved	Wheel down	vtium flow(doc terminal) +unsaved	
 vtium flow(doc display) +unsaved	d	vtium flow(doc display) +unsaved	devices
 vtium flow(doc display) +unsaved	e	vtium flow(new terminal) +unsaved	
@@ -635,20 +694,21 @@ vtium flow(doc display) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(doc display) +unsaved	s	vtium flow(doc display)	save
 vtium flow(doc display) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(doc display) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(doc display) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	Click box	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(doc display) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(doc display) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc display) +unsaved +pending	Down	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	Enter	vtium flow.info +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	Right	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(doc display) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(doc display) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(doc display) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(doc display) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(doc display) +unsaved +pending	Wheel down	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(doc display) +unsaved +pending	d	vtium flow(doc display) +unsaved +pending	devices
 vtium flow(doc display) +unsaved +pending	e	vtium flow(new terminal) +unsaved +pending	
@@ -660,10 +720,11 @@ vtium flow(doc display) +unsaved +pending	r	vtium any.question.confirm +unsaved 
 vtium flow(doc display) +unsaved +pending	s	vtium flow(doc display) +pending	save
 vtium flow(doc display) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(doc terminal)	1	vtium fonts(builtin)	mouse off
+vtium flow(doc terminal)	2	vtium effects	mouse off
 vtium flow(doc terminal)	3	vtium looks	mouse off
 vtium flow(doc terminal)	5	vtium settings(first)	mouse off
 vtium flow(doc terminal)	6	vtium help(help)	mouse off
-vtium flow(doc terminal)	Click tab	vtium looks	mouse off
+vtium flow(doc terminal)	Click tab	vtium effects	mouse off
 vtium flow(doc terminal)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc terminal)	Down	vtium flow(new empty)	
 vtium flow(doc terminal)	End	vtium flow(parts font)	
@@ -671,9 +732,9 @@ vtium flow(doc terminal)	Enter	vtium flow.card
 vtium flow(doc terminal)	Home	vtium flow(doc display)	
 vtium flow(doc terminal)	PgDn	vtium flow(parts template)	
 vtium flow(doc terminal)	Right	vtium flow(new empty)	
-vtium flow(doc terminal)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(doc terminal)	Shift-Tab	vtium looks	mouse off
 vtium flow(doc terminal)	Shrink	vtium any.too-small	
-vtium flow(doc terminal)	Tab	vtium looks	mouse off
+vtium flow(doc terminal)	Tab	vtium settings(first)	mouse off
 vtium flow(doc terminal)	Wheel down	vtium flow(new empty)	
 vtium flow(doc terminal)	d	vtium flow(doc terminal)	devices
 vtium flow(doc terminal)	e	vtium flow(new terminal)	
@@ -684,10 +745,11 @@ vtium flow(doc terminal)	q	vtium left	mouse off, exit 0
 vtium flow(doc terminal)	r	vtium any.question.confirm	
 vtium flow(doc terminal)	v	vtium flow.file	
 vtium flow(doc terminal) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(doc terminal) +pending	2	vtium effects +pending	mouse off
 vtium flow(doc terminal) +pending	3	vtium looks +pending	mouse off
 vtium flow(doc terminal) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(doc terminal) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(doc terminal) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(doc terminal) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(doc terminal) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(doc terminal) +pending	Down	vtium flow(new empty) +pending	
 vtium flow(doc terminal) +pending	End	vtium flow(parts font) +pending	
@@ -695,9 +757,9 @@ vtium flow(doc terminal) +pending	Enter	vtium flow.card +pending
 vtium flow(doc terminal) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(doc terminal) +pending	PgDn	vtium flow(parts template) +pending	
 vtium flow(doc terminal) +pending	Right	vtium flow(new empty) +pending	
-vtium flow(doc terminal) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(doc terminal) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(doc terminal) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(doc terminal) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(doc terminal) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(doc terminal) +pending	Wheel down	vtium flow(new empty) +pending	
 vtium flow(doc terminal) +pending	d	vtium flow(doc terminal) +pending	devices
 vtium flow(doc terminal) +pending	e	vtium flow(new terminal) +pending	
@@ -708,10 +770,11 @@ vtium flow(doc terminal) +pending	q	vtium any.question.leave +pending
 vtium flow(doc terminal) +pending	r	vtium any.question.confirm +pending	
 vtium flow(doc terminal) +pending	v	vtium flow.file +pending	
 vtium flow(doc terminal) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(doc terminal) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(doc terminal) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(doc terminal) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc terminal) +unsaved	Down	vtium flow(new empty) +unsaved	
 vtium flow(doc terminal) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -719,9 +782,9 @@ vtium flow(doc terminal) +unsaved	Enter	vtium flow.card +unsaved
 vtium flow(doc terminal) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(doc terminal) +unsaved	PgDn	vtium flow(parts template) +unsaved	
 vtium flow(doc terminal) +unsaved	Right	vtium flow(new empty) +unsaved	
-vtium flow(doc terminal) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(doc terminal) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(doc terminal) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(doc terminal) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(doc terminal) +unsaved	Wheel down	vtium flow(new empty) +unsaved	
 vtium flow(doc terminal) +unsaved	d	vtium flow(doc terminal) +unsaved	devices
 vtium flow(doc terminal) +unsaved	e	vtium flow(new terminal) +unsaved	
@@ -733,10 +796,11 @@ vtium flow(doc terminal) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(doc terminal) +unsaved	s	vtium flow(doc terminal)	save
 vtium flow(doc terminal) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(doc terminal) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(doc terminal) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(doc terminal) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(doc terminal) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(doc terminal) +unsaved +pending	Down	vtium flow(new empty) +unsaved +pending	
 vtium flow(doc terminal) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -744,9 +808,9 @@ vtium flow(doc terminal) +unsaved +pending	Enter	vtium flow.card +unsaved +pendi
 vtium flow(doc terminal) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(doc terminal) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
 vtium flow(doc terminal) +unsaved +pending	Right	vtium flow(new empty) +unsaved +pending	
-vtium flow(doc terminal) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(doc terminal) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(doc terminal) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(doc terminal) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(doc terminal) +unsaved +pending	Wheel down	vtium flow(new empty) +unsaved +pending	
 vtium flow(doc terminal) +unsaved +pending	d	vtium flow(doc terminal) +unsaved +pending	devices
 vtium flow(doc terminal) +unsaved +pending	e	vtium flow(new terminal) +unsaved +pending	
@@ -758,11 +822,12 @@ vtium flow(doc terminal) +unsaved +pending	r	vtium any.question.confirm +unsaved
 vtium flow(doc terminal) +unsaved +pending	s	vtium flow(doc terminal) +pending	save
 vtium flow(doc terminal) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(new display)	1	vtium fonts(builtin)	mouse off
+vtium flow(new display)	2	vtium effects	mouse off
 vtium flow(new display)	3	vtium looks	mouse off
 vtium flow(new display)	5	vtium settings(first)	mouse off
 vtium flow(new display)	6	vtium help(help)	mouse off
 vtium flow(new display)	Click box	vtium flow(new terminal)	
-vtium flow(new display)	Click tab	vtium looks	mouse off
+vtium flow(new display)	Click tab	vtium effects	mouse off
 vtium flow(new display)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new display)	Down	vtium flow(parts template)	
 vtium flow(new display)	End	vtium flow(parts font)	
@@ -772,10 +837,10 @@ vtium flow(new display)	Home	vtium flow(doc terminal)
 vtium flow(new display)	Left	vtium flow(doc terminal)	
 vtium flow(new display)	PgDn	vtium flow(parts special)	
 vtium flow(new display)	Right	vtium flow(new terminal)	
-vtium flow(new display)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(new display)	Shift-Tab	vtium looks	mouse off
 vtium flow(new display)	Shrink	vtium any.too-small	
 vtium flow(new display)	Space	vtium flow(new empty)	
-vtium flow(new display)	Tab	vtium looks	mouse off
+vtium flow(new display)	Tab	vtium settings(first)	mouse off
 vtium flow(new display)	Up	vtium flow(doc terminal)	
 vtium flow(new display)	Wheel down	vtium flow(parts template)	
 vtium flow(new display)	Wheel up	vtium flow(doc terminal)	
@@ -788,11 +853,12 @@ vtium flow(new display)	q	vtium left	mouse off, exit 0
 vtium flow(new display)	r	vtium any.question.confirm	
 vtium flow(new display)	v	vtium flow.file	
 vtium flow(new display) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(new display) +pending	2	vtium effects +pending	mouse off
 vtium flow(new display) +pending	3	vtium looks +pending	mouse off
 vtium flow(new display) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(new display) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(new display) +pending	Click box	vtium flow(new terminal) +pending	
-vtium flow(new display) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(new display) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(new display) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new display) +pending	Down	vtium flow(parts template) +pending	
 vtium flow(new display) +pending	End	vtium flow(parts font) +pending	
@@ -802,10 +868,10 @@ vtium flow(new display) +pending	Home	vtium flow(doc terminal) +pending
 vtium flow(new display) +pending	Left	vtium flow(doc terminal) +pending	
 vtium flow(new display) +pending	PgDn	vtium flow(parts special) +pending	
 vtium flow(new display) +pending	Right	vtium flow(new terminal) +pending	
-vtium flow(new display) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(new display) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(new display) +pending	Shrink	vtium any.too-small +pending	
 vtium flow(new display) +pending	Space	vtium flow(new empty) +pending	
-vtium flow(new display) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(new display) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(new display) +pending	Up	vtium flow(doc terminal) +pending	
 vtium flow(new display) +pending	Wheel down	vtium flow(parts template) +pending	
 vtium flow(new display) +pending	Wheel up	vtium flow(doc terminal) +pending	
@@ -818,11 +884,12 @@ vtium flow(new display) +pending	q	vtium any.question.leave +pending
 vtium flow(new display) +pending	r	vtium any.question.confirm +pending	
 vtium flow(new display) +pending	v	vtium flow.file +pending	
 vtium flow(new display) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(new display) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(new display) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(new display) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(new display) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(new display) +unsaved	Click box	vtium flow(new terminal) +unsaved	
-vtium flow(new display) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(new display) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(new display) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new display) +unsaved	Down	vtium flow(parts template) +unsaved	
 vtium flow(new display) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -832,10 +899,10 @@ vtium flow(new display) +unsaved	Home	vtium flow(doc terminal) +unsaved
 vtium flow(new display) +unsaved	Left	vtium flow(doc terminal) +unsaved	
 vtium flow(new display) +unsaved	PgDn	vtium flow(parts special) +unsaved	
 vtium flow(new display) +unsaved	Right	vtium flow(new terminal) +unsaved	
-vtium flow(new display) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(new display) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(new display) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium flow(new display) +unsaved	Space	vtium flow(new empty) +unsaved	
-vtium flow(new display) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(new display) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(new display) +unsaved	Up	vtium flow(doc terminal) +unsaved	
 vtium flow(new display) +unsaved	Wheel down	vtium flow(parts template) +unsaved	
 vtium flow(new display) +unsaved	Wheel up	vtium flow(doc terminal) +unsaved	
@@ -849,11 +916,12 @@ vtium flow(new display) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(new display) +unsaved	s	vtium flow(new display)	save
 vtium flow(new display) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(new display) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(new display) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	Click box	vtium flow(new terminal) +unsaved +pending	
-vtium flow(new display) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(new display) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new display) +unsaved +pending	Down	vtium flow(parts template) +unsaved +pending	
 vtium flow(new display) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -863,10 +931,10 @@ vtium flow(new display) +unsaved +pending	Home	vtium flow(doc terminal) +unsaved
 vtium flow(new display) +unsaved +pending	Left	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(new display) +unsaved +pending	PgDn	vtium flow(parts special) +unsaved +pending	
 vtium flow(new display) +unsaved +pending	Right	vtium flow(new terminal) +unsaved +pending	
-vtium flow(new display) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(new display) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow(new display) +unsaved +pending	Space	vtium flow(new empty) +unsaved +pending	
-vtium flow(new display) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(new display) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new display) +unsaved +pending	Up	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(new display) +unsaved +pending	Wheel down	vtium flow(parts template) +unsaved +pending	
 vtium flow(new display) +unsaved +pending	Wheel up	vtium flow(doc terminal) +unsaved +pending	
@@ -880,20 +948,21 @@ vtium flow(new display) +unsaved +pending	r	vtium any.question.confirm +unsaved 
 vtium flow(new display) +unsaved +pending	s	vtium flow(new display) +pending	save
 vtium flow(new display) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(new empty)	1	vtium fonts(builtin)	mouse off
+vtium flow(new empty)	2	vtium effects	mouse off
 vtium flow(new empty)	3	vtium looks	mouse off
 vtium flow(new empty)	5	vtium settings(first)	mouse off
 vtium flow(new empty)	6	vtium help(help)	mouse off
 vtium flow(new empty)	Click box	vtium flow(doc terminal)	
-vtium flow(new empty)	Click tab	vtium looks	mouse off
+vtium flow(new empty)	Click tab	vtium effects	mouse off
 vtium flow(new empty)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new empty)	Down	vtium flow(parts display)	
 vtium flow(new empty)	End	vtium flow(parts font)	
 vtium flow(new empty)	Enter	vtium flow.maker(line 0)	
 vtium flow(new empty)	Home	vtium flow(doc display)	
 vtium flow(new empty)	PgDn	vtium flow(parts template)	
-vtium flow(new empty)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(new empty)	Shift-Tab	vtium looks	mouse off
 vtium flow(new empty)	Shrink	vtium any.too-small	
-vtium flow(new empty)	Tab	vtium looks	mouse off
+vtium flow(new empty)	Tab	vtium settings(first)	mouse off
 vtium flow(new empty)	Up	vtium flow(doc terminal)	
 vtium flow(new empty)	Wheel down	vtium flow(parts display)	
 vtium flow(new empty)	Wheel up	vtium flow(doc terminal)	
@@ -905,20 +974,21 @@ vtium flow(new empty)	q	vtium left	mouse off, exit 0
 vtium flow(new empty)	r	vtium any.question.confirm	
 vtium flow(new empty)	v	vtium flow.file	
 vtium flow(new empty) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(new empty) +pending	2	vtium effects +pending	mouse off
 vtium flow(new empty) +pending	3	vtium looks +pending	mouse off
 vtium flow(new empty) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(new empty) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(new empty) +pending	Click box	vtium flow(doc terminal) +pending	
-vtium flow(new empty) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(new empty) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(new empty) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new empty) +pending	Down	vtium flow(parts display) +pending	
 vtium flow(new empty) +pending	End	vtium flow(parts font) +pending	
 vtium flow(new empty) +pending	Enter	vtium flow.maker(line 0) +pending	
 vtium flow(new empty) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(new empty) +pending	PgDn	vtium flow(parts template) +pending	
-vtium flow(new empty) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(new empty) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(new empty) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(new empty) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(new empty) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(new empty) +pending	Up	vtium flow(doc terminal) +pending	
 vtium flow(new empty) +pending	Wheel down	vtium flow(parts display) +pending	
 vtium flow(new empty) +pending	Wheel up	vtium flow(doc terminal) +pending	
@@ -930,20 +1000,21 @@ vtium flow(new empty) +pending	q	vtium any.question.leave +pending
 vtium flow(new empty) +pending	r	vtium any.question.confirm +pending	
 vtium flow(new empty) +pending	v	vtium flow.file +pending	
 vtium flow(new empty) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(new empty) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(new empty) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(new empty) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(new empty) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(new empty) +unsaved	Click box	vtium flow(doc terminal) +unsaved	
-vtium flow(new empty) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(new empty) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(new empty) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new empty) +unsaved	Down	vtium flow(parts display) +unsaved	
 vtium flow(new empty) +unsaved	End	vtium flow(parts font) +unsaved	
 vtium flow(new empty) +unsaved	Enter	vtium flow.maker(line 0) +unsaved	
 vtium flow(new empty) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(new empty) +unsaved	PgDn	vtium flow(parts template) +unsaved	
-vtium flow(new empty) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(new empty) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(new empty) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(new empty) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(new empty) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(new empty) +unsaved	Up	vtium flow(doc terminal) +unsaved	
 vtium flow(new empty) +unsaved	Wheel down	vtium flow(parts display) +unsaved	
 vtium flow(new empty) +unsaved	Wheel up	vtium flow(doc terminal) +unsaved	
@@ -956,20 +1027,21 @@ vtium flow(new empty) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(new empty) +unsaved	s	vtium flow(new empty)	save
 vtium flow(new empty) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(new empty) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(new empty) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	Click box	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(new empty) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(new empty) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new empty) +unsaved +pending	Down	vtium flow(parts display) +unsaved +pending	
 vtium flow(new empty) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
 vtium flow(new empty) +unsaved +pending	Enter	vtium flow.maker(line 0) +unsaved +pending	
 vtium flow(new empty) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(new empty) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
-vtium flow(new empty) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(new empty) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(new empty) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(new empty) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new empty) +unsaved +pending	Up	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(new empty) +unsaved +pending	Wheel down	vtium flow(parts display) +unsaved +pending	
 vtium flow(new empty) +unsaved +pending	Wheel up	vtium flow(doc terminal) +unsaved +pending	
@@ -982,11 +1054,12 @@ vtium flow(new empty) +unsaved +pending	r	vtium any.question.confirm +unsaved +p
 vtium flow(new empty) +unsaved +pending	s	vtium flow(new empty) +pending	save
 vtium flow(new empty) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(new terminal)	1	vtium fonts(builtin)	mouse off
+vtium flow(new terminal)	2	vtium effects	mouse off
 vtium flow(new terminal)	3	vtium looks	mouse off
 vtium flow(new terminal)	5	vtium settings(first)	mouse off
 vtium flow(new terminal)	6	vtium help(help)	mouse off
 vtium flow(new terminal)	Click box	vtium flow.new-card	
-vtium flow(new terminal)	Click tab	vtium looks	mouse off
+vtium flow(new terminal)	Click tab	vtium effects	mouse off
 vtium flow(new terminal)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new terminal)	Down	vtium flow(parts display)	
 vtium flow(new terminal)	End	vtium flow(parts font)	
@@ -996,9 +1069,9 @@ vtium flow(new terminal)	Home	vtium flow(doc terminal)
 vtium flow(new terminal)	Left	vtium flow(new display)	
 vtium flow(new terminal)	PgDn	vtium flow(parts template)	
 vtium flow(new terminal)	Right	vtium flow(new empty)	
-vtium flow(new terminal)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(new terminal)	Shift-Tab	vtium looks	mouse off
 vtium flow(new terminal)	Shrink	vtium any.too-small	
-vtium flow(new terminal)	Tab	vtium looks	mouse off
+vtium flow(new terminal)	Tab	vtium settings(first)	mouse off
 vtium flow(new terminal)	Up	vtium flow(doc terminal)	
 vtium flow(new terminal)	Wheel down	vtium flow(parts display)	
 vtium flow(new terminal)	Wheel up	vtium flow(doc terminal)	
@@ -1011,11 +1084,12 @@ vtium flow(new terminal)	q	vtium left	mouse off, exit 0
 vtium flow(new terminal)	r	vtium any.question.confirm	
 vtium flow(new terminal)	v	vtium flow.file	
 vtium flow(new terminal) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(new terminal) +pending	2	vtium effects +pending	mouse off
 vtium flow(new terminal) +pending	3	vtium looks +pending	mouse off
 vtium flow(new terminal) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(new terminal) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(new terminal) +pending	Click box	vtium flow.new-card +pending	
-vtium flow(new terminal) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(new terminal) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(new terminal) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(new terminal) +pending	Down	vtium flow(parts display) +pending	
 vtium flow(new terminal) +pending	End	vtium flow(parts font) +pending	
@@ -1025,9 +1099,9 @@ vtium flow(new terminal) +pending	Home	vtium flow(doc terminal) +pending
 vtium flow(new terminal) +pending	Left	vtium flow(new display) +pending	
 vtium flow(new terminal) +pending	PgDn	vtium flow(parts template) +pending	
 vtium flow(new terminal) +pending	Right	vtium flow(new empty) +pending	
-vtium flow(new terminal) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(new terminal) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(new terminal) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(new terminal) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(new terminal) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(new terminal) +pending	Up	vtium flow(doc terminal) +pending	
 vtium flow(new terminal) +pending	Wheel down	vtium flow(parts display) +pending	
 vtium flow(new terminal) +pending	Wheel up	vtium flow(doc terminal) +pending	
@@ -1040,11 +1114,12 @@ vtium flow(new terminal) +pending	q	vtium any.question.leave +pending
 vtium flow(new terminal) +pending	r	vtium any.question.confirm +pending	
 vtium flow(new terminal) +pending	v	vtium flow.file +pending	
 vtium flow(new terminal) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(new terminal) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(new terminal) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(new terminal) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(new terminal) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(new terminal) +unsaved	Click box	vtium flow.new-card +unsaved	
-vtium flow(new terminal) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(new terminal) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(new terminal) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new terminal) +unsaved	Down	vtium flow(parts display) +unsaved	
 vtium flow(new terminal) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1054,9 +1129,9 @@ vtium flow(new terminal) +unsaved	Home	vtium flow(doc terminal) +unsaved
 vtium flow(new terminal) +unsaved	Left	vtium flow(new display) +unsaved	
 vtium flow(new terminal) +unsaved	PgDn	vtium flow(parts template) +unsaved	
 vtium flow(new terminal) +unsaved	Right	vtium flow(new empty) +unsaved	
-vtium flow(new terminal) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(new terminal) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(new terminal) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(new terminal) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(new terminal) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(new terminal) +unsaved	Up	vtium flow(doc terminal) +unsaved	
 vtium flow(new terminal) +unsaved	Wheel down	vtium flow(parts display) +unsaved	
 vtium flow(new terminal) +unsaved	Wheel up	vtium flow(doc terminal) +unsaved	
@@ -1070,11 +1145,12 @@ vtium flow(new terminal) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(new terminal) +unsaved	s	vtium flow(new terminal)	save
 vtium flow(new terminal) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(new terminal) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(new terminal) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	Click box	vtium flow.new-card +unsaved +pending	
-vtium flow(new terminal) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(new terminal) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(new terminal) +unsaved +pending	Down	vtium flow(parts display) +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1084,9 +1160,9 @@ vtium flow(new terminal) +unsaved +pending	Home	vtium flow(doc terminal) +unsave
 vtium flow(new terminal) +unsaved +pending	Left	vtium flow(new display) +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	Right	vtium flow(new empty) +unsaved +pending	
-vtium flow(new terminal) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(new terminal) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(new terminal) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(new terminal) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(new terminal) +unsaved +pending	Up	vtium flow(doc terminal) +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	Wheel down	vtium flow(parts display) +unsaved +pending	
 vtium flow(new terminal) +unsaved +pending	Wheel up	vtium flow(doc terminal) +unsaved +pending	
@@ -1100,11 +1176,12 @@ vtium flow(new terminal) +unsaved +pending	r	vtium any.question.confirm +unsaved
 vtium flow(new terminal) +unsaved +pending	s	vtium flow(new terminal) +pending	save
 vtium flow(new terminal) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(others)	1	vtium fonts(builtin)	mouse off
+vtium flow(others)	2	vtium effects	mouse off
 vtium flow(others)	3	vtium looks	mouse off
 vtium flow(others)	5	vtium settings(first)	mouse off
 vtium flow(others)	6	vtium help(help)	mouse off
 vtium flow(others)	Click box	vtium flow(parts special)	
-vtium flow(others)	Click tab	vtium looks	mouse off
+vtium flow(others)	Click tab	vtium effects	mouse off
 vtium flow(others)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(others)	Down	vtium flow(parts font)	
 vtium flow(others)	End	vtium flow(parts font)	
@@ -1113,9 +1190,9 @@ vtium flow(others)	Home	vtium flow(doc display)
 vtium flow(others)	Left	vtium flow(parts pointer)	
 vtium flow(others)	PgUp	vtium flow(parts display)	
 vtium flow(others)	Right	vtium flow(parts template)	
-vtium flow(others)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(others)	Shift-Tab	vtium looks	mouse off
 vtium flow(others)	Shrink	vtium any.too-small	
-vtium flow(others)	Tab	vtium looks	mouse off
+vtium flow(others)	Tab	vtium settings(first)	mouse off
 vtium flow(others)	Up	vtium flow(parts any input)	
 vtium flow(others)	Wheel down	vtium flow(parts font)	
 vtium flow(others)	Wheel up	vtium flow(parts any input)	
@@ -1127,11 +1204,12 @@ vtium flow(others)	q	vtium left	mouse off, exit 0
 vtium flow(others)	r	vtium any.question.confirm	
 vtium flow(others)	v	vtium flow.file	
 vtium flow(others) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(others) +pending	2	vtium effects +pending	mouse off
 vtium flow(others) +pending	3	vtium looks +pending	mouse off
 vtium flow(others) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(others) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(others) +pending	Click box	vtium flow(parts special) +pending	
-vtium flow(others) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(others) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(others) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(others) +pending	Down	vtium flow(parts font) +pending	
 vtium flow(others) +pending	End	vtium flow(parts font) +pending	
@@ -1140,9 +1218,9 @@ vtium flow(others) +pending	Home	vtium flow(doc display) +pending
 vtium flow(others) +pending	Left	vtium flow(parts pointer) +pending	
 vtium flow(others) +pending	PgUp	vtium flow(parts display) +pending	
 vtium flow(others) +pending	Right	vtium flow(parts template) +pending	
-vtium flow(others) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(others) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(others) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(others) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(others) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(others) +pending	Up	vtium flow(parts any input) +pending	
 vtium flow(others) +pending	Wheel down	vtium flow(parts font) +pending	
 vtium flow(others) +pending	Wheel up	vtium flow(parts any input) +pending	
@@ -1154,11 +1232,12 @@ vtium flow(others) +pending	q	vtium any.question.leave +pending
 vtium flow(others) +pending	r	vtium any.question.confirm +pending	
 vtium flow(others) +pending	v	vtium flow.file +pending	
 vtium flow(others) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(others) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(others) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(others) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(others) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(others) +unsaved	Click box	vtium flow(parts special) +unsaved	
-vtium flow(others) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(others) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(others) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(others) +unsaved	Down	vtium flow(parts font) +unsaved	
 vtium flow(others) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1167,9 +1246,9 @@ vtium flow(others) +unsaved	Home	vtium flow(doc display) +unsaved
 vtium flow(others) +unsaved	Left	vtium flow(parts pointer) +unsaved	
 vtium flow(others) +unsaved	PgUp	vtium flow(parts display) +unsaved	
 vtium flow(others) +unsaved	Right	vtium flow(parts template) +unsaved	
-vtium flow(others) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(others) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(others) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(others) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(others) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(others) +unsaved	Up	vtium flow(parts any input) +unsaved	
 vtium flow(others) +unsaved	Wheel down	vtium flow(parts font) +unsaved	
 vtium flow(others) +unsaved	Wheel up	vtium flow(parts any input) +unsaved	
@@ -1182,11 +1261,12 @@ vtium flow(others) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(others) +unsaved	s	vtium flow(others)	save
 vtium flow(others) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(others) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(others) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	Click box	vtium flow(parts special) +unsaved +pending	
-vtium flow(others) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(others) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(others) +unsaved +pending	Down	vtium flow(parts font) +unsaved +pending	
 vtium flow(others) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1195,9 +1275,9 @@ vtium flow(others) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pend
 vtium flow(others) +unsaved +pending	Left	vtium flow(parts pointer) +unsaved +pending	
 vtium flow(others) +unsaved +pending	PgUp	vtium flow(parts display) +unsaved +pending	
 vtium flow(others) +unsaved +pending	Right	vtium flow(parts template) +unsaved +pending	
-vtium flow(others) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(others) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(others) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(others) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	Up	vtium flow(parts any input) +unsaved +pending	
 vtium flow(others) +unsaved +pending	Wheel down	vtium flow(parts font) +unsaved +pending	
 vtium flow(others) +unsaved +pending	Wheel up	vtium flow(parts any input) +unsaved +pending	
@@ -1210,11 +1290,12 @@ vtium flow(others) +unsaved +pending	r	vtium any.question.confirm +unsaved +pend
 vtium flow(others) +unsaved +pending	s	vtium flow(others) +pending	save
 vtium flow(others) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts any input)	1	vtium fonts(builtin)	mouse off
+vtium flow(parts any input)	2	vtium effects	mouse off
 vtium flow(parts any input)	3	vtium looks	mouse off
 vtium flow(parts any input)	5	vtium settings(first)	mouse off
 vtium flow(parts any input)	6	vtium help(help)	mouse off
 vtium flow(parts any input)	Click box	vtium flow(parts template)	
-vtium flow(parts any input)	Click tab	vtium looks	mouse off
+vtium flow(parts any input)	Click tab	vtium effects	mouse off
 vtium flow(parts any input)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts any input)	Down	vtium flow(parts pointer)	
 vtium flow(parts any input)	End	vtium flow(parts font)	
@@ -1223,9 +1304,9 @@ vtium flow(parts any input)	Home	vtium flow(doc display)
 vtium flow(parts any input)	Left	vtium flow(parts keyboard)	
 vtium flow(parts any input)	PgUp	vtium flow(parts display)	
 vtium flow(parts any input)	Right	vtium flow(parts keyboard)	
-vtium flow(parts any input)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(parts any input)	Shift-Tab	vtium looks	mouse off
 vtium flow(parts any input)	Shrink	vtium any.too-small	
-vtium flow(parts any input)	Tab	vtium looks	mouse off
+vtium flow(parts any input)	Tab	vtium settings(first)	mouse off
 vtium flow(parts any input)	Up	vtium flow(parts input)	
 vtium flow(parts any input)	Wheel down	vtium flow(parts pointer)	
 vtium flow(parts any input)	Wheel up	vtium flow(parts input)	
@@ -1237,11 +1318,12 @@ vtium flow(parts any input)	q	vtium left	mouse off, exit 0
 vtium flow(parts any input)	r	vtium any.question.confirm	
 vtium flow(parts any input)	v	vtium flow.file	
 vtium flow(parts any input) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(parts any input) +pending	2	vtium effects +pending	mouse off
 vtium flow(parts any input) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts any input) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts any input) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(parts any input) +pending	Click box	vtium flow(parts template) +pending	
-vtium flow(parts any input) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(parts any input) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(parts any input) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts any input) +pending	Down	vtium flow(parts pointer) +pending	
 vtium flow(parts any input) +pending	End	vtium flow(parts font) +pending	
@@ -1250,9 +1332,9 @@ vtium flow(parts any input) +pending	Home	vtium flow(doc display) +pending
 vtium flow(parts any input) +pending	Left	vtium flow(parts keyboard) +pending	
 vtium flow(parts any input) +pending	PgUp	vtium flow(parts display) +pending	
 vtium flow(parts any input) +pending	Right	vtium flow(parts keyboard) +pending	
-vtium flow(parts any input) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(parts any input) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(parts any input) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(parts any input) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(parts any input) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(parts any input) +pending	Up	vtium flow(parts input) +pending	
 vtium flow(parts any input) +pending	Wheel down	vtium flow(parts pointer) +pending	
 vtium flow(parts any input) +pending	Wheel up	vtium flow(parts input) +pending	
@@ -1264,11 +1346,12 @@ vtium flow(parts any input) +pending	q	vtium any.question.leave +pending
 vtium flow(parts any input) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts any input) +pending	v	vtium flow.file +pending	
 vtium flow(parts any input) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(parts any input) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(parts any input) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts any input) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	Click box	vtium flow(parts template) +unsaved	
-vtium flow(parts any input) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(parts any input) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(parts any input) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts any input) +unsaved	Down	vtium flow(parts pointer) +unsaved	
 vtium flow(parts any input) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1277,9 +1360,9 @@ vtium flow(parts any input) +unsaved	Home	vtium flow(doc display) +unsaved
 vtium flow(parts any input) +unsaved	Left	vtium flow(parts keyboard) +unsaved	
 vtium flow(parts any input) +unsaved	PgUp	vtium flow(parts display) +unsaved	
 vtium flow(parts any input) +unsaved	Right	vtium flow(parts keyboard) +unsaved	
-vtium flow(parts any input) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(parts any input) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(parts any input) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(parts any input) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(parts any input) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	Up	vtium flow(parts input) +unsaved	
 vtium flow(parts any input) +unsaved	Wheel down	vtium flow(parts pointer) +unsaved	
 vtium flow(parts any input) +unsaved	Wheel up	vtium flow(parts input) +unsaved	
@@ -1292,11 +1375,12 @@ vtium flow(parts any input) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts any input) +unsaved	s	vtium flow(parts any input)	save
 vtium flow(parts any input) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts any input) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(parts any input) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	Click box	vtium flow(parts template) +unsaved +pending	
-vtium flow(parts any input) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts any input) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts any input) +unsaved +pending	Down	vtium flow(parts pointer) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1305,9 +1389,9 @@ vtium flow(parts any input) +unsaved +pending	Home	vtium flow(doc display) +unsa
 vtium flow(parts any input) +unsaved +pending	Left	vtium flow(parts keyboard) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	PgUp	vtium flow(parts display) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	Right	vtium flow(parts keyboard) +unsaved +pending	
-vtium flow(parts any input) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts any input) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(parts any input) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts any input) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	Up	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	Wheel down	vtium flow(parts pointer) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	Wheel up	vtium flow(parts input) +unsaved +pending	
@@ -1320,10 +1404,11 @@ vtium flow(parts any input) +unsaved +pending	r	vtium any.question.confirm +unsa
 vtium flow(parts any input) +unsaved +pending	s	vtium flow(parts any input) +pending	save
 vtium flow(parts any input) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts display)	1	vtium fonts(builtin)	mouse off
+vtium flow(parts display)	2	vtium effects	mouse off
 vtium flow(parts display)	3	vtium looks	mouse off
 vtium flow(parts display)	5	vtium settings(first)	mouse off
 vtium flow(parts display)	6	vtium help(help)	mouse off
-vtium flow(parts display)	Click tab	vtium looks	mouse off
+vtium flow(parts display)	Click tab	vtium effects	mouse off
 vtium flow(parts display)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts display)	Down	vtium flow(parts template)	
 vtium flow(parts display)	End	vtium flow(parts font)	
@@ -1332,9 +1417,9 @@ vtium flow(parts display)	Home	vtium flow(doc display)
 vtium flow(parts display)	PgDn	vtium flow(parts template)	
 vtium flow(parts display)	PgUp	vtium flow(new empty)	
 vtium flow(parts display)	Right	vtium flow(parts template)	
-vtium flow(parts display)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(parts display)	Shift-Tab	vtium looks	mouse off
 vtium flow(parts display)	Shrink	vtium any.too-small	
-vtium flow(parts display)	Tab	vtium looks	mouse off
+vtium flow(parts display)	Tab	vtium settings(first)	mouse off
 vtium flow(parts display)	Up	vtium flow(parts template)	
 vtium flow(parts display)	Wheel down	vtium flow(parts template)	
 vtium flow(parts display)	Wheel up	vtium flow(parts template)	
@@ -1346,10 +1431,11 @@ vtium flow(parts display)	q	vtium left	mouse off, exit 0
 vtium flow(parts display)	r	vtium any.question.confirm	
 vtium flow(parts display)	v	vtium flow.file	
 vtium flow(parts display) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(parts display) +pending	2	vtium effects +pending	mouse off
 vtium flow(parts display) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts display) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts display) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts display) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(parts display) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(parts display) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts display) +pending	Down	vtium flow(parts template) +pending	
 vtium flow(parts display) +pending	End	vtium flow(parts font) +pending	
@@ -1358,9 +1444,9 @@ vtium flow(parts display) +pending	Home	vtium flow(doc display) +pending
 vtium flow(parts display) +pending	PgDn	vtium flow(parts template) +pending	
 vtium flow(parts display) +pending	PgUp	vtium flow(new empty) +pending	
 vtium flow(parts display) +pending	Right	vtium flow(parts template) +pending	
-vtium flow(parts display) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(parts display) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(parts display) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(parts display) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(parts display) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(parts display) +pending	Up	vtium flow(parts template) +pending	
 vtium flow(parts display) +pending	Wheel down	vtium flow(parts template) +pending	
 vtium flow(parts display) +pending	Wheel up	vtium flow(parts template) +pending	
@@ -1372,10 +1458,11 @@ vtium flow(parts display) +pending	q	vtium any.question.leave +pending
 vtium flow(parts display) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts display) +pending	v	vtium flow.file +pending	
 vtium flow(parts display) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(parts display) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(parts display) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts display) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts display) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts display) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(parts display) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(parts display) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts display) +unsaved	Down	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1384,9 +1471,9 @@ vtium flow(parts display) +unsaved	Home	vtium flow(doc display) +unsaved
 vtium flow(parts display) +unsaved	PgDn	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	PgUp	vtium flow(new empty) +unsaved	
 vtium flow(parts display) +unsaved	Right	vtium flow(parts template) +unsaved	
-vtium flow(parts display) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(parts display) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(parts display) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(parts display) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(parts display) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(parts display) +unsaved	Up	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	Wheel down	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	Wheel up	vtium flow(parts template) +unsaved	
@@ -1399,10 +1486,11 @@ vtium flow(parts display) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts display) +unsaved	s	vtium flow(parts display)	save
 vtium flow(parts display) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts display) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(parts display) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts display) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts display) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts display) +unsaved +pending	Down	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1411,9 +1499,9 @@ vtium flow(parts display) +unsaved +pending	Home	vtium flow(doc display) +unsave
 vtium flow(parts display) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	PgUp	vtium flow(new empty) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	Right	vtium flow(parts template) +unsaved +pending	
-vtium flow(parts display) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts display) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(parts display) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts display) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	Up	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	Wheel down	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	Wheel up	vtium flow(parts template) +unsaved +pending	
@@ -1426,16 +1514,17 @@ vtium flow(parts display) +unsaved +pending	r	vtium any.question.confirm +unsave
 vtium flow(parts display) +unsaved +pending	s	vtium flow(parts display) +pending	save
 vtium flow(parts display) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts font)	1	vtium fonts(builtin)	mouse off
+vtium flow(parts font)	2	vtium effects	mouse off
 vtium flow(parts font)	3	vtium looks	mouse off
 vtium flow(parts font)	5	vtium settings(first)	mouse off
 vtium flow(parts font)	6	vtium help(help)	mouse off
-vtium flow(parts font)	Click tab	vtium looks	mouse off
+vtium flow(parts font)	Click tab	vtium effects	mouse off
 vtium flow(parts font)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts font)	Home	vtium flow(doc display)	
 vtium flow(parts font)	PgUp	vtium flow(parts special)	
-vtium flow(parts font)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(parts font)	Shift-Tab	vtium looks	mouse off
 vtium flow(parts font)	Shrink	vtium any.too-small	
-vtium flow(parts font)	Tab	vtium looks	mouse off
+vtium flow(parts font)	Tab	vtium settings(first)	mouse off
 vtium flow(parts font)	d	vtium flow(parts font)	devices
 vtium flow(parts font)	i	vtium flow(parts font)	prepare
 vtium flow(parts font)	n	vtium any.question.confirm	
@@ -1444,16 +1533,17 @@ vtium flow(parts font)	q	vtium left	mouse off, exit 0
 vtium flow(parts font)	r	vtium any.question.confirm	
 vtium flow(parts font)	v	vtium flow.file	
 vtium flow(parts font) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(parts font) +pending	2	vtium effects +pending	mouse off
 vtium flow(parts font) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts font) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts font) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts font) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(parts font) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(parts font) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts font) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts font) +pending	PgUp	vtium flow(parts special) +pending	
-vtium flow(parts font) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(parts font) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(parts font) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(parts font) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(parts font) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(parts font) +pending	d	vtium flow(parts font) +pending	devices
 vtium flow(parts font) +pending	i	vtium any.question.confirm +pending	prepare
 vtium flow(parts font) +pending	n	vtium any.question.confirm +pending	
@@ -1462,16 +1552,17 @@ vtium flow(parts font) +pending	q	vtium any.question.leave +pending
 vtium flow(parts font) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts font) +pending	v	vtium flow.file +pending	
 vtium flow(parts font) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(parts font) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(parts font) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts font) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts font) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts font) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(parts font) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(parts font) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts font) +unsaved	Home	vtium flow(doc display) +unsaved	
 vtium flow(parts font) +unsaved	PgUp	vtium flow(parts special) +unsaved	
-vtium flow(parts font) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(parts font) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(parts font) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(parts font) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(parts font) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(parts font) +unsaved	d	vtium flow(parts font) +unsaved	devices
 vtium flow(parts font) +unsaved	i	vtium flow(parts font)	save, prepare
 vtium flow(parts font) +unsaved	n	vtium any.question.confirm +unsaved	
@@ -1481,16 +1572,17 @@ vtium flow(parts font) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts font) +unsaved	s	vtium flow(parts font)	save
 vtium flow(parts font) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts font) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(parts font) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts font) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts font) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts font) +unsaved +pending	Home	vtium flow(doc display) +unsaved +pending	
 vtium flow(parts font) +unsaved +pending	PgUp	vtium flow(parts special) +unsaved +pending	
-vtium flow(parts font) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts font) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(parts font) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts font) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts font) +unsaved +pending	d	vtium flow(parts font) +unsaved +pending	devices
 vtium flow(parts font) +unsaved +pending	i	vtium flow(parts font) +pending	save, prepare
 vtium flow(parts font) +unsaved +pending	n	vtium any.question.confirm +unsaved +pending	
@@ -1500,10 +1592,11 @@ vtium flow(parts font) +unsaved +pending	r	vtium any.question.confirm +unsaved +
 vtium flow(parts font) +unsaved +pending	s	vtium flow(parts font) +pending	save
 vtium flow(parts font) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts input)	1	vtium fonts(builtin)	mouse off
+vtium flow(parts input)	2	vtium effects	mouse off
 vtium flow(parts input)	3	vtium looks	mouse off
 vtium flow(parts input)	5	vtium settings(first)	mouse off
 vtium flow(parts input)	6	vtium help(help)	mouse off
-vtium flow(parts input)	Click tab	vtium looks	mouse off
+vtium flow(parts input)	Click tab	vtium effects	mouse off
 vtium flow(parts input)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts input)	Down	vtium flow(parts any input)	
 vtium flow(parts input)	End	vtium flow(parts font)	
@@ -1512,9 +1605,9 @@ vtium flow(parts input)	Home	vtium flow(doc display)
 vtium flow(parts input)	Left	vtium flow(parts template)	
 vtium flow(parts input)	PgDn	vtium flow(parts keyboard)	
 vtium flow(parts input)	PgUp	vtium flow(new empty)	
-vtium flow(parts input)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(parts input)	Shift-Tab	vtium looks	mouse off
 vtium flow(parts input)	Shrink	vtium any.too-small	
-vtium flow(parts input)	Tab	vtium looks	mouse off
+vtium flow(parts input)	Tab	vtium settings(first)	mouse off
 vtium flow(parts input)	Up	vtium flow(parts special)	
 vtium flow(parts input)	Wheel down	vtium flow(parts any input)	
 vtium flow(parts input)	Wheel up	vtium flow(parts special)	
@@ -1526,10 +1619,11 @@ vtium flow(parts input)	q	vtium left	mouse off, exit 0
 vtium flow(parts input)	r	vtium any.question.confirm	
 vtium flow(parts input)	v	vtium flow.file	
 vtium flow(parts input) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(parts input) +pending	2	vtium effects +pending	mouse off
 vtium flow(parts input) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts input) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts input) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts input) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(parts input) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(parts input) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts input) +pending	Down	vtium flow(parts any input) +pending	
 vtium flow(parts input) +pending	End	vtium flow(parts font) +pending	
@@ -1538,9 +1632,9 @@ vtium flow(parts input) +pending	Home	vtium flow(doc display) +pending
 vtium flow(parts input) +pending	Left	vtium flow(parts template) +pending	
 vtium flow(parts input) +pending	PgDn	vtium flow(parts keyboard) +pending	
 vtium flow(parts input) +pending	PgUp	vtium flow(new empty) +pending	
-vtium flow(parts input) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(parts input) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(parts input) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(parts input) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(parts input) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(parts input) +pending	Up	vtium flow(parts special) +pending	
 vtium flow(parts input) +pending	Wheel down	vtium flow(parts any input) +pending	
 vtium flow(parts input) +pending	Wheel up	vtium flow(parts special) +pending	
@@ -1552,10 +1646,11 @@ vtium flow(parts input) +pending	q	vtium any.question.leave +pending
 vtium flow(parts input) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts input) +pending	v	vtium flow.file +pending	
 vtium flow(parts input) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(parts input) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(parts input) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts input) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts input) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts input) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(parts input) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(parts input) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts input) +unsaved	Down	vtium flow(parts any input) +unsaved	
 vtium flow(parts input) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1564,9 +1659,9 @@ vtium flow(parts input) +unsaved	Home	vtium flow(doc display) +unsaved
 vtium flow(parts input) +unsaved	Left	vtium flow(parts template) +unsaved	
 vtium flow(parts input) +unsaved	PgDn	vtium flow(parts keyboard) +unsaved	
 vtium flow(parts input) +unsaved	PgUp	vtium flow(new empty) +unsaved	
-vtium flow(parts input) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(parts input) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(parts input) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(parts input) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(parts input) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(parts input) +unsaved	Up	vtium flow(parts special) +unsaved	
 vtium flow(parts input) +unsaved	Wheel down	vtium flow(parts any input) +unsaved	
 vtium flow(parts input) +unsaved	Wheel up	vtium flow(parts special) +unsaved	
@@ -1579,10 +1674,11 @@ vtium flow(parts input) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts input) +unsaved	s	vtium flow(parts input)	save
 vtium flow(parts input) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts input) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(parts input) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts input) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts input) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts input) +unsaved +pending	Down	vtium flow(parts any input) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1591,9 +1687,9 @@ vtium flow(parts input) +unsaved +pending	Home	vtium flow(doc display) +unsaved 
 vtium flow(parts input) +unsaved +pending	Left	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	PgDn	vtium flow(parts keyboard) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	PgUp	vtium flow(new empty) +unsaved +pending	
-vtium flow(parts input) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts input) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(parts input) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts input) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	Up	vtium flow(parts special) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Wheel down	vtium flow(parts any input) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Wheel up	vtium flow(parts special) +unsaved +pending	
@@ -1606,10 +1702,11 @@ vtium flow(parts input) +unsaved +pending	r	vtium any.question.confirm +unsaved 
 vtium flow(parts input) +unsaved +pending	s	vtium flow(parts input) +pending	save
 vtium flow(parts input) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts keyboard)	1	vtium fonts(builtin)	mouse off
+vtium flow(parts keyboard)	2	vtium effects	mouse off
 vtium flow(parts keyboard)	3	vtium looks	mouse off
 vtium flow(parts keyboard)	5	vtium settings(first)	mouse off
 vtium flow(parts keyboard)	6	vtium help(help)	mouse off
-vtium flow(parts keyboard)	Click tab	vtium looks	mouse off
+vtium flow(parts keyboard)	Click tab	vtium effects	mouse off
 vtium flow(parts keyboard)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts keyboard)	End	vtium flow(parts font)	
 vtium flow(parts keyboard)	Enter	vtium flow.detail	
@@ -1617,9 +1714,9 @@ vtium flow(parts keyboard)	Home	vtium flow(doc display)
 vtium flow(parts keyboard)	Left	vtium flow(parts input)	
 vtium flow(parts keyboard)	PgUp	vtium flow(parts special)	
 vtium flow(parts keyboard)	Right	vtium flow(parts any input)	
-vtium flow(parts keyboard)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(parts keyboard)	Shift-Tab	vtium looks	mouse off
 vtium flow(parts keyboard)	Shrink	vtium any.too-small	
-vtium flow(parts keyboard)	Tab	vtium looks	mouse off
+vtium flow(parts keyboard)	Tab	vtium settings(first)	mouse off
 vtium flow(parts keyboard)	Up	vtium flow(parts template)	
 vtium flow(parts keyboard)	Wheel up	vtium flow(parts template)	
 vtium flow(parts keyboard)	d	vtium flow(parts keyboard)	devices
@@ -1630,10 +1727,11 @@ vtium flow(parts keyboard)	q	vtium left	mouse off, exit 0
 vtium flow(parts keyboard)	r	vtium any.question.confirm	
 vtium flow(parts keyboard)	v	vtium flow.file	
 vtium flow(parts keyboard) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(parts keyboard) +pending	2	vtium effects +pending	mouse off
 vtium flow(parts keyboard) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts keyboard) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts keyboard) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts keyboard) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(parts keyboard) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(parts keyboard) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts keyboard) +pending	End	vtium flow(parts font) +pending	
 vtium flow(parts keyboard) +pending	Enter	vtium flow.detail +pending	
@@ -1641,9 +1739,9 @@ vtium flow(parts keyboard) +pending	Home	vtium flow(doc display) +pending
 vtium flow(parts keyboard) +pending	Left	vtium flow(parts input) +pending	
 vtium flow(parts keyboard) +pending	PgUp	vtium flow(parts special) +pending	
 vtium flow(parts keyboard) +pending	Right	vtium flow(parts any input) +pending	
-vtium flow(parts keyboard) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(parts keyboard) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(parts keyboard) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(parts keyboard) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(parts keyboard) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(parts keyboard) +pending	Up	vtium flow(parts template) +pending	
 vtium flow(parts keyboard) +pending	Wheel up	vtium flow(parts template) +pending	
 vtium flow(parts keyboard) +pending	d	vtium flow(parts keyboard) +pending	devices
@@ -1654,10 +1752,11 @@ vtium flow(parts keyboard) +pending	q	vtium any.question.leave +pending
 vtium flow(parts keyboard) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts keyboard) +pending	v	vtium flow.file +pending	
 vtium flow(parts keyboard) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(parts keyboard) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts keyboard) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(parts keyboard) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts keyboard) +unsaved	End	vtium flow(parts font) +unsaved	
 vtium flow(parts keyboard) +unsaved	Enter	vtium flow.detail +unsaved	
@@ -1665,9 +1764,9 @@ vtium flow(parts keyboard) +unsaved	Home	vtium flow(doc display) +unsaved
 vtium flow(parts keyboard) +unsaved	Left	vtium flow(parts input) +unsaved	
 vtium flow(parts keyboard) +unsaved	PgUp	vtium flow(parts special) +unsaved	
 vtium flow(parts keyboard) +unsaved	Right	vtium flow(parts any input) +unsaved	
-vtium flow(parts keyboard) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(parts keyboard) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(parts keyboard) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(parts keyboard) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	Up	vtium flow(parts template) +unsaved	
 vtium flow(parts keyboard) +unsaved	Wheel up	vtium flow(parts template) +unsaved	
 vtium flow(parts keyboard) +unsaved	d	vtium flow(parts keyboard) +unsaved	devices
@@ -1679,10 +1778,11 @@ vtium flow(parts keyboard) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts keyboard) +unsaved	s	vtium flow(parts keyboard)	save
 vtium flow(parts keyboard) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts keyboard) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(parts keyboard) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts keyboard) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts keyboard) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts keyboard) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
@@ -1690,9 +1790,9 @@ vtium flow(parts keyboard) +unsaved +pending	Home	vtium flow(doc display) +unsav
 vtium flow(parts keyboard) +unsaved +pending	Left	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	PgUp	vtium flow(parts special) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Right	vtium flow(parts any input) +unsaved +pending	
-vtium flow(parts keyboard) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts keyboard) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(parts keyboard) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts keyboard) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	Up	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Wheel up	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	d	vtium flow(parts keyboard) +unsaved +pending	devices
@@ -1704,11 +1804,12 @@ vtium flow(parts keyboard) +unsaved +pending	r	vtium any.question.confirm +unsav
 vtium flow(parts keyboard) +unsaved +pending	s	vtium flow(parts keyboard) +pending	save
 vtium flow(parts keyboard) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts pointer)	1	vtium fonts(builtin)	mouse off
+vtium flow(parts pointer)	2	vtium effects	mouse off
 vtium flow(parts pointer)	3	vtium looks	mouse off
 vtium flow(parts pointer)	5	vtium settings(first)	mouse off
 vtium flow(parts pointer)	6	vtium help(help)	mouse off
 vtium flow(parts pointer)	Click box	vtium flow(parts special)	
-vtium flow(parts pointer)	Click tab	vtium looks	mouse off
+vtium flow(parts pointer)	Click tab	vtium effects	mouse off
 vtium flow(parts pointer)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts pointer)	Down	vtium flow(parts font)	
 vtium flow(parts pointer)	End	vtium flow(parts font)	
@@ -1717,9 +1818,9 @@ vtium flow(parts pointer)	Home	vtium flow(doc display)
 vtium flow(parts pointer)	Left	vtium flow(parts keyboard)	
 vtium flow(parts pointer)	PgUp	vtium flow(parts display)	
 vtium flow(parts pointer)	Right	vtium flow(others)	
-vtium flow(parts pointer)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(parts pointer)	Shift-Tab	vtium looks	mouse off
 vtium flow(parts pointer)	Shrink	vtium any.too-small	
-vtium flow(parts pointer)	Tab	vtium looks	mouse off
+vtium flow(parts pointer)	Tab	vtium settings(first)	mouse off
 vtium flow(parts pointer)	Up	vtium flow(parts any input)	
 vtium flow(parts pointer)	Wheel down	vtium flow(parts font)	
 vtium flow(parts pointer)	Wheel up	vtium flow(parts any input)	
@@ -1731,11 +1832,12 @@ vtium flow(parts pointer)	q	vtium left	mouse off, exit 0
 vtium flow(parts pointer)	r	vtium any.question.confirm	
 vtium flow(parts pointer)	v	vtium flow.file	
 vtium flow(parts pointer) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(parts pointer) +pending	2	vtium effects +pending	mouse off
 vtium flow(parts pointer) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts pointer) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts pointer) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(parts pointer) +pending	Click box	vtium flow(parts special) +pending	
-vtium flow(parts pointer) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(parts pointer) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(parts pointer) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts pointer) +pending	Down	vtium flow(parts font) +pending	
 vtium flow(parts pointer) +pending	End	vtium flow(parts font) +pending	
@@ -1744,9 +1846,9 @@ vtium flow(parts pointer) +pending	Home	vtium flow(doc display) +pending
 vtium flow(parts pointer) +pending	Left	vtium flow(parts keyboard) +pending	
 vtium flow(parts pointer) +pending	PgUp	vtium flow(parts display) +pending	
 vtium flow(parts pointer) +pending	Right	vtium flow(others) +pending	
-vtium flow(parts pointer) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(parts pointer) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(parts pointer) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(parts pointer) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(parts pointer) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(parts pointer) +pending	Up	vtium flow(parts any input) +pending	
 vtium flow(parts pointer) +pending	Wheel down	vtium flow(parts font) +pending	
 vtium flow(parts pointer) +pending	Wheel up	vtium flow(parts any input) +pending	
@@ -1758,11 +1860,12 @@ vtium flow(parts pointer) +pending	q	vtium any.question.leave +pending
 vtium flow(parts pointer) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts pointer) +pending	v	vtium flow.file +pending	
 vtium flow(parts pointer) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(parts pointer) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	Click box	vtium flow(parts special) +unsaved	
-vtium flow(parts pointer) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(parts pointer) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts pointer) +unsaved	Down	vtium flow(parts font) +unsaved	
 vtium flow(parts pointer) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1771,9 +1874,9 @@ vtium flow(parts pointer) +unsaved	Home	vtium flow(doc display) +unsaved
 vtium flow(parts pointer) +unsaved	Left	vtium flow(parts keyboard) +unsaved	
 vtium flow(parts pointer) +unsaved	PgUp	vtium flow(parts display) +unsaved	
 vtium flow(parts pointer) +unsaved	Right	vtium flow(others) +unsaved	
-vtium flow(parts pointer) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(parts pointer) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(parts pointer) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(parts pointer) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	Up	vtium flow(parts any input) +unsaved	
 vtium flow(parts pointer) +unsaved	Wheel down	vtium flow(parts font) +unsaved	
 vtium flow(parts pointer) +unsaved	Wheel up	vtium flow(parts any input) +unsaved	
@@ -1786,11 +1889,12 @@ vtium flow(parts pointer) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts pointer) +unsaved	s	vtium flow(parts pointer)	save
 vtium flow(parts pointer) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts pointer) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(parts pointer) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	Click box	vtium flow(parts special) +unsaved +pending	
-vtium flow(parts pointer) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts pointer) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts pointer) +unsaved +pending	Down	vtium flow(parts font) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1799,9 +1903,9 @@ vtium flow(parts pointer) +unsaved +pending	Home	vtium flow(doc display) +unsave
 vtium flow(parts pointer) +unsaved +pending	Left	vtium flow(parts keyboard) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	PgUp	vtium flow(parts display) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	Right	vtium flow(others) +unsaved +pending	
-vtium flow(parts pointer) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts pointer) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(parts pointer) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts pointer) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	Up	vtium flow(parts any input) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	Wheel down	vtium flow(parts font) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	Wheel up	vtium flow(parts any input) +unsaved +pending	
@@ -1814,10 +1918,11 @@ vtium flow(parts pointer) +unsaved +pending	r	vtium any.question.confirm +unsave
 vtium flow(parts pointer) +unsaved +pending	s	vtium flow(parts pointer) +pending	save
 vtium flow(parts pointer) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts special)	1	vtium fonts(builtin)	mouse off
+vtium flow(parts special)	2	vtium effects	mouse off
 vtium flow(parts special)	3	vtium looks	mouse off
 vtium flow(parts special)	5	vtium settings(first)	mouse off
 vtium flow(parts special)	6	vtium help(help)	mouse off
-vtium flow(parts special)	Click tab	vtium looks	mouse off
+vtium flow(parts special)	Click tab	vtium effects	mouse off
 vtium flow(parts special)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts special)	Down	vtium flow(parts input)	
 vtium flow(parts special)	End	vtium flow(parts font)	
@@ -1825,9 +1930,9 @@ vtium flow(parts special)	Home	vtium flow(doc display)
 vtium flow(parts special)	PgDn	vtium flow(parts keyboard)	
 vtium flow(parts special)	PgUp	vtium flow(new empty)	
 vtium flow(parts special)	Right	vtium flow(parts template)	
-vtium flow(parts special)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(parts special)	Shift-Tab	vtium looks	mouse off
 vtium flow(parts special)	Shrink	vtium any.too-small	
-vtium flow(parts special)	Tab	vtium looks	mouse off
+vtium flow(parts special)	Tab	vtium settings(first)	mouse off
 vtium flow(parts special)	Up	vtium flow(parts template)	
 vtium flow(parts special)	Wheel down	vtium flow(parts input)	
 vtium flow(parts special)	Wheel up	vtium flow(parts template)	
@@ -1839,10 +1944,11 @@ vtium flow(parts special)	q	vtium left	mouse off, exit 0
 vtium flow(parts special)	r	vtium any.question.confirm	
 vtium flow(parts special)	v	vtium flow.file	
 vtium flow(parts special) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(parts special) +pending	2	vtium effects +pending	mouse off
 vtium flow(parts special) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts special) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts special) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts special) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(parts special) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(parts special) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts special) +pending	Down	vtium flow(parts input) +pending	
 vtium flow(parts special) +pending	End	vtium flow(parts font) +pending	
@@ -1850,9 +1956,9 @@ vtium flow(parts special) +pending	Home	vtium flow(doc display) +pending
 vtium flow(parts special) +pending	PgDn	vtium flow(parts keyboard) +pending	
 vtium flow(parts special) +pending	PgUp	vtium flow(new empty) +pending	
 vtium flow(parts special) +pending	Right	vtium flow(parts template) +pending	
-vtium flow(parts special) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(parts special) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(parts special) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(parts special) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(parts special) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(parts special) +pending	Up	vtium flow(parts template) +pending	
 vtium flow(parts special) +pending	Wheel down	vtium flow(parts input) +pending	
 vtium flow(parts special) +pending	Wheel up	vtium flow(parts template) +pending	
@@ -1864,10 +1970,11 @@ vtium flow(parts special) +pending	q	vtium any.question.leave +pending
 vtium flow(parts special) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts special) +pending	v	vtium flow.file +pending	
 vtium flow(parts special) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(parts special) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(parts special) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts special) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts special) +unsaved	6	vtium help(help) +unsaved	mouse off
-vtium flow(parts special) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(parts special) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(parts special) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts special) +unsaved	Down	vtium flow(parts input) +unsaved	
 vtium flow(parts special) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1875,9 +1982,9 @@ vtium flow(parts special) +unsaved	Home	vtium flow(doc display) +unsaved
 vtium flow(parts special) +unsaved	PgDn	vtium flow(parts keyboard) +unsaved	
 vtium flow(parts special) +unsaved	PgUp	vtium flow(new empty) +unsaved	
 vtium flow(parts special) +unsaved	Right	vtium flow(parts template) +unsaved	
-vtium flow(parts special) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(parts special) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(parts special) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(parts special) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(parts special) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(parts special) +unsaved	Up	vtium flow(parts template) +unsaved	
 vtium flow(parts special) +unsaved	Wheel down	vtium flow(parts input) +unsaved	
 vtium flow(parts special) +unsaved	Wheel up	vtium flow(parts template) +unsaved	
@@ -1890,10 +1997,11 @@ vtium flow(parts special) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts special) +unsaved	s	vtium flow(parts special)	save
 vtium flow(parts special) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts special) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(parts special) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
-vtium flow(parts special) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts special) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts special) +unsaved +pending	Down	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -1901,9 +2009,9 @@ vtium flow(parts special) +unsaved +pending	Home	vtium flow(doc display) +unsave
 vtium flow(parts special) +unsaved +pending	PgDn	vtium flow(parts keyboard) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	PgUp	vtium flow(new empty) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	Right	vtium flow(parts template) +unsaved +pending	
-vtium flow(parts special) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts special) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(parts special) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts special) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	Up	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	Wheel down	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	Wheel up	vtium flow(parts template) +unsaved +pending	
@@ -1916,10 +2024,11 @@ vtium flow(parts special) +unsaved +pending	r	vtium any.question.confirm +unsave
 vtium flow(parts special) +unsaved +pending	s	vtium flow(parts special) +pending	save
 vtium flow(parts special) +unsaved +pending	v	vtium flow.file +unsaved +pending	
 vtium flow(parts template)	1	vtium fonts(builtin)	mouse off
+vtium flow(parts template)	2	vtium effects	mouse off
 vtium flow(parts template)	3	vtium looks	mouse off
 vtium flow(parts template)	5	vtium settings(first)	mouse off
 vtium flow(parts template)	6	vtium help(help)	mouse off
-vtium flow(parts template)	Click tab	vtium looks	mouse off
+vtium flow(parts template)	Click tab	vtium effects	mouse off
 vtium flow(parts template)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts template)	Down	vtium flow(parts display)	
 vtium flow(parts template)	End	vtium flow(parts font)	
@@ -1928,9 +2037,9 @@ vtium flow(parts template)	Home	vtium flow(doc display)
 vtium flow(parts template)	Left	vtium flow(new empty)	
 vtium flow(parts template)	PgUp	vtium flow(new empty)	
 vtium flow(parts template)	Right	vtium flow(parts display)	
-vtium flow(parts template)	Shift-Tab	vtium help(help)	mouse off
+vtium flow(parts template)	Shift-Tab	vtium looks	mouse off
 vtium flow(parts template)	Shrink	vtium any.too-small	
-vtium flow(parts template)	Tab	vtium looks	mouse off
+vtium flow(parts template)	Tab	vtium settings(first)	mouse off
 vtium flow(parts template)	Up	vtium flow(new empty)	
 vtium flow(parts template)	Wheel down	vtium flow(parts display)	
 vtium flow(parts template)	Wheel up	vtium flow(new empty)	
@@ -1942,11 +2051,12 @@ vtium flow(parts template)	q	vtium left	mouse off, exit 0
 vtium flow(parts template)	r	vtium any.question.confirm	
 vtium flow(parts template)	v	vtium flow.file	
 vtium flow(parts template) +pending	1	vtium fonts(marked) +pending	mouse off
+vtium flow(parts template) +pending	2	vtium effects +pending	mouse off
 vtium flow(parts template) +pending	3	vtium looks +pending	mouse off
 vtium flow(parts template) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts template) +pending	6	vtium help(help) +pending	mouse off
 vtium flow(parts template) +pending	Click box	vtium flow(parts display) +pending	
-vtium flow(parts template) +pending	Click tab	vtium looks +pending	mouse off
+vtium flow(parts template) +pending	Click tab	vtium effects +pending	mouse off
 vtium flow(parts template) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts template) +pending	Down	vtium flow(parts display) +pending	
 vtium flow(parts template) +pending	End	vtium flow(parts font) +pending	
@@ -1955,9 +2065,9 @@ vtium flow(parts template) +pending	Home	vtium flow(doc display) +pending
 vtium flow(parts template) +pending	Left	vtium flow(new empty) +pending	
 vtium flow(parts template) +pending	PgUp	vtium flow(new empty) +pending	
 vtium flow(parts template) +pending	Right	vtium flow(parts display) +pending	
-vtium flow(parts template) +pending	Shift-Tab	vtium help(help) +pending	mouse off
+vtium flow(parts template) +pending	Shift-Tab	vtium looks +pending	mouse off
 vtium flow(parts template) +pending	Shrink	vtium any.too-small +pending	
-vtium flow(parts template) +pending	Tab	vtium looks +pending	mouse off
+vtium flow(parts template) +pending	Tab	vtium settings(first) +pending	mouse off
 vtium flow(parts template) +pending	Up	vtium flow(new empty) +pending	
 vtium flow(parts template) +pending	Wheel down	vtium flow(parts display) +pending	
 vtium flow(parts template) +pending	Wheel up	vtium flow(new empty) +pending	
@@ -1969,11 +2079,12 @@ vtium flow(parts template) +pending	q	vtium any.question.leave +pending
 vtium flow(parts template) +pending	r	vtium any.question.confirm +pending	
 vtium flow(parts template) +pending	v	vtium flow.file +pending	
 vtium flow(parts template) +unsaved	1	vtium fonts(builtin) +unsaved	mouse off
+vtium flow(parts template) +unsaved	2	vtium effects +unsaved	mouse off
 vtium flow(parts template) +unsaved	3	vtium looks +unsaved	mouse off
 vtium flow(parts template) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts template) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(parts template) +unsaved	Click box	vtium flow(parts display) +unsaved	
-vtium flow(parts template) +unsaved	Click tab	vtium looks +unsaved	mouse off
+vtium flow(parts template) +unsaved	Click tab	vtium effects +unsaved	mouse off
 vtium flow(parts template) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts template) +unsaved	Down	vtium flow(parts display) +unsaved	
 vtium flow(parts template) +unsaved	End	vtium flow(parts font) +unsaved	
@@ -1982,9 +2093,9 @@ vtium flow(parts template) +unsaved	Home	vtium flow(doc display) +unsaved
 vtium flow(parts template) +unsaved	Left	vtium flow(new empty) +unsaved	
 vtium flow(parts template) +unsaved	PgUp	vtium flow(new empty) +unsaved	
 vtium flow(parts template) +unsaved	Right	vtium flow(parts display) +unsaved	
-vtium flow(parts template) +unsaved	Shift-Tab	vtium help(help) +unsaved	mouse off
+vtium flow(parts template) +unsaved	Shift-Tab	vtium looks +unsaved	mouse off
 vtium flow(parts template) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium flow(parts template) +unsaved	Tab	vtium looks +unsaved	mouse off
+vtium flow(parts template) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
 vtium flow(parts template) +unsaved	Up	vtium flow(new empty) +unsaved	
 vtium flow(parts template) +unsaved	Wheel down	vtium flow(parts display) +unsaved	
 vtium flow(parts template) +unsaved	Wheel up	vtium flow(new empty) +unsaved	
@@ -1997,11 +2108,12 @@ vtium flow(parts template) +unsaved	r	vtium any.question.confirm +unsaved
 vtium flow(parts template) +unsaved	s	vtium flow(parts template)	save
 vtium flow(parts template) +unsaved	v	vtium flow.file +unsaved	
 vtium flow(parts template) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	mouse off
+vtium flow(parts template) +unsaved +pending	2	vtium effects +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	3	vtium looks +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	Click box	vtium flow(parts display) +unsaved +pending	
-vtium flow(parts template) +unsaved +pending	Click tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts template) +unsaved +pending	Click tab	vtium effects +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts template) +unsaved +pending	Down	vtium flow(parts display) +unsaved +pending	
 vtium flow(parts template) +unsaved +pending	End	vtium flow(parts font) +unsaved +pending	
@@ -2010,9 +2122,9 @@ vtium flow(parts template) +unsaved +pending	Home	vtium flow(doc display) +unsav
 vtium flow(parts template) +unsaved +pending	Left	vtium flow(new empty) +unsaved +pending	
 vtium flow(parts template) +unsaved +pending	PgUp	vtium flow(new empty) +unsaved +pending	
 vtium flow(parts template) +unsaved +pending	Right	vtium flow(parts display) +unsaved +pending	
-vtium flow(parts template) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts template) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium flow(parts template) +unsaved +pending	Tab	vtium looks +unsaved +pending	mouse off
+vtium flow(parts template) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts template) +unsaved +pending	Up	vtium flow(new empty) +unsaved +pending	
 vtium flow(parts template) +unsaved +pending	Wheel down	vtium flow(parts display) +unsaved +pending	
 vtium flow(parts template) +unsaved +pending	Wheel up	vtium flow(new empty) +unsaved +pending	
@@ -2562,6 +2674,7 @@ vtium flow.restore +unsaved +pending	Enter	vtium any.question.confirm +unsaved +
 vtium flow.restore +unsaved +pending	Esc	vtium flow(doc display) +unsaved +pending	
 vtium flow.restore +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow.restore +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium fonts(builtin)	2	vtium effects	
 vtium fonts(builtin)	3	vtium looks	
 vtium fonts(builtin)	4	vtium flow(doc display)	mouse on
 vtium fonts(builtin)	5	vtium settings(first)	
@@ -2570,13 +2683,14 @@ vtium fonts(builtin)	Ctrl-C	vtium left	exit 130
 vtium fonts(builtin)	Enter	vtium fonts(builtin) +unsaved	check
 vtium fonts(builtin)	Home	vtium fonts(refused)	
 vtium fonts(builtin)	PgUp	vtium fonts(refused)	
-vtium fonts(builtin)	Shift-Tab	vtium looks	
+vtium fonts(builtin)	Shift-Tab	vtium help(help)	
 vtium fonts(builtin)	Shrink	vtium any.too-small	
-vtium fonts(builtin)	Tab	vtium settings(first)	
+vtium fonts(builtin)	Tab	vtium effects	
 vtium fonts(builtin)	Up	vtium fonts(frit)	
 vtium fonts(builtin)	i	vtium fonts(builtin)	prepare
 vtium fonts(builtin)	n	vtium looks.new-frit.typing(row 0)	
 vtium fonts(builtin)	q	vtium left	exit 0
+vtium fonts(builtin) +pending	2	vtium effects +pending	
 vtium fonts(builtin) +pending	3	vtium looks +pending	
 vtium fonts(builtin) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium fonts(builtin) +pending	5	vtium settings(first) +pending	
@@ -2585,13 +2699,14 @@ vtium fonts(builtin) +pending	Ctrl-C	vtium left	exit 130
 vtium fonts(builtin) +pending	Enter	vtium fonts(builtin) +unsaved +pending	check
 vtium fonts(builtin) +pending	Home	vtium fonts(refused) +pending	
 vtium fonts(builtin) +pending	PgUp	vtium fonts(refused) +pending	
-vtium fonts(builtin) +pending	Shift-Tab	vtium looks +pending	
+vtium fonts(builtin) +pending	Shift-Tab	vtium help(help) +pending	
 vtium fonts(builtin) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(builtin) +pending	Tab	vtium settings(first) +pending	
+vtium fonts(builtin) +pending	Tab	vtium effects +pending	
 vtium fonts(builtin) +pending	Up	vtium fonts(marked) +pending	
 vtium fonts(builtin) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(builtin) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(builtin) +pending	q	vtium any.question.leave +pending	
+vtium fonts(builtin) +unsaved	2	vtium effects +unsaved	
 vtium fonts(builtin) +unsaved	3	vtium looks +unsaved	
 vtium fonts(builtin) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium fonts(builtin) +unsaved	5	vtium settings(first) +unsaved	
@@ -2600,13 +2715,14 @@ vtium fonts(builtin) +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium fonts(builtin) +unsaved	Enter	vtium fonts(builtin) +unsaved	check
 vtium fonts(builtin) +unsaved	Home	vtium fonts(refused) +unsaved	
 vtium fonts(builtin) +unsaved	PgUp	vtium fonts(refused) +unsaved	
-vtium fonts(builtin) +unsaved	Shift-Tab	vtium looks +unsaved	
+vtium fonts(builtin) +unsaved	Shift-Tab	vtium help(help) +unsaved	
 vtium fonts(builtin) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(builtin) +unsaved	Tab	vtium settings(first) +unsaved	
+vtium fonts(builtin) +unsaved	Tab	vtium effects +unsaved	
 vtium fonts(builtin) +unsaved	Up	vtium fonts(frit) +unsaved	
 vtium fonts(builtin) +unsaved	i	vtium fonts(builtin)	save, prepare
 vtium fonts(builtin) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
 vtium fonts(builtin) +unsaved	q	vtium any.question.quit +unsaved	
+vtium fonts(builtin) +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium fonts(builtin) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2615,13 +2731,14 @@ vtium fonts(builtin) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium fonts(builtin) +unsaved +pending	Enter	vtium fonts(builtin) +unsaved +pending	check
 vtium fonts(builtin) +unsaved +pending	Home	vtium fonts(refused) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
-vtium fonts(builtin) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	
+vtium fonts(builtin) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(builtin) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	
+vtium fonts(builtin) +unsaved +pending	Tab	vtium effects +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	Up	vtium fonts(marked) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium fonts(builtin) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(builtin) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium fonts(frit)	2	vtium effects	
 vtium fonts(frit)	3	vtium looks	
 vtium fonts(frit)	4	vtium flow(doc display)	mouse on
 vtium fonts(frit)	5	vtium settings(first)	
@@ -2633,14 +2750,15 @@ vtium fonts(frit)	Enter	vtium fonts(frit) +unsaved	check
 vtium fonts(frit)	Home	vtium fonts(refused)	
 vtium fonts(frit)	PgDn	vtium fonts(builtin)	
 vtium fonts(frit)	PgUp	vtium fonts(refused)	
-vtium fonts(frit)	Shift-Tab	vtium looks	
+vtium fonts(frit)	Shift-Tab	vtium help(help)	
 vtium fonts(frit)	Shrink	vtium any.too-small	
-vtium fonts(frit)	Tab	vtium settings(first)	
+vtium fonts(frit)	Tab	vtium effects	
 vtium fonts(frit)	i	vtium fonts(frit)	prepare
 vtium fonts(frit)	n	vtium looks.new-frit.typing(row 0)	
 vtium fonts(frit)	q	vtium left	exit 0
 vtium fonts(frit)	r	vtium fonts(marked) +pending	
 vtium fonts(frit)	t	vtium any.trial	switch
+vtium fonts(frit) +pending	2	vtium effects +pending	
 vtium fonts(frit) +pending	3	vtium looks +pending	
 vtium fonts(frit) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium fonts(frit) +pending	5	vtium settings(first) +pending	
@@ -2652,13 +2770,14 @@ vtium fonts(frit) +pending	Enter	vtium fonts(frit) +unsaved +pending	check
 vtium fonts(frit) +pending	Home	vtium fonts(refused) +pending	
 vtium fonts(frit) +pending	PgDn	vtium fonts(builtin) +pending	
 vtium fonts(frit) +pending	PgUp	vtium fonts(refused) +pending	
-vtium fonts(frit) +pending	Shift-Tab	vtium looks +pending	
+vtium fonts(frit) +pending	Shift-Tab	vtium help(help) +pending	
 vtium fonts(frit) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(frit) +pending	Tab	vtium settings(first) +pending	
+vtium fonts(frit) +pending	Tab	vtium effects +pending	
 vtium fonts(frit) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(frit) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(frit) +pending	q	vtium any.question.leave +pending	
 vtium fonts(frit) +pending	t	vtium any.trial +pending	switch
+vtium fonts(frit) +unsaved	2	vtium effects +unsaved	
 vtium fonts(frit) +unsaved	3	vtium looks +unsaved	
 vtium fonts(frit) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium fonts(frit) +unsaved	5	vtium settings(first) +unsaved	
@@ -2670,13 +2789,14 @@ vtium fonts(frit) +unsaved	Enter	vtium fonts(frit) +unsaved	check
 vtium fonts(frit) +unsaved	Home	vtium fonts(refused) +unsaved	
 vtium fonts(frit) +unsaved	PgDn	vtium fonts(builtin) +unsaved	
 vtium fonts(frit) +unsaved	PgUp	vtium fonts(refused) +unsaved	
-vtium fonts(frit) +unsaved	Shift-Tab	vtium looks +unsaved	
+vtium fonts(frit) +unsaved	Shift-Tab	vtium help(help) +unsaved	
 vtium fonts(frit) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(frit) +unsaved	Tab	vtium settings(first) +unsaved	
+vtium fonts(frit) +unsaved	Tab	vtium effects +unsaved	
 vtium fonts(frit) +unsaved	i	vtium any.question.confirm	save, prepare
 vtium fonts(frit) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
 vtium fonts(frit) +unsaved	q	vtium any.question.quit +unsaved	
 vtium fonts(frit) +unsaved	t	vtium any.trial +unsaved	switch
+vtium fonts(frit) +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium fonts(frit) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2688,13 +2808,14 @@ vtium fonts(frit) +unsaved +pending	Enter	vtium fonts(frit) +unsaved +pending	ch
 vtium fonts(frit) +unsaved +pending	Home	vtium fonts(refused) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
-vtium fonts(frit) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	
+vtium fonts(frit) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(frit) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	
+vtium fonts(frit) +unsaved +pending	Tab	vtium effects +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium fonts(frit) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium fonts(frit) +unsaved +pending	t	vtium any.trial +unsaved +pending	switch
+vtium fonts(marked) +pending	2	vtium effects +pending	
 vtium fonts(marked) +pending	3	vtium looks +pending	
 vtium fonts(marked) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium fonts(marked) +pending	5	vtium settings(first) +pending	
@@ -2706,15 +2827,16 @@ vtium fonts(marked) +pending	Enter	vtium fonts(marked) +unsaved +pending	check
 vtium fonts(marked) +pending	Home	vtium fonts(refused) +pending	
 vtium fonts(marked) +pending	PgDn	vtium fonts(builtin) +pending	
 vtium fonts(marked) +pending	PgUp	vtium fonts(refused) +pending	
-vtium fonts(marked) +pending	Shift-Tab	vtium looks +pending	
+vtium fonts(marked) +pending	Shift-Tab	vtium help(help) +pending	
 vtium fonts(marked) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(marked) +pending	Tab	vtium settings(first) +pending	
+vtium fonts(marked) +pending	Tab	vtium effects +pending	
 vtium fonts(marked) +pending	Up	vtium fonts(frit) +pending	
 vtium fonts(marked) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(marked) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(marked) +pending	q	vtium any.question.leave +pending	
 vtium fonts(marked) +pending	r	vtium fonts(frit)	
 vtium fonts(marked) +pending	t	vtium any.trial +pending	switch
+vtium fonts(marked) +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium fonts(marked) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2726,15 +2848,16 @@ vtium fonts(marked) +unsaved +pending	Enter	vtium fonts(marked) +unsaved +pendin
 vtium fonts(marked) +unsaved +pending	Home	vtium fonts(refused) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	PgUp	vtium fonts(refused) +unsaved +pending	
-vtium fonts(marked) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	
+vtium fonts(marked) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(marked) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	
+vtium fonts(marked) +unsaved +pending	Tab	vtium effects +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	Up	vtium fonts(frit) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	i	vtium fonts(marked) +pending	save, prepare
 vtium fonts(marked) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium fonts(marked) +unsaved +pending	r	vtium fonts(frit) +unsaved	
 vtium fonts(marked) +unsaved +pending	t	vtium any.trial +unsaved +pending	switch
+vtium fonts(refused)	2	vtium effects	
 vtium fonts(refused)	3	vtium looks	
 vtium fonts(refused)	4	vtium flow(doc display)	mouse on
 vtium fonts(refused)	5	vtium settings(first)	
@@ -2743,13 +2866,14 @@ vtium fonts(refused)	Ctrl-C	vtium left	exit 130
 vtium fonts(refused)	Down	vtium fonts(frit)	
 vtium fonts(refused)	End	vtium fonts(builtin)	
 vtium fonts(refused)	PgDn	vtium fonts(builtin)	
-vtium fonts(refused)	Shift-Tab	vtium looks	
+vtium fonts(refused)	Shift-Tab	vtium help(help)	
 vtium fonts(refused)	Shrink	vtium any.too-small	
-vtium fonts(refused)	Tab	vtium settings(first)	
+vtium fonts(refused)	Tab	vtium effects	
 vtium fonts(refused)	i	vtium fonts(refused)	prepare
 vtium fonts(refused)	n	vtium looks.new-frit.typing(row 0)	
 vtium fonts(refused)	q	vtium left	exit 0
 vtium fonts(refused)	r	vtium fonts(marked) +pending	
+vtium fonts(refused) +pending	2	vtium effects +pending	
 vtium fonts(refused) +pending	3	vtium looks +pending	
 vtium fonts(refused) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium fonts(refused) +pending	5	vtium settings(first) +pending	
@@ -2758,13 +2882,14 @@ vtium fonts(refused) +pending	Ctrl-C	vtium left	exit 130
 vtium fonts(refused) +pending	Down	vtium fonts(frit) +pending	
 vtium fonts(refused) +pending	End	vtium fonts(builtin) +pending	
 vtium fonts(refused) +pending	PgDn	vtium fonts(builtin) +pending	
-vtium fonts(refused) +pending	Shift-Tab	vtium looks +pending	
+vtium fonts(refused) +pending	Shift-Tab	vtium help(help) +pending	
 vtium fonts(refused) +pending	Shrink	vtium any.too-small +pending	
-vtium fonts(refused) +pending	Tab	vtium settings(first) +pending	
+vtium fonts(refused) +pending	Tab	vtium effects +pending	
 vtium fonts(refused) +pending	i	vtium any.question.confirm +pending	prepare
 vtium fonts(refused) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
 vtium fonts(refused) +pending	q	vtium any.question.leave +pending	
 vtium fonts(refused) +pending	r	vtium fonts(marked) +pending	
+vtium fonts(refused) +unsaved	2	vtium effects +unsaved	
 vtium fonts(refused) +unsaved	3	vtium looks +unsaved	
 vtium fonts(refused) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium fonts(refused) +unsaved	5	vtium settings(first) +unsaved	
@@ -2773,13 +2898,14 @@ vtium fonts(refused) +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium fonts(refused) +unsaved	Down	vtium fonts(frit) +unsaved	
 vtium fonts(refused) +unsaved	End	vtium fonts(builtin) +unsaved	
 vtium fonts(refused) +unsaved	PgDn	vtium fonts(builtin) +unsaved	
-vtium fonts(refused) +unsaved	Shift-Tab	vtium looks +unsaved	
+vtium fonts(refused) +unsaved	Shift-Tab	vtium help(help) +unsaved	
 vtium fonts(refused) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium fonts(refused) +unsaved	Tab	vtium settings(first) +unsaved	
+vtium fonts(refused) +unsaved	Tab	vtium effects +unsaved	
 vtium fonts(refused) +unsaved	i	vtium fonts(refused)	save, prepare
 vtium fonts(refused) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
 vtium fonts(refused) +unsaved	q	vtium any.question.quit +unsaved	
 vtium fonts(refused) +unsaved	r	vtium fonts(marked) +unsaved +pending	
+vtium fonts(refused) +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium fonts(refused) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2788,13 +2914,14 @@ vtium fonts(refused) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium fonts(refused) +unsaved +pending	Down	vtium fonts(frit) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	End	vtium fonts(builtin) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	PgDn	vtium fonts(builtin) +unsaved +pending	
-vtium fonts(refused) +unsaved +pending	Shift-Tab	vtium looks +unsaved +pending	
+vtium fonts(refused) +unsaved +pending	Shift-Tab	vtium help(help) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium fonts(refused) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	
+vtium fonts(refused) +unsaved +pending	Tab	vtium effects +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	i	vtium fonts(refused) +pending	save, prepare
 vtium fonts(refused) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
 vtium fonts(refused) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium help(about)	1	vtium fonts(builtin)	
+vtium help(about)	2	vtium effects	
 vtium help(about)	3	vtium looks	
 vtium help(about)	4	vtium flow(doc display)	mouse on
 vtium help(about)	5	vtium settings(first)	
@@ -2803,9 +2930,10 @@ vtium help(about)	Left	vtium help(help)
 vtium help(about)	Right	vtium help(help)	
 vtium help(about)	Shift-Tab	vtium settings(first)	
 vtium help(about)	Shrink	vtium any.too-small	
-vtium help(about)	Tab	vtium flow(doc display)	mouse on
+vtium help(about)	Tab	vtium fonts(builtin)	
 vtium help(about)	q	vtium left	exit 0
 vtium help(about) +pending	1	vtium fonts(marked) +pending	
+vtium help(about) +pending	2	vtium effects +pending	
 vtium help(about) +pending	3	vtium looks +pending	
 vtium help(about) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium help(about) +pending	5	vtium settings(first) +pending	
@@ -2814,9 +2942,10 @@ vtium help(about) +pending	Left	vtium help(help) +pending
 vtium help(about) +pending	Right	vtium help(help) +pending	
 vtium help(about) +pending	Shift-Tab	vtium settings(first) +pending	
 vtium help(about) +pending	Shrink	vtium any.too-small +pending	
-vtium help(about) +pending	Tab	vtium flow(doc display) +pending	mouse on
+vtium help(about) +pending	Tab	vtium fonts(marked) +pending	
 vtium help(about) +pending	q	vtium any.question.leave +pending	
 vtium help(about) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium help(about) +unsaved	2	vtium effects +unsaved	
 vtium help(about) +unsaved	3	vtium looks +unsaved	
 vtium help(about) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium help(about) +unsaved	5	vtium settings(first) +unsaved	
@@ -2825,9 +2954,10 @@ vtium help(about) +unsaved	Left	vtium help(help) +unsaved
 vtium help(about) +unsaved	Right	vtium help(help) +unsaved	
 vtium help(about) +unsaved	Shift-Tab	vtium settings(first) +unsaved	
 vtium help(about) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium help(about) +unsaved	Tab	vtium flow(doc display) +unsaved	mouse on
+vtium help(about) +unsaved	Tab	vtium fonts(builtin) +unsaved	
 vtium help(about) +unsaved	q	vtium any.question.quit +unsaved	
 vtium help(about) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium help(about) +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium help(about) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium help(about) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium help(about) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2836,9 +2966,10 @@ vtium help(about) +unsaved +pending	Left	vtium help(help) +unsaved +pending
 vtium help(about) +unsaved +pending	Right	vtium help(help) +unsaved +pending	
 vtium help(about) +unsaved +pending	Shift-Tab	vtium settings(first) +unsaved +pending	
 vtium help(about) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium help(about) +unsaved +pending	Tab	vtium flow(doc display) +unsaved +pending	mouse on
+vtium help(about) +unsaved +pending	Tab	vtium fonts(marked) +unsaved +pending	
 vtium help(about) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium help(help)	1	vtium fonts(builtin)	
+vtium help(help)	2	vtium effects	
 vtium help(help)	3	vtium looks	
 vtium help(help)	4	vtium flow(doc display)	mouse on
 vtium help(help)	5	vtium settings(first)	
@@ -2847,9 +2978,10 @@ vtium help(help)	Left	vtium help(about)
 vtium help(help)	Right	vtium help(about)	
 vtium help(help)	Shift-Tab	vtium settings(first)	
 vtium help(help)	Shrink	vtium any.too-small	
-vtium help(help)	Tab	vtium flow(doc display)	mouse on
+vtium help(help)	Tab	vtium fonts(builtin)	
 vtium help(help)	q	vtium left	exit 0
 vtium help(help) +pending	1	vtium fonts(marked) +pending	
+vtium help(help) +pending	2	vtium effects +pending	
 vtium help(help) +pending	3	vtium looks +pending	
 vtium help(help) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium help(help) +pending	5	vtium settings(first) +pending	
@@ -2858,9 +2990,10 @@ vtium help(help) +pending	Left	vtium help(about) +pending
 vtium help(help) +pending	Right	vtium help(about) +pending	
 vtium help(help) +pending	Shift-Tab	vtium settings(first) +pending	
 vtium help(help) +pending	Shrink	vtium any.too-small +pending	
-vtium help(help) +pending	Tab	vtium flow(doc display) +pending	mouse on
+vtium help(help) +pending	Tab	vtium fonts(marked) +pending	
 vtium help(help) +pending	q	vtium any.question.leave +pending	
 vtium help(help) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium help(help) +unsaved	2	vtium effects +unsaved	
 vtium help(help) +unsaved	3	vtium looks +unsaved	
 vtium help(help) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium help(help) +unsaved	5	vtium settings(first) +unsaved	
@@ -2869,9 +3002,10 @@ vtium help(help) +unsaved	Left	vtium help(about) +unsaved
 vtium help(help) +unsaved	Right	vtium help(about) +unsaved	
 vtium help(help) +unsaved	Shift-Tab	vtium settings(first) +unsaved	
 vtium help(help) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium help(help) +unsaved	Tab	vtium flow(doc display) +unsaved	mouse on
+vtium help(help) +unsaved	Tab	vtium fonts(builtin) +unsaved	
 vtium help(help) +unsaved	q	vtium any.question.quit +unsaved	
 vtium help(help) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium help(help) +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium help(help) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium help(help) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium help(help) +unsaved +pending	5	vtium settings(first) +unsaved +pending	
@@ -2880,51 +3014,55 @@ vtium help(help) +unsaved +pending	Left	vtium help(about) +unsaved +pending
 vtium help(help) +unsaved +pending	Right	vtium help(about) +unsaved +pending	
 vtium help(help) +unsaved +pending	Shift-Tab	vtium settings(first) +unsaved +pending	
 vtium help(help) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium help(help) +unsaved +pending	Tab	vtium flow(doc display) +unsaved +pending	mouse on
+vtium help(help) +unsaved +pending	Tab	vtium fonts(marked) +unsaved +pending	
 vtium help(help) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium looks	1	vtium fonts(builtin)	
+vtium looks	2	vtium effects	
 vtium looks	4	vtium flow(doc display)	mouse on
 vtium looks	5	vtium settings(first)	
 vtium looks	6	vtium help(help)	
 vtium looks	Ctrl-C	vtium left	exit 130
 vtium looks	Enter	vtium looks +unsaved	check
-vtium looks	Shift-Tab	vtium flow(doc display)	mouse on
+vtium looks	Shift-Tab	vtium effects	
 vtium looks	Shrink	vtium any.too-small	
-vtium looks	Tab	vtium fonts(builtin)	
+vtium looks	Tab	vtium flow(doc display)	mouse on
 vtium looks	i	vtium looks	prepare
 vtium looks	q	vtium left	exit 0
 vtium looks +pending	1	vtium fonts(marked) +pending	
+vtium looks +pending	2	vtium effects +pending	
 vtium looks +pending	4	vtium flow(doc display) +pending	mouse on
 vtium looks +pending	5	vtium settings(first) +pending	
 vtium looks +pending	6	vtium help(help) +pending	
 vtium looks +pending	Ctrl-C	vtium left	exit 130
 vtium looks +pending	Enter	vtium looks +unsaved +pending	check
-vtium looks +pending	Shift-Tab	vtium flow(doc display) +pending	mouse on
+vtium looks +pending	Shift-Tab	vtium effects +pending	
 vtium looks +pending	Shrink	vtium any.too-small +pending	
-vtium looks +pending	Tab	vtium fonts(marked) +pending	
+vtium looks +pending	Tab	vtium flow(doc display) +pending	mouse on
 vtium looks +pending	i	vtium any.question.confirm +pending	prepare
 vtium looks +pending	q	vtium any.question.leave +pending	
 vtium looks +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium looks +unsaved	2	vtium effects +unsaved	
 vtium looks +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium looks +unsaved	5	vtium settings(first) +unsaved	
 vtium looks +unsaved	6	vtium help(help) +unsaved	
 vtium looks +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium looks +unsaved	Enter	vtium looks +unsaved	check
-vtium looks +unsaved	Shift-Tab	vtium flow(doc display) +unsaved	mouse on
+vtium looks +unsaved	Shift-Tab	vtium effects +unsaved	
 vtium looks +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium looks +unsaved	Tab	vtium fonts(builtin) +unsaved	
+vtium looks +unsaved	Tab	vtium flow(doc display) +unsaved	mouse on
 vtium looks +unsaved	i	vtium looks	save, prepare
 vtium looks +unsaved	q	vtium any.question.quit +unsaved	
 vtium looks +unsaved	s	vtium looks	save
 vtium looks +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium looks +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium looks +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium looks +unsaved +pending	5	vtium settings(first) +unsaved +pending	
 vtium looks +unsaved +pending	6	vtium help(help) +unsaved +pending	
 vtium looks +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium looks +unsaved +pending	Enter	vtium looks +unsaved +pending	check
-vtium looks +unsaved +pending	Shift-Tab	vtium flow(doc display) +unsaved +pending	mouse on
+vtium looks +unsaved +pending	Shift-Tab	vtium effects +unsaved +pending	
 vtium looks +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium looks +unsaved +pending	Tab	vtium fonts(marked) +unsaved +pending	
+vtium looks +unsaved +pending	Tab	vtium flow(doc display) +unsaved +pending	mouse on
 vtium looks +unsaved +pending	i	vtium looks +pending	save, prepare
 vtium looks +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium looks +unsaved +pending	s	vtium looks +pending	save
@@ -3053,6 +3191,7 @@ vtium looks.new-frit.typing(row 5) +unsaved +pending	Enter	vtium looks.new-frit(
 vtium looks.new-frit.typing(row 5) +unsaved +pending	Esc	vtium fonts(marked) +unsaved +pending	
 vtium looks.new-frit.typing(row 5) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium settings(first)	1	vtium fonts(builtin)	
+vtium settings(first)	2	vtium effects	
 vtium settings(first)	3	vtium looks	
 vtium settings(first)	4	vtium flow(doc display)	mouse on
 vtium settings(first)	6	vtium help(help)	
@@ -3061,12 +3200,13 @@ vtium settings(first)	Down	vtium settings(later)
 vtium settings(first)	End	vtium settings(later)	
 vtium settings(first)	Enter	vtium settings.section(value)	
 vtium settings(first)	PgDn	vtium settings(later)	
-vtium settings(first)	Shift-Tab	vtium fonts(builtin)	
+vtium settings(first)	Shift-Tab	vtium flow(doc display)	mouse on
 vtium settings(first)	Shrink	vtium any.too-small	
 vtium settings(first)	Tab	vtium help(help)	
 vtium settings(first)	i	vtium settings(first)	prepare
 vtium settings(first)	q	vtium left	exit 0
 vtium settings(first) +pending	1	vtium fonts(marked) +pending	
+vtium settings(first) +pending	2	vtium effects +pending	
 vtium settings(first) +pending	3	vtium looks +pending	
 vtium settings(first) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium settings(first) +pending	6	vtium help(help) +pending	
@@ -3075,12 +3215,13 @@ vtium settings(first) +pending	Down	vtium settings(later) +pending
 vtium settings(first) +pending	End	vtium settings(later) +pending	
 vtium settings(first) +pending	Enter	vtium settings.section(value) +pending	
 vtium settings(first) +pending	PgDn	vtium settings(later) +pending	
-vtium settings(first) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium settings(first) +pending	Shift-Tab	vtium flow(doc display) +pending	mouse on
 vtium settings(first) +pending	Shrink	vtium any.too-small +pending	
 vtium settings(first) +pending	Tab	vtium help(help) +pending	
 vtium settings(first) +pending	i	vtium any.question.confirm +pending	prepare
 vtium settings(first) +pending	q	vtium any.question.leave +pending	
 vtium settings(first) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium settings(first) +unsaved	2	vtium effects +unsaved	
 vtium settings(first) +unsaved	3	vtium looks +unsaved	
 vtium settings(first) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium settings(first) +unsaved	6	vtium help(help) +unsaved	
@@ -3089,13 +3230,14 @@ vtium settings(first) +unsaved	Down	vtium settings(later) +unsaved
 vtium settings(first) +unsaved	End	vtium settings(later) +unsaved	
 vtium settings(first) +unsaved	Enter	vtium settings.section(value) +unsaved	
 vtium settings(first) +unsaved	PgDn	vtium settings(later) +unsaved	
-vtium settings(first) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium settings(first) +unsaved	Shift-Tab	vtium flow(doc display) +unsaved	mouse on
 vtium settings(first) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium settings(first) +unsaved	Tab	vtium help(help) +unsaved	
 vtium settings(first) +unsaved	i	vtium settings(first)	save, prepare
 vtium settings(first) +unsaved	q	vtium any.question.quit +unsaved	
 vtium settings(first) +unsaved	s	vtium settings(first)	save
 vtium settings(first) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium settings(first) +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium settings(first) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium settings(first) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium settings(first) +unsaved +pending	6	vtium help(help) +unsaved +pending	
@@ -3104,13 +3246,14 @@ vtium settings(first) +unsaved +pending	Down	vtium settings(later) +unsaved +pen
 vtium settings(first) +unsaved +pending	End	vtium settings(later) +unsaved +pending	
 vtium settings(first) +unsaved +pending	Enter	vtium settings.section(value) +unsaved +pending	
 vtium settings(first) +unsaved +pending	PgDn	vtium settings(later) +unsaved +pending	
-vtium settings(first) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium settings(first) +unsaved +pending	Shift-Tab	vtium flow(doc display) +unsaved +pending	mouse on
 vtium settings(first) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium settings(first) +unsaved +pending	Tab	vtium help(help) +unsaved +pending	
 vtium settings(first) +unsaved +pending	i	vtium settings(first) +pending	save, prepare
 vtium settings(first) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium settings(first) +unsaved +pending	s	vtium settings(first) +pending	save
 vtium settings(later)	1	vtium fonts(builtin)	
+vtium settings(later)	2	vtium effects	
 vtium settings(later)	3	vtium looks	
 vtium settings(later)	4	vtium flow(doc display)	mouse on
 vtium settings(later)	6	vtium help(help)	
@@ -3118,13 +3261,14 @@ vtium settings(later)	Ctrl-C	vtium left	exit 130
 vtium settings(later)	Enter	vtium settings.section(choice)	
 vtium settings(later)	Home	vtium settings(first)	
 vtium settings(later)	PgUp	vtium settings(first)	
-vtium settings(later)	Shift-Tab	vtium fonts(builtin)	
+vtium settings(later)	Shift-Tab	vtium flow(doc display)	mouse on
 vtium settings(later)	Shrink	vtium any.too-small	
 vtium settings(later)	Tab	vtium help(help)	
 vtium settings(later)	Up	vtium settings(first)	
 vtium settings(later)	i	vtium settings(later)	prepare
 vtium settings(later)	q	vtium left	exit 0
 vtium settings(later) +pending	1	vtium fonts(marked) +pending	
+vtium settings(later) +pending	2	vtium effects +pending	
 vtium settings(later) +pending	3	vtium looks +pending	
 vtium settings(later) +pending	4	vtium flow(doc display) +pending	mouse on
 vtium settings(later) +pending	6	vtium help(help) +pending	
@@ -3132,13 +3276,14 @@ vtium settings(later) +pending	Ctrl-C	vtium left	exit 130
 vtium settings(later) +pending	Enter	vtium settings.section(choice) +pending	
 vtium settings(later) +pending	Home	vtium settings(first) +pending	
 vtium settings(later) +pending	PgUp	vtium settings(first) +pending	
-vtium settings(later) +pending	Shift-Tab	vtium fonts(marked) +pending	
+vtium settings(later) +pending	Shift-Tab	vtium flow(doc display) +pending	mouse on
 vtium settings(later) +pending	Shrink	vtium any.too-small +pending	
 vtium settings(later) +pending	Tab	vtium help(help) +pending	
 vtium settings(later) +pending	Up	vtium settings(first) +pending	
 vtium settings(later) +pending	i	vtium any.question.confirm +pending	prepare
 vtium settings(later) +pending	q	vtium any.question.leave +pending	
 vtium settings(later) +unsaved	1	vtium fonts(builtin) +unsaved	
+vtium settings(later) +unsaved	2	vtium effects +unsaved	
 vtium settings(later) +unsaved	3	vtium looks +unsaved	
 vtium settings(later) +unsaved	4	vtium flow(doc display) +unsaved	mouse on
 vtium settings(later) +unsaved	6	vtium help(help) +unsaved	
@@ -3146,7 +3291,7 @@ vtium settings(later) +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium settings(later) +unsaved	Enter	vtium settings.section(choice) +unsaved	
 vtium settings(later) +unsaved	Home	vtium settings(first) +unsaved	
 vtium settings(later) +unsaved	PgUp	vtium settings(first) +unsaved	
-vtium settings(later) +unsaved	Shift-Tab	vtium fonts(builtin) +unsaved	
+vtium settings(later) +unsaved	Shift-Tab	vtium flow(doc display) +unsaved	mouse on
 vtium settings(later) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium settings(later) +unsaved	Tab	vtium help(help) +unsaved	
 vtium settings(later) +unsaved	Up	vtium settings(first) +unsaved	
@@ -3154,6 +3299,7 @@ vtium settings(later) +unsaved	i	vtium settings(later)	save, prepare
 vtium settings(later) +unsaved	q	vtium any.question.quit +unsaved	
 vtium settings(later) +unsaved	s	vtium settings(later)	save
 vtium settings(later) +unsaved +pending	1	vtium fonts(marked) +unsaved +pending	
+vtium settings(later) +unsaved +pending	2	vtium effects +unsaved +pending	
 vtium settings(later) +unsaved +pending	3	vtium looks +unsaved +pending	
 vtium settings(later) +unsaved +pending	4	vtium flow(doc display) +unsaved +pending	mouse on
 vtium settings(later) +unsaved +pending	6	vtium help(help) +unsaved +pending	
@@ -3161,7 +3307,7 @@ vtium settings(later) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium settings(later) +unsaved +pending	Enter	vtium settings.section(choice) +unsaved +pending	
 vtium settings(later) +unsaved +pending	Home	vtium settings(first) +unsaved +pending	
 vtium settings(later) +unsaved +pending	PgUp	vtium settings(first) +unsaved +pending	
-vtium settings(later) +unsaved +pending	Shift-Tab	vtium fonts(marked) +unsaved +pending	
+vtium settings(later) +unsaved +pending	Shift-Tab	vtium flow(doc display) +unsaved +pending	mouse on
 vtium settings(later) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium settings(later) +unsaved +pending	Tab	vtium help(help) +unsaved +pending	
 vtium settings(later) +unsaved +pending	Up	vtium settings(first) +unsaved +pending	

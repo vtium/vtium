@@ -1,4 +1,4 @@
- Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ Fonts  Effects  Looks  Flow  Settings  Help   View file Save Install Revert New
  draft bench  ›  kbd   All devices are in a path · 5 changes · 1 not saved · n…
 
  INPUT PART  kbd
@@ -22,4 +22,4 @@
 
 
  This part's label is now “Left desk”. vtium-config wrote it to the draft.
- ↑↓ move  Enter choose  Esc back  q quit
+ End PgDn ↓ choices  Enter label  Esc back  Ctrl-C save and quit  q quit

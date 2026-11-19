@@ -2,7 +2,7 @@
 source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "any.question.confirm at 80×25, keys: 4 n"
 ---
- Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ Fonts  Effects  Looks  Flow  Settings  Help   View file Save Install Revert New
  draft mine   1 keyboard and 1 pointer in no path yet · no changes · no proble…
  policy open: a keyboard that no rule names types into the active terminal
  CONFIGURATION

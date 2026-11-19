@@ -1,14 +1,20 @@
-//! The TUI as a state machine apart from its terminal (ADR-1201 D7): its
-//! state takes [`Event`]s, a key, a mouse click, a reply, a resize, a
-//! signal or the end of a wait, and returns [`Effect`]s, bytes to write, a
-//! wait to start, a save to run or the status to leave with. The loop
-//! around it ([`super::port`]) does the reading and the writing, and draws
+//! The TUI as a state machine apart from its terminal: its state takes
+//! [`Event`]s, a key, a mouse click, a reply, a resize, a signal or the
+//! end of a wait, and returns [`Effect`]s, bytes to write, a wait to
+//! start, a save to run or the status to leave with. The loop around it
+//! ([`super::port`]) does the reading and the writing, and draws
 //! [`super::view`]'s screen after each event.
 //!
-//! The views are Flow, Looks, Fonts, Settings and Help (ADR-1201 D3), and
-//! the TUI opens on the one its caller names. The Flow view draws the
-//! configuration as paths of parts (ADR-1403 D7, [`super::flowview`]), and
-//! its keys are in the Flow tab's module, [`super::tabs::flow`].
+//! The tabs are Fonts, Effects, Looks, Flow, Settings and Help, in the
+//! order of [`View::TABS`], and the TUI opens on the one its caller names.
+//! The Flow view draws the configuration as paths of parts
+//! ([`super::flowview`]), and its keys are in the Flow tab's module,
+//! [`super::tabs::flow`].
+//!
+//! References:
+//! - ADR-1201 D7: the TUI is a state machine apart from its terminal.
+//! - ADR-1205 D1: the six tabs and their order.
+//! - ADR-1403 D7: the Flow view draws the configuration as paths.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -252,17 +258,22 @@ pub enum View {
     /// `new`'s guided flow: a frit made from fonts, installed like any
     /// change (ADR-1201 D9). It belongs to the Fonts view.
     New,
-    /// The Effects tab, which says only that it is coming. It is not in
-    /// [`View::TABS`] yet, so no key and no click reaches it.
+    /// The Effects tab, which says only that it is coming.
     Effects,
 }
 
 impl View {
-    /// The views Tab steps through, in order.
-    pub const TABS: [View; 5] = [
-        View::Flow,
-        View::Looks,
+    /// The tabs in the tab bar's order, which Tab steps through and the
+    /// digits 1 to 6 name. vtium-config opens on Flow, the fourth.
+    ///
+    /// References:
+    /// - ADR-1205 D1: the six tabs and their order.
+    /// - ADR-1403 D10, "The number keys": the digits follow this order.
+    pub const TABS: [View; 6] = [
         View::Fonts,
+        View::Effects,
+        View::Looks,
+        View::Flow,
         View::Settings,
         View::Help,
     ];

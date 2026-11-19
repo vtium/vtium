@@ -4,7 +4,10 @@
 /// The Effects tab's name in the tab bar.
 pub const EFFECTS: &str = "Effects";
 
-/// The line the Effects tab shows until its filters and shaders are
+/// The line the Effects tab shows until its color maps and shaders are
 /// listed there.
 pub const EFFECTS_COMING: &str =
-    "The Effects tab, with the filters and shaders a look can use, is coming.";
+    "The Effects tab, with the color maps and shaders a look can use, is coming.";
+
+/// The Effects tab's keys while it lists nothing.
+pub const KEYS_EFFECTS: &str = "Tab next view  s save  i install  q quit";

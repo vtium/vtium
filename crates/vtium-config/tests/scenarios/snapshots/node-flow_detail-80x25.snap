@@ -2,7 +2,7 @@
 source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "flow.detail at 80×25, keys: 4 PgDn Down Enter"
 ---
- Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ Fonts  Effects  Looks  Flow  Settings  Help   View file Save Install Revert New
  draft mine  ›  All displays   1 keyboard and 1 pointer in no path yet · no ch…
 
  DISPLAY PART  All displays

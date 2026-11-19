@@ -46,8 +46,8 @@ fn to_setting(name: &str) -> Vec<&'static [u8]> {
 #[test]
 fn a_settings_section_and_a_list_of_values_at_80x25_and_100x30() {
     let scripts: [(&str, &[&[u8]]); 2] = [
-        ("settings-section", &[b"\t", b"\r"]),
-        ("settings-values", &[b"\t", b"\r", b"\x1b[F", b"\r"]),
+        ("settings-section", &[TO_SETTINGS, b"\r"]),
+        ("settings-values", &[TO_SETTINGS, b"\r", b"\x1b[F", b"\r"]),
     ];
     for (cols, rows) in [(80, 25), (100, 30)] {
         for (name, keys) in scripts {
@@ -71,18 +71,23 @@ fn a_settings_section_and_a_list_of_values_at_80x25_and_100x30() {
 ///   table, and Enter and Esc move between them and their keys.
 #[test]
 fn the_settings_view_opens_on_the_sections_and_enter_shows_a_section_s_groups() {
-    let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"\t"]);
+    let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[TO_SETTINGS]);
     for title in ["Fonts and text", "Colors", "Keyboard and mouse"] {
         assert!(screen.contains(title), "{title}:\n{screen}");
     }
     assert!(screen.contains(" settings"), "{screen}");
     assert!(screen.contains(words::SECTIONS_HINT.split(' ').next().unwrap_or_default()));
-    let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"\t", b"\r"]);
+    let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[TO_SETTINGS, b"\r"]);
     assert!(screen.contains("Settings › Fonts and text"), "{screen}");
     assert!(screen.contains(" Font\n"), "the group's title: {screen}");
     assert!(screen.contains("font-name"), "{screen}");
     assert!(!screen.contains("Colors"), "{screen}");
-    let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"\t", DOWN, b"\r", b"\x1b"]);
+    let (screen, _) = reach_from(
+        model::View::Fonts,
+        80,
+        25,
+        &[TO_SETTINGS, DOWN, b"\r", b"\x1b"],
+    );
     assert!(screen.contains("Fonts and text"), "{screen}");
     assert!(!screen.contains("Settings ›"), "{screen}");
 }
@@ -126,7 +131,7 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
             "{name}"
         );
     }
-    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    let mut keys: Vec<&[u8]> = vec![TO_SETTINGS];
     keys.extend(to_setting("key-reset"));
     let mut c = console().keys(&keys);
     run(&mut c);
@@ -143,7 +148,7 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
 #[test]
 fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
     let erase = [b"\x7f".as_slice(); 19];
-    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    let mut keys: Vec<&[u8]> = vec![TO_SETTINGS];
     keys.extend(to_setting("key-reset"));
     keys.push(b"\r");
     keys.extend(erase);
@@ -174,7 +179,7 @@ fn the_settings_view_empties_a_key_binding_and_default_returns_it() {
 
 #[test]
 fn a_setting_shows_its_default_and_what_it_does() {
-    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    let mut keys: Vec<&[u8]> = vec![TO_SETTINGS];
     keys.extend(to_setting("font-size"));
     let mut c = console().keys(&keys);
     run(&mut c);
@@ -191,7 +196,7 @@ fn a_setting_shows_its_default_and_what_it_does() {
 #[test]
 fn a_typed_value_a_switch_and_a_choice_go_into_the_draft() {
     let mut d = desk();
-    let mut keys: Vec<&[u8]> = vec![b"\t"];
+    let mut keys: Vec<&[u8]> = vec![TO_SETTINGS];
     keys.extend(to_setting("font-hinting"));
     keys.extend(pick_value("font-hinting", "light"));
     keys.push(b"\x1b");
@@ -216,7 +221,7 @@ fn a_typed_value_a_switch_and_a_choice_go_into_the_draft() {
 fn tab_does_nothing_while_a_value_is_typed_in_settings() {
     // Settings, down to font-line-spacing, Enter starts typing its value;
     // Tab and Shift-Tab between the two digits change nothing
-    let mut keys: Vec<&[u8]> = vec![TAB];
+    let mut keys: Vec<&[u8]> = vec![TO_SETTINGS];
     keys.extend(to_setting("font-line-spacing"));
     keys.extend([
         b"\r".as_slice(),

@@ -1555,18 +1555,21 @@ impl Checks {
                     v.id
                 ));
             }
-            let under = ["flow", "looks", "fonts", "settings", "help", "new-frit"]
-                .iter()
-                .zip([
-                    View::Flow,
-                    View::Looks,
-                    View::Fonts,
-                    View::Settings,
-                    View::Help,
-                    View::New,
-                ])
-                .find(|(n, _)| **n == v.id)
-                .map(|(_, view)| view_name(view.tab()));
+            let under = [
+                "flow", "looks", "fonts", "effects", "settings", "help", "new-frit",
+            ]
+            .iter()
+            .zip([
+                View::Flow,
+                View::Looks,
+                View::Fonts,
+                View::Effects,
+                View::Settings,
+                View::Help,
+                View::New,
+            ])
+            .find(|(n, _)| **n == v.id)
+            .map(|(_, view)| view_name(view.tab()));
             if let Some(under) = under
                 && v.under != "-"
                 && v.under != under
@@ -1638,14 +1641,14 @@ fn written(before: &str, after: &str) -> BTreeSet<String> {
 /// once the work lands and the node still says planned.
 fn reached_today(id: &str) -> Option<bool> {
     Some(match id {
-        // the view, the tab or the form exists today in another shape
-        "looks" | "fonts" | "looks.new-frit" | "looks.new-frit.typing" => true,
+        // the view, the tab or the form exists today in another shape, the
+        // Effects tab as a line that says it is coming
+        "looks" | "fonts" | "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
         // nothing like it exists today
         "flow.card.list" | "looks.list" | "looks.new-frit.list" => false,
         "any.question.window-ops" => false,
         // the six tabs' new screens and questions, which nothing builds yet
-        "effects"
-        | "effects.filter"
+        "effects.filter"
         | "effects.effect"
         | "fonts.filter"
         | "fonts.font"

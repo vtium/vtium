@@ -27,7 +27,7 @@ shift-tab.question	Shift-Tab	question	Does nothing. The question stays until you
 shift-tab.trial	Shift-Tab	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-	
 shift-tab.too-small	Shift-Tab	too-small	Does nothing here.	supported		ADR-1201 D3		-	
 1.view	1	view	Goes straight to the Fonts tab.	supported		ADR-1403 D10	#412	go to tab	
-2.view	2	view	Goes straight to the Effects tab.	planned	today a digit does nothing with nothing open	ADR-1403 D10	#412	go to tab	
+2.view	2	view	Goes straight to the Effects tab.	supported		ADR-1403 D10	#412	go to tab	
 3.view	3	view	Goes straight to the Looks tab.	supported		ADR-1403 D10	#412	go to tab	
 4.view	4	view	Goes straight to the Flow tab.	supported		ADR-1403 D10	#412	go to tab	
 5.view	5	view	Goes straight to the Settings tab.	supported		ADR-1403 D10	#412	go to tab	

@@ -28,8 +28,7 @@
 //!   click on a tab's name do nothing.
 //! - [`route`] answers each key with a [`Route`], and `App::key` performs
 //!   it. [`Route::View`] hands the key to the open view.
-//! - [`digit_tab`] gives the tab a digit goes to, where the TUI has that
-//!   tab.
+//! - [`digit_tab`] gives the tab a digit goes to.
 //!
 //! [`Nav`] holds the open tab, the question over everything, the live
 //! trial and the key line's page. What is open inside a tab is the tab's
@@ -162,25 +161,25 @@ pub fn something_open(app: &App) -> bool {
 }
 
 /// The tab each digit goes to, by the order of the six tabs: `1` Fonts,
-/// `2` Effects, `3` Looks, `4` Flow, `5` Settings and `6` Help. The TUI
-/// has no Effects tab yet, so `2` names none.
+/// `2` Effects, `3` Looks, `4` Flow, `5` Settings and `6` Help.
 ///
 /// References:
 /// - ADR-1403 D10, "The same key for the same action": the digits and
 ///   their tabs.
 /// - ADR-1205 D1: the six tabs and their order.
-const DIGITS: [(char, Option<View>); 6] = [
-    ('1', Some(View::Fonts)),
-    ('2', None),
-    ('3', Some(View::Looks)),
-    ('4', Some(View::Flow)),
-    ('5', Some(View::Settings)),
-    ('6', Some(View::Help)),
+const DIGITS: [(char, View); 6] = [
+    ('1', View::Fonts),
+    ('2', View::Effects),
+    ('3', View::Looks),
+    ('4', View::Flow),
+    ('5', View::Settings),
+    ('6', View::Help),
 ];
 
-/// The tab the digit `c` goes to, where the TUI has that tab.
+/// The tab the digit `c` goes to; none for a character that is no digit
+/// of a tab.
 pub fn digit_tab(c: char) -> Option<View> {
-    DIGITS.iter().find(|(d, _)| *d == c).and_then(|(_, v)| *v)
+    DIGITS.iter().find(|(d, _)| *d == c).map(|(_, v)| *v)
 }
 
 /// The prefix of the key table's row ids for `key`, for the keys that act
