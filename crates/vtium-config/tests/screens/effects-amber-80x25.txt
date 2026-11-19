@@ -1,0 +1,25 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft workstation · 1 change · no problems       image preview · no live trial
+--------------------------------------------------------------------------------
+ Show: All effects
+ vtlooks
+   No filter   built in, changes no color
+   amber       preset
+   green       preset, hidden by the administrator's vtlook of this name
+   green       administrator's, does not read
+   sepia       administrator's
+
+ Color maps
+   sepia.cube  active, trusted
+   warm.cube   not active, trusted
+   loose.cube  not active, fails the trust rule
+   mine.cube   not usable
+
+ No shaders are installed. Space activates or deactivates a color map or
+ shader. Enter opens an item's detail, or the list of groups.
+ The picture shows the sample screen through the vtlook amber.
+ Live trial is off: this vtium console has allow-font-ops turned off, so t
+ cannot try a font on it. To turn it on, press o in the Fonts view, then
+ install.
+--------------------------------------------------------------------------------
+ ↑↓ move  Space activate  q quit  . more 1/4

@@ -19,9 +19,9 @@ description: "effects at 100×30, keys: Tab"
    loose.cube  not active, fails the trust rule
    mine.cube   not usable
 
- No shaders are installed. Space activates or deactivates the highlighted color map or shader.
- Enter opens the highlighted item's detail, or the list of groups on the filter line.
-
+ No shaders are installed. Space activates or deactivates a color map or shader. Enter opens an
+ item's detail, or the list of groups.
+ This terminal does not support images, so vtium-config cannot show effects.
 
 
 
