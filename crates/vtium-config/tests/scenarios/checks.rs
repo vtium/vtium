@@ -379,6 +379,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("esc.trial", (back, no_today));
     m.insert("esc.too-small", (nothing, no_today));
     m.insert("tab.view", (|s| step_view(s, true), no_today));
+    for id in ["1.view", "2.view", "3.view", "4.view", "5.view", "6.view"] {
+        m.insert(id, (goes_to_tab, Some(nothing)));
+    }
     m.insert("shift-tab.view", (|s| step_view(s, false), no_today));
     for id in [
         "tab.layer",
@@ -1088,6 +1091,38 @@ fn step_view(s: &Seen<'_>, forward: bool) -> Result<(), String> {
     }
 }
 
+/// A digit goes straight to its tab, the tab keeps what it had
+/// highlighted, and nothing the person made changes: `1` Fonts, `2`
+/// Effects, `3` Looks, `4` Flow, `5` Settings and `6` Help.
+///
+/// References:
+/// - ADR-1403 D10, "The number keys": the digits and their tabs.
+fn goes_to_tab(s: &Seen<'_>) -> Result<(), String> {
+    let want = match s.step.key {
+        "1" => "fonts",
+        "2" => "effects",
+        "3" => "looks",
+        "4" => "flow",
+        "5" => "settings",
+        "6" => "help",
+        other => return Err(format!("{other} is no digit of a tab")),
+    };
+    let to = view_name(s.after.app.view);
+    if to != want || s.step.to.kind != StateKind::View {
+        return Err(format!("expected the {want} tab, and the TUI is in {to}"));
+    }
+    if s.exited() || !s.kept() {
+        return Err("the digit quit or changed what the person made".into());
+    }
+    if s.after.app.flow_view.at != s.before.app.flow_view.at
+        || s.after.app.font_at != s.before.app.font_at
+        || s.after.app.settings.sections.at != s.before.app.settings.sections.at
+    {
+        return Err("a tab lost the item it had highlighted".into());
+    }
+    Ok(())
+}
+
 fn saves(s: &Seen<'_>) -> Result<(), String> {
     if s.before.app.unsaved == 0 {
         return if s.quiet() && s.kept() {
@@ -1466,7 +1501,7 @@ impl Checks {
                         .contains(&((*n).to_owned(), row.id.clone()))
                 })
                 .collect();
-            if !row.key_line && !row.unwalked && !missed.is_empty() {
+            if !row.key_line && !missed.is_empty() {
                 self.found.failures.push(format!(
                     "the key table's row {} matched no transition in {}",
                     row.id,
