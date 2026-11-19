@@ -492,8 +492,8 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
 /// partway through an item that takes several rows, as the layout's
 /// offset says. Each row is drawn in the styles its spans carry, so the
 /// highlight covers what the layout marks and no more. ratatui lays a
-/// row's text out by Unicode's widths, so a row holding a character the
-/// console measures differently is written again by the console's rule.
+/// row's text out by Unicode's widths and clusters, so a row holding
+/// anything but ASCII is written again by the console's rule.
 /// The sentences, which can hold a font's specimen, are written by the
 /// console's rule too.
 ///
@@ -562,18 +562,13 @@ fn preview_text(app: &App, colors: Colors, buf: &mut Buffer, area: Rect) {
     }
 }
 
-/// Whether `row` holds a character that the console's width rule and
-/// Unicode's tables measure differently, or that ratatui would join to
-/// the character before it.
+/// Whether ratatui might lay `row` out in other cells than the console
+/// does: whether the row holds anything but ASCII. ratatui measures a
+/// character by Unicode's tables and joins marks by Unicode's clusters,
+/// and the console has its own width rule and its own clusters, so only
+/// plain ASCII text is sure to take the same cells under both.
 fn measured_apart(row: &Row) -> bool {
-    use ratatui_core::buffer::CellWidth as _;
-    row.iter().any(|s| {
-        s.text.chars().any(|c| {
-            let mut symbol = [0u8; 4];
-            let symbol: &str = c.encode_utf8(&mut symbol);
-            symbol.cell_width() != super::backend::console_width(symbol).max(1)
-        })
-    })
+    row.iter().any(|s| !s.text.is_ascii())
 }
 
 /// The screen as plain text, one line a row, for tests and goldens; a raw
@@ -616,36 +611,49 @@ fn strip(text: &str) -> String {
 }
 
 /// Writes `rows` into `area` of `buf` from its top left, their colors read
-/// as `colors` says, each character in as many cells as the console's
-/// width rule gives it, as the terminal lays it out. A character the
-/// console and Unicode's tables measure differently keeps the console's
-/// width in the buffer, so ratatui's diff steps over the same cells the
-/// terminal's cursor does.
+/// as `colors` says, as the terminal lays them out. Each character the
+/// console shows, a base character with the marks that join it, goes in
+/// one cell of the buffer, in the style of its base, and takes as many
+/// cells as the console's width rule gives it. A character that ratatui
+/// measures differently keeps the console's width in the buffer, so
+/// ratatui's diff steps over the same cells the terminal's cursor does.
+/// A frame that changes a mark writes the whole character again, since
+/// the mark is in the character's cell.
+///
+/// References:
+/// - ADR-1206 D1, "The console's width rule decides where the cursor
+///   goes".
 pub fn fill(buf: &mut Buffer, area: Rect, rows: &[Row], colors: Colors) {
     use ratatui_core::buffer::{CellDiffOption, CellWidth};
     let area = area.intersection(buf.area);
     for (y, row) in (area.top()..area.bottom()).zip(rows) {
-        let cells = row.iter().flat_map(|s| -> Vec<super::color::SgrCell> {
-            if s.raw {
-                super::color::sgr_cells(&s.text)
-            } else {
-                let style = s.style.in_cells(colors);
-                s.text.chars().map(|c| (c, style)).collect()
-            }
-        });
+        // a name read from a file never carries a control onto the screen
+        let cells: Vec<super::color::SgrCell> = row
+            .iter()
+            .flat_map(|s| -> Vec<super::color::SgrCell> {
+                if s.raw {
+                    super::color::sgr_cells(&s.text)
+                } else {
+                    let style = s.style.in_cells(colors);
+                    s.text.chars().map(|c| (c, style)).collect()
+                }
+            })
+            .map(|(c, style)| (if c.is_control() { '?' } else { c }, style))
+            .collect();
+        let text: String = cells.iter().map(|(c, _)| *c).collect();
         let mut x = area.left();
-        for (c, style) in cells {
-            // a name read from a file never carries a control onto the
-            // screen
-            let c = if c.is_control() { '?' } else { c };
-            let mut symbol = [0u8; 4];
-            let symbol: &str = c.encode_utf8(&mut symbol);
-            let width = super::backend::console_width(symbol).max(1);
+        let mut at = 0usize;
+        for cluster in super::canvas::clusters(&text) {
+            let Some(&(_, style)) = cells.get(at) else {
+                break;
+            };
+            at = at.saturating_add(cluster.chars);
+            let (symbol, width) = super::canvas::shown(&cluster);
             if x.saturating_add(width) > area.right() {
                 break;
             }
             let cell = &mut buf[(x, y)];
-            cell.set_symbol(symbol).set_style(style);
+            cell.set_symbol(&symbol).set_style(style);
             if symbol.cell_width() != width
                 && let Some(w) = std::num::NonZeroU16::new(width)
             {
@@ -738,6 +746,89 @@ mod tests {
 
     use super::super::canvas::span;
     use super::*;
+
+    /// The rows a vtium console shows after `bytes`, on a screen of
+    /// `cols` by `rows`, the second cell of a wide character as a blank.
+    fn console(bytes: &[u8], cols: u16, rows: u16) -> Vec<String> {
+        let mut t = vtium_term::Terminal::new(usize::from(cols), usize::from(rows), 0);
+        t.input(bytes);
+        let s = t.screen();
+        (0..s.rows())
+            .map(|r| {
+                let Some(line) = s.line(r) else {
+                    return String::new();
+                };
+                line.cells()
+                    .iter()
+                    .map(|&c| match line.glyph(c) {
+                        vtium_term::Glyph::Char(ch) => ch.to_string(),
+                        vtium_term::Glyph::Cluster(s) => s.to_owned(),
+                        vtium_term::Glyph::Empty => " ".to_owned(),
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// The bytes ratatui's Terminal writes through the Backend for each of
+    /// `texts` in turn, each written on the first row of a frame of `cols`
+    /// by `rows` cells by [`fill`].
+    fn frames(cols: u16, rows: u16, texts: &[&str]) -> Vec<Vec<u8>> {
+        let backend = super::super::backend::Vt::new(cols, rows, true);
+        let Ok(mut t) = ratatui_core::terminal::Terminal::new(backend) else {
+            return Vec::new();
+        };
+        texts
+            .iter()
+            .map(|text| {
+                let row = vec![span(*text, Style::PLAIN)];
+                let _ = t.draw(|f| {
+                    let buf = f.buffer_mut();
+                    let area = Rect::new(0, 0, buf.area.width, 1);
+                    fill(buf, area, &[row], Colors::Sent);
+                });
+                t.backend_mut().take()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn text_written_by_fill_shows_on_the_console_as_the_same_text_written_plainly() {
+        // é as e and a combining accent, a Tamil consonant with its
+        // virama, a vowel sign after a space, which the console joins to
+        // the space in a character two cells wide, and a vowel sign on its
+        // consonant
+        for text in ["e\u{301}x", "க்ஷa", "ab ொ.", "ab கொ."] {
+            let drawn = frames(12, 1, &[text]);
+            let first = drawn.first().cloned().unwrap_or_default();
+            assert_eq!(
+                console(&first, 12, 1),
+                console(text.as_bytes(), 12, 1),
+                "{text}: {:?}",
+                String::from_utf8_lossy(&first)
+            );
+        }
+    }
+
+    #[test]
+    fn a_frame_that_changes_only_a_vowel_sign_writes_its_whole_character_again() {
+        // the console draws கா and கொ each as one character two cells
+        // wide; a frame that wrote the new sign alone into the second cell
+        // would erase the consonant
+        let drawn = frames(10, 1, &["ab கா.", "ab கொ."]);
+        let both: Vec<u8> = drawn.concat();
+        assert_eq!(
+            console(&both, 10, 1),
+            console("ab கொ.".as_bytes(), 10, 1),
+            "{:?}",
+            drawn
+                .iter()
+                .map(|d| String::from_utf8_lossy(d))
+                .collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn a_row_is_laid_out_by_the_console_s_width_rule_and_its_diff_steps_the_same_cells() {

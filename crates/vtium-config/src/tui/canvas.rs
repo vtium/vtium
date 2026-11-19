@@ -90,36 +90,172 @@ pub fn fit(text: &str, n: usize) -> String {
     out
 }
 
-/// How many cells the console gives `c` on the screen, as `view::fill`
-/// lays a row out: the console's width rule for the character, and at
-/// least one cell, since a control shows as `?`.
-fn cells_of(c: char) -> usize {
-    let mut symbol = [0u8; 4];
-    usize::from(super::backend::console_width(c.encode_utf8(&mut symbol)).max(1))
+/// One character as the console shows it: a base character and the marks
+/// that join it, which the console keeps in one cell of one or two cells'
+/// width.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cluster<'a> {
+    /// The cluster's characters, as the text holds them.
+    pub text: &'a str,
+    /// How many characters of the text the cluster holds.
+    pub chars: usize,
+    /// The cells the cluster takes on the screen. A cluster that starts
+    /// with a mark, which only the start of a text can, has nothing to
+    /// join and takes no cell of its own; [`shown`] gives it one.
+    pub width: u16,
+}
+
+/// The most characters [`clusters`] hands the console's terminal at once:
+/// as many as a line of the terminal's widest holds, at two cells each.
+const SEGMENT_CHARS: usize = (vtium_term::COLUMNS_MAX - 1) / 2;
+
+/// The characters `text` shows as on the console, each a base character
+/// with the marks that join it, in order. Every character of `text` is in
+/// one cluster, so the clusters' texts joined give `text` back.
+///
+/// The console joins a combining mark, a vowel sign or a joiner to the
+/// character before it and draws them as one character, of the width the
+/// console's rule gives the whole cluster. So a row laid out a character
+/// to a cell does not match the console's cells, and neither do the
+/// clusters of Unicode's own tables, which ratatui reads. vtium-config
+/// asks vtium-term, the console's own terminal: it writes the text on a
+/// line of a terminal of its own and reads back the line's cells. Plain
+/// ASCII text joins nothing, so it skips that step.
+///
+/// References:
+/// - ADR-1206 D1, "The console's width rule decides where the cursor
+///   goes": the console's clusters and widths lay the TUI's text out.
+pub fn clusters(text: &str) -> Vec<Cluster<'_>> {
+    let mut out = Vec::new();
+    if text.is_ascii() {
+        for i in 0..text.len() {
+            out.push(Cluster {
+                text: text.get(i..i.saturating_add(1)).unwrap_or_default(),
+                chars: 1,
+                width: 1,
+            });
+        }
+        return out;
+    }
+    let mut rest = text;
+    while !rest.is_empty() {
+        let end = rest
+            .char_indices()
+            .nth(SEGMENT_CHARS)
+            .map_or(rest.len(), |(i, _)| i);
+        let (piece, after) = rest.split_at(end);
+        segment(piece, &mut out);
+        rest = after;
+    }
+    out
+}
+
+/// Appends the clusters of `piece` to `out`, as a vtium-term line shows
+/// `piece` written on it.
+fn segment<'a>(piece: &'a str, out: &mut Vec<Cluster<'a>>) {
+    use vtium_term::{Glyph, Width};
+    let chars = piece.chars().count();
+    let mut term = vtium_term::Terminal::new(chars.saturating_mul(2).saturating_add(1), 1, 0);
+    let _ = term.input(piece.as_bytes());
+    let screen = term.screen();
+    let written = screen.cursor().0;
+    // the text of each cell the console wrote, leaving out the second
+    // cell of a wide character
+    let glyphs: Vec<String> = screen.line(0).map_or_else(Vec::new, |line| {
+        line.cells()
+            .iter()
+            .take(written)
+            .filter(|c| matches!(c.width(), Width::Narrow | Width::Wide))
+            .map(|&c| match line.glyph(c) {
+                Glyph::Char(ch) => ch.to_string(),
+                Glyph::Cluster(s) => s.to_owned(),
+                Glyph::Empty => " ".to_owned(),
+            })
+            .collect()
+    });
+    let mut push = |text: &'a str| {
+        if !text.is_empty() {
+            out.push(Cluster {
+                text,
+                chars: text.chars().count(),
+                width: super::backend::console_width(text),
+            });
+        }
+    };
+    let mut at = 0usize;
+    for (k, glyph) in glyphs.iter().enumerate() {
+        let left = piece.get(at..).unwrap_or_default();
+        // marks at the start of the text join nothing, and the console
+        // leaves them out; they make a cluster of their own
+        let Some(skip) = left.find(glyph.as_str()) else {
+            break;
+        };
+        push(left.get(..skip).unwrap_or_default());
+        let begin = at.saturating_add(skip);
+        at = begin.saturating_add(glyph.len());
+        // the marks past the most a cluster keeps, which the console
+        // drops, stay with their cluster
+        let next = glyphs.get(k.saturating_add(1));
+        while let Some(c) = piece.get(at..).and_then(|s| s.chars().next()) {
+            if next.is_some_and(|n| piece.get(at..).is_some_and(|s| s.starts_with(n.as_str()))) {
+                break;
+            }
+            at = at.saturating_add(c.len_utf8());
+        }
+        push(piece.get(begin..at).unwrap_or_default());
+    }
+    // whatever the line did not show, a character to a cluster
+    let left = piece.get(at..).unwrap_or_default();
+    for (i, c) in left.char_indices() {
+        push(
+            left.get(i..i.saturating_add(c.len_utf8()))
+                .unwrap_or_default(),
+        );
+    }
+}
+
+/// The symbol a cell of the TUI holds for `cluster`, and the cells it
+/// takes: the cluster itself, or for a cluster that starts with a mark, the
+/// mark on a space. A mark the console found nothing to join would join
+/// the character left of the cell it is written in, so it gets a space of
+/// its own, as Unicode shows a mark alone.
+pub fn shown(cluster: &Cluster<'_>) -> (String, u16) {
+    if cluster.width > 0 {
+        return (cluster.text.to_owned(), cluster.width);
+    }
+    let on_space = format!(" {}", cluster.text);
+    let width = super::backend::console_width(&on_space).max(1);
+    (on_space, width)
 }
 
 /// How many cells `text` takes on the console's screen. A character the
 /// console draws two cells wide counts twice, so a name in Chinese takes
-/// twice as many cells as it has characters.
+/// twice as many cells as it has characters, and a mark that joins the
+/// character before it counts nothing.
 pub fn cells(text: &str) -> usize {
-    text.chars().map(cells_of).sum()
+    clusters(&printable(text))
+        .iter()
+        .map(|c| usize::from(shown(c).1))
+        .sum()
 }
 
 /// `text` in at most `n` cells of the console's screen, cut at its end
 /// with `…`. A wide character that would straddle the end goes whole, so
-/// the result can be a cell short of `n`.
+/// the result can be a cell short of `n`. The cut never separates a
+/// character from its marks.
 pub fn fit_cells(text: &str, n: usize) -> String {
     if cells(text) <= n {
         return text.to_owned();
     }
+    let shown_text = printable(text);
     let mut out = String::new();
     let mut used = 0usize;
-    for c in text.chars() {
-        let w = cells_of(c);
+    for c in clusters(&shown_text) {
+        let w = usize::from(shown(&c).1);
         if used.saturating_add(w).saturating_add(1) > n {
             break;
         }
-        out.push(c);
+        out.push_str(c.text);
         used = used.saturating_add(w);
     }
     if n > 0 {
@@ -134,14 +270,15 @@ pub fn fit_cells(text: &str, n: usize) -> String {
 /// cell is a blank that [`put`] pads with. A cell inside a wide character
 /// gives the column after it.
 pub fn column(row: &Row, cell: usize) -> usize {
+    let text: String = row.iter().map(|s| printable(&s.text)).collect();
     let mut used = 0usize;
     let mut chars = 0usize;
-    for c in row.iter().flat_map(|s| s.text.chars()) {
+    for c in clusters(&text) {
         if used >= cell {
             return chars;
         }
-        used = used.saturating_add(cells_of(c));
-        chars = chars.saturating_add(1);
+        used = used.saturating_add(usize::from(shown(&c).1));
+        chars = chars.saturating_add(c.chars);
     }
     chars.saturating_add(cell.saturating_sub(used))
 }
