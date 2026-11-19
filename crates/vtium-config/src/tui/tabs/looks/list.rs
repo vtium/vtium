@@ -1,25 +1,25 @@
-//! The Looks tab. Until looks are built, it lists the sizes the console's
-//! font takes, automatic first, and Enter sets the highlighted size as the
-//! draft's `font-size`.
+//! The Looks tab's list. Until looks are built, it lists the sizes the
+//! console's font takes, automatic first, and Enter sets the highlighted
+//! size as the draft's `font-size`.
 //!
 //! References:
 //! - ADR-1206 D2: a tab's state and its update live in the tab's module.
 
-use super::super::input::Key;
-use super::super::listbox::{Body, ListBox, columns, plain, prose, step, tail};
-use super::super::model::{DpiFrom, SIZES, Shared, Size};
-use super::super::shot::Preview;
-use super::super::words;
-use super::{Change, Command};
+use super::super::super::input::Key;
+use super::super::super::listbox::{Body, ListBox, columns, plain, prose, step, tail};
+use super::super::super::model::{DpiFrom, SIZES, Shared, Size};
+use super::super::super::shot::Preview;
+use super::super::super::words;
+use super::super::{Change, Command};
 
-/// Where the Looks tab stands: the highlighted size, counted from 0 for
-/// automatic, and the window of the list on screen.
+/// Where the list of sizes stands: the highlighted size, counted from 0
+/// for automatic, and the window of the list on screen.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Looks {
+pub struct Sizes {
     list: ListBox,
 }
 
-impl Looks {
+impl Sizes {
     /// The highlighted row, counted from 0 for automatic.
     pub fn at(&self) -> usize {
         self.list.at
@@ -44,11 +44,11 @@ impl Looks {
         }
     }
 
-    /// The tab's body on a screen of `size`: the sentence above the sizes,
-    /// the sizes, automatic first, each marked where it is saved or to
-    /// save; and under them, the line that describes the preview of the
-    /// highlighted size, in the font the previews show.
-    pub fn body(&self, shared: &Shared, size: Size) -> Body {
+    /// The list's body on a screen of `size`: the sentence above the
+    /// sizes, the sizes, automatic first, each marked where it is saved or
+    /// to save; and under them, the line that describes `preview`, the
+    /// tab's preview of the highlighted size.
+    pub fn body(&self, shared: &Shared, size: Size, preview: Preview<'_>) -> Body {
         let cols = size.cols;
         let configured = shared
             .configured("font-size")
@@ -74,7 +74,6 @@ impl Looks {
             })
             .collect();
         let (list, keep) = columns(&items, self.list.at, 10, cols);
-        let preview = Preview::looks(shared, size, self.points());
         let sentence = if shared.text_preview() || !shared.graphics {
             preview
                 .preview_line()
@@ -102,12 +101,6 @@ impl Looks {
             keep,
             tail: tail(&sentence, cols),
         }
-    }
-
-    /// The node of the interface tree the tab is at, which has no level
-    /// that opens over it.
-    pub fn node(&self) -> &'static str {
-        "looks"
     }
 
     /// A key the navigation module hands to the tab: the moving keys move

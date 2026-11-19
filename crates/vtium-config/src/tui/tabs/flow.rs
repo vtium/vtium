@@ -33,6 +33,7 @@ use super::super::parts::{self, Make, Pick, Stage};
 use super::super::paths::{self, Adding, Doc, Path, Picked, Piece};
 use super::super::{flowlayout, words};
 use super::{Change, Command, Request};
+use super::{Room, Tab};
 
 /// Where the Flow tab stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1450,6 +1451,30 @@ fn carry(old: &Wiring, new: &Wiring, item: Item) -> Item {
     carried
         .filter(|i| new.has(*i))
         .unwrap_or_else(|| first_item(new))
+}
+
+impl Tab for Flow {
+    fn name(&self) -> &'static str {
+        words::FLOW
+    }
+
+    /// Revert, Restore and New beside Save and Install.
+    fn actions(&self) -> &'static [(&'static str, &'static str)] {
+        &words::FLOW_ACTIONS
+    }
+
+    fn node(&self) -> &'static str {
+        Flow::node(self)
+    }
+
+    /// The Flow tab's own update reads every action key itself.
+    fn takes_action(&self, _action: char) -> bool {
+        false
+    }
+
+    fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
+        Flow::update(self, shared, room.size, room.keys, key)
+    }
 }
 
 #[cfg(test)]

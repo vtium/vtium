@@ -26,7 +26,7 @@ use super::super::input::Key as Pressed;
 use super::super::listbox::{self, Act, Body, Item, ListBox, Marks, plain, prose_rows, tail};
 use super::super::model::{Shared, Size};
 use super::super::words;
-use super::{Change, Command};
+use super::{Change, Command, Room, Tab};
 
 /// The most rows a setting's description takes under the list.
 const WHAT_ROWS: usize = 4;
@@ -392,6 +392,49 @@ impl Settings {
 /// draft, or leaves it at its default with `None`.
 fn top(key: &'static str, value: Option<String>) -> Vec<Command> {
     vec![Command::Change(Change::Top { key, value })]
+}
+
+impl Tab for Settings {
+    fn name(&self) -> &'static str {
+        words::SETTINGS
+    }
+
+    fn node(&self) -> &'static str {
+        Settings::node(self)
+    }
+
+    fn body(&self, shared: &Shared, size: Size) -> Body {
+        Settings::body(self, shared, size)
+    }
+
+    fn offset(&self) -> usize {
+        Settings::offset(self)
+    }
+
+    fn show_from(&mut self, row: usize) {
+        Settings::show_from(self, row);
+    }
+
+    fn typing(&self) -> bool {
+        self.editing.is_some()
+    }
+
+    fn type_key(&mut self, key: Pressed) {
+        Settings::type_key(self, key);
+    }
+
+    /// The action keys do nothing while a section is open over the list
+    /// of sections, as in every layer.
+    ///
+    /// References:
+    /// - ADR-1403 D7: the action keys do nothing while a layer is open.
+    fn takes_action(&self, _action: char) -> bool {
+        self.open.is_none()
+    }
+
+    fn update(&mut self, shared: &Shared, _room: Room, key: Pressed) -> Vec<Command> {
+        Settings::update(self, shared, key)
+    }
 }
 
 #[cfg(test)]

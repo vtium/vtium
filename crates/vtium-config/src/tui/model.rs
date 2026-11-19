@@ -252,6 +252,9 @@ pub enum View {
     /// `new`'s guided flow: a frit made from fonts, installed like any
     /// change (ADR-1201 D9). It belongs to the Fonts view.
     New,
+    /// The Effects tab, which says only that it is coming. It is not in
+    /// [`View::TABS`] yet, so no key and no click reaches it.
+    Effects,
 }
 
 impl View {
@@ -371,12 +374,6 @@ pub struct Shared {
     pub in_flight: Option<String>,
     /// Fonts the console refused, each marked in the list.
     pub refused: BTreeSet<String>,
-    /// The font the console's previews show, counted from 0 in the list
-    /// of fonts: the font the Fonts tab highlights. The Fonts tab sets it
-    /// through [`super::tabs::Change::Preview`] whenever its highlight
-    /// moves, and every tab that shows a preview reads it here, so no tab
-    /// reads another tab's highlight.
-    pub preview_font: usize,
     /// Mouse reporting is on.
     pub mouse: bool,
     pub pending: Pending,
@@ -464,11 +461,6 @@ impl Shared {
     /// file.
     pub fn changed(&self, key: &str) -> bool {
         self.draft.is_some() && self.drafted(key) != self.configured(key)
-    }
-
-    /// The font the previews show, as [`Shared::preview_font`] counts it.
-    pub fn preview_font(&self) -> Option<&Font> {
-        self.inputs.fonts.get(self.preview_font)
     }
 
     /// Whether the draft leaves `allow-font-ops` on, its default.
@@ -561,6 +553,8 @@ pub struct App {
     pub size: Size,
     /// The Fonts tab's state.
     pub fonts: super::tabs::fonts::Fonts,
+    /// The Effects tab's state.
+    pub effects: super::tabs::effects::Effects,
     /// The Looks tab's state.
     pub looks: super::tabs::looks::Looks,
     /// The Settings tab's state.
@@ -659,7 +653,6 @@ impl App {
                 shown_font: None,
                 in_flight: None,
                 refused: BTreeSet::new(),
-                preview_font: font_at,
                 mouse: false,
                 pending: Pending::default(),
                 message: None,
@@ -680,7 +673,8 @@ impl App {
             },
             size,
             fonts: super::tabs::fonts::Fonts::new(font_at),
-            looks: super::tabs::looks::Looks::default(),
+            effects: super::tabs::effects::Effects,
+            looks: super::tabs::looks::Looks::new(font_at),
             settings: super::tabs::settings::Settings::default(),
             flow,
             help: super::tabs::help::Help::default(),
@@ -758,9 +752,44 @@ impl App {
         self.set_view(view)
     }
 
-    /// The font the previews show, which the Fonts tab highlights.
+    /// The font the Fonts tab highlights.
     pub fn font(&self) -> Option<&Font> {
-        self.shared.preview_font()
+        self.shared.inputs.fonts.get(self.fonts.at())
+    }
+
+    /// The state of the open tab, as every tab answers the parts of the
+    /// TUI they share.
+    pub fn tab(&self) -> &dyn super::tabs::Tab {
+        self.tab_of(self.nav.view)
+    }
+
+    /// The state of the tab that `view` shows. This and
+    /// [`App::tab_mut`] are the one place that names each tab's state, so
+    /// a new tab adds a line to each.
+    pub fn tab_of(&self, view: View) -> &dyn super::tabs::Tab {
+        match view {
+            View::Flow => &self.flow,
+            View::Fonts => &self.fonts,
+            View::New => self.fonts.new_frit(),
+            View::Effects => &self.effects,
+            View::Looks => &self.looks,
+            View::Settings => &self.settings,
+            View::Help => &self.help,
+        }
+    }
+
+    /// The open tab's state to change, beside the shared part to read.
+    fn tab_mut(&mut self) -> (&mut dyn super::tabs::Tab, &Shared) {
+        let tab: &mut dyn super::tabs::Tab = match self.nav.view {
+            View::Flow => &mut self.flow,
+            View::Fonts => &mut self.fonts,
+            View::New => self.fonts.new_frit_mut(),
+            View::Effects => &mut self.effects,
+            View::Looks => &mut self.looks,
+            View::Settings => &mut self.settings,
+            View::Help => &mut self.help,
+        };
+        (tab, &self.shared)
     }
 
     /// The installed vtium.conf's value of `key`.
@@ -819,25 +848,13 @@ impl App {
             return;
         }
         let row = super::layout::list_offset(self);
-        match self.nav.view {
-            View::Settings => self.settings.show_from(row),
-            View::Fonts => self.fonts.show_from(row),
-            View::New => self.fonts.form_show_from(row),
-            View::Looks => self.looks.show_from(row),
-            View::Flow | View::Help => {}
-        }
+        self.tab_mut().0.show_from(row);
     }
 
     /// The first row of the open tab's list that its window shows, as
     /// update last settled it.
     pub fn list_offset(&self) -> usize {
-        match self.nav.view {
-            View::Settings => self.settings.offset(),
-            View::Fonts => self.fonts.offset(),
-            View::New => self.fonts.form_offset(),
-            View::Looks => self.looks.offset(),
-            View::Flow | View::Help => 0,
-        }
+        self.tab().offset()
     }
 
     /// Takes `event`, and returns what the loop does.
@@ -854,12 +871,13 @@ impl App {
         if super::nav::node(self) != node {
             self.nav.key_page = 0;
         }
-        // the Fonts tab tells the shared part each move of its highlight,
-        // so the previews show the font it highlights after every event
+        // the Fonts tab tells update each move of its highlight, and update
+        // hands it to the Looks tab, so the Looks tab previews the font the
+        // Fonts tab highlights after every event
         debug_assert_eq!(
-            self.shared.preview_font,
+            self.looks.font(),
             self.fonts.at(),
-            "the previews show the font the Fonts tab highlights"
+            "the Looks tab previews the font the Fonts tab highlights"
         );
         out
     }
@@ -1169,11 +1187,7 @@ impl App {
     /// on a field, and in the settings view while a value is edited. Esc
     /// drops what is typed in the settings view.
     fn typing(&self) -> bool {
-        match self.nav.view {
-            View::New => self.fonts.form_typing(),
-            View::Settings => self.settings.editing().is_some(),
-            _ => false,
-        }
+        self.tab().typing()
     }
 
     /// A key, as the navigation module routes it: to the question, the
@@ -1202,64 +1216,22 @@ impl App {
 
     /// A key that the open view acts on itself.
     fn view_key(&mut self, key: Key) -> Vec<Effect> {
-        if self.nav.view == View::Flow {
-            let keys = super::layout::key_rows(self).len();
-            let commands = self.flow.update(&self.shared, self.size, keys, key);
-            return self.perform(commands);
-        }
-        // the action keys do nothing while a Settings section is open
-        // over the list of sections, as in every layer (ADR-1403 D7)
-        let layer = self.nav.view == View::Settings && self.settings.open().is_some();
+        // the open tab says whether each action key acts there: not while
+        // a level is open over it, nor where its own keys use the letter
+        // (ADR-1403 D7)
+        let takes = |action: char| self.tab().takes_action(action);
         match key {
-            // Install acts where the tab bar shows it: not in Help, whose
-            // tab bar shows no action, nor in the new-frit form, which is
-            // open over the Fonts view
-            Key::Char('i')
-                if !layer && !self.typing() && !matches!(self.nav.view, View::Help | View::New) =>
-            {
-                return self.action('i');
-            }
-            // Save in the views whose own keys leave `s` free (ADR-1403 D7)
-            Key::Char('s')
-                if !layer
-                    && matches!(self.nav.view, View::Looks | View::Settings)
-                    && !self.typing() =>
-            {
-                return self.save();
-            }
-            Key::Char('o')
-                if !layer && self.shared.live == Live::OpsOff && self.nav.view != View::New =>
-            {
+            Key::Char('i') if takes('i') && !self.typing() => return self.action('i'),
+            Key::Char('s') if takes('s') && !self.typing() => return self.save(),
+            Key::Char('o') if takes('o') && self.shared.live == Live::OpsOff => {
                 return self.top("allow-font-ops", Some("on"));
             }
             _ => {}
         }
-        match self.nav.view {
-            View::Flow => Vec::new(),
-            View::Fonts => {
-                let commands = self.fonts.update(&self.shared, key);
-                self.perform(commands)
-            }
-            View::Looks => {
-                let commands = self.looks.update(key);
-                self.perform(commands)
-            }
-            View::Settings => {
-                let commands = self.settings.update(&self.shared, key);
-                self.perform(commands)
-            }
-            View::Help => {
-                let (rows, room) = super::layout::help_window(self);
-                let commands = self
-                    .help
-                    .update(key, super::tabs::help::Page { rows, room });
-                self.perform(commands)
-            }
-            View::New => {
-                let commands = self.fonts.form_update(&self.shared, key);
-                self.perform(commands)
-            }
-        }
+        let room = super::layout::room(self);
+        let (tab, shared) = self.tab_mut();
+        let commands = tab.update(shared, room, key);
+        self.perform(commands)
     }
 
     /// Performs the commands a tab's update returned: the changes to the
@@ -1283,7 +1255,7 @@ impl App {
                 Command::Change(Change::SaveTried) => effects.extend(self.save_tried()),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
                 Command::Change(Change::Quiet) => self.shared.message = None,
-                Command::Change(Change::Preview(at)) => self.shared.preview_font = at,
+                Command::Change(Change::Preview(at)) => self.looks.show_font(at),
                 Command::Change(Change::Make { changes, select }) => {
                     effects.extend(self.make(changes, select));
                 }
@@ -1380,10 +1352,7 @@ impl App {
 
     /// A character or Backspace typed into the field being edited.
     fn type_key(&mut self, key: Key) -> Vec<Effect> {
-        match self.nav.view {
-            View::New => self.fonts.type_key(key),
-            _ => self.settings.type_key(key),
-        }
+        self.tab_mut().0.type_key(key);
         Vec::new()
     }
 

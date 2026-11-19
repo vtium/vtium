@@ -3,7 +3,9 @@
 //! draws.
 //!
 //! Each tab of the TUI is a module under `src/tui/tabs/` that holds the
-//! tab's state and its update. Privacy keeps a tab's fields to its own
+//! tab's state and its update: a file of the tab's name, or a directory of
+//! that name whose `mod.rs` composes the tab's groups, each group a module
+//! of the tab. Privacy keeps a tab's fields to its own
 //! module, but each tab's state type is public so that the model can hold
 //! it, so privacy alone does not stop one tab from naming another. The
 //! test checks five rules:
@@ -42,8 +44,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-/// The tabs' modules, each a file under `src/tui/tabs/`.
-const TABS: [&str; 5] = ["flow", "fonts", "help", "looks", "settings"];
+/// The tabs' modules under `src/tui/tabs/`, each a file or a directory.
+const TABS: [&str; 6] = ["effects", "flow", "fonts", "help", "looks", "settings"];
 
 /// The files outside the tabs that may name a tab's module: update
 /// (`App::event` and the `impl App` blocks it calls), the view, the
@@ -525,8 +527,9 @@ fn no_module_of_the_tui_crosses_the_lines_of_who_may_call_whom() {
     // are there, so a finding of nothing means the rules hold
     for tab in TABS {
         assert!(
-            all.contains_key(&format!("tui/tabs/{tab}.rs")),
-            "the test reads tabs/{tab}.rs"
+            all.contains_key(&format!("tui/tabs/{tab}.rs"))
+                || all.contains_key(&format!("tui/tabs/{tab}/mod.rs")),
+            "the test reads tabs/{tab}.rs or tabs/{tab}/mod.rs"
         );
     }
     let names = |file: &str, path: &[&str]| {
@@ -539,7 +542,8 @@ fn no_module_of_the_tui_crosses_the_lines_of_who_may_call_whom() {
     };
     assert!(names("tui/model.rs", &["tui", "tabs", "flow", "Flow"]));
     assert!(names("tui/layout.rs", &["tui", "model", "App"]));
-    assert!(names("tui/tabs/looks.rs", &["tui", "shot", "Preview"]));
+    assert!(names("tui/tabs/looks/mod.rs", &["tui", "shot", "Preview"]));
+    assert!(names("tui/tabs/looks/list.rs", &["tui", "shot", "Preview"]));
     assert!(names("tui/port.rs", &["tui", "view"]));
     assert!(names(
         "tui/tabs/flow.rs",
@@ -550,9 +554,11 @@ fn no_module_of_the_tui_crosses_the_lines_of_who_may_call_whom() {
 
 /// The rules catch each kind of crossing they claim to, on files written
 /// to cross them: a tab that names another through `super` and through a
-/// group, a shared module that names a tab, a re-export with `pub use` and
-/// with a public type alias, a macro, and update calling the view. A
-/// private alias in a file that may name a tab is no crossing.
+/// group, a module of a tab's directory that names another tab, a shared
+/// module that names a tab, a re-export with `pub use` and with a public
+/// type alias, a macro, and update calling the view. A private alias in a
+/// file that may name a tab is no crossing, and neither is a module of a
+/// tab's directory that names another module of the same tab.
 #[test]
 fn each_rule_catches_the_crossing_it_names() {
     let file = |path: &str, text: &str| (path.to_owned(), text.to_owned());
@@ -563,7 +569,7 @@ fn each_rule_catches_the_crossing_it_names() {
         ),
         file(
             "tui/tabs/mod.rs",
-            "pub mod flow; pub mod fonts; pub mod looks;",
+            "pub mod flow; pub mod fonts; pub mod help; pub mod looks; pub mod settings;",
         ),
         file("tui/tabs/flow.rs", "use super::fonts::Fonts;"),
         file(
@@ -574,6 +580,15 @@ fn each_rule_catches_the_crossing_it_names() {
             "tui/tabs/fonts.rs",
             "// super::flow::Flow in a comment is no path\nfn f() {}",
         ),
+        file(
+            "tui/tabs/settings/mod.rs",
+            "mod list; mod card; use super::Tab;",
+        ),
+        file(
+            "tui/tabs/settings/list.rs",
+            "use super::card::Card;\nuse super::super::help::Help;\nfn f() -> super::super::super::model::App { todo!() }",
+        ),
+        file("tui/tabs/settings/card.rs", "pub struct Card;"),
         file(
             "tui/words.rs",
             "pub fn f() -> crate::tui::tabs::looks::Looks { todo!() }",
@@ -599,6 +614,7 @@ fn each_rule_catches_the_crossing_it_names() {
         "tui/model.rs: update, a layout or a tab names the view: tui::view::screen",
         "tui/tabs/flow.rs: a tab names another tab: tui::tabs::fonts::Fonts",
         "tui/tabs/looks.rs: a tab names another tab: tui::tabs::flow",
+        "tui/tabs/settings/list.rs: a tab names another tab: tui::tabs::help::Help",
         "tui/view.rs: a macro_rules! body names a tab: tui::tabs::fonts::X",
         "tui/words.rs: a shared module names a tab: tui::tabs::looks::Looks",
     ];

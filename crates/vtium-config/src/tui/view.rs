@@ -479,10 +479,9 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
         .saturating_sub(message.len())
         .saturating_sub(keys.len());
     let body_area = band(area, 3, foot.saturating_sub(3));
-    if app.nav.view == View::Help {
-        let page = app.help.page(&app.shared, app.size);
+    if let Some((page, top)) = app.tab().page(&app.shared, app.size) {
         let (room, _) = list_window(app, page.len(), 0);
-        let first = app.help.top().min(page.len().saturating_sub(room));
+        let first = top.min(page.len().saturating_sub(room));
         Paragraph::new(page)
             .scroll((u16::try_from(first).unwrap_or(u16::MAX), 0))
             .render(band(area, 3, room), buf);

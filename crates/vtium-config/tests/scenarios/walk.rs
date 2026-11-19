@@ -34,9 +34,10 @@ use proptest::test_runner::FileFailurePersistence;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 
 use super::explore::ALPHABET;
-use super::reference::{self, Expect, FORM_FIELDS};
+use super::reference::{self, Expect};
 use super::sim::{Sim, Term};
 use super::state;
+use super::tabs::fonts::FORM_FIELDS;
 
 /// How many random sequences each run tries.
 const CASES: u32 = 64;
