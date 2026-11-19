@@ -15,6 +15,7 @@ import t3_fonts
 import t3_handover
 import t3_heads
 import t3_images
+import t3_keyecho
 import t3_pointer
 import t3_pictures
 import t3_power
@@ -95,6 +96,8 @@ VARIANTS = {
         "memory_mb": 512,
         "images": False,
         "pointer": True,
+        "conf_extra": ["debug"],
+        "checks": [t3_keyecho.CASE],
     },
     "2d-potato-min-psf": {
         "device": "virtio-vga,xres=1366,yres=768,edid=on",
@@ -108,7 +111,10 @@ VARIANTS = {
     },
     # 2d-potato-min also runs the pointer case ("pointer"): after the VT
     # switch it moves the pointer with QMP and reads the display's cursor
-    # plane from the guest (t3_pointer).
+    # plane from the guest (t3_pointer). Then its check key-echo types keys
+    # into a program that echoes them, and records vtium's key-to-present
+    # time (t3_keyecho), which vtium logs at debug level, so the variant's
+    # configuration turns debug logging on ("conf_extra").
     # A variant drawing a PSF font names the frits the guest builds into the
     # store before the console starts ("frits", guest/frits), since vtium
     # draws only sets (ADR-1200).
@@ -1045,10 +1051,12 @@ def read_events(vm):
 
 
 def bench_figures(vm, caps, conf, images=True):
-    """Each drawn benchmark screen's figures (t3_bench.measure), by name. In a
-    variant without images, an image screen has no picture stream to measure
-    (not_offered); in one with images, an image screen that found them not
-    offered measured none, which is an "error"."""
+    """Each drawn benchmark screen's figures (t3_bench.measure), by name, and
+    the key-echo check's once its screen reported its window, whether the
+    check passed or not (t3_keyecho). In a variant without images, an image
+    screen has no picture stream to measure (not_offered); in one with
+    images, an image screen that found them not offered measured none, which
+    is an "error"."""
     with open(vm.serial, "rb") as f:
         serial = f.read().decode(errors="replace")
     events = read_events(vm)
@@ -1064,6 +1072,9 @@ def bench_figures(vm, caps, conf, images=True):
                                       "picture stream was measured" % refused}
             else:
                 out[name] = t3_bench.measure(serial, line, conf)
+    echo = t3_keyecho.figures(vm, conf)
+    if echo is not None:
+        out[t3_keyecho.CASE] = echo
     return out
 
 
@@ -1289,8 +1300,7 @@ def run_variant(variant, timing, impl, log):
         if os.path.exists(disk):
             os.unlink(disk)
     displays = console_displays(vm.serial)
-    with open(os.path.join(GUEST, v["conf"])) as f:
-        conf = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    conf = t3_heads.conf_lines(v)
     # A check on a guest with no display passes with no capture.
     passed = sorted(case for case, path in caps.items() if path is None)
     caps = {case: path for case, path in caps.items() if path is not None}
@@ -1811,6 +1821,7 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "two-logins": t3_seat.check_two_logins,
               t3_fonts.CASE: t3_fonts.run,
               **t3_handover.CHECK_RUNS,
+              **t3_keyecho.CHECK_RUNS,
               **t3_heads.CHECK_RUNS}
 
 
