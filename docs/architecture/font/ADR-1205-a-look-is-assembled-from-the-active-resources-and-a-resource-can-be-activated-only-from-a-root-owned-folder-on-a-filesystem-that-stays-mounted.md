@@ -145,6 +145,9 @@ considered:
   - operator: aaronsb
     said: "can we add one more profile, a sun workstation (the horrifying white background on dark text) … later it can be composed with an actual sun workstation serifed font for those who wax nostalgic for java and sparc … maybe we call it 'sunny'"
     via: the steering session's chat, 2026-11-19, after the maintainer saw the twelve shipped schemes' pictures
+  - operator: aaronsb
+    said: "yes a"
+    via: "the steering session's chat, 2026-11-19, choosing (a): vtium rereads the batch at each new login, with the font settings, over (b) reading it only when vtium starts"
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -275,6 +278,8 @@ A path that the person writes by hand is always allowed, in the batch or in a fr
 > Note 2026-11-19: the maintainer decided two things about pointer themes and the batch (`considered`). A pointer theme is activated by its folder: the batch lists the theme's folder, such as `/usr/share/icons/Adwaita`, and every file inside the folder counts as active while the folder is listed, the same way the trust rule judges a theme as one folder. vtium's own pictures, `/usr/share/vtium/pointers.svg`, join the list of a fresh install, so vtium's own pointer pictures stay active on every machine.
 
 > Note 2026-11-19: the maintainer decided that every kind of resource follows one convention (`considered`). Fonts, color schemes, color maps, shaders and pointer themes pass through the same gate: the trust rule on the file vtium opened, and the batch listing the resource. The batch lists what a person activates, a file, or a pointer theme's folder. The rule that a theme's links stay inside its folder is part of that gate, and it is the only difference between the kinds.
+
+> Note 2026-11-19, later the same day: the maintainer decided when a change to the batch takes effect (`considered`). vtium reads the batch again where it rereads the font settings, at each new login, so activating or deactivating a resource takes effect at the next login, as a change to a font setting does, with no restart of vtium.
 
 The program that reads a resource checks the rule on the file it opened, so the file cannot be swapped between the check and the read. When vtium runs unprivileged, as the tests and a run by hand do, it accepts its own effective user as the owner, as ADR-1401 D10 does for vtium.conf. These two points are this record's agent's calls. How vtium tells a filesystem that stays mounted from one that does not is left to the work that builds the rule, which reads the system's mount table.
 
