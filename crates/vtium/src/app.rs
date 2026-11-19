@@ -4043,6 +4043,12 @@ impl App {
                 Grab::RotateCw | Grab::RotateCcw => {
                     head.orientation = layout::rotate(head.orientation, g == Grab::RotateCw);
                     self.relayout(h);
+                    // A turn swaps which of a display's two densities the
+                    // head's vtlook judges, so each display is checked
+                    // against the vtlook's requirements again, as at a mode
+                    // change.
+                    #[cfg(feature = "filters")]
+                    self.give_colors_again(h);
                 }
                 // One reset a press, of the console shown alone.
                 Grab::Reset if !key.repeat => head.reset_shown(),
@@ -5928,6 +5934,9 @@ mod tests {
         /// The bits a pixel of each display's buffer holds, as it reports
         /// them.
         pub(super) bits: Option<u8>,
+        /// The density of each display across and down its mode, as it
+        /// reports it from the display's physical size.
+        pub(super) dpi: (f64, f64),
     }
 
     impl Still {
@@ -5957,6 +5966,7 @@ mod tests {
                 levels: None,
                 size: (320, 160),
                 bits: Some(32),
+                dpi: (72.0, 72.0),
             }
         }
 
@@ -5999,7 +6009,7 @@ mod tests {
             None
         }
         fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
-            Some((72.0, 72.0))
+            Some(self.dpi)
         }
         fn levels(&self, _: DisplayId) -> Option<u8> {
             self.levels
@@ -6370,6 +6380,60 @@ mod tests {
         s.events.push(Event::Redraw(DisplayId(1)));
         app.turn(Instant::now());
         assert_eq!(holding(&app, &table), [true], "32 bits");
+    }
+
+    // A display whose pixels are not square has one density across its
+    // mode and another down it, and a turn swaps which of the two the
+    // head's vtlook judges. Each turn checks the head's displays again,
+    // as a mode change does: here the display meets `min-dpi = 100` down
+    // its mode, loses the vtlook when the head turns a quarter, and takes
+    // the vtlook's table again when the head turns back.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_turn_checks_the_display_against_the_vtlook_s_min_dpi_again() {
+        let (_lp, mut app) = seat(Some(ONE_HEAD), no_fonts());
+        let table = amber(&mut app, "min-dpi = 100");
+        let mut s = Still::new(&[(1, "A")]);
+        s.dpi = (72.0, 144.0);
+        app.add_video(PathBuf::from("/dev/mem0"), Box::new(s));
+        shown(&mut app);
+        assert_eq!(holding(&app, &table), [true], "144 DPI down the mode");
+        let turn = |mods: InputMods, keysym: u32| {
+            InputEvent::Key(KeyEvent {
+                keycode: 0,
+                ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
+                mods,
+                keysyms: vec![keysym],
+                codepoints: vec![None],
+                repeat: false,
+            })
+        };
+        // Logo+= turns the head a quarter clockwise, and Logo+- turns it
+        // back.
+        crate::getty::tests::logged();
+        app.input_event(turn(InputMods::LOGO, 0x3d), Instant::now());
+        assert!(
+            app.heads
+                .first()
+                .is_some_and(|h| matches!(h.orientation, Orientation::Right | Orientation::Left)),
+            "the head turned"
+        );
+        assert_eq!(holding(&app, &table), [false], "72 DPI across, turned");
+        let lines: Vec<String> = crate::getty::tests::logged()
+            .into_iter()
+            .filter(|l| l.starts_with("vtlook amber:"))
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "vtlook amber: display A (320x160, 24 bits) draws the built-in vtlook: requires min-dpi 100"
+            ],
+        );
+        app.input_event(turn(InputMods::LOGO, 0x2d), Instant::now());
+        assert_eq!(holding(&app, &table), [true], "turned back");
     }
 
     // A vtlook with `gpu = yes` draws on a head the GPU path draws. When
