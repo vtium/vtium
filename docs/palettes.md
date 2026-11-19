@@ -67,7 +67,7 @@ vtium reads these keys:
 
 | Key | Value | What it sets |
 |---|---|---|
-| `palette` | `N=COLOR`, with N from 0 to 255 | Color N. A color the file leaves unset keeps its value in `legacy`. So colors 16 to 255 stay the standard 256-color cube and gray ramp unless the file sets them. |
+| `palette` | `N=COLOR`, with N from 0 to 255. You can write N in binary, octal or hexadecimal after `0b`, `0o` or `0x`. | Color N. A color the file leaves unset keeps its value in `legacy`. So colors 16 to 255 stay the standard 256-color cube and gray ramp unless the file sets them. |
 | `foreground`, `background` | `COLOR` | The default text and background colors. |
 | `cursor-color` | `COLOR` | The cursor's color. |
 | `selection-background`, `selection-foreground` | `COLOR` | The colors of selected text. |

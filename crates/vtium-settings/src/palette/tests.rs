@@ -458,6 +458,44 @@ fn a_long_ignored_key_is_listed_once() {
     assert!(ignored[0].quoted().to_string().ends_with("...\""));
 }
 
+// A color's number may be written in binary, octal or hexadecimal with
+// the prefixes Ghostty's `palette` takes, 0b, 0o and 0x, and stays a number
+// from 0 to 255. A prefix with no digits, or with a digit its base does
+// not have, is an error.
+// covers: color.palette.named
+#[test]
+fn a_color_number_takes_a_binary_octal_or_hexadecimal_prefix() {
+    let p = colors(
+        "palette = 0b101=#010101\npalette = 0o17=#020202\npalette = 0xff=#030303\npalette = 0x0A=#040404\n",
+    );
+    assert_eq!(p.color(5), Rgb::new(1, 1, 1));
+    assert_eq!(p.color(15), Rgb::new(2, 2, 2));
+    assert_eq!(p.color(255), Rgb::new(3, 3, 3));
+    assert_eq!(p.color(10), Rgb::new(4, 4, 4));
+    for index in ["0x100", "0b100000000", "0o400"] {
+        let text = format!("palette = {index}=#ffffff\n");
+        assert_eq!(
+            faults(text.as_bytes()).0,
+            [(Some(1), Reason::PastLastColor(Quoted::new(index)))],
+            "{index}"
+        );
+    }
+    for value in [
+        "0x=#ffffff",
+        "0b2=#ffffff",
+        "0o8=#ffffff",
+        "0xg=#ffffff",
+        "x10=#ffffff",
+    ] {
+        let text = format!("palette = {value}\n");
+        assert_eq!(
+            faults(text.as_bytes()).0,
+            [(Some(1), Reason::BadEntry(Quoted::new(value)))],
+            "{value}"
+        );
+    }
+}
+
 // The reader lists the first ERRORS_MAX keys it ignores, each once, and
 // counts the other keys, so a file of many unknown keys gives a list of
 // bounded length. A key set again past the bound is counted once.

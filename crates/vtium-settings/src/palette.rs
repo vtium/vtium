@@ -15,7 +15,8 @@
 //! The file is Ghostty's theme format as it is, so a scheme written for
 //! Ghostty imports unchanged: `key = value` lines, comments that start
 //! with `#`, and blank lines. [`parse`] reads `palette` (`N=COLOR`, N from
-//! 0 to 255), `foreground`, `background`, `cursor-color`,
+//! 0 to 255, in decimal or after Ghostty's prefixes `0b`, `0o` and `0x`),
+//! `foreground`, `background`, `cursor-color`,
 //! `selection-background` and `selection-foreground`. A `COLOR` is
 //! `#rrggbb`, `rrggbb` or an X11 color name, read as OSC 4 reads one. In
 //! the last three keys, `cell-foreground` and `cell-background` leave the
@@ -150,7 +151,7 @@ impl fmt::Display for Reason {
             ),
             Reason::BadEntry(value) => write!(
                 f,
-                "The palette line {value} does not read N=COLOR. N is the number of a color from 0 to 255."
+                "The palette line {value} does not read N=COLOR. N is the number of a color from 0 to 255, in decimal, or in binary, octal or hexadecimal after 0b, 0o or 0x."
             ),
             Reason::PastLastColor(index) => write!(
                 f,
@@ -374,11 +375,17 @@ fn setting(palette: &mut Palette, key: &str, value: &str) -> Result<bool, Reason
             let bad = || Reason::BadEntry(Quoted::new(value));
             let (index, rest) = value.split_once('=').ok_or_else(bad)?;
             let index = index.trim();
-            if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
+            // decimal, or another base after Ghostty's prefix for it
+            let (radix, digits) = match (index.get(..2), index.get(2..)) {
+                (Some("0b"), Some(digits)) => (2, digits),
+                (Some("0o"), Some(digits)) => (8, digits),
+                (Some("0x"), Some(digits)) => (16, digits),
+                _ => (10, index),
+            };
+            if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
                 return Err(bad());
             }
-            let index = index
-                .parse::<u8>()
+            let index = u8::from_str_radix(digits, radix)
                 .map_err(|_| Reason::PastLastColor(Quoted::new(index)))?;
             palette.set_color(index, color(key, rest.trim())?);
         }
