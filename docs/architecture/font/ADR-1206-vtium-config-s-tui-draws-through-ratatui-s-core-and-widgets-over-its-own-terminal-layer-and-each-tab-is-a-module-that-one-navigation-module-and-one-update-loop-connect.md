@@ -49,6 +49,9 @@ considered:
     via: the maintainer's answers to the steering session's questions, 2026-11-18
     paraphrase: true
     covers: [the check]
+  - operator: aaronsb
+    said: "ok, your lean makes sense [keep Esc as the back key; every query batch ends with DA1, so DA1's reply clears unanswered queries and bounds the wait of a lone ESC, with no timer]"
+    via: the steering session, 2026-11-18, on the Elm spike's strain between the Esc key and a reply's first ESC
 status: proposed
 date: 2026-11-18
 deciders:
