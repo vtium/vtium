@@ -319,13 +319,17 @@ impl Batch {
                 entries.extend(console_fonts(font, console_font_folders).map(Entry::Path));
             }
         }
-        let mut shipped: Vec<PathBuf> = std::fs::read_dir(palettes)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-            .map(|e| e.path())
-            .collect();
+        // a plain loop, where an iterator chain over read_dir costs the
+        // console a kilobyte of Flatten code
+        let mut shipped: Vec<PathBuf> = Vec::new();
+        if let Ok(list) = std::fs::read_dir(palettes) {
+            for entry in list {
+                let Ok(entry) = entry else { continue };
+                if entry.file_type().is_ok_and(|t| t.is_file()) {
+                    shipped.push(entry.path());
+                }
+            }
+        }
         shipped.sort();
         entries.extend(shipped.into_iter().map(Entry::Path));
         Batch { entries }
