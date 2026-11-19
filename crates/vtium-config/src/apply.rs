@@ -27,10 +27,11 @@
 //!    changed since the draft was made, naming the file;
 //! 3. checks every file before it writes any: each frit with the helper's
 //!    frit reader, strictly; the batch file with vtium's own reader, every
-//!    line, and each resource it activates against the trust rule, as the
-//!    user `apply` runs as; and the edited vtium.conf, both its parts in
+//!    line that the installed batch file does not already hold, and each
+//!    resource it activates against the trust rule, as the user `apply`
+//!    runs as; and the edited vtium.conf, both its parts in
 //!    one run, with the console's own `vtium check-config`, so the verdict
-//!    before writing is the verdict at the next start (ADR-1403 D3);
+//!    before writing is the verdict at the next start;
 //! 4. writes the frits, then the batch file, then vtium.conf, so
 //!    vtium.conf never names a frit or a resource that is not yet there,
 //!    and removes frits last; each file goes in
@@ -42,6 +43,9 @@
 //!    when it wrote them all.
 //!
 //! The draft stays after `apply`, so a user can run it again.
+//!
+//! References:
+//! - ADR-1403 D3: the console's own check judges vtium.conf before `apply` writes it.
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -914,27 +918,41 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
 }
 
 /// Checks the batch file `bytes` that a draft installs at `path` before
-/// it is written: vtium's reader takes every line, and each resource it
-/// lists that the system does not hold now passes the trust rule as the
-/// user `apply` runs as, root through sudo. The system holds what the
-/// installed batch file lists, or the list of a fresh install when none
-/// is installed. A resource that stays active is not judged again here,
-/// since vtium judges every file when it opens it.
+/// it is written: vtium's reader takes every line that the installed
+/// file does not already hold, and each resource the new file lists that
+/// the system does not hold now passes the trust rule as the user `apply`
+/// runs as, root through sudo. The system holds what the installed batch
+/// file lists, as vtium reads it, or the list of a fresh install when
+/// vtium reads no batch file. A line that vtium ignores and that root
+/// already wrote in the installed file stays, since vtium-config only
+/// keeps it. A resource that stays active is not judged again here, since
+/// vtium judges every file when it opens it.
 ///
 /// References:
 /// - ADR-1205 D4: the trust rule, and vtium-config writing the batch file through its install.
 fn check_batch(bytes: &[u8], path: &Path) -> Result<(), String> {
-    let read = vtium_settings::batch::Batch::parse(bytes, path);
-    if let Some(finding) = read.findings.first() {
-        return Err(finding.to_string());
-    }
-    let installed = match std::fs::read(path) {
-        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
-        Err(e) => return Err(format!("{}: {e}", path.display())),
-    };
-    let base = crate::batch::base(installed.as_deref(), &crate::batch::fresh());
+    use crate::batch::Installed;
+    use vtium_settings::batch::Finding;
     let euid = rustix::process::geteuid().as_raw();
+    let installed = Installed::read(path, euid);
+    let held: Vec<&[u8]> = match &installed {
+        Installed::Read(old) => old.split(|&b| b == b'\n').collect(),
+        Installed::Missing | Installed::Refused(_) => Vec::new(),
+    };
+    let read = vtium_settings::batch::Batch::parse(bytes, path);
+    for finding in &read.findings {
+        let kept = match finding {
+            Finding::Line { line, .. } => bytes
+                .split(|&b| b == b'\n')
+                .nth(line.saturating_sub(1))
+                .is_some_and(|raw| held.contains(&raw)),
+            Finding::Missing { .. } | Finding::Refused { .. } => false,
+        };
+        if !kept {
+            return Err(finding.to_string());
+        }
+    }
+    let base = installed.base(&crate::batch::fresh());
     for vtium_settings::batch::Entry::Path(resource) in read.batch.entries() {
         if !base.holds(resource) {
             crate::batch::trusted(resource, euid)?;
@@ -1086,6 +1104,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir(&base).unwrap();
         Base(base)
+    }
+
+    /// A line that vtium ignores and that the installed batch file does
+    /// not hold is refused: vtium-config never writes one itself, so it
+    /// came from somewhere else.
+    #[test]
+    fn a_new_line_that_vtium_ignores_is_refused() {
+        let base = base("check-batch");
+        let path = base.join("batch.conf");
+        let refused = check_batch(b"# a comment\nfonts/x.ttf\n", &path).unwrap_err();
+        assert!(
+            refused.ends_with(
+                "batch.conf:2: this line does not hold an absolute path, one that starts with /. Because of this, vtium ignores the line."
+            ),
+            "{refused}"
+        );
     }
 
     /// The names a test's name source gives, in turn, and then `last`.

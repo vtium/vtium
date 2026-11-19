@@ -1,7 +1,7 @@
 //! The active resources beside a draft, and the commands `activate`,
 //! `deactivate` and `active`.
 //!
-//! vtium draws only from the active resources: the fonts, color schemes,
+//! vtium uses only the active resources: the fonts, color schemes,
 //! color maps, shaders and pointer themes that the batch file,
 //! `/etc/vtium/batch.conf`, lists one path on each line. The built-in
 //! font is always active and never appears there. A change to that list
@@ -12,15 +12,19 @@
 //! `NAME.batch` keeps changes, one `activate PATH` or `deactivate PATH`
 //! on each line, and not a copy of the batch file. The install applies
 //! them to the batch file as it is then, so a line root wrote by hand
-//! stays. When no batch file is installed, the install starts from the
-//! list of a fresh install, as vtium does, so the first change never
-//! drops the default fonts.
+//! stays. When no batch file is installed, or vtium refuses the one that
+//! is, the install starts from the list of a fresh install, as vtium does,
+//! so the first change never drops the default fonts. vtium refuses a
+//! batch file that fails the owner and mode check, is too large, or cannot
+//! be read, and vtium-config reads the file the same way
+//! ([`Installed::read`]), so it never builds on lines vtium ignores.
 //!
 //! References:
 //! - ADR-1205 D4: the batch, its file, the trust rule each activated file passes, the list of a fresh install, and a draft keeping its changes to the batch beside it.
 //! - ADR-1205 D8: deactivating a resource warns and names the looks that use it.
 //! - ADR-1403 D8: a draft keeps its font set changes beside it in the same way.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -50,10 +54,14 @@ impl Change {
 }
 
 /// A draft's changes to the active resources, in the order they were made,
-/// at most one for each path.
+/// at most one for each path. An index by path finds a path's change
+/// without a scan of the list, so reading a large `NAME.batch` does not
+/// take time in the square of its length.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Changes {
     list: Vec<(PathBuf, Change)>,
+    /// Each path's place in `list`.
+    index: BTreeMap<PathBuf, usize>,
 }
 
 impl Changes {
@@ -89,7 +97,7 @@ impl Changes {
     /// The text of the `NAME.batch` file of the draft `draft`.
     pub fn text(&self, draft: &str) -> String {
         let mut out = format!(
-            "# The changes that draft {draft} makes to the resources vtium may draw\n# from. vtium-config applies them when it installs the draft.\n"
+            "# The changes that draft {draft} makes to the resources vtium may use.\n# vtium-config applies them when it installs the draft.\n"
         );
         for (path, change) in &self.list {
             out.push_str(&format!("{} {}\n", change.word(), path.display()));
@@ -107,19 +115,36 @@ impl Changes {
 
     /// The change for `path`, if the draft makes one.
     pub fn get(&self, path: &Path) -> Option<Change> {
-        self.list
-            .iter()
-            .find_map(|(p, c)| (p == path).then_some(*c))
+        let at = *self.index.get(path)?;
+        self.list.get(at).map(|(_, c)| *c)
     }
 
     /// Makes `change` the draft's change for `path`, or with `None` takes
     /// the draft's change for it back.
     pub fn set(&mut self, path: PathBuf, change: Option<Change>) {
-        match (self.list.iter_mut().find(|(p, _)| *p == path), change) {
+        let at = self.index.get(&path).copied();
+        match (at.and_then(|at| self.list.get_mut(at)), change) {
             (Some(slot), Some(change)) => slot.1 = change,
-            (None, Some(change)) => self.list.push((path, change)),
-            (_, None) => self.list.retain(|(p, _)| *p != path),
+            (None, Some(change)) => {
+                self.index.insert(path.clone(), self.list.len());
+                self.list.push((path, change));
+            }
+            (Some(_), None) => {
+                self.list.retain(|(p, _)| *p != path);
+                self.reindex();
+            }
+            (None, None) => {}
         }
+    }
+
+    /// Builds the index again after changes left `list`.
+    fn reindex(&mut self) {
+        self.index = self
+            .list
+            .iter()
+            .enumerate()
+            .map(|(at, (p, _))| (p.clone(), at))
+            .collect();
     }
 
     /// Each change, in order.
@@ -135,13 +160,28 @@ impl Changes {
             Change::Activate => !base.holds(path),
             Change::Deactivate => base.holds(path),
         });
+        self.reindex();
+    }
+}
+
+/// `1 change to the active resources`, or `N changes ...`, as the state
+/// line and `revert --dry-run` count a draft's changes.
+pub fn resource_changes(n: usize) -> String {
+    match n {
+        1 => "1 change to the active resources".to_owned(),
+        n => format!("{n} changes to the active resources"),
     }
 }
 
 /// `word` as a path the batch file can list: an absolute path without
 /// `..`, with `.` and doubled slashes dropped, read as vtium reads a line
-/// of the batch file.
+/// of the batch file. A path that holds a control character, such as a tab
+/// or an escape, is refused: `active` separates its fields with tabs, and
+/// an escape would reach the terminal raw when a command prints the path.
 pub fn plain(word: &str) -> Option<PathBuf> {
+    if word.chars().any(char::is_control) {
+        return None;
+    }
     let read = Batch::parse(word.as_bytes(), Path::new(""));
     match (read.findings.as_slice(), read.batch.entries()) {
         ([], [Entry::Path(path)]) => Some(path.clone()),
@@ -185,7 +225,7 @@ pub fn fresh() -> Batch {
 }
 
 /// The batch the system holds: the one the installed batch file's text
-/// `installed` lists, or `fresh` when no batch file is installed.
+/// `installed` lists, or `fresh` when vtium reads no batch file.
 pub fn base(installed: Option<&str>, fresh: &Batch) -> Batch {
     match installed {
         Some(text) => Batch::parse(text.as_bytes(), Path::new("")).batch,
@@ -193,16 +233,96 @@ pub fn base(installed: Option<&str>, fresh: &Batch) -> Batch {
     }
 }
 
-/// The comment that opens a batch file vtium-config writes when none is
-/// installed. It is wrapped at 78 columns, as vtium.conf's comments are.
+/// The installed batch file, as vtium reads it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Installed {
+    /// No batch file is installed, so vtium uses the list of a fresh
+    /// install.
+    Missing,
+    /// vtium ignores the batch file and uses the list of a fresh install.
+    /// The text says why, file first, in the words of `vtium check-config`.
+    Refused(String),
+    /// vtium reads the batch file: its bytes.
+    Read(Vec<u8>),
+}
+
+impl Installed {
+    /// Reads the batch file at `path` as vtium does when it runs as the
+    /// user `euid`. The file and each folder above it must belong to root
+    /// or to `euid`, and nobody else may write them. vtium reads at most
+    /// [`active::BATCH_MAX`] bytes. A file that fails the check, is larger,
+    /// is not a regular file or cannot be read counts as missing, because
+    /// someone other than root could have written it.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: vtium uses the list of a fresh install in place of a batch file it cannot use.
+    pub fn read(path: &Path, euid: u32) -> Installed {
+        use vtium_settings::batch::{BATCH_MAX, Finding, Unread};
+        let trust = vtium_settings::Trust::running_as(euid);
+        match vtium_settings::read_limited(path, &trust, BATCH_MAX) {
+            Ok(Some(bytes)) => Installed::Read(bytes),
+            Ok(None) => Installed::Missing,
+            Err(rejected) => {
+                let why = rejected
+                    .errors
+                    .into_iter()
+                    .next()
+                    .map_or(Unread::NotAFile, |e| e.problem.into());
+                let finding = Finding::Refused {
+                    path: path.to_path_buf(),
+                    why,
+                };
+                Installed::Refused(finding.to_string())
+            }
+        }
+    }
+
+    /// The batch vtium uses: the one the file lists, or `fresh`, the list
+    /// of a fresh install, when vtium reads no file. A line that vtium
+    /// ignores, such as one that is not UTF-8, lists nothing.
+    pub fn base(&self, fresh: &Batch) -> Batch {
+        match self {
+            Installed::Read(bytes) => Batch::parse(bytes, Path::new("")).batch,
+            Installed::Missing | Installed::Refused(_) => fresh.clone(),
+        }
+    }
+
+    /// The text of the file vtium reads, the one that changes start from,
+    /// or `None` when vtium reads no file and changes start from the list
+    /// of a fresh install. `Err` names the first line of the file at
+    /// `path` that is not UTF-8, which vtium-config cannot keep in a file
+    /// it writes.
+    pub fn text(&self, path: &Path) -> Result<Option<&str>, String> {
+        let Installed::Read(bytes) = self else {
+            return Ok(None);
+        };
+        std::str::from_utf8(bytes).map(Some).map_err(|e| {
+            let before = bytes.get(..e.valid_up_to()).unwrap_or_default();
+            let line = before
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count()
+                .saturating_add(1);
+            format!(
+                "{}:{line}: this line is not UTF-8 text. vtium ignores the line, and vtium-config cannot keep it in the file it writes. Fix the line or remove it as root, then install again.",
+                path.display()
+            )
+        })
+    }
+}
+
+/// The comment that opens a batch file vtium-config writes when vtium
+/// reads none, because none is installed or vtium refuses the installed
+/// one. It is wrapped at 78 columns, as vtium.conf's comments are.
 pub const HEADER: &str = "\
-# vtium draws only from the resources this file lists: fonts, color
-# schemes, color maps, shaders and pointer themes, one absolute path on each
-# line. The built-in font is always active and is not listed here.
+# vtium uses only the resources this file lists: fonts, color schemes,
+# color maps, shaders and pointer themes, one absolute path on each line.
+# The built-in font is always active and is not listed here.
 #
-# vtium-config wrote this file from the list of a fresh install, the first
-# time a draft changed the active resources. vtium-config activate and
-# vtium-config deactivate change it through a draft, and root can edit it.
+# vtium-config wrote this file from the list of a fresh install, when a
+# draft changed the active resources while vtium used that list.
+# vtium-config activate and vtium-config deactivate change it through a
+# draft, and root can edit it.
 
 ";
 
@@ -385,8 +505,8 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
             |name| format!("Look {name}"),
         );
         let after = user.look.as_ref().map_or_else(
-            || "the looks that take their settings from the top level draw without it".to_owned(),
-            |name| format!("look {name} draws without it"),
+            || "the looks that take their settings from the top level render without it".to_owned(),
+            |name| format!("look {name} renders without it"),
         );
         let mut uses = None;
         if let (Some(frit), Some(frits)) = (&user.frit, places.frits)
@@ -395,7 +515,7 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
             uses = Some(format!("this font through the font set {frit}"));
         }
         if let Some(palette) = &user.palette
-            && places.palettes.iter().any(|dir| dir.join(palette) == path)
+            && palette_file(places.palettes, palette).as_deref() == Some(path)
         {
             uses = Some("this color scheme".to_owned());
         }
@@ -406,6 +526,21 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
         }
     }
     out
+}
+
+/// The file vtium reads for the color scheme `name`: `NAME.palette` in
+/// the first of `folders` that holds one, so the administrator's copy in
+/// `/etc/vtium/palettes` shadows the package's. `None` for a scheme built
+/// into vtium, which has no file, and for a name no file can take.
+fn palette_file(folders: &[&Path], name: &str) -> Option<PathBuf> {
+    use vtium_settings::palette::{SUFFIX, built_in, named};
+    if built_in(name) || !named(name) {
+        return None;
+    }
+    folders
+        .iter()
+        .map(|dir| dir.join(format!("{name}{SUFFIX}")))
+        .find(|file| file.symlink_metadata().is_ok())
 }
 
 /// Whether the font set `name` in the folder `frits` names the font file
@@ -531,6 +666,8 @@ pub enum Done {
     Changed { warnings: Vec<String> },
     /// The resource was already active, so nothing changed.
     AlreadyActive,
+    /// The draft already activates the resource, so nothing changed.
+    AlreadyActivates,
 }
 
 /// The current draft's view of the active resources: what the system
@@ -543,9 +680,9 @@ pub struct Resources<'a> {
     pub name: String,
     /// The draft's vtium.conf, which [`users`] reads for the warnings.
     pub text: String,
-    /// The batch file is installed: `false` when vtium uses the list of a
-    /// fresh install.
-    pub installed: bool,
+    /// The installed batch file as vtium reads it. When it is missing or
+    /// vtium refuses it, vtium uses the list of a fresh install.
+    pub installed: Installed,
     base: Batch,
     changes: Changes,
     /// The user whose files the trust rule accepts for this install.
@@ -556,15 +693,15 @@ impl<'a> Resources<'a> {
     /// The current draft's active resources.
     pub fn open(session: &'a Session<'a>) -> Result<Resources<'a>, Fail> {
         let (name, text) = session.current()?;
-        let installed = session.installed_batch()?;
-        let base = base(installed.as_deref(), &fresh());
+        let installed = session.installed_batch();
+        let base = installed.base(&fresh());
         let changes = session.store.batch_changes(&name)?;
         let euid = rule_user(&session.paths.targets(), &session.paths.sudo);
         Ok(Resources {
             session,
             name,
             text,
-            installed: installed.is_some(),
+            installed,
             base,
             changes,
             euid,
@@ -603,12 +740,17 @@ impl<'a> Resources<'a> {
     /// memory. `Err` says, file first, why it is refused: a file that fails
     /// the trust rule, and a deactivation of a resource that is not
     /// active. A change that brings the resource back to what the system
-    /// holds takes the draft's change back.
+    /// holds takes the draft's change back. Only a resource the system
+    /// does not hold passes the trust rule here, as `apply` judges only
+    /// those, so a pending deactivation can always be taken back.
     pub fn set(&mut self, path: &Path, change: Change) -> Result<Done, String> {
-        let active = matches!(self.state(path), State::Active | State::Activates);
+        let state = self.state(path);
+        let active = matches!(state, State::Active | State::Activates);
         match change {
+            Change::Activate if state == State::Activates => return Ok(Done::AlreadyActivates),
             Change::Activate if active => return Ok(Done::AlreadyActive),
-            Change::Activate => trusted(path, self.euid)?,
+            Change::Activate if !self.base.holds(path) => trusted(path, self.euid)?,
+            Change::Activate => {}
             Change::Deactivate if !active => {
                 return Err(format!(
                     "{} is not active, so there is nothing to deactivate.",
@@ -677,12 +819,16 @@ fn change(
         }
         let Some(path) = plain(word) else {
             return Err(Fail::Usage(format!(
-                "{word} is not the path of a resource. Give its absolute path without .., such as /usr/share/fonts/TTF/Hack-Regular.ttf."
+                "{} is not the path of a resource. Give its absolute path, with no .. in it, such as /usr/share/fonts/TTF/Hack-Regular.ttf.",
+                word.escape_debug()
             )));
         };
         let line = format!("{}	{}", kind(&path), path.display());
         match resources.set(&path, change) {
             Ok(Done::AlreadyActive) => said.push(format!("already active	{line}")),
+            Ok(Done::AlreadyActivates) => {
+                said.push(format!("already activates on install	{line}"));
+            }
             Ok(Done::Changed { warnings }) => {
                 said.push(format!("{command}	{line}"));
                 said.extend(warnings);
@@ -735,12 +881,18 @@ fn list(session: &Session<'_>, words: &[String], out: &mut dyn Write) -> Result<
             state.words()
         );
     }
-    if !resources.installed {
-        let _ = writeln!(
-            out,
-            "{} does not exist, so vtium uses the resources of a fresh install.",
-            session.batch_file().display()
-        );
+    match &resources.installed {
+        Installed::Read(_) => {}
+        Installed::Missing => {
+            let _ = writeln!(
+                out,
+                "{} does not exist, so vtium uses the resources of a fresh install.",
+                session.batch_file().display()
+            );
+        }
+        Installed::Refused(why) => {
+            let _ = writeln!(out, "{why}");
+        }
     }
     Ok(())
 }
@@ -774,16 +926,45 @@ mod tests {
             text.ends_with("deactivate /a/x.ttf\ndeactivate /a/y.ttf\n"),
             "{text}"
         );
-        assert_eq!(Changes::parse(&text, Path::new("d.batch")), Ok(changes));
+        assert_eq!(
+            Changes::parse(&text, Path::new("d.batch")),
+            Ok(changes.clone())
+        );
+        // taking a change back keeps the others found by their paths
+        changes.set("/a/x.ttf".into(), None);
+        assert_eq!(changes.get(Path::new("/a/x.ttf")), None);
+        assert_eq!(changes.get(Path::new("/a/y.ttf")), Some(Change::Deactivate));
+        changes.set("/a/z.ttf".into(), Some(Change::Activate));
+        assert_eq!(changes.get(Path::new("/a/z.ttf")), Some(Change::Activate));
+        assert_eq!(changes.len(), 2);
         for bad in [
             "activate x.ttf",
             "activate /a/../b",
             "install /a",
             "activate",
+            "activate /a/\tb.ttf",
         ] {
             let fail = Changes::parse(bad, Path::new("d.batch")).unwrap_err();
             assert!(fail.text().starts_with("d.batch line 1: "), "{bad}");
         }
+    }
+
+    /// A large `NAME.batch` reads quickly: the changes are found by path,
+    /// not by a scan of the list on each line. The bound on the wait only
+    /// keeps a slow read from hanging the test.
+    #[test]
+    fn a_large_changes_file_reads_without_a_scan_for_each_line() {
+        let text: String = (0..26_000)
+            .map(|n| format!("activate /fonts/font-{n:05}.ttf\n"))
+            .collect();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(Changes::parse(&text, Path::new("d.batch")).map(|c| c.len()));
+        });
+        let read = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("26,000 changes read in under 5 s");
+        assert_eq!(read, Ok(26_000));
     }
 
     #[test]
@@ -821,28 +1002,55 @@ mod tests {
         assert_eq!(plain("a/b"), None);
         assert_eq!(plain("/a/../b"), None);
         assert_eq!(plain("/a\n/b"), None);
+        // a control character would break `active`'s tab-separated fields
+        // or reach the terminal raw
+        for bad in [
+            "/a\tb.ttf",
+            "/a\u{1b}[31mb.ttf",
+            "/a\rb",
+            "/a\u{7f}b",
+            "/a\u{9b}b",
+        ] {
+            assert_eq!(plain(bad), None, "{bad:?}");
+        }
+        assert_eq!(plain("/a b.ttf"), Some(PathBuf::from("/a b.ttf")));
     }
 
     #[test]
     fn a_look_that_names_a_color_scheme_is_warned_of() {
+        // vtium reads a look's `palette = NAME` from NAME.palette in the
+        // first folder that holds one, so the administrator's file
+        // shadows the package's
+        let root = std::env::temp_dir().join(format!("vtium-config-users-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (etc, pkg) = (root.join("etc"), root.join("pkg"));
+        std::fs::create_dir_all(&etc).unwrap();
+        std::fs::create_dir_all(&pkg).unwrap();
+        for file in [pkg.join("dracula.palette"), pkg.join("top.palette")] {
+            std::fs::write(file, "palette = 0=#000000\n").unwrap();
+        }
         let conf = "palette = top\nversion = 1\n[look big]\npalette = dracula\n";
-        let dir = Path::new("/p");
         let places = Places {
             frits: None,
-            palettes: &[dir],
+            palettes: &[&etc, &pkg],
         };
+        let big = [
+            "Look big uses this color scheme. Once this change is installed, look big renders without it.",
+        ];
+        assert_eq!(users(&pkg.join("dracula.palette"), conf, &places), big);
         assert_eq!(
-            users(Path::new("/p/dracula"), conf, &places),
+            users(&pkg.join("top.palette"), conf, &places),
             [
-                "Look big uses this color scheme. Once this change is installed, look big draws without it."
+                "The top level of vtium.conf uses this color scheme. Once this change is installed, the looks that take their settings from the top level render without it."
             ]
         );
-        assert_eq!(
-            users(Path::new("/p/top"), conf, &places),
-            [
-                "The top level of vtium.conf uses this color scheme. Once this change is installed, the looks that take their settings from the top level draw without it."
-            ]
-        );
-        assert!(users(Path::new("/q/dracula"), conf, &places).is_empty());
+        // a path that is not the file vtium reads warns of nothing
+        assert!(users(&pkg.join("dracula"), conf, &places).is_empty());
+        assert!(users(&root.join("q/dracula.palette"), conf, &places).is_empty());
+        // once the administrator's copy exists, vtium reads that one
+        std::fs::write(etc.join("dracula.palette"), "palette = 0=#000000\n").unwrap();
+        assert!(users(&pkg.join("dracula.palette"), conf, &places).is_empty());
+        assert_eq!(users(&etc.join("dracula.palette"), conf, &places), big);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

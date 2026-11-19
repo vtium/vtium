@@ -975,6 +975,45 @@ mod draft_flow {
         assert_eq!(b.installed(), INSTALLED);
     }
 
+    /// Makes `desk`, the installed file, the current draft of `b`, with one
+    /// change to the active resources beside it.
+    fn desk_with_a_batch_change(b: &Bench) {
+        use vtium_config::batch::{Change, Changes};
+        let store = b.store();
+        store.write_draft("desk", INSTALLED).expect("the draft");
+        store.set_current(Some("desk")).expect("the settings");
+        let mut changes = Changes::default();
+        changes.set(
+            "/usr/share/fonts/TTF/Hack-Regular.ttf".into(),
+            Some(Change::Activate),
+        );
+        store
+            .set_batch_changes("desk", &changes)
+            .expect("the draft's changes");
+    }
+
+    #[test]
+    fn the_status_line_counts_a_draft_s_changes_to_the_active_resources() {
+        let b = bench("status-batch");
+        desk_with_a_batch_change(&b);
+        let status = run(&b, &[]).status();
+        assert!(status.contains("· 1 change · no problems"), "{status}");
+    }
+
+    #[test]
+    fn revert_and_new_drop_the_draft_s_changes_to_the_active_resources() {
+        for key in [b"r", b"n"] {
+            let b = bench(&format!("reset-batch-{}", key[0] as char));
+            desk_with_a_batch_change(&b);
+            run(&b, &[key, b"y"]);
+            let left = b
+                .store()
+                .batch_changes("desk")
+                .expect("the draft's changes");
+            assert!(left.is_empty(), "{}: {left:?}", key[0] as char);
+        }
+    }
+
     #[test]
     fn revert_and_new_each_ask_first() {
         let b = bench("revert");

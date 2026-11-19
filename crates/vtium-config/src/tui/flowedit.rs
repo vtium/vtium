@@ -420,7 +420,7 @@ impl App {
         };
         let draft = Draft {
             name: d.name.clone(),
-            changes: d.added.max(d.removed),
+            changes: d.added.max(d.removed).saturating_add(d.batch),
             problems: d.count,
         };
         let new = crate::flowmodel::build(&d.text, &self.shared.present, Some(draft));

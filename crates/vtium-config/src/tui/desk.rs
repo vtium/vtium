@@ -65,6 +65,9 @@ pub struct Opened {
     pub problems: Vec<String>,
     /// The problems the status line counts, the commands' count.
     pub count: usize,
+    /// The draft's changes to the active resources, which the status line
+    /// counts among its changes.
+    pub batch: usize,
 }
 
 /// One file of the installed history.
@@ -175,6 +178,7 @@ impl Store {
             stale: matches!(state, State::Stale { .. }),
             count: checked.count(),
             problems: checked.problems,
+            batch: self.store.batch_changes(name)?.len(),
         })
     }
 
@@ -255,10 +259,17 @@ impl Store {
                 let text = installed.clone().unwrap_or_else(|| HEADER.to_owned());
                 self.store
                     .set_base(&name, installed.as_deref().map(str::as_bytes))?;
+                // the draft starts over, so its changes to the active
+                // resources go, as the command line's revert drops them
+                session.drop_batch(&name)?;
                 self.store.write_draft(&name, &text)?;
                 Ok(Done::Draft(self.opened(&name, &text)?, None))
             }
-            Op::New => self.write(&crate::ops::new_text(HEADER)),
+            Op::New => {
+                let (name, _) = session.current()?;
+                session.drop_batch(&name)?;
+                self.write(&crate::ops::new_text(HEADER))
+            }
             Op::Delete => {
                 let (name, _) = session.current()?;
                 self.store.remove_draft(&name)?;
