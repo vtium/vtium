@@ -122,6 +122,13 @@ impl Config {
         self.palette_with(instead, &mut file_palette)
     }
 
+    /// The palette file `name`'s palette, read once from the two palette
+    /// folders, as [`Config::palette_or`] reads it; `None` when the file
+    /// fails or no folder holds it, logged the first time.
+    pub(crate) fn palette_file(name: &str) -> Option<Palette> {
+        file_palette(name)
+    }
+
     /// [`Config::palette_or`], with `file` giving a palette file's palette.
     pub(crate) fn palette_with(
         &self,
@@ -247,5 +254,38 @@ mod tests {
                 dir.display()
             )
         );
+    }
+
+    // A head whose look names a palette file that fails draws the top
+    // level's palette, not legacy, and vtium logs one line for the file
+    // however many heads name it.
+    // covers: color.palette.named
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_head_whose_look_s_palette_file_fails_draws_the_top_level_s() {
+        let dir = Scratch::new("palette-head");
+        let trust = folder(
+            &dir,
+            &[("broken", "background = #282a36\nthis line is wrong\n")],
+        );
+        let folders = [&*dir];
+        let mut schemes = Schemes::default();
+        let mut logged = Vec::new();
+        let top = config("palette = solarized\n");
+        let look = config("palette = broken\n");
+        let solarized = Palette::named("solarized").unwrap_or_default();
+        let clock: crate::term::Clock = std::rc::Rc::new(std::time::Instant::now);
+        for _ in 0..2 {
+            let mut term = crate::head::terminal(&top, (0, 0), 0, std::rc::Rc::clone(&clock));
+            let drawn = crate::head::look::palette_with(&look, &mut term, &mut |name| {
+                schemes.get(name, &folders, &trust, &mut |l| logged.push(l))
+            });
+            assert_eq!(drawn, solarized);
+            assert_eq!(term.terminal.palette(), &solarized);
+        }
+        let [line] = logged.as_slice() else {
+            panic!("{logged:?}");
+        };
+        assert!(line.starts_with("Color scheme broken ("), "{line}");
     }
 }
