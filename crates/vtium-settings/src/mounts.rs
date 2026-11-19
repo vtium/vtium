@@ -136,6 +136,10 @@ pub enum Unsteady {
     BelowAutomount { point: PathBuf, automount: PathBuf },
     /// A filesystem on a removable disk, `source`.
     Removable { point: PathBuf, source: String },
+    /// vtium cannot read from sysfs whether the device `source`, mounted
+    /// at `point`, is on a removable disk, so it cannot tell whether the
+    /// filesystem stays mounted.
+    UnknownDisk { point: PathBuf, source: String },
     /// No line of the mount table holds the file, so vtium cannot tell
     /// what holds it.
     Unknown { path: PathBuf },
@@ -169,6 +173,11 @@ impl fmt::Display for Unsteady {
             Unsteady::Removable { point, source } => write!(
                 f,
                 "it sits on {}, which is on the removable disk {source}",
+                point.display()
+            ),
+            Unsteady::UnknownDisk { point, source } => write!(
+                f,
+                "it sits on {}, and vtium cannot read from sysfs whether {source} is on a removable disk",
                 point.display()
             ),
             Unsteady::Unknown { path } => write!(
@@ -368,13 +377,23 @@ impl Mounts {
                 automount: automount.point.clone(),
             });
         }
-        if mount.point != Path::new("/") && self.removable(mount.dev) {
-            return Err(Unsteady::Removable {
+        // The root filesystem stays mounted whatever disk holds it, and a
+        // filesystem with no block device, whose major number is 0, is on
+        // no disk.
+        if mount.point == Path::new("/") || mount.dev.0 == 0 {
+            return Ok(());
+        }
+        match self.removable(mount.dev) {
+            Some(false) => Ok(()),
+            Some(true) => Err(Unsteady::Removable {
                 point: point(),
                 source: mount.source.clone(),
-            });
+            }),
+            None => Err(Unsteady::UnknownDisk {
+                point: point(),
+                source: mount.source.clone(),
+            }),
         }
-        Ok(())
     }
 
     /// The nearest automount point among the mounts that `mount` sits on,
@@ -397,17 +416,15 @@ impl Mounts {
 
     /// Whether sysfs marks the block device `dev` removable: its own
     /// `removable` attribute, or for a partition, which has none, its
-    /// disk's. A device sysfs does not know, such as the anonymous device
-    /// of tmpfs or btrfs, is not removable.
-    fn removable(&self, (major, minor): (u32, u32)) -> bool {
+    /// disk's. `None` when vtium cannot read the attribute.
+    fn removable(&self, (major, minor): (u32, u32)) -> Option<bool> {
         let dev = self.sys.join(format!("dev/block/{major}:{minor}"));
         let read = |p: PathBuf| std::fs::read_to_string(p).ok();
-        let flag = read(dev.join("removable")).or_else(|| {
-            dev.join("partition")
-                .exists()
-                .then(|| read(dev.join("../removable")))
-                .flatten()
-        });
-        flag.is_some_and(|f| f.trim() == "1")
+        let flag = if dev.join("partition").exists() {
+            read(dev.join("../removable"))
+        } else {
+            read(dev.join("removable"))
+        };
+        flag.map(|f| f.trim() == "1")
     }
 }

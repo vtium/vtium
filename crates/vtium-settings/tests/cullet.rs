@@ -807,3 +807,25 @@ fn a_mount_id_the_table_lacks_fails_closed() {
         );
     }
 }
+
+// When vtium cannot read from sysfs whether a disk is removable, as inside
+// a sandbox that hides /sys, the file fails. The root filesystem stays
+// exempt, and a filesystem with no block device, such as tmpfs, passes.
+#[test]
+fn a_disk_whose_removable_flag_vtium_cannot_read_fails() {
+    let table = "\
+22 1 8:2 / / rw - ext4 /dev/sda2 rw
+40 22 8:17 / /media/usb rw - ext4 /dev/sdb1 rw
+41 22 0:25 / /run rw - tmpfs tmpfs rw
+";
+    let mounts = Mounts::parse(table, Path::new("/nonexistent-sys"));
+    assert_eq!(
+        mounts.judge(&place((8, 17), "/media/usb/a.ttf")),
+        Err(Unsteady::UnknownDisk {
+            point: "/media/usb".into(),
+            source: "/dev/sdb1".into()
+        })
+    );
+    assert_eq!(mounts.judge(&place((8, 2), "/usr/a.ttf")), Ok(()));
+    assert_eq!(mounts.judge(&place((0, 25), "/run/a.ttf")), Ok(()));
+}
