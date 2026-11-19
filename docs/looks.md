@@ -97,7 +97,7 @@ A minimum above its maximum is an error. A display that does not meet the requir
 vtlook amber: display DP-1 (1280x800, 1 bit) draws the built-in vtlook: requires min-depth 24
 ```
 
-vtium checks each display when the display joins the head and again at each modeset that may change its size, refresh or depth. vtium checks again each time the head moves between the GPU path and the CPU path, and a display that meets the requirements again draws the vtlook again.
+vtium checks each display when the display joins the head and again at each modeset that may change its size, refresh or depth. vtium checks again each time the head moves between the GPU path and the CPU path, and after you rotate the head with Super+= or Super+-. A display can report one density across and another down, and a turn changes which one `min-dpi` and `max-dpi` read. A display that meets the requirements again draws the vtlook again.
 
 ## The built-in vtlook
 

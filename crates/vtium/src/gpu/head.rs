@@ -58,7 +58,7 @@ use vtium_term::Frame;
 use super::PlatformGl;
 use super::flap::{Hold, TRIPS_BACK, TripsBack, Window};
 use crate::font::DisplayFace;
-use crate::painter::{Fault, GpuSource, SetUpFault, TestGpu};
+use crate::painter::{Fault, GpuSource, Note, SetUpFault, TestGpu};
 use crate::term::OnGpuFrame;
 
 /// One display's frames on the GPU path: its pipeline, and the frame in GL
@@ -117,8 +117,9 @@ pub struct HeadGpu {
     trips: TripsBack,
     /// Why the GPU path ended, once a failure ended it.
     lost: Option<String>,
-    /// The pipelines' notes for the log, which the loop has not taken.
-    notes: Vec<String>,
+    /// The pipelines' notes for the log, which the loop has not taken,
+    /// each with the display it is about.
+    notes: Vec<Note>,
     /// The test watching the GPU path, which queues its faults and reads
     /// how many displays it keeps.
     test: Option<std::sync::Arc<TestGpu>>,
@@ -226,13 +227,17 @@ impl HeadGpu {
 
     /// The notes for the log since the last call: the pipelines' notes,
     /// such as glyph textures at their ceiling.
-    pub fn take_notes(&mut self) -> Vec<String> {
+    pub fn take_notes(&mut self) -> Vec<Note> {
         std::mem::take(&mut self.notes)
     }
 
     fn take_pipeline_notes(&mut self) {
-        for display in self.displays.values_mut() {
-            self.notes.extend(display.pipeline.take_notes());
+        for (key, display) in &mut self.displays {
+            self.notes
+                .extend(display.pipeline.take_notes().into_iter().map(|text| Note {
+                    display: key.clone(),
+                    text,
+                }));
         }
     }
 
