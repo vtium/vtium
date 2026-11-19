@@ -54,7 +54,10 @@ considered:
   - operator: aaronsb
     said: "ok, your lean makes sense [keep Esc as the back key; every query batch ends with DA1, so DA1's reply clears unanswered queries and bounds the wait of a lone ESC, with no timer]"
     via: the steering session, 2026-11-18, on the Elm spike's strain between the Esc key and a reply's first ESC
-status: proposed
+  - operator: aaronsb
+    said: "this feels like a significant step in maturity. let's proceed this way"
+    via: the steering session, 2026-11-18, after reading the record at fe95b2bd
+status: accepted
 date: 2026-11-18
 deciders:
   - aaronsb
