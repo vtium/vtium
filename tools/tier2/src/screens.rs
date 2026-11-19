@@ -1817,6 +1817,10 @@ const PALETTE_KILN_DESC: &str = scheme_desc!(
     "Kiln, vtium's own color scheme: a warm near-black background, saturated glaze colors, a warm light foreground and an ember-orange cursor",
     scheme_set!()
 );
+const PALETTE_SUNNY_DESC: &str = scheme_desc!(
+    "Sunny, vtium's own color scheme: black text on a white background, deep colors that read on white, a light gray color 7, a vermilion cursor and a pale blue selection",
+    scheme_set!()
+);
 const PALETTE_DRACULA_DESC: &str = scheme_desc!("Dracula, a dark color scheme", scheme_set!());
 const PALETTE_CATPPUCCIN_LATTE_DESC: &str = scheme_desc!(
     "Catppuccin Latte, the light flavor of Catppuccin",
@@ -3726,6 +3730,11 @@ const BASE: &[Case] = &[
         "palette-gruvbox-light",
         PALETTE_GRUVBOX_LIGHT_DESC,
         include_bytes!("../../../crates/vtium/install/palettes/gruvbox-light.palette"),
+    ),
+    color_scheme(
+        "palette-sunny",
+        PALETTE_SUNNY_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/sunny.palette"),
     ),
 ];
 
