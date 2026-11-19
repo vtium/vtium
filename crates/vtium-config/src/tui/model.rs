@@ -606,27 +606,6 @@ impl App {
         self.set_view(view)
     }
 
-    /// Whether something is open in the view that a change of view would
-    /// leave behind (#355): a question, and in the Flow view the file
-    /// view, Restore's list, or a detail, a part maker or a picker; in
-    /// the Settings view an open section; and the new-frit view, a
-    /// form of the Fonts view's. While one is, Tab, Shift-Tab and a click
-    /// on a view's name do not change the view. Esc closes each, and a
-    /// question takes only its own keys.
-    fn holds_view(&self) -> bool {
-        if self.confirm.is_some() {
-            return true;
-        }
-        match self.view {
-            View::Flow => {
-                self.pager.is_some() || self.restore.is_some() || self.flow_view.layer.is_some()
-            }
-            View::Settings => self.settings.open.is_some(),
-            View::New => true,
-            View::Looks | View::Fonts | View::Help => false,
-        }
-    }
-
     /// The highlighted font.
     pub fn font(&self) -> Option<&Font> {
         self.inputs.fonts.get(self.font_at)
@@ -673,13 +652,13 @@ impl App {
 
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
-        let node = super::contract::node(self);
+        let node = super::nav::node(self);
         let mut out = self.handle(event);
         out.extend(self.ask_picture());
         self.flow_settle();
         // a key line shows its first page in each node the TUI moves to,
         // where the keys a person uses most are
-        if super::contract::node(self) != node {
+        if super::nav::node(self) != node {
             self.key_page = 0;
         }
         out
@@ -913,55 +892,32 @@ impl App {
         }
     }
 
+    /// A key, as the navigation module routes it: to the question, the
+    /// live trial, the screen below the minimum size or the value being
+    /// typed, to the keys that act the same in every tab, or to the open
+    /// view.
     fn key(&mut self, key: Key) -> Vec<Effect> {
-        if self.leaving.is_some() || self.installing {
-            return Vec::new();
+        use super::nav::Route;
+        match super::nav::route(self, key) {
+            Route::Ignore | Route::Nothing => Vec::new(),
+            Route::Question => self.confirm_key(key),
+            Route::Trial => self.trial_key(key),
+            Route::TooSmall => self.small_key(key),
+            Route::SaveAndQuit => self.save_and_leave(130),
+            Route::Quit => self.quit(0),
+            Route::Type => self.type_key(key),
+            Route::NextPage(pages) => {
+                self.key_page = self.key_page.saturating_add(1) % pages.max(1);
+                Vec::new()
+            }
+            Route::Step(forward) => self.step_view(forward),
+            Route::GoTo(view) => self.set_view(view),
+            Route::View => self.view_key(key),
         }
-        // a question takes the next key wherever it is asked, the screen
-        // below the minimum size included, and Ctrl-C cancels it
-        if self.confirm.is_some() {
-            return self.confirm_key(key);
-        }
-        // Ctrl-C saves and leaves from every other state, the live trial,
-        // a value being typed and the screen below the minimum size
-        // included
-        if key == Key::Interrupt {
-            return self.save_and_leave(130);
-        }
-        if self.trial.is_some() {
-            return self.trial_key(key);
-        }
-        if super::view::too_small(self) {
-            return self.small_key(key);
-        }
-        // the name of a new terminal takes every key while it is typed
-        if self.flow_typing() {
-            return self.flow_key(key);
-        }
-        if self.typing()
-            && let Key::Char(_) | Key::Backspace = key
-        {
-            return self.type_key(key);
-        }
-        // `.` shows the key line's next page, and the first after the
-        // last, where the keys do not fit on one row
-        if key == Key::Char('.')
-            && let Some(pages) = super::contract::key_pages(super::contract::node(self))
-            && pages.len() > 1
-        {
-            self.key_page = self.key_page.saturating_add(1) % pages.len();
-            return Vec::new();
-        }
-        match key {
-            // `q` quits or asks from a view and from what is open over
-            // it, the file view and Restore's list included
-            Key::Char('q') => return self.quit(0),
-            // Tab and Shift-Tab step the views wherever the selection is,
-            // and the arrows move inside a view (#355)
-            Key::Tab | Key::BackTab if self.holds_view() => return Vec::new(),
-            Key::Tab | Key::BackTab => return self.step_view(key == Key::Tab),
-            _ => {}
-        }
+    }
+
+    /// A key that the open view acts on itself.
+    fn view_key(&mut self, key: Key) -> Vec<Effect> {
         if self.view == View::Flow {
             return self.flow_key(key);
         }
@@ -1106,7 +1062,7 @@ impl App {
             _ => return Vec::new(),
         }
         if let Some(view) = super::view::tab_at(self, mouse.col, mouse.row) {
-            if view == View::Flow || self.holds_view() {
+            if view == View::Flow || super::nav::something_open(self) {
                 return Vec::new();
             }
             return self.set_view(view);

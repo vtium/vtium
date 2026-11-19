@@ -36,6 +36,7 @@ pub mod flowview;
 pub mod input;
 pub mod listbox;
 pub mod model;
+pub mod nav;
 pub mod parts;
 pub mod paths;
 pub mod port;

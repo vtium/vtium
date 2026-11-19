@@ -770,7 +770,7 @@ fn planned_keys(app: &App) -> &'static str {
 /// - ADR-1403 D7, "The same keys in every view": the key line is one row
 ///   that shows its keys in pages, and `.` shows the next page.
 pub fn key_line(app: &App) -> &'static str {
-    match super::contract::key_pages(super::contract::node(app)) {
+    match super::contract::key_pages(super::nav::node(app)) {
         Some(pages) => pages
             .get(app.key_page)
             .or_else(|| pages.first())

@@ -45,12 +45,6 @@ impl App {
         self.flow_with(|s| s.settle(&layout, height));
     }
 
-    /// Whether the editor terminal's name is being typed, so every key
-    /// goes to it.
-    pub(crate) fn flow_typing(&self) -> bool {
-        self.view == View::Flow && self.flow_view.typing.is_some()
-    }
-
     /// A key in the Flow view.
     pub(crate) fn flow_key(&mut self, key: Key) -> Vec<Effect> {
         let state = self.flow_view.clone();
