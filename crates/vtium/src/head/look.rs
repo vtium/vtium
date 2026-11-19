@@ -50,13 +50,6 @@ pub(crate) struct Chosen {
 
 /// What a display is, as a vtlook's requirements judge it.
 #[cfg(feature = "filters")]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each view takes its display's table where vtium makes the view, in app.rs, which this change does not edit"
-    )
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Display<'a> {
     /// The connector's name, such as DP-1.
@@ -76,13 +69,6 @@ impl Chosen {
     /// the display meets the vtlook's requirements. A display that does
     /// not draws the built-in vtlook, `None`, with the line to log, which
     /// names the display and the first requirement it does not meet.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "each view takes its display's table where vtium makes the view, in app.rs, which this change does not edit"
-        )
-    )]
     pub(crate) fn table_for(
         &self,
         display: &Display<'_>,
@@ -118,13 +104,6 @@ impl Chosen {
 /// key at `any` is always met. A size is met on each side. `min-fps` counts
 /// as met here: the measured run that judges it is the frame-rate floor's.
 #[cfg(feature = "filters")]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each view takes its display's table where vtium makes the view, in app.rs, which this change does not edit"
-    )
-)]
 fn unmet(requires: &vtlook::Requires, display: &Display<'_>) -> Option<String> {
     use vtlook::{Depth, Gpu};
     let depth = |d: Depth| match d {

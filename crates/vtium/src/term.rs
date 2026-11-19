@@ -1062,6 +1062,13 @@ pub struct View {
     pub overlay: Overlay,
     /// The overlay the last frame took, `None` when unknown.
     overlay_sent: Option<Overlay>,
+    /// The color table of the head's vtlook that this display draws with,
+    /// `None` for the built-in vtlook ([`View::set_colors`]).
+    #[cfg(feature = "filters")]
+    colors: Option<Arc<vtium_render::filter::Table>>,
+    /// The drawing's renderer holds `colors` already.
+    #[cfg(feature = "filters")]
+    colors_held: bool,
 }
 
 impl View {
@@ -1109,6 +1116,10 @@ impl View {
             sent: None,
             overlay: Overlay::default(),
             overlay_sent: None,
+            #[cfg(feature = "filters")]
+            colors: None,
+            #[cfg(feature = "filters")]
+            colors_held: true,
         };
         view.install(renderer);
         view
@@ -1127,6 +1138,10 @@ impl View {
         self.arrived.clear();
         self.overlaid.clear();
         self.overlay_sent = None;
+        #[cfg(feature = "filters")]
+        {
+            self.colors_held = self.colors.is_none();
+        }
         self.drop_kept();
     }
 
@@ -1231,6 +1246,43 @@ impl View {
     /// The font's sprite policy and missing glyph.
     pub fn font_policy(&self) -> (SpritePolicy, Missing) {
         self.policy
+    }
+
+    /// Draws with `colors`, the color table of the head's vtlook as this
+    /// display takes it, or with none for the built-in vtlook. The
+    /// renderer takes it at the next draw, while a frame is composing
+    /// too, and each renderer a zoom, turn or font change makes takes it
+    /// as well.
+    ///
+    /// References:
+    /// - ADR-1304 D2: every display of the head draws through the head's table.
+    #[cfg(feature = "filters")]
+    pub fn set_colors(&mut self, colors: Option<Arc<vtium_render::filter::Table>>) {
+        self.colors = colors;
+        self.colors_held = false;
+    }
+
+    /// The color table this display draws with, for the tests.
+    #[cfg(all(test, feature = "filters"))]
+    pub(crate) fn colors(&self) -> Option<&Arc<vtium_render::filter::Table>> {
+        self.colors.as_ref()
+    }
+
+    /// Hands the drawing's renderer the display's color table when it
+    /// does not hold it yet. A renderer that cannot take it for want of
+    /// memory keeps the table it had, and vtium logs why.
+    #[cfg(feature = "filters")]
+    fn hand_colors(&mut self) {
+        if self.colors_held {
+            return;
+        }
+        let Some(drawing) = self.drawing.as_mut() else {
+            return;
+        };
+        self.colors_held = true;
+        if let Err(e) = drawing.renderer.set_color_table(self.colors.as_deref()) {
+            log::warn!(target: "look", "display {} keeps its colors: cannot hold the vtlook's color table: {e}", self.id.0);
+        }
     }
 
     /// Whether a frame of this view is composing.
@@ -1423,6 +1475,8 @@ impl View {
             return Prepared::Nothing;
         }
         let tip = state.pointer;
+        #[cfg(feature = "filters")]
+        self.hand_colors();
         if let Some(drawing) = self.drawing.as_mut() {
             let shape = term.terminal.pointer_shape();
             self.pointer.follow(
@@ -1726,6 +1780,30 @@ mod tests {
 
     const ID: DisplayId = DisplayId(1);
     const SIZE: (u32, u32) = (36, 34);
+
+    // A display's view hands the head's color table to its renderer at
+    // the next draw, and to each renderer a rebuild makes after it; the
+    // built-in vtlook takes the table away again.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_view_hands_its_color_table_to_each_renderer() {
+        let colors = |view: &View| view.drawing.as_ref().map(|d| d.renderer.colors());
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        let table = Arc::new(vtium_render::filter::Table::build(&[]).unwrap());
+        view.set_colors(Some(table));
+        assert_eq!(colors(&view), Some(false), "nothing drawn yet");
+        term.terminal.input(b"A");
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(true));
+        let face: DisplayFace = Box::new(Unifont::new(16));
+        view.rebuild(Font::new(face), 16, RenderConfig::default());
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(true), "the rebuilt renderer");
+        view.set_colors(None);
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(false));
+    }
 
     // A notice drawn through the color slot is the notice drawn without
     // one, each pixel looked up in the vtlook's table, so the look's

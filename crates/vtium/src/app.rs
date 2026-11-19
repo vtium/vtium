@@ -1666,6 +1666,8 @@ impl App {
         if let Some(head) = self.heads.get_mut(h) {
             head.views.insert(key.clone(), view);
         }
+        #[cfg(feature = "filters")]
+        self.give_colors(h, &key, &name, size, levels);
         if !self.relayout(h) {
             if let Some(head) = self.heads.get_mut(h) {
                 head.drop_views(|k| *k == key);
@@ -1852,6 +1854,69 @@ impl App {
     /// displays', each one's measured down its rows as vtium draws it, or
     /// [`DPI_ASSUMED`] where it measures none; [`DPI_ASSUMED`] with no
     /// display.
+    /// Hands the view of display `key`, named `name`, of `size` and showing
+    /// `levels`, the color table of head `h`'s vtlook when the display meets
+    /// the vtlook's requirements, and else the built-in vtlook, with the
+    /// line that says why. vtium takes the display's density from
+    /// `display-dpi`, else from the size the display reports, else assumes
+    /// 96. A display drawn in color counts as 24 bits, as every DRM buffer
+    /// vtium draws into is.
+    ///
+    /// References:
+    /// - ADR-1304 D7: each display is checked against the vtlook's requirements when it joins the head.
+    #[cfg(feature = "filters")]
+    fn give_colors(
+        &mut self,
+        h: usize,
+        key: &(PathBuf, DisplayId),
+        name: &str,
+        size: (u32, u32),
+        levels: Option<u8>,
+    ) {
+        use vtium_settings::vtlook::Depth as Needs;
+        let depth = match depth(&self.head_config(h), levels) {
+            Depth::One => Needs::One,
+            Depth::Gray(_) => Needs::Gray,
+            Depth::Color => Needs::TwentyFour,
+        };
+        let turned = self
+            .heads
+            .get(h)
+            .is_some_and(|head| matches!(head.orientation, Orientation::Right | Orientation::Left));
+        let dpi = self
+            .head_config(h)
+            .number(&keys::DISPLAY_DPI)
+            .map(|d| d as f64)
+            .or_else(|| {
+                let (across, down) = self.videos.get(&key.0)?.dpi(key.1)?;
+                Some(if turned { across } else { down })
+            })
+            .unwrap_or(DPI_ASSUMED);
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "the clamp holds the rounded density within u32"
+        )]
+        let dpi = dpi.round().clamp(0.0, f64::from(u32::MAX)) as u32;
+        let display = crate::head::look::Display {
+            name,
+            size,
+            depth,
+            dpi,
+            gpu: self.gpu_source(h).is_some(),
+        };
+        let Some(head) = self.heads.get_mut(h) else {
+            return;
+        };
+        let (table, line) = head.vtlook.table_for(&display);
+        if let Some(line) = line {
+            log::info!(target: "look", "{line}");
+        }
+        if let Some(view) = head.views.get_mut(key) {
+            view.set_colors(table);
+        }
+    }
+
     fn dpi(&self, h: usize) -> f64 {
         if let Some(dpi) = self.head_config(h).number(&keys::DISPLAY_DPI) {
             return dpi as f64;
@@ -6062,6 +6127,47 @@ mod tests {
         );
         shown(&mut app);
         assert_eq!(app.pointer_store.asked(), [16]);
+    }
+
+    // A display that joins a head takes the color table of the head's
+    // vtlook when it meets the vtlook's requirements; one that does not,
+    // here a display of the assumed 96 DPI under `min-dpi = 200`, draws
+    // the built-in vtlook.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_display_that_joins_takes_the_vtlook_s_table_when_it_meets_its_requirements() {
+        use std::sync::Arc;
+        use vtium_settings::vtlook;
+        let heads = "version = 1\n[head a]\n[rules]\ndisplay connector:mem/A -> a\n";
+        for (requires, takes) in [("", true), ("[requires]\nmin-dpi = 200\n", false)] {
+            let (_lp, mut app) = seat(Some(heads), no_fonts());
+            let text = format!("version = 1\n{requires}[color tint]\ncolor = 255,176,0\n");
+            let look = vtlook::read_text(
+                "amber",
+                Path::new("/etc/vtium/looks/amber.vtlook"),
+                text.as_bytes(),
+            )
+            .unwrap();
+            let table = Arc::new(vtlook::table(&look).unwrap());
+            if let Some(head) = app.heads.first_mut() {
+                head.vtlook = crate::head::look::Chosen {
+                    vtlook: Some(look),
+                    table: Some(Arc::clone(&table)),
+                };
+            }
+            app.add_video(
+                PathBuf::from("/dev/mem0"),
+                Box::new(Still::new(&[(1, "A")])),
+            );
+            shown(&mut app);
+            let held: Vec<bool> = app
+                .heads
+                .iter()
+                .flat_map(|h| h.views.values())
+                .map(|v| v.colors().is_some_and(|t| Arc::ptr_eq(t, &table)))
+                .collect();
+            assert_eq!(held, [takes], "{requires:?}");
+        }
     }
 
     // ADR-1401 D9 and vtium-settings's Identity: a display's order is its
