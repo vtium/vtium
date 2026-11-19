@@ -521,6 +521,10 @@ considered:
     via: the maintainer's answers to the steering session's questions, 2026-11-18
     paraphrase: true
     covers: [pointer themes]
+  - operator: aaronsb
+    said: "Accept D10, keep both [flow.info and flow.new-card stay as nodes of their own]"
+    via: the steering session, 2026-11-18, the maintainer's answer on accepting D10 with the two parked nodes kept
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -542,7 +546,7 @@ related: []
   - *Confident (Activate):* Space activates or deactivates the highlighted font, effect or pointer theme (D10). Lean: Space, because in the Flow view Space already puts a part into the set being built, and every terminal sends it. Is Space the key for Activate? (Answered 2026-11-18: yes; see `considered` and D10.)
   - *Confident (leaving an editor):* Esc closes a card, such as a look's card or a terminal's card, and keeps each change made there; only a value being typed is dropped (D10). Lean: keep the changes, because nothing reaches the draft until Save, and a second key to confirm would slow every edit. Does Esc keep a card's changes? (Answered 2026-11-18: yes, and Revert throws them away; see `considered` and D10.)
   - *Not confident (pointer themes):* the Looks tab lists the installed pointer themes as a third group below the looks and the font sets, and Space activates them there (D10). Lean: one list, because it saves a level and the themes show where Space acts; the other end is a list of their own that opens from the tab. Should the pointer themes sit in the Looks tab's list? (Answered 2026-11-18: yes, as a third group after the looks and the font sets; see `considered` and D10.)
-  - *Two parked nodes (D10):* `flow.info`, the read-only detail of a box of a path, and `flow.new-card`, NEW PATH's terminal card, stay as nodes of their own. Lean: keep both, because each keeps a key line from offering a key that does nothing there.
+  - *Settled (two parked nodes, D10):* the maintainer accepted D10 on 2026-11-18 and kept `flow.info` and `flow.new-card` as nodes of their own.
 - **Inversion:** Between "a file for each concern", the C reference's kmscon.conf with a seat file beside it, as vtium has today with heads.conf and planned look files, and "one document that holds everything the console reads". vtium takes the second for the flow of devices, heads and looks, and keeps frits, vtlooks and shaders as files of their own, because the glyph helper and the renderer read them and vtium-config manages them one by one.
 
 > Edited 2026-11-04: the maintainer answered the probes and the open questions the same day (`considered`), and the record now states the answers as decisions. The Summary listed five open questions with recommendations, and its first two sentences on the move read: "The head file's sections, today in `/etc/vtium/heads.conf`, move into vtium.conf below those lines. vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference." The earlier text is in git at 33ea5db0.
