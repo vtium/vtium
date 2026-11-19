@@ -329,10 +329,11 @@ pub fn restore_window(app: &App) -> (usize, usize) {
     (room, first)
 }
 
-/// The Help view's page: how many rows it has, and how many of them the
-/// screen shows at once. The page's top row goes as far as the row that
-/// puts the page's last row at the bottom of the screen.
-pub fn help_window(app: &App) -> (usize, usize) {
-    let len = app.help.page(&app.shared, app.size).len();
-    (len, list_window(app, len, 0).0)
+/// The Help view's page: its rows, with where each entry starts, and how
+/// many of them the screen shows at once. The page's top row goes as far
+/// as the row that puts the page's last row at the bottom of the screen.
+pub fn help_window(app: &App) -> (super::tabs::help::Rows, usize) {
+    let rows = app.help.rows(&app.shared, app.size);
+    let room = list_window(app, rows.len, 0).0;
+    (rows, room)
 }

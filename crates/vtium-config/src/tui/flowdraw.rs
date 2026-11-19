@@ -23,7 +23,7 @@ use ratatui_core::text::{Line, Span as RSpan};
 use ratatui_core::widgets::Widget;
 use ratatui_widgets::paragraph::Paragraph;
 
-use super::canvas::{Row, column, fit, fit_cells, printable, put, span, wrap};
+use super::canvas::{Row, column, fit, printable, put, span, wrap};
 use super::color::{Color, Colors, Style};
 use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
@@ -526,13 +526,12 @@ fn status(app: &App, layout: &Layout, crumb: Option<&str>) -> Row {
     } else {
         app.shared.inputs.flow_colors.style(Role::Waiting)
     };
-    // the column after the waiting count, counted in characters as the
-    // rest's room is
+    // the cell after the waiting count, where the rest starts
     let end = 1usize
-        .saturating_add(left.chars().count())
+        .saturating_add(super::canvas::cells(&left))
         .min(cols)
         .saturating_add(3)
-        .saturating_add(waiting.chars().count());
+        .saturating_add(super::canvas::cells(&waiting));
     let mut row = vec![
         span(left, bold(Color::BrightWhite)),
         span("   ", Style::PLAIN),
@@ -924,7 +923,7 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
             rows,
             3,
             y,
-            &fit_cells(&card_label(flow, line), VALUE_X.saturating_sub(4)),
+            &fit(&card_label(flow, line), VALUE_X.saturating_sub(4)),
             Style::text(Color::Grey),
         );
         let vx = rows.get(y).map_or(VALUE_X, |r| column(r, VALUE_X));
@@ -991,7 +990,7 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
                     rows,
                     vx,
                     y,
-                    &fit_cells(
+                    &fit(
                         &card_words(&app.shared, &path, line),
                         app.size.cols.saturating_sub(VALUE_X).saturating_sub(1),
                     ),
@@ -1309,19 +1308,13 @@ fn list_layer(
             y = y.saturating_add(1);
             continue;
         }
-        let title = fit_cells(title, app.size.cols.saturating_sub(10));
+        let title = fit(title, app.size.cols.saturating_sub(10));
         choice(rows, 3, y, &title, false, i == line);
         // the choice takes its mark, a blank, its words and a gap of three
         let cell = super::canvas::cells(&title).saturating_add(8).max(detail_x);
         let x = rows.get(y).map_or(cell, |r| column(r, cell));
         let room = app.size.cols.saturating_sub(cell).saturating_sub(1);
-        at(
-            rows,
-            x,
-            y,
-            &fit_cells(detail, room),
-            Style::text(Color::Grey),
-        );
+        at(rows, x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
     if let Some(note) = note {
@@ -1374,7 +1367,7 @@ fn others_layer(rows: &mut [Row], app: &App) {
             rows,
             3,
             y,
-            &fit_cells(&dev.name, vx.saturating_sub(4)),
+            &fit(&dev.name, vx.saturating_sub(4)),
             Style::text(Color::White),
         );
         let x = rows.get(y).map_or(vx, |r| column(r, vx));
@@ -1391,7 +1384,7 @@ fn others_layer(rows: &mut [Row], app: &App) {
             rows,
             x,
             y,
-            &fit_cells(&caught, app.size.cols.saturating_sub(vx).saturating_sub(1)),
+            &fit(&caught, app.size.cols.saturating_sub(vx).saturating_sub(1)),
             Style::text(Color::Grey),
         );
         y = y.saturating_add(1);

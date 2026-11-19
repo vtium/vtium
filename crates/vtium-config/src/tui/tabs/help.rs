@@ -54,21 +54,41 @@ fn styled(text: &str) -> Line<'static> {
     Line::from(spans)
 }
 
+/// The Help page or the About page laid out at a size: its lines, and the
+/// row where each of its entries starts. An entry is a run of rows that
+/// belong together, such as a key with its meaning wrapped under it, or a
+/// paragraph.
+#[derive(Default)]
+struct Laid {
+    lines: Vec<Line<'static>>,
+    starts: Vec<usize>,
+}
+
+impl Laid {
+    /// Adds `lines` to the page as one entry.
+    fn entry(&mut self, lines: impl IntoIterator<Item = Line<'static>>) {
+        self.starts.push(self.lines.len());
+        self.lines.extend(lines);
+    }
+}
+
 /// One node's section of the Help page, from the contract: what the node
 /// is, in bold, then each key that acts there and what it does, the
-/// meaning wrapped under its own column.
-fn section(node: &Node, cols: usize) -> Vec<Line<'static>> {
-    let mut lines = Vec::new();
+/// meaning wrapped under its own column. What the node is makes one entry,
+/// and each key with its meaning another.
+fn section(node: &Node, cols: usize, page: &mut Laid) {
     if node.help.is_empty() {
-        return lines;
+        return;
     }
     let bold = Style {
         bold: true,
         ..Style::PLAIN
     };
-    for l in wrap(node.what, cols.saturating_sub(2), usize::MAX) {
-        lines.push(line(format!(" {l}"), bold));
-    }
+    page.entry(
+        wrap(node.what, cols.saturating_sub(2), usize::MAX)
+            .into_iter()
+            .map(|l| line(format!(" {l}"), bold)),
+    );
     let keys_width = node
         .help
         .iter()
@@ -78,6 +98,7 @@ fn section(node: &Node, cols: usize) -> Vec<Line<'static>> {
         .unwrap_or(0);
     let indent = keys_width.saturating_add(5);
     for (keys, does) in node.help {
+        let mut lines = Vec::new();
         let mut does = wrap(does, cols.saturating_sub(indent).max(1), usize::MAX).into_iter();
         if keys.chars().count() > keys_width {
             lines.push(line(format!("   {keys}"), Style::PLAIN));
@@ -94,9 +115,9 @@ fn section(node: &Node, cols: usize) -> Vec<Line<'static>> {
         for l in does {
             lines.push(line(format!("{:indent$}{l}", ""), Style::PLAIN));
         }
+        page.entry(lines);
     }
-    lines.push(Line::default());
-    lines
+    page.entry([Line::default()]);
 }
 
 /// Where the Help tab stands: the page it shows, and the page's first row
@@ -107,14 +128,22 @@ pub struct Help {
     top: usize,
 }
 
-/// How long the page is, and how many of its rows the screen shows at
-/// once, which update reads from the screen's layout.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The page's rows, and how many of them the screen shows at once, which
+/// update reads from the screen's layout.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Page {
     /// The page's rows.
-    pub rows: usize,
+    pub rows: Rows,
     /// The rows the screen shows at once.
     pub room: usize,
+}
+
+/// How many rows the page has, and where each of its entries starts.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Rows {
+    pub len: usize,
+    /// The first row of each entry, in order, from row 0.
+    pub starts: Vec<usize>,
 }
 
 impl Help {
@@ -124,12 +153,28 @@ impl Help {
     /// help draws on. The About page is what `vtium-config --help about`
     /// prints, from the same source.
     pub fn page(&self, shared: &Shared, size: Size) -> Vec<Line<'static>> {
+        self.laid(shared, size).lines
+    }
+
+    /// How many rows the page has at `size`, and where each of its entries
+    /// starts.
+    pub fn rows(&self, shared: &Shared, size: Size) -> Rows {
+        let laid = self.laid(shared, size);
+        Rows {
+            len: laid.lines.len(),
+            starts: laid.starts,
+        }
+    }
+
+    /// The page the tab shows at `size`, with the row where each entry
+    /// starts.
+    fn laid(&self, shared: &Shared, size: Size) -> Laid {
         let cols = size.cols;
         let bold = Style {
             bold: true,
             ..Style::PLAIN
         };
-        let mut lines = Vec::new();
+        let mut page = Laid::default();
         if self.about {
             let mut out = Vec::new();
             crate::banner::about(&mut out);
@@ -139,17 +184,17 @@ impl Help {
                     // for this terminal's width, and a line wider is left
                     // out
                     if width(l) <= cols {
-                        lines.push(styled(l));
+                        page.entry([styled(l)]);
                     }
                 } else {
-                    lines.extend(prose(l, cols));
+                    page.entry(prose(l, cols));
                 }
             }
-            return lines;
+            return page;
         }
         for node in NODES {
             if node.supported {
-                lines.extend(section(node, cols));
+                section(node, cols, &mut page);
                 continue;
             }
             // a view whose node is still planned keeps its hand-written
@@ -164,6 +209,8 @@ impl Help {
             } else {
                 (*does, *keys)
             };
+            // what the view does and its keys make one entry
+            let mut lines = Vec::new();
             for (i, l) in wrap(
                 &format!("{name} {does}"),
                 cols.saturating_sub(2),
@@ -185,35 +232,46 @@ impl Help {
             for l in wrap(keys, cols.saturating_sub(6), usize::MAX) {
                 lines.push(line(format!("     {l}"), Style::text(palette::GREY)));
             }
-            lines.push(Line::default());
+            page.entry(lines);
+            page.entry([Line::default()]);
         }
-        lines.push(Line::default());
-        lines.extend(prose(words::HELP_COMMANDS, cols));
+        page.entry([Line::default()]);
+        page.entry(prose(words::HELP_COMMANDS, cols));
         let usage = crate::help::usage();
         let commands = usage
             .split_once("Commands:\n")
             .map(|(_, rest)| rest.split("\n\n").next().unwrap_or_default())
             .unwrap_or_default();
         // a command's line wider than the screen gives its synopsis a row
-        // of its own and goes on under it
+        // of its own and goes on under it; a line indented under a command
+        // goes on with that command's entry
         let room = cols.saturating_sub(1);
+        let mut entries: Vec<Vec<Line<'static>>> = Vec::new();
         for l in commands.lines() {
+            let mut lines = Vec::new();
             if l.chars().count() <= room {
                 lines.push(line(format!(" {l}"), Style::PLAIN));
-                continue;
-            }
-            let (synopsis, does) = l
-                .trim_start()
-                .split_once("  ")
-                .map_or((l.trim(), ""), |(a, b)| (a, b.trim()));
-            lines.push(line(format!("   {synopsis}"), Style::PLAIN));
-            for d in wrap(does, cols.saturating_sub(8), usize::MAX) {
-                if !d.is_empty() {
-                    lines.push(line(format!("       {d}"), Style::PLAIN));
+            } else {
+                let (synopsis, does) = l
+                    .trim_start()
+                    .split_once("  ")
+                    .map_or((l.trim(), ""), |(a, b)| (a, b.trim()));
+                lines.push(line(format!("   {synopsis}"), Style::PLAIN));
+                for d in wrap(does, cols.saturating_sub(8), usize::MAX) {
+                    if !d.is_empty() {
+                        lines.push(line(format!("       {d}"), Style::PLAIN));
+                    }
                 }
             }
+            match entries.last_mut() {
+                Some(entry) if l.starts_with("   ") => entry.extend(lines),
+                _ => entries.push(lines),
+            }
         }
-        lines
+        for entry in entries {
+            page.entry(entry);
+        }
+        page
     }
 
     /// Whether the tab shows the About page.
@@ -233,8 +291,13 @@ impl Help {
     }
 
     /// A key the navigation module hands to the tab. The top row of the
-    /// page moves by a line, or by the rows the screen shows, and stops
-    /// where the page's last row is at the bottom of the screen.
+    /// page moves by a line, or by a screen, and stops where the page's
+    /// last row is at the bottom of the screen. A screen's step keeps each
+    /// entry whole on one screen: PgDn starts the next screen at the entry
+    /// that the screen cuts or that starts below it, and PgUp starts the
+    /// screen at the first entry that fits whole above the old top. Only
+    /// an entry taller than the screen is cut, and then the step is a
+    /// whole screen.
     pub fn update(&mut self, key: Key, page: Page) -> Vec<Command> {
         match key {
             Key::Left | Key::Right => {
@@ -242,14 +305,30 @@ impl Help {
                 self.top = 0;
             }
             Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                let last = page.rows.saturating_sub(page.room);
+                let last = page.rows.len.saturating_sub(page.room);
                 let step = page.room.max(1);
                 let at = self.top.min(last);
+                let starts = &page.rows.starts;
                 self.top = match key {
                     Key::Up => at.saturating_sub(1),
                     Key::Down => at.saturating_add(1),
-                    Key::PageUp => at.saturating_sub(step),
-                    Key::PageDown => at.saturating_add(step),
+                    Key::PageUp => {
+                        let above = at.saturating_sub(step);
+                        starts
+                            .iter()
+                            .copied()
+                            .find(|s| (above..at).contains(s))
+                            .unwrap_or(above)
+                    }
+                    Key::PageDown => {
+                        let below = at.saturating_add(step);
+                        starts
+                            .iter()
+                            .copied()
+                            .rev()
+                            .find(|s| *s > at && *s <= below)
+                            .unwrap_or(below)
+                    }
                     Key::Home => 0,
                     _ => last,
                 }

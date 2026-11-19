@@ -3529,10 +3529,10 @@ mod flow_view {
         }
     }
 
-    /// Help's page scrolls by a line with Up and Down, and by the rows the
-    /// screen shows with PgUp and PgDn. Its top row stops where the page's
-    /// last row is at the bottom of the screen, so Up moves the page at
-    /// once after End.
+    /// Help's page scrolls by a line with Up and Down, and by at most the
+    /// rows the screen shows with PgUp and PgDn, which stop at the start
+    /// of an entry. Its top row stops where the page's last row is at the
+    /// bottom of the screen, so Up moves the page at once after End.
     ///
     /// References:
     /// - ADR-1403 D7, "The contract": the key table's rows for the Help
@@ -3541,7 +3541,8 @@ mod flow_view {
     fn the_help_page_scrolls_by_its_window_and_up_moves_it_at_once_from_the_bottom() {
         let mut a = app(80, 25);
         press(&mut a, Key::BackTab);
-        let (len, room) = vtium_config::tui::layout::help_window(&a);
+        let (rows, room) = vtium_config::tui::layout::help_window(&a);
+        let len = rows.len;
         assert!(len > room.saturating_mul(2), "{len} rows, {room} shown");
         // the screen's first row of the page, the row under the tab bar's
         // rule, is the page's row `at`
@@ -3552,11 +3553,26 @@ mod flow_view {
             assert_eq!(got.trim_end(), want.trim_end(), "row {at}");
         };
         press(&mut a, Key::PageDown);
-        top(&a, room);
+        let first = a.help.top();
+        assert!(
+            first > 0 && first <= room,
+            "{first} after PgDn, {room} shown"
+        );
+        top(&a, first);
         press(&mut a, Key::PageDown);
-        top(&a, room.saturating_mul(2));
+        let second = a.help.top();
+        assert!(
+            second > first && second <= first.saturating_add(room),
+            "{second} after PgDn from {first}"
+        );
+        top(&a, second);
         press(&mut a, Key::PageUp);
-        top(&a, room);
+        let back = a.help.top();
+        assert!(
+            back < second && back >= second.saturating_sub(room),
+            "{back} after PgUp from {second}"
+        );
+        top(&a, back);
         press(&mut a, Key::End);
         top(&a, len.saturating_sub(room));
         press(&mut a, Key::Down);
@@ -3565,6 +3581,55 @@ mod flow_view {
         top(&a, len.saturating_sub(room).saturating_sub(1));
         press(&mut a, Key::Home);
         top(&a, 0);
+    }
+
+    /// PgDn and PgUp never cut an entry of the Help page across two
+    /// screens: no screen starts on a row that goes on from the row above
+    /// it. Such a row is a key's meaning wrapped under its key, indented
+    /// six columns or more, or a further row of a paragraph or of a list
+    /// of keys, at the same indent as the row above it. A key's own row,
+    /// indented three columns, starts an entry of its own. The last screen
+    /// is the exception: it ends on the page's last row, and the entry it
+    /// cuts at its top showed whole on the screen before it.
+    #[test]
+    fn page_up_and_page_down_keep_each_entry_of_the_help_page_on_one_screen() {
+        let indent = |l: &str| l.len().saturating_sub(l.trim_start().len());
+        let goes_on = |above: &str, row: &str| {
+            !above.trim().is_empty()
+                && !row.trim().is_empty()
+                && (indent(row) >= 6 || (indent(row) == indent(above) && indent(row) != 3))
+        };
+        for (cols, rows) in [(80, 25), (100, 30)] {
+            let mut a = app(cols, rows);
+            press(&mut a, Key::BackTab);
+            let page: Vec<String> = a
+                .help
+                .page(&a.shared, a.size)
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            let (_, room) = vtium_config::tui::layout::help_window(&a);
+            let last = page.len().saturating_sub(room);
+            let mut tops = vec![a.help.top()];
+            for key in [Key::PageDown, Key::PageUp] {
+                for _ in 0..page.len() {
+                    press(&mut a, key);
+                    if tops.last() == Some(&a.help.top()) {
+                        break;
+                    }
+                    tops.push(a.help.top());
+                }
+            }
+            assert!(tops.len() > 4, "{cols}×{rows}: {tops:?}");
+            assert!(tops.contains(&last), "{cols}×{rows}: {tops:?}");
+            for t in tops.into_iter().filter(|t| *t > 0 && *t != last) {
+                let (above, row) = (&page[t - 1], &page[t]);
+                assert!(
+                    !goes_on(above, row),
+                    "{cols}×{rows}: a screen starts at row {t}, inside an entry:\n{above}\n{row}"
+                );
+            }
+        }
     }
 }
 

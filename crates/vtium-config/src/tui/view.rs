@@ -11,11 +11,12 @@
 //! that undo a font preview, so the user can always get out. Where each
 //! thing stands comes from [`super::layout`], which update reads too.
 //!
-//! ratatui's widgets draw the tab bar, the status line, the rules, the
-//! message line, the key line, the Help page, the tabs' lists, Restore's
-//! list and the screen below the minimum. Text that can hold any
-//! character, such as a font's name, its specimen or a line of the draft,
-//! is written by the console's width rule ([`fill`]). The Flow view's
+//! ratatui's widgets draw the tab bar, the rules, the key line, the Help
+//! page, the tabs' lists and Restore's list. Text that can hold any
+//! character, such as a font's name, its specimen, a line of the draft,
+//! the status line, the message and the screen below the minimum, is
+//! written by the console's width rule ([`fill`]), and so is each row of a
+//! list that holds anything but ASCII. The Flow view's
 //! layers are rows of such text, and its document of paths is a picture of
 //! box-drawing lines that [`super::flowdraw`] draws cell by cell, so both
 //! go through [`fill`] too.
@@ -31,7 +32,7 @@ use ratatui_core::text::{Line, Span};
 use ratatui_core::widgets::Widget as _;
 use ratatui_widgets::paragraph::Paragraph;
 
-use super::canvas::{Row, printable, span, wrap};
+use super::canvas::{Row, cells, printable, span, wrap};
 use super::color::{Colors, Style, palette};
 use super::layout::{
     FLOW_TOP, Tab, body, item_rows, key_line, key_rows, list_window, message_rows, tab_places,
@@ -46,9 +47,10 @@ pub fn text(row: &Row) -> String {
     row.iter().map(|s| s.text.as_str()).collect()
 }
 
-/// `left` and `right` on one line of `cols`, `right` against the edge.
+/// `left` and `right` on one line of `cols` cells, `right` against the
+/// edge.
 fn sides(left: &str, right: &str, cols: usize) -> String {
-    let (l, r) = (left.chars().count(), right.chars().count());
+    let (l, r) = (cells(left), cells(right));
     let gap = cols.saturating_sub(l.saturating_add(r)).max(1);
     format!("{left}{}{right}", " ".repeat(gap))
 }
@@ -150,18 +152,13 @@ fn status(app: &App) -> String {
     };
     // the room the left side has beside the right side, with the gap
     // between them and the margin after
-    let room = |live: &str| {
-        app.size
-            .cols
-            .saturating_sub(live.chars().count())
-            .saturating_sub(3)
-    };
+    let room = |live: &str| app.size.cols.saturating_sub(cells(live)).saturating_sub(3);
     // the long words where they fit, else the short words for the font
     // sets waiting, else the short words on the right as well; only then
     // is the left side cut
     let long = format!(" {}", left_with(&words::frits_waiting));
     let short = format!(" {}", left_with(&words::frits_waiting_short));
-    let fits = |left: &str, live: &str| left.chars().count() <= room(live);
+    let fits = |left: &str, live: &str| cells(left) <= room(live);
     let (live_long, live_short) = (live_with(false), live_with(true));
     let (left, live) = if fits(&long, &live_long) {
         (long, live_long)
@@ -271,7 +268,8 @@ fn flow_screen(app: &App, colors: Colors, buf: &mut Buffer) {
 /// Restore's list of the installed history under its title, drawn by
 /// ratatui's List from a copy of the Flow tab's list state. The window
 /// ends on the row above the message, so the entries never cover the
-/// message or the key line.
+/// message or the key line. A row whose file name holds anything but
+/// ASCII is written again by the console's width rule.
 ///
 /// References:
 /// - ADR-1206 D4, "A list's selection lives in the tab's state": the view
@@ -294,7 +292,7 @@ fn restore_list(app: &App, colors: Colors, buf: &mut Buffer) {
     };
     Paragraph::new(Line::from(styled(words::RESTORE_TITLE, title, colors)))
         .render(band(inside, FLOW_TOP, 1), buf);
-    let items: Vec<ListItem> = kept
+    let rows: Vec<Row> = kept
         .iter()
         .enumerate()
         .map(|(i, k)| {
@@ -303,19 +301,29 @@ fn restore_list(app: &App, colors: Colors, buf: &mut Buffer) {
             } else {
                 Style::PLAIN
             };
-            let text = format!(" {:>2}  {} ", i.saturating_add(1), k.name);
-            ListItem::new(Line::from(styled(text, style, colors)))
+            vec![span(
+                format!(" {:>2}  {} ", i.saturating_add(1), k.name),
+                style,
+            )]
+        })
+        .collect();
+    let items: Vec<ListItem> = rows
+        .iter()
+        .map(|row| {
+            let spans: Vec<Span> = row
+                .iter()
+                .map(|s| styled(&s.text, s.style, colors))
+                .collect();
+            ListItem::new(Line::from(spans))
         })
         .collect();
     let mut state = ListState::default()
         .with_offset(list.offset)
         .with_selected(Some(list.at));
-    StatefulWidget::render(
-        List::new(items),
-        band(inside, FLOW_TOP.saturating_add(1), room),
-        buf,
-        &mut state,
-    );
+    let area = band(inside, FLOW_TOP.saturating_add(1), room);
+    StatefulWidget::render(List::new(items), area, buf, &mut state);
+    // an installed file's name can hold any character
+    rewrite_apart(buf, area, &rows, state.offset(), colors);
 }
 
 /// The draft in the pager, from row 2 down to `bottom`: its title, then
@@ -434,16 +442,19 @@ pub fn rows(buf: &ratatui_core::buffer::Buffer) -> Vec<Row> {
 }
 
 /// Draws `app`'s screen into `buf`, its colors read as `colors` says.
-/// ratatui draws the tab bar, the status line, the rules, the message
-/// line, the key line, the Help page and the lists. The Flow view's
-/// layers and its document of paths are written by the console's width
-/// rule.
+/// ratatui draws the tab bar, the rules, the key line, the Help page and
+/// the lists. The status line, the message, the screen below the minimum,
+/// and the Flow view's layers and its document of paths are written by the
+/// console's width rule.
 fn view(app: &App, colors: Colors, buf: &mut Buffer) {
     let area = buf.area;
     let (cols, rows) = (app.size.cols, app.size.rows);
     if too_small(app.size) {
-        let lines: Vec<Line> = small(app).into_iter().map(plain).collect();
-        Paragraph::new(lines).render(area, buf);
+        let lines: Vec<Row> = small(app)
+            .into_iter()
+            .map(|l| vec![span(l, Style::PLAIN)])
+            .collect();
+        fill(buf, area, &lines, colors);
         return;
     }
     Paragraph::new(tab_bar(app, colors)).render(band(area, 0, 1), buf);
@@ -451,7 +462,8 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
         super::flowdraw::render(app, colors, buf);
         return;
     }
-    Paragraph::new(plain(status(app))).render(band(area, 1, 1), buf);
+    let status = vec![span(status(app), Style::PLAIN)];
+    fill(buf, band(area, 1, 1), &[status], colors);
     if app.nav.view == View::Flow {
         flow_screen(app, colors, buf);
         return;
@@ -476,13 +488,17 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
         list_body(app, colors, buf, body_area);
         preview_text(app, colors, buf, body_area);
     }
-    let foot_lines: Vec<Line> = message
+    // the message can hold a font's name or a device's, so it is written
+    // by the console's width rule
+    let message_lines: Vec<Row> = message
         .iter()
-        .map(|l| plain(format!(" {l}")))
-        .chain(std::iter::once(rule()))
+        .map(|l| vec![span(format!(" {l}"), Style::PLAIN)])
+        .collect();
+    fill(buf, band(area, foot, message.len()), &message_lines, colors);
+    let foot_lines: Vec<Line> = std::iter::once(rule())
         .chain(keys.iter().map(|l| plain(format!(" {l}"))))
         .collect();
-    Paragraph::new(foot_lines).render(band(area, foot, rows), buf);
+    Paragraph::new(foot_lines).render(band(area, foot.saturating_add(message.len()), rows), buf);
 }
 
 /// A tab's body: its list, drawn by ratatui's List from a copy of the
@@ -492,8 +508,8 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
 /// partway through an item that takes several rows, as the layout's
 /// offset says. Each row is drawn in the styles its spans carry, so the
 /// highlight covers what the layout marks and no more. ratatui lays a
-/// row's text out by Unicode's widths, so a row holding a character the
-/// console measures differently is written again by the console's rule.
+/// row's text out by Unicode's widths and clusters, so a row holding
+/// anything but ASCII is written again by the console's rule.
 /// The sentences, which can hold a font's specimen, are written by the
 /// console's rule too.
 ///
@@ -524,16 +540,7 @@ fn list_body(app: &App, colors: Colors, buf: &mut Buffer, area: Rect) {
     StatefulWidget::render(List::new(items), list_area, buf, &mut state);
     let first = state.offset();
     let shown = list.len().saturating_sub(first).min(room);
-    for (i, row) in list.iter().enumerate().skip(first).take(shown) {
-        if measured_apart(row) {
-            let line = band(list_area, i.saturating_sub(first), 1);
-            buf.set_style(line, ratatui_core::style::Style::reset());
-            for x in line.left()..line.right() {
-                buf[(x, line.y)].reset();
-            }
-            fill(buf, line, std::slice::from_ref(row), colors);
-        }
-    }
+    rewrite_apart(buf, list_area, &list, first, colors);
     if show_tail {
         fill(buf, band(area, shown, tail.len()), &tail, colors);
     }
@@ -562,18 +569,32 @@ fn preview_text(app: &App, colors: Colors, buf: &mut Buffer, area: Rect) {
     }
 }
 
-/// Whether `row` holds a character that the console's width rule and
-/// Unicode's tables measure differently, or that ratatui would join to
-/// the character before it.
+/// Writes again, by the console's width rule, each row of `list` from its
+/// row `first` that ratatui's List drew in `area` and might have laid out
+/// in other cells than the console does.
+fn rewrite_apart(buf: &mut Buffer, area: Rect, list: &[Row], first: usize, colors: Colors) {
+    for (i, row) in list.iter().enumerate().skip(first) {
+        let line = band(area, i.saturating_sub(first), 1);
+        if line.height == 0 {
+            break;
+        }
+        if measured_apart(row) {
+            buf.set_style(line, ratatui_core::style::Style::reset());
+            for x in line.left()..line.right() {
+                buf[(x, line.y)].reset();
+            }
+            fill(buf, line, std::slice::from_ref(row), colors);
+        }
+    }
+}
+
+/// Whether ratatui might lay `row` out in other cells than the console
+/// does: whether the row holds anything but ASCII. ratatui measures a
+/// character by Unicode's tables and joins marks by Unicode's clusters,
+/// and the console has its own width rule and its own clusters, so only
+/// plain ASCII text is sure to take the same cells under both.
 fn measured_apart(row: &Row) -> bool {
-    use ratatui_core::buffer::CellWidth as _;
-    row.iter().any(|s| {
-        s.text.chars().any(|c| {
-            let mut symbol = [0u8; 4];
-            let symbol: &str = c.encode_utf8(&mut symbol);
-            symbol.cell_width() != super::backend::console_width(symbol).max(1)
-        })
-    })
+    row.iter().any(|s| !s.text.is_ascii())
 }
 
 /// The screen as plain text, one line a row, for tests and goldens; a raw
@@ -616,36 +637,49 @@ fn strip(text: &str) -> String {
 }
 
 /// Writes `rows` into `area` of `buf` from its top left, their colors read
-/// as `colors` says, each character in as many cells as the console's
-/// width rule gives it, as the terminal lays it out. A character the
-/// console and Unicode's tables measure differently keeps the console's
-/// width in the buffer, so ratatui's diff steps over the same cells the
-/// terminal's cursor does.
+/// as `colors` says, as the terminal lays them out. Each character the
+/// console shows, a base character with the marks that join it, goes in
+/// one cell of the buffer, in the style of its base, and takes as many
+/// cells as the console's width rule gives it. A character that ratatui
+/// measures differently keeps the console's width in the buffer, so
+/// ratatui's diff steps over the same cells the terminal's cursor does.
+/// A frame that changes a mark writes the whole character again, since
+/// the mark is in the character's cell.
+///
+/// References:
+/// - ADR-1206 D1, "The console's width rule decides where the cursor
+///   goes".
 pub fn fill(buf: &mut Buffer, area: Rect, rows: &[Row], colors: Colors) {
     use ratatui_core::buffer::{CellDiffOption, CellWidth};
     let area = area.intersection(buf.area);
     for (y, row) in (area.top()..area.bottom()).zip(rows) {
-        let cells = row.iter().flat_map(|s| -> Vec<super::color::SgrCell> {
-            if s.raw {
-                super::color::sgr_cells(&s.text)
-            } else {
-                let style = s.style.in_cells(colors);
-                s.text.chars().map(|c| (c, style)).collect()
-            }
-        });
+        // a name read from a file never carries a control onto the screen
+        let cells: Vec<super::color::SgrCell> = row
+            .iter()
+            .flat_map(|s| -> Vec<super::color::SgrCell> {
+                if s.raw {
+                    super::color::sgr_cells(&s.text)
+                } else {
+                    let style = s.style.in_cells(colors);
+                    s.text.chars().map(|c| (c, style)).collect()
+                }
+            })
+            .map(|(c, style)| (if c.is_control() { '?' } else { c }, style))
+            .collect();
+        let text: String = cells.iter().map(|(c, _)| *c).collect();
         let mut x = area.left();
-        for (c, style) in cells {
-            // a name read from a file never carries a control onto the
-            // screen
-            let c = if c.is_control() { '?' } else { c };
-            let mut symbol = [0u8; 4];
-            let symbol: &str = c.encode_utf8(&mut symbol);
-            let width = super::backend::console_width(symbol).max(1);
+        let mut at = 0usize;
+        for cluster in super::canvas::clusters(&text) {
+            let Some(&(_, style)) = cells.get(at) else {
+                break;
+            };
+            at = at.saturating_add(cluster.chars);
+            let (symbol, width) = super::canvas::shown(&cluster);
             if x.saturating_add(width) > area.right() {
                 break;
             }
             let cell = &mut buf[(x, y)];
-            cell.set_symbol(symbol).set_style(style);
+            cell.set_symbol(&symbol).set_style(style);
             if symbol.cell_width() != width
                 && let Some(w) = std::num::NonZeroU16::new(width)
             {
@@ -738,6 +772,111 @@ mod tests {
 
     use super::super::canvas::span;
     use super::*;
+
+    /// The rows a vtium console shows after `bytes`, on a screen of
+    /// `cols` by `rows`, the second cell of a wide character as a blank.
+    fn console(bytes: &[u8], cols: u16, rows: u16) -> Vec<String> {
+        let mut t = vtium_term::Terminal::new(usize::from(cols), usize::from(rows), 0);
+        t.input(bytes);
+        let s = t.screen();
+        (0..s.rows())
+            .map(|r| {
+                let Some(line) = s.line(r) else {
+                    return String::new();
+                };
+                line.cells()
+                    .iter()
+                    .map(|&c| match line.glyph(c) {
+                        vtium_term::Glyph::Char(ch) => ch.to_string(),
+                        vtium_term::Glyph::Cluster(s) => s.to_owned(),
+                        vtium_term::Glyph::Empty => " ".to_owned(),
+                    })
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    /// The bytes ratatui's Terminal writes through the Backend for each of
+    /// `texts` in turn, each written on the first row of a frame of `cols`
+    /// by `rows` cells by [`fill`].
+    fn frames(cols: u16, rows: u16, texts: &[&str]) -> Vec<Vec<u8>> {
+        let backend = super::super::backend::Vt::new(cols, rows, true);
+        let Ok(mut t) = ratatui_core::terminal::Terminal::new(backend) else {
+            return Vec::new();
+        };
+        texts
+            .iter()
+            .map(|text| {
+                let row = vec![span(*text, Style::PLAIN)];
+                let _ = t.draw(|f| {
+                    let buf = f.buffer_mut();
+                    let area = Rect::new(0, 0, buf.area.width, 1);
+                    fill(buf, area, &[row], Colors::Sent);
+                });
+                t.backend_mut().take()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn text_written_by_fill_shows_on_the_console_as_the_same_text_written_plainly() {
+        // é as e and a combining accent, a Tamil consonant with its
+        // virama, a vowel sign after a space, which the console joins to
+        // the space in a character two cells wide, and a vowel sign on its
+        // consonant
+        for text in ["e\u{301}x", "க்ஷa", "ab ொ.", "ab கொ."] {
+            let drawn = frames(12, 1, &[text]);
+            let first = drawn.first().cloned().unwrap_or_default();
+            assert_eq!(
+                console(&first, 12, 1),
+                console(text.as_bytes(), 12, 1),
+                "{text}: {:?}",
+                String::from_utf8_lossy(&first)
+            );
+        }
+    }
+
+    #[test]
+    fn the_status_line_and_the_message_are_laid_out_by_the_console_s_width_rule() {
+        // U+17A4 takes two cells by Unicode's tables and one by the
+        // console's rule; a draft's name and a message can hold any
+        // character
+        let mut inputs = super::super::fixture::inputs();
+        inputs.flow.draft = Some(super::super::flow::Draft {
+            name: "n\u{17a4}m".to_owned(),
+            changes: 0,
+            problems: 0,
+        });
+        let (mut app, _) = App::new(inputs, 80, 25);
+        app.shared.message = Some("say a\u{17a4}b".to_owned());
+        let shown = console(&draw(&app), 80, 25);
+        let status = shown.get(1).cloned().unwrap_or_default();
+        assert!(status.starts_with(" draft n\u{17a4}m · "), "{status:?}");
+        assert!(
+            shown.iter().any(|row| row == " say a\u{17a4}b"),
+            "{shown:#?}"
+        );
+    }
+
+    #[test]
+    fn a_frame_that_changes_only_a_vowel_sign_writes_its_whole_character_again() {
+        // the console draws கா and கொ each as one character two cells
+        // wide; a frame that wrote the new sign alone into the second cell
+        // would erase the consonant
+        let drawn = frames(10, 1, &["ab கா.", "ab கொ."]);
+        let both: Vec<u8> = drawn.concat();
+        assert_eq!(
+            console(&both, 10, 1),
+            console("ab கொ.".as_bytes(), 10, 1),
+            "{:?}",
+            drawn
+                .iter()
+                .map(|d| String::from_utf8_lossy(d))
+                .collect::<Vec<_>>()
+        );
+    }
 
     #[test]
     fn a_row_is_laid_out_by_the_console_s_width_rule_and_its_diff_steps_the_same_cells() {

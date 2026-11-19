@@ -76,50 +76,172 @@ pub fn printable(text: &str) -> String {
         .collect()
 }
 
-/// `text` in at most `n` characters, cut at its end with `…`.
-pub fn fit(text: &str, n: usize) -> String {
-    let len = text.chars().count();
-    if len <= n {
-        return text.to_owned();
+/// One character as the console shows it: a base character and the marks
+/// that join it, which the console keeps in one cell of one or two cells'
+/// width.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Cluster<'a> {
+    /// The cluster's characters, as the text holds them.
+    pub text: &'a str,
+    /// How many characters of the text the cluster holds.
+    pub chars: usize,
+    /// The cells the cluster takes on the screen. A cluster that starts
+    /// with a mark, which only the start of a text can, has nothing to
+    /// join and takes no cell of its own; [`shown`] gives it one.
+    pub width: u16,
+}
+
+/// The most characters [`clusters`] hands the console's terminal at once:
+/// as many as a line of the terminal's widest holds, at two cells each.
+const SEGMENT_CHARS: usize = (vtium_term::COLUMNS_MAX - 1) / 2;
+
+/// The characters `text` shows as on the console, each a base character
+/// with the marks that join it, in order. Every character of `text` is in
+/// one cluster, so the clusters' texts joined give `text` back.
+///
+/// The console joins a combining mark, a vowel sign or a joiner to the
+/// character before it and draws them as one character, of the width the
+/// console's rule gives the whole cluster. So a row laid out a character
+/// to a cell does not match the console's cells, and neither do the
+/// clusters of Unicode's own tables, which ratatui reads. vtium-config
+/// asks vtium-term, the console's own terminal: it writes the text on a
+/// line of a terminal of its own and reads back the line's cells. Plain
+/// ASCII text joins nothing, so it skips that step.
+///
+/// References:
+/// - ADR-1206 D1, "The console's width rule decides where the cursor
+///   goes": the console's clusters and widths lay the TUI's text out.
+pub fn clusters(text: &str) -> Vec<Cluster<'_>> {
+    let mut out = Vec::new();
+    if text.is_ascii() {
+        for i in 0..text.len() {
+            out.push(Cluster {
+                text: text.get(i..i.saturating_add(1)).unwrap_or_default(),
+                chars: 1,
+                width: 1,
+            });
+        }
+        return out;
     }
-    if n == 0 {
-        return String::new();
+    let mut rest = text;
+    while !rest.is_empty() {
+        let end = rest
+            .char_indices()
+            .nth(SEGMENT_CHARS)
+            .map_or(rest.len(), |(i, _)| i);
+        let (piece, after) = rest.split_at(end);
+        segment(piece, &mut out);
+        rest = after;
     }
-    let mut out: String = text.chars().take(n.saturating_sub(1)).collect();
-    out.push('…');
     out
 }
 
-/// How many cells the console gives `c` on the screen, as `view::fill`
-/// lays a row out: the console's width rule for the character, and at
-/// least one cell, since a control shows as `?`.
-fn cells_of(c: char) -> usize {
-    let mut symbol = [0u8; 4];
-    usize::from(super::backend::console_width(c.encode_utf8(&mut symbol)).max(1))
+/// Appends the clusters of `piece` to `out`, as a vtium-term line shows
+/// `piece` written on it.
+fn segment<'a>(piece: &'a str, out: &mut Vec<Cluster<'a>>) {
+    use vtium_term::{Glyph, Width};
+    let chars = piece.chars().count();
+    let mut term = vtium_term::Terminal::new(chars.saturating_mul(2).saturating_add(1), 1, 0);
+    let _ = term.input(piece.as_bytes());
+    let screen = term.screen();
+    let written = screen.cursor().0;
+    // the text of each cell the console wrote, leaving out the second
+    // cell of a wide character
+    let glyphs: Vec<String> = screen.line(0).map_or_else(Vec::new, |line| {
+        line.cells()
+            .iter()
+            .take(written)
+            .filter(|c| matches!(c.width(), Width::Narrow | Width::Wide))
+            .map(|&c| match line.glyph(c) {
+                Glyph::Char(ch) => ch.to_string(),
+                Glyph::Cluster(s) => s.to_owned(),
+                Glyph::Empty => " ".to_owned(),
+            })
+            .collect()
+    });
+    let mut push = |text: &'a str| {
+        if !text.is_empty() {
+            out.push(Cluster {
+                text,
+                chars: text.chars().count(),
+                width: super::backend::console_width(text),
+            });
+        }
+    };
+    let mut at = 0usize;
+    for (k, glyph) in glyphs.iter().enumerate() {
+        let left = piece.get(at..).unwrap_or_default();
+        // marks at the start of the text join nothing, and the console
+        // leaves them out; they make a cluster of their own
+        let Some(skip) = left.find(glyph.as_str()) else {
+            break;
+        };
+        push(left.get(..skip).unwrap_or_default());
+        let begin = at.saturating_add(skip);
+        at = begin.saturating_add(glyph.len());
+        // the marks past the most a cluster keeps, which the console
+        // drops, stay with their cluster
+        let next = glyphs.get(k.saturating_add(1));
+        while let Some(c) = piece.get(at..).and_then(|s| s.chars().next()) {
+            if next.is_some_and(|n| piece.get(at..).is_some_and(|s| s.starts_with(n.as_str()))) {
+                break;
+            }
+            at = at.saturating_add(c.len_utf8());
+        }
+        push(piece.get(begin..at).unwrap_or_default());
+    }
+    // whatever the line did not show, a character to a cluster
+    let left = piece.get(at..).unwrap_or_default();
+    for (i, c) in left.char_indices() {
+        push(
+            left.get(i..i.saturating_add(c.len_utf8()))
+                .unwrap_or_default(),
+        );
+    }
+}
+
+/// The symbol a cell of the TUI holds for `cluster`, and the cells it
+/// takes: the cluster itself, or for a cluster that starts with a mark, the
+/// mark on a space. A mark the console found nothing to join would join
+/// the character left of the cell it is written in, so it gets a space of
+/// its own, as Unicode shows a mark alone.
+pub fn shown(cluster: &Cluster<'_>) -> (String, u16) {
+    if cluster.width > 0 {
+        return (cluster.text.to_owned(), cluster.width);
+    }
+    let on_space = format!(" {}", cluster.text);
+    let width = super::backend::console_width(&on_space).max(1);
+    (on_space, width)
 }
 
 /// How many cells `text` takes on the console's screen. A character the
 /// console draws two cells wide counts twice, so a name in Chinese takes
-/// twice as many cells as it has characters.
+/// twice as many cells as it has characters, and a mark that joins the
+/// character before it counts nothing.
 pub fn cells(text: &str) -> usize {
-    text.chars().map(cells_of).sum()
+    clusters(&printable(text))
+        .iter()
+        .map(|c| usize::from(shown(c).1))
+        .sum()
 }
 
 /// `text` in at most `n` cells of the console's screen, cut at its end
 /// with `…`. A wide character that would straddle the end goes whole, so
-/// the result can be a cell short of `n`.
-pub fn fit_cells(text: &str, n: usize) -> String {
+/// the result can be a cell short of `n`. The cut never separates a
+/// character from its marks.
+pub fn fit(text: &str, n: usize) -> String {
     if cells(text) <= n {
         return text.to_owned();
     }
+    let shown_text = printable(text);
     let mut out = String::new();
     let mut used = 0usize;
-    for c in text.chars() {
-        let w = cells_of(c);
+    for c in clusters(&shown_text) {
+        let w = usize::from(shown(&c).1);
         if used.saturating_add(w).saturating_add(1) > n {
             break;
         }
-        out.push(c);
+        out.push_str(c.text);
         used = used.saturating_add(w);
     }
     if n > 0 {
@@ -134,74 +256,111 @@ pub fn fit_cells(text: &str, n: usize) -> String {
 /// cell is a blank that [`put`] pads with. A cell inside a wide character
 /// gives the column after it.
 pub fn column(row: &Row, cell: usize) -> usize {
+    let text: String = row.iter().map(|s| printable(&s.text)).collect();
     let mut used = 0usize;
     let mut chars = 0usize;
-    for c in row.iter().flat_map(|s| s.text.chars()) {
+    for c in clusters(&text) {
         if used >= cell {
             return chars;
         }
-        used = used.saturating_add(cells_of(c));
-        chars = chars.saturating_add(1);
+        used = used.saturating_add(usize::from(shown(&c).1));
+        chars = chars.saturating_add(c.chars);
     }
     chars.saturating_add(cell.saturating_sub(used))
 }
 
-/// `text` in at most `n` characters, cut in the middle with `…`, so the
-/// end that tells devices apart still shows.
+/// `text` in at most `n` cells of the console's screen, cut in the middle
+/// with `…`, so the end that tells devices apart still shows.
 pub fn mid(text: &str, n: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= n {
+    if cells(text) <= n {
         return text.to_owned();
     }
     if n < 5 {
         return fit(text, n);
     }
+    let shown_text = printable(text);
+    let parts = clusters(&shown_text);
+    // the clusters from one end that fit in `room` cells
+    let take = |room: usize, from_end: bool| -> String {
+        let mut used = 0usize;
+        let mut kept: Vec<&str> = Vec::new();
+        let order: Box<dyn Iterator<Item = &Cluster<'_>>> = if from_end {
+            Box::new(parts.iter().rev())
+        } else {
+            Box::new(parts.iter())
+        };
+        for c in order {
+            used = used.saturating_add(usize::from(shown(c).1));
+            if used > room {
+                break;
+            }
+            kept.push(c.text);
+        }
+        if from_end {
+            kept.reverse();
+        }
+        kept.concat()
+    };
     let head = n.saturating_sub(1).div_ceil(2);
     let tail = n.saturating_sub(1).saturating_sub(head);
-    let mut out: String = chars.iter().take(head).collect();
+    let mut out = take(head, false);
     out.push('…');
-    out.extend(chars.iter().skip(chars.len().saturating_sub(tail)));
+    out.push_str(&take(tail, true));
     out
 }
 
-/// The first of `options` that fits in `n` characters, else the last cut
-/// to `n`.
+/// The first of `options` that fits in `n` cells, else the last cut to
+/// `n`.
 pub fn pick(n: usize, options: &[&str]) -> String {
-    options.iter().find(|o| o.chars().count() <= n).map_or_else(
+    options.iter().find(|o| cells(o) <= n).map_or_else(
         || fit(options.last().copied().unwrap_or(""), n),
         |o| (*o).to_owned(),
     )
 }
 
-/// `text` in lines of at most `width` characters, broken between words,
-/// at most `most` of them, the last cut with `…` where text was left out;
-/// at least one line.
+/// `word` in pieces of at most `width` cells, cut between the characters
+/// the console shows, so a mark stays with its character. A character
+/// wider than `width` is a piece of its own.
+fn pieces(word: &str, width: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut piece = String::new();
+    let mut used = 0usize;
+    for c in clusters(word) {
+        let w = usize::from(shown(&c).1);
+        if used > 0 && used.saturating_add(w) > width {
+            out.push(std::mem::take(&mut piece));
+            used = 0;
+        }
+        piece.push_str(c.text);
+        used = used.saturating_add(w);
+    }
+    out.push(piece);
+    out
+}
+
+/// `text` in lines of at most `width` cells of the console's screen,
+/// broken between words, at most `most` of them, the last cut with `…`
+/// where text was left out; at least one line. A character two cells wide
+/// counts twice, and a mark that joins the character before it counts
+/// nothing.
 pub fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
     let width = width.max(1);
     let mut lines: Vec<String> = Vec::new();
     let mut line = String::new();
+    let mut used = 0usize;
     // a word longer than the line, such as a path, breaks where the line
     // ends
-    let pieces: Vec<String> = text
-        .split(' ')
-        .flat_map(|w| {
-            let chars: Vec<char> = w.chars().collect();
-            if chars.is_empty() {
-                vec![String::new()]
-            } else {
-                chars.chunks(width).map(|c| c.iter().collect()).collect()
-            }
-        })
-        .collect();
-    for word in &pieces {
-        let len = line.chars().count();
-        if len > 0 && len.saturating_add(1).saturating_add(word.chars().count()) > width {
+    for word in text.split(' ').flat_map(|w| pieces(w, width)) {
+        let w = cells(&word);
+        if used > 0 && used.saturating_add(1).saturating_add(w) > width {
             lines.push(std::mem::take(&mut line));
-        }
-        if !line.is_empty() {
+            used = 0;
+        } else if !line.is_empty() {
             line.push(' ');
+            used = used.saturating_add(1);
         }
-        line.push_str(word);
+        line.push_str(&word);
+        used = used.saturating_add(w);
     }
     lines.push(line);
     let most = most.max(1);
@@ -265,12 +424,12 @@ mod tests {
     #[test]
     fn text_is_fitted_and_placed_by_the_console_s_cells() {
         assert_eq!(cells("ab键盘"), 6);
-        assert_eq!(fit_cells("ab键盘", 6), "ab键盘");
+        assert_eq!(fit("ab键盘", 6), "ab键盘");
         // `键` and `…` take 3 cells; `盘` would straddle the end
-        assert_eq!(fit_cells("ab键盘", 5), "ab键…");
-        assert_eq!(fit_cells("ab键盘", 4), "ab…");
-        assert_eq!(fit_cells("", 0), "");
-        assert_eq!(fit_cells("abc", 0), "");
+        assert_eq!(fit("ab键盘", 5), "ab键…");
+        assert_eq!(fit("ab键盘", 4), "ab…");
+        assert_eq!(fit("", 0), "");
+        assert_eq!(fit("abc", 0), "");
         let row = vec![span("a键b", Style::PLAIN)];
         // cell 3 shows `b`, the third character
         assert_eq!(column(&row, 3), 2);
@@ -278,6 +437,27 @@ mod tests {
         assert_eq!(column(&row, 2), 2);
         // the row takes 4 cells, so cell 6 is two blanks past its end
         assert_eq!(column(&row, 6), 5);
+    }
+
+    #[test]
+    fn wrap_and_fit_measure_text_in_the_console_s_cells() {
+        // 键 and 盘 take two cells each on the console, and the marks in
+        // é and கொ join the character before them
+        assert_eq!(fit("键盘键盘", 5), "键盘…");
+        assert_eq!(
+            fit("e\u{301}e\u{301}e\u{301}", 3),
+            "e\u{301}e\u{301}e\u{301}"
+        );
+        assert_eq!(fit("கொகொகொ", 5), "கொகொ…");
+        assert_eq!(wrap("键盘 键盘 键盘", 9, 9), ["键盘 键盘", "键盘"]);
+        // a word wider than the line breaks where the line ends, and
+        // never between a character and its marks
+        assert_eq!(wrap("键盘键盘键", 5, 9), ["键盘", "键盘", "键"]);
+        assert_eq!(wrap("கொகொகொ", 4, 9), ["கொகொ", "கொ"]);
+        // the last line kept marks the text left out
+        assert_eq!(wrap("键盘 键盘 键盘", 9, 1), ["键盘 键…"]);
+        assert_eq!(mid("键盘ab键盘cd键盘", 9), "键盘…键盘");
+        assert_eq!(pick(4, &["键盘键", "键盘"]), "键盘");
     }
 
     #[test]
