@@ -26,6 +26,43 @@ pub fn span(text: impl Into<String>, style: Style) -> Span {
     }
 }
 
+/// Writes `text` in `style` on `row` from its character column `x`, and
+/// returns the column after the text. A row shorter than `x` is padded
+/// with blanks first. The text replaces the characters under it and leaves
+/// the rest of the row as it was, so a value written at its own column
+/// cuts a label that runs into that column, and the label's end still
+/// shows past the value. A control character becomes `?`, so a name read
+/// from a file never carries a control onto the screen. The row stays a
+/// run of spans, one for each stretch of one style.
+///
+/// The columns count characters, not cells: the row is laid out on the
+/// screen afterwards by the console's width rule, which moves everything
+/// after a wide character one cell to the right.
+pub fn put(row: &mut Row, x: usize, text: &str, style: Style) -> usize {
+    let mut cells: Vec<(char, Style)> = row
+        .iter()
+        .flat_map(|s| s.text.chars().map(move |c| (c, s.style)))
+        .collect();
+    if cells.len() < x {
+        cells.resize(x, (' ', Style::PLAIN));
+    }
+    let written: Vec<(char, Style)> = printable(text).chars().map(|c| (c, style)).collect();
+    let end = x.saturating_add(written.len());
+    let tail = cells.split_off(end.min(cells.len()));
+    cells.truncate(x);
+    cells.extend(written);
+    cells.extend(tail);
+    let mut out: Row = Vec::new();
+    for (c, style) in cells {
+        match out.last_mut() {
+            Some(s) if s.style == style => s.text.push(c),
+            _ => out.push(span(c.to_string(), style)),
+        }
+    }
+    *row = out;
+    end
+}
+
 /// The screen being drawn: `cols` by `rows` cells.
 #[derive(Clone, Debug)]
 pub struct Canvas {
@@ -270,6 +307,36 @@ mod tests {
     #[test]
     fn a_raw_span_s_width_leaves_out_its_escapes() {
         assert_eq!(width("\x1b[38;2;1;2;3mab\x1b[0mc"), 3);
+    }
+
+    #[test]
+    fn text_put_on_a_row_replaces_what_it_covers_and_keeps_the_rest() {
+        let grey = Style::text(super::super::color::Color::Grey);
+        let white = Style::text(super::super::color::Color::BrightWhite);
+        let mut row: Row = Vec::new();
+        // a label that runs past the column where its value starts
+        assert_eq!(put(&mut row, 3, "Input A long name", grey), 20);
+        assert_eq!(put(&mut row, 12, "connected", white), 21);
+        // the value's column is reached by blanks, and a later run of the
+        // label's style joins the earlier one only when they touch
+        assert_eq!(
+            row,
+            [
+                span("   ", Style::PLAIN),
+                span("Input A l", grey),
+                span("connected", white),
+            ]
+        );
+        assert_eq!(put(&mut row, 24, "x\u{1b}", grey), 26);
+        let text: String = row.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(text, "   Input A lconnected   x?");
+        // a shorter value leaves the end of the label in sight
+        let mut row: Row = Vec::new();
+        put(&mut row, 0, "abcdefgh", grey);
+        put(&mut row, 2, "XY", white);
+        let text: String = row.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(text, "abXYefgh");
+        assert_eq!(row.len(), 3);
     }
 
     #[test]

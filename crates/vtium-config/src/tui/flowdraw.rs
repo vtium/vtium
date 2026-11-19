@@ -23,7 +23,7 @@ use ratatui_core::text::{Line, Span as RSpan};
 use ratatui_core::widgets::Widget;
 use ratatui_widgets::paragraph::Paragraph;
 
-use super::canvas::{Canvas, Row, fit, printable, span, width, wrap};
+use super::canvas::{Canvas, Row, fit, printable, put, span, width, wrap};
 use super::color::{Color, Colors, Style};
 use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
@@ -528,22 +528,7 @@ pub fn render(app: &App, colors: Colors, buf: &mut Buffer) {
     let keys = super::layout::key_rows(app);
     match &state.layer {
         Some(obj) => {
-            let mut canvas = Canvas::new(cols, rows);
-            match obj {
-                Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
-                    card_layer(&mut canvas, app, state, obj);
-                }
-                Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_) => {
-                    info_layer(&mut canvas, app, obj);
-                }
-                Obj::Others => others_layer(&mut canvas, app),
-                Obj::Pal(Slot::Template(st)) | Obj::New(Slot::Empty(st)) => match &state.picker {
-                    Some(p) => picker_layer(&mut canvas, app, state, p),
-                    None => make_layer(&mut canvas, app, state, *st),
-                },
-                _ => choices_layer(&mut canvas, app, state, obj),
-            }
-            let drawn = canvas.into_rows();
+            let drawn = layer(app, state, obj);
             view::fill(
                 buf,
                 place(area, 0, 2, rows),
@@ -665,16 +650,48 @@ fn window_cells(
     shown
 }
 
+/// The rows of the layer open on `obj`, one for each row of the screen,
+/// with the text each row holds from column 0. A layer writes from row 3
+/// down, and the window's bottom ends what it writes, so the message and
+/// the key line below the window stay clear of it. The status line, the
+/// message and the key line are drawn after the layer all the same.
+fn layer(app: &App, state: &flowview::State, obj: &Obj) -> Vec<Row> {
+    let mut rows: Vec<Row> = vec![Vec::new(); app.size.rows];
+    match obj {
+        Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
+            card_layer(&mut rows, app, state, obj);
+        }
+        Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_) => info_layer(&mut rows, app, obj),
+        Obj::Others => others_layer(&mut rows, app),
+        Obj::Pal(Slot::Template(st)) | Obj::New(Slot::Empty(st)) => match &state.picker {
+            Some(p) => picker_layer(&mut rows, app, state, p),
+            None => make_layer(&mut rows, app, state, *st),
+        },
+        _ => choices_layer(&mut rows, app, state, obj),
+    }
+    rows
+}
+
+/// Writes `text` in `style` on row `y` of a layer from its column `x`, over
+/// what the row holds there, and returns the column after the text. A row
+/// below the screen takes nothing.
+fn at(rows: &mut [Row], x: usize, y: usize, text: &str, style: Style) -> usize {
+    match rows.get_mut(y) {
+        Some(row) => put(row, x, text, style),
+        None => x,
+    }
+}
+
 /// One choice: `○ text`, or `● text` for what is chosen now, the text in
 /// reverse video under the cursor; returns the column after it and its
 /// gap.
-fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor: bool) -> usize {
+fn choice(rows: &mut [Row], x: usize, y: usize, text: &str, on: bool, cursor: bool) -> usize {
     let (mark, mark_style) = if on {
         ("●", Style::text(Color::Green))
     } else {
         ("○", Style::text(Color::Grey))
     };
-    canvas.put(x, y, mark, mark_style);
+    at(rows, x, y, mark, mark_style);
     let style = match (cursor, on) {
         (true, _) => Style {
             bold: on,
@@ -686,14 +703,14 @@ fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor:
         },
         (false, false) => Style::text(Color::White),
     };
-    let end = canvas.put(x.saturating_add(2), y, text, style);
+    let end = at(rows, x.saturating_add(2), y, text, style);
     end.saturating_add(3)
 }
 
 /// An added path's display or input, or a roaming input: what it
 /// matches and where it goes, read-only, and the line that says how to
 /// change it.
-fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
+fn info_layer(rows: &mut [Row], app: &App, obj: &Obj) {
     let flow = &app.shared.inputs.flow;
     let (kind, sel, heading) = match obj {
         Obj::Doc(_, Slot::Display(s)) | Obj::Nothing(Slot::Display(s)) => {
@@ -705,13 +722,20 @@ fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
         _ => return,
     };
     let (title, detail) = paths::title(flow, kind, sel);
-    let x = canvas.put(
+    let x = at(
+        rows,
         1,
         3,
         &format!("{heading} {title}"),
         bold(Color::BrightWhite),
     );
-    canvas.put(x.saturating_add(2), 3, &detail, Style::text(Color::Grey));
+    at(
+        rows,
+        x.saturating_add(2),
+        3,
+        &detail,
+        Style::text(Color::Grey),
+    );
     let goes = match obj {
         Obj::Doc(name, _) => words::in_terminal(name),
         Obj::Nothing(Slot::Display(_)) => words::TURNED_OFF.to_owned(),
@@ -721,8 +745,9 @@ fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
     let vx = VALUE_X.min(app.size.cols / 3);
     let mut y = 5usize;
     for (label, value) in [("Matched by", sel.clone()), ("Where it goes", goes)] {
-        canvas.put(3, y, label, Style::text(Color::Grey));
-        canvas.put(
+        at(rows, 3, y, label, Style::text(Color::Grey));
+        at(
+            rows,
             vx,
             y,
             &fit(&value, app.size.cols.saturating_sub(vx).saturating_sub(1)),
@@ -735,7 +760,7 @@ fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
         _ => words::REVISE_NOTE,
     };
     for line in wrap(note, app.size.cols.saturating_sub(4), 2) {
-        canvas.put(3, y, &line, Style::text(Color::Yellow));
+        at(rows, 3, y, &line, Style::text(Color::Yellow));
         y = y.saturating_add(1);
     }
 }
@@ -785,9 +810,9 @@ fn card_words(shared: &Shared, path: &Path, line: &CardLine) -> String {
 /// allocate nothing, each changeable here; in the editor, also the parts
 /// it joins, which Enter disconnects. An added path's card says how to
 /// change its parts.
-fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj) {
+fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
     let flow = &app.shared.inputs.flow;
-    let Some(path) = card_path(app.flow.state(), &app.shared, obj) else {
+    let Some(path) = card_path(state, &app.shared, obj) else {
         return;
     };
     let editor = matches!(obj, Obj::New(_));
@@ -800,7 +825,7 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
             words::vt_words(&path.vts())
         )
     };
-    canvas.put(1, 3, &heading, bold(Color::BrightWhite));
+    at(rows, 1, 3, &heading, bold(Color::BrightWhite));
     let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let lines = card_lines(&path, editor);
@@ -830,22 +855,36 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
     let first = state.line.saturating_add(1).saturating_sub(room);
     let mut y = 5usize;
     for (i, line) in lines.iter().enumerate().skip(first).take(room) {
-        canvas.put(3, y, &card_label(flow, line), Style::text(Color::Grey));
+        at(
+            rows,
+            3,
+            y,
+            &card_label(flow, line),
+            Style::text(Color::Grey),
+        );
         let here = i == state.line;
         match (&state.typing, here) {
             (Some(t), true) => {
-                canvas.put(VALUE_X, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+                at(
+                    rows,
+                    VALUE_X,
+                    y,
+                    &format!(" {t}_ "),
+                    Style::PLAIN.reversed(),
+                );
             }
             (None, true) => {
                 let choices = card_choices(&app.shared, line);
                 if choices.is_empty() {
-                    let x = canvas.put(
+                    let x = at(
+                        rows,
                         VALUE_X,
                         y,
                         &format!(" {} ", card_words(&app.shared, &path, line)),
                         Style::PLAIN.reversed(),
                     );
-                    canvas.put(
+                    at(
+                        rows,
                         x.saturating_add(2),
                         y,
                         words::ENTER_TO_TYPE,
@@ -874,12 +913,13 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
                             break;
                         }
                         let on = chosen == Some(k) && !matches!(line, CardLine::Part(_));
-                        x = choice(canvas, x, y, w, on, k == state.pick);
+                        x = choice(rows, x, y, w, on, k == state.pick);
                     }
                 }
             }
             _ => {
-                canvas.put(
+                at(
+                    rows,
                     VALUE_X,
                     y,
                     &fit(
@@ -896,15 +936,15 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         y = y.saturating_add(1);
     }
     for line in about {
-        canvas.put(3, y, &line, Style::text(Color::Grey));
+        at(rows, 3, y, &line, Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
     y = y.saturating_add(1).min(bottom.saturating_sub(note.len()));
     for line in note {
-        canvas.put(3, y, &line, Style::text(Color::Yellow));
+        at(rows, 3, y, &line, Style::text(Color::Yellow));
         y = y.saturating_add(1);
     }
-    subflow(canvas, app, &path, y.saturating_add(1), bottom);
+    subflow(rows, app, &path, y.saturating_add(1), bottom);
 }
 
 /// The terminal's subflow on its card (ADR-1403 D7): its font set, then
@@ -912,12 +952,12 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
 /// under them about the look's filters and requirements. vtium-config
 /// reads no vtlook file yet (ADR-1304), so the look shows by its name, or
 /// as the built-in look, and the grey line says so.
-fn subflow(canvas: &mut Canvas, app: &App, path: &Path, y: usize, bottom: usize) {
+fn subflow(rows: &mut [Row], app: &App, path: &Path, y: usize, bottom: usize) {
     if y.saturating_add(3) > bottom || path.active || path.none {
         return;
     }
     let flow = &app.shared.inputs.flow;
-    canvas.put(1, y, words::SUBFLOW_TITLE, bold(Color::BrightWhite));
+    at(rows, 1, y, words::SUBFLOW_TITLE, bold(Color::BrightWhite));
     let font = path
         .font
         .clone()
@@ -954,10 +994,16 @@ fn subflow(canvas: &mut Canvas, app: &App, path: &Path, y: usize, bottom: usize)
     .enumerate()
     {
         if i > 0 {
-            x = canvas.put(x, y.saturating_add(1), arrow, Style::text(Color::Grey));
+            x = at(
+                rows,
+                x,
+                y.saturating_add(1),
+                arrow,
+                Style::text(Color::Grey),
+            );
         }
         let shown = fit(&text, room.saturating_sub(x));
-        x = canvas.put(x, y.saturating_add(1), &shown, Style::text(color));
+        x = at(rows, x, y.saturating_add(1), &shown, Style::text(color));
     }
     for (i, line) in wrap(words::SUBFLOW_REQUIRES, app.size.cols.saturating_sub(4), 2)
         .iter()
@@ -965,7 +1011,7 @@ fn subflow(canvas: &mut Canvas, app: &App, path: &Path, y: usize, bottom: usize)
     {
         let row = y.saturating_add(2).saturating_add(i);
         if row < bottom {
-            canvas.put(3, row, line, Style::text(Color::Grey));
+            at(rows, 3, row, line, Style::text(Color::Grey));
         }
     }
 }
@@ -976,7 +1022,7 @@ fn subflow(canvas: &mut Canvas, app: &App, path: &Path, y: usize, bottom: usize)
 ///
 /// A part's choices, one a row, broad to narrow, each with what it
 /// covers; the cursor's in reverse video and the piece's own marked ●.
-fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj) {
+fn choices_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
     let flow = &app.shared.inputs.flow;
     let Some((kind, sel)) = label_target(obj) else {
         return;
@@ -986,12 +1032,13 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
         Kind::Input => (words::INPUT_PART, words::CHOOSE_INPUT),
     };
     let name = paths::title(flow, kind, &sel).0;
-    let x = canvas.put(1, 3, part, bold(Color::BrightWhite));
+    let x = at(rows, 1, 3, part, bold(Color::BrightWhite));
     let role = match kind {
         Kind::Display => Role::Display,
         Kind::Input => Role::Input,
     };
-    canvas.put(
+    at(
+        rows,
         x.saturating_add(2),
         3,
         &fit(&name, app.size.cols.saturating_sub(x).saturating_sub(3)),
@@ -1000,12 +1047,13 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
     // the label's line
     let doc = paths::read(flow);
     let label = doc.label(kind, &sel).unwrap_or_default().to_owned();
-    canvas.put(3, 5, words::LABEL_FIELD, Style::text(Color::Grey));
+    at(rows, 3, 5, words::LABEL_FIELD, Style::text(Color::Grey));
     let vx = 12usize;
     match &state.typing {
         Some(t) => {
-            let x = canvas.put(vx, 5, &format!(" {t}_ "), Style::PLAIN.reversed());
-            canvas.put(
+            let x = at(rows, vx, 5, &format!(" {t}_ "), Style::PLAIN.reversed());
+            at(
+                rows,
                 x.saturating_add(2),
                 5,
                 &fit(
@@ -1026,8 +1074,9 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
             } else {
                 Style::text(Color::BrightWhite)
             };
-            let x = canvas.put(vx, 5, &format!(" {shown} "), style);
-            canvas.put(
+            let x = at(rows, vx, 5, &format!(" {shown} "), style);
+            at(
+                rows,
                 x.saturating_add(3),
                 5,
                 &fit(
@@ -1039,10 +1088,11 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
         }
     }
     let y0 = 7usize;
-    canvas.put(1, y0, heading, bold(Color::BrightWhite));
+    at(rows, 1, y0, heading, bold(Color::BrightWhite));
     let about = wrap(words::CHOOSE_ABOUT, app.size.cols.saturating_sub(4), 2);
     for (k, line) in about.iter().enumerate() {
-        canvas.put(
+        at(
+            rows,
             3,
             y0.saturating_add(1).saturating_add(k),
             line,
@@ -1067,16 +1117,16 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
             break;
         }
         let on = now.is_some() && *value == now;
-        let x = choice(canvas, 3, y, title, on, state.line > 0 && i == line);
+        let x = choice(rows, 3, y, title, on, state.line > 0 && i == line);
         let room = app.size.cols.saturating_sub(x);
-        canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
+        at(rows, x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
 }
 
 /// A template's layer: the ways to make a part of `stage`, one a row,
 /// each with what it covers.
-fn make_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, stage: Stage) {
+fn make_layer(rows: &mut [Row], app: &App, state: &flowview::State, stage: Stage) {
     let fonts = font_names(&app.shared);
     let makes = parts::makes(stage, &fonts);
     // the whole-kind choices first, then under MATCH BY the choices that
@@ -1090,7 +1140,7 @@ fn make_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, stage: St
         .into_iter()
         .collect();
     list_layer(
-        canvas,
+        rows,
         app,
         state.line,
         &words::template_heading(stage.name()),
@@ -1104,7 +1154,7 @@ fn make_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, stage: St
 
 /// A filter's picker: each value the connected devices give for its key,
 /// with the devices it matches, and last the entry to type a value.
-fn picker_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, p: &flowview::Picker) {
+fn picker_layer(rows: &mut [Row], app: &App, state: &flowview::State, p: &flowview::Picker) {
     let list: Vec<(String, String)> = parts::picker(&app.shared.inputs.flow, p.stage, p.key)
         .into_iter()
         .map(|pick| match pick {
@@ -1117,7 +1167,7 @@ fn picker_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, p: &flo
         .collect();
     let typing = state.typing.as_deref();
     list_layer(
-        canvas,
+        rows,
         app,
         state.line,
         &words::picker_heading(parts::filter_words(p.key)),
@@ -1136,7 +1186,7 @@ fn picker_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, p: &flo
 /// is a grey sentence under the list.
 #[expect(clippy::too_many_arguments, reason = "a layer's parts, each its own")]
 fn list_layer(
-    canvas: &mut Canvas,
+    rows: &mut [Row],
     app: &App,
     line: usize,
     heading: &str,
@@ -1146,10 +1196,16 @@ fn list_layer(
     marks: &[(usize, &str)],
     note: Option<&str>,
 ) {
-    canvas.put(1, 3, heading, bold(Color::BrightWhite));
+    at(rows, 1, 3, heading, bold(Color::BrightWhite));
     let about = wrap(about, app.size.cols.saturating_sub(4), 2);
     for (k, l) in about.iter().enumerate() {
-        canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
+        at(
+            rows,
+            3,
+            4usize.saturating_add(k),
+            l,
+            Style::text(Color::Grey),
+        );
     }
     let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
@@ -1171,7 +1227,7 @@ fn list_layer(
         if let Some((_, mark)) = marks.iter().find(|(at, _)| *at == i) {
             y = y.saturating_add(1);
             if y < bottom {
-                canvas.put(3, y, mark, bold(Color::BrightWhite));
+                at(rows, 3, y, mark, bold(Color::BrightWhite));
             }
             y = y.saturating_add(1);
         }
@@ -1179,12 +1235,12 @@ fn list_layer(
             break;
         }
         if let (Some(t), true) = (typing, i == last) {
-            canvas.put(3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+            at(rows, 3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
             y = y.saturating_add(1);
             continue;
         }
         let x = choice(
-            canvas,
+            rows,
             3,
             y,
             &fit(title, app.size.cols.saturating_sub(10)),
@@ -1193,7 +1249,7 @@ fn list_layer(
         );
         let x = x.max(column);
         let room = app.size.cols.saturating_sub(x).saturating_sub(1);
-        canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
+        at(rows, x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
     if let Some(note) = note {
@@ -1201,7 +1257,7 @@ fn list_layer(
             if y >= bottom {
                 break;
             }
-            canvas.put(5, y, &l, Style::text(Color::Grey));
+            at(rows, 5, y, &l, Style::text(Color::Grey));
             y = y.saturating_add(1);
         }
     }
@@ -1209,12 +1265,24 @@ fn list_layer(
 
 /// The second layer of the box of other inputs: each input it folds, with
 /// the rule that catches it.
-fn others_layer(canvas: &mut Canvas, app: &App) {
+fn others_layer(rows: &mut [Row], app: &App) {
     let flow = &app.shared.inputs.flow;
-    canvas.put(1, 3, words::FLOW_OTHERS_TITLE, bold(Color::BrightWhite));
+    at(
+        rows,
+        1,
+        3,
+        words::FLOW_OTHERS_TITLE,
+        bold(Color::BrightWhite),
+    );
     let about = wrap(words::FLOW_OTHERS_ABOUT, app.size.cols.saturating_sub(4), 2);
     for (k, l) in about.iter().enumerate() {
-        canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
+        at(
+            rows,
+            3,
+            4usize.saturating_add(k),
+            l,
+            Style::text(Color::Grey),
+        );
     }
     let vx = (app.size.cols / 2).min(42);
     let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
@@ -1227,7 +1295,8 @@ fn others_layer(canvas: &mut Canvas, app: &App) {
         let Some(dev) = flow.inputs.get(d) else {
             continue;
         };
-        canvas.put(
+        at(
+            rows,
             3,
             y,
             &fit(&dev.name, vx.saturating_sub(4)),
@@ -1242,7 +1311,8 @@ fn others_layer(canvas: &mut Canvas, app: &App) {
             ),
             None => words::FLOW_NO_RULE.to_owned(),
         };
-        canvas.put(
+        at(
+            rows,
             vx,
             y,
             &fit(&caught, app.size.cols.saturating_sub(vx).saturating_sub(1)),
@@ -1507,6 +1577,131 @@ mod tests {
         }
         // a blank cell outside every box stays the terminal's own
         assert_eq!(screen.style_at(0, 0), Some(Style::PLAIN));
+    }
+
+    /// The Flow view at 80×25 on the fixture, with `more` inputs that no
+    /// rule names and that fold into the box of other inputs, one of them
+    /// with a name longer than a card's label column.
+    fn flow_app(more: usize) -> App {
+        let mut i = crate::tui::fixture::inputs();
+        i.view = crate::tui::model::View::Flow;
+        let first = i.flow.inputs.first().cloned().expect("an input");
+        for k in 0..more {
+            i.flow.inputs.push(crate::tui::flow::Device {
+                name: format!("A rather long input device name number {k}"),
+                keys: vec![format!("id:aaaa:{k:04x}")],
+                found: true,
+                rule: None,
+                ..first.clone()
+            });
+        }
+        App::new(i, 80, 25).0
+    }
+
+    /// The text of a layer's row, in characters from column 0.
+    fn text(row: &Row) -> Vec<char> {
+        row.iter().flat_map(|s| s.text.chars()).collect()
+    }
+
+    #[test]
+    fn a_layer_writes_nothing_on_the_message_or_the_key_line() {
+        let mut app = flow_app(40);
+        // the longest message makes the window as short as it gets
+        app.shared.message = Some("word ".repeat(200));
+        let (top, height) = window(
+            &app.shared,
+            app.size,
+            super::super::layout::key_rows(&app).len(),
+        );
+        let bottom = top + height;
+        let mut editor = editor();
+        for k in 0..30 {
+            editor.pick(Piece::Input(format!("id:aaaa:{k:04x}")));
+        }
+        let state = |line: usize| flowview::State {
+            line,
+            new: editor.clone(),
+            ..flowview::State::default()
+        };
+        let picker = |line: usize| flowview::State {
+            picker: Some(flowview::Picker {
+                stage: Stage::Input,
+                key: "name",
+                from_new: false,
+            }),
+            ..state(line)
+        };
+        let input = app
+            .shared
+            .inputs
+            .flow
+            .inputs
+            .iter()
+            .find_map(|d| d.keys.first().cloned())
+            .expect("an input with a key");
+        // each layer, and whether what it shows is long enough to fill
+        // the window: the editor's card with its 33 parts, the 40 inputs
+        // of the box of other inputs, and the picker over their names
+        let template = Obj::Pal(Slot::Template(Stage::Input));
+        let cases = [
+            (Obj::New(Slot::Terminal), state(0), true),
+            (Obj::Doc("desk".into(), Slot::Terminal), state(0), false),
+            (Obj::Others, state(0), true),
+            (template.clone(), state(0), false),
+            (template, picker(0), true),
+            (Obj::Pal(Slot::Input(input)), state(0), false),
+        ];
+        for (obj, state, fills) in cases {
+            let mut reached = 0;
+            for line in [0, 1, 5, 20, 39, 60] {
+                let state = flowview::State {
+                    line,
+                    ..state.clone()
+                };
+                let rows = layer(&app, &state, &obj);
+                assert_eq!(rows.len(), 25);
+                for (y, row) in rows.iter().enumerate().skip(bottom) {
+                    assert!(
+                        row.is_empty(),
+                        "{obj:?} line {line} writes row {y}: {row:?}"
+                    );
+                }
+                reached = reached.max(rows.iter().rposition(|r| !r.is_empty()).unwrap_or(0));
+            }
+            // a layer that fills the window reaches its last row, so the
+            // check above has something to see
+            if fills {
+                assert_eq!(reached, bottom - 1, "{obj:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_card_s_values_start_at_their_column_whatever_the_label() {
+        let app = flow_app(1);
+        let mut editor = Path::default();
+        editor.pick(Piece::Input("id:aaaa:0000".into()));
+        let state = flowview::State {
+            new: editor.clone(),
+            ..flowview::State::default()
+        };
+        let rows = layer(&app, &state, &Obj::New(Slot::Terminal));
+        let label = card_label(
+            &app.shared.inputs.flow,
+            &CardLine::Part(Piece::Input("id:aaaa:0000".into())),
+        );
+        assert!(label.chars().count() > VALUE_X - 3, "{label}");
+        let row = rows
+            .iter()
+            .map(text)
+            .find(|t| t.len() > 3 && t[3..].starts_with(&['I', 'n', 'p', 'u', 't']))
+            .expect("the part's line");
+        // the label shows up to the value's column, and the value starts
+        // there
+        let shown: String = row[3..VALUE_X].iter().collect();
+        assert_eq!(shown, label.chars().take(VALUE_X - 3).collect::<String>());
+        let value: String = row[VALUE_X..].iter().take(words::CONNECTED.len()).collect();
+        assert_eq!(value, words::CONNECTED);
     }
 
     #[test]
