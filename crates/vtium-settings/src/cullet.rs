@@ -113,6 +113,10 @@ pub enum Check {
     /// The path names something other than a regular file, or a name on
     /// the way names something other than a folder.
     NotAFile { at: PathBuf },
+    /// The file or a folder at `at` was swapped for another while vtium
+    /// opened it: the open found something other than what the look
+    /// before it found.
+    Swapped { at: PathBuf },
     /// The filesystem holding the file does not stay mounted.
     Unsteady(Unsteady),
     /// vtium could not read a folder or the file.
@@ -146,6 +150,11 @@ impl fmt::Display for Check {
             Check::NotAFile { at } => {
                 write!(f, "{} is not a regular file or folder.", at.display())
             }
+            Check::Swapped { at } => write!(
+                f,
+                "{} was swapped for another file or folder while vtium opened it.",
+                at.display()
+            ),
             Check::Unsteady(why) => write!(f, "{why}."),
             Check::Unreadable { at, kind } => {
                 write!(f, "vtium cannot read {}: {kind}.", at.display())
@@ -283,18 +292,18 @@ impl Walk<'_> {
         }
     }
 
-    /// Enters the folder `name` of the current folder and checks it. A
-    /// symbolic link or anything but a folder is refused, even when one
-    /// is swapped in after [`Walk::stat`] looked, because the folder is
-    /// opened with `O_NOFOLLOW | O_DIRECTORY` and checked on its
-    /// descriptor.
+    /// Enters the folder `name` of the current folder, which
+    /// [`Walk::stat`] found to be a folder, and checks it. A symbolic link
+    /// or anything but a folder swapped in after the look is refused as a
+    /// swap, because the folder is opened with `O_NOFOLLOW | O_DIRECTORY`
+    /// and checked on its descriptor.
     fn enter(&mut self, name: &OsString) -> Result<(), Refused> {
         let here = self.here()?;
         let at = here.path.join(name);
         let fd = match rustix::fs::openat(&here.fd, name, FOLDER, Mode::empty()) {
             Ok(fd) => fd,
             Err(Errno::NOTDIR | Errno::LOOP) => {
-                return Err(self.refuse(Check::NotAFile { at }));
+                return Err(self.refuse(Check::Swapped { at }));
             }
             Err(Errno::NOENT) => return Err(self.refuse(Check::Missing)),
             Err(e) => return Err(self.unreadable(&at, e)),
@@ -302,7 +311,7 @@ impl Walk<'_> {
         let next = Crossed { fd, path: at };
         let st = rustix::fs::fstat(&next.fd).map_err(|e| self.unreadable(&next.path, e))?;
         if FileType::from_raw_mode(st.st_mode) != FileType::Directory {
-            return Err(self.refuse(Check::NotAFile { at: next.path }));
+            return Err(self.refuse(Check::Swapped { at: next.path }));
         }
         self.check_folder(&next)?;
         self.crossed.push(next);
@@ -328,7 +337,7 @@ impl Walk<'_> {
             .metadata()
             .map_err(|e| self.unreadable(&at, Errno::from_io_error(&e).unwrap_or(Errno::IO)))?;
         if !meta.is_file() || (meta.dev(), meta.ino()) != (found.st_dev, found.st_ino) {
-            return Err(self.refuse(Check::NotAFile { at }));
+            return Err(self.refuse(Check::Swapped { at }));
         }
         self.rule
             .trust
@@ -342,6 +351,19 @@ impl Walk<'_> {
         Ok(Opened { file, meta })
     }
 
+    /// Looks at the name `name` on the way to the file and enters it when
+    /// it is a folder. A symbolic link or anything but a folder is
+    /// refused.
+    fn folder(&mut self, name: &OsString) -> Result<(), Refused> {
+        let st = self.stat(name)?;
+        let at = || self.here().map(|h| h.path.join(name));
+        match FileType::from_raw_mode(st.st_mode) {
+            FileType::Symlink => Err(self.refuse(Check::Link { at: at()? })),
+            FileType::Directory => self.enter(name),
+            _ => Err(self.refuse(Check::NotAFile { at: at()? })),
+        }
+    }
+
     /// Walks the plain names `names` from the current folder, refusing a
     /// symbolic link anywhere, and opens the last as the file.
     fn plain(&mut self, names: &[OsString]) -> Result<Opened, Refused> {
@@ -349,12 +371,7 @@ impl Walk<'_> {
             return Err(self.refuse(Check::NotAFile { at: "/".into() }));
         };
         for name in folders {
-            let st = self.stat(name)?;
-            if FileType::from_raw_mode(st.st_mode) == FileType::Symlink {
-                let at = self.here()?.path.join(name);
-                return Err(self.refuse(Check::Link { at }));
-            }
-            self.enter(name)?;
+            self.folder(name)?;
         }
         let st = self.stat(last)?;
         let at = || self.here().map(|h| h.path.join(last));
@@ -417,12 +434,7 @@ pub fn open_in_theme(
     };
     walk.start()?;
     for name in &root {
-        let st = walk.stat(name)?;
-        if FileType::from_raw_mode(st.st_mode) == FileType::Symlink {
-            let at = walk.here()?.path.join(name);
-            return Err(walk.refuse(Check::Link { at }));
-        }
-        walk.enter(name)?;
+        walk.folder(name)?;
     }
     // the theme folder is the bottom of the stack from here on: `..` may
     // not pop it, and an absolute target goes back to it
@@ -535,7 +547,47 @@ mod tests {
         std::fs::rename(top.join("b.bdf"), &file).unwrap();
         assert_eq!(
             walk.open_file(&name, &found).unwrap_err().check,
-            Check::NotAFile { at: file.clone() }
+            Check::Swapped { at: file.clone() }
+        );
+    }
+
+    // A folder swapped for a symbolic link between the look and the open
+    // is refused as a swap, and the walk never crosses the link.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_folder_swapped_for_a_link_between_the_look_and_the_open_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("cullet-swap-folder");
+        let top = std::fs::canonicalize(&*dir).unwrap();
+        std::fs::set_permissions(&top, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::create_dir(top.join("fonts")).unwrap();
+        std::fs::create_dir(top.join("elsewhere")).unwrap();
+        let uid = std::fs::metadata(&top).unwrap().uid();
+        let rule = Rule::new(Trust::owner(uid)).below(&top);
+        let mounts = Mounts::system().unwrap();
+        let file = top.join("fonts/a.bdf");
+        let mut walk = Walk {
+            rule: &rule,
+            mounts: &mounts,
+            asked: &file,
+            crossed: Vec::new(),
+        };
+        walk.start().unwrap();
+        for name in &names(&top).unwrap() {
+            walk.enter(name).unwrap();
+        }
+        let name = OsString::from("fonts");
+        assert_eq!(
+            FileType::from_raw_mode(walk.stat(&name).unwrap().st_mode),
+            FileType::Directory
+        );
+        std::fs::remove_dir(top.join("fonts")).unwrap();
+        std::os::unix::fs::symlink(top.join("elsewhere"), top.join("fonts")).unwrap();
+        assert_eq!(
+            walk.enter(&name).unwrap_err().check,
+            Check::Swapped {
+                at: top.join("fonts")
+            }
         );
     }
 }
