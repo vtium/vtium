@@ -59,9 +59,11 @@
 //! assert_eq!(config.walk(&keyboard).place, Place::Roaming);
 //! ```
 
+pub mod batch;
 mod bounds;
 mod conf;
 mod config;
+pub mod cullet;
 mod error;
 mod file;
 mod findings;
@@ -69,6 +71,7 @@ mod identity;
 pub mod keys;
 mod matching;
 mod messages;
+pub mod mounts;
 mod outcome;
 mod parse;
 mod place;
