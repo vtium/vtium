@@ -353,6 +353,26 @@ fn a_draft_s_changes_to_the_active_resources_go_with_the_draft() {
 }
 
 #[test]
+fn revert_and_new_drop_the_draft_s_changes_to_the_active_resources() {
+    for command in ["revert", "new"] {
+        let f = fixture(&format!("reset-{command}"));
+        f.desk();
+        f.ok(&["activate", &f.arg("res/mine.ttf")]);
+        let dry = f.ok(&[command, "--dry-run"]);
+        assert!(
+            dry.out.contains("1 change to the active resources"),
+            "{command}: {}",
+            dry.out
+        );
+        assert!(f.changes("desk").exists());
+        f.ok(&[command]);
+        assert!(!f.changes("desk").exists(), "{command}");
+        f.ok(&["install", "--force"]);
+        assert_eq!(f.batch(), None, "{command}");
+    }
+}
+
+#[test]
 fn deactivating_a_font_that_a_look_uses_warns_and_names_the_look() {
     let f = fixture("warn");
     let mine = f.arg("res/mine.ttf");

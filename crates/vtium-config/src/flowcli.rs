@@ -369,8 +369,13 @@ impl Command<'_, '_> {
         };
         if args.has("--dry-run") {
             let (added, removed) = crate::drafts::counts(&new, &text);
+            let batch = match self.session.store.batch_changes(&name)?.len() {
+                0 => String::new(),
+                1 => ", and 1 change to the active resources".to_owned(),
+                n => format!(", and {n} changes to the active resources"),
+            };
             self.say(&format!(
-                "{command} would lose {} of draft {name}",
+                "{command} would lose {} of draft {name}{batch}",
                 crate::drafts::lines(added, removed)
             ));
             return Ok(());
@@ -380,6 +385,8 @@ impl Command<'_, '_> {
                 .store
                 .set_base(&name, installed.as_deref().map(str::as_bytes))?;
         }
+        // the draft starts over, so its changes to the active resources go
+        self.session.drop_batch(&name)?;
         self.write(&name, &text, &new, false, false)
     }
 
