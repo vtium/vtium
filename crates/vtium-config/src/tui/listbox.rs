@@ -15,7 +15,7 @@
 //!   every set of items, its keys, and the picker's look.
 //! - ADR-1201 D3: the Settings view and the Looks tab show their sets in it.
 
-use super::canvas::{Row, span, wrap};
+use super::canvas::{Row, cells, span, wrap};
 use super::color::{Color, Style};
 use super::input::Key;
 
@@ -68,16 +68,26 @@ pub enum Act {
 /// The items PgUp and PgDn move by.
 pub const PAGE: usize = 10;
 
-/// A list's state: the highlighted item.
+/// A list's state: the highlighted item, and the first of the list's rows
+/// that its window on the screen shows. Update keeps the offset, and the
+/// view draws ratatui's List from a copy of it, so drawing never changes
+/// the model.
+///
+/// References:
+/// - ADR-1206 D4, "A list's selection lives in the tab's state": the tab
+///   keeps the selection and the offset, and the view draws from a copy.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ListBox {
     pub at: usize,
+    /// The list's first row in its window, counted in rows, since an item
+    /// can take several.
+    pub offset: usize,
 }
 
 impl ListBox {
     /// A list with the item `at` highlighted.
     pub const fn at(at: usize) -> ListBox {
-        ListBox { at }
+        ListBox { at, offset: 0 }
     }
 
     /// Reads `key` in a list of `len` items.
@@ -113,15 +123,23 @@ pub fn step(at: usize, n: usize, key: Key) -> usize {
 /// detail on the rows below it.
 const NAME_MAX: usize = 32;
 
+/// `name` and the blanks after it that make it `width` cells of the
+/// console's screen wide, so a name with wide characters lines its detail
+/// up with the others.
+fn padded(name: &str, width: usize) -> String {
+    format!("{name}{}", " ".repeat(width.saturating_sub(cells(name))))
+}
+
 /// The list's rows on a screen `cols` wide, with the item `at`
 /// highlighted, and the index of the last row of that item, which the
 /// screen keeps in sight. Each detail lines up in a column after the
 /// names, and wraps by words under that column. A name wider than the
-/// column has its detail start on the row below.
+/// column has its detail start on the row below. The names are measured
+/// in the console's cells.
 pub fn rows(items: &[Item], at: usize, marks: Marks, cols: usize) -> (Vec<Row>, usize) {
     let width = items
         .iter()
-        .map(|i| i.name.chars().count())
+        .map(|i| cells(&i.name))
         .max()
         .unwrap_or(0)
         .min(NAME_MAX)
@@ -152,7 +170,7 @@ pub fn rows(items: &[Item], at: usize, marks: Marks, cols: usize) -> (Vec<Row>, 
         } else {
             Style::PLAIN
         };
-        let long = item.name.chars().count() > width;
+        let long = cells(&item.name) > width;
         let mut details = wrap(&item.detail, room, usize::MAX).into_iter();
         let mut first: Row = Vec::new();
         match marks {
@@ -171,7 +189,7 @@ pub fn rows(items: &[Item], at: usize, marks: Marks, cols: usize) -> (Vec<Row>, 
         let name = if long {
             item.name.clone()
         } else {
-            format!("{:<width$}", item.name)
+            padded(&item.name, width)
         };
         first.push(span(name, name_style));
         if !long && let Some(d) = details.next().filter(|d| !d.is_empty()) {
@@ -187,6 +205,91 @@ pub fn rows(items: &[Item], at: usize, marks: Marks, cols: usize) -> (Vec<Row>, 
         }
     }
     (out, keep)
+}
+
+/// A tab's body: its list, the row of the list to keep in sight, and the
+/// sentences under it, which show whole or not at all. Each tab lays its
+/// body out from its own state, the shared part and the terminal's size.
+#[derive(Debug, Default)]
+pub struct Body {
+    pub list: Vec<Row>,
+    pub keep: usize,
+    pub tail: Vec<Row>,
+}
+
+/// The fewest list rows a body keeps before it drops its sentences.
+pub const LIST_MIN: usize = 5;
+
+/// `text` as one row in the plain style.
+pub fn plain(text: impl Into<String>) -> Row {
+    vec![span(text, Style::PLAIN)]
+}
+
+/// `text` as one row in the highlight's style.
+fn marked(text: impl Into<String>) -> Row {
+    vec![span(text, Style::PLAIN.reversed())]
+}
+
+/// A list of `items`, each a name in a column of `width` and its note, the
+/// note wrapped by words under its column where it is longer than the
+/// line, and starting on the row below a name longer than the column,
+/// with the item `at` highlighted; and the list's last row of that
+/// item, to keep in sight. The Fonts tab, its new-frit form and the Looks
+/// tab show their items so.
+pub fn columns(
+    items: &[(String, String)],
+    at: usize,
+    width: usize,
+    cols: usize,
+) -> (Vec<Row>, usize) {
+    let column = width.saturating_add(4);
+    let room = cols.saturating_sub(column).saturating_sub(1).max(8);
+    let mut rows = Vec::new();
+    let mut keep = 0;
+    for (i, (name, note)) in items.iter().enumerate() {
+        let mark = if i == at { '>' } else { ' ' };
+        // a name wider than its column, in the console's cells, has its
+        // note on the rows below
+        let long = cells(name) > width;
+        let parts = std::iter::repeat_n(String::new(), usize::from(long)).chain(
+            wrap(note, room, usize::MAX)
+                .into_iter()
+                .filter(|p| !(long && p.is_empty())),
+        );
+        for (n, part) in parts.enumerate() {
+            let line = if n == 0 {
+                format!(" {mark} {} {part}", padded(name, width))
+            } else {
+                format!("{:column$}{part}", "")
+            };
+            rows.push(if i == at { marked(line) } else { plain(line) });
+            if i == at {
+                keep = rows.len().saturating_sub(1);
+            }
+        }
+    }
+    (rows, keep)
+}
+
+/// `text` as rows of a body, wrapped by words to at most `max` rows of a
+/// screen `cols` wide, each after a space.
+pub fn prose_rows(text: &str, cols: usize, max: usize) -> Vec<Row> {
+    wrap(text, cols.saturating_sub(2), max)
+        .into_iter()
+        .map(|l| plain(format!(" {l}")))
+        .collect()
+}
+
+/// `text` as rows of a body, wrapped by words to the screen's width.
+pub fn prose(text: &str, cols: usize) -> Vec<Row> {
+    prose_rows(text, cols, usize::MAX)
+}
+
+/// `text` as a body's sentences, with a blank row above them.
+pub fn tail(text: &str, cols: usize) -> Vec<Row> {
+    std::iter::once(plain(""))
+        .chain(prose(text, cols))
+        .collect()
 }
 
 #[cfg(test)]
@@ -296,5 +399,36 @@ mod tests {
             Some("detail")
         );
         assert!(lines.iter().all(|l| l.chars().count() <= 40), "{lines:#?}");
+    }
+
+    #[test]
+    fn a_name_with_wide_characters_lines_its_detail_up_by_the_console_s_cells() {
+        // four characters two cells wide take 8 cells, as many as
+        // `abcdefgh`, so both details start in the same cell
+        let items = [
+            Item::new("键盘键盘", "wide"),
+            Item::new("abcdefgh", "narrow"),
+        ];
+        let (list, _) = rows(&items, 0, Marks::None, 80);
+        let lines: Vec<String> = list.iter().map(text).collect();
+        let line = |i: usize| lines.get(i).map_or("", String::as_str);
+        assert_eq!(line(0), "   键盘键盘  wide");
+        assert_eq!(line(1), "   abcdefgh  narrow");
+        let pairs = [
+            ("键盘键盘".to_owned(), "wide".to_owned()),
+            ("abcdefgh".to_owned(), "narrow".to_owned()),
+        ];
+        let (list, _) = columns(&pairs, 1, 8, 80);
+        let lines: Vec<String> = list.iter().map(text).collect();
+        let line = |i: usize| lines.get(i).map_or("", String::as_str);
+        assert_eq!(line(0), "   键盘键盘 wide");
+        assert_eq!(line(1), " > abcdefgh narrow");
+        // a name wider than the column in cells, though not in
+        // characters, puts its detail on the row below
+        let (list, _) = columns(&[("键盘键盘键".to_owned(), "wide".to_owned())], 0, 8, 80);
+        let lines: Vec<String> = list.iter().map(text).collect();
+        let line = |i: usize| lines.get(i).map_or("", String::as_str);
+        assert_eq!(line(0).trim_end(), " > 键盘键盘键");
+        assert_eq!(line(1).trim(), "wide");
     }
 }

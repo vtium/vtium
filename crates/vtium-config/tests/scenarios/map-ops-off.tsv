@@ -145,6 +145,10 @@ ops-off any.too-small +unsaved	q	ops-off any.question.quit below 80×25 +unsaved
 ops-off any.too-small +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off any.too-small +unsaved +pending	Grow	ops-off fonts(marked) +unsaved +pending	
 ops-off any.too-small +unsaved +pending	q	ops-off any.question.leave below 80×25 +unsaved +pending	
+ops-off flow(doc display)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(doc display)	3	ops-off looks	mouse off
+ops-off flow(doc display)	5	ops-off settings(first)	mouse off
+ops-off flow(doc display)	6	ops-off help(help)	mouse off
 ops-off flow(doc display)	Click box	ops-off flow(doc terminal)	
 ops-off flow(doc display)	Click tab	ops-off looks	mouse off
 ops-off flow(doc display)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -165,6 +169,10 @@ ops-off flow(doc display)	o	ops-off flow.restore	history
 ops-off flow(doc display)	q	ops-off left	mouse off, exit 0
 ops-off flow(doc display)	r	ops-off any.question.confirm	
 ops-off flow(doc display)	v	ops-off flow.file	
+ops-off flow(doc display) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(doc display) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(doc display) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(doc display) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(doc display) +pending	Click box	ops-off flow(doc terminal) +pending	
 ops-off flow(doc display) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(doc display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
@@ -185,6 +193,10 @@ ops-off flow(doc display) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(doc display) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(doc display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(doc display) +pending	v	ops-off flow.file +pending	
+ops-off flow(doc display) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(doc display) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(doc display) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(doc display) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Click box	ops-off flow(doc terminal) +unsaved	
 ops-off flow(doc display) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -206,6 +218,10 @@ ops-off flow(doc display) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(doc display) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(doc display) +unsaved	s	ops-off flow(doc display)	save
 ops-off flow(doc display) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(doc display) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(doc display) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(doc display) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(doc display) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	Click box	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -227,6 +243,10 @@ ops-off flow(doc display) +unsaved +pending	q	ops-off any.question.leave +unsave
 ops-off flow(doc display) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	s	ops-off flow(doc display) +pending	save
 ops-off flow(doc display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(doc terminal)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(doc terminal)	3	ops-off looks	mouse off
+ops-off flow(doc terminal)	5	ops-off settings(first)	mouse off
+ops-off flow(doc terminal)	6	ops-off help(help)	mouse off
 ops-off flow(doc terminal)	Click tab	ops-off looks	mouse off
 ops-off flow(doc terminal)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc terminal)	Down	ops-off flow(new empty)	
@@ -247,6 +267,10 @@ ops-off flow(doc terminal)	o	ops-off flow.restore	history
 ops-off flow(doc terminal)	q	ops-off left	mouse off, exit 0
 ops-off flow(doc terminal)	r	ops-off any.question.confirm	
 ops-off flow(doc terminal)	v	ops-off flow.file	
+ops-off flow(doc terminal) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(doc terminal) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(doc terminal) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(doc terminal) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(doc terminal) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(doc terminal) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc terminal) +pending	Down	ops-off flow(new empty) +pending	
@@ -267,6 +291,10 @@ ops-off flow(doc terminal) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(doc terminal) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(doc terminal) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(doc terminal) +pending	v	ops-off flow.file +pending	
+ops-off flow(doc terminal) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(doc terminal) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(doc terminal) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(doc terminal) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc terminal) +unsaved	Down	ops-off flow(new empty) +unsaved	
@@ -288,6 +316,10 @@ ops-off flow(doc terminal) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(doc terminal) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(doc terminal) +unsaved	s	ops-off flow(doc terminal)	save
 ops-off flow(doc terminal) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(doc terminal) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(doc terminal) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(doc terminal) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(doc terminal) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc terminal) +unsaved +pending	Down	ops-off flow(new empty) +unsaved +pending	
@@ -309,6 +341,10 @@ ops-off flow(doc terminal) +unsaved +pending	q	ops-off any.question.leave +unsav
 ops-off flow(doc terminal) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	s	ops-off flow(doc terminal) +pending	save
 ops-off flow(doc terminal) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(new display)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(new display)	3	ops-off looks	mouse off
+ops-off flow(new display)	5	ops-off settings(first)	mouse off
+ops-off flow(new display)	6	ops-off help(help)	mouse off
 ops-off flow(new display)	Click box	ops-off flow(new terminal)	
 ops-off flow(new display)	Click tab	ops-off looks	mouse off
 ops-off flow(new display)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -335,6 +371,10 @@ ops-off flow(new display)	o	ops-off flow.restore	history
 ops-off flow(new display)	q	ops-off left	mouse off, exit 0
 ops-off flow(new display)	r	ops-off any.question.confirm	
 ops-off flow(new display)	v	ops-off flow.file	
+ops-off flow(new display) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(new display) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(new display) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(new display) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(new display) +pending	Click box	ops-off flow(new terminal) +pending	
 ops-off flow(new display) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(new display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
@@ -361,6 +401,10 @@ ops-off flow(new display) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(new display) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(new display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new display) +pending	v	ops-off flow.file +pending	
+ops-off flow(new display) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(new display) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(new display) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(new display) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(new display) +unsaved	Click box	ops-off flow(new terminal) +unsaved	
 ops-off flow(new display) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(new display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -388,6 +432,10 @@ ops-off flow(new display) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(new display) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(new display) +unsaved	s	ops-off flow(new display)	save
 ops-off flow(new display) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(new display) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(new display) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(new display) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(new display) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	Click box	ops-off flow(new terminal) +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -415,6 +463,10 @@ ops-off flow(new display) +unsaved +pending	q	ops-off any.question.leave +unsave
 ops-off flow(new display) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	s	ops-off flow(new display) +pending	save
 ops-off flow(new display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(new empty)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(new empty)	3	ops-off looks	mouse off
+ops-off flow(new empty)	5	ops-off settings(first)	mouse off
+ops-off flow(new empty)	6	ops-off help(help)	mouse off
 ops-off flow(new empty)	Click box	ops-off flow(doc terminal)	
 ops-off flow(new empty)	Click tab	ops-off looks	mouse off
 ops-off flow(new empty)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -436,6 +488,10 @@ ops-off flow(new empty)	o	ops-off flow.restore	history
 ops-off flow(new empty)	q	ops-off left	mouse off, exit 0
 ops-off flow(new empty)	r	ops-off any.question.confirm	
 ops-off flow(new empty)	v	ops-off flow.file	
+ops-off flow(new empty) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(new empty) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(new empty) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(new empty) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(new empty) +pending	Click box	ops-off flow(doc terminal) +pending	
 ops-off flow(new empty) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(new empty) +pending	Ctrl-C	ops-off left	mouse off, exit 130
@@ -457,6 +513,10 @@ ops-off flow(new empty) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(new empty) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(new empty) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new empty) +pending	v	ops-off flow.file +pending	
+ops-off flow(new empty) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(new empty) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(new empty) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(new empty) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(new empty) +unsaved	Click box	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new empty) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(new empty) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -479,6 +539,10 @@ ops-off flow(new empty) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(new empty) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(new empty) +unsaved	s	ops-off flow(new empty)	save
 ops-off flow(new empty) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(new empty) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(new empty) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(new empty) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(new empty) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	Click box	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -501,6 +565,10 @@ ops-off flow(new empty) +unsaved +pending	q	ops-off any.question.leave +unsaved 
 ops-off flow(new empty) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	s	ops-off flow(new empty) +pending	save
 ops-off flow(new empty) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(new terminal)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(new terminal)	3	ops-off looks	mouse off
+ops-off flow(new terminal)	5	ops-off settings(first)	mouse off
+ops-off flow(new terminal)	6	ops-off help(help)	mouse off
 ops-off flow(new terminal)	Click box	ops-off flow.new-card	
 ops-off flow(new terminal)	Click tab	ops-off looks	mouse off
 ops-off flow(new terminal)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -526,6 +594,10 @@ ops-off flow(new terminal)	o	ops-off flow.restore	history
 ops-off flow(new terminal)	q	ops-off left	mouse off, exit 0
 ops-off flow(new terminal)	r	ops-off any.question.confirm	
 ops-off flow(new terminal)	v	ops-off flow.file	
+ops-off flow(new terminal) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(new terminal) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(new terminal) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(new terminal) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(new terminal) +pending	Click box	ops-off flow.new-card +pending	
 ops-off flow(new terminal) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(new terminal) +pending	Ctrl-C	ops-off left	mouse off, exit 130
@@ -551,6 +623,10 @@ ops-off flow(new terminal) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(new terminal) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(new terminal) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new terminal) +pending	v	ops-off flow.file +pending	
+ops-off flow(new terminal) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(new terminal) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(new terminal) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(new terminal) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	Click box	ops-off flow.new-card +unsaved	
 ops-off flow(new terminal) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -577,6 +653,10 @@ ops-off flow(new terminal) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(new terminal) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(new terminal) +unsaved	s	ops-off flow(new terminal)	save
 ops-off flow(new terminal) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(new terminal) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(new terminal) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(new terminal) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(new terminal) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	Click box	ops-off flow.new-card +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -603,6 +683,10 @@ ops-off flow(new terminal) +unsaved +pending	q	ops-off any.question.leave +unsav
 ops-off flow(new terminal) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	s	ops-off flow(new terminal) +pending	save
 ops-off flow(new terminal) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(others)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(others)	3	ops-off looks	mouse off
+ops-off flow(others)	5	ops-off settings(first)	mouse off
+ops-off flow(others)	6	ops-off help(help)	mouse off
 ops-off flow(others)	Click box	ops-off flow(parts special)	
 ops-off flow(others)	Click tab	ops-off looks	mouse off
 ops-off flow(others)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -626,6 +710,10 @@ ops-off flow(others)	o	ops-off flow.restore	history
 ops-off flow(others)	q	ops-off left	mouse off, exit 0
 ops-off flow(others)	r	ops-off any.question.confirm	
 ops-off flow(others)	v	ops-off flow.file	
+ops-off flow(others) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(others) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(others) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(others) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(others) +pending	Click box	ops-off flow(parts special) +pending	
 ops-off flow(others) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(others) +pending	Ctrl-C	ops-off left	mouse off, exit 130
@@ -649,6 +737,10 @@ ops-off flow(others) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(others) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(others) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(others) +pending	v	ops-off flow.file +pending	
+ops-off flow(others) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(others) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(others) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(others) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(others) +unsaved	Click box	ops-off flow(parts special) +unsaved	
 ops-off flow(others) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(others) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -673,6 +765,10 @@ ops-off flow(others) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(others) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(others) +unsaved	s	ops-off flow(others)	save
 ops-off flow(others) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(others) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(others) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(others) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(others) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	Click box	ops-off flow(parts special) +unsaved +pending	
 ops-off flow(others) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -697,6 +793,10 @@ ops-off flow(others) +unsaved +pending	q	ops-off any.question.leave +unsaved +pe
 ops-off flow(others) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(others) +unsaved +pending	s	ops-off flow(others) +pending	save
 ops-off flow(others) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts any input)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(parts any input)	3	ops-off looks	mouse off
+ops-off flow(parts any input)	5	ops-off settings(first)	mouse off
+ops-off flow(parts any input)	6	ops-off help(help)	mouse off
 ops-off flow(parts any input)	Click box	ops-off flow(parts template)	
 ops-off flow(parts any input)	Click tab	ops-off looks	mouse off
 ops-off flow(parts any input)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -720,6 +820,10 @@ ops-off flow(parts any input)	o	ops-off flow.restore	history
 ops-off flow(parts any input)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts any input)	r	ops-off any.question.confirm	
 ops-off flow(parts any input)	v	ops-off flow.file	
+ops-off flow(parts any input) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(parts any input) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(parts any input) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts any input) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts any input) +pending	Click box	ops-off flow(parts template) +pending	
 ops-off flow(parts any input) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts any input) +pending	Ctrl-C	ops-off left	mouse off, exit 130
@@ -743,6 +847,10 @@ ops-off flow(parts any input) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts any input) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts any input) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts any input) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts any input) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(parts any input) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(parts any input) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts any input) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	Click box	ops-off flow(parts template) +unsaved	
 ops-off flow(parts any input) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -767,6 +875,10 @@ ops-off flow(parts any input) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts any input) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts any input) +unsaved	s	ops-off flow(parts any input)	save
 ops-off flow(parts any input) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts any input) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(parts any input) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts any input) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts any input) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts any input) +unsaved +pending	Click box	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts any input) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts any input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -791,6 +903,10 @@ ops-off flow(parts any input) +unsaved +pending	q	ops-off any.question.leave +un
 ops-off flow(parts any input) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts any input) +unsaved +pending	s	ops-off flow(parts any input) +pending	save
 ops-off flow(parts any input) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts display)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(parts display)	3	ops-off looks	mouse off
+ops-off flow(parts display)	5	ops-off settings(first)	mouse off
+ops-off flow(parts display)	6	ops-off help(help)	mouse off
 ops-off flow(parts display)	Click tab	ops-off looks	mouse off
 ops-off flow(parts display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts display)	Down	ops-off flow(parts template)	
@@ -813,6 +929,10 @@ ops-off flow(parts display)	o	ops-off flow.restore	history
 ops-off flow(parts display)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts display)	r	ops-off any.question.confirm	
 ops-off flow(parts display)	v	ops-off flow.file	
+ops-off flow(parts display) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(parts display) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(parts display) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts display) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts display) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts display) +pending	Down	ops-off flow(parts template) +pending	
@@ -835,6 +955,10 @@ ops-off flow(parts display) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts display) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts display) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts display) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(parts display) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(parts display) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts display) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts display) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts display) +unsaved	Down	ops-off flow(parts template) +unsaved	
@@ -858,6 +982,10 @@ ops-off flow(parts display) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts display) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts display) +unsaved	s	ops-off flow(parts display)	save
 ops-off flow(parts display) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts display) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(parts display) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts display) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts display) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts display) +unsaved +pending	Down	ops-off flow(parts template) +unsaved +pending	
@@ -881,6 +1009,10 @@ ops-off flow(parts display) +unsaved +pending	q	ops-off any.question.leave +unsa
 ops-off flow(parts display) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	s	ops-off flow(parts display) +pending	save
 ops-off flow(parts display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts font)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(parts font)	3	ops-off looks	mouse off
+ops-off flow(parts font)	5	ops-off settings(first)	mouse off
+ops-off flow(parts font)	6	ops-off help(help)	mouse off
 ops-off flow(parts font)	Click tab	ops-off looks	mouse off
 ops-off flow(parts font)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts font)	Home	ops-off flow(doc display)	
@@ -895,6 +1027,10 @@ ops-off flow(parts font)	o	ops-off flow.restore	history
 ops-off flow(parts font)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts font)	r	ops-off any.question.confirm	
 ops-off flow(parts font)	v	ops-off flow.file	
+ops-off flow(parts font) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(parts font) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(parts font) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts font) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts font) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts font) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts font) +pending	Home	ops-off flow(doc display) +pending	
@@ -909,6 +1045,10 @@ ops-off flow(parts font) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts font) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts font) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts font) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts font) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(parts font) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(parts font) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts font) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts font) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts font) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts font) +unsaved	Home	ops-off flow(doc display) +unsaved	
@@ -924,6 +1064,10 @@ ops-off flow(parts font) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts font) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts font) +unsaved	s	ops-off flow(parts font)	save
 ops-off flow(parts font) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts font) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(parts font) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts font) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts font) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts font) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
@@ -939,6 +1083,10 @@ ops-off flow(parts font) +unsaved +pending	q	ops-off any.question.leave +unsaved
 ops-off flow(parts font) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts font) +unsaved +pending	s	ops-off flow(parts font) +pending	save
 ops-off flow(parts font) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts input)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(parts input)	3	ops-off looks	mouse off
+ops-off flow(parts input)	5	ops-off settings(first)	mouse off
+ops-off flow(parts input)	6	ops-off help(help)	mouse off
 ops-off flow(parts input)	Click tab	ops-off looks	mouse off
 ops-off flow(parts input)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts input)	Down	ops-off flow(parts any input)	
@@ -961,6 +1109,10 @@ ops-off flow(parts input)	o	ops-off flow.restore	history
 ops-off flow(parts input)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts input)	r	ops-off any.question.confirm	
 ops-off flow(parts input)	v	ops-off flow.file	
+ops-off flow(parts input) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(parts input) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(parts input) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts input) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts input) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts input) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts input) +pending	Down	ops-off flow(parts any input) +pending	
@@ -983,6 +1135,10 @@ ops-off flow(parts input) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts input) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts input) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts input) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts input) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(parts input) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(parts input) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts input) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts input) +unsaved	Down	ops-off flow(parts any input) +unsaved	
@@ -1006,6 +1162,10 @@ ops-off flow(parts input) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts input) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts input) +unsaved	s	ops-off flow(parts input)	save
 ops-off flow(parts input) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts input) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(parts input) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts input) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts input) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts input) +unsaved +pending	Down	ops-off flow(parts any input) +unsaved +pending	
@@ -1029,6 +1189,10 @@ ops-off flow(parts input) +unsaved +pending	q	ops-off any.question.leave +unsave
 ops-off flow(parts input) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	s	ops-off flow(parts input) +pending	save
 ops-off flow(parts input) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts keyboard)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(parts keyboard)	3	ops-off looks	mouse off
+ops-off flow(parts keyboard)	5	ops-off settings(first)	mouse off
+ops-off flow(parts keyboard)	6	ops-off help(help)	mouse off
 ops-off flow(parts keyboard)	Click tab	ops-off looks	mouse off
 ops-off flow(parts keyboard)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts keyboard)	End	ops-off flow(parts font)	
@@ -1049,6 +1213,10 @@ ops-off flow(parts keyboard)	o	ops-off flow.restore	history
 ops-off flow(parts keyboard)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts keyboard)	r	ops-off any.question.confirm	
 ops-off flow(parts keyboard)	v	ops-off flow.file	
+ops-off flow(parts keyboard) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(parts keyboard) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(parts keyboard) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts keyboard) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts keyboard) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts keyboard) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts keyboard) +pending	End	ops-off flow(parts font) +pending	
@@ -1069,6 +1237,10 @@ ops-off flow(parts keyboard) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts keyboard) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts keyboard) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts keyboard) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts keyboard) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(parts keyboard) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(parts keyboard) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts keyboard) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts keyboard) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts keyboard) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts keyboard) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -1090,6 +1262,10 @@ ops-off flow(parts keyboard) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts keyboard) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts keyboard) +unsaved	s	ops-off flow(parts keyboard)	save
 ops-off flow(parts keyboard) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts keyboard) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(parts keyboard) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts keyboard) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts keyboard) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts keyboard) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts keyboard) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts keyboard) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -1111,6 +1287,10 @@ ops-off flow(parts keyboard) +unsaved +pending	q	ops-off any.question.leave +uns
 ops-off flow(parts keyboard) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts keyboard) +unsaved +pending	s	ops-off flow(parts keyboard) +pending	save
 ops-off flow(parts keyboard) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts pointer)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(parts pointer)	3	ops-off looks	mouse off
+ops-off flow(parts pointer)	5	ops-off settings(first)	mouse off
+ops-off flow(parts pointer)	6	ops-off help(help)	mouse off
 ops-off flow(parts pointer)	Click box	ops-off flow(parts special)	
 ops-off flow(parts pointer)	Click tab	ops-off looks	mouse off
 ops-off flow(parts pointer)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -1134,6 +1314,10 @@ ops-off flow(parts pointer)	o	ops-off flow.restore	history
 ops-off flow(parts pointer)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts pointer)	r	ops-off any.question.confirm	
 ops-off flow(parts pointer)	v	ops-off flow.file	
+ops-off flow(parts pointer) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(parts pointer) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(parts pointer) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts pointer) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts pointer) +pending	Click box	ops-off flow(parts special) +pending	
 ops-off flow(parts pointer) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts pointer) +pending	Ctrl-C	ops-off left	mouse off, exit 130
@@ -1157,6 +1341,10 @@ ops-off flow(parts pointer) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts pointer) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts pointer) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts pointer) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts pointer) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(parts pointer) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(parts pointer) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts pointer) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	Click box	ops-off flow(parts special) +unsaved	
 ops-off flow(parts pointer) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -1181,6 +1369,10 @@ ops-off flow(parts pointer) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts pointer) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts pointer) +unsaved	s	ops-off flow(parts pointer)	save
 ops-off flow(parts pointer) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts pointer) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(parts pointer) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts pointer) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts pointer) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	Click box	ops-off flow(parts special) +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -1205,6 +1397,10 @@ ops-off flow(parts pointer) +unsaved +pending	q	ops-off any.question.leave +unsa
 ops-off flow(parts pointer) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	s	ops-off flow(parts pointer) +pending	save
 ops-off flow(parts pointer) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts special)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(parts special)	3	ops-off looks	mouse off
+ops-off flow(parts special)	5	ops-off settings(first)	mouse off
+ops-off flow(parts special)	6	ops-off help(help)	mouse off
 ops-off flow(parts special)	Click tab	ops-off looks	mouse off
 ops-off flow(parts special)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts special)	Down	ops-off flow(parts input)	
@@ -1226,6 +1422,10 @@ ops-off flow(parts special)	o	ops-off flow.restore	history
 ops-off flow(parts special)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts special)	r	ops-off any.question.confirm	
 ops-off flow(parts special)	v	ops-off flow.file	
+ops-off flow(parts special) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(parts special) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(parts special) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts special) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts special) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts special) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts special) +pending	Down	ops-off flow(parts input) +pending	
@@ -1247,6 +1447,10 @@ ops-off flow(parts special) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts special) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts special) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts special) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts special) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(parts special) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(parts special) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts special) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved	Down	ops-off flow(parts input) +unsaved	
@@ -1269,6 +1473,10 @@ ops-off flow(parts special) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts special) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts special) +unsaved	s	ops-off flow(parts special)	save
 ops-off flow(parts special) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts special) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(parts special) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts special) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts special) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved +pending	Down	ops-off flow(parts input) +unsaved +pending	
@@ -1291,6 +1499,10 @@ ops-off flow(parts special) +unsaved +pending	q	ops-off any.question.leave +unsa
 ops-off flow(parts special) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	s	ops-off flow(parts special) +pending	save
 ops-off flow(parts special) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts template)	1	ops-off fonts(builtin)	mouse off
+ops-off flow(parts template)	3	ops-off looks	mouse off
+ops-off flow(parts template)	5	ops-off settings(first)	mouse off
+ops-off flow(parts template)	6	ops-off help(help)	mouse off
 ops-off flow(parts template)	Click box	ops-off flow(parts display)	
 ops-off flow(parts template)	Click tab	ops-off looks	mouse off
 ops-off flow(parts template)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -1314,6 +1526,10 @@ ops-off flow(parts template)	o	ops-off flow.restore	history
 ops-off flow(parts template)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts template)	r	ops-off any.question.confirm	
 ops-off flow(parts template)	v	ops-off flow.file	
+ops-off flow(parts template) +pending	1	ops-off fonts(marked) +pending	mouse off
+ops-off flow(parts template) +pending	3	ops-off looks +pending	mouse off
+ops-off flow(parts template) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts template) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts template) +pending	Click box	ops-off flow(parts display) +pending	
 ops-off flow(parts template) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts template) +pending	Ctrl-C	ops-off left	mouse off, exit 130
@@ -1337,6 +1553,10 @@ ops-off flow(parts template) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts template) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts template) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts template) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts template) +unsaved	1	ops-off fonts(builtin) +unsaved	mouse off
+ops-off flow(parts template) +unsaved	3	ops-off looks +unsaved	mouse off
+ops-off flow(parts template) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts template) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Click box	ops-off flow(parts display) +unsaved	
 ops-off flow(parts template) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -1361,6 +1581,10 @@ ops-off flow(parts template) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts template) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts template) +unsaved	s	ops-off flow(parts template)	save
 ops-off flow(parts template) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts template) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	mouse off
+ops-off flow(parts template) +unsaved +pending	3	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts template) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts template) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	Click box	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(parts template) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
@@ -1923,6 +2147,10 @@ ops-off flow.restore +unsaved +pending	Enter	ops-off any.question.confirm +unsav
 ops-off flow.restore +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pending	
 ops-off flow.restore +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.restore +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off fonts(builtin)	3	ops-off looks	
+ops-off fonts(builtin)	4	ops-off flow(doc display)	mouse on
+ops-off fonts(builtin)	5	ops-off settings(first)	
+ops-off fonts(builtin)	6	ops-off help(help)	
 ops-off fonts(builtin)	Ctrl-C	ops-off left	exit 130
 ops-off fonts(builtin)	Enter	ops-off fonts(builtin) +unsaved	check
 ops-off fonts(builtin)	Home	ops-off fonts(refused)	
@@ -1935,6 +2163,10 @@ ops-off fonts(builtin)	i	ops-off fonts(builtin)	prepare
 ops-off fonts(builtin)	n	ops-off looks.new-frit.typing(row 0)	
 ops-off fonts(builtin)	o	ops-off fonts(builtin) +unsaved	check
 ops-off fonts(builtin)	q	ops-off left	exit 0
+ops-off fonts(builtin) +pending	3	ops-off looks +pending	
+ops-off fonts(builtin) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off fonts(builtin) +pending	5	ops-off settings(first) +pending	
+ops-off fonts(builtin) +pending	6	ops-off help(help) +pending	
 ops-off fonts(builtin) +pending	Ctrl-C	ops-off left	exit 130
 ops-off fonts(builtin) +pending	Enter	ops-off fonts(builtin) +unsaved +pending	check
 ops-off fonts(builtin) +pending	Home	ops-off fonts(refused) +pending	
@@ -1947,6 +2179,10 @@ ops-off fonts(builtin) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(builtin) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(builtin) +pending	o	ops-off fonts(builtin) +unsaved +pending	check
 ops-off fonts(builtin) +pending	q	ops-off any.question.leave +pending	
+ops-off fonts(builtin) +unsaved	3	ops-off looks +unsaved	
+ops-off fonts(builtin) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off fonts(builtin) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off fonts(builtin) +unsaved	6	ops-off help(help) +unsaved	
 ops-off fonts(builtin) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off fonts(builtin) +unsaved	Enter	ops-off fonts(builtin) +unsaved	check
 ops-off fonts(builtin) +unsaved	Home	ops-off fonts(refused) +unsaved	
@@ -1959,6 +2195,10 @@ ops-off fonts(builtin) +unsaved	i	ops-off fonts(builtin)	save, prepare
 ops-off fonts(builtin) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
 ops-off fonts(builtin) +unsaved	o	ops-off fonts(builtin) +unsaved	check
 ops-off fonts(builtin) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off fonts(builtin) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off fonts(builtin) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off fonts(builtin) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off fonts(builtin) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off fonts(builtin) +unsaved +pending	Enter	ops-off fonts(builtin) +unsaved +pending	check
 ops-off fonts(builtin) +unsaved +pending	Home	ops-off fonts(refused) +unsaved +pending	
@@ -1971,6 +2211,10 @@ ops-off fonts(builtin) +unsaved +pending	i	ops-off any.question.confirm +pending
 ops-off fonts(builtin) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	o	ops-off fonts(builtin) +unsaved +pending	check
 ops-off fonts(builtin) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off fonts(frit)	3	ops-off looks	
+ops-off fonts(frit)	4	ops-off flow(doc display)	mouse on
+ops-off fonts(frit)	5	ops-off settings(first)	
+ops-off fonts(frit)	6	ops-off help(help)	
 ops-off fonts(frit)	Ctrl-C	ops-off left	exit 130
 ops-off fonts(frit)	Down	ops-off fonts(builtin)	
 ops-off fonts(frit)	End	ops-off fonts(builtin)	
@@ -1986,6 +2230,10 @@ ops-off fonts(frit)	n	ops-off looks.new-frit.typing(row 0)
 ops-off fonts(frit)	o	ops-off fonts(frit) +unsaved	check
 ops-off fonts(frit)	q	ops-off left	exit 0
 ops-off fonts(frit)	r	ops-off fonts(marked) +pending	
+ops-off fonts(frit) +pending	3	ops-off looks +pending	
+ops-off fonts(frit) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off fonts(frit) +pending	5	ops-off settings(first) +pending	
+ops-off fonts(frit) +pending	6	ops-off help(help) +pending	
 ops-off fonts(frit) +pending	Ctrl-C	ops-off left	exit 130
 ops-off fonts(frit) +pending	Down	ops-off fonts(marked) +pending	
 ops-off fonts(frit) +pending	End	ops-off fonts(builtin) +pending	
@@ -2000,6 +2248,10 @@ ops-off fonts(frit) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(frit) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(frit) +pending	o	ops-off fonts(frit) +unsaved +pending	check
 ops-off fonts(frit) +pending	q	ops-off any.question.leave +pending	
+ops-off fonts(frit) +unsaved	3	ops-off looks +unsaved	
+ops-off fonts(frit) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off fonts(frit) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off fonts(frit) +unsaved	6	ops-off help(help) +unsaved	
 ops-off fonts(frit) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off fonts(frit) +unsaved	Down	ops-off fonts(builtin) +unsaved	
 ops-off fonts(frit) +unsaved	End	ops-off fonts(builtin) +unsaved	
@@ -2014,6 +2266,10 @@ ops-off fonts(frit) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off fonts(frit) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
 ops-off fonts(frit) +unsaved	o	ops-off fonts(frit) +unsaved	check
 ops-off fonts(frit) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off fonts(frit) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off fonts(frit) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off fonts(frit) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off fonts(frit) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off fonts(frit) +unsaved +pending	Down	ops-off fonts(marked) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	End	ops-off fonts(builtin) +unsaved +pending	
@@ -2028,6 +2284,10 @@ ops-off fonts(frit) +unsaved +pending	i	ops-off any.question.confirm +pending	sa
 ops-off fonts(frit) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	o	ops-off fonts(frit) +unsaved +pending	check
 ops-off fonts(frit) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off fonts(marked) +pending	3	ops-off looks +pending	
+ops-off fonts(marked) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off fonts(marked) +pending	5	ops-off settings(first) +pending	
+ops-off fonts(marked) +pending	6	ops-off help(help) +pending	
 ops-off fonts(marked) +pending	Ctrl-C	ops-off left	exit 130
 ops-off fonts(marked) +pending	Down	ops-off fonts(builtin) +pending	
 ops-off fonts(marked) +pending	End	ops-off fonts(builtin) +pending	
@@ -2044,6 +2304,10 @@ ops-off fonts(marked) +pending	n	ops-off looks.new-frit.typing(row 0) +pending
 ops-off fonts(marked) +pending	o	ops-off fonts(marked) +unsaved +pending	check
 ops-off fonts(marked) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(marked) +pending	r	ops-off fonts(frit)	
+ops-off fonts(marked) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off fonts(marked) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off fonts(marked) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off fonts(marked) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off fonts(marked) +unsaved +pending	Down	ops-off fonts(builtin) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	End	ops-off fonts(builtin) +unsaved +pending	
@@ -2060,6 +2324,10 @@ ops-off fonts(marked) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +
 ops-off fonts(marked) +unsaved +pending	o	ops-off fonts(marked) +unsaved +pending	check
 ops-off fonts(marked) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	r	ops-off fonts(frit) +unsaved	
+ops-off fonts(refused)	3	ops-off looks	
+ops-off fonts(refused)	4	ops-off flow(doc display)	mouse on
+ops-off fonts(refused)	5	ops-off settings(first)	
+ops-off fonts(refused)	6	ops-off help(help)	
 ops-off fonts(refused)	Ctrl-C	ops-off left	exit 130
 ops-off fonts(refused)	Down	ops-off fonts(frit)	
 ops-off fonts(refused)	End	ops-off fonts(builtin)	
@@ -2072,6 +2340,10 @@ ops-off fonts(refused)	n	ops-off looks.new-frit.typing(row 0)
 ops-off fonts(refused)	o	ops-off fonts(refused) +unsaved	check
 ops-off fonts(refused)	q	ops-off left	exit 0
 ops-off fonts(refused)	r	ops-off fonts(marked) +pending	
+ops-off fonts(refused) +pending	3	ops-off looks +pending	
+ops-off fonts(refused) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off fonts(refused) +pending	5	ops-off settings(first) +pending	
+ops-off fonts(refused) +pending	6	ops-off help(help) +pending	
 ops-off fonts(refused) +pending	Ctrl-C	ops-off left	exit 130
 ops-off fonts(refused) +pending	Down	ops-off fonts(frit) +pending	
 ops-off fonts(refused) +pending	End	ops-off fonts(builtin) +pending	
@@ -2084,6 +2356,10 @@ ops-off fonts(refused) +pending	n	ops-off looks.new-frit.typing(row 0) +pending
 ops-off fonts(refused) +pending	o	ops-off fonts(refused) +unsaved +pending	check
 ops-off fonts(refused) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(refused) +pending	r	ops-off fonts(marked) +pending	
+ops-off fonts(refused) +unsaved	3	ops-off looks +unsaved	
+ops-off fonts(refused) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off fonts(refused) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off fonts(refused) +unsaved	6	ops-off help(help) +unsaved	
 ops-off fonts(refused) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off fonts(refused) +unsaved	Down	ops-off fonts(frit) +unsaved	
 ops-off fonts(refused) +unsaved	End	ops-off fonts(builtin) +unsaved	
@@ -2096,6 +2372,10 @@ ops-off fonts(refused) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved
 ops-off fonts(refused) +unsaved	o	ops-off fonts(refused) +unsaved	check
 ops-off fonts(refused) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off fonts(refused) +unsaved	r	ops-off fonts(marked) +unsaved +pending	
+ops-off fonts(refused) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off fonts(refused) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off fonts(refused) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off fonts(refused) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off fonts(refused) +unsaved +pending	Down	ops-off fonts(frit) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	End	ops-off fonts(builtin) +unsaved +pending	
@@ -2108,6 +2388,10 @@ ops-off fonts(refused) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) 
 ops-off fonts(refused) +unsaved +pending	o	ops-off fonts(refused) +unsaved +pending	check
 ops-off fonts(refused) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	r	ops-off fonts(marked) +unsaved +pending	
+ops-off help(about)	1	ops-off fonts(builtin)	
+ops-off help(about)	3	ops-off looks	
+ops-off help(about)	4	ops-off flow(doc display)	mouse on
+ops-off help(about)	5	ops-off settings(first)	
 ops-off help(about)	Ctrl-C	ops-off left	exit 130
 ops-off help(about)	Left	ops-off help(help)	
 ops-off help(about)	Right	ops-off help(help)	
@@ -2116,6 +2400,10 @@ ops-off help(about)	Shrink	ops-off any.too-small
 ops-off help(about)	Tab	ops-off flow(doc display)	mouse on
 ops-off help(about)	o	ops-off help(about) +unsaved	check
 ops-off help(about)	q	ops-off left	exit 0
+ops-off help(about) +pending	1	ops-off fonts(marked) +pending	
+ops-off help(about) +pending	3	ops-off looks +pending	
+ops-off help(about) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off help(about) +pending	5	ops-off settings(first) +pending	
 ops-off help(about) +pending	Ctrl-C	ops-off left	exit 130
 ops-off help(about) +pending	Left	ops-off help(help) +pending	
 ops-off help(about) +pending	Right	ops-off help(help) +pending	
@@ -2124,6 +2412,10 @@ ops-off help(about) +pending	Shrink	ops-off any.too-small +pending
 ops-off help(about) +pending	Tab	ops-off flow(doc display) +pending	mouse on
 ops-off help(about) +pending	o	ops-off help(about) +unsaved +pending	check
 ops-off help(about) +pending	q	ops-off any.question.leave +pending	
+ops-off help(about) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off help(about) +unsaved	3	ops-off looks +unsaved	
+ops-off help(about) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off help(about) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off help(about) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off help(about) +unsaved	Left	ops-off help(help) +unsaved	
 ops-off help(about) +unsaved	Right	ops-off help(help) +unsaved	
@@ -2132,6 +2424,10 @@ ops-off help(about) +unsaved	Shrink	ops-off any.too-small +unsaved
 ops-off help(about) +unsaved	Tab	ops-off flow(doc display) +unsaved	mouse on
 ops-off help(about) +unsaved	o	ops-off help(about) +unsaved	check
 ops-off help(about) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off help(about) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off help(about) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off help(about) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off help(about) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
 ops-off help(about) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off help(about) +unsaved +pending	Left	ops-off help(help) +unsaved +pending	
 ops-off help(about) +unsaved +pending	Right	ops-off help(help) +unsaved +pending	
@@ -2140,6 +2436,10 @@ ops-off help(about) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pen
 ops-off help(about) +unsaved +pending	Tab	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off help(about) +unsaved +pending	o	ops-off help(about) +unsaved +pending	check
 ops-off help(about) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off help(help)	1	ops-off fonts(builtin)	
+ops-off help(help)	3	ops-off looks	
+ops-off help(help)	4	ops-off flow(doc display)	mouse on
+ops-off help(help)	5	ops-off settings(first)	
 ops-off help(help)	Ctrl-C	ops-off left	exit 130
 ops-off help(help)	Left	ops-off help(about)	
 ops-off help(help)	Right	ops-off help(about)	
@@ -2148,6 +2448,10 @@ ops-off help(help)	Shrink	ops-off any.too-small
 ops-off help(help)	Tab	ops-off flow(doc display)	mouse on
 ops-off help(help)	o	ops-off help(help) +unsaved	check
 ops-off help(help)	q	ops-off left	exit 0
+ops-off help(help) +pending	1	ops-off fonts(marked) +pending	
+ops-off help(help) +pending	3	ops-off looks +pending	
+ops-off help(help) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off help(help) +pending	5	ops-off settings(first) +pending	
 ops-off help(help) +pending	Ctrl-C	ops-off left	exit 130
 ops-off help(help) +pending	Left	ops-off help(about) +pending	
 ops-off help(help) +pending	Right	ops-off help(about) +pending	
@@ -2156,6 +2460,10 @@ ops-off help(help) +pending	Shrink	ops-off any.too-small +pending
 ops-off help(help) +pending	Tab	ops-off flow(doc display) +pending	mouse on
 ops-off help(help) +pending	o	ops-off help(help) +unsaved +pending	check
 ops-off help(help) +pending	q	ops-off any.question.leave +pending	
+ops-off help(help) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off help(help) +unsaved	3	ops-off looks +unsaved	
+ops-off help(help) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off help(help) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off help(help) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off help(help) +unsaved	Left	ops-off help(about) +unsaved	
 ops-off help(help) +unsaved	Right	ops-off help(about) +unsaved	
@@ -2164,6 +2472,10 @@ ops-off help(help) +unsaved	Shrink	ops-off any.too-small +unsaved
 ops-off help(help) +unsaved	Tab	ops-off flow(doc display) +unsaved	mouse on
 ops-off help(help) +unsaved	o	ops-off help(help) +unsaved	check
 ops-off help(help) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off help(help) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off help(help) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off help(help) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off help(help) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
 ops-off help(help) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off help(help) +unsaved +pending	Left	ops-off help(about) +unsaved +pending	
 ops-off help(help) +unsaved +pending	Right	ops-off help(about) +unsaved +pending	
@@ -2172,6 +2484,10 @@ ops-off help(help) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pend
 ops-off help(help) +unsaved +pending	Tab	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off help(help) +unsaved +pending	o	ops-off help(help) +unsaved +pending	check
 ops-off help(help) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks	1	ops-off fonts(builtin)	
+ops-off looks	4	ops-off flow(doc display)	mouse on
+ops-off looks	5	ops-off settings(first)	
+ops-off looks	6	ops-off help(help)	
 ops-off looks	Ctrl-C	ops-off left	exit 130
 ops-off looks	Enter	ops-off looks +unsaved	check
 ops-off looks	Shift-Tab	ops-off flow(doc display)	mouse on
@@ -2180,6 +2496,10 @@ ops-off looks	Tab	ops-off fonts(builtin)
 ops-off looks	i	ops-off looks	prepare
 ops-off looks	o	ops-off looks +unsaved	check
 ops-off looks	q	ops-off left	exit 0
+ops-off looks +pending	1	ops-off fonts(marked) +pending	
+ops-off looks +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off looks +pending	5	ops-off settings(first) +pending	
+ops-off looks +pending	6	ops-off help(help) +pending	
 ops-off looks +pending	Ctrl-C	ops-off left	exit 130
 ops-off looks +pending	Enter	ops-off looks +unsaved +pending	check
 ops-off looks +pending	Shift-Tab	ops-off flow(doc display) +pending	mouse on
@@ -2188,6 +2508,10 @@ ops-off looks +pending	Tab	ops-off fonts(marked) +pending
 ops-off looks +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off looks +pending	o	ops-off looks +unsaved +pending	check
 ops-off looks +pending	q	ops-off any.question.leave +pending	
+ops-off looks +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off looks +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off looks +unsaved	5	ops-off settings(first) +unsaved	
+ops-off looks +unsaved	6	ops-off help(help) +unsaved	
 ops-off looks +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off looks +unsaved	Enter	ops-off looks +unsaved	check
 ops-off looks +unsaved	Shift-Tab	ops-off flow(doc display) +unsaved	mouse on
@@ -2197,6 +2521,10 @@ ops-off looks +unsaved	i	ops-off looks	save, prepare
 ops-off looks +unsaved	o	ops-off looks +unsaved	check
 ops-off looks +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off looks +unsaved	s	ops-off looks	save
+ops-off looks +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off looks +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off looks +unsaved +pending	5	ops-off settings(first) +unsaved +pending	
+ops-off looks +unsaved +pending	6	ops-off help(help) +unsaved +pending	
 ops-off looks +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off looks +unsaved +pending	Enter	ops-off looks +unsaved +pending	check
 ops-off looks +unsaved +pending	Shift-Tab	ops-off flow(doc display) +unsaved +pending	mouse on
@@ -2330,6 +2658,10 @@ ops-off looks.new-frit.typing(row 5) +unsaved +pending	Ctrl-C	ops-off left	save,
 ops-off looks.new-frit.typing(row 5) +unsaved +pending	Enter	ops-off looks.new-frit(row 6) +unsaved +pending	
 ops-off looks.new-frit.typing(row 5) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
 ops-off looks.new-frit.typing(row 5) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off settings(first)	1	ops-off fonts(builtin)	
+ops-off settings(first)	3	ops-off looks	
+ops-off settings(first)	4	ops-off flow(doc display)	mouse on
+ops-off settings(first)	6	ops-off help(help)	
 ops-off settings(first)	Ctrl-C	ops-off left	exit 130
 ops-off settings(first)	Down	ops-off settings(later)	
 ops-off settings(first)	End	ops-off settings(later)	
@@ -2341,6 +2673,10 @@ ops-off settings(first)	Tab	ops-off help(help)
 ops-off settings(first)	i	ops-off settings(first)	prepare
 ops-off settings(first)	o	ops-off settings(first) +unsaved	check
 ops-off settings(first)	q	ops-off left	exit 0
+ops-off settings(first) +pending	1	ops-off fonts(marked) +pending	
+ops-off settings(first) +pending	3	ops-off looks +pending	
+ops-off settings(first) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off settings(first) +pending	6	ops-off help(help) +pending	
 ops-off settings(first) +pending	Ctrl-C	ops-off left	exit 130
 ops-off settings(first) +pending	Down	ops-off settings(later) +pending	
 ops-off settings(first) +pending	End	ops-off settings(later) +pending	
@@ -2352,6 +2688,10 @@ ops-off settings(first) +pending	Tab	ops-off help(help) +pending
 ops-off settings(first) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off settings(first) +pending	o	ops-off settings(first) +unsaved +pending	check
 ops-off settings(first) +pending	q	ops-off any.question.leave +pending	
+ops-off settings(first) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off settings(first) +unsaved	3	ops-off looks +unsaved	
+ops-off settings(first) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off settings(first) +unsaved	6	ops-off help(help) +unsaved	
 ops-off settings(first) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off settings(first) +unsaved	Down	ops-off settings(later) +unsaved	
 ops-off settings(first) +unsaved	End	ops-off settings(later) +unsaved	
@@ -2364,6 +2704,10 @@ ops-off settings(first) +unsaved	i	ops-off settings(first)	save, prepare
 ops-off settings(first) +unsaved	o	ops-off settings(first) +unsaved	check
 ops-off settings(first) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off settings(first) +unsaved	s	ops-off settings(first)	save
+ops-off settings(first) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off settings(first) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off settings(first) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off settings(first) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
 ops-off settings(first) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off settings(first) +unsaved +pending	Down	ops-off settings(later) +unsaved +pending	
 ops-off settings(first) +unsaved +pending	End	ops-off settings(later) +unsaved +pending	
@@ -2376,6 +2720,10 @@ ops-off settings(first) +unsaved +pending	i	ops-off settings(first) +pending	sav
 ops-off settings(first) +unsaved +pending	o	ops-off settings(first) +unsaved +pending	check
 ops-off settings(first) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off settings(first) +unsaved +pending	s	ops-off settings(first) +pending	save
+ops-off settings(later)	1	ops-off fonts(builtin)	
+ops-off settings(later)	3	ops-off looks	
+ops-off settings(later)	4	ops-off flow(doc display)	mouse on
+ops-off settings(later)	6	ops-off help(help)	
 ops-off settings(later)	Ctrl-C	ops-off left	exit 130
 ops-off settings(later)	Enter	ops-off settings.section(choice)	
 ops-off settings(later)	Home	ops-off settings(first)	
@@ -2387,6 +2735,10 @@ ops-off settings(later)	Up	ops-off settings(first)
 ops-off settings(later)	i	ops-off settings(later)	prepare
 ops-off settings(later)	o	ops-off settings(later) +unsaved	check
 ops-off settings(later)	q	ops-off left	exit 0
+ops-off settings(later) +pending	1	ops-off fonts(marked) +pending	
+ops-off settings(later) +pending	3	ops-off looks +pending	
+ops-off settings(later) +pending	4	ops-off flow(doc display) +pending	mouse on
+ops-off settings(later) +pending	6	ops-off help(help) +pending	
 ops-off settings(later) +pending	Ctrl-C	ops-off left	exit 130
 ops-off settings(later) +pending	Enter	ops-off settings.section(choice) +pending	
 ops-off settings(later) +pending	Home	ops-off settings(first) +pending	
@@ -2398,6 +2750,10 @@ ops-off settings(later) +pending	Up	ops-off settings(first) +pending
 ops-off settings(later) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off settings(later) +pending	o	ops-off settings(later) +unsaved +pending	check
 ops-off settings(later) +pending	q	ops-off any.question.leave +pending	
+ops-off settings(later) +unsaved	1	ops-off fonts(builtin) +unsaved	
+ops-off settings(later) +unsaved	3	ops-off looks +unsaved	
+ops-off settings(later) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off settings(later) +unsaved	6	ops-off help(help) +unsaved	
 ops-off settings(later) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off settings(later) +unsaved	Enter	ops-off settings.section(choice) +unsaved	
 ops-off settings(later) +unsaved	Home	ops-off settings(first) +unsaved	
@@ -2410,6 +2766,10 @@ ops-off settings(later) +unsaved	i	ops-off settings(later)	save, prepare
 ops-off settings(later) +unsaved	o	ops-off settings(later) +unsaved	check
 ops-off settings(later) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off settings(later) +unsaved	s	ops-off settings(later)	save
+ops-off settings(later) +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
+ops-off settings(later) +unsaved +pending	3	ops-off looks +unsaved +pending	
+ops-off settings(later) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
+ops-off settings(later) +unsaved +pending	6	ops-off help(help) +unsaved +pending	
 ops-off settings(later) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off settings(later) +unsaved +pending	Enter	ops-off settings.section(choice) +unsaved +pending	
 ops-off settings(later) +unsaved +pending	Home	ops-off settings(first) +unsaved +pending	

@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "flow.others at 100×30, keys: 4 End PgUp Down Down Down Right Enter"
+---
+ Flow  Looks  Fonts  Settings  Help                 v View file  s Save  i Install  r Revert  n New
+ draft mine  ›  other inputs   1 keyboard and 1 pointer in no path yet · no changes · no problems …
+
+ OTHER INPUTS
+   These inputs are neither keyboards nor pointers, so none of them types into a terminal. Each
+   line says which rule catches it.
+
+
+   Power Button                           no rule names it
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Esc back  Ctrl-C save and quit  q quit

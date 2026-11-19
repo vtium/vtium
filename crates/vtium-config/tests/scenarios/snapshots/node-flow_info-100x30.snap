@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "flow.info at 100×30, keys: 4 Enter"
+---
+ Flow  Looks  Fonts  Settings  Help                 v View file  s Save  i Install  r Revert  n New
+ draft mine  ›  All displays   1 keyboard and 1 pointer in no path yet · no changes · no problems …
+
+ DISPLAY All displays  Every display, connected now or later
+
+   Matched by                    *
+
+   Where it goes                 in the terminal desk
+
+   Which displays and inputs this path joins change only when you revise it: press e.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ e revise  Esc back  Ctrl-C save and quit  q quit

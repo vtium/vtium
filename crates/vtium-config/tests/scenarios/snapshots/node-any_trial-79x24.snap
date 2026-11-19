@@ -1,0 +1,28 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "any.trial at 79×24, keys: Up t"
+---
+Trying tiny5 on the console for 10 s. Press k to keep it, or any other key to
+put the font back.
+
+This terminal is too small: vtium-config needs at least 80x25 characters, and
+this terminal is 79x24.
+
+Make this terminal larger, or use these commands, which work at any size:
+  vtium-config flow
+  vtium-config diff
+  vtium-config install
+  vtium-config get
+  vtium-config set
+  vtium-config revert
+  vtium-config new
+  vtium-config rule
+  vtium-config head
+  vtium-config look
+  vtium-config draft
+  vtium-config history
+  vtium-config restore
+  vtium-config library
+  vtium-config edit
+k keep  other keys put back  Ctrl-C save and quit
+Press u to put back the font the console started with.

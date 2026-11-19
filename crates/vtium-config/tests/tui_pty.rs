@@ -255,6 +255,22 @@ impl Console {
     }
 }
 
+/// The kitty graphics query of the four requests at start.
+const GRAPHICS_QUERY: &str = "\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\";
+
+/// Checks that DA1 ends each batch of queries in `written`, and that
+/// `written` holds `batches` OSC 50 queries: each query is followed by
+/// DA1, or at start by kitty's graphics query and then DA1.
+fn each_batch_ends_with_da1(written: &[u8], batches: usize) {
+    let text = String::from_utf8_lossy(written);
+    let after: Vec<&str> = text.split("\x1b]50;?\x1b\\").skip(1).collect();
+    assert_eq!(after.len(), batches, "{text:?}");
+    for rest in after {
+        let rest = rest.strip_prefix(GRAPHICS_QUERY).unwrap_or(rest);
+        assert!(rest.starts_with("\x1b[c"), "no DA1 after a query: {rest:?}");
+    }
+}
+
 /// The catalog's sets that the fixture installs: the vtium package's
 /// default sets other than terminus, whose names sort around the built-in
 /// fonts so that the arrow keys reach them in a known order.
@@ -389,6 +405,7 @@ fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
+    each_batch_ends_with_da1(&c.written(), 1);
     assert!(
         c.written().ends_with(b"\x1b[?25h\x1b[?1049l"),
         "the screen and cursor come back"
@@ -406,7 +423,7 @@ fn t_tries_the_highlighted_font_and_q_gives_the_start_font_back() {
     assert_eq!(c.switches(), Vec::<String>::new());
     c.key(b"t");
     c.until("switched to tiny5", |s| {
-        String::from_utf8_lossy(&s.written).contains("\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\")
+        String::from_utf8_lossy(&s.written).contains("\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\\x1b[c")
     });
     c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(b"k");
@@ -414,6 +431,7 @@ fn t_tries_the_highlighted_font_and_q_gives_the_start_font_back() {
     assert_eq!(status(child), 0);
     c.drained(&slave);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    each_batch_ends_with_da1(&c.written(), 3);
     assert_eq!(c.font(), "unifont");
     assert!(cooked(&slave));
 }
@@ -428,6 +446,7 @@ fn ctrl_c_gives_the_start_font_back() {
     assert_eq!(status(child), 130);
     c.drained(&slave);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    each_batch_ends_with_da1(&c.written(), 3);
     assert_eq!(c.font(), "unifont");
 }
 
@@ -442,6 +461,7 @@ fn sigterm_from_another_terminal_gives_the_start_font_back() {
     assert_eq!(status(child), 143);
     c.drained(&slave);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    each_batch_ends_with_da1(&c.written(), 3);
     assert_eq!(c.font(), "unifont");
     assert!(cooked(&slave));
 }
@@ -461,6 +481,7 @@ fn a_terminal_that_answers_only_da1_gets_no_osc_50_switch() {
             .count(),
         1
     );
+    each_batch_ends_with_da1(&c.written(), 1);
 }
 
 #[test]
@@ -533,6 +554,9 @@ fn set(name: &str, kind: Kind) -> (i32, String, Vec<String>) {
         .output()
         .expect("setsid runs");
     c.drained(&slave);
+    // a vtium console gets the switch and its query, and DA1 after them
+    let queries = usize::from(kind != Kind::Da1Only);
+    each_batch_ends_with_da1(&c.written(), queries);
     (
         out.status.code().unwrap_or(-1),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -904,6 +928,7 @@ fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
     assert_eq!(status(child), 0);
     c.drained(&slave);
     assert_eq!(c.switches(), ["jetbrains-mono", "unifont"]);
+    each_batch_ends_with_da1(&c.written(), 3);
     let per_read = c.seen.0.lock().expect("the lock").switches_per_read.clone();
     assert!(
         per_read.iter().all(|&n| n == 1),
@@ -925,6 +950,7 @@ fn sighup_sigint_and_sigquit_give_the_start_font_back() {
         assert_eq!(status(child), 128 + n, "signal {n}");
         c.drained(&slave);
         assert_eq!(c.switches(), ["tiny5", "unifont"], "signal {n}");
+        each_batch_ends_with_da1(&c.written(), 3);
         assert_eq!(c.font(), "unifont", "signal {n}");
         assert!(cooked(&slave), "signal {n}");
     }

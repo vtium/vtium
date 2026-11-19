@@ -88,6 +88,11 @@ struct Console {
     hold_sources: bool,
     /// A save writes each file of its plan, as the privileged step would.
     installs: bool,
+    /// The replies to a font switch reach the TUI in two reads, the first
+    /// ending in the ESC that begins DA1's reply.
+    cut_replies: bool,
+    /// How many times the console cut a switch's replies so.
+    cuts: usize,
 }
 
 impl Console {
@@ -127,6 +132,8 @@ impl Console {
             sources_asked: Vec::new(),
             hold_sources: false,
             installs: false,
+            cut_replies: false,
+            cuts: 0,
         }
     }
 
@@ -213,8 +220,16 @@ impl Port for Console {
                     let ok = format!("\x1b_Gi={};OK\x1b\\", model::QUERY_ID);
                     replies.splice(at..at, ok.into_bytes());
                 }
-                if !replies.is_empty() {
-                    self.pending.push_back(Wake::Bytes(replies));
+                let da1 = replies.windows(3).position(|w| w == b"\x1b[?");
+                match da1 {
+                    Some(at) if self.cut_replies && bytes.starts_with(b"\x1b]50;") => {
+                        let rest = replies.split_off(at + 1);
+                        self.pending.push_back(Wake::Bytes(replies));
+                        self.pending.push_back(Wake::Bytes(rest));
+                        self.cuts += 1;
+                    }
+                    _ if !replies.is_empty() => self.pending.push_back(Wake::Bytes(replies)),
+                    _ => {}
                 }
             }
             Answerer::Da1Only { .. } => {
@@ -692,6 +707,29 @@ fn leaving_with_a_switch_in_flight_waits_for_both_replies() {
     );
 }
 
+/// The replies to the live trial's switch reach the TUI in two reads, the
+/// first ending in the ESC that begins DA1's reply. While DA1's reply is
+/// awaited, that ESC waits for the next read and begins the reply, so it
+/// is not the Esc key, which would put the font back.
+#[test]
+fn an_esc_that_ends_a_read_while_da1_is_awaited_begins_its_reply() {
+    let mut c = console().keys(&[UP, b"t", b"k"]);
+    c.cut_replies = true;
+    assert_eq!(run(&mut c), 143);
+    assert_eq!(c.cuts, 2, "both switches' replies came in two reads");
+    let before = String::from_utf8_lossy(&c.written[..c.seen_at]).into_owned();
+    assert!(
+        before.contains("\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\\x1b[c"),
+        "{before:?}"
+    );
+    assert!(
+        !before.contains("\x1b]50;unifont"),
+        "k kept tiny5, and no Esc put unifont back: {before:?}"
+    );
+    // leaving gives the start font back
+    assert_eq!(c.switches(), ["tiny5", "unifont"]);
+}
+
 #[test]
 fn another_terminal_gets_no_osc_50_but_the_start_query() {
     let mut c = Console::da1_only(80, 25).keys(&[DOWN, DOWN, UP, b"\r", b"q"]);
@@ -866,7 +904,7 @@ fn a_failed_install_keeps_the_draft_and_says_why() {
 /// key `name`: the first section, Down to the key's section, Enter to open
 /// it, and Down to the key. Esc closes the section again.
 fn to_setting(name: &str) -> Vec<&'static [u8]> {
-    use vtium_config::tui::settings::sections;
+    use vtium_config::tui::tabs::settings::sections;
     let (section, key) = sections()
         .iter()
         .enumerate()
@@ -908,7 +946,7 @@ fn a_settings_section_and_a_list_of_values_at_80x25_and_100x30() {
 /// wherever the list opens.
 fn pick_value(name: &str, word: &str) -> Vec<&'static [u8]> {
     let key = vtium_settings::keys::find(name).expect("a key");
-    let at = vtium_config::tui::settings::fixed_values(key)
+    let at = vtium_config::tui::tabs::settings::fixed_values(key)
         .and_then(|words| words.iter().position(|w| *w == word))
         .unwrap_or_else(|| panic!("{name} does not take {word}"));
     let mut keys: Vec<&'static [u8]> = vec![b"\r", b"\x1b[H"];
@@ -967,7 +1005,7 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
         ("key-focus-next", "<Ctrl><Logo>Up"),
         ("key-focus-previous", "<Ctrl><Logo>Down"),
     ];
-    let listed: Vec<&vtium_settings::keys::Key> = vtium_config::tui::settings::sections()
+    let listed: Vec<&vtium_settings::keys::Key> = vtium_config::tui::tabs::settings::sections()
         .iter()
         .flat_map(|s| s.keys())
         .collect();
@@ -1239,30 +1277,31 @@ fn an_install_that_moves_the_frits_and_changes_a_frit_is_refused() {
         "font-name=unifont\nfont-frits=/srv/frits\n",
     );
     let (mut app, _) = App::new(inputs(), 80, 25);
-    app.draft = Some(drafted(&moved));
+    app.shared.draft = Some(drafted(&moved));
     assert!(app.frit_plan().is_ok());
-    app.pending.removals.push("tiny5".to_owned());
+    app.shared.pending.removals.push("tiny5".to_owned());
     let why = app.frit_plan().expect_err("a removal and a new directory");
     assert!(why.contains("font-frits"), "{why}");
-    app.pending.removals.clear();
-    app.pending
+    app.shared.pending.removals.clear();
+    app.shared
+        .pending
         .frits
         .push(("made".to_owned(), "source=builtin:unifont\n".to_owned()));
     let why = app.frit_plan().expect_err("a new frit and a new directory");
     assert!(why.contains("font-frits"), "{why}");
     // a draft that leaves font-frits alone is no move
     let (mut app, _) = App::new(inputs(), 80, 25);
-    app.draft = Some(drafted(
+    app.shared.draft = Some(drafted(
         &conf.replace("font-name=unifont", "font-name=proof"),
     ));
-    app.pending.removals.push("tiny5".to_owned());
+    app.shared.pending.removals.push("tiny5".to_owned());
     assert!(app.frit_plan().is_ok());
     // nor is one that names the directory the installed file names
     let mut named = inputs();
     named.conf = Some(moved.clone());
     let (mut app, _) = App::new(named, 80, 25);
-    app.draft = Some(drafted(&moved));
-    app.pending.removals.push("tiny5".to_owned());
+    app.shared.draft = Some(drafted(&moved));
+    app.shared.pending.removals.push("tiny5".to_owned());
     assert!(app.frit_plan().is_ok(), "{:?}", app.frit_plan());
 }
 
@@ -1786,10 +1825,9 @@ fn a_console_that_never_answers_the_give_back_is_left_after_the_wait() {
             Effect::Wait(vtium_config::tui::shot::TICK)
         ]
     );
-    assert_eq!(
-        app.event(Event::Input(Input::Reply(Reply::Font("tiny5".into())))),
-        []
-    );
+    for reply in [Reply::Font("tiny5".into()), Reply::Attributes] {
+        assert_eq!(app.event(Event::Input(Input::Reply(reply))), []);
+    }
     assert_eq!(app.event(Event::Input(Input::Key(Key::Char('k')))), []);
     let leave = app.event(Event::Input(Input::Key(Key::Char('q'))));
     assert_eq!(
@@ -1826,11 +1864,74 @@ fn trying_tiny5() -> vtium_config::tui::model::App {
             Effect::Wait(vtium_config::tui::shot::TICK)
         ]
     );
-    assert_eq!(
-        app.event(Event::Input(Input::Reply(Reply::Font("tiny5".into())))),
-        []
-    );
+    for reply in [Reply::Font("tiny5".into()), Reply::Attributes] {
+        assert_eq!(app.event(Event::Input(Input::Reply(reply))), []);
+    }
     app
+}
+
+/// A terminal that does not answer DA1 by the deadline at start leaves no
+/// query outstanding, so an Esc after it is the Esc key at once, and a DA1
+/// reply that comes late changes nothing.
+#[test]
+fn the_deadline_at_start_settles_the_four_requests() {
+    use vtium_config::tui::input::{Input, Reply};
+    use vtium_config::tui::model::{App, Event, Live};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    assert!(app.awaiting(), "the four requests are outstanding");
+    app.event(Event::Input(Input::Reply(Reply::Version(
+        "vtium(test)".into(),
+    ))));
+    app.event(Event::Timeout);
+    assert!(!app.awaiting());
+    assert_eq!(app.shared.live, Live::OpsOff);
+    assert_eq!(app.event(Event::Input(Input::Reply(Reply::Attributes))), []);
+    assert_eq!(app.shared.live, Live::OpsOff);
+}
+
+/// Each font switch is one batch, which DA1 ends. A console that answers
+/// DA1 and not the switch's query leaves the switch unanswered: the TUI
+/// marks the font refused, ends the trial, and sends it no second time.
+#[test]
+fn a_switch_whose_query_goes_unanswered_marks_its_font_refused_at_da1() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{Effect, Event};
+    assert_eq!(
+        model::switch("tiny5"),
+        b"\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\\x1b[c"
+    );
+    let (mut app, _) = vtium_config::tui::model::App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Font("unifont".into()),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    assert!(!app.awaiting(), "DA1's reply settled the start");
+    app.event(Event::Input(Input::Key(Key::Up)));
+    let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
+    assert_eq!(
+        tried,
+        [
+            Effect::Write(b"\x1b]50;tiny5\x1b\\\x1b]50;?\x1b\\\x1b[c".to_vec()),
+            Effect::Wait(vtium_config::tui::shot::TICK)
+        ]
+    );
+    assert!(app.awaiting());
+    assert_eq!(app.event(Event::Input(Input::Reply(Reply::Attributes))), []);
+    assert!(!app.awaiting());
+    assert!(
+        app.shared.refused.contains("tiny5"),
+        "{:?}",
+        app.shared.refused
+    );
+    assert!(app.shared.in_flight.is_none() && app.nav.trial.is_none());
+    assert_eq!(
+        app.shared.message.as_deref(),
+        Some(vtium_config::tui::words::trial_refused("tiny5").as_str())
+    );
+    assert_eq!(app.event(Event::Input(Input::Key(Key::Char('t')))), []);
 }
 
 /// One preview is drawn at a time: a highlight that moves while one is
@@ -1874,6 +1975,68 @@ fn one_preview_is_drawn_at_a_time() {
             height: 16
         }]
     );
+}
+
+/// The picture of the console in the Fonts view shows the TUI's own screen
+/// at the grid the font's cell gives. Update asks the loop to draw that
+/// screen, so the effect carries no screen of its own, and the view draws
+/// it at the picture's size while the model keeps the terminal's size.
+///
+/// References:
+/// - ADR-1206 D4, "Drawing takes the size as an argument".
+#[test]
+fn the_picture_of_the_console_is_drawn_at_its_own_size_and_the_model_keeps_its_size() {
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Effect, Event, Size};
+    use vtium_config::tui::view::{as_text, screen, screen_at};
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Graphics(true),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    app.event(Event::Detailed {
+        font: "unifont".into(),
+        height: 16,
+        result: Err("none".into()),
+    });
+    // `s` turns the detailed specimen off, so the Fonts view asks for the
+    // font's cell toward a picture of the console
+    let asked = app.event(Event::Input(Input::Key(Key::Char('s'))));
+    assert!(
+        matches!(asked.as_slice(), [Effect::Cell { .. }]),
+        "{asked:?}"
+    );
+    let cell = Ok((
+        Cell {
+            width: 8,
+            height: 16,
+        },
+        16,
+    ));
+    let picture = app.event(Event::Celled {
+        font: "unifont".into(),
+        height: 16,
+        cell,
+    });
+    let [Effect::ScreenPicture(shot)] = picture.as_slice() else {
+        panic!("a picture of the TUI's screen: {picture:?}");
+    };
+    assert!(shot.screen.is_empty(), "the loop draws the screen");
+    let (cols, rows) = shot.grid;
+    assert_ne!((cols, rows), (80, 25), "the picture's grid is its own");
+    let before = as_text(&screen(&app));
+    let size = Size {
+        cols,
+        rows,
+        ..app.size
+    };
+    let drawn = screen_at(&app, size);
+    assert_eq!(drawn.len(), rows);
+    assert_eq!((app.size.cols, app.size.rows), (80, 25));
+    assert_eq!(as_text(&screen(&app)), before);
 }
 
 /// A picture that comes after the highlight moved is not shown: no
@@ -1949,20 +2112,158 @@ fn a_picture_that_comes_after_the_highlight_moved_is_not_shown() {
     );
 }
 
+/// The cells under a picture on the screen are never written: the model
+/// keeps the cells the picture covers, and each frame leaves them alone,
+/// so the text under the picture never draws over it. The same frame
+/// without the picture writes text into some of those cells.
+///
+/// References:
+/// - ADR-1206 D5, "ratatui draws what changed": the cells under a kitty
+///   graphics picture are marked to skip.
+#[test]
+fn no_frame_writes_over_the_cells_under_a_picture() {
+    use vtium_config::specimen::Picture;
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Effect, Event};
+    use vtium_config::tui::shot::Covered;
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Graphics(true),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    // the Looks view at 6 pt, whose picture goes beside the sizes
+    app.event(Event::Input(Input::Key(Key::BackTab)));
+    app.event(Event::Input(Input::Key(Key::Down)));
+    let cell = Ok((
+        Cell {
+            width: 4,
+            height: 8,
+        },
+        8,
+    ));
+    app.event(Event::Celled {
+        font: "unifont".into(),
+        height: 8,
+        cell,
+    });
+    // a picture wider and taller than its area covers the area, which
+    // reaches the sentence under the sizes
+    let came = app.event(Event::Pictured(Ok(Picture {
+        width: 480,
+        height: 320,
+        rgba: vec![0; 480 * 320 * 4],
+    })));
+    assert!(
+        came.iter()
+            .any(|e| matches!(e, Effect::Write(b) if b.windows(3).any(|w| w == b"a=T"))),
+        "{came:?}"
+    );
+    // the picture goes at row 6 and column 26, from 1, in the Looks view
+    // at 80 by 25, and its area reaches the right edge and the row above
+    // the message line at its longest
+    let covered = Covered {
+        row: 5,
+        col: 25,
+        cols: 55,
+        rows: 15,
+    };
+    assert_eq!(app.shared.picture, Some(covered));
+    // what a frame writes into each cell, on a console that showed
+    // nothing
+    let written = |app: &App| {
+        let mut t = Terminal::new(80, 25, 0);
+        let mut rest: &[u8] = &vtium_config::tui::view::draw(app);
+        while !rest.is_empty() {
+            let taken = t.input(rest);
+            rest = &rest[taken..];
+        }
+        let s = t.screen();
+        let mut cells = Vec::new();
+        for r in covered.row..covered.row + covered.rows {
+            let line = s.line(r).expect("a row");
+            let row: Vec<char> = line
+                .cells()
+                .iter()
+                .map(|&c| match line.glyph(c) {
+                    Glyph::Char(ch) => ch,
+                    Glyph::Cluster(_) => '*',
+                    Glyph::Empty => ' ',
+                })
+                .collect();
+            cells.extend(row.into_iter().skip(covered.col).take(covered.cols));
+        }
+        cells
+    };
+    assert!(
+        written(&app).iter().all(|c| *c == ' '),
+        "a frame wrote over the picture"
+    );
+    // positive control: without the picture, the frame writes the
+    // sentence under the sizes into those cells
+    let mut bare = app.clone();
+    bare.shared.picture = None;
+    assert!(written(&bare).iter().any(|c| *c != ' '));
+}
+
+/// A picture that replaces another stays on the screen: the loop clears
+/// the screen when the old picture leaves, before the new one is shown,
+/// and never between a picture's show and its delete. ED 2 erases the
+/// pictures on the screen, so a clear written with the next frame would
+/// take the new picture with it.
+///
+/// References:
+/// - ADR-1206 D5, "ratatui draws what changed": after a picture is
+///   deleted the loop clears the screen, so the next frame draws whole.
+#[test]
+fn a_picture_that_replaces_another_is_not_erased_by_the_clear() {
+    let mut c = outside().keys(&[BACKTAB, DOWN, DOWN]);
+    c.graphics = true;
+    drive(&mut c, inputs()).expect("the loop");
+    let at = |pat: &[u8]| -> Vec<usize> {
+        c.written
+            .windows(pat.len())
+            .enumerate()
+            .filter(|(_, w)| *w == pat)
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let (shows, deletes, clears) = (at(b"a=T"), at(b"a=d"), at(b"\x1b[2J"));
+    // positive control: a picture replaces another, so the screen is
+    // cleared after a delete with a picture shown after it
+    assert!(
+        deletes
+            .iter()
+            .any(|d| shows.iter().any(|s| s > d) && clears.iter().any(|e| e > d)),
+        "shows {shows:?}, deletes {deletes:?}, clears {clears:?}"
+    );
+    for show in &shows {
+        let gone = deletes.iter().find(|d| *d > show).copied();
+        assert!(
+            !clears
+                .iter()
+                .any(|e| e > show && gone.is_none_or(|d| *e < d)),
+            "a clear erased the picture shown at byte {show}: shows {shows:?}, deletes {deletes:?}, clears {clears:?}"
+        );
+    }
+}
+
 /// A picture that fails while the live trial counts down leaves the
 /// countdown on the message line.
 #[test]
 fn a_failed_picture_leaves_the_live_trial_s_countdown() {
     use vtium_config::tui::model::Event;
     let mut app = trying_tiny5();
-    let countdown = app.message.clone();
+    let countdown = app.shared.message.clone();
     app.event(Event::Pictured(Err("the helper failed".into())));
     app.event(Event::Detailed {
         font: "tiny5".into(),
         height: 16,
         result: Err("the helper failed".into()),
     });
-    assert_eq!(app.message, countdown);
+    assert_eq!(app.shared.message, countdown);
 }
 
 /// The live trial counts its ticks down on the message line and, with no
@@ -1980,7 +2281,7 @@ fn the_live_trial_puts_the_font_back_after_its_ticks() {
             "{left} left"
         );
         assert_eq!(
-            app.message.as_deref(),
+            app.shared.message.as_deref(),
             Some(vtium_config::tui::words::trial_countdown("tiny5", left).as_str())
         );
     }
@@ -1988,7 +2289,7 @@ fn the_live_trial_puts_the_font_back_after_its_ticks() {
         app.event(Event::Timeout),
         [Effect::Write(model::switch("unifont"))]
     );
-    assert!(app.trial.is_none());
+    assert!(app.nav.trial.is_none());
     // a tick after the trial does nothing
     assert_eq!(app.event(Event::Timeout), []);
 }
@@ -2003,7 +2304,7 @@ fn the_keep_key_stops_the_live_trial_s_revert() {
     for _ in 0..20 {
         assert_eq!(app.event(Event::Timeout), []);
     }
-    assert_eq!(app.shown_font.as_deref(), Some("tiny5"));
+    assert_eq!(app.shared.shown_font.as_deref(), Some("tiny5"));
 }
 
 /// Any other key during the countdown puts the font back and does nothing
@@ -2014,14 +2315,17 @@ fn any_other_key_during_the_live_trial_puts_the_font_back() {
     use vtium_config::tui::model::{Effect, Event};
     for key in [Key::Down, Key::Char('q'), Key::Enter, Key::Char('t')] {
         let mut app = trying_tiny5();
-        let at = app.font_at;
+        let at = app.fonts.at();
         assert_eq!(
             app.event(Event::Input(Input::Key(key))),
             [Effect::Write(model::switch("unifont"))],
             "{key:?}"
         );
-        assert_eq!(app.font_at, at, "{key:?} moved the highlight");
-        assert!(app.trial.is_none() && app.leaving.is_none(), "{key:?}");
+        assert_eq!(app.fonts.at(), at, "{key:?} moved the highlight");
+        assert!(
+            app.nav.trial.is_none() && app.shared.leaving.is_none(),
+            "{key:?}"
+        );
         assert_eq!(app.drafted("font-name").as_deref(), Some("unifont"));
     }
 }
@@ -2047,8 +2351,14 @@ fn leaving_with_the_start_font_in_flight_sends_it_once() {
         "no second switch: {leave:?}"
     );
     assert!(leave.contains(&Effect::Wait(model::WAIT)), "{leave:?}");
+    // the TUI leaves at DA1's reply, which settles the switch, so no reply
+    // reaches the shell after it
     assert_eq!(
         app.event(Event::Input(Input::Reply(Reply::Font("unifont".into())))),
+        []
+    );
+    assert_eq!(
+        app.event(Event::Input(Input::Reply(Reply::Attributes))),
         [Effect::Exit(0)]
     );
 }
@@ -2067,8 +2377,10 @@ fn leaving_during_the_live_trial_gives_the_start_font_back() {
             Some(&Effect::Write(model::switch("unifont"))),
             "{event:?}"
         );
-        assert!(app.trial.is_none());
-        let done = app.event(Event::Input(Input::Reply(Reply::Font("unifont".into()))));
+        assert!(app.nav.trial.is_none());
+        let font = app.event(Event::Input(Input::Reply(Reply::Font("unifont".into()))));
+        assert_eq!(font, [], "{event:?}");
+        let done = app.event(Event::Input(Input::Reply(Reply::Attributes)));
         assert!(matches!(done.as_slice(), [Effect::Exit(_)]), "{done:?}");
     }
 }
@@ -2077,10 +2389,14 @@ fn leaving_during_the_live_trial_gives_the_start_font_back() {
 /// screen says first how to keep the font or put it back.
 #[test]
 fn the_small_screen_shows_the_live_trial_s_countdown() {
-    use vtium_config::tui::model::Event;
+    use vtium_config::tui::model::{Event, Size};
     use vtium_config::tui::view::{as_text, screen};
     let mut app = trying_tiny5();
-    app.event(Event::Resize { cols: 40, rows: 12 });
+    app.event(Event::Resize(Size {
+        cols: 40,
+        rows: 12,
+        cell_px: app.size.cell_px,
+    }));
     let text = as_text(&screen(&app));
     let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
@@ -2179,9 +2495,9 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
     use vtium_config::tui::model::{App, Event, Live};
     let (mut app, first) = App::new(inputs(), 80, 25);
     assert_eq!(first[1], model::Effect::Wait(model::WAIT));
-    assert_eq!(app.live, Live::Asking);
+    assert_eq!(app.shared.live, Live::Asking);
     app.event(Event::Timeout);
-    assert_eq!(app.live, Live::NotVtium);
+    assert_eq!(app.shared.live, Live::NotVtium);
 }
 
 #[test]
@@ -2902,15 +3218,19 @@ mod flow_view {
                 for _ in 0..boxes {
                     type_in(&mut a, RIGHT);
                 }
-                let at = a.flow_view.at.clone();
+                let at = a.flow.state().at.clone();
                 assert!(at.is_some());
                 let out = type_in(&mut a, key);
-                assert_eq!(a.view, next, "{key:?} from box {boxes}");
+                assert_eq!(a.nav.view, next, "{key:?} from box {boxes}");
                 assert!(writes(&out, MOUSE_OFF), "{out:?}");
                 // and back: the flow keeps the box that was highlighted
                 let back = if key == TAB { BACKTAB } else { TAB };
                 let out = type_in(&mut a, back);
-                assert_eq!((a.view, &a.flow_view.at), (View::Flow, &at), "box {boxes}");
+                assert_eq!(
+                    (a.nav.view, &a.flow.state().at),
+                    (View::Flow, &at),
+                    "box {boxes}"
+                );
                 assert!(writes(&out, MOUSE_ON), "{out:?}");
             }
         }
@@ -2926,7 +3246,7 @@ mod flow_view {
         for key in keys {
             for _ in 0..8 {
                 type_in(&mut a, key);
-                assert_eq!(a.view, View::Flow, "{key:?}");
+                assert_eq!(a.nav.view, View::Flow, "{key:?}");
             }
         }
     }
@@ -2934,7 +3254,7 @@ mod flow_view {
     /// The flow with a draft, so a card offers fields to change.
     fn drafted(cols: usize, rows: usize) -> App {
         let mut a = app(cols, rows);
-        a.draft = Some(vtium_config::tui::desk::Opened {
+        a.shared.draft = Some(vtium_config::tui::desk::Opened {
             name: "mine".into(),
             text: inputs().conf.expect("the fixture's vtium.conf"),
             ..Default::default()
@@ -2948,19 +3268,19 @@ mod flow_view {
         // while each is open (ADR-1403 D7, The keys)
         let mut a = drafted(80, 25);
         type_in(&mut a, b"\r");
-        let layer = a.flow_view.layer.clone();
+        let layer = a.flow.state().layer.clone();
         assert!(layer.is_some(), "{}", text(&a));
         for key in [TAB, BACKTAB] {
             type_in(&mut a, key);
-            assert_eq!((a.view, &a.flow_view.layer), (View::Flow, &layer));
+            assert_eq!((a.nav.view, &a.flow.state().layer), (View::Flow, &layer));
         }
         type_in(&mut a, b"\x1b");
-        assert!(a.flow_view.layer.is_none());
+        assert!(a.flow.state().layer.is_none());
         type_in(&mut a, b"v");
-        assert!(a.pager.is_some());
+        assert!(a.flow.pager().is_some());
         for key in [TAB, BACKTAB] {
             type_in(&mut a, key);
-            assert_eq!((a.view, a.pager.is_some()), (View::Flow, true));
+            assert_eq!((a.nav.view, a.flow.pager().is_some()), (View::Flow, true));
         }
     }
 
@@ -2970,16 +3290,19 @@ mod flow_view {
         let looks = cell(&a, "Looks");
         type_in(&mut a, b"v");
         click(&mut a, looks);
-        assert_eq!((a.view, a.pager.is_some()), (View::Flow, true));
+        assert_eq!((a.nav.view, a.flow.pager().is_some()), (View::Flow, true));
         let mut a = drafted(80, 25);
         type_in(&mut a, b"\r");
-        assert!(a.flow_view.layer.is_some());
+        assert!(a.flow.state().layer.is_some());
         click(&mut a, looks);
-        assert_eq!((a.view, a.flow_view.layer.is_some()), (View::Flow, true));
+        assert_eq!(
+            (a.nav.view, a.flow.state().layer.is_some()),
+            (View::Flow, true)
+        );
         // with nothing open, the click switches
         let mut a = drafted(80, 25);
         click(&mut a, looks);
-        assert_eq!(a.view, View::Looks);
+        assert_eq!(a.nav.view, View::Looks);
     }
 
     /// The cell where `needle` starts on the screen of `app`.
@@ -3025,8 +3348,8 @@ mod flow_view {
         let mut a = app(80, 25);
         for key in ['d', 'v', 'r', 'o', 'n', 'x', 'i'] {
             let out = press(&mut a, Key::Char(key));
-            assert_eq!(a.message.as_deref(), Some(words::NO_DESK), "{key}");
-            assert_eq!(a.view, View::Flow);
+            assert_eq!(a.shared.message.as_deref(), Some(words::NO_DESK), "{key}");
+            assert_eq!(a.nav.view, View::Flow);
             assert!(out.is_empty(), "{key}: {out:?}");
         }
     }
@@ -3123,7 +3446,7 @@ mod flow_view {
             assert!(screen.starts_with("This terminal is too small"), "{screen}");
             // the flow's keys do nothing there; q still leaves
             press(&mut a, Key::Right);
-            assert_eq!(a.flow_at, Item::Display(0));
+            assert_eq!(a.flow.at(), Item::Display(0));
             let out = press(&mut a, Key::Char('q'));
             assert_eq!(out.last(), Some(&Effect::Exit(0)));
         }
@@ -3132,9 +3455,9 @@ mod flow_view {
     #[test]
     fn the_help_view_draws_the_keys_from_the_contract_and_about_from_its_source() {
         let mut a = app(80, 25);
-        a.flow_at = Item::Display(0);
+        assert_eq!(a.flow.at(), Item::Display(0));
         press(&mut a, Key::BackTab);
-        assert_eq!(a.view, View::Help);
+        assert_eq!(a.nav.view, View::Help);
         let joined = |a: &App| text(a).lines().map(str::trim).collect::<Vec<_>>().join(" ");
         assert!(
             joined(&a).contains("The Flow view: CONFIGURATION, NEW PATH and PARTS"),
@@ -3154,7 +3477,7 @@ mod flow_view {
         );
         assert!(text(&a).lines().all(|l| l.chars().count() <= 80));
         press(&mut a, Key::Right);
-        assert!(a.about);
+        assert!(a.help.about());
         assert!(
             joined(&a).contains("vtium-config sets up the vtium console"),
             "{}",
@@ -3177,11 +3500,12 @@ mod flow_view {
         for (cols, rows) in [(80, 25), (100, 30)] {
             let mut a = app(cols, rows);
             press(&mut a, Key::BackTab);
-            assert_eq!(a.view, View::Help);
+            assert_eq!(a.nav.view, View::Help);
             let page = words(
-                &view::help_rows(&a)
+                &a.help
+                    .page(&a.shared, a.size)
                     .iter()
-                    .map(view::text)
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(" "),
             );
@@ -3217,13 +3541,13 @@ mod flow_view {
     fn the_help_page_scrolls_by_its_window_and_up_moves_it_at_once_from_the_bottom() {
         let mut a = app(80, 25);
         press(&mut a, Key::BackTab);
-        let (len, room) = view::help_window(&a);
+        let (len, room) = vtium_config::tui::layout::help_window(&a);
         assert!(len > room.saturating_mul(2), "{len} rows, {room} shown");
         // the screen's first row of the page, the row under the tab bar's
         // rule, is the page's row `at`
         let top = |a: &App, at: usize| {
-            let rows = view::help_rows(a);
-            let want = rows.get(at).map(view::text).unwrap_or_default();
+            let rows = a.help.page(&a.shared, a.size);
+            let want = rows.get(at).map(ToString::to_string).unwrap_or_default();
             let got = text(a).lines().nth(3).unwrap_or_default().to_owned();
             assert_eq!(got.trim_end(), want.trim_end(), "row {at}");
         };
@@ -4219,5 +4543,166 @@ mod draft_flow {
                 golden(&format!("{name}-{cols}x{rows}"), ran.screen(), bytes);
             }
         }
+    }
+}
+
+/// The window of a tab's list: update keeps the highlighted item in view
+/// after every event, and the view draws ratatui's List from a copy.
+///
+/// References:
+/// - ADR-1206 D4, "A list's selection lives in the tab's state".
+mod list_window {
+    use vtium_config::tui::desk::Kept;
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::layout;
+    use vtium_config::tui::model::{App, Event, Size, View};
+    use vtium_config::tui::view;
+
+    fn press(app: &mut App, key: Key) {
+        app.event(Event::Input(Input::Key(key)));
+    }
+
+    /// The Settings tab at `cols` × `rows`, with its second section open:
+    /// Colors, whose keys are longer than the window at 80 × 25.
+    fn colors(cols: usize, rows: usize) -> App {
+        let mut i = super::inputs();
+        i.view = View::Settings;
+        let mut app = App::new(i, cols, rows).0;
+        press(&mut app, Key::Down);
+        press(&mut app, Key::Enter);
+        app
+    }
+
+    /// The text of the highlighted row on the screen, which the list
+    /// draws in reverse video, and the row it stands on.
+    fn highlighted(app: &App) -> Option<(usize, String)> {
+        view::screen(app).iter().enumerate().find_map(|(y, row)| {
+            row.iter()
+                .find(|s| s.style.reverse && y > 2)
+                .map(|s| (y, s.text.trim().to_owned()))
+        })
+    }
+
+    #[test]
+    fn the_highlighted_key_s_last_row_stays_at_the_window_s_bottom_and_a_resize_fits_the_window() {
+        let mut app = colors(80, 25);
+        assert_eq!(app.settings.offset(), 0);
+        press(&mut app, Key::End);
+        let end = app.settings.offset();
+        assert!(end > 0, "the section is longer than the window");
+        // the highlighted key is the window's last row, above the blank
+        // row that starts the sentences under the list
+        let (row, _) = highlighted(&app).expect("a highlighted key");
+        let blank_below = |app: &App, row: usize| {
+            view::screen(app)
+                .get(row + 1)
+                .is_some_and(|r| r.iter().all(|s| s.text.trim().is_empty()))
+        };
+        assert!(
+            blank_below(&app, row),
+            "{}",
+            view::as_text(&view::screen(&app))
+        );
+        press(&mut app, Key::Up);
+        assert_eq!(app.settings.offset(), end - 1);
+        assert_eq!(highlighted(&app).map(|(y, _)| y), Some(row));
+        // a terminal 5 rows taller shows 5 more rows of the list, so the
+        // window starts 5 rows higher
+        let size = Size {
+            rows: 30,
+            ..app.size
+        };
+        app.event(Event::Resize(size));
+        assert_eq!(app.settings.offset(), end - 1 - 5);
+        assert_eq!(highlighted(&app).map(|(y, _)| y), Some(row + 5));
+    }
+
+    /// The Flow view at 80 × 25 with Restore's list open on a history of
+    /// 40 files, longer than the list's window.
+    fn long_history() -> App {
+        let mut i = super::inputs();
+        i.view = View::Flow;
+        let mut app = App::new(i, 80, 25).0;
+        let kept = (0..40)
+            .map(|n| Kept {
+                name: format!("DRAFT-{n}.conf"),
+                text: String::new(),
+            })
+            .collect();
+        app.flow.show_history(kept);
+        app.event(Event::Resize(app.size));
+        app
+    }
+
+    /// Restore's window ends above the message and the key line, so the
+    /// key line stays whole whichever entry is highlighted, and the
+    /// highlighted entry is always on the screen.
+    #[test]
+    fn restore_s_list_of_a_long_history_keeps_the_key_line_whole_and_the_highlight_in_view() {
+        let mut app = long_history();
+        let keys = format!(" {}", layout::key_line(&app));
+        let mut at = 0usize;
+        let moves = [Key::Down; 25].into_iter().chain([
+            Key::PageDown,
+            Key::End,
+            Key::Up,
+            Key::PageUp,
+            Key::Home,
+        ]);
+        for key in moves {
+            press(&mut app, key);
+            at = match key {
+                Key::Down => at + 1,
+                Key::Up => at - 1,
+                Key::PageDown => (at + 10).min(39),
+                Key::PageUp => at.saturating_sub(10),
+                Key::End => 39,
+                _ => 0,
+            };
+            let screen = view::screen(&app);
+            assert_eq!(
+                view::text(&screen[24]).trim_end(),
+                keys.trim_end(),
+                "{key:?}: {}",
+                view::as_text(&screen)
+            );
+            let (row, entry) = highlighted(&app).expect("a highlighted entry");
+            assert_eq!(entry, format!("{}  DRAFT-{at}.conf", at + 1), "{key:?}");
+            // 19 entries show on rows 5 to 23, under the title on row 4,
+            // and the highlighted one is the window's last once the list
+            // has scrolled
+            assert_eq!(row, 5 + at.min(18), "{key:?}");
+            let (_, list) = app.flow.restore().expect("Restore's list");
+            assert_eq!(list.offset, at.saturating_sub(18), "{key:?}");
+        }
+        // a message of three rows takes the rows above the key line, and
+        // the window ends above the message
+        app.shared.message = Some("word ".repeat(40));
+        press(&mut app, Key::End);
+        let screen = view::screen(&app);
+        let (row, entry) = highlighted(&app).expect("a highlighted entry");
+        assert_eq!(entry, "40  DRAFT-39.conf");
+        assert_eq!(row, 20, "{}", view::as_text(&screen));
+        assert!(view::text(&screen[21]).starts_with(" word word"));
+        assert_eq!(view::text(&screen[24]).trim_end(), keys.trim_end());
+    }
+
+    #[test]
+    fn a_frame_leaves_the_model_as_it_was() {
+        let mut app = colors(80, 25);
+        press(&mut app, Key::End);
+        let (_, key) = highlighted(&app).expect("a highlighted key");
+        // a long message arrives after update settled the window, so the
+        // window no longer fits the rows left for the list, and ratatui's
+        // List moves the window on the copy the view draws from
+        app.shared.message = Some("word ".repeat(60));
+        let (tab, before) = (app.settings.clone(), format!("{app:?}"));
+        // the model is lent mutably, as a frame that took it so would need
+        let model: &mut App = &mut app;
+        let mut painter = view::Painter::new().expect("a painter");
+        painter.frame(model).expect("a frame");
+        assert_eq!(app.settings, tab);
+        assert!(format!("{app:?}") == before, "the frame changed the model");
+        assert_eq!(highlighted(&app).map(|(_, k)| k), Some(key));
     }
 }

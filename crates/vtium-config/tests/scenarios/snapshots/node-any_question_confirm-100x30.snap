@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "any.question.confirm at 100×30, keys: 4 n"
+---
+ Flow  Looks  Fonts  Settings  Help                 v View file  s Save  i Install  r Revert  n New
+ draft mine   1 keyboard and 1 pointer in no path yet · no changes · no problems · not watching fo…
+ policy open: a keyboard that no rule names types into the active terminal
+ CONFIGURATION
+ DISPLAYS                     TERMINALS                                  INPUTS
+ ┏━━━━━━━━━━━━━━━━━━┓         ┌──────────────────────────────┐
+ ┃ All displays     ┃━━━━━━━━▶│ desk                         │
+ ┃ Every display, … ┃         │ font set proof · every VT    │
+ ┗━━━━━━━━━━━━━━━━━━┛         └──────────────────────────────┘
+
+                              ┌──────────────────────────────┐
+                              │ panel                        │
+                              │ default font set · every VT  │
+                              └──────────────────────────────┘
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display to make a path.
+ ╔═════════════════╗          ╔══════════════════════════════╗           ╔═════════════════╗
+ ║ Display         ║          ║ Terminal                     ║           ║ Input           ║
+ ║ Choose… [Enter] ║          ║ new: terminal-1              ║           ║ Choose… [Enter] ║
+ ╚═════════════════╝          ╚══════════════════════════════╝           ╚═════════════════╝
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ PARTS
+ DISPLAYS
+ ╔══════════════════════╗  ┌──────────────────────┐  ┌───────────────┐  ┌──────────────────────┐
+ ║ Display              ║  │ DP-8                 │  │ HDMI-A-2      │  │ All displays         │
+ ║ Add display… [Enter] ║  │ in the terminal desk │  │ Not connected │  │ in the terminal desk │
+ Start a new configuration? The draft's heads, rules and looks will be lost.
+ y yes  Esc Ctrl-C cancel

@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "flow.detail.typing at 100×30, keys: 4 PgDn Down Enter Enter"
+---
+ Flow  Looks  Fonts  Settings  Help                 v View file  s Save  i Install  r Revert  n New
+ draft mine  ›  All displays   1 keyboard and 1 pointer in no path yet · no changes · no problems …
+
+ DISPLAY PART  All displays
+
+   Label     _   Enter keeps it. Clear it to remove the label. Esc leaves it as it was.
+
+ CHOOSE WHICH DISPLAYS THIS PART MATCHES
+   The choices go from the widest to the narrowest. Enter picks one into the new path.
+
+   ○ All displays   Every display, connected now or later
+   ○ DP-8   LARGE00001 · by EDID
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Enter keep  Backspace delete  letters type  Esc cancel  Ctrl-C save and quit

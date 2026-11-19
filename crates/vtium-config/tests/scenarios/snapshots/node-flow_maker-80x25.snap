@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "flow.maker at 80×25, keys: 4 PgDn Enter"
+---
+ Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ draft mine  ›  Display   1 keyboard and 1 pointer in no path yet · no changes…
+
+ ADD A DISPLAY
+   Which displays should this include?
+
+   ○ All displays     Every display, connected now or later
+
+   OR CHOOSE BY
+   ○ This monitor     One monitor by its EDID, on any port
+   ○ Connector        Display on one connector, such as HDMI-A-1
+   ○ Hub port         Display on one port of a DisplayPort hub
+   ○ Graphics card    Every display on one graphics card
+
+
+
+
+
+
+
+
+
+
+
+ ↑↓ move  Enter choose  Esc back  q quit  . more 1/3

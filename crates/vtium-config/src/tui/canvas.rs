@@ -1,6 +1,10 @@
-//! A screen of cells the TUI draws into, each a character and its style,
-//! and the text helpers that fit a name to a column (ADR-1403 D7: at 80 by
-//! 25 a long name is cut in the middle with `…`).
+//! The TUI's text helpers: a row of styled text, writing text on a row at
+//! a column, and fitting a name, a sentence or a list of words to the room
+//! a screen has for it. At 80×25 a long name is cut in the middle with `…`,
+//! so the end that tells two devices apart still shows.
+//!
+//! References:
+//! - ADR-1403 D7: how a long name is cut at the smallest screen.
 
 use super::color::Style;
 
@@ -17,10 +21,6 @@ pub struct Span {
 /// One row of the screen.
 pub type Row = Vec<Span>;
 
-/// The mark of a cell that the wide character before it covers, which no
-/// row's text holds: [`Canvas::put`] writes a control as `?`.
-const WIDE_TAIL: char = '\0';
-
 /// A span of plain text.
 pub fn span(text: impl Into<String>, style: Style) -> Span {
     Span {
@@ -30,135 +30,50 @@ pub fn span(text: impl Into<String>, style: Style) -> Span {
     }
 }
 
-/// The screen being drawn: `cols` by `rows` cells.
-#[derive(Clone, Debug)]
-pub struct Canvas {
-    pub cols: usize,
-    pub rows: usize,
-    cells: Vec<Vec<(char, Style)>>,
-    /// A row drawn whole by a raw span, in place of its cells.
-    raw: Vec<Option<Span>>,
+/// Writes `text` in `style` on `row` from its character column `x`, and
+/// returns the column after the text. A row shorter than `x` is padded
+/// with blanks first. The text replaces the characters under it and leaves
+/// the rest of the row as it was, so a value written at its own column
+/// cuts a label that runs into that column, and the label's end still
+/// shows past the value. A control character becomes `?`, so a name read
+/// from a file never carries a control onto the screen. The row stays a
+/// run of spans, one for each stretch of one style.
+///
+/// The columns count characters, not cells: the row is laid out on the
+/// screen afterwards by the console's width rule, which moves everything
+/// after a wide character one cell to the right.
+pub fn put(row: &mut Row, x: usize, text: &str, style: Style) -> usize {
+    let mut cells: Vec<(char, Style)> = row
+        .iter()
+        .flat_map(|s| s.text.chars().map(move |c| (c, s.style)))
+        .collect();
+    if cells.len() < x {
+        cells.resize(x, (' ', Style::PLAIN));
+    }
+    let written: Vec<(char, Style)> = printable(text).chars().map(|c| (c, style)).collect();
+    let end = x.saturating_add(written.len());
+    let tail = cells.split_off(end.min(cells.len()));
+    cells.truncate(x);
+    cells.extend(written);
+    cells.extend(tail);
+    let mut out: Row = Vec::new();
+    for (c, style) in cells {
+        match out.last_mut() {
+            Some(s) if s.style == style => s.text.push(c),
+            _ => out.push(span(c.to_string(), style)),
+        }
+    }
+    *row = out;
+    end
 }
 
-impl Canvas {
-    pub fn new(cols: usize, rows: usize) -> Canvas {
-        Canvas {
-            cols,
-            rows,
-            cells: vec![vec![(' ', Style::PLAIN); cols]; rows],
-            raw: vec![None; rows],
-        }
-    }
-
-    /// Writes `text` from column `x` of row `y` in `style`, as far as the
-    /// screen's edge; returns the column after it.
-    pub fn put(&mut self, x: usize, y: usize, text: &str, style: Style) -> usize {
-        let Some(row) = self.cells.get_mut(y) else {
-            return x;
-        };
-        let mut at = x;
-        for c in text.chars() {
-            let Some(cell) = row.get_mut(at) else {
-                break;
-            };
-            // a name read from a file never carries a control onto the screen
-            *cell = (if c.is_control() { '?' } else { c }, style);
-            at = at.saturating_add(1);
-        }
-        at
-    }
-
-    /// Writes `text` from column `x` of row `y` in `style` as a terminal
-    /// lays it out: a wide character, by the console's own width rule,
-    /// takes two cells, and one that would cross the screen's edge ends
-    /// the text there. Returns the column after it. The font preview in a
-    /// vtium console writes the specimen's lines with it, which hold CJK
-    /// and emoji (ADR-1201 D4).
-    pub fn put_cells(&mut self, x: usize, y: usize, text: &str, style: Style) -> usize {
-        let Some(row) = self.cells.get_mut(y) else {
-            return x;
-        };
-        let mut at = x;
-        for c in text.chars() {
-            let c = if c.is_control() { '?' } else { c };
-            let wide = vtium_term::cluster_width(&[c]) >= 2;
-            let end = at.saturating_add(usize::from(wide));
-            if end >= row.len() {
-                break;
-            }
-            if let Some(cell) = row.get_mut(at) {
-                *cell = (c, style);
-            }
-            if wide && let Some(cell) = row.get_mut(end) {
-                *cell = (WIDE_TAIL, style);
-            }
-            at = end.saturating_add(1);
-        }
-        at
-    }
-
-    /// Writes `text` from `x` on `y`, cut to `width` and padded to it in
-    /// `style`, so a block's color fills its whole width.
-    pub fn fill(&mut self, x: usize, y: usize, width: usize, text: &str, style: Style) {
-        let fitted = fit(text, width);
-        let pad = width.saturating_sub(fitted.chars().count());
-        self.put(x, y, &format!("{fitted}{}", " ".repeat(pad)), style);
-    }
-
-    /// The character at a cell, for the lines that join at it.
-    pub fn at(&self, x: usize, y: usize) -> Option<char> {
-        self.cells.get(y)?.get(x).map(|(c, _)| *c)
-    }
-
-    /// The style a cell is drawn in.
-    pub fn style_at(&self, x: usize, y: usize) -> Option<Style> {
-        self.cells.get(y)?.get(x).map(|(_, s)| *s)
-    }
-
-    /// Sets a row to a raw span, drawn as it is.
-    pub fn raw(&mut self, y: usize, text: String) {
-        if let Some(r) = self.raw.get_mut(y) {
-            *r = Some(Span {
-                text,
-                style: Style::PLAIN,
-                raw: true,
-            });
-        }
-    }
-
-    /// Writes each span of `row` from column 0 of `y`.
-    pub fn row(&mut self, y: usize, row: &Row) {
-        let mut x = 0;
-        for s in row {
-            if s.raw {
-                self.raw(y, s.text.clone());
-                return;
-            }
-            x = self.put(x, y, &s.text, s.style);
-        }
-    }
-
-    /// The screen as rows, each cell run of one style a span.
-    pub fn into_rows(self) -> Vec<Row> {
-        self.cells
-            .into_iter()
-            .zip(self.raw)
-            .map(|(cells, raw)| {
-                if let Some(raw) = raw {
-                    return vec![raw];
-                }
-                let mut row: Row = Vec::new();
-                // the second cell of a wide character is the character's
-                for (c, style) in cells.into_iter().filter(|(c, _)| *c != WIDE_TAIL) {
-                    match row.last_mut() {
-                        Some(s) if s.style == style => s.text.push(c),
-                        _ => row.push(span(c.to_string(), style)),
-                    }
-                }
-                row
-            })
-            .collect()
-    }
+/// `text` with each control character shown as `?`, so a name read from a
+/// file never carries a control onto the screen, and ratatui, which
+/// cannot measure a control, never meets one.
+pub fn printable(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
 }
 
 /// `text` in at most `n` characters, cut at its end with `…`.
@@ -173,6 +88,62 @@ pub fn fit(text: &str, n: usize) -> String {
     let mut out: String = text.chars().take(n.saturating_sub(1)).collect();
     out.push('…');
     out
+}
+
+/// How many cells the console gives `c` on the screen, as `view::fill`
+/// lays a row out: the console's width rule for the character, and at
+/// least one cell, since a control shows as `?`.
+fn cells_of(c: char) -> usize {
+    let mut symbol = [0u8; 4];
+    usize::from(super::backend::console_width(c.encode_utf8(&mut symbol)).max(1))
+}
+
+/// How many cells `text` takes on the console's screen. A character the
+/// console draws two cells wide counts twice, so a name in Chinese takes
+/// twice as many cells as it has characters.
+pub fn cells(text: &str) -> usize {
+    text.chars().map(cells_of).sum()
+}
+
+/// `text` in at most `n` cells of the console's screen, cut at its end
+/// with `…`. A wide character that would straddle the end goes whole, so
+/// the result can be a cell short of `n`.
+pub fn fit_cells(text: &str, n: usize) -> String {
+    if cells(text) <= n {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut used = 0usize;
+    for c in text.chars() {
+        let w = cells_of(c);
+        if used.saturating_add(w).saturating_add(1) > n {
+            break;
+        }
+        out.push(c);
+        used = used.saturating_add(w);
+    }
+    if n > 0 {
+        out.push('…');
+    }
+    out
+}
+
+/// The character column of `row` that the console shows at screen cell
+/// `cell`. Text written there with [`put`] starts at that cell, however
+/// many wide characters come before it. Past the row's end, each missing
+/// cell is a blank that [`put`] pads with. A cell inside a wide character
+/// gives the column after it.
+pub fn column(row: &Row, cell: usize) -> usize {
+    let mut used = 0usize;
+    let mut chars = 0usize;
+    for c in row.iter().flat_map(|s| s.text.chars()) {
+        if used >= cell {
+            return chars;
+        }
+        used = used.saturating_add(cells_of(c));
+        chars = chars.saturating_add(1);
+    }
+    chars.saturating_add(cell.saturating_sub(used))
 }
 
 /// `text` in at most `n` characters, cut in the middle with `…`, so the
@@ -270,7 +241,6 @@ pub fn width(text: &str) -> usize {
 }
 
 #[cfg(test)]
-#[expect(clippy::indexing_slicing, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
 
@@ -293,38 +263,55 @@ mod tests {
     }
 
     #[test]
+    fn text_is_fitted_and_placed_by_the_console_s_cells() {
+        assert_eq!(cells("ab键盘"), 6);
+        assert_eq!(fit_cells("ab键盘", 6), "ab键盘");
+        // `键` and `…` take 3 cells; `盘` would straddle the end
+        assert_eq!(fit_cells("ab键盘", 5), "ab键…");
+        assert_eq!(fit_cells("ab键盘", 4), "ab…");
+        assert_eq!(fit_cells("", 0), "");
+        assert_eq!(fit_cells("abc", 0), "");
+        let row = vec![span("a键b", Style::PLAIN)];
+        // cell 3 shows `b`, the third character
+        assert_eq!(column(&row, 3), 2);
+        // cell 2 is inside `键`, so text goes after it
+        assert_eq!(column(&row, 2), 2);
+        // the row takes 4 cells, so cell 6 is two blanks past its end
+        assert_eq!(column(&row, 6), 5);
+    }
+
+    #[test]
     fn a_raw_span_s_width_leaves_out_its_escapes() {
         assert_eq!(width("\x1b[38;2;1;2;3mab\x1b[0mc"), 3);
     }
 
     #[test]
-    fn a_wide_character_takes_two_cells_and_never_crosses_the_edge() {
-        let mut c = Canvas::new(5, 1);
-        // 日 takes two cells, as the console's width rule gives it
-        let after = c.put_cells(0, 0, "a日b日", Style::PLAIN);
-        assert_eq!(after, 4, "the second 日 would cross the edge");
-        let rows = c.into_rows();
-        assert_eq!(rows[0][0].text, "a日b ");
-        // the row's cells still number five once drawn: 1 + 2 + 1 + 1
-        let cells: usize = rows[0][0]
-            .text
-            .chars()
-            .map(|c| usize::from(vtium_term::cluster_width(&[c])))
-            .sum();
-        assert_eq!(cells, 5);
-    }
-
-    #[test]
-    fn a_block_fills_its_width_and_runs_merge_by_style() {
-        let mut c = Canvas::new(6, 1);
-        let s = Style::block(super::super::color::Color::BrightCyan);
-        c.fill(1, 0, 4, "DP-8x", s);
-        let rows = c.into_rows();
-        let texts: Vec<(&str, Style)> =
-            rows[0].iter().map(|s| (s.text.as_str(), s.style)).collect();
+    fn text_put_on_a_row_replaces_what_it_covers_and_keeps_the_rest() {
+        let grey = Style::text(super::super::color::Color::Grey);
+        let white = Style::text(super::super::color::Color::BrightWhite);
+        let mut row: Row = Vec::new();
+        // a label that runs past the column where its value starts
+        assert_eq!(put(&mut row, 3, "Input A long name", grey), 20);
+        assert_eq!(put(&mut row, 12, "connected", white), 21);
+        // the value's column is reached by blanks, and a later run of the
+        // label's style joins the earlier one only when they touch
         assert_eq!(
-            texts,
-            [(" ", Style::PLAIN), ("DP-…", s), (" ", Style::PLAIN)]
+            row,
+            [
+                span("   ", Style::PLAIN),
+                span("Input A l", grey),
+                span("connected", white),
+            ]
         );
+        assert_eq!(put(&mut row, 24, "x\u{1b}", grey), 26);
+        let text: String = row.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(text, "   Input A lconnected   x?");
+        // a shorter value leaves the end of the label in sight
+        let mut row: Row = Vec::new();
+        put(&mut row, 0, "abcdefgh", grey);
+        put(&mut row, 2, "XY", white);
+        let text: String = row.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(text, "abXYefgh");
+        assert_eq!(row.len(), 3);
     }
 }

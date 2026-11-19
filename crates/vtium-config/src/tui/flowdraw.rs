@@ -1,6 +1,6 @@
 //! How the Flow view draws ([`super::flowview`]): the status line,
 //! the policy line and the column titles fixed at the top, the key line
-//! fixed at the bottom, and between them a window on the canvas of paths,
+//! fixed at the bottom, and between them a window on the document of paths,
 //! the editor and the pieces, scrolled to the row [`super::flowview::State`]
 //! keeps at its top. Enter on a box draws its second layer in the
 //! window's place.
@@ -17,23 +17,25 @@
 //! and the text inside takes the color the fill picks
 //! ([`super::flowcolor::text_for`]).
 
-use super::canvas::{Canvas, fit, width, wrap};
-use super::color::{Color, Style};
+use ratatui_core::buffer::Buffer;
+use ratatui_core::layout::Rect;
+use ratatui_core::text::{Line, Span as RSpan};
+use ratatui_core::widgets::Widget;
+use ratatui_widgets::paragraph::Paragraph;
+
+use super::canvas::{Row, column, fit, fit_cells, printable, put, span, wrap};
+use super::color::{Color, Colors, Style};
 use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
-use super::flowview::{self, BOX_ROWS, Boxed, Ctx, Layout, Mood, NoteKind, Obj, Slot, Wire};
-use super::model::App;
+use super::flowlayout::{
+    CardLine, card_about, card_choices, card_chosen, card_lines, card_path, card_value,
+    choices_for, font_names, label_target, layout_of, message_rows, window,
+};
+use super::flowview::{self, BOX_ROWS, Boxed, Layout, Mood, NoteKind, Obj, Slot, Wire};
+use super::model::{App, Shared};
 use super::parts::{self, Stage};
 use super::paths::{self, Path, Piece};
-use super::words;
-
-/// The rows fixed at the top: the tab bar, the status line and the policy
-/// line. Each section's title, and CONFIGURATION's column titles, scroll
-/// with the document.
-pub const HEAD_ROWS: usize = 3;
-
-/// The most rows the message line wraps to.
-const MESSAGE_ROWS: usize = 3;
+use super::{view, words};
 
 /// The column where a layer's values start.
 const VALUE_X: usize = 34;
@@ -60,69 +62,6 @@ const HEAVY_DASHED: [char; 6] = ['┅', '┇', '┏', '┓', '┗', '┛'];
 /// A template's border: double lines, so a template reads as the mould a
 /// part is made from, not as a part.
 const DOUBLE: [char; 6] = ['═', '║', '╔', '╗', '╚', '╝'];
-
-/// Whether the document of paths is on the screen: the Flow view with
-/// neither the file view nor Restore's list open over it.
-pub fn shown(app: &App) -> bool {
-    app.view == super::model::View::Flow && app.pager.is_none() && app.restore.is_none()
-}
-
-/// The font sets the palette offers: every font the TUI lists that reads.
-pub fn font_names(app: &App) -> Vec<String> {
-    app.inputs
-        .fonts
-        .iter()
-        .filter(|f| !matches!(f.state, super::model::FontState::Refused(_)))
-        .map(|f| f.name.clone())
-        .collect()
-}
-
-/// The document as `app` holds it, laid out at its width.
-pub fn layout_of(app: &App) -> Layout {
-    let flow = &app.inputs.flow;
-    let doc = paths::read(flow);
-    let new = app.flow_view.new.clone();
-    let doc = shown_doc(app, doc);
-    let parts = app.flow_view.parts.clone();
-    flowview::layout(&Ctx {
-        flow,
-        doc: &doc,
-        new: &new,
-        parts: &parts,
-        cols: app.cols,
-        default: paths::is_default(flow),
-    })
-}
-
-/// The configuration as CONFIGURATION shows it: `doc` without what is
-/// being revised in NEW PATH. The draft keeps it until the new path is
-/// added or cleared, so adding it back unchanged changes nothing.
-pub fn shown_doc(app: &App, doc: paths::Doc) -> paths::Doc {
-    match app.flow_view.revising.as_ref() {
-        Some(flowview::Revising::Path(name)) => doc.revise(name).map_or(doc, |(rest, _)| rest),
-        Some(flowview::Revising::Active) => doc.revise_active().map_or(doc, |(rest, _)| rest),
-        Some(flowview::Revising::Nothing) => doc.revise_none().map_or(doc, |(rest, _)| rest),
-        None => doc,
-    }
-}
-
-/// The message under the window, wrapped.
-fn message_rows(app: &App) -> Vec<String> {
-    app.message
-        .as_ref()
-        .map(|m| wrap(m, app.cols.saturating_sub(2).max(1), MESSAGE_ROWS))
-        .unwrap_or_default()
-}
-
-/// The window on the canvas: its first screen row, and how many rows it
-/// has between the column titles and the message and key lines.
-pub fn window(app: &App) -> (usize, usize) {
-    let bottom = app
-        .rows
-        .saturating_sub(super::view::key_rows(app).len())
-        .saturating_sub(message_rows(app).len());
-    (HEAD_ROWS, bottom.saturating_sub(HEAD_ROWS))
-}
 
 fn bold(color: Color) -> Style {
     Style {
@@ -173,8 +112,68 @@ const fn emph(style: Style) -> Style {
     }
 }
 
+/// The document of paths as a grid of cells, each a character and its
+/// style. The document is a picture: a line's character depends on the
+/// lines that meet at its cell, and a box's fill covers cells that hold
+/// no text. So it is drawn cell by cell, and its rows go to the screen
+/// through [`view::fill`].
+#[derive(Clone, Debug)]
+struct Grid {
+    cols: usize,
+    rows: usize,
+    cells: Vec<Vec<(char, Style)>>,
+}
+
+impl Grid {
+    fn new(cols: usize, rows: usize) -> Grid {
+        Grid {
+            cols,
+            rows,
+            cells: vec![vec![(' ', Style::PLAIN); cols]; rows],
+        }
+    }
+
+    /// Writes `text` from column `x` of row `y` in `style`, one character
+    /// a cell, as far as the grid's edge.
+    fn put(&mut self, x: usize, y: usize, text: &str, style: Style) {
+        let Some(row) = self.cells.get_mut(y) else {
+            return;
+        };
+        for (cell, c) in row.iter_mut().skip(x).zip(printable(text).chars()) {
+            *cell = (c, style);
+        }
+    }
+
+    /// The character at a cell, for the lines that join at it.
+    fn at(&self, x: usize, y: usize) -> Option<char> {
+        self.cells.get(y)?.get(x).map(|(c, _)| *c)
+    }
+
+    /// The style a cell is drawn in.
+    fn style_at(&self, x: usize, y: usize) -> Option<Style> {
+        self.cells.get(y)?.get(x).map(|(_, s)| *s)
+    }
+
+    /// The grid as rows of text, each run of one style a span.
+    fn into_rows(self) -> Vec<Row> {
+        self.cells
+            .into_iter()
+            .map(|cells| {
+                let mut row: Row = Vec::new();
+                for (c, style) in cells {
+                    match row.last_mut() {
+                        Some(s) if s.style == style => s.text.push(c),
+                        _ => row.push(span(c.to_string(), style)),
+                    }
+                }
+                row
+            })
+            .collect()
+    }
+}
+
 /// Draws the box `b` on `doc`, heavy when it is highlighted.
-fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
+fn draw_box(doc: &mut Grid, b: &Boxed, highlighted: bool, pal: &Palette) {
     let border = pal.style(mood_role(b.mood));
     // the highlight is not a role: a placed box's is bright white in bold
     let border = match (highlighted, b.mood) {
@@ -291,7 +290,7 @@ fn cells(w: &Wire) -> Vec<(usize, usize)> {
 /// where they belong to the highlighted object, each ending in an arrow
 /// at its terminal. A cell that only dashed lines cross is drawn dashed,
 /// and one that only a roaming stub crosses is grey.
-fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>, pal: &Palette) {
+fn draw_wires(doc: &mut Grid, wires: &[Wire], at: Option<&Obj>, pal: &Palette) {
     let line = pal.style(Role::Line);
     let (cols, rows) = (doc.cols, doc.rows);
     // each cell's weight up, down, left and right, whether a whole line
@@ -377,10 +376,10 @@ fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>, pal: &Palette)
     }
 }
 
-/// The whole canvas: the paths, the editor and the pieces, with `at`
+/// The whole document: the paths, the editor and the pieces, with `at`
 /// highlighted.
-pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -> Canvas {
-    let mut doc = Canvas::new(cols, layout.height.max(1));
+fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -> Grid {
+    let mut doc = Grid::new(cols, layout.height.max(1));
     draw_wires(&mut doc, &layout.wires, at, pal);
     for b in &layout.boxes {
         draw_box(&mut doc, b, Some(&b.obj) == at, pal);
@@ -413,17 +412,17 @@ pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -
     doc
 }
 
-/// The canvas as a window `height` rows tall from row `top` shows it: a
-/// box whose title is out of sight is left out, so no stray piece of a
+/// The document as a window `height` rows tall from row `top` shows it:
+/// a box whose title is out of sight is left out, so no stray piece of a
 /// border shows at the window's edges.
-pub fn window_of(
+fn window_of(
     layout: &Layout,
     cols: usize,
     at: Option<&Obj>,
     top: usize,
     height: usize,
     pal: &Palette,
-) -> Canvas {
+) -> Grid {
     let mut doc = document(layout, cols, at, pal);
     let end = top.saturating_add(height);
     for b in &layout.boxes {
@@ -501,11 +500,13 @@ fn edge_labels(
     out
 }
 
-/// The status line: the configuration open, or the breadcrumb to the box
-/// whose layer is open; then whether every device is in a path; then how
-/// the draft stands.
-fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) {
-    let flow = &app.inputs.flow;
+/// The status line on row 1: the configuration open, or the breadcrumb
+/// to the box whose layer is open; then whether every device is in a
+/// path; then how the draft stands. It starts at column 1, and its parts
+/// stand three columns apart.
+fn status(app: &App, layout: &Layout, crumb: Option<&str>) -> Row {
+    let flow = &app.shared.inputs.flow;
+    let cols = app.size.cols;
     let name = flow.draft.as_ref().map_or_else(
         || words::NO_DRAFT.to_owned(),
         |d| format!("draft {}", d.name),
@@ -514,7 +515,6 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
         Some(c) => format!("{name}  ›  {c}"),
         None => name,
     };
-    let mut x = canvas.put(1, 1, &left, bold(Color::BrightWhite));
     let count = |s: flowview::Sort| layout.waiting.iter().filter(|w| **w == s).count();
     let waiting = words::flow_waiting(
         count(flowview::Sort::Keyboard),
@@ -524,140 +524,234 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
     let style = if layout.waiting.is_empty() {
         Style::text(Color::Green)
     } else {
-        app.inputs.flow_colors.style(Role::Waiting)
+        app.shared.inputs.flow_colors.style(Role::Waiting)
     };
-    x = canvas.put(x.saturating_add(3), 1, &waiting, style);
+    // the column after the waiting count, counted in characters as the
+    // rest's room is
+    let end = 1usize
+        .saturating_add(left.chars().count())
+        .min(cols)
+        .saturating_add(3)
+        .saturating_add(waiting.chars().count());
+    let mut row = vec![
+        span(left, bold(Color::BrightWhite)),
+        span("   ", Style::PLAIN),
+        span(waiting, style),
+    ];
     let mut rest: Vec<String> = Vec::new();
     if let Some(d) = &flow.draft {
-        let state = words::draft_state(&d.name, d.changes, app.unsaved, d.problems);
+        let state = words::draft_state(&d.name, d.changes, app.shared.unsaved, d.problems);
         let prefix = format!("draft {} · ", d.name);
         rest.push(state.strip_prefix(&prefix).unwrap_or(&state).to_owned());
     }
-    if app.draft.is_some() {
-        if let Some(came) = &app.came {
+    if app.shared.draft.is_some() {
+        if let Some(came) = &app.shared.came {
             rest.push(came.clone());
         }
-        if !(app.inputs.hotplug && app.present.udev) {
+        if !(app.shared.inputs.hotplug && app.shared.present.udev) {
             rest.push(words::NO_HOTPLUG.to_owned());
         }
     }
     if !rest.is_empty() {
-        let room = app.cols.saturating_sub(x).saturating_sub(1);
-        canvas.put(
-            x,
-            1,
-            &fit(&format!(" · {}", rest.join(" · ")), room),
+        let room = cols.saturating_sub(end).saturating_sub(1);
+        row.push(span(
+            fit(&format!(" · {}", rest.join(" · ")), room),
             Style::text(Color::Grey),
-        );
+        ));
     }
+    row
 }
 
-/// The key line on the last row.
-fn key_line(canvas: &mut Canvas, app: &App) {
-    let rows = super::view::key_rows(app);
-    let top = app.rows.saturating_sub(rows.len());
-    for (i, row) in rows.iter().enumerate() {
-        canvas.put(1, top.saturating_add(i), row, Style::text(Color::Grey));
-    }
+/// `height` rows of `area` from its row `y` and its column `x`, as far as
+/// its bottom and its right edge.
+fn place(area: Rect, x: usize, y: usize, height: usize) -> Rect {
+    let n = |v: usize| u16::try_from(v).unwrap_or(u16::MAX);
+    Rect::new(n(x), n(y), area.width.saturating_sub(n(x)), n(height)).intersection(area)
 }
 
-/// The message above the key line.
-fn message(canvas: &mut Canvas, app: &App) {
-    let lines = message_rows(app);
-    let y = app
-        .rows
-        .saturating_sub(super::view::key_rows(app).len())
-        .saturating_sub(lines.len());
-    for (i, line) in lines.iter().enumerate() {
-        canvas.put(1, y.saturating_add(i), line, Style::PLAIN);
-    }
-}
-
-/// Draws the Flow view on `canvas`, below the tab bar.
-pub fn screen(canvas: &mut Canvas, app: &App) {
-    let state = &app.flow_view;
-    let flow = &app.inputs.flow;
-    let layout = layout_of(app);
-    message(canvas, app);
+/// Draws the Flow view below the tab bar into `buf`, its colors read as
+/// `colors` says: the status line, the policy line and the window on the
+/// document of paths, or the layer open over it, then the message and
+/// the key line. The status, the policy and the message can hold any
+/// name from vtium.conf or a device, so they are written by the console's
+/// width rule.
+///
+/// References:
+/// - ADR-1206 D1, "The console's width rule decides where the cursor
+///   goes".
+pub fn render(app: &App, colors: Colors, buf: &mut Buffer) {
+    let state = app.flow.state();
+    let flow = &app.shared.inputs.flow;
+    let area = buf.area;
+    let (cols, rows) = (app.size.cols, app.size.rows);
+    let layout = layout_of(state, &app.shared, cols);
+    let keys = super::layout::key_rows(app);
     match &state.layer {
         Some(obj) => {
-            status(canvas, app, &layout, Some(&obj_name(flow, obj)));
-            key_line(canvas, app);
-            match obj {
-                Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
-                    card_layer(canvas, app, state, obj);
-                }
-                Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_) => info_layer(canvas, app, obj),
-                Obj::Others => others_layer(canvas, app),
-                Obj::Pal(Slot::Template(st)) | Obj::New(Slot::Empty(st)) => match &state.picker {
-                    Some(p) => picker_layer(canvas, app, state, p),
-                    None => make_layer(canvas, app, state, *st),
-                },
-                _ => choices_layer(canvas, app, state, obj),
-            }
+            let drawn = layer(app, state, obj);
+            view::fill(
+                buf,
+                place(area, 0, 2, rows),
+                drawn.get(2..).unwrap_or_default(),
+                colors,
+            );
         }
         None => {
-            status(canvas, app, &layout, None);
-            key_line(canvas, app);
-            canvas.put(
-                1,
-                2,
-                &fit(
-                    &words::flow_policy(&flow.policy),
-                    app.cols.saturating_sub(2),
-                ),
-                Style::text(Color::Grey),
+            let policy = fit(&words::flow_policy(&flow.policy), cols.saturating_sub(2));
+            view::fill(
+                buf,
+                place(area, 1, 2, 1),
+                &[vec![span(policy, Style::text(Color::Grey))]],
+                colors,
             );
-            overview(canvas, app, state, &layout);
+            let (top, height) = window(&app.shared, app.size, keys.len());
+            Window {
+                app,
+                layout: &layout,
+                height,
+                colors,
+            }
+            .render(place(area, 0, top, height), buf);
         }
     }
+    let crumb = state.layer.as_ref().map(|o| obj_name(flow, o));
+    view::fill(
+        buf,
+        place(area, 1, 1, 1),
+        &[status(app, &layout, crumb.as_deref())],
+        colors,
+    );
+    let message: Vec<Row> = message_rows(&app.shared, cols)
+        .into_iter()
+        .map(|line| vec![span(line, Style::PLAIN)])
+        .collect();
+    let first = rows
+        .saturating_sub(keys.len())
+        .saturating_sub(message.len());
+    view::fill(buf, place(area, 1, first, message.len()), &message, colors);
+    let key_lines: Vec<Line> = keys
+        .iter()
+        .map(|k| {
+            let style = Style::text(Color::Grey).in_cells(colors);
+            Line::from(RSpan::styled(printable(k), style))
+        })
+        .collect();
+    Paragraph::new(key_lines).render(
+        place(area, 1, rows.saturating_sub(keys.len()), keys.len()),
+        buf,
+    );
 }
 
-/// The window on the document, between the policy line and the message
-/// and key lines, with a label where a wire leaves it.
-fn overview(canvas: &mut Canvas, app: &App, state: &flowview::State, layout: &Layout) {
-    let (wtop, wh) = window(app);
-    let doc = window_of(
-        layout,
-        app.cols,
-        state.at.as_ref(),
-        state.top,
-        wh,
-        &app.inputs.flow_colors,
-    );
-    put_window(canvas, &doc, state.top, wtop, wh);
-    for (x, y, text) in edge_labels(&app.inputs.flow, layout, state.top, wh) {
-        let row = wtop.saturating_add(y.saturating_sub(state.top));
-        canvas.put(x, row, &text, Style::text(Color::BrightWhite));
+/// The window on the document of paths, between the policy line and the
+/// message and the key line: the rows of the document from the row the
+/// Flow tab keeps at the window's top, with a label where a wire leaves
+/// the window. The document is a picture made of cells, whose lines join
+/// where they cross, so it is drawn on a grid of cells and written into
+/// the buffer by the console's width rule.
+struct Window<'a> {
+    app: &'a App,
+    layout: &'a Layout,
+    /// The rows the window has, which decide the boxes whose titles show.
+    height: usize,
+    colors: Colors,
+}
+
+impl Widget for Window<'_> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let app = self.app;
+        let state = app.flow.state();
+        let cells = window_cells(
+            &app.shared.inputs.flow,
+            self.layout,
+            app.size.cols,
+            state.at.as_ref(),
+            state.top,
+            self.height,
+            &app.shared.inputs.flow_colors,
+        );
+        view::fill(buf, area, &cells.into_rows(), self.colors);
     }
 }
 
-/// Copies `height` rows of the canvas `doc` from row `top` onto `canvas`
-/// from its row `at`: every cell that holds a character, and every blank
-/// cell inside a filled box, so the fill reaches the screen whole.
-fn put_window(canvas: &mut Canvas, doc: &Canvas, top: usize, at: usize, height: usize) {
+/// The cells of a window `height` rows tall on the document, from its row
+/// `top`, with `at` highlighted: every cell of the document that holds a
+/// character, every blank cell inside a filled box, so the fill reaches
+/// the screen whole, and a label where a wire leaves the window. Every
+/// other cell is blank in the terminal's own colors.
+fn window_cells(
+    flow: &Flow,
+    layout: &Layout,
+    cols: usize,
+    at: Option<&Obj>,
+    top: usize,
+    height: usize,
+    pal: &Palette,
+) -> Grid {
+    let doc = window_of(layout, cols, at, top, height, pal);
+    let mut shown = Grid::new(cols, height);
     for i in 0..height {
         let y = top.saturating_add(i);
         for x in 0..doc.cols {
             if let (Some(c), Some(s)) = (doc.at(x, y), doc.style_at(x, y))
                 && (c != ' ' || s.back.is_some())
             {
-                canvas.put(x, at.saturating_add(i), &c.to_string(), s);
+                shown.put(x, i, &c.to_string(), s);
             }
         }
+    }
+    for (x, y, text) in edge_labels(flow, layout, top, height) {
+        shown.put(
+            x,
+            y.saturating_sub(top),
+            &text,
+            Style::text(Color::BrightWhite),
+        );
+    }
+    shown
+}
+
+/// The rows of the layer open on `obj`, one for each row of the screen,
+/// with the text each row holds from column 0. A layer writes from row 3
+/// down, and the window's bottom ends what it writes, so the message and
+/// the key line below the window stay clear of it. The status line, the
+/// message and the key line are drawn after the layer all the same.
+fn layer(app: &App, state: &flowview::State, obj: &Obj) -> Vec<Row> {
+    let mut rows: Vec<Row> = vec![Vec::new(); app.size.rows];
+    match obj {
+        Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal) => {
+            card_layer(&mut rows, app, state, obj);
+        }
+        Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_) => info_layer(&mut rows, app, obj),
+        Obj::Others => others_layer(&mut rows, app),
+        Obj::Pal(Slot::Template(st)) | Obj::New(Slot::Empty(st)) => match &state.picker {
+            Some(p) => picker_layer(&mut rows, app, state, p),
+            None => make_layer(&mut rows, app, state, *st),
+        },
+        _ => choices_layer(&mut rows, app, state, obj),
+    }
+    rows
+}
+
+/// Writes `text` in `style` on row `y` of a layer from its column `x`, over
+/// what the row holds there, and returns the column after the text. A row
+/// below the screen takes nothing.
+fn at(rows: &mut [Row], x: usize, y: usize, text: &str, style: Style) -> usize {
+    match rows.get_mut(y) {
+        Some(row) => put(row, x, text, style),
+        None => x,
     }
 }
 
 /// One choice: `○ text`, or `● text` for what is chosen now, the text in
 /// reverse video under the cursor; returns the column after it and its
 /// gap.
-fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor: bool) -> usize {
+fn choice(rows: &mut [Row], x: usize, y: usize, text: &str, on: bool, cursor: bool) -> usize {
     let (mark, mark_style) = if on {
         ("●", Style::text(Color::Green))
     } else {
         ("○", Style::text(Color::Grey))
     };
-    canvas.put(x, y, mark, mark_style);
+    at(rows, x, y, mark, mark_style);
     let style = match (cursor, on) {
         (true, _) => Style {
             bold: on,
@@ -669,15 +763,15 @@ fn choice(canvas: &mut Canvas, x: usize, y: usize, text: &str, on: bool, cursor:
         },
         (false, false) => Style::text(Color::White),
     };
-    let end = canvas.put(x.saturating_add(2), y, text, style);
+    let end = at(rows, x.saturating_add(2), y, text, style);
     end.saturating_add(3)
 }
 
 /// An added path's display or input, or a roaming input: what it
 /// matches and where it goes, read-only, and the line that says how to
 /// change it.
-fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
-    let flow = &app.inputs.flow;
+fn info_layer(rows: &mut [Row], app: &App, obj: &Obj) {
+    let flow = &app.shared.inputs.flow;
     let (kind, sel, heading) = match obj {
         Obj::Doc(_, Slot::Display(s)) | Obj::Nothing(Slot::Display(s)) => {
             (Kind::Display, s, "DISPLAY")
@@ -688,27 +782,35 @@ fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
         _ => return,
     };
     let (title, detail) = paths::title(flow, kind, sel);
-    let x = canvas.put(
+    let x = at(
+        rows,
         1,
         3,
         &format!("{heading} {title}"),
         bold(Color::BrightWhite),
     );
-    canvas.put(x.saturating_add(2), 3, &detail, Style::text(Color::Grey));
+    at(
+        rows,
+        x.saturating_add(2),
+        3,
+        &detail,
+        Style::text(Color::Grey),
+    );
     let goes = match obj {
         Obj::Doc(name, _) => words::in_terminal(name),
         Obj::Nothing(Slot::Display(_)) => words::TURNED_OFF.to_owned(),
         Obj::Nothing(_) => words::SET_ASIDE.to_owned(),
         _ => words::ROAMS_SENTENCE.to_owned(),
     };
-    let vx = VALUE_X.min(app.cols / 3);
+    let vx = VALUE_X.min(app.size.cols / 3);
     let mut y = 5usize;
     for (label, value) in [("Matched by", sel.clone()), ("Where it goes", goes)] {
-        canvas.put(3, y, label, Style::text(Color::Grey));
-        canvas.put(
+        at(rows, 3, y, label, Style::text(Color::Grey));
+        at(
+            rows,
             vx,
             y,
-            &fit(&value, app.cols.saturating_sub(vx).saturating_sub(1)),
+            &fit(&value, app.size.cols.saturating_sub(vx).saturating_sub(1)),
             Style::text(Color::BrightWhite),
         );
         y = y.saturating_add(2);
@@ -717,200 +819,9 @@ fn info_layer(canvas: &mut Canvas, app: &App, obj: &Obj) {
         Obj::Roam(_) => words::REVISE_ROAMING_NOTE,
         _ => words::REVISE_NOTE,
     };
-    for line in wrap(note, app.cols.saturating_sub(4), 2) {
-        canvas.put(3, y, &line, Style::text(Color::Yellow));
+    for line in wrap(note, app.size.cols.saturating_sub(4), 2) {
+        at(rows, 3, y, &line, Style::text(Color::Yellow));
         y = y.saturating_add(1);
-    }
-}
-
-/// The choices a part's layer offers, each its title, what it covers, and
-/// its selector: what a display or an input part can match, from the
-/// widest to the narrowest.
-pub fn choices_for(app: &App, obj: &Obj) -> Vec<(String, String, Option<String>)> {
-    let flow = &app.inputs.flow;
-    let (Obj::Pal(slot) | Obj::New(slot)) = obj else {
-        return Vec::new();
-    };
-    let kind = match slot {
-        Slot::Display(_) => Kind::Display,
-        Slot::Input(_) => Kind::Input,
-        _ => return Vec::new(),
-    };
-    let Some(piece) = slot.piece() else {
-        return Vec::new();
-    };
-    paths::narrow(flow, paths::sort_of(flow, &piece))
-        .into_iter()
-        .map(|(t, sel)| {
-            let detail = paths::title(flow, kind, &sel).1;
-            (t, detail, Some(sel))
-        })
-        .collect()
-}
-
-/// One line of a terminal's card: what a path sets that allocates no
-/// display, input or font, and in the editor, each part it joins.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum CardLine {
-    Name,
-    Font,
-    Size,
-    Setting(&'static str),
-    Part(Piece),
-}
-
-/// The settings a card offers, without `isolated`, which decides where
-/// roaming keyboards go.
-const CARD_SETTINGS: [&str; 4] = ["consoles", "login", "when-display-lost", "switch-on-enter"];
-
-/// The path a terminal's card shows: an added path's, or the editor's
-/// with the name it will take.
-pub fn card_path(app: &App, obj: &Obj) -> Option<Path> {
-    let flow = &app.inputs.flow;
-    let doc = paths::read(flow);
-    match obj {
-        Obj::Doc(name, Slot::Terminal) => doc.path(name).cloned(),
-        Obj::New(Slot::Terminal) => {
-            let mut p = app.flow_view.new.clone();
-            if p.name.is_none() {
-                p.name = Some(paths::new_name(flow, &doc));
-            }
-            Some(p)
-        }
-        _ => None,
-    }
-}
-
-/// The card's lines for `path`; the editor's also list its parts.
-pub fn card_lines(path: &Path, editor: bool) -> Vec<CardLine> {
-    let mut out = vec![CardLine::Name, CardLine::Font, CardLine::Size];
-    // the VTs change only in NEW PATH, where adding the path checks each
-    // VT for a clash (ADR-1403 D7)
-    if editor {
-        out.push(CardLine::Setting("vt"));
-    }
-    out.extend(CARD_SETTINGS.iter().map(|k| CardLine::Setting(k)));
-    if editor {
-        out.extend(
-            path.displays
-                .iter()
-                .map(|d| CardLine::Part(Piece::Display(d.clone()))),
-        );
-        out.extend(
-            path.inputs
-                .iter()
-                .map(|i| CardLine::Part(Piece::Input(i.clone()))),
-        );
-    }
-    out
-}
-
-/// A line's choices, each its words and its value; none for the name,
-/// which the person types. The login's second choice, Other…, starts
-/// typing a command ([`card_types`]).
-pub fn card_choices(app: &App, line: &CardLine) -> Vec<(String, String)> {
-    let own = |v: &str| (v.to_owned(), v.to_owned());
-    match line {
-        CardLine::Name => Vec::new(),
-        CardLine::Setting("login") => vec![
-            (
-                words::login_default(&paths::login_in_effect(&app.inputs.flow)),
-                String::new(),
-            ),
-            (words::LOGIN_OTHER.to_owned(), String::new()),
-        ],
-        CardLine::Font => std::iter::once((words::DEFAULT_FONT_SET.to_owned(), String::new()))
-            .chain(font_names(app).iter().map(|f| own(f)))
-            .collect(),
-        CardLine::Size => std::iter::once((words::AUTOMATIC_SIZE.to_owned(), String::new()))
-            .chain(super::model::SIZES.iter().map(|s| own(&s.to_string())))
-            .collect(),
-        CardLine::Setting("consoles") => (1..=6).map(|n| own(&n.to_string())).collect(),
-        CardLine::Setting("vt") => {
-            let mut out = vec![(words::EVERY_VT.to_owned(), String::new())];
-            out.extend((1u16..=12).map(|n| (words::vt_words(&[n]), n.to_string())));
-            out
-        }
-        CardLine::Setting("when-display-lost") => vec![
-            (words::KEEP_SESSIONS.to_owned(), String::new()),
-            (words::END_SESSIONS.to_owned(), "hangup".to_owned()),
-        ],
-        CardLine::Setting("switch-on-enter") => vec![
-            (words::SWITCH_OFF.to_owned(), String::new()),
-            (words::SWITCH_ON.to_owned(), "yes".to_owned()),
-        ],
-        CardLine::Setting(_) => Vec::new(),
-        CardLine::Part(_) => vec![(words::DISCONNECT.to_owned(), String::new())],
-    }
-}
-
-/// The choice of `line` that the path holds, if any: for the login,
-/// Default while the head sets none and Other… while it sets a command.
-pub fn card_chosen(app: &App, path: &Path, line: &CardLine) -> Option<usize> {
-    let value = card_value(path, line);
-    match line {
-        CardLine::Setting("login") => Some(usize::from(!value.is_empty())),
-        _ => card_choices(app, line)
-            .iter()
-            .position(|(_, v)| *v == value),
-    }
-}
-
-/// Whether Enter on the choice `pick` of `line` starts typing a value: on
-/// the name, which has no choices, and on the login's Other….
-pub fn card_types(app: &App, line: &CardLine, pick: usize) -> bool {
-    match line {
-        CardLine::Setting("login") => pick == 1,
-        _ => card_choices(app, line).is_empty(),
-    }
-}
-
-/// What a line sets, which the card shows under its lines while the
-/// cursor is on it. Switch on Enter also says why it does nothing for
-/// `path`, as vtium decides (ADR-1401, "Enter on a head's own keyboard"):
-/// under policy = closed, on an isolated head, on a head that runs on
-/// every VT, and on one whose VTs are all past 12, which the VT keys
-/// cannot reach. On a terminal that runs on every VT, it names the
-/// control that gives it a VT: `e` on an added path's card, and the line
-/// VTs on the `editor`'s card in NEW PATH.
-pub fn card_about(app: &App, path: &Path, line: &CardLine, editor: bool) -> Option<String> {
-    match line {
-        CardLine::Setting("login") => Some(words::LOGIN_ABOUT.to_owned()),
-        CardLine::Setting("switch-on-enter") => {
-            let vts = path.vts();
-            let why = if app.inputs.flow.policy == "closed" {
-                Some(words::SWITCH_CLOSED)
-            } else if path.no_input || path.setting("isolated") == "yes" {
-                Some(words::SWITCH_ISOLATED)
-            } else if vts.is_empty() && editor {
-                Some(words::SWITCH_EVERY_VT_NEW)
-            } else if vts.is_empty() {
-                Some(words::SWITCH_EVERY_VT)
-            } else if vts.iter().all(|v| *v > 12) {
-                Some(words::SWITCH_PAST_12)
-            } else {
-                None
-            };
-            Some(match why {
-                Some(why) => format!("{} {why}", words::SWITCH_ABOUT),
-                None => words::SWITCH_ABOUT.to_owned(),
-            })
-        }
-        _ => None,
-    }
-}
-
-/// A line's value as the path holds it, empty for the default.
-pub fn card_value(path: &Path, line: &CardLine) -> String {
-    match line {
-        CardLine::Name => path.name.clone().unwrap_or_default(),
-        CardLine::Font => path.font.clone().unwrap_or_default(),
-        CardLine::Size => path.size.map(|s| s.to_string()).unwrap_or_default(),
-        CardLine::Setting("consoles") => Some(path.setting("consoles"))
-            .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| "1".to_owned()),
-        CardLine::Setting(k) => path.setting(k),
-        CardLine::Part(_) => String::new(),
     }
 }
 
@@ -940,15 +851,15 @@ fn card_label(flow: &Flow, line: &CardLine) -> String {
 }
 
 /// A line's value in a reader's words, as it shows off the cursor.
-fn card_words(app: &App, path: &Path, line: &CardLine) -> String {
+fn card_words(shared: &Shared, path: &Path, line: &CardLine) -> String {
     let value = card_value(path, line);
     match line {
         CardLine::Setting("login") if value.is_empty() => {
-            words::login_default(&paths::login_in_effect(&app.inputs.flow))
+            words::login_default(&paths::login_in_effect(&shared.inputs.flow))
         }
         CardLine::Setting("login") => value,
         CardLine::Part(_) => words::CONNECTED.to_owned(),
-        _ => card_choices(app, line)
+        _ => card_choices(shared, line)
             .into_iter()
             .find(|(_, v)| *v == value)
             .map_or(value, |(w, _)| w),
@@ -959,9 +870,9 @@ fn card_words(app: &App, path: &Path, line: &CardLine) -> String {
 /// allocate nothing, each changeable here; in the editor, also the parts
 /// it joins, which Enter disconnects. An added path's card says how to
 /// change its parts.
-fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj) {
-    let flow = &app.inputs.flow;
-    let Some(path) = card_path(app, obj) else {
+fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
+    let flow = &app.shared.inputs.flow;
+    let Some(path) = card_path(state, &app.shared, obj) else {
         return;
     };
     let editor = matches!(obj, Obj::New(_));
@@ -974,8 +885,8 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
             words::vt_words(&path.vts())
         )
     };
-    canvas.put(1, 3, &heading, bold(Color::BrightWhite));
-    let (wtop, wh) = window(app);
+    at(rows, 1, 3, &heading, bold(Color::BrightWhite));
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let lines = card_lines(&path, editor);
     let note = wrap(
@@ -984,13 +895,13 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         } else {
             words::REVISE_NOTE
         },
-        app.cols.saturating_sub(4),
+        app.size.cols.saturating_sub(4),
         2,
     );
     let about = lines
         .get(state.line)
-        .and_then(|l| card_about(app, &path, l, editor))
-        .map(|a| wrap(&a, app.cols.saturating_sub(4), 3))
+        .and_then(|l| card_about(&app.shared, &path, l, editor))
+        .map(|a| wrap(&a, app.size.cols.saturating_sub(4), 3))
         .unwrap_or_default();
     let room = bottom
         .saturating_sub(5)
@@ -1004,61 +915,85 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
     let first = state.line.saturating_add(1).saturating_sub(room);
     let mut y = 5usize;
     for (i, line) in lines.iter().enumerate().skip(first).take(room) {
-        canvas.put(3, y, &card_label(flow, line), Style::text(Color::Grey));
+        // the label is cut with `…` to end a blank cell before the value
+        // column, counted in the console's cells, so a long device name
+        // never runs under the value. The value starts at the character
+        // column that the console shows at VALUE_X, so a wide character in
+        // the label does not push the value right.
+        at(
+            rows,
+            3,
+            y,
+            &fit_cells(&card_label(flow, line), VALUE_X.saturating_sub(4)),
+            Style::text(Color::Grey),
+        );
+        let vx = rows.get(y).map_or(VALUE_X, |r| column(r, VALUE_X));
         let here = i == state.line;
         match (&state.typing, here) {
             (Some(t), true) => {
-                canvas.put(VALUE_X, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+                at(rows, vx, y, &format!(" {t}_ "), Style::PLAIN.reversed());
             }
             (None, true) => {
-                let choices = card_choices(app, line);
+                let choices = card_choices(&app.shared, line);
                 if choices.is_empty() {
-                    let x = canvas.put(
-                        VALUE_X,
+                    let x = at(
+                        rows,
+                        vx,
                         y,
-                        &format!(" {} ", card_words(app, &path, line)),
+                        &format!(" {} ", card_words(&app.shared, &path, line)),
                         Style::PLAIN.reversed(),
                     );
-                    canvas.put(
+                    at(
+                        rows,
                         x.saturating_add(2),
                         y,
                         words::ENTER_TO_TYPE,
                         Style::text(Color::Grey),
                     );
                 } else {
-                    let chosen = card_chosen(app, &path, line);
+                    let chosen = card_chosen(&app.shared, &path, line);
                     // the row starts late enough that the cursor's choice
-                    // shows, each choice taking its mark, its words and a gap
-                    let room = app.cols.saturating_sub(VALUE_X);
+                    // shows, each choice taking its mark, its words and a
+                    // gap, counted in the console's cells
+                    let room = app.size.cols.saturating_sub(VALUE_X);
                     let span = |a: usize, b: usize| -> usize {
                         choices
                             .iter()
                             .take(b.saturating_add(1))
                             .skip(a)
-                            .map(|(w, _)| width(w).saturating_add(5))
+                            .map(|(w, _)| super::canvas::cells(w).saturating_add(5))
                             .sum()
                     };
                     let mut first = 0usize;
                     while first < state.pick && span(first, state.pick) > room {
                         first = first.saturating_add(1);
                     }
-                    let mut x = VALUE_X;
+                    let mut x = vx;
+                    let mut cell = VALUE_X;
                     for (k, (w, _)) in choices.iter().enumerate().skip(first) {
-                        if x.saturating_add(width(w)).saturating_add(3) >= app.cols {
+                        if cell
+                            .saturating_add(super::canvas::cells(w))
+                            .saturating_add(3)
+                            >= app.size.cols
+                        {
                             break;
                         }
                         let on = chosen == Some(k) && !matches!(line, CardLine::Part(_));
-                        x = choice(canvas, x, y, w, on, k == state.pick);
+                        x = choice(rows, x, y, w, on, k == state.pick);
+                        cell = cell
+                            .saturating_add(super::canvas::cells(w))
+                            .saturating_add(5);
                     }
                 }
             }
             _ => {
-                canvas.put(
-                    VALUE_X,
+                at(
+                    rows,
+                    vx,
                     y,
-                    &fit(
-                        &card_words(app, &path, line),
-                        app.cols.saturating_sub(VALUE_X).saturating_sub(1),
+                    &fit_cells(
+                        &card_words(&app.shared, &path, line),
+                        app.size.cols.saturating_sub(VALUE_X).saturating_sub(1),
                     ),
                     Style::text(Color::BrightWhite),
                 );
@@ -1070,15 +1005,15 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         y = y.saturating_add(1);
     }
     for line in about {
-        canvas.put(3, y, &line, Style::text(Color::Grey));
+        at(rows, 3, y, &line, Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
     y = y.saturating_add(1).min(bottom.saturating_sub(note.len()));
     for line in note {
-        canvas.put(3, y, &line, Style::text(Color::Yellow));
+        at(rows, 3, y, &line, Style::text(Color::Yellow));
         y = y.saturating_add(1);
     }
-    subflow(canvas, app, &path, y.saturating_add(1), bottom);
+    subflow(rows, app, &path, y.saturating_add(1), bottom);
 }
 
 /// The terminal's subflow on its card (ADR-1403 D7): its font set, then
@@ -1086,12 +1021,12 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
 /// under them about the look's filters and requirements. vtium-config
 /// reads no vtlook file yet (ADR-1304), so the look shows by its name, or
 /// as the built-in look, and the grey line says so.
-fn subflow(canvas: &mut Canvas, app: &App, path: &Path, y: usize, bottom: usize) {
+fn subflow(rows: &mut [Row], app: &App, path: &Path, y: usize, bottom: usize) {
     if y.saturating_add(3) > bottom || path.active || path.none {
         return;
     }
-    let flow = &app.inputs.flow;
-    canvas.put(1, y, words::SUBFLOW_TITLE, bold(Color::BrightWhite));
+    let flow = &app.shared.inputs.flow;
+    at(rows, 1, y, words::SUBFLOW_TITLE, bold(Color::BrightWhite));
     let font = path
         .font
         .clone()
@@ -1117,7 +1052,7 @@ fn subflow(canvas: &mut Canvas, app: &App, path: &Path, y: usize, bottom: usize)
         displays.join(", ")
     };
     let mut x = 3usize;
-    let room = app.cols.saturating_sub(2);
+    let room = app.size.cols.saturating_sub(2);
     let arrow = "  \u{2192}  ";
     for (i, (text, color)) in [
         (format!("{} {font}", words::FONT_SET_WORD), Color::Magenta),
@@ -1128,39 +1063,36 @@ fn subflow(canvas: &mut Canvas, app: &App, path: &Path, y: usize, bottom: usize)
     .enumerate()
     {
         if i > 0 {
-            x = canvas.put(x, y.saturating_add(1), arrow, Style::text(Color::Grey));
+            x = at(
+                rows,
+                x,
+                y.saturating_add(1),
+                arrow,
+                Style::text(Color::Grey),
+            );
         }
         let shown = fit(&text, room.saturating_sub(x));
-        x = canvas.put(x, y.saturating_add(1), &shown, Style::text(color));
+        x = at(rows, x, y.saturating_add(1), &shown, Style::text(color));
     }
-    for (i, line) in wrap(words::SUBFLOW_REQUIRES, app.cols.saturating_sub(4), 2)
+    for (i, line) in wrap(words::SUBFLOW_REQUIRES, app.size.cols.saturating_sub(4), 2)
         .iter()
         .enumerate()
     {
         let row = y.saturating_add(2).saturating_add(i);
         if row < bottom {
-            canvas.put(3, row, line, Style::text(Color::Grey));
+            at(rows, 3, row, line, Style::text(Color::Grey));
         }
-    }
-}
-
-/// A part's choices, one a row, broad to narrow, each with what it
-/// covers; the cursor's in reverse video and the piece's own marked ●.
-/// The part a part's detail labels: its kind and its match. Only a
-/// display or an input part, in PARTS or in NEW PATH, takes a label.
-pub fn label_target(obj: &Obj) -> Option<(Kind, String)> {
-    match obj {
-        Obj::Pal(Slot::Display(s)) | Obj::New(Slot::Display(s)) => Some((Kind::Display, s.clone())),
-        Obj::Pal(Slot::Input(s)) | Obj::New(Slot::Input(s)) => Some((Kind::Input, s.clone())),
-        _ => None,
     }
 }
 
 /// A part's detail: its name, its label, which the person can type, and
 /// the choices of what the part matches, from the widest to the
 /// narrowest. The label is the detail's first line.
-fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj) {
-    let flow = &app.inputs.flow;
+///
+/// A part's choices, one a row, broad to narrow, each with what it
+/// covers; the cursor's in reverse video and the piece's own marked ●.
+fn choices_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
+    let flow = &app.shared.inputs.flow;
     let Some((kind, sel)) = label_target(obj) else {
         return;
     };
@@ -1169,31 +1101,33 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
         Kind::Input => (words::INPUT_PART, words::CHOOSE_INPUT),
     };
     let name = paths::title(flow, kind, &sel).0;
-    let x = canvas.put(1, 3, part, bold(Color::BrightWhite));
+    let x = at(rows, 1, 3, part, bold(Color::BrightWhite));
     let role = match kind {
         Kind::Display => Role::Display,
         Kind::Input => Role::Input,
     };
-    canvas.put(
+    at(
+        rows,
         x.saturating_add(2),
         3,
-        &fit(&name, app.cols.saturating_sub(x).saturating_sub(3)),
-        emph(app.inputs.flow_colors.style(role)),
+        &fit(&name, app.size.cols.saturating_sub(x).saturating_sub(3)),
+        emph(app.shared.inputs.flow_colors.style(role)),
     );
     // the label's line
     let doc = paths::read(flow);
     let label = doc.label(kind, &sel).unwrap_or_default().to_owned();
-    canvas.put(3, 5, words::LABEL_FIELD, Style::text(Color::Grey));
+    at(rows, 3, 5, words::LABEL_FIELD, Style::text(Color::Grey));
     let vx = 12usize;
     match &state.typing {
         Some(t) => {
-            let x = canvas.put(vx, 5, &format!(" {t}_ "), Style::PLAIN.reversed());
-            canvas.put(
+            let x = at(rows, vx, 5, &format!(" {t}_ "), Style::PLAIN.reversed());
+            at(
+                rows,
                 x.saturating_add(2),
                 5,
                 &fit(
                     words::LABEL_TYPING,
-                    app.cols.saturating_sub(x).saturating_sub(3),
+                    app.size.cols.saturating_sub(x).saturating_sub(3),
                 ),
                 Style::text(Color::Grey),
             );
@@ -1209,23 +1143,25 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
             } else {
                 Style::text(Color::BrightWhite)
             };
-            let x = canvas.put(vx, 5, &format!(" {shown} "), style);
-            canvas.put(
+            let x = at(rows, vx, 5, &format!(" {shown} "), style);
+            at(
+                rows,
                 x.saturating_add(3),
                 5,
                 &fit(
                     words::LABEL_ABOUT,
-                    app.cols.saturating_sub(x).saturating_sub(4),
+                    app.size.cols.saturating_sub(x).saturating_sub(4),
                 ),
                 Style::text(Color::Grey),
             );
         }
     }
     let y0 = 7usize;
-    canvas.put(1, y0, heading, bold(Color::BrightWhite));
-    let about = wrap(words::CHOOSE_ABOUT, app.cols.saturating_sub(4), 2);
+    at(rows, 1, y0, heading, bold(Color::BrightWhite));
+    let about = wrap(words::CHOOSE_ABOUT, app.size.cols.saturating_sub(4), 2);
     for (k, line) in about.iter().enumerate() {
-        canvas.put(
+        at(
+            rows,
             3,
             y0.saturating_add(1).saturating_add(k),
             line,
@@ -1236,7 +1172,7 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
         Obj::New(Slot::Display(s)) | Obj::New(Slot::Input(s)) => Some(s.clone()),
         _ => None,
     };
-    let (wtop, wh) = window(app);
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let top = y0.saturating_add(2).saturating_add(about.len());
     let room = bottom.saturating_sub(top).max(1);
@@ -1244,22 +1180,23 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
     let line = state.line.saturating_sub(1);
     let first = line.saturating_add(1).saturating_sub(room);
     let mut y = top;
-    for (i, (title, detail, value)) in choices_for(app, obj).iter().enumerate().skip(first) {
+    for (i, (title, detail, value)) in choices_for(&app.shared, obj).iter().enumerate().skip(first)
+    {
         if y >= bottom {
             break;
         }
         let on = now.is_some() && *value == now;
-        let x = choice(canvas, 3, y, title, on, state.line > 0 && i == line);
-        let room = app.cols.saturating_sub(x);
-        canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
+        let x = choice(rows, 3, y, title, on, state.line > 0 && i == line);
+        let room = app.size.cols.saturating_sub(x);
+        at(rows, x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
 }
 
 /// A template's layer: the ways to make a part of `stage`, one a row,
 /// each with what it covers.
-fn make_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, stage: Stage) {
-    let fonts = font_names(app);
+fn make_layer(rows: &mut [Row], app: &App, state: &flowview::State, stage: Stage) {
+    let fonts = font_names(&app.shared);
     let makes = parts::makes(stage, &fonts);
     // the whole-kind choices first, then under MATCH BY the choices that
     // match by one key, and a sentence about them
@@ -1272,7 +1209,7 @@ fn make_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, stage: St
         .into_iter()
         .collect();
     list_layer(
-        canvas,
+        rows,
         app,
         state.line,
         &words::template_heading(stage.name()),
@@ -1286,8 +1223,8 @@ fn make_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, stage: St
 
 /// A filter's picker: each value the connected devices give for its key,
 /// with the devices it matches, and last the entry to type a value.
-fn picker_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, p: &flowview::Picker) {
-    let list: Vec<(String, String)> = parts::picker(&app.inputs.flow, p.stage, p.key)
+fn picker_layer(rows: &mut [Row], app: &App, state: &flowview::State, p: &flowview::Picker) {
+    let list: Vec<(String, String)> = parts::picker(&app.shared.inputs.flow, p.stage, p.key)
         .into_iter()
         .map(|pick| match pick {
             parts::Pick::Value { sel, devices } => (sel, devices.join(", ")),
@@ -1299,7 +1236,7 @@ fn picker_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, p: &flo
         .collect();
     let typing = state.typing.as_deref();
     list_layer(
-        canvas,
+        rows,
         app,
         state.line,
         &words::picker_heading(parts::filter_words(p.key)),
@@ -1318,7 +1255,7 @@ fn picker_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, p: &flo
 /// is a grey sentence under the list.
 #[expect(clippy::too_many_arguments, reason = "a layer's parts, each its own")]
 fn list_layer(
-    canvas: &mut Canvas,
+    rows: &mut [Row],
     app: &App,
     line: usize,
     heading: &str,
@@ -1328,12 +1265,18 @@ fn list_layer(
     marks: &[(usize, &str)],
     note: Option<&str>,
 ) {
-    canvas.put(1, 3, heading, bold(Color::BrightWhite));
-    let about = wrap(about, app.cols.saturating_sub(4), 2);
+    at(rows, 1, 3, heading, bold(Color::BrightWhite));
+    let about = wrap(about, app.size.cols.saturating_sub(4), 2);
     for (k, l) in about.iter().enumerate() {
-        canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
+        at(
+            rows,
+            3,
+            4usize.saturating_add(k),
+            l,
+            Style::text(Color::Grey),
+        );
     }
-    let (wtop, wh) = window(app);
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let top = 5usize.saturating_add(about.len());
     let room = bottom.saturating_sub(top).max(1);
@@ -1341,19 +1284,20 @@ fn list_layer(
     let mut y = top;
     let last = list.len().saturating_sub(1);
     // the details line up in a column after the longest choice, as far as
-    // half the screen
-    let column = list
+    // half the screen, counted in the console's cells so a wide character
+    // in a name moves no detail out of its column
+    let detail_x = list
         .iter()
-        .map(|(t, _)| width(t))
+        .map(|(t, _)| super::canvas::cells(t))
         .max()
         .unwrap_or(0)
         .saturating_add(9)
-        .min(app.cols / 2);
+        .min(app.size.cols / 2);
     for (i, (title, detail)) in list.iter().enumerate().skip(first) {
         if let Some((_, mark)) = marks.iter().find(|(at, _)| *at == i) {
             y = y.saturating_add(1);
             if y < bottom {
-                canvas.put(3, y, mark, bold(Color::BrightWhite));
+                at(rows, 3, y, mark, bold(Color::BrightWhite));
             }
             y = y.saturating_add(1);
         }
@@ -1361,29 +1305,31 @@ fn list_layer(
             break;
         }
         if let (Some(t), true) = (typing, i == last) {
-            canvas.put(3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
+            at(rows, 3, y, &format!(" {t}_ "), Style::PLAIN.reversed());
             y = y.saturating_add(1);
             continue;
         }
-        let x = choice(
-            canvas,
-            3,
+        let title = fit_cells(title, app.size.cols.saturating_sub(10));
+        choice(rows, 3, y, &title, false, i == line);
+        // the choice takes its mark, a blank, its words and a gap of three
+        let cell = super::canvas::cells(&title).saturating_add(8).max(detail_x);
+        let x = rows.get(y).map_or(cell, |r| column(r, cell));
+        let room = app.size.cols.saturating_sub(cell).saturating_sub(1);
+        at(
+            rows,
+            x,
             y,
-            &fit(title, app.cols.saturating_sub(10)),
-            false,
-            i == line,
+            &fit_cells(detail, room),
+            Style::text(Color::Grey),
         );
-        let x = x.max(column);
-        let room = app.cols.saturating_sub(x).saturating_sub(1);
-        canvas.put(x, y, &fit(detail, room), Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
     if let Some(note) = note {
-        for l in wrap(note, app.cols.saturating_sub(6), 2) {
+        for l in wrap(note, app.size.cols.saturating_sub(6), 2) {
             if y >= bottom {
                 break;
             }
-            canvas.put(5, y, &l, Style::text(Color::Grey));
+            at(rows, 5, y, &l, Style::text(Color::Grey));
             y = y.saturating_add(1);
         }
     }
@@ -1391,15 +1337,27 @@ fn list_layer(
 
 /// The second layer of the box of other inputs: each input it folds, with
 /// the rule that catches it.
-fn others_layer(canvas: &mut Canvas, app: &App) {
-    let flow = &app.inputs.flow;
-    canvas.put(1, 3, words::FLOW_OTHERS_TITLE, bold(Color::BrightWhite));
-    let about = wrap(words::FLOW_OTHERS_ABOUT, app.cols.saturating_sub(4), 2);
+fn others_layer(rows: &mut [Row], app: &App) {
+    let flow = &app.shared.inputs.flow;
+    at(
+        rows,
+        1,
+        3,
+        words::FLOW_OTHERS_TITLE,
+        bold(Color::BrightWhite),
+    );
+    let about = wrap(words::FLOW_OTHERS_ABOUT, app.size.cols.saturating_sub(4), 2);
     for (k, l) in about.iter().enumerate() {
-        canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
+        at(
+            rows,
+            3,
+            4usize.saturating_add(k),
+            l,
+            Style::text(Color::Grey),
+        );
     }
-    let vx = (app.cols / 2).min(42);
-    let (wtop, wh) = window(app);
+    let vx = (app.size.cols / 2).min(42);
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let mut y = 5usize.saturating_add(about.len()).saturating_add(1);
     for d in flowview::folded(flow) {
@@ -1409,12 +1367,17 @@ fn others_layer(canvas: &mut Canvas, app: &App) {
         let Some(dev) = flow.inputs.get(d) else {
             continue;
         };
-        canvas.put(
+        // the name is cut in the console's cells to end before the rule's
+        // column, and the rule starts at the character column the console
+        // shows there
+        at(
+            rows,
             3,
             y,
-            &fit(&dev.name, vx.saturating_sub(4)),
+            &fit_cells(&dev.name, vx.saturating_sub(4)),
             Style::text(Color::White),
         );
+        let x = rows.get(y).map_or(vx, |r| column(r, vx));
         let caught = match dev.rule.and_then(|r| flow.rules.get(r).map(|x| (r, x))) {
             Some((r, x)) => format!(
                 "rule {}: {} -> {}",
@@ -1424,10 +1387,11 @@ fn others_layer(canvas: &mut Canvas, app: &App) {
             ),
             None => words::FLOW_NO_RULE.to_owned(),
         };
-        canvas.put(
-            vx,
+        at(
+            rows,
+            x,
             y,
-            &fit(&caught, app.cols.saturating_sub(vx).saturating_sub(1)),
+            &fit_cells(&caught, app.size.cols.saturating_sub(vx).saturating_sub(1)),
             Style::text(Color::Grey),
         );
         y = y.saturating_add(1);
@@ -1675,9 +1639,7 @@ mod tests {
         let f = flow();
         let l = lay(&f, &editor(), 100);
         let (pal, _) = crate::tui::flowcolor::parse("[colors]\nterminal-fill = blue\n");
-        let doc = window_of(&l, 100, None, 0, l.height, &pal);
-        let mut screen = Canvas::new(100, l.height + HEAD_ROWS);
-        put_window(&mut screen, &doc, 0, HEAD_ROWS, l.height);
+        let screen = window_cells(&f, &l, 100, None, 0, l.height, &pal);
         let desk = l
             .find(&Obj::Doc("desk".into(), Slot::Terminal))
             .expect("desk");
@@ -1685,12 +1647,270 @@ mod tests {
         assert!(fill.is_some());
         for y in desk.y + 1..desk.bottom() - 1 {
             for x in desk.x + 1..desk.right() - 1 {
-                let s = screen.style_at(x, y + HEAD_ROWS).expect("a cell");
+                let s = screen.style_at(x, y).expect("a cell");
                 assert_eq!(s.back, fill, "at {x},{y}");
             }
         }
         // a blank cell outside every box stays the terminal's own
-        assert_eq!(screen.style_at(0, HEAD_ROWS), Some(Style::PLAIN));
+        assert_eq!(screen.style_at(0, 0), Some(Style::PLAIN));
+    }
+
+    /// The Flow view at 80×25 on the fixture, with `more` inputs that no
+    /// rule names and that fold into the box of other inputs, one of them
+    /// with a name longer than a card's label column.
+    fn flow_app(more: usize) -> App {
+        let mut i = crate::tui::fixture::inputs();
+        i.view = crate::tui::model::View::Flow;
+        let first = i.flow.inputs.first().cloned().expect("an input");
+        for k in 0..more {
+            i.flow.inputs.push(crate::tui::flow::Device {
+                name: format!("A rather long input device name number {k}"),
+                keys: vec![format!("id:aaaa:{k:04x}")],
+                found: true,
+                rule: None,
+                ..first.clone()
+            });
+        }
+        App::new(i, 80, 25).0
+    }
+
+    /// The text of a layer's row, in characters from column 0.
+    fn text(row: &Row) -> Vec<char> {
+        row.iter().flat_map(|s| s.text.chars()).collect()
+    }
+
+    #[test]
+    fn a_layer_writes_nothing_on_the_message_or_the_key_line() {
+        let mut app = flow_app(40);
+        // the longest message makes the window as short as it gets
+        app.shared.message = Some("word ".repeat(200));
+        let (top, height) = window(
+            &app.shared,
+            app.size,
+            super::super::layout::key_rows(&app).len(),
+        );
+        let bottom = top + height;
+        let mut editor = editor();
+        for k in 0..30 {
+            editor.pick(Piece::Input(format!("id:aaaa:{k:04x}")));
+        }
+        let state = |line: usize| flowview::State {
+            line,
+            new: editor.clone(),
+            ..flowview::State::default()
+        };
+        let picker = |line: usize| flowview::State {
+            picker: Some(flowview::Picker {
+                stage: Stage::Input,
+                key: "name",
+                from_new: false,
+            }),
+            ..state(line)
+        };
+        let input = app
+            .shared
+            .inputs
+            .flow
+            .inputs
+            .iter()
+            .find_map(|d| d.keys.first().cloned())
+            .expect("an input with a key");
+        // each layer, and whether what it shows is long enough to fill
+        // the window: the editor's card with its 33 parts, the 40 inputs
+        // of the box of other inputs, and the picker over their names
+        let template = Obj::Pal(Slot::Template(Stage::Input));
+        let cases = [
+            (Obj::New(Slot::Terminal), state(0), true),
+            (Obj::Doc("desk".into(), Slot::Terminal), state(0), false),
+            (Obj::Others, state(0), true),
+            (template.clone(), state(0), false),
+            (template, picker(0), true),
+            (Obj::Pal(Slot::Input(input)), state(0), false),
+        ];
+        for (obj, state, fills) in cases {
+            let mut reached = 0;
+            for line in [0, 1, 5, 20, 39, 60] {
+                let state = flowview::State {
+                    line,
+                    ..state.clone()
+                };
+                let rows = layer(&app, &state, &obj);
+                assert_eq!(rows.len(), 25);
+                for (y, row) in rows.iter().enumerate().skip(bottom) {
+                    assert!(
+                        row.is_empty(),
+                        "{obj:?} line {line} writes row {y}: {row:?}"
+                    );
+                }
+                reached = reached.max(rows.iter().rposition(|r| !r.is_empty()).unwrap_or(0));
+            }
+            // a layer that fills the window reaches its last row, so the
+            // check above has something to see
+            if fills {
+                assert_eq!(reached, bottom - 1, "{obj:?}");
+            }
+        }
+    }
+
+    /// A row as the screen shows it, one entry for each cell: each
+    /// character takes as many cells as the console's width rule gives it,
+    /// and the cell a wide character covers holds `\0`.
+    fn on_screen(row: &Row) -> Vec<char> {
+        let mut out = Vec::new();
+        for c in text(row) {
+            let width = super::super::backend::console_width(&c.to_string()).max(1);
+            out.push(c);
+            out.extend(std::iter::repeat_n('\0', usize::from(width) - 1));
+        }
+        out
+    }
+
+    /// The Flow view at 80×25 with one more input, called `name`, whose
+    /// key is `id:aaaa:0000`.
+    fn app_with_input(name: &str) -> App {
+        let mut i = crate::tui::fixture::inputs();
+        i.view = crate::tui::model::View::Flow;
+        let first = i.flow.inputs.first().cloned().expect("an input");
+        i.flow.inputs.push(crate::tui::flow::Device {
+            name: name.to_owned(),
+            keys: vec!["id:aaaa:0000".to_owned()],
+            found: true,
+            rule: None,
+            ..first
+        });
+        App::new(i, 80, 25).0
+    }
+
+    /// The layer of a card in the editor that holds the input called
+    /// `name`, with the cursor on `line`, or on the input's own line.
+    fn card_with_input(name: &str, line: Option<usize>) -> (App, Vec<Row>) {
+        let app = app_with_input(name);
+        let mut editor = Path::default();
+        editor.pick(Piece::Input("id:aaaa:0000".into()));
+        let part = CardLine::Part(Piece::Input("id:aaaa:0000".into()));
+        let own = card_lines(&editor, true)
+            .iter()
+            .position(|l| *l == part)
+            .expect("the part's line");
+        let state = flowview::State {
+            new: editor,
+            line: line.unwrap_or(own),
+            ..flowview::State::default()
+        };
+        let rows = layer(&app, &state, &Obj::New(Slot::Terminal));
+        (app, rows)
+    }
+
+    /// The screen row of the card's line that starts with `Input`.
+    fn input_line(rows: &[Row]) -> Vec<char> {
+        rows.iter()
+            .map(on_screen)
+            .find(|t| t.len() > 3 && t[3..].starts_with(&['I', 'n', 'p', 'u', 't']))
+            .expect("the part's line")
+    }
+
+    #[test]
+    fn a_long_part_label_is_cut_before_the_value_column_and_the_value_shows_whole() {
+        let name = "A rather long input device name number 0";
+        // the cursor on the card's first line, then on the part's own
+        for line in [Some(0), None] {
+            let (_, rows) = card_with_input(name, line);
+            let row = input_line(&rows);
+            // the label fills the room before the value column, less one
+            // blank cell, and ends in `…`
+            let label: String = format!("Input {name}").chars().take(VALUE_X - 5).collect();
+            let shown: String = row[3..VALUE_X].iter().collect();
+            assert_eq!(shown, format!("{label}… "), "{line:?}");
+            let after: String = row[VALUE_X..].iter().collect();
+            if line.is_some() {
+                assert_eq!(after.trim_end(), words::CONNECTED);
+            } else {
+                // the part's choices start at the value column with a mark
+                assert!(after.starts_with(['○', '●']), "{after}");
+            }
+            assert!(!after.contains("number"), "{line:?}: {after}");
+        }
+    }
+
+    #[test]
+    fn a_wide_part_label_is_cut_by_the_console_s_cells_before_the_value_column() {
+        // twenty characters two cells wide: forty cells, under the thirty
+        // characters the label has room for, so cutting by characters
+        // keeps them all
+        let name = "键盘".repeat(10);
+        let (_, rows) = card_with_input(&name, Some(0));
+        let row = input_line(&rows);
+        // `Input ` takes 6 cells, eleven wide characters 22, `…` one, so
+        // the label takes 29 of its 30 cells, and two blank cells part it
+        // from the value
+        let wide: String = name.chars().take(11).flat_map(|c| [c, '\0']).collect();
+        let shown: String = row[3..VALUE_X].iter().collect();
+        assert_eq!(shown, format!("Input {wide}…  "));
+        let after: String = row[VALUE_X..].iter().collect();
+        assert_eq!(after.trim_end(), words::CONNECTED);
+    }
+
+    #[test]
+    fn a_picker_s_details_share_one_column_of_cells_whatever_the_names() {
+        // ten characters two cells wide in one name
+        let name = "键盘".repeat(5);
+        let app = app_with_input(&name);
+        let state = flowview::State {
+            picker: Some(flowview::Picker {
+                stage: Stage::Input,
+                key: "name",
+                from_new: false,
+            }),
+            ..flowview::State::default()
+        };
+        let rows = layer(&app, &state, &Obj::Pal(Slot::Template(Stage::Input)));
+        // a value's row: its mark, `name:` and the name without blanks,
+        // then blanks, then the names of the devices it matches
+        let starts: Vec<(usize, Vec<char>)> = rows
+            .iter()
+            .map(on_screen)
+            .filter(|r| r.len() > 10 && r[5..].starts_with(&['n', 'a', 'm', 'e', ':']))
+            .map(|r| {
+                let gap = r.iter().skip(5).position(|c| *c == ' ').expect("a gap") + 5;
+                let at = r
+                    .iter()
+                    .skip(gap)
+                    .position(|c| *c != ' ')
+                    .expect("a detail")
+                    + gap;
+                (at, r)
+            })
+            .collect();
+        assert!(starts.len() > 1, "{starts:?}");
+        let column = starts[0].0;
+        assert!(starts.iter().all(|(at, _)| *at == column), "{starts:?}");
+        let wide = starts
+            .iter()
+            .find(|(_, r)| r.contains(&'键'))
+            .expect("the wide name's row");
+        let detail: String = wide.1[column..].iter().filter(|c| **c != '\0').collect();
+        assert_eq!(detail.trim_end(), name);
+    }
+
+    #[test]
+    fn the_box_of_other_inputs_cuts_a_wide_name_before_the_rule_s_column() {
+        // twenty-five characters two cells wide: fifty cells, more than
+        // the 36 the name has room for at 80 columns
+        let name = "键盘".repeat(12) + "键";
+        let app = app_with_input(&name);
+        let rows = layer(&app, &flowview::State::default(), &Obj::Others);
+        let row = rows
+            .iter()
+            .map(on_screen)
+            .find(|r| r.contains(&'键'))
+            .expect("the wide name's row");
+        // the rule's column is half of 80 columns, so the name has 36
+        // cells: seventeen wide characters, `…` and two blank cells
+        let wide: String = name.chars().take(17).flat_map(|c| [c, '\0']).collect();
+        let shown: String = row[3..40].iter().collect();
+        assert_eq!(shown, format!("{wide}…  "));
+        let rule: String = row[40..].iter().collect();
+        assert!(rule.starts_with(words::FLOW_NO_RULE), "{rule}");
     }
 
     #[test]

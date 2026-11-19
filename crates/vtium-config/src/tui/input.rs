@@ -3,12 +3,24 @@
 //! flow view asks for it (ADR-1403 D7), and the replies to the TUI's
 //! requests (ADR-1201 D4, D7).
 //!
-//! A sequence split across reads waits in the decoder for its end. In the
-//! TUI's decoder ([`Decoder::keys`]), an ESC that is the last byte of a
-//! read is the escape key: a terminal writes a sequence in one write, and
-//! the escape key alone arrives alone, so the decoder takes it as the key
-//! without waiting for a byte that may never come. The decoder that only
-//! reads replies, as `set` does, keeps a lone ESC for the next read.
+//! A sequence split across reads waits in the decoder for its end, so a
+//! reply cut by a read comes out whole once the rest arrives.
+//!
+//! An ESC that is the last byte of a read can be the Esc key or the first
+//! byte of a reply. The TUI's decoder ([`Decoder::keys`]) decides by
+//! whether the TUI awaits a reply. With no query outstanding, the ESC is
+//! the Esc key at once: a terminal writes a sequence in one write, and the
+//! Esc key alone arrives alone. While a query is outstanding, the decoder
+//! keeps the ESC until the next byte arrives, which it always does,
+//! because DA1's reply is still due. If that byte continues a reply or a
+//! key's sequence (`[`, `]`, `_` or `P`), the ESC begins it, and any other
+//! byte makes the ESC the Esc key. So a real Esc waits only while replies
+//! are in flight. The decoder that only reads replies, as `set` does,
+//! always keeps a lone ESC for the next read.
+//!
+//! References:
+//! - ADR-1206 D2, "Esc stays the key that goes back": a lone ESC waits
+//!   for its next byte only while a batch of queries is outstanding.
 
 /// A key the TUI acts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,8 +99,12 @@ const STRING_MAX: usize = 4096;
 #[derive(Debug, Default)]
 pub struct Decoder {
     held: Vec<u8>,
-    /// A lone ESC at the end of a read is the escape key.
+    /// A lone ESC at the end of a read is the escape key, unless a reply
+    /// is awaited.
     escape: bool,
+    /// The ESC at the front of `held` ended an earlier read while a reply
+    /// was awaited, so the byte after it decides what it is.
+    lone: bool,
 }
 
 /// What the bytes at the front hold.
@@ -101,36 +117,68 @@ enum Front {
 
 impl Decoder {
     /// The TUI's decoder, which takes an ESC that ends a read as the
-    /// escape key.
+    /// escape key unless a reply is awaited.
     pub fn keys() -> Decoder {
         Decoder {
-            held: Vec::new(),
             escape: true,
+            ..Decoder::default()
         }
     }
 
-    /// Decodes `bytes` after what was held, and holds a sequence they end
-    /// in the middle of.
+    /// Decodes `bytes` after what was held, with no reply awaited, and
+    /// holds a sequence they end in the middle of.
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<Input> {
+        self.push(bytes);
+        std::iter::from_fn(|| self.next(false)).collect()
+    }
+
+    /// Adds the bytes of a read after what is held, for [`Decoder::next`].
+    pub fn push(&mut self, bytes: &[u8]) {
         self.held.extend_from_slice(bytes);
-        let mut out = Vec::new();
-        let mut at = 0;
-        while let Some(rest) = self.held.get(at..).filter(|r| !r.is_empty()) {
-            match front(rest) {
-                Front::Took(n, input) => {
-                    out.extend(input);
-                    at = at.saturating_add(n.max(1));
+    }
+
+    /// The next whole input in what is held, if there is one. `awaiting`
+    /// says whether the TUI awaits a reply now, which decides what a lone
+    /// ESC at the end is. The loop asks again after each input it hands
+    /// on, because the input may settle the last query outstanding.
+    pub fn next(&mut self, awaiting: bool) -> Option<Input> {
+        loop {
+            if self.lone {
+                match self.held.get(1) {
+                    None if awaiting => return None,
+                    // the ESC begins a reply, or a key's sequence
+                    Some(b'[' | b']' | b'_' | b'P') => self.lone = false,
+                    // the queries are settled, or the byte after the ESC
+                    // begins nothing: the ESC was the Esc key
+                    _ => {
+                        self.lone = false;
+                        self.held.drain(..1);
+                        return Some(Input::Key(Key::Escape));
+                    }
                 }
-                Front::Short if rest.len() > STRING_MAX => at = self.held.len(),
-                Front::Short => break,
+            }
+            if self.held.is_empty() {
+                return None;
+            }
+            match front(&self.held) {
+                Front::Took(n, input) => {
+                    self.held.drain(..n.clamp(1, self.held.len()));
+                    if input.is_some() {
+                        return input;
+                    }
+                }
+                Front::Short if self.held.len() > STRING_MAX => self.held.clear(),
+                Front::Short if self.escape && self.held == [0x1b] => {
+                    if awaiting {
+                        self.lone = true;
+                        return None;
+                    }
+                    self.held.clear();
+                    return Some(Input::Key(Key::Escape));
+                }
+                Front::Short => return None,
             }
         }
-        self.held.drain(..at.min(self.held.len()));
-        if self.escape && self.held == [0x1b] {
-            self.held.clear();
-            out.push(Input::Key(Key::Escape));
-        }
-        out
     }
 }
 
@@ -397,6 +445,44 @@ mod tests {
             d.feed(b"[B"),
             [Input::Key(Key::Char('[')), Input::Key(Key::Char('B'))]
         );
+    }
+
+    #[test]
+    fn a_lone_esc_waits_for_its_next_byte_while_a_reply_is_awaited() {
+        let font = |n: &str| Some(Input::Reply(Reply::Font(n.into())));
+        let esc = Some(Input::Key(Key::Escape));
+        let mut d = Decoder::keys();
+        // the ESC begins DA1's reply, which the read cut
+        d.push(b"\x1b]50;tiny5\x1b\\\x1b");
+        assert_eq!(d.next(true), font("tiny5"));
+        assert_eq!(d.next(true), None);
+        d.push(b"[?62;4c");
+        assert_eq!(d.next(true), Some(Input::Reply(Reply::Attributes)));
+        assert_eq!(d.next(false), None);
+        // the Esc key, then a reply: the ESC after it makes it the key
+        d.push(b"\x1b");
+        assert_eq!(d.next(true), None);
+        d.push(b"\x1b]50;tiny5\x07");
+        assert_eq!(d.next(true), esc);
+        assert_eq!(d.next(true), font("tiny5"));
+        // the Esc key, then a letter
+        d.push(b"\x1b");
+        assert_eq!(d.next(true), None);
+        d.push(b"q");
+        assert_eq!(d.next(true), esc);
+        assert_eq!(d.next(true), Some(Input::Key(Key::Char('q'))));
+        // the queries are settled and nothing more came: the Esc key
+        d.push(b"\x1b");
+        assert_eq!(d.next(true), None);
+        assert_eq!(d.next(false), esc);
+        assert_eq!(d.next(false), None);
+        // with no reply awaited, the Esc key at once
+        d.push(b"\x1b");
+        assert_eq!(d.next(false), esc);
+        // the decoder that reads replies only never takes it as a key
+        let mut replies = Decoder::default();
+        replies.push(b"\x1b");
+        assert_eq!(replies.next(false), None);
     }
 
     #[test]
