@@ -472,6 +472,9 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
         Kind::Choice(words) if !words.contains(&value) => {
             Err(format!("{} takes one of {}", key.name, words.join(", ")))
         }
+        Kind::Name(words) if !keys::name(words, value) => {
+            Err(format!("{}={value:?}: {}", key.name, keys::NOT_A_NAME))
+        }
         Kind::Path if !keys::absolute(value) => {
             Err(format!("{}={value:?}: {}", key.name, keys::NOT_ABSOLUTE))
         }

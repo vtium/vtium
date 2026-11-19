@@ -83,7 +83,9 @@ pub fn sections() -> Vec<Section> {
 pub fn fixed_values(key: &Key) -> Option<Vec<&'static str>> {
     match key.kind {
         Kind::Switch => Some(vec!["on", "off"]),
-        Kind::Choice(words) => Some(words.to_vec()),
+        // a name key offers the names that need no file; a file's name
+        // is typed on the command line
+        Kind::Choice(words) | Kind::Name(words) => Some(words.to_vec()),
         _ => None,
     }
 }

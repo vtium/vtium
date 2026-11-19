@@ -126,6 +126,27 @@ pub(super) fn parse(
                 None
             }
         }
+        // A name becomes a file's name in a folder vtium reads, so a value
+        // that is not one of the key's words follows the rule for a head's
+        // name and never holds a path. Whether the file exists is for its
+        // reader to say.
+        Kind::Name(words) => {
+            if !text_ok(key, text, origin, reports) {
+                return None;
+            }
+            if keys::name(words, text) {
+                return Some(Value::Text(text.to_owned()));
+            }
+            reports.push(
+                origin.clone(),
+                Problem::BadValue {
+                    key: key.name,
+                    value: text.to_owned(),
+                    why: keys::NOT_A_NAME,
+                },
+            );
+            None
+        }
         Kind::Text => {
             if !text_ok(key, text, origin, reports) {
                 return None;

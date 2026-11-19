@@ -578,4 +578,42 @@ mod tests {
             folded.iter().map(String::len).sum::<usize>()
         );
     }
+
+    /// A configured palette that sets the cursor's and the selection's
+    /// colors, as a palette file can, is what every reset returns to. OSC
+    /// 112, 117 and 119 return each of those colors to the configured one,
+    /// not to unset; OSC 104 returns the 256 and OSC 110 and 111 the
+    /// defaults; DECSTR returns the 256; and RIS returns every color.
+    // covers: color.palette.named
+    #[test]
+    fn the_resets_return_to_a_configured_palette_s_own_colors() {
+        let mut configured = Palette::default();
+        configured.set_color(1, Rgb::new(0xff, 0x55, 0x55));
+        configured.set_fg(Rgb::new(0xf8, 0xf8, 0xf2));
+        configured.set_bg(Rgb::new(0x28, 0x2a, 0x36));
+        configured.set_special(Special::Cursor, Some(Rgb::new(0xbd, 0x93, 0xf9)));
+        configured.set_special(Special::SelectionBg, Some(Rgb::new(0x44, 0x47, 0x5a)));
+        configured.set_special(Special::SelectionFg, Some(Rgb::new(0xf8, 0xf8, 0xf1)));
+        let mut t = crate::Terminal::new(4, 1, 0);
+        t.set_palette(configured.clone());
+        let set: &[u8] = b"\x1b]4;1;#010101\x07\x1b]10;#020202;#030303;#040404\x07\x1b]17;#050505\x07\x1b]19;#060606\x07";
+        t.input(set);
+        assert_eq!(t.palette().cursor(), Some(Rgb::new(4, 4, 4)));
+        t.input(b"\x1b]112\x07\x1b]117\x07\x1b]119\x07");
+        for which in [Special::Cursor, Special::SelectionBg, Special::SelectionFg] {
+            assert_eq!(
+                t.palette().special(which),
+                configured.special(which),
+                "{which:?}"
+            );
+        }
+        t.input(b"\x1b]104\x07\x1b]110\x07\x1b]111\x07");
+        assert_eq!(t.palette(), &configured);
+        t.input(set);
+        t.input(b"\x1b[!p");
+        assert_eq!(t.palette().color(1), configured.color(1));
+        t.input(set);
+        t.input(b"\x1bc");
+        assert_eq!(t.palette(), &configured);
+    }
 }

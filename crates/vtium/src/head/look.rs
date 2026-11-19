@@ -1,4 +1,14 @@
-//! The vtlook a head draws with: the one its configuration names, read
+//! What a head's look gives it beyond its font: its palette and its
+//! vtlook.
+//!
+//! The palette comes first. A head's palette is the one its look's
+//! `palette` names, else the top level's, else `legacy`. A palette file
+//! the look names that fails, or that no folder holds, leaves the head on
+//! the top level's palette, and vtium logs one line for the file. The
+//! palette is the head's configured palette: each console of the head
+//! starts with it, and the color resets return to it.
+//!
+//! The vtlook a head draws with is the one its configuration names, read
 //! when the head is made, or the built-in vtlook.
 //!
 //! A head's configuration gives `vtlook` from the head's look section,
@@ -29,6 +39,7 @@
 //! vtlook, as the build is meant to.
 //!
 //! References:
+//! - ADR-1205 D10: a look's palette, the top level's in place of a file that fails, and the head's configured palette.
 //! - ADR-1304 D5: a head's vtlook comes from its look, else the top level, else the built-in one.
 //! - ADR-1304 D2: the table is built on the CPU once for each head.
 //! - ADR-1304 D6: any error drops the head to the built-in vtlook, with one log line, and no retry.
@@ -37,7 +48,22 @@
 //! - ADR-1304 D12: the built-in vtlook reads no file.
 
 use crate::config::{Config, keys};
+use crate::term::Term;
 use vtium_settings::vtlook;
+use vtium_term::Palette;
+
+/// The configured palette of a head whose configuration is `config`: the
+/// palette its look names, else the top level's. `term` is the head's
+/// first console, made from the top level's configuration, so it holds
+/// the top level's palette, which takes the place of a palette file of
+/// the look's that fails or that no folder holds. `term` takes the
+/// head's palette as the one it is configured with.
+pub(crate) fn palette(config: &Config, term: &mut Term) -> Palette {
+    let top = term.terminal.palette().clone();
+    let palette = config.palette_or(|| top);
+    term.terminal.set_palette(palette.clone());
+    palette
+}
 
 /// The vtlook a head draws with.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -296,6 +322,44 @@ mod tests {
             })
             .collect();
         assert_eq!(vtlooks, [Some("amber".to_owned()), Some("top".to_owned())]);
+    }
+
+    // A look's own palette wins over the top level's, and a head whose
+    // look names none takes the top level's. The palette is the head's
+    // configured one: its first console starts with it, and so does each
+    // console the head opens later.
+    // covers: color.palette.named
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_look_s_palette_wins_over_the_top_level_s() {
+        let text = "palette = solarized\nversion = 1\n[look warm]\npalette = nord\n[look plain]\n[head a]\nlook = warm\n[head b]\nlook = plain\n";
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let clock: crate::term::Clock = std::rc::Rc::new(std::time::Instant::now);
+        let caps = crate::head::session::Caps { head: 4, total: 8 };
+        let heads = crate::head::session::heads(&rules, &top, ((100, 100), 1 << 20), caps, &clock);
+        let named = |n: &str| Palette::named(n).unwrap_or_default();
+        let drawn: Vec<Palette> = heads
+            .iter()
+            .map(|h| h.console.term.terminal.palette().clone())
+            .collect();
+        assert_eq!(drawn, [named("nord"), named("solarized")]);
+        let configured: Vec<&Palette> = heads.iter().map(|h| &h.palette).collect();
+        assert_eq!(configured, [&named("nord"), &named("solarized")]);
+        // a console the head opens later starts with the head's palette,
+        // though its terminal is made from the top level's configuration
+        let later = crate::head::terminal(&top, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let opened = heads.first().map(|h| h.fresh_console(9, later));
+        assert_eq!(
+            opened.map(|c| c.term.terminal.palette().clone()),
+            Some(named("nord"))
+        );
     }
 
     // A build without frame filters reads no vtlook and says so once.
