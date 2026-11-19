@@ -132,7 +132,6 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 | 1 | go to tab | Goes straight to the Fonts tab. |
 | 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | 3 | go to tab | Goes straight to the Looks tab. |
-| 4 | go to tab | Goes straight to the Flow tab. |
 | 5 | go to tab | Goes straight to the Settings tab. |
 | 6 | go to tab | Goes straight to the Help tab. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
@@ -564,7 +563,6 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | Shift-Tab | view before | Moves to the view before. |
 | 1 | go to tab | Goes straight to the Fonts tab. |
 | 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| 3 | go to tab | Goes straight to the Looks tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
 | 5 | go to tab | Goes straight to the Settings tab. |
 | 6 | go to tab | Goes straight to the Help tab. |
@@ -807,7 +805,6 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 | Esc | - | Does nothing here. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
-| 1 | go to tab | Goes straight to the Fonts tab. |
 | 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | 3 | go to tab | Goes straight to the Looks tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
@@ -900,7 +897,6 @@ This screen is not built as described yet. See [#439](https://github.com/vtium/v
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
 | 1 | go to tab | Goes straight to the Fonts tab. |
-| 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | 3 | go to tab | Goes straight to the Looks tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
 | 5 | go to tab | Goes straight to the Settings tab. |
@@ -988,7 +984,6 @@ The Settings view: the sections of vtium.conf's keys, as the shared list.
 | 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | 3 | go to tab | Goes straight to the Looks tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
-| 5 | go to tab | Goes straight to the Settings tab. |
 | 6 | go to tab | Goes straight to the Help tab. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | save | Saves the changes that are not saved into the draft. |
@@ -1095,7 +1090,6 @@ The Help view: the Help and About pages.
 | 3 | go to tab | Goes straight to the Looks tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
 | 5 | go to tab | Goes straight to the Settings tab. |
-| 6 | go to tab | Goes straight to the Help tab. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | - | Does nothing here. |
 | i | - | Does nothing here. |
