@@ -316,7 +316,7 @@ impl Batch {
             if let Ok(path) = plain(font) {
                 entries.push(Entry::Path(path));
             } else {
-                entries.extend(console_fonts(font, console_font_folders).map(Entry::Path));
+                console_fonts(font, console_font_folders, &mut entries);
             }
         }
         // a plain loop, where an iterator chain over read_dir costs the
@@ -375,19 +375,21 @@ impl Batch {
     }
 }
 
-/// The regular files in `folders` that are kbd's console font `name`: the
-/// file named `name`, and each file named `name` with one of kbd's
-/// suffixes. A name that is not one plain file name, such as one holding
-/// `/` or `..`, names no file.
-fn console_fonts<'a>(name: &'a str, folders: &'a [&Path]) -> impl Iterator<Item = PathBuf> + 'a {
-    let plain_name = !name.contains('/') && name != "." && name != "..";
-    folders
-        .iter()
-        .filter(move |_| plain_name)
-        .flat_map(move |folder| {
-            CONSOLE_FONT_SUFFIXES
-                .iter()
-                .map(move |suffix| folder.join(format!("{name}{suffix}")))
-        })
-        .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
+/// Adds to `out` the regular files in `folders` that are kbd's console font
+/// `name`: the file named `name`, and each file named `name` with one of
+/// kbd's suffixes. A name that is not one plain file name, such as one
+/// holding `/` or `..`, names no file. Plain loops keep this small in the
+/// console, where an iterator chain compiles to several times the code.
+fn console_fonts(name: &str, folders: &[&Path], out: &mut Vec<Entry>) {
+    if name.contains('/') || name == "." || name == ".." {
+        return;
+    }
+    for folder in folders {
+        for suffix in CONSOLE_FONT_SUFFIXES {
+            let path = folder.join(format!("{name}{suffix}"));
+            if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+                out.push(Entry::Path(path));
+            }
+        }
+    }
 }
