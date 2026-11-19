@@ -194,56 +194,62 @@ pub enum Unsteady {
 }
 
 impl fmt::Display for Unsteady {
-    /// What follows "because" in a refusal.
+    /// What follows "because" in a refusal. Every reason but `Unknown`
+    /// opens with the mount point, which one `write!` prints for all of
+    /// them.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let point = match self {
+            Unsteady::Unknown { path } => {
+                return write!(
+                    f,
+                    "vtium cannot find the filesystem that holds {} in the mount table",
+                    path.display()
+                );
+            }
+            Unsteady::Network { point, .. }
+            | Unsteady::Fuse { point, .. }
+            | Unsteady::Automount { point }
+            | Unsteady::BelowAutomount { point, .. }
+            | Unsteady::Removable { point, .. }
+            | Unsteady::UsbDisk { point, .. }
+            | Unsteady::Backing { point, .. }
+            | Unsteady::UnknownDisk { point, .. } => point,
+        };
+        write!(f, "it sits on {}", point.display())?;
         match self {
-            Unsteady::Network { point, fstype } => write!(
+            Unsteady::Network { fstype, .. } => write!(
                 f,
-                "it sits on {}, a network filesystem ({fstype}), which can change or go away while vtium runs",
-                point.display()
+                ", a network filesystem ({fstype}), which can change or go away while vtium runs"
             ),
-            Unsteady::Fuse { point, fstype } => write!(
+            Unsteady::Fuse { fstype, .. } => write!(
                 f,
-                "it sits on {}, a FUSE filesystem ({fstype}), which a program serves and can change while vtium runs",
-                point.display()
+                ", a FUSE filesystem ({fstype}), which a program serves and can change while vtium runs"
             ),
-            Unsteady::Automount { point } => write!(
+            Unsteady::Automount { .. } => {
+                f.write_str(", an automount point, which the system mounts only on demand")
+            }
+            Unsteady::BelowAutomount { automount, .. } => write!(
                 f,
-                "it sits on {}, an automount point, which the system mounts only on demand",
-                point.display()
-            ),
-            Unsteady::BelowAutomount { point, automount } => write!(
-                f,
-                "it sits on {}, which is mounted below the automount point {}, so the system mounts it only on demand",
-                point.display(),
+                ", which is mounted below the automount point {}, so the system mounts it only on demand",
                 automount.display()
             ),
-            Unsteady::Removable { point, disk } => write!(
+            Unsteady::Removable { disk, .. } => {
+                write!(f, ", which is on the removable disk {disk}")
+            }
+            Unsteady::UsbDisk { disk, .. } => write!(
                 f,
-                "it sits on {}, which is on the removable disk {disk}",
-                point.display()
+                ", which is on {disk}, a disk on a USB bus that can be unplugged"
             ),
-            Unsteady::UsbDisk { point, disk } => write!(
+            Unsteady::Backing { file, why, .. } => write!(
                 f,
-                "it sits on {}, which is on {disk}, a disk on a USB bus that can be unplugged",
-                point.display()
-            ),
-            Unsteady::Backing { point, file, why } => write!(
-                f,
-                "it sits on {}, a loop device that reads the file {}, and that file fails the same check: {why}",
-                point.display(),
+                ", a loop device that reads the file {}, and that file fails the same check: {why}",
                 file.display()
             ),
-            Unsteady::UnknownDisk { point, source } => write!(
+            Unsteady::UnknownDisk { source, .. } => write!(
                 f,
-                "it sits on {}, and vtium cannot read from sysfs whether {source} is on a removable disk",
-                point.display()
+                ", and vtium cannot read from sysfs whether {source} is on a removable disk"
             ),
-            Unsteady::Unknown { path } => write!(
-                f,
-                "vtium cannot find the filesystem that holds {} in the mount table",
-                path.display()
-            ),
+            Unsteady::Unknown { .. } => Ok(()),
         }
     }
 }
