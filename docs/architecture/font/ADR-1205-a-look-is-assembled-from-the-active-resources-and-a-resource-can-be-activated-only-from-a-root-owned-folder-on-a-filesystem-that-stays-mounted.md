@@ -47,6 +47,23 @@ basis:
   - precedent: ADR-1309
   - precedent: ADR-1401
   - precedent: ADR-1403
+  - operator: aaronsb
+    level: directed
+    said: I think filters and color schemes, while different, are different resources
+    via: the steering session's brief of 2026-11-19, relaying the maintainer's decisions of that day on color schemes; the quoted words are the maintainer's, as the brief quotes them
+  - operator: aaronsb
+    level: directed
+    said: '[vtium ships common color schemes] like monokai tokyo etc (typical color schemes for konsole or ghostty etc)'
+    via: the steering session's brief of 2026-11-19, relaying the maintainer's decisions of that day on color schemes; the quoted words are the maintainer's, as the brief quotes them
+  - operator: aaronsb
+    level: directed
+    said: Anyone can write a color scheme of their own, and a look picks one; the maintainer asked for an amendment to this record that makes a palette a resource file a look can pick.
+    via: the steering session's brief of 2026-11-19, relaying the maintainer's decisions of that day on color schemes; the quoted words are the maintainer's, as the brief quotes them, and the comment of 2026-11-19 on the issue for vtium-config's Effects tab, posted from the maintainer's account
+    paraphrase: true
+  - evidence: 'Ghostty''s documentation, read 2026-11-19 at ghostty.org/docs/features/theme and ghostty.org/docs/config/reference: a theme is a Ghostty configuration file that typically sets only colors, and could set any option, so the page warns about themes from untrusted sources; a theme sets background, foreground, cursor-color, selection-foreground, selection-background and palette, and its example also sets cursor-text; palette takes N=COLOR with N from 0 to 255; a color is #RRGGBB, RRGGBB or a named X11 color; cursor-color, cursor-text and the selection keys also take cell-foreground and cell-background; theme = light:NAME,dark:NAME pairs two themes with the system''s appearance; the built-in themes come from iterm2-color-schemes'
+  - evidence: 'theme files read 2026-11-19 through GitHub''s API: catppuccin/ghostty themes/catppuccin-mocha.conf sets palette 0 to 15, background and foreground as hex with no #, cursor-color, cursor-text, the two selection keys and split-divider-color; dracula/ghostty''s dracula sets palette 0 to 15 and the same five color keys with #; folke/tokyonight.nvim extras/ghostty/tokyonight_night sets palette 0 to 15, background, foreground, cursor-color and the two selection keys'
+  - evidence: 'license files read 2026-11-19 through GitHub''s API: mbadolato/iTerm2-Color-Schemes LICENSE is MIT, Copyright (c) 2011 to Present Mark Badolato, and says it covers the collection while the copyright and license of each theme belong to that theme''s author; dracula/ghostty MIT, Copyright (c) 2023 Dracula Theme; catppuccin/ghostty MIT, Copyright (c) 2021 Catppuccin; folke/tokyonight.nvim Apache-2.0, with no NOTICE file; tokyo-night/tokyo-night-vscode-theme LICENSE.txt MIT, Copyright (c) 2018-present Enkia; morhetz/gruvbox has no license file and its README states MIT/X11; gruvbox-community/gruvbox LICENSE.md MIT, Copyright (c) 2018 Pavel Pertsev; ku1ik/vim-monokai LICENSE.txt MIT, Copyright (c) 2009-2016 Marcin Kulik; a web search found no license from Wimer Hazenberg for the original Monokai TextMate theme of 2006, and Monokai Pro is a paid product'
+  - evidence: 'vtium-term at 665d8669, crates/vtium-term/src/terminal.rs: set_palette replaces the colors the program set with the configured palette, marks every cell changed, and reports a change of mode 2031''s color scheme; crates/vtium-term/src/palette.rs holds the nine named palettes and the colors OSC 12, 13, 14, 17 and 19 name, each unset until set; crates/vtium-term/src/terminal/color.rs reads X11 color names'
 amends:
   - "ADR-1200#D17: the cell"
   - "ADR-1200#D25: `font-paths`, the folders vtium searches for fonts"
@@ -57,6 +74,7 @@ amends:
   - "ADR-1304#D11: vtium-config manages vtlooks"
   - "ADR-1403#D7: the Flow view"
   - "ADR-1403#D8: what vtium-config writes"
+  - 'ADR-1403#D5: how a key set at two levels combines'
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -131,6 +149,7 @@ related:
   - ADR-1309
   - ADR-1401
   - ADR-1403
+  - ADR-1001
 ---
 
 # ADR-1205: A look is assembled from the active resources, and a resource can be activated only from a root-owned folder on a filesystem that stays mounted
@@ -142,7 +161,13 @@ related:
 - **One-way?** No. The batch is one root-owned file, the trust rule is a check before a file is read, and the tabs are vtium-config's layout. A session of work can change any of them. The words cullet, batch and active are the costly part to change once code and pages use them.
 - **Probes:**
   - *Settled:* every probe is settled. The maintainer answered five probes on 2026-11-18. *The tab order:* two resource tabs, Fonts and Effects, and the tabs read Fonts, Effects, Looks, Flow, Settings and Help, with vtium-config still opening on Flow (D1, D3, D8). Pointer themes are picked in the Looks tab (D6). *The words:* a chosen font or effect is active, and the actions are Activate and Deactivate (D2). *A font installed twice:* the package's copy is active, and vtium-config points out the local copy as a duplicate (D5). *Pointer themes:* a pointer theme's symbolic links pass the trust rule while every link stays inside the theme's own root-owned folder (D4). *What is active on a fresh install:* the built-in font, Cullet Mono, Terminus, Unifont, and the console font that vconsole.conf's `FONT=` names (D4).
+  - *Confident (the file format):* added 2026-11-19 for D10, which is proposed. A color scheme file is read in the format Ghostty uses for its themes, exactly as people already share them, so a scheme written for Ghostty works by copying the file in. vtium takes only the colors from such a file and ignores the rest. Is that what you want? Lean: yes, because hundreds of schemes already exist in that format and it is plain text. Against: vtium then follows a format another project controls, and its rare keys, such as `cursor-text`, do nothing in vtium (D10).
+  - *Not confident (the palette folders):* added 2026-11-19 for D10. The color schemes vtium ships live in `/usr/share/vtium/palettes`, and your own in `/etc/vtium/palettes`, where they win over the shipped ones on the same name. Like fonts, a scheme must be active before a look can use it. Should the shipped schemes be active from the first start, as the default fonts are? Lean: yes, because a scheme file holds only colors, so nobody gains by activating it first, and the Looks tab then offers every shipped scheme at once. Against: one rule for every resource, with no exception for a kind, is easier to explain (D10).
+  - *Not confident (where palettes are managed):* added 2026-11-19 for D10. Color schemes are not effects, so they do not join the Effects tab. Should the Looks tab list them, activate them and show a sample of each, as it does for pointer themes, with each look picking one? Lean: yes, because a look is where a scheme is chosen, and the tabs stay at six. Against: a scheme is a resource like a font, and a tab of its own would follow the graph from resources to looks more strictly (D10).
+  - *Not confident (Monokai):* added 2026-11-19 for D10. Dracula, Catppuccin, Tokyo Night and Gruvbox each carry a license from their authors that lets vtium ship them. Monokai's author published the original in 2006 with no license that this record's agent could find, and now sells Monokai Pro. Ports of it carry the MIT license, but a port's author can only license what they hold. Should vtium leave Monokai out of the package for now, while anyone can still import it as their own file? Lean: yes, until a license from its author turns up. Against: Monokai is one of the best known schemes, and MIT ports of it are everywhere (D10).
 - **Inversion:** The decision sits between two ends. At one end, vtium draws any font that any folder holds, and a person types paths to name them. At the other, vtium draws only what it ships. vtium draws from a curated batch of resources that the system installed and the person activated, finds those resources by itself, and lets the person install a missing one as a system font.
+
+> Note 2026-11-19: D10 joins this record as a proposal. The maintainer decided on 2026-11-19 that a palette, which sets the terminal's colors, is a resource of a different kind from a filter, which changes the finished picture, and that vtium ships common color schemes that anyone can add to (`basis`). D10 proposes the rest: the folders, the file format, which is Ghostty's theme format read as it is, how a look picks a palette, and which schemes vtium ships. Its four probes above wait for the maintainer, and the rest of this Summary describes D1 to D9, which stay accepted.
 
 ## Context
 
@@ -300,6 +325,107 @@ Each record below carries a dated note at the passage this record changes. No re
 | ADR-1309 D5 | A pointer theme passes D4's rule. Its walk follows a symbolic link only while the link stays inside the same root-owned theme folder. The Looks tab lists the installed pointer themes, and each look picks an active one. |
 | ADR-1401 D10 | D4's rule sits beside D10, which keeps its scope. |
 
+> Note 2026-11-19: D10, proposed on this date, would change two more records if the maintainer accepts it. ADR-1403 D5 gives a look the key `palette`, and ADR-1201 D3's Looks tab lists the palettes. Each carries a dated note that says the change waits on D10.
+
+### D10: palettes are a resource kind of their own
+
+> Proposed 2026-11-19: this section is a proposal and waits for the maintainer's reading. Nothing in it is decided until the maintainer accepts it, and D1 to D9 stand as accepted. The Summary's probes ask its open choices, each with this record's lean.
+
+**The maintainer's decisions (2026-11-19):** a palette and a filter are different kinds of resource. In the maintainer's words, "I think filters and color schemes, while different, are different resources". Anyone can write a palette of their own, and vtium ships common color schemes, "like monokai tokyo etc (typical color schemes for konsole or ghostty etc)" (`basis`).
+
+**What a palette is.** A palette sets what the terminal's colors are: the 16 ANSI colors, the default foreground and background, and, where the file gives them, the cursor's color and the selection's colors. Programs name those colors by number, and vtium resolves each cell through the palette when it draws (ADR-1001). A filter does something else: it changes the finished picture after the terminal has drawn it (ADR-1304). So a palette changes which colors programs get, and a filter changes how the whole picture looks. A look takes one of each, and the palette comes first.
+
+```mermaid
+flowchart LR
+    F["a palette file<br>/etc/vtium/palettes/NAME.palette"]:::cfg
+    B["a built-in palette<br>legacy, nord, vga and the rest"]:::cfg
+    K["the look's palette key,<br>else vtium.conf's"]:::proc
+    P["the configured palette"]:::data
+    O["the colors programs see:<br>OSC 4 and 10 to 19 change them,<br>OSC 104 to 119 reset them"]:::data
+    D["the frame: each cell<br>resolved through those colors"]:::proc
+    L["the look's filters<br>change the finished picture"]:::path
+    S["the display"]:::fall
+    F --> K
+    B --> K
+    K --> P --> O --> D --> L --> S
+    classDef cfg fill:#fbbf24,color:#1a1a1a,stroke:#4a5568
+    classDef proc fill:#2d7d9a,color:#ffffff,stroke:#4a5568
+    classDef data fill:#2d8e5e,color:#ffffff,stroke:#4a5568
+    classDef path fill:#7c3aed,color:#ffffff,stroke:#4a5568
+    classDef fall fill:#475569,color:#ffffff,stroke:#94a3b8
+```
+
+The figure follows one head's colors from left to right. A look names a palette file or a built-in palette, and that palette becomes the head's configured palette. Programs change their copy of it and reset the copy back to it. vtium draws the frame through that copy, and only then do the look's filters change the finished picture.
+
+**The words.** In D2's words a palette is a cullet. On screen, vtium-config calls it a color scheme, the word people who have themed Ghostty or Konsole already know, and vtium.conf keeps the key `palette`. This choice is this record's agent's.
+
+**Where palette files live.** vtium reads palettes from two folders, as it reads shaders (ADR-1304 D15). The package installs its color schemes in `/usr/share/vtium/palettes`, and an administrator's palettes go in `/etc/vtium/palettes`, which wins over the package's on the same name. Each file is `NAME.palette`. A name follows the rule for a vtlook's name, 1 to 64 characters of `A-Z a-z 0-9 . _ + -` (ADR-1304 D4), so `Catppuccin Mocha` ships as `catppuccin-mocha`. A file may not take the name of a built-in palette or `custom`: `vtium check-config` reports such a file, and vtium treats it as missing. A file holds at most 16 KiB, a row of vtium-settings's bounds table. A file that sets all 256 colors and every other key it may set is under 7 KiB.
+
+**Trust and activation.** A palette file is a resource under D4's rule. It draws only while the batch holds it, it must sit in a root-owned folder on a filesystem that stays mounted, and a symbolic link fails the rule. The probe *the palette folders* asks whether the palettes the package ships are active on a fresh install, as the default fonts are. This record leans yes: a palette file holds colors in a fixed grammar and can change nothing else.
+
+**The file format.** vtium reads Ghostty's theme file format as it is, so a scheme written for Ghostty imports unchanged. Ghostty's documentation describes a theme as a Ghostty configuration file that usually sets only colors. Each setting is a `key = value` line, a line that starts with `#` is a comment, and blank lines are allowed. vtium reads these keys:
+
+| Key | Value | What vtium does with it |
+|---|---|---|
+| `palette` | `N=COLOR`, N from 0 to 255 | Sets color N. A color the file leaves unset keeps the value it has in `legacy`, so colors 16 to 255 stay xterm's cube and gray ramp unless the file sets them. |
+| `foreground`, `background` | `COLOR` | Set the default foreground and background, the colors OSC 10 and 11 report and change. Unset, each keeps `legacy`'s. |
+| `cursor-color` | `COLOR` | Sets the cursor's color, the color OSC 12 reports and changes. |
+| `selection-background`, `selection-foreground` | `COLOR` | Set the selection's colors, the colors OSC 17 and OSC 19 report and change. |
+
+`COLOR` is `#rrggbb`, `rrggbb`, or an X11 color name, which vtium already reads in OSC 4. In the last three keys, the values `cell-foreground` and `cell-background` leave the color unset, so vtium draws the cursor or the selection by inverting the cell, as it does with no color set.
+
+vtium ignores every other key, because a theme from Ghostty's collection may carry keys that belong to Ghostty alone, such as `cursor-text`, `split-divider-color`, `palette-generate`, `minimum-contrast`, a font or a cursor style. `vtium check-config` lists each ignored key once, as a note and not as an error. vtium never follows a `config-file` or `theme` line. Ghostty warns that a theme can set any of its options. A palette file in vtium sets colors and nothing else.
+
+When a key appears twice, the later line wins. A line that is not `key = value`, a color vtium cannot read, an index past 255, and a file over the size limit are errors. Any error makes the whole file count as missing. The look then draws with the palette vtium.conf names, vtium logs one line for it, and `vtium check-config` names the file, the line and the reason.
+
+vtium's console process reads a palette file itself, as it reads a vtlook. The file is data in a fixed grammar, and vtium-settings reads it with a small, strict reader of its own. Palettes work in every build, the minspec build included, because a palette needs no `filters` feature.
+
+Ghostty can pair a light and a dark theme and switch between them with the system's appearance. That pairing belongs to Ghostty's configuration, not to a theme file, and a console has no system appearance to follow. A look names one palette.
+
+**How a look picks a palette.** The key `palette` joins the keys a look section may set (ADR-1403 D5). Under D5's rule, the most specific level wins: a look's `palette` wins over vtium.conf's top-level `palette`, as a look's pointer theme wins over `pointer-theme` (D6). A look that names no palette takes the top level's, and with neither set, a head draws `legacy`. The value names a built-in palette, `custom`, or an active palette file. `custom` takes its colors from the top level's `palette-*` keys, as it does today. A name that matches no built-in palette and no active file is a warning in `vtium check-config`, and the look draws with the palette vtium.conf names. The key table's `palette` key then takes a name, where it now takes one of a fixed list of names.
+
+```ini
+# /etc/vtium/vtium.conf
+palette = solarized
+
+[look evening]
+font-size = 14
+palette = catppuccin-mocha
+vtlook = amber
+```
+
+Here a head that takes the look `evening` draws Catppuccin Mocha's colors, and the vtlook `amber` then tints the finished picture. Every other head draws `solarized`.
+
+**Where vtium-config manages palettes.** The probe *where palettes are managed* asks this. This record leans to the Looks tab, as D6 does for pointer themes. The Looks tab lists the built-in palettes and the palette files, shows each file's trust mark, activates or deactivates each with the controls of the Fonts and Effects tabs, and previews a palette as its 16 colors beside text in its foreground on its background. Each look picks one active palette.
+
+**What stays built in.** The nine palettes that vtium-term holds stay as palettes that need no file: `legacy`, `nord`, `solarized`, `solarized-black`, `solarized-white`, `soft-black`, `base16-dark`, `base16-light` and `vga`. Like the built-in font, they are always active, and nobody can deactivate them. `custom` keeps working with the `palette-*` keys.
+
+**Programs that change the colors.** The palette a look picks is the head's configured palette. Programs change their copy of it with OSC 4 and OSC 10 to 19, and OSC 104 to 119 return a color to the configured palette's, now the file's color. RIS and DECSTR's color reset return to the file's colors too, and XTPUSHCOLORS saves and restores the copy as before. When the look's palette changes, as when vtium rereads its configuration or a head takes another look, vtium does what it does today when the `palette` key changes. The new palette replaces the colors programs set, every cell is drawn again, and a program that asked for color scheme reports with mode 2031 hears whether the scheme turned dark or light.
+
+**The palette and the filters.** The palette sets the colors, vtium draws the frame through them, and then the look's filters change the finished picture (ADR-1304). Under the amber tint, a Dracula palette's colors become shades of amber, each by its own brightness. A filter never changes the colors that programs see or that OSC 4 reports.
+
+**The color schemes vtium ships.** Each scheme comes from its author's own repository. Each scheme's license is permissive: MIT, Apache-2.0, BSD, ISC, zlib, the Unlicense or CC0. The package installs each scheme's license text with its other license notices, and each file's opening comments name the scheme's source, its author and its license. Ghostty's bundled themes come from the iTerm2-Color-Schemes collection. That collection's license covers the collection and leaves each theme's copyright with its author, so the collection alone gives vtium no license for a scheme (`basis`).
+
+| Scheme | Files | Source | License, read 2026-11-19 |
+|---|---|---|---|
+| Dracula | `dracula` | the `dracula` file of github.com/dracula/ghostty | MIT, "Copyright (c) 2023 Dracula Theme" |
+| Catppuccin | `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha` | `themes/*.conf` of github.com/catppuccin/ghostty | MIT, "Copyright (c) 2021 Catppuccin" |
+| Tokyo Night | `tokyo-night`, `tokyo-night-storm`, `tokyo-night-moon`, `tokyo-night-day` | `extras/ghostty/` of github.com/folke/tokyonight.nvim | Apache-2.0, with no NOTICE file. The scheme began as Enkia's Visual Studio Code theme, which is MIT. |
+| Gruvbox | `gruvbox-dark`, `gruvbox-light` | the palette in github.com/gruvbox-community/gruvbox, written out as Ghostty's format | MIT, "Copyright (c) 2018 Pavel Pertsev", the author of the original morhetz/gruvbox, whose README states MIT/X11 |
+| Monokai | none, until the probe *Monokai* is answered | Wimer Hazenberg's TextMate theme of 2006 | No license found from its author, who now sells Monokai Pro. Ports such as github.com/ku1ik/vim-monokai are MIT, "Copyright (c) 2009-2016 Marcin Kulik". |
+
+Nord and Solarized are already built-in palettes. The probe *Monokai* asks whether vtium ships Monokai. This record leans to leaving Monokai out until its author's license is found, because a port's license cannot grant more than the port's author holds. A person can still import Monokai as a file of their own.
+
+**What D10 changes in other records.**
+
+| Record and decision | What changes |
+|---|---|
+| ADR-1403 D5 | A look section may set `palette`, which wins over the top level's. |
+| ADR-1201 D3 | The Looks tab lists, activates and previews palettes, as the probe *where palettes are managed* leans. |
+| ADR-1304 D2 | The palette sets the colors before the frame is drawn, and the color layer maps the finished picture's colors after. ADR-1304 carries a dated note at D2. |
+
+ADR-1000's row `color.palette.named` names ADR-1403 as its source and gains this decision once it is accepted.
+
 ## Consequences
 
 ### Positive
@@ -322,6 +448,8 @@ Each record below carries a dated note at the passage this record changes. No re
 - vtium-config gains the batch file, its folder of draft changes, and the install step for a system font. `vtium check-config` gains the trust rule's reasons and the size warning.
 - The views table, the Fonts tab's scenarios, and the Looks tab's form follow the new tab order and roles. The Effects tab is a new view with scenarios of its own.
 
+> Note 2026-11-19: D10, proposed on this date, would add these consequences. A person picks a color scheme in a look as they pick its fonts and effects, and a scheme written for Ghostty works by copying its file in. A palette works in every build, the minspec build included. On the other side, vtium follows a file format that another project defines, and keys of that format that vtium does not implement, such as `cursor-text`, do nothing. Every scheme vtium ships needs its license checked and its notice carried, so the shipped list stays short. A tinted look turns a scheme's colors into shades of one color, so the scheme shows its colors only in a look without a tint.
+
 ## Alternatives Considered
 
 - **Draw from any font that any searched folder holds,** as `font-paths` does today. Not taken: the maintainer decided that activating a resource is an act of trust, and a folder the user or removable media controls cannot carry it.
@@ -332,3 +460,10 @@ Each record below carries a dated note at the passage this record changes. No re
 - **Manage fonts and effects on one Fonts tab.** Not taken: the maintainer decided that effects and filters would make the Fonts tab too busy, and that each kind previews differently.
 - **Give pointer themes a tab of their own.** Not taken: the maintainer decided that each look picks its pointer theme in the Looks tab.
 - **Say "in use" on screen, toggled with Use.** Not taken: the maintainer chose active, with Activate and Deactivate, the words that font managers already use.
+
+> Note 2026-11-19: the four alternatives below belong to D10, which is proposed.
+
+- **Make a palette a color filter,** a look's table that maps each color to another. Not taken: the maintainer decided that palettes and filters are different resources. A filter changes the finished picture, so it cannot change the colors programs ask for and OSC 4 reports, and it would fold different colors that share a brightness into one under a tint.
+- **Define a palette format of vtium's own,** in vtium.conf's syntax. Not taken: Ghostty's theme format already carries the colors a palette needs, and reading it as it is lets people use the schemes they already have.
+- **Ship schemes from the iTerm2-Color-Schemes collection,** which Ghostty bundles. Not taken: the collection's license leaves each theme's copyright with its author, so each scheme still needs its author's license, which its own repository gives.
+- **Keep palettes as built-in names only,** adding each new scheme to vtium-term's table. Not taken: the maintainer wants anyone to be able to write their own palette, which needs a file.
