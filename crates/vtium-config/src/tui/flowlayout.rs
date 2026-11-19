@@ -1,6 +1,6 @@
 //! The Flow tab's layout and the queries its update and its view both
-//! make: where the boxes stand on the canvas of paths, the window that
-//! shows the canvas, the choices a part's layer offers, and the lines of a
+//! make: where the boxes stand on the document of paths, the window that
+//! shows the document, the choices a part's layer offers, and the lines of a
 //! terminal's card. Each function reads the tab's state, the shared part
 //! and the size, and changes nothing. The Flow tab's update calls these
 //! functions to move the highlight and to scroll, and the view in
@@ -79,7 +79,7 @@ pub fn message_rows(shared: &Shared, cols: usize) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The window on the canvas: its first screen row, and how many rows it
+/// The window on the document: its first screen row, and how many rows it
 /// has between the column titles and the message line and the `keys`
 /// rows of the key line, in a terminal of `size`.
 pub fn window(shared: &Shared, size: Size, keys: usize) -> (usize, usize) {
