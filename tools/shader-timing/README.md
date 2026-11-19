@@ -1,6 +1,6 @@
 # The shader timing harness
 
-The harness times spatial shaders, the GPU path's frame filters, before vtium builds them. It draws each shader over a terminal-like frame at a display's size, off-screen, and reports how long the GPU takes for each frame. The maintainer sets the cap on a chain's reads from these numbers, and they show what the frame-rate floor rejects on each GPU. ADR-1304 D18 asks for the measurement, and its dated note holds the results.
+The harness times spatial shaders, the GPU path's frame filters, before vtium builds them. It draws each shader over a terminal-like frame at a display's size, off-screen, and reports how long the GPU takes for each frame. The maintainer sets the cap on each pass's reads from these numbers, and they show what the frame-rate floor rejects on each GPU. ADR-1304 D18 asks for the measurement, and its dated note holds the results.
 
 The harness is an OpenGL ES 3.0 program. It runs on a GPU's render node through EGL with no surface, so it needs no DRM master, no display mode and no VT. You can run it on a desktop while the desktop runs.
 
@@ -32,16 +32,18 @@ The shaders are Ghostty-style files under `shaders/`, each with a `mainImage` th
 
 The harness rewrites each read of `iChannel0` into a function whose body depends on the read mode:
 
-| Mode | How a read reads the frame | Counted as |
-|---|---|---|
-| `plain` | One `texelFetch` of the pixel whose square holds the place, vtium's `SPATIAL_IN`. | 1 read |
-| `smooth` | Four `texelFetch`es blended in the shader, vtium's `SPATIAL_SMOOTH`. | 4 reads |
-| `ghostty` | The smooth read, with each pixel decoded from sRGB to linear light, and the output encoded again. This is the read vtium plans for a shader in Ghostty's dialect. | 4 reads |
-| `gl-linear` | One `texture` read through the GPU's own linear filtering, as Ghostty reads. | 1 read |
+| Mode | How a read reads the frame |
+|---|---|
+| `plain` | One `texelFetch` of the pixel whose square holds the place, vtium's `SPATIAL_IN`. |
+| `smooth` | Four `texelFetch`es blended in the shader. ADR-1304 D18 proposed this for `SPATIAL_SMOOTH` until the maintainer chose the GPU's filter on 2026-11-18. |
+| `ghostty` | The smooth read, with each pixel decoded from sRGB to linear light, and the output encoded again. ADR-1304 D20 proposed this for Ghostty's dialect until the maintainer chose an sRGB copy of the input on 2026-11-18. |
+| `gl-linear` | One `texture` read through the GPU's own linear filtering, as Ghostty reads and as vtium's `SPATIAL_SMOOTH` reads. |
 
-Every read except `gl-linear` also turns the place from Ghostty's coordinates, which start at the bottom left, into vtium's, which start at the top left. Each read is also held within 256 pixels of the pixel being written, the cap on reach.
+Every read turns the place from Ghostty's coordinates, which start at the bottom left, into vtium's, which start at the top left. Each read is also held within 256 pixels of the pixel being written, the cap on reach.
 
-Two plans chain crt and bloom. In one pass, each read bloom makes runs crt again at that place, as vtium's chain does when it shares one pass, so the reads multiply. In two passes, crt draws into a texture and bloom reads that texture.
+The `reads` column counts each read as 1 in every mode, as vtium's checker counts a smooth read. The results files of 2026-11-18 have a `texels` column in its place, which counts a smooth read in the `smooth` and `ghostty` modes as 4, as ADR-1304 then did.
+
+Two plans chain crt and bloom. In one pass, each read bloom makes runs crt again at that place, so the reads multiply: 8 times 25 makes 200. ADR-1304 D3 therefore gives each filter that reads other pixels a pass of its own, since one shared pass costs about nine times as much as two. In two passes, crt draws into a texture and bloom reads that texture. Their reads add up to 33, and the cap of 25 holds each pass.
 
 ## How it times a frame
 
@@ -51,6 +53,6 @@ Each row reports the median and the largest frame on both clocks. The rate in `f
 
 ## Its tests
 
-`make test-tools` runs the harness's tests on llvmpipe. The tests check that every plan compiles as GLSL ES 3.00 and draws in every read mode. A test draws the negative shader in three read modes and checks pixels against the frame, which catches a read that flips the picture. Another times a shader that runs 40 rounds of a hash and one that runs 640. It checks that the second takes well over four times as long on both clocks, and that the two clocks agree. A clock that stops before the GPU finishes fails that test.
+`make test-tools` runs the harness's tests on llvmpipe. The tests check that every plan compiles as GLSL ES 3.00 and draws in every read mode. A test draws the negative shader in three read modes and checks pixels against the frame, which catches a read that flips the picture. Another times a shader that runs 40 rounds of a hash and one that runs 640. It checks that the second takes well over four times as long on both clocks, and that the GPU's clock never reads more than the CPU's. A clock that stops before the GPU finishes fails that test. The test does not hold the GPU's clock to a share of the CPU's. llvmpipe's query covers only part of a frame, and the part depends on how many threads llvmpipe draws with. With 4 threads, as on CI's runners, the query reads about a quarter of the frame.
 
 The harness is a workspace of its own, with its own `Cargo.lock`, so the main workspace and CI do not build it. `make deny` checks its lock file.

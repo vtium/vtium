@@ -91,9 +91,45 @@ pub struct Cluster<'a> {
     pub width: u16,
 }
 
-/// The most characters [`clusters`] hands the console's terminal at once:
-/// as many as a line of the terminal's widest holds, at two cells each.
-const SEGMENT_CHARS: usize = (vtium_term::COLUMNS_MAX - 1) / 2;
+thread_local! {
+    /// The `cluster-width` rule this thread measures text by.
+    static RULE: std::cell::Cell<vtium_term::ClusterWidth> =
+        const { std::cell::Cell::new(vtium_term::ClusterWidth::Double) };
+}
+
+/// The console's `cluster-width` rule that [`clusters`] and the Backend
+/// measure text by on this thread: `double`, the console's default,
+/// unless a [`MeasureBy`] is alive.
+pub fn rule() -> vtium_term::ClusterWidth {
+    RULE.with(std::cell::Cell::get)
+}
+
+/// Measures text by `rule` on this thread until the returned guard drops,
+/// and then by the rule before it. A console under `cluster-width =
+/// single` gives a syllable with a spacing vowel sign one cell where
+/// `double` gives it two. Update handles each event, and the view draws
+/// each frame, inside a guard set to the rule the console started with
+/// (`Shared::measure`). So the rows update counts, ratatui's buffer, the
+/// rows the view lays out and the Backend's cursor all count the console's
+/// cells.
+pub fn measure_by(rule: vtium_term::ClusterWidth) -> MeasureBy {
+    MeasureBy {
+        before: RULE.with(|r| r.replace(rule)),
+    }
+}
+
+/// The guard [`measure_by`] returns.
+#[derive(Debug)]
+#[must_use = "the rule holds only while the guard lives"]
+pub struct MeasureBy {
+    before: vtium_term::ClusterWidth,
+}
+
+impl Drop for MeasureBy {
+    fn drop(&mut self) {
+        RULE.with(|r| r.set(self.before));
+    }
+}
 
 /// The characters `text` shows as on the console, each a base character
 /// with the marks that join it, in order. Every character of `text` is in
@@ -104,100 +140,31 @@ const SEGMENT_CHARS: usize = (vtium_term::COLUMNS_MAX - 1) / 2;
 /// console's rule gives the whole cluster. So a row laid out a character
 /// to a cell does not match the console's cells, and neither do the
 /// clusters of Unicode's own tables, which ratatui reads. vtium-config
-/// asks vtium-term, the console's own terminal: it writes the text on a
-/// line of a terminal of its own and reads back the line's cells. Plain
+/// asks vtium-term, the console's own terminal, which cuts the text into
+/// clusters and measures each one exactly as its screen does when the
+/// text is printed, under the [`rule`] this thread measures by. Plain
 /// ASCII text joins nothing, so it skips that step.
 ///
 /// References:
 /// - ADR-1206 D1, "The console's width rule decides where the cursor
 ///   goes": the console's clusters and widths lay the TUI's text out.
 pub fn clusters(text: &str) -> Vec<Cluster<'_>> {
-    let mut out = Vec::new();
     if text.is_ascii() {
-        for i in 0..text.len() {
-            out.push(Cluster {
+        return (0..text.len())
+            .map(|i| Cluster {
                 text: text.get(i..i.saturating_add(1)).unwrap_or_default(),
                 chars: 1,
                 width: 1,
-            });
-        }
-        return out;
-    }
-    let mut rest = text;
-    while !rest.is_empty() {
-        let end = rest
-            .char_indices()
-            .nth(SEGMENT_CHARS)
-            .map_or(rest.len(), |(i, _)| i);
-        let (piece, after) = rest.split_at(end);
-        segment(piece, &mut out);
-        rest = after;
-    }
-    out
-}
-
-/// Appends the clusters of `piece` to `out`, as a vtium-term line shows
-/// `piece` written on it.
-fn segment<'a>(piece: &'a str, out: &mut Vec<Cluster<'a>>) {
-    use vtium_term::{Glyph, Width};
-    let chars = piece.chars().count();
-    let mut term = vtium_term::Terminal::new(chars.saturating_mul(2).saturating_add(1), 1, 0);
-    let _ = term.input(piece.as_bytes());
-    let screen = term.screen();
-    let written = screen.cursor().0;
-    // the text of each cell the console wrote, leaving out the second
-    // cell of a wide character
-    let glyphs: Vec<String> = screen.line(0).map_or_else(Vec::new, |line| {
-        line.cells()
-            .iter()
-            .take(written)
-            .filter(|c| matches!(c.width(), Width::Narrow | Width::Wide))
-            .map(|&c| match line.glyph(c) {
-                Glyph::Char(ch) => ch.to_string(),
-                Glyph::Cluster(s) => s.to_owned(),
-                Glyph::Empty => " ".to_owned(),
             })
-            .collect()
-    });
-    let mut push = |text: &'a str| {
-        if !text.is_empty() {
-            out.push(Cluster {
-                text,
-                chars: text.chars().count(),
-                width: super::backend::console_width(text),
-            });
-        }
-    };
-    let mut at = 0usize;
-    for (k, glyph) in glyphs.iter().enumerate() {
-        let left = piece.get(at..).unwrap_or_default();
-        // marks at the start of the text join nothing, and the console
-        // leaves them out; they make a cluster of their own
-        let Some(skip) = left.find(glyph.as_str()) else {
-            break;
-        };
-        push(left.get(..skip).unwrap_or_default());
-        let begin = at.saturating_add(skip);
-        at = begin.saturating_add(glyph.len());
-        // the marks past the most a cluster keeps, which the console
-        // drops, stay with their cluster
-        let next = glyphs.get(k.saturating_add(1));
-        while let Some(c) = piece.get(at..).and_then(|s| s.chars().next()) {
-            if next.is_some_and(|n| piece.get(at..).is_some_and(|s| s.starts_with(n.as_str()))) {
-                break;
-            }
-            at = at.saturating_add(c.len_utf8());
-        }
-        push(piece.get(begin..at).unwrap_or_default());
+            .collect();
     }
-    // whatever the line did not show, a character to a cluster
-    let left = piece.get(at..).unwrap_or_default();
-    for (i, c) in left.char_indices() {
-        push(
-            left.get(i..i.saturating_add(c.len_utf8()))
-                .unwrap_or_default(),
-        );
-    }
+    vtium_term::clusters(text, rule())
+        .map(|(text, width)| Cluster {
+            text,
+            chars: text.chars().count(),
+            width: u16::from(width),
+        })
+        .collect()
 }
 
 /// The symbol a cell of the TUI holds for `cluster`, and the cells it
@@ -318,6 +285,30 @@ pub fn pick(n: usize, options: &[&str]) -> String {
     )
 }
 
+/// A value being typed as a one-line field shows it, in at most `n` cells
+/// of the console's screen: ` value_ `, the cursor `_` after the text and
+/// a blank on each side. When the whole value does not fit, the field
+/// scrolls as a one-line field does. It shows the end of the value after
+/// `…`, so the cursor and what the person types last stay in sight.
+pub fn field(typed: &str, n: usize) -> String {
+    let text = printable(typed);
+    if cells(&text).saturating_add(3) <= n {
+        return format!(" {text}_ ");
+    }
+    // the clusters from the end that fit beside ` …`, `_` and a blank
+    let room = n.saturating_sub(4);
+    let mut used = 0usize;
+    let mut start = text.len();
+    for c in clusters(&text).iter().rev() {
+        used = used.saturating_add(usize::from(shown(c).1));
+        if used > room {
+            break;
+        }
+        start = start.saturating_sub(c.text.len());
+    }
+    format!(" …{}_ ", text.get(start..).unwrap_or_default())
+}
+
 /// `word` in pieces of at most `width` cells, cut between the characters
 /// the console shows, so a mark stays with its character. A character
 /// wider than `width` is a piece of its own.
@@ -342,7 +333,9 @@ fn pieces(word: &str, width: usize) -> Vec<String> {
 /// broken between words, at most `most` of them, the last cut with `…`
 /// where text was left out; at least one line. A character two cells wide
 /// counts twice, and a mark that joins the character before it counts
-/// nothing.
+/// nothing. Each control character becomes `?`, as [`printable`] shows
+/// it, so a tab or an escape sequence in a message from a command takes
+/// the one cell it shows in.
 pub fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
     let width = width.max(1);
     let mut lines: Vec<String> = Vec::new();
@@ -350,7 +343,7 @@ pub fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
     let mut used = 0usize;
     // a word longer than the line, such as a path, breaks where the line
     // ends
-    for word in text.split(' ').flat_map(|w| pieces(w, width)) {
+    for word in printable(text).split(' ').flat_map(|w| pieces(w, width)) {
         let w = cells(&word);
         if used > 0 && used.saturating_add(1).saturating_add(w) > width {
             lines.push(std::mem::take(&mut line));
@@ -458,6 +451,42 @@ mod tests {
         assert_eq!(wrap("键盘 键盘 键盘", 9, 1), ["键盘 键…"]);
         assert_eq!(mid("键盘ab键盘cd键盘", 9), "键盘…键盘");
         assert_eq!(pick(4, &["键盘键", "键盘"]), "键盘");
+    }
+
+    #[test]
+    fn wrap_measures_a_control_character_as_the_question_mark_it_shows_as() {
+        // a tab or an escape would move the cursor of a terminal the text
+        // is measured on; the TUI shows each control as `?`, one cell
+        let lines = wrap("é\tabcdefghij klmnop", 6, 9);
+        assert_eq!(lines, ["é?abcd", "efghij", "klmnop"]);
+        assert_eq!(wrap("é\x1b[5Cab", 9, 9), ["é?[5Cab"]);
+    }
+
+    #[test]
+    fn a_long_text_keeps_each_character_with_its_marks() {
+        // 4,094 characters, then e and its accent, which a cut every
+        // 4,095 characters would split
+        let mut text = "é".repeat(4094);
+        text.push_str("e\u{301}x");
+        let parts = clusters(&text);
+        let last: Vec<(&str, u16)> = parts
+            .iter()
+            .rev()
+            .take(2)
+            .map(|c| (c.text, c.width))
+            .collect();
+        assert_eq!(last, [("x", 1), ("e\u{301}", 1)]);
+        assert_eq!(cells(&text), 4096);
+    }
+
+    #[test]
+    fn a_typed_value_too_long_for_its_field_shows_its_end_and_the_cursor() {
+        assert_eq!(field("abc", 6), " abc_ ");
+        assert_eq!(field("abcd", 6), " …cd_ ");
+        assert_eq!(field("abcdefgh", 8), " …efgh_ ");
+        // 键 takes two cells, so only one fits in the three after `…`
+        assert_eq!(field("ab键键", 7), " …键_ ");
+        assert_eq!(field("a\tb", 9), " a?b_ ");
     }
 
     #[test]

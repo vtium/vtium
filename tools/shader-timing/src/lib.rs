@@ -1,5 +1,5 @@
-//! Times spatial shaders off-screen on a render node, so that the cap on a
-//! chain's reads and the frame-rate floor can be set from real numbers.
+//! Times spatial shaders off-screen on a render node, so that the cap on
+//! each pass's reads and the frame-rate floor can be set from real numbers.
 //!
 //! The harness draws each shader over a terminal-like frame at a display's
 //! size, on a GL context with no surface, and reports each frame's time on
@@ -37,15 +37,21 @@ impl Plan {
         }
     }
 
-    /// The texels each pixel reads, as vtium's checker would count them: a
-    /// smooth read counts as 4, and a chain in one pass multiplies its
-    /// filters' reads, the smooth reads of the second included.
-    pub fn texels(&self, mode: Mode) -> u32 {
-        let t = mode.texels();
+    /// The reads for each pixel, as vtium's checker counts them in every
+    /// read mode: a smooth read counts as 1, like a plain read. A chain in
+    /// one pass multiplies its filters' reads, and a chain in two passes
+    /// adds them.
+    ///
+    /// References:
+    /// - ADR-1304 D18: a smooth read counts as 1 read.
+    /// - ADR-1304 D3: the reads of one pass are the product of its filters'
+    ///   reads, a chain's reads are the sum of its passes' reads, and the
+    ///   cap of 25 reads holds each pass.
+    pub fn reads(&self) -> u32 {
         match self {
-            Plan::Single(s) => s.reads * t,
-            Plan::OnePass(a, b) => a.reads * t * b.reads * t,
-            Plan::TwoPasses(a, b) => (a.reads + b.reads) * t,
+            Plan::Single(s) => s.reads,
+            Plan::OnePass(a, b) => a.reads * b.reads,
+            Plan::TwoPasses(a, b) => a.reads + b.reads,
         }
     }
 
@@ -76,7 +82,8 @@ pub struct Row {
     pub mode: Mode,
     pub width: u32,
     pub height: u32,
-    pub texels: u32,
+    /// The reads for each pixel, as [`Plan::reads`] counts them.
+    pub reads: u32,
     pub frames: usize,
     /// The GPU clock's median and largest frame, in milliseconds.
     pub gpu: Option<(f64, f64)>,
@@ -107,7 +114,7 @@ impl Row {
         self.fps() >= f64::from(self.refresh)
     }
 
-    pub const HEADER: &'static str = "plan\tmode\tsize\ttexels\tframes\tgpu_median_ms\tgpu_max_ms\twall_median_ms\twall_max_ms\tfps\tfloor\tmeets";
+    pub const HEADER: &'static str = "plan\tmode\tsize\treads\tframes\tgpu_median_ms\tgpu_max_ms\twall_median_ms\twall_max_ms\tfps\tfloor\tmeets";
 
     pub fn tsv(&self) -> String {
         let (gm, gx) = self.gpu.map_or(("-".to_owned(), "-".to_owned()), |(m, x)| {
@@ -119,7 +126,7 @@ impl Row {
             self.mode.name(),
             self.width,
             self.height,
-            self.texels,
+            self.reads,
             self.frames,
             self.wall.0,
             self.wall.1,
@@ -218,7 +225,7 @@ pub fn time_plan(
         mode,
         width: bench.width,
         height: bench.height,
-        texels: plan.texels(mode),
+        reads: plan.reads(),
         frames: samples.len(),
         gpu,
         wall,
@@ -238,10 +245,10 @@ mod tests {
         assert_eq!(labels[0], "negative");
         assert_eq!(labels[labels.len() - 2], "crt then bloom, one pass");
         assert_eq!(labels[labels.len() - 1], "crt then bloom, two passes");
-        // crt reads 8 and bloom 25, so one pass of both reads 200
-        assert_eq!(plans[plans.len() - 2].texels(Mode::Plain), 200);
-        assert_eq!(plans[plans.len() - 2].texels(Mode::Smooth), 3200);
-        assert_eq!(plans[plans.len() - 1].texels(Mode::Plain), 33);
+        // crt reads 8 and bloom 25, so one pass of both reads 200 and two
+        // passes 33, whichever way a read reads the frame
+        assert_eq!(plans[plans.len() - 2].reads(), 200);
+        assert_eq!(plans[plans.len() - 1].reads(), 33);
     }
 
     #[test]

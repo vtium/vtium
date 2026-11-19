@@ -18,8 +18,13 @@ use super::listbox::{Body, LIST_MIN, prose};
 use super::model::{App, Size, View};
 use super::words;
 
-/// The smallest grid a view is drawn in (ADR-1201 D3, ADR-1403 D7): below
-/// it, the one screen that says so.
+/// The smallest grid a view is drawn in: below it, the one screen that
+/// says so.
+///
+/// References:
+/// - ADR-1201 D3, "Where it runs": the TUI needs a terminal of at least
+///   80×25 cells.
+/// - ADR-1403, Summary: the Flow view needs the same 80×25 cells.
 pub const MIN_COLS: usize = 80;
 pub const MIN_ROWS: usize = 25;
 

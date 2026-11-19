@@ -3078,7 +3078,11 @@ fn at_80x25_no_key_or_sentence_is_cut() {
         for name in ["Flow", "Looks", "Fonts", "Settings", "Help"] {
             assert!(rows[0].contains(name), "{name}: {:?}", rows[0]);
         }
-        // the Help view shows no actions (ADR-1403 D7)
+        // the Help view shows no actions
+        //
+        // References:
+        // - ADR-1403 D7, "The same keys in every view": Help's tab bar
+        //   shows no action.
         if key_line != keys_of("help") {
             for (_, short) in words::ACTIONS {
                 assert!(rows[0].contains(short), "{short}: {:?}", rows[0]);
@@ -3146,7 +3150,10 @@ fn a_refused_frit_s_long_reason_wraps_by_words() {
     assert_eq!(continued.len(), 1, "{screen}");
 }
 
-// The Flow view (ADR-1403 D7), on the flow of the record's figure.
+// The Flow view, on the flow of the record's figure.
+//
+// References:
+// - ADR-1403 D7: the Flow view, and the flow its figure draws.
 
 mod flow_view {
     use super::*;
@@ -4086,7 +4093,10 @@ mod draft_flow {
     fn install_saves_first_then_asks_with_its_counts_and_installs() {
         let b = bench("install");
         let asked = run(&b, &[&CHANGE[..], &[b"i"]].concat());
-        // Install saves first, then asks (ADR-1403 D7)
+        // Install saves first, then asks
+        //
+        // References:
+        // - ADR-1403 D7: Install saves the draft first, then asks.
         assert!(b.draft().contains("[head deskx]"), "{}", b.draft());
         assert!(
             flat(asked.screen()).contains("Install the draft? 4 lines added, 3 removed."),
@@ -4118,8 +4128,11 @@ mod draft_flow {
         assert_eq!(b.draft(), INSTALLED);
     }
 
-    // ADR-1403 D7: Enter on a terminal shows its subflow, font set, then
-    // what its look draws, then its displays
+    // Enter on a terminal shows its subflow, font set, then what its look
+    // draws, then its displays
+    //
+    // References:
+    // - ADR-1403 D7, "The terminal's subflow: font set and effects".
     #[test]
     fn a_terminal_s_card_shows_its_subflow() {
         let b = bench("subflow");
@@ -4253,8 +4266,12 @@ mod draft_flow {
         assert!(b.draft().contains("display * -> deskx"), "{}", b.draft());
     }
 
-    // ADR-1403 D7: a draft whose only problem is a missing complete route
-    // installs only after Install's own question, and a no installs nothing
+    // A draft whose only problem is a missing complete route installs only
+    // after Install's own question, and a no installs nothing
+    //
+    // References:
+    // - ADR-1403 D7: Install asks before it installs a draft with no
+    //   complete path.
     #[test]
     fn install_asks_before_it_installs_a_draft_with_no_complete_path() {
         let b = bench("install-no-route");
@@ -4418,7 +4435,13 @@ mod draft_flow {
             present(vec![other_keyboard()], true),
         ];
         // udev reports the keyboard went: rule 2 names it, so its part
-        // stays, grey, and says so (ADR-1403 D7)
+        // stays, grey, and says so
+        //
+        // References:
+        // - ADR-1403 D7, "Parts from the devices present": unplugging a
+        //   device never removes it from the configuration.
+        // - ADR-1403 D7, "Colors, borders and lines": a part whose device is
+        //   not connected has a grey border.
         let ran = run_on(&b, seen, true, &[b"@"]);
         assert!(
             ran.status().contains("disconnected: kbd"),

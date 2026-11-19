@@ -151,7 +151,11 @@ pub fn card_path(state: &flowview::State, shared: &Shared, obj: &Obj) -> Option<
 pub fn card_lines(path: &Path, editor: bool) -> Vec<CardLine> {
     let mut out = vec![CardLine::Name, CardLine::Font, CardLine::Size];
     // the VTs change only in NEW PATH, where adding the path checks each
-    // VT for a clash (ADR-1403 D7)
+    // VT for a clash
+    //
+    // References:
+    // - ADR-1403 D7, "Composing and adding a path": adding a path checks
+    //   each display's VT for a clash.
     if editor {
         out.push(CardLine::Setting("vt"));
     }
@@ -233,12 +237,15 @@ pub fn card_types(shared: &Shared, line: &CardLine, pick: usize) -> bool {
 
 /// What a line sets, which the card shows under its lines while the
 /// cursor is on it. Switch on Enter also says why it does nothing for
-/// `path`, as vtium decides (ADR-1401, "Enter on a head's own keyboard"):
-/// under policy = closed, on an isolated head, on a head that runs on
-/// every VT, and on one whose VTs are all past 12, which the VT keys
-/// cannot reach. On a terminal that runs on every VT, it names the
-/// control that gives it a VT: `e` on an added path's card, and the line
-/// VTs on the `editor`'s card in NEW PATH.
+/// `path`, as vtium decides: under policy = closed, on an isolated head,
+/// on a head that runs on every VT, and on one whose VTs are all past 12,
+/// which the VT keys cannot reach. On a terminal that runs on every VT,
+/// it names the control that gives it a VT: `e` on an added path's card,
+/// and the line VTs on the `editor`'s card in NEW PATH.
+///
+/// References:
+/// - ADR-1401 D3, "Enter on a head's own keyboard (`switch-on-enter`)":
+///   when vtium switches to a head's VT on Enter, and when it does not.
 pub fn card_about(shared: &Shared, path: &Path, line: &CardLine, editor: bool) -> Option<String> {
     match line {
         CardLine::Setting("login") => Some(words::LOGIN_ABOUT.to_owned()),

@@ -31,7 +31,7 @@ import t3_bench
 import t3_heads
 from t3_qemu import wait_stable
 
-CASE = "key-echo"
+CASE = t3_bench.KEY_ECHO
 
 # The keys the driver types, one QEMU chord each, which the script's
 # keys= count matches (test_t3.KeyEchoTest).

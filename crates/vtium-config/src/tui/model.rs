@@ -32,9 +32,14 @@ pub const WAIT: Duration = crate::switch::WAIT;
 /// terminal checks and does not keep.
 pub const QUERY_ID: u32 = 31;
 
-/// The requests the TUI writes at start (D4): XTVERSION, the OSC 50 query
-/// and kitty's graphics query, in that order. [`Queue::send`] adds DA1,
-/// the fourth.
+/// The requests the TUI writes at start: XTVERSION, the OSC 50 query and
+/// kitty's graphics query, in that order. [`Queue::send`] adds DA1, the
+/// fourth. The answers tell the TUI whether the terminal is a vtium
+/// console and which font it draws.
+///
+/// References:
+/// - ADR-1201 D4, "Finding out what the terminal is": the four requests
+///   at start and what their answers decide.
 fn start_batch() -> Batch {
     Batch::new(Asker::Start)
         .ask(Query::Version)
@@ -339,6 +344,13 @@ pub struct Shared {
     answers: Answers,
     /// The font to give back: the start query's answer, or what was saved.
     pub start_font: Option<String>,
+    /// The console's `cluster-width` rule, which decides whether a syllable
+    /// with a spacing vowel sign takes one cell or two. vtium reads the key
+    /// only when it starts, so the TUI reads it from the installed
+    /// vtium.conf at its own start and keeps it. An install that changes
+    /// the key leaves the console on the old rule until vtium restarts, and
+    /// the TUI measures text by that rule until then.
+    pub cluster_width: vtium_term::ClusterWidth,
     /// The font the console is to draw, which a switch is sent for once no
     /// other is in flight: the live trial's font, or the font it puts
     /// back (D4).
@@ -386,6 +398,9 @@ pub struct Shared {
     pub present: crate::flowmodel::Present,
     /// The privileged step is installing the draft.
     pub installing: bool,
+    /// The install that waits for the replies still due, which
+    /// [`App::event`] hands the loop once no query is outstanding.
+    install_waits: Option<Plan>,
     /// What came and went at the last hotplug, which the status line shows
     /// until the next change.
     pub came: Option<String>,
@@ -398,8 +413,12 @@ pub struct Shared {
     /// leave question started ends well.
     pub quit_after_install: Option<u8>,
     /// The changes made since the draft was last read or saved, which
-    /// [`Shared::draft`]'s text holds and the store does not yet (ADR-1403 D7,
-    /// "Changes wait for Save").
+    /// [`Shared::draft`]'s text holds and the store does not hold until
+    /// Save writes them.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "Changes wait for Save": the changes stay unsaved
+    ///   until Save.
     pub unsaved: usize,
 }
 
@@ -417,6 +436,14 @@ impl Shared {
     /// The installed vtium.conf's value of `key`.
     pub fn configured(&self, key: &str) -> Option<String> {
         self.inputs.conf.as_deref().and_then(|c| setting(c, key))
+    }
+
+    /// Measures text by the console's `cluster-width` rule until the guard
+    /// drops. Update and the view both measure inside this guard, so the
+    /// rows update counts for a list, a page or a click are the rows the
+    /// view draws.
+    pub fn measure(&self) -> super::canvas::MeasureBy {
+        super::canvas::measure_by(self.cluster_width)
     }
 
     /// The configuration the views show: the draft, else the installed
@@ -600,6 +627,16 @@ impl App {
             .unwrap_or(0);
         let view = inputs.view;
         let flow = super::tabs::flow::Flow::new(&inputs.flow);
+        let cluster_width = match inputs
+            .conf
+            .as_deref()
+            .and_then(|c| setting(c, "cluster-width"))
+            .as_deref()
+        {
+            Some("single") => vtium_term::ClusterWidth::Single,
+            _ => vtium_term::ClusterWidth::Double,
+        };
+        let _rule = super::canvas::measure_by(cluster_width);
         let mut app = App {
             nav: super::nav::Nav {
                 view,
@@ -613,6 +650,7 @@ impl App {
                 graphics: false,
                 answers: Answers::default(),
                 start_font: None,
+                cluster_width,
                 want: None,
                 specimen: None,
                 asked: None,
@@ -633,6 +671,7 @@ impl App {
                 draft: None,
                 present: crate::flowmodel::Present::default(),
                 installing: false,
+                install_waits: None,
                 came: None,
                 live_said: false,
                 saving_tried: None,
@@ -803,9 +842,11 @@ impl App {
 
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
+        let _rule = self.shared.measure();
         let node = super::nav::node(self);
         let mut out = self.handle(event);
         out.extend(self.ask_picture());
+        self.hold_install(&mut out);
         self.flow_settle();
         self.lists_settle();
         // a key line shows its first page in each node the TUI moves to,
@@ -821,6 +862,31 @@ impl App {
             "the previews show the font the Fonts tab highlights"
         );
         out
+    }
+
+    /// Keeps an install back while a query is outstanding, and hands it to
+    /// the loop with the event that settles the last one. The privileged
+    /// step gives the terminal to sudo with echo on, so a reply that came
+    /// then would show on the screen and become part of the password, and
+    /// the queue would never see it. The replies' own end, DA1's reply or
+    /// the deadline at start, bounds the wait, so the wait needs no timer
+    /// of its own. A TUI that is leaving never installs.
+    ///
+    /// References:
+    /// - ADR-1206 D2, "Every batch of queries ends with DA1": no timer waits
+    ///   for a reply.
+    fn hold_install(&mut self, out: &mut Vec<Effect>) {
+        if self.awaiting() {
+            if let Some(at) = out.iter().position(|e| matches!(e, Effect::Install(_)))
+                && let Effect::Install(plan) = out.remove(at)
+            {
+                self.shared.install_waits = Some(plan);
+            }
+        } else if let Some(plan) = self.shared.install_waits.take()
+            && self.shared.leaving.is_none()
+        {
+            out.push(Effect::Install(plan));
+        }
     }
 
     fn handle(&mut self, event: Event) -> Vec<Effect> {
@@ -1377,4 +1443,94 @@ pub const TYPED_MAX: usize = 256;
 /// `at` moved by `key` in a list of `n`, as the shared list moves.
 pub(crate) fn step(at: usize, n: usize, key: Key) -> usize {
     super::listbox::step(at, n, key)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The TUI on a vtium console after the start, after a live trial of
+    /// tiny5 that a key ended before the console answered its switch, and
+    /// with the install question asked, as `i` asks it. The trial's switch
+    /// is outstanding.
+    fn asked_to_install_after_a_trial() -> App {
+        let (mut app, _) = App::new(super::super::fixture::inputs(), 80, 25);
+        for reply in [
+            Reply::Version("vtium(test)".into()),
+            Reply::Font("unifont".into()),
+            Reply::Attributes,
+        ] {
+            app.event(Event::Input(Input::Reply(reply)));
+        }
+        for key in [Key::Up, Key::Char('t'), Key::Escape] {
+            app.event(Event::Input(Input::Key(key)));
+        }
+        assert!(app.nav.trial.is_none(), "the key ended the trial");
+        assert!(app.awaiting(), "the trial's switch is outstanding");
+        app.nav.confirm = Some(Confirm {
+            question: "Install?".into(),
+            then: Then::Install(Plan::default()),
+        });
+        app
+    }
+
+    fn installs(out: &[Effect]) -> usize {
+        out.iter()
+            .filter(|e| matches!(e, Effect::Install(_)))
+            .count()
+    }
+
+    /// The privileged step hands the terminal to sudo, which reads it with
+    /// echo on. So an install that `y` starts while replies are due goes
+    /// to the loop only with the reply that settles the last query.
+    #[test]
+    fn an_install_waits_until_no_reply_is_due() {
+        let mut app = asked_to_install_after_a_trial();
+        let out = app.event(Event::Input(Input::Key(Key::Char('y'))));
+        assert_eq!(installs(&out), 0, "{out:?}");
+        assert!(app.shared.installing);
+        // the console answers the trial's switch, and the TUI sends the
+        // switch back to the start font, whose replies are due in turn
+        for reply in [Reply::Font("tiny5".into()), Reply::Attributes] {
+            let out = app.event(Event::Input(Input::Reply(reply)));
+            assert_eq!(installs(&out), 0, "{out:?}");
+        }
+        assert!(app.awaiting(), "the switch back is outstanding");
+        let out = app.event(Event::Input(Input::Reply(Reply::Font("unifont".into()))));
+        assert_eq!(installs(&out), 0, "{out:?}");
+        let out = app.event(Event::Input(Input::Reply(Reply::Attributes)));
+        assert!(!app.awaiting());
+        assert_eq!(installs(&out), 1, "{out:?}");
+        // with no reply due, `y` installs at once
+        app.event(Event::Installed(Err("no desk in this test".into())));
+        app.nav.confirm = Some(Confirm {
+            question: "Install?".into(),
+            then: Then::Install(Plan::default()),
+        });
+        let out = app.event(Event::Input(Input::Key(Key::Char('y'))));
+        assert_eq!(installs(&out), 1, "{out:?}");
+    }
+
+    /// A signal that comes while the install waits makes the TUI leave,
+    /// and the install never runs.
+    #[test]
+    fn an_install_that_waits_is_dropped_when_the_tui_leaves() {
+        let mut app = asked_to_install_after_a_trial();
+        app.event(Event::Input(Input::Key(Key::Char('y'))));
+        let mut out = app.event(Event::Signal(15));
+        assert!(app.shared.leaving.is_some());
+        // the console answers the trial's switch, then the switch back to
+        // the start font
+        for reply in [
+            Reply::Font("tiny5".into()),
+            Reply::Attributes,
+            Reply::Font("unifont".into()),
+            Reply::Attributes,
+        ] {
+            out.extend(app.event(Event::Input(Input::Reply(reply))));
+        }
+        assert!(!app.awaiting());
+        assert_eq!(installs(&out), 0, "{out:?}");
+        assert!(out.contains(&Effect::Exit(143)), "{out:?}");
+    }
 }

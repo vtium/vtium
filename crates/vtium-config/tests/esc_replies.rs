@@ -62,6 +62,8 @@ struct Run {
     console: Console,
     unanswered: Vec<u8>,
     escapes: usize,
+    /// The status the TUI left with, once it leaves.
+    exit: Option<u8>,
 }
 
 impl Run {
@@ -84,6 +86,7 @@ impl Run {
             },
             unanswered: Vec::new(),
             escapes: 0,
+            exit: None,
         };
         run.event(Event::Input(Input::Key(Key::Up)));
         run.event(Event::Input(Input::Key(Key::Char('t'))));
@@ -94,8 +97,10 @@ impl Run {
 
     fn event(&mut self, event: Event) {
         for effect in self.app.event(event) {
-            if let Effect::Write(bytes) = effect {
-                self.unanswered.extend(bytes);
+            match effect {
+                Effect::Write(bytes) => self.unanswered.extend(bytes),
+                Effect::Exit(status) => self.exit = Some(status),
+                _ => {}
             }
         }
     }
@@ -213,5 +218,27 @@ fn the_esc_key_and_a_bracket_before_the_batch() {
         let answers = run.answers();
         run.read(&answers);
         check(&mut run, &[ESC, typed]);
+    }
+}
+
+/// Alt+[ sends `ESC [`, which opens a control sequence, and Ctrl-C right
+/// after it still makes the TUI leave: while the trial's replies are due,
+/// and once they are in.
+#[test]
+fn ctrl_c_after_alt_bracket_leaves() {
+    for replies_first in [false, true] {
+        let mut run = Run::trial();
+        if replies_first {
+            run.settle();
+        }
+        run.read(b"\x1b[");
+        run.read(b"\x03");
+        run.settle();
+        assert!(
+            run.exit.is_some(),
+            "replies first {replies_first}: {}",
+            run.end()
+        );
+        assert!(!run.app.awaiting(), "{}", run.end());
     }
 }

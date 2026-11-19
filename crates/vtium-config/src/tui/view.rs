@@ -393,6 +393,7 @@ pub const SELECTED: &str = "▸";
 /// it and no caption beside one: what a picture of the console shows. It
 /// draws a copy of the model at that size, so the model keeps its own size.
 pub fn screen_at(app: &App, size: Size) -> Vec<Row> {
+    let _rule = app.shared.measure();
     let mut frame = app.clone();
     frame.size = size;
     frame.shared.picture = None;
@@ -407,6 +408,7 @@ pub fn screen_at(app: &App, size: Size) -> Vec<Row> {
 /// drawn with [`Colors::Named`], so a style keeps the named color that the
 /// pictures of the console draw, where the terminal is sent a 24-bit one.
 pub fn screen(app: &App) -> Vec<Row> {
+    let _rule = app.shared.measure();
     let area = ratatui_core::layout::Rect::new(
         0,
         0,
@@ -742,6 +744,7 @@ impl Painter {
         let backend = self.terminal.backend_mut();
         backend.set_size(cols, rows);
         backend.set_color(app.shared.inputs.color);
+        let _rule = app.shared.measure();
         self.terminal.draw(|frame| render(app, frame))?;
         Ok(self.terminal.backend_mut().take())
     }
@@ -776,7 +779,18 @@ mod tests {
     /// The rows a vtium console shows after `bytes`, on a screen of
     /// `cols` by `rows`, the second cell of a wide character as a blank.
     fn console(bytes: &[u8], cols: u16, rows: u16) -> Vec<String> {
+        console_by(bytes, cols, rows, vtium_term::ClusterWidth::Double)
+    }
+
+    /// [`console`] on a console whose `cluster-width` is `rule`.
+    fn console_by(
+        bytes: &[u8],
+        cols: u16,
+        rows: u16,
+        rule: vtium_term::ClusterWidth,
+    ) -> Vec<String> {
         let mut t = vtium_term::Terminal::new(usize::from(cols), usize::from(rows), 0);
+        t.set_cluster_width(rule);
         t.input(bytes);
         let s = t.screen();
         (0..s.rows())
@@ -858,6 +872,47 @@ mod tests {
             shown.iter().any(|row| row == " say a\u{17a4}b"),
             "{shown:#?}"
         );
+    }
+
+    #[test]
+    fn under_cluster_width_single_a_frame_after_a_vowel_sign_lands_where_the_console_shows_it() {
+        // a vowel sign after a space joins the space: two cells under
+        // `double`, one under `single`, which the installed vtium.conf
+        // sets. The second frame writes only the changed `Y`, at the cell
+        // where the console shows it.
+        let mut inputs = super::super::fixture::inputs();
+        inputs.conf = Some("cluster-width = single\n".to_owned());
+        let (mut app, _) = App::new(inputs, 80, 25);
+        let mut painter = Painter::new().ok();
+        let mut frame = |app: &App| {
+            painter
+                .as_mut()
+                .and_then(|p| p.frame(app).ok())
+                .unwrap_or_default()
+        };
+        app.shared.message = Some("ab \u{BCA}.xyz".to_owned());
+        let mut bytes = frame(&app);
+        app.shared.message = Some("ab \u{BCA}.xYz".to_owned());
+        bytes.extend(frame(&app));
+        let shown = console_by(&bytes, 80, 25, vtium_term::ClusterWidth::Single);
+        assert!(
+            shown.iter().any(|row| row == " ab \u{BCA}.xYz"),
+            "{shown:#?}"
+        );
+        // the screen the tests read lays the row out by the same rule: the
+        // vowel sign's character takes one cell, so the row's text, read
+        // back cell by cell, fills the 80 cells under `single`
+        let rows: Vec<String> = screen(&app)
+            .iter()
+            .map(|r| r.iter().map(|s| s.text.as_str()).collect::<String>())
+            .collect();
+        let row = rows
+            .iter()
+            .find(|r| r.contains('Y'))
+            .cloned()
+            .unwrap_or_default();
+        let _single = super::super::canvas::measure_by(vtium_term::ClusterWidth::Single);
+        assert_eq!(super::super::canvas::cells(&row), 80, "{row:?}");
     }
 
     #[test]
@@ -946,5 +1001,86 @@ mod tests {
         let area = buf.area;
         fill(&mut buf, area, &rows, Colors::Named);
         assert_eq!(super::rows(&buf), rows);
+    }
+
+    /// The text of `app`'s screen, a string a row.
+    fn texts(app: &App) -> Vec<String> {
+        screen(app)
+            .iter()
+            .map(|r| r.iter().map(|s| s.text.as_str()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn under_cluster_width_single_update_keeps_the_list_window_the_view_draws() {
+        // each font's name holds a space with a vowel sign after it: 25
+        // cells under `double`, more than the column of 24 the Fonts tab
+        // gives names, so its note goes on the row below; 24 cells under
+        // `single`, so the note shares its row. The twelve fonts take
+        // twelve rows under `single`, which the screen has room for, so
+        // the list's window starts at the first font wherever the TUI lays
+        // the list out: at start, after a key, and in a picture of the TUI
+        let name = |c: char| format!("{c}{} \u{BCA}", "x".repeat(22));
+        let mut inputs = super::super::fixture::inputs();
+        inputs.conf = Some(format!(
+            "cluster-width = single\nfont-name = {}\n",
+            name('l')
+        ));
+        inputs.fonts = ('a'..='l')
+            .map(|c| super::super::model::Font {
+                name: name(c),
+                state: super::super::model::FontState::Reads,
+            })
+            .collect();
+        let all_shown = |shown: &[String], when: &str| {
+            for c in 'a'..='l' {
+                assert!(
+                    shown.iter().any(|r| r.contains(&name(c))),
+                    "{when}: {}: {shown:#?}",
+                    name(c)
+                );
+            }
+        };
+        // the configured font, the last, is highlighted from the start
+        let (mut app, _) = App::new(inputs, 80, 25);
+        all_shown(&texts(&app), "at start");
+        app.event(super::super::model::Event::Input(
+            super::super::input::Input::Key(super::super::input::Key::End),
+        ));
+        assert_eq!(app.fonts.offset(), 0);
+        all_shown(&texts(&app), "after End");
+        let shot: Vec<String> = screen_at(&app, app.size)
+            .iter()
+            .map(|r| r.iter().map(|s| s.text.as_str()).collect())
+            .collect();
+        all_shown(&shot, "in a picture of the TUI");
+    }
+
+    #[test]
+    fn after_an_install_the_tui_measures_by_the_rule_the_console_started_with() {
+        // the console reads `cluster-width` when vtium starts, so an
+        // install that sets it to `double` leaves the console on `single`
+        // until vtium restarts, and the TUI keeps measuring by `single`
+        let mut inputs = super::super::fixture::inputs();
+        inputs.conf = Some("cluster-width = single\n".to_owned());
+        let (mut app, _) = App::new(inputs, 80, 25);
+        let installed = super::super::desk::Opened {
+            name: "vtium.conf".into(),
+            text: "cluster-width = double\n".into(),
+            ..Default::default()
+        };
+        app.event(super::super::model::Event::Installed(Ok(
+            super::super::desk::Done::Draft(installed, None),
+        )));
+        assert_eq!(app.configured("cluster-width").as_deref(), Some("double"));
+        app.shared.message = Some("ab \u{BCA}.xYz".to_owned());
+        let row = texts(&app)
+            .into_iter()
+            .find(|r| r.contains('Y'))
+            .unwrap_or_default();
+        // read back cell by cell, the row fills the 80 cells only when the
+        // vowel sign's character took one cell, as it does under `single`
+        let _single = super::super::canvas::measure_by(vtium_term::ClusterWidth::Single);
+        assert_eq!(super::super::canvas::cells(&row), 80, "{row:?}");
     }
 }

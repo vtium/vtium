@@ -45,6 +45,19 @@ basis:
   - precedent: ADR-1401
   - evidence: 'the measurement of the shader timing harness, tools/shader-timing, by a delegated agent of this session, 2026-11-18, on the maintainer''s desktop: an AMD Ryzen 9 9950X3D with an AMD Radeon RX 7900 XTX, Mesa 26.2.7 (radeonsi, and llvmpipe on LLVM 23.1.4) and Linux 7.3.4; each shader drawn off-screen over a terminal-like RGBA8 frame through EGL with no surface, timed with glFinish before and after the draws, the median of 31 frames on the RX 7900 XTX, of 11 on the processor''s integrated Radeon 610M (3 for the chain in one pass with smooth reads) and of 5 on llvmpipe; crt and vhs as their files, the other surveyed shaders as stand-ins with the same reads and loops; the results in tools/shader-timing/results/2026-11-18-*.tsv. On the Radeon 610M at 1920x1080 with plain reads: negative 0.44 ms, vhs 2.12, crt 2.98, in-game-crt 2.91, smoke-and-ghost 3.17, bloom 5.60, cubes 12.34, just-snow 20.03, fireworks-rockets 33.49; with smooth reads crt 4.17, bloom 11.15, smoke-and-ghost 7.86; with smooth reads in linear light crt 10.77, bloom 32.34, smoke-and-ghost 53.37; with the GPU''s own linear filter bloom 4.48, smoke-and-ghost 3.59; crt then bloom in one pass 77.7 with plain reads and 414 with smooth reads, in two passes 8.59 and 15.26. On the Radeon 610M at 3840x2160 with plain reads: crt 11.78, in-game-crt 11.54, smoke-and-ghost 12.64, bloom 22.22, cubes 46.04. On the RX 7900 XTX at 3840x2160: every shader alone in every read mode at most 3.49 ms (smoke-and-ghost in linear light); crt then bloom in one pass 5.0 ms with plain reads, 26.2 with smooth reads and 74.4 in linear light, in two passes 0.51, 0.96 and 2.86. llvmpipe offers GL_EXT_disjoint_timer_query, and its query gave 8.7 ms for a fireworks-rockets frame that glFinish timed at 57.5 ms; on both GPUs glFinish read at most 0.25 ms more than the query for a frame of one pass'
   - standard: "OpenGL ES 3.0.6, section 3.8.3.1: RGBA8 and SRGB8_ALPHA8 are among the required texture and renderbuffer color formats, while RGBA16F is a texture-only color format; table 3.13 lists RGBA8 and SRGB8_ALPHA8 as color-renderable and texture-filterable; section 3.8.16: for a texture whose internal format is SRGB8, SRGB8_ALPHA8 or one of the compressed sRGB formats, the red, green and blue components are converted from sRGB to linear as part of filtering, and implementations should ideally convert each sample before filtering but are allowed to convert after filtering; section 4.1.8: a color written to an attachment whose encoding is SRGB is converted to sRGB after blending; the specification gives no way to read a texture of another internal format as sRGB"
+  - operator: aaronsb
+    level: directed
+    said: '[vtium plans a brightness floor, since under the amber tint pure blue maps to almost black;] it may have other creative uses in the future'
+    via: the steering session's brief of 2026-11-19, relaying the maintainer's decisions of that day after the maintainer's look at the amber and deuteranopia vtlooks; the quoted words are the maintainer's, as the brief quotes them
+  - operator: aaronsb
+    level: directed
+    said: '**No filter is the obvious first choice.** The Effects tab lists the built-in look `default`, which changes no pixel, first, as "No filter", and a new look starts with it chosen. … **vtium ships preset looks** beside the template, to copy and change: amber, green and white phosphor, and a correction for each of protanopia, deuteranopia and tritanopia.'
+    via: the comment of 2026-11-19 on the issue for vtium-config's Effects tab, headed as the maintainer's decisions of that day; posted from the maintainer's account; who wrote the wording is not recorded
+  - operator: aaronsb
+    level: directed
+    said: I think filters and color schemes, while different, are different resources
+    via: the steering session's brief of 2026-11-19, relaying the maintainer's decisions of that day after the maintainer's look at the amber and deuteranopia vtlooks; the quoted words are the maintainer's, as the brief quotes them
+  - evidence: 'the arithmetic of this record''s agent, 2026-11-19, with tint''s luma weights of 77, 150 and 29 out of 256 (crates/vtium-render/src/filter/tint.rs) and amber 255,176,0 at an amount of 1: the legacy palette''s blue (0,0,238) has a gray of 0.106 and becomes (27,19,0), its red (205,0,0) 0.242 and (62,43,0), its light gray (229,229,229) 0.898 and (229,158,0); with floor + gray x (1 - floor) at a floor of 0.3 they become (95,66,0), (120,83,0) and (237,163,0); Tokyo Night''s background (26,27,38) becomes (28,19,0), and (96,66,0) with the floor; a linear output black of 40,28,0 after the tint puts the blue at (63,45,0)'
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -246,11 +259,18 @@ considered:
     via: the maintainer's answers to the steering session's questions, 2026-11-18, relayed by the team lead; the wording is the team lead's
     paraphrase: true
     covers: [Ghostty's decode]
+  - operator: aaronsb
+    said: "these leans are fine [the floor as a setting of tint] … I wanted to make sure brightness floor is an optiona[l]"
+    via: steering session chat, 2026-11-19; the steering session showed that D21's floor defaults to 0, which changes nothing
+    covers: [the floor's shape]
+  - operator: aaronsb
+    said: "1 accept both [ADR-1205 D10 and ADR-1304 D21, as written]"
+    via: steering session chat, 2026-11-19, after the steering session quoted both sections in full
 status: accepted
 date: 2026-11-03
 deciders:
   - aaronsb
-related: []
+related: [ADR-1205]
 ---
 
 # ADR-1304: vtium's frame filters are built in, and a vtlook file chooses them and sets their parameters
@@ -267,11 +287,14 @@ related: []
   - *Not confident (smooth read count):* the GPU now blends a smooth read. The measurement prices that at about one plain read: bloom takes 4.5 ms with it and 5.6 ms with plain reads. A smooth read still counts as 4 reads against the cap of 25, as you decided on 2026-11-16, so crt with smooth reads (32) is refused. Should a smooth read count as 1 read? Lean: yes, because the count stands for cost, and the reach clamp, not the count, keeps the blend's pixels in bounds. Against: 4 names every pixel the blend touches (D18). (Answered 2026-11-18: a smooth read counts as 1 read; see `considered`.)
   - *Not confident (cap for each pass):* crt then bloom now runs as two passes, which read 8 and 25. Should the cap of 25 reads hold each pass, or the whole chain's 33? Lean: each pass, because passes add their costs instead of multiplying them, and the frame-rate floor measures the whole chain on the real display. Against: a chain of many cheap passes then meets the cap however long it grows, and only the floor stops it. Until you answer, the cap holds the whole chain (D3). (Answered 2026-11-18: the cap holds each pass; see `considered`.)
   - *Not confident (Ghostty's decode):* a shader written for Ghostty works in linear light, and the GPU decodes sRGB before it blends only when it reads an sRGB texture. Should vtium give such a shader an sRGB copy of its input, which costs one more pass and up to 31.6 MiB at 3840×2160? The other way decodes after the GPU's blend, which costs no memory but blends edges darker than Ghostty does. Lean: the sRGB copy, so the shaders look as their authors drew them, once the harness has timed both ways (D20). (Answered 2026-11-18: the sRGB copy, timed by the harness against the decode after the blend before slice 11 is built; see `considered`.)
+  - *Not confident (the floor's shape):* added 2026-11-19 for D21, which is proposed. Under the amber tint, a blue letter turns almost black, because blue is the darkest of the colors. You decided to plan a brightness floor. Should the floor be a setting of the tint, which lifts every dark color above black while black and the full amber stay as they are? Lean: yes, because only the tint knows each color's brightness before it turns it amber, so it can lift dark colors without changing the amber or clipping it. Against: a filter of its own, which sets the darkest and brightest output colors, works after any filter and suits the creative uses you mentioned, but it lifts the black background as much as the blue, so on its own it does not make the blue easier to read (D21).
 - **Inversion:** Between "no filters", the C reference's gltex, whose shaders were compiled from source built into the program with no color or effect stage, and "any shader anywhere", any GLSL a user points at, run in any stage, as video players and emulators allow. The answer is built-in filters in both layers, with the spatial layer also open to shader files root installs and the color layer to `.cube` tables, each held to a declared contract and chosen by a file of data.
 
 > Note 2026-11-17: four sections join this record for shaders written for Ghostty, from the maintainer's decisions of 2026-11-16 (`basis`). D17 states where a shader's pixel lies and what color it holds: the upright frame counted from its top left, a pixel's place its center, and encoded sRGB color. D18 adds the smooth read, which counts as 4 reads, and makes the cap of 25 reads a starting value. D19 adds the cursor input behind `#pragma vtium cursor`. D20 lets a shader file whose header says `#pragma vtium dialect ghostty` keep Ghostty's names. The parts of each that the maintainer has not decided are proposed and wait for the maintainer's reading. None of the four changes what slice 1 builds (D13).
 
 > Note 2026-11-18: the maintainer decided three things after the shader measurement (`considered`). D16's run of 8 frames is timed with `glFinish` on every driver. D18's smooth read uses the GPU's linear filtering, and its clamp keeps the blend inside the reach. A filter that reads pixels other than its own runs as a pass of its own and draws into an RGBA8 intermediate frame (D3). That changes slice 4 (D13), the color between pieces (D17) and a chain in Ghostty's dialect (D20). Three questions followed, in the probes above: how a smooth read counts, whether the cap holds each pass, and where Ghostty's dialect decodes to linear light. The maintainer answered all three on the same day, each as the probe leaned.
+
+> Note 2026-11-19: the maintainer decided three things after looking at the amber and deuteranopia looks (`basis`). vtium plans a brightness floor, which D21 proposes as a setting of `tint`, with the probe above. vtium ships preset vtlooks beside the template, and vtium-config's Effects tab lists the built-in vtlook first, as "No filter" (D4's note). The maintainer also decided that a palette is a resource of its own, apart from the filters, which ADR-1205 D10 proposes. D2's note places the palette before the filters.
 
 ## Context
 
@@ -369,6 +392,8 @@ vtium merges the whole layer into one table, a lattice of 33 steps in each of re
 
 A change of the look's color filters rebuilds the table. The CPU path then draws its frame whole, since it colors pixels as it writes them, and forgets the color it remembered; the GPU path presents whole.
 
+> Note 2026-11-19: the maintainer decided on this date that a palette, which sets the terminal's colors, is a resource of its own, apart from the filters. ADR-1205 D10 proposes how a look picks one. The palette acts before this layer: vtium resolves each cell through the palette as it draws the frame, and the color layer then maps the finished picture's colors. The table never changes the colors that programs see or that OSC 4 reports, and a palette adds no step to the table.
+
 ### D3: the spatial layer, a chain of pieces that ends in present
 
 **Proposed.** A spatial filter is one piece of GLSL read from its shader file (D15). vtium joins it into the fragment shader of the pass it runs in, between the shader's head and its `main`. That pass is present (ADR-1303 D6), or a pass before present, which a chain draws when more than one of its filters reads pixels other than its own (the passes, below). It runs on the GPU path only, as ADR-1303 D5 decides. The spatial layer's contract:
@@ -438,6 +463,8 @@ strength = 0.3
 **Proposed, the built-in default look:** vtium refuses a file named `default.vtlook` as an error (D6), so the look every failure falls back to is always the built-in one and can never fail itself. Its text is a template, `crates/vtium-settings/templates/default.vtlook`, compiled into vtium, as vtium's compiled-in head configuration is parsed from heads.conf's template (ADR-1401 D6). The template holds `version = 1`; a live `[requires]` section with every requirement key at `any` (D7); and, commented out, a section for every filter the declarations name with every parameter at its default and its help as a comment. A file written from it changes nothing until a filter's section is uncommented or a requirement set. The template is generated from the declarations, and a check fails when the committed file differs from what they give, as the key table's check fails when docs/config.md or the example vtium.conf differs (docs/architecture.md). vtium-config writes the template out as the start of a new look (D11). vtium-config's listing names the default look `default (built in)`, as vtium-config lists the built-in fonts with the state `built in`, and vtium's log calls it the built-in vtlook. Its description, "a pure passthrough vtlook, which changes no pixel", shows in three places: on its line of vtium-config's `vtlooks` listing and in `vtlook-show default`; in vtium-config's `--help` for the look commands and beside it in the TUI's looks view; and in the comment that heads the template, so a file written from it says what it started as.
 
 > Edited 2026-11-18: the name `default` always chooses the built-in vtlook, so vtium never opens a file named `default.vtlook`, and the refusal above has its place in `vtium check-config`, which reports such a file in the looks folder as an error of the reading stage. vtium's log names the built-in vtlook "the built-in vtlook" (D6), and vtium-config's listing keeps `default (built in)`. This paragraph read "vtium's log and vtium-config's listing name the default look `default (built in)`".
+
+> Note 2026-11-19: the maintainer decided two things about the vtlooks people start from (`basis`). First, vtium ships preset vtlooks beside the template, to copy and change: amber, green and white phosphor, and a correction for each of protanopia, deuteranopia and tritanopia. Second, no filter is the obvious first choice. vtium-config's Effects tab lists the built-in vtlook `default`, which changes no pixel, first, as "No filter", and a new look starts with it chosen. This record's agent proposes the rest, for the maintainer to read. The package installs the presets in `/usr/share/vtium/looks`, and a vtlook in `/etc/vtium/looks` wins over a preset of the same name, as a local shader wins over a packaged one (D15). The presets are named `amber`, `green`, `white`, `protanopia`, `deuteranopia` and `tritanopia`. Each phosphor is one `[color tint]` section, and each correction is one `[color color-blind]` section in `correct` mode. The amber preset holds the tint's default color, 255,176,0. The slice that writes the green and white presets picks their colors, and the maintainer judges them on the picture page. If the maintainer accepts D21's floor, the phosphor presets carry a floor that the maintainer chooses by eye. The Effects tab lists the presets after "No filter", then the administrator's vtlooks.
 
 **A vtlook is tied to no frit.** A head names a look section of vtium.conf, and the look section names both its frit, with `font-name`, and its vtlook, with `vtlook =` (ADR-1403 D1, D5). A vtlook names no frit and a frit names no vtlook, so one vtlook can serve looks with any frit.
 
@@ -547,6 +574,8 @@ On a display that meets the requirements, a 1-bit panel included, the order ADR-
 | `mask` | spatial | `kind`: choice of `grille`, `grille-lite`, `slot` or `shadow`, `grille`; `strength`: number, 0 to 1, 0.3; `size`: integer, 1 to 4, 1 | Multiplies the picture by a CRT's phosphor pattern, an aperture grille, a slot mask or a shadow mask, tiled on the panel's own pixels through `SPATIAL_PANEL` (D15). From hunterk's public-domain masks and the mask of Lottes's CRTS (Unlicense). Reach 0, reads 1. |
 | `crt` | spatial | `pitch-x`: integer, 1 to 8, 1; `pitch-y`: integer, 1 to 8, 3; and CRTS's own, among them its mask, scanline thinness, curvature and a Trinitron-style cylindrical warp as on/off | A port of Timothy Lottes's CRTS (Unlicense): beam scanlines, its 8-tap horizontal filter, a phosphor mask and a warp, with no time. It treats each `pitch-x` by `pitch-y` block as one beam texel, the convention D15 proposes. Its warp can be the curvature this section names. Reads 8; its reach, about three `pitch-x` across and two `pitch-y` down plus the warp's largest shift, is the port's to state, which `shader-check` tests. It is also the porting guide's worked example (D15). |
 | `sharpen` | spatial | `amount`: number, 0 to 2, 0.5 | Adds `amount` times the difference between a pixel and the mean of its four nearest neighbours. Reach 1, reads 5. |
+
+> Note 2026-11-19: D21 proposes a `floor` parameter for `tint`, a number from 0 to 1 that is 0 by default and changes nothing then. A floor above 0 lifts every gray above black before the tint applies its color, so a dark color such as blue stays visible under a single-color phosphor.
 
 scanlines, sharpen, mask and crt ship as shader files in `/usr/share/vtium/shaders/`, the format's first examples (D15). Bloom is not among the first filters. A bloom shader that reads other pixels runs in a pass of its own (D3), and the surveyed bloom fits there with 25 plain reads, at the cap (D18). A bloom split across several shader files still does not fit, such as a blur in two passes followed by an add of light. A pass reads only what the pass before it drew, and the add needs the frame itself.
 
@@ -1106,7 +1135,7 @@ The maintainer frames the check as one more guard against a failing display. The
 vtlook film: display DP-1 (3840x2160) draws the built-in vtlook: measuring: measured 41 fps at 3840x2160, needs 60 (refresh)
 ```
 
-**Decided by the maintainer (2026-11-18):** the run of 8 frames is timed with `glFinish` around each frame on every driver, and never with GL timer queries. llvmpipe offers timer queries, but its query reported 8.7 ms for a frame that `glFinish` timed at 57.5 ms. A look that misses its floor would pass there (`basis`). On the two GPUs measured, the two methods agreed within 0.25 ms. The run's `glFinish` stalls the pipeline only for its 8 frames, which come once for each change. A test on the stand-in GL offers timer queries whose times disagree with its clock, and the measured rate follows the clock.
+**Decided by the maintainer (2026-11-18):** the run of 8 frames is timed with `glFinish` around each frame on every driver, and never with GL timer queries. llvmpipe offers timer queries, but its query reported 8.7 ms for a frame that `glFinish` timed at 57.5 ms. A look that misses its floor would pass there (`basis`). On the two GPUs measured, the two methods agreed within 0.25 ms.
 
 > Edited 2026-11-18: the maintainer decided that the run is timed with `glFinish` on every driver (`considered`), and the spatial chain now runs in passes (D3). The paragraph read "a run of 8 frames, a row of vtium-render's bounds table, of the display's whole present with the look's pieces, off-screen at the display's own size, over the frame the head shows. It times each frame on the GPU, through GL timer queries where the driver has `EXT_disjoint_timer_query`, and otherwise through `glFinish` around each frame."
 
@@ -1117,6 +1146,12 @@ vtlook film: display DP-1 (3840x2160) draws the built-in vtlook: measuring: meas
 **Proposed, the rest.** A display put on `default` by the floor stays there until vtium next reads its configuration, the head's look changes, or the display's mode changes, never retried on a timer, as for every failure (D6). The CPU path's color layer is not measured: its cost is one table lookup a pixel, bounded and measured once in this record (D2), and on a head drawn on the CPU path `min-fps` counts as met.
 
 **Determinism.** This is the one place where the machine's speed decides what vtium draws: the same look draws on one machine and falls to `default` on a slower one. It decides only whether a display's filters run, never the terminal's state, which docs/architecture.md's "Time enters in named places only" lists among the places time enters. Tests drive it through the stand-in GL with timings they give, never real ones. `vtium check-config`, where it reaches a GPU, and vtium-config's preview report the measured rate before a look is installed, and the log line says plainly that a display missed its floor and by how much.
+
+**Consequence.** The run's `glFinish` stalls the pipeline only for its 8 frames, which come once for each change.
+
+**Verification.** A test on the stand-in GL offers timer queries whose times disagree with its clock, and the measured rate follows the clock.
+
+> Edited 2026-11-19: the code review of wave 3 found this test and the sentence on the stall, now under Consequence, as the last two sentences of the maintainer's decision of 2026-11-18, above. The agent that recorded the decision added both, and the maintainer decided neither, so they moved here.
 
 ### D17: where a shader's pixel lies, and what color it holds
 
@@ -1136,11 +1171,15 @@ A shader that needs linear light, such as a bloom that adds light, converts with
 
 ### D18: the smooth read, and a read cap that starts at 25
 
-**Decided by the maintainer (2026-11-16):** a shader may read the frame with linear filtering, as Ghostty's shaders do, so curved CRT screens, bloom and color fringes look as their authors drew them. A smooth read counts as 4 plain reads. The cap of 25 reads is a starting value to revisit once real shaders have run on vtium: in the maintainer's words, "we can be flexible on the 25 read cap. we can't define what hasn't been experienced yet." The guard that stays is the frame-rate floor, measured on the real display (D16). A filter that reads other pixels runs as a pass of its own, as Ghostty runs its shaders (D3).
+**Decided by the maintainer (2026-11-16):** a shader may read the frame with linear filtering, as Ghostty's shaders do, so curved CRT screens, bloom and color fringes look as their authors drew them. A smooth read counts as 4 plain reads. The cap of 25 reads is a starting value to revisit once real shaders have run on vtium: in the maintainer's words, "we can be flexible on the 25 read cap. we can't define what hasn't been experienced yet." The guard that stays is the frame-rate floor, measured on the real display (D16). Running each filter as a pass of its own, as Ghostty does, waits until a shader worth having needs it; today a chain shares one pass, so chained filters multiply their reads (D3).
 
 > Note 2026-11-18: the maintainer decided on this date that a smooth read counts as 1 read, in place of the 4 above, and that the cap of 25 reads holds each pass (`considered`). The count bullet below and D3's caps set both out.
 
 > Edited 2026-11-18: the maintainer decided on this date that a filter that reads other pixels runs as a pass of its own (D3, `considered`). The paragraph's last sentence read "Running each filter as a pass of its own, as Ghostty does, waits until a shader worth having needs it; today a chain shares one pass, so chained filters multiply their reads (D3)."
+
+**Decided by the maintainer (2026-11-18):** a spatial filter that reads pixels other than its own runs as a pass of its own, as Ghostty runs its shaders (D3).
+
+> Edited 2026-11-19: the code review of wave 3 found that the paragraph decided on 2026-11-16 carried this decision of 2026-11-18 as its last sentence, which dated it two days early. That paragraph ends again as it did on 2026-11-16, and this decision has the paragraph above. From 2026-11-18 to this edit, the paragraph of 2026-11-16 ended "A filter that reads other pixels runs as a pass of its own, as Ghostty runs its shaders (D3)."
 
 **Decided by the maintainer (2026-11-18):** `SPATIAL_SMOOTH` uses the GPU's own linear filtering: vtium samples the piece's input texture with GL_LINEAR instead of blending four plain reads in the shader. The shader's blend costs about twice the GPU's filter: bloom takes 11.2 ms with it and 4.5 ms with the GPU's filter on the Radeon 610M at 1920×1080 (`basis`). This trades away pixels that match on every driver. OpenGL ES leaves the precision of a texture's linear filtering to the GPU, so a smooth read's pixels may differ between drivers by more than ADR-1303's tolerance. Tier 2 runs on llvmpipe alone, so its goldens stay stable, and the maintainer judges a real GPU's smooth reads by eye. The cap on reads stays the maintainer's to set.
 
@@ -1261,6 +1300,27 @@ Either way, a plain read through `texelFetch` returns one pixel in linear light.
 
 **Verification.** The ported crt and vhs read cleanly and compile under llvmpipe. Under llvmpipe in tier 2: a Ghostty shader that writes `fragCoord.y / iResolution.y` as gray draws black at the bottom and matches a vtium shader that writes `1 − at.y / SPATIAL_SIZE.y`; a Ghostty shader that returns `texture(iChannel0, fragCoord / iResolution.xy)` gives back the frame exactly, the decode and encode included; the ported vhs and crt match tier 2's Rust versions of their formulas within ADR-1303's tolerance. On the stand-in GL: `iCurrentCursor.y` for a cursor whose top edge is at row 0 of a 1080-pixel frame is 1080; a shader that names `iPalette` is refused at the checking stage with a report naming `iPalette`; one that uses `iTime` without the time line fails to compile; a planted prelude that hands over `iChannel0` reads in encoded color fails the frame-identity case on a gray ramp.
 
+### D21: a brightness floor for the tint
+
+> Accepted 2026-11-19: the maintainer read this section and accepted it on this date, with the floor as a setting of `tint` that is off by default (`considered`). The notes of this date elsewhere in this record that call D21 proposed tell its history; D21 now decides what it says, and ADR-1205 D10, which D2's note names, is accepted too.
+
+**Decided by the maintainer (2026-11-19):** vtium plans a brightness floor, so that a dark color stays visible under a single-color tint. The maintainer added that "it may have other creative uses in the future" (`basis`).
+
+**The problem.** `tint` maps each color to its gray times the phosphor's color, the gray being BT.601's luma (D8). Blue weighs least in that luma, so under the default amber the legacy palette's blue, (0, 0, 238), becomes about (27, 19, 0), which is hard to see on a black background. Its red, (205, 0, 0), becomes about (62, 43, 0). The tint is faithful: a single-color phosphor shows a color's brightness and nothing else, and blue is dark.
+
+**Two shapes.**
+
+- **A `floor` parameter on `tint`:** a number from 0 to 1, by default 0, which changes nothing. Before the tint multiplies the gray by its color, it lifts every gray above black to `floor + gray × (1 − floor)`, and black stays black. At a floor of 0.3, the legacy blue becomes about (95, 66, 0) and the red about (120, 83, 0), so the two stay apart and in the same order. A full gray of 1 keeps the phosphor's full color, and a bright color moves only a little: legacy's light gray, (229, 229, 229), goes from about (229, 158, 0) to (237, 163, 0). The tint's hue never changes, and no channel is clipped.
+- **A `levels` filter of its own:** an output black and an output white, each a color, by default 0,0,0 and 255,255,255. It maps each channel from 0 to 1 onto the range from the black to the white, after whichever filters come before it. It composes with any filter, and it has creative uses: `white = 200,200,200` dims the brightest pixels for night work, a warm `black` tints the shadows, and a lifted black gives a CRT's faint glow. It does not fix the vanishing blue on its own, though. A linear map lifts the background as much as the blue: after amber with `black = 40,28,0`, the legacy blue lands at about (63, 45, 0) on a background of (40, 28, 0), closer to the background than before.
+
+**Lean: the `floor` parameter on `tint`.** It fixes the case the maintainer saw, it keeps the order of the dark colors, and it leaves the phosphor's full color alone. The tint knows each pixel's gray before it applies its color, so the floor can lift the gray without touching the hue. A filter after the tint sees only the colored result, so to lift it, the filter would either scale the color, which clips a bright channel, or mix it toward white, which changes the phosphor's hue. `levels` stays a candidate for the creative uses and is planned when one is asked for. Against the lean: the floor serves the tint alone, so a dark blue under a color-blind correction or in a dark palette without a tint gets no floor.
+
+**What both shapes share.** Either one is a color filter's work, so it joins the merged color table (D2), costs nothing for each pixel, and changes only the time it takes to build the table. Its default changes nothing, so the accepted goldens of the amber and deuteranopia looks keep their pixels. A test pins the table's bytes at the default and at one other setting, as D2 asks of every color filter.
+
+**The limit both share.** A color filter sees one color at a time (D2), so it cannot tell a background from text. The floor keeps only exact black, and a black background is the legacy palette's and the console's own. A palette whose background is a dark gray rises with its dark text. Tokyo Night's background, (26, 27, 38), would become about (96, 66, 0) at a floor of 0.3, as bright as the legacy blue. A look that tints such a palette leaves the floor at 0. Between black and the table's first step, 8 levels up, the table blends from black to the floor, so a color within 8 levels of black in every channel is lifted only in part.
+
+**The work.** The floor is a small slice after slice 2: the parameter in the tint's declaration, its table test, vtium-config's control, the template's line and docs/looks.md's row, and a tier 2 case of the amber look with a floor, recorded as provisional for the maintainer's eye.
+
 ## What ADR-1303 changes to fit
 
 ADR-1303 is accepted, and names this record as "the frame shader's record" throughout. This record does not edit it. When this record is accepted, these passages of ADR-1303 change, each with a dated note:
@@ -1357,6 +1417,8 @@ None remain. The maintainer answered every open question of the drafts on 2026-1
 - ADR-1401 D3's head keys gain `look`, and ADR-1201's list of what vtium-config manages gains vtlooks.
 - A look takes effect at vtium's next start until ADR-1401's reload is built, apart from vtium-config's preview.
 
+> Note 2026-11-19: D21, proposed on this date, would add these consequences. A dark color stays visible under a single-color tint, and the tint keeps its phosphor's full color. The floor reaches only the tint, so a dark color under another filter gets no floor, and a palette whose background is a dark gray rises with its dark text. The presets give a person a working phosphor or correction to start from, and "No filter" stays the first choice.
+
 ## Alternatives Considered
 
 - **Only built-in filters, no installed code.** The maintainer's first decision, revised by the maintainer (2026-11-03) so that people can in time write the filters they want. Spatial filters are shader files root installs, vtium's own included (D15).
@@ -1387,3 +1449,9 @@ None remain. The maintainer answered every open question of the drafts on 2026-1
 - **A preview sequence that names an installed look,** as OSC 50 names a frit. Not taken (D11): it cannot show an edit before it is saved.
 - **A look with effects failing whole on the CPU path,** the head drawing the default look there. Rejected by the maintainer (2026-11-03), who has the CPU path draw the color layer and skip the effects.
 - **Spatial filters on the CPU path.** Not taken for now, and open to revisiting with a cheap effect, as the maintainer said: ADR-1303 D5 keeps the spatial slot on the GPU path, and a neighbour-reading filter over every redrawn pixel on the CPU would cost several times the color layer's lookup.
+
+> Note 2026-11-19: the three alternatives below belong to D21, which is proposed.
+
+- **A `levels` filter that sets the output black and white,** in place of the floor. Not taken for the floor: it lifts the background as much as a dark color, so on its own it does not make the dark color easier to read. It stays a candidate filter for creative uses, such as dimming the brightest pixels at night.
+- **A floor as a filter of its own, after the tint.** Not taken: such a filter sees only the colored result, so to lift a dark color it either scales the color, which clips a bright channel, or mixes it toward white, which changes the phosphor's hue.
+- **Lift only the colors the palette names as dark,** such as color 4. Not taken: a color filter sees one color at a time and knows nothing of the palette, and a program can draw any 24-bit color.

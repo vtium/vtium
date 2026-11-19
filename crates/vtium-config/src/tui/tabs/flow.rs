@@ -503,11 +503,14 @@ impl Flow {
             }
             Obj::Pal(Slot::Special(p)) | Obj::New(Slot::Special(p)) => self.pick(shared, p.clone()),
             Obj::Pal(Slot::Display(sel)) => {
-                // a display is in one path for each VT: picking it is
+                // a display is in one path for each VT, so picking it is
                 // refused only when a path that holds it shares a VT with
-                // the new path's terminal (ADR-1403 D7). A part that
-                // matches no one device, as All displays, is held by the
-                // paths that name its match
+                // the new path's terminal. A part that matches no one
+                // device, as All displays, is held by the paths that name
+                // its match.
+                //
+                // References:
+                // - ADR-1403 D7: a display belongs to one path on each VT.
                 let held = match flow.displays.iter().find(|d| d.keys.contains(sel)) {
                     Some(d) => flowview::holders(&doc.paths, Kind::Display, d),
                     None => doc
@@ -805,7 +808,9 @@ impl Flow {
         key: Key,
     ) -> Vec<Command> {
         match key {
-            Key::Char(c) if typed.chars().count() < vtium_settings::LABEL_MAX => {
+            Key::Char(c)
+                if super::typable(c) && typed.chars().count() < vtium_settings::LABEL_MAX =>
+            {
                 typed.push(c);
                 self.state.typing = Some(typed);
                 Vec::new()
@@ -946,7 +951,7 @@ impl Flow {
         key: Key,
     ) -> Vec<Command> {
         match key {
-            Key::Char(c) if typed.chars().count() < 64 => {
+            Key::Char(c) if super::typable(c) && typed.chars().count() < 64 => {
                 typed.push(c);
                 self.state.typing = Some(typed);
                 Vec::new()
@@ -1153,7 +1158,7 @@ impl Flow {
         key: Key,
     ) -> Vec<Command> {
         match key {
-            Key::Char(c) if typed.chars().count() < 200 => {
+            Key::Char(c) if super::typable(c) && typed.chars().count() < 200 => {
                 typed.push(c);
                 self.state.typing = Some(typed);
                 Vec::new()
@@ -1584,6 +1589,61 @@ mod tests {
         assert_eq!(state(&app).new.displays, std::slice::from_ref(&edid));
         assert_eq!(state(&app).at, Some(Obj::New(Slot::Display(edid))));
     }
+    /// Each value the Flow view types, a part's label, a terminal's name
+    /// and a picker's value, takes printable characters and leaves out
+    /// control characters, as the Settings view's values do. The C1
+    /// control U+009B is CSI to a terminal that reads 8-bit controls, so
+    /// in vtium.conf it would act on the terminal of whoever shows the
+    /// file.
+    #[test]
+    fn the_typed_values_of_the_flow_view_leave_out_control_characters() {
+        let typed = "a\u{9b}31m\u{85}\u{7}\u{1b}b";
+        // a part's label: every keyboard, its detail, then Enter on the
+        // label
+        let mut label = app();
+        highlight(&mut label, Obj::Pal(Slot::Template(Stage::Input)));
+        keys(
+            &mut label,
+            &[Key::Enter, Key::Down, Key::Enter, Key::Enter, Key::Enter],
+        );
+        assert_eq!(state(&label).typing.as_deref(), Some(""), "the label");
+        type_text(&mut label, typed);
+        assert_eq!(state(&label).typing.as_deref(), Some("a31mb"), "the label");
+        // the new path's terminal: its card, then Enter on the name,
+        // which starts from the name the path has
+        let mut name = app_with_new_path();
+        highlight(&mut name, Obj::New(Slot::Terminal));
+        keys(&mut name, &[Key::Enter, Key::Enter]);
+        assert_eq!(state(&name).typing.as_deref(), Some("desk2"), "the name");
+        type_text(&mut name, typed);
+        assert_eq!(
+            state(&name).typing.as_deref(),
+            Some("desk2a31mb"),
+            "the name"
+        );
+        // a picker's value: a display from an empty place in NEW PATH
+        let mut value = app();
+        highlight(&mut value, Obj::New(Slot::Empty(Stage::Display)));
+        keys(
+            &mut value,
+            &[Key::Enter, Key::Down, Key::Enter, Key::End, Key::Enter],
+        );
+        assert_eq!(state(&value).typing.as_deref(), Some(""), "the value");
+        type_text(&mut value, typed);
+        assert_eq!(state(&value).typing.as_deref(), Some("a31mb"), "the value");
+    }
+
+    /// The Flow view with a new path that has a name and every display.
+    fn app_with_new_path() -> App {
+        let mut with = app();
+        with.flow.state.new = Path {
+            name: Some("desk2".into()),
+            displays: vec!["*".into()],
+            ..Default::default()
+        };
+        with
+    }
+
     #[test]
     fn a_part_made_from_a_template_choice_carries_a_label() {
         let mut app = app();
@@ -1698,8 +1758,11 @@ mod tests {
         assert!(!text.contains("login"), "{text}");
     }
 
-    // ADR-1403 D7: All displays matches no one device, and picking it is
-    // still refused when a path on a VT the new path shares holds it
+    // All displays matches no one device, and picking it is still refused
+    // when a path on a VT the new path shares holds it.
+    //
+    // References:
+    // - ADR-1403 D7: a display belongs to one path on each VT.
     #[test]
     fn picking_a_display_part_held_on_a_shared_vt_is_refused() {
         let mut app = app();
@@ -1825,9 +1888,12 @@ mod tests {
         assert_eq!(text, off);
     }
 
-    // ADR-1401, "Enter on a head's own keyboard": the switch works only
-    // under policy = open, for a head that is not isolated and runs on a
-    // VT of its own from 1 to 12, and the hint says when it does nothing
+    // The switch on Enter works only under policy = open, for a head that
+    // is not isolated and runs on a VT of its own from 1 to 12, and the
+    // hint says when it does nothing.
+    //
+    // References:
+    // - ADR-1401, "Enter on a head's own keyboard": when the switch works.
     #[test]
     fn the_switch_on_enter_hint_says_when_the_key_has_no_effect() {
         let line = flowlayout::CardLine::Setting("switch-on-enter");
