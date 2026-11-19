@@ -31,7 +31,7 @@ impl App {
         // device that comes or goes after any event shows at once
         let flow = &self.shared.inputs.flow;
         let now = parts::enumerate(flow, &paths::read(flow));
-        parts::merge(&mut self.flow_view.parts, flow, now);
+        parts::merge(&mut self.flow.state.parts, flow, now);
         let layout = flowdraw::layout_of(self);
         self.flow_with(|s| {
             if let Some(o @ Obj::Doc(..)) = &s.layer
@@ -47,16 +47,16 @@ impl App {
 
     /// A key in the Flow view.
     pub(crate) fn flow_key(&mut self, key: Key) -> Vec<Effect> {
-        let state = self.flow_view.clone();
+        let state = self.flow.state.clone();
         // the file view saves and installs as the paths do, and stays open
-        if self.pager.is_some() {
+        if self.flow.pager.is_some() {
             match key {
                 Key::Char('s') => return self.save(),
                 Key::Char('i') => return self.action('i'),
                 _ => {}
             }
         }
-        if self.pager.is_some() || self.restore.is_some() {
+        if self.flow.pager.is_some() || self.flow.restore.is_some() {
             return self.flow_open_key(key);
         }
         match &state.layer {
@@ -87,7 +87,7 @@ impl App {
     }
 
     fn flow_with(&mut self, f: impl FnOnce(&mut State)) {
-        f(&mut self.flow_view);
+        f(&mut self.flow.state);
     }
 
     fn tell(&mut self, what: impl Into<String>) -> Vec<Effect> {
@@ -135,7 +135,7 @@ impl App {
             // the file, with the highlighted box's line marked
             Key::Char('v') => {
                 if let Some(item) = at.as_ref().and_then(|o| self.doc_item(o)) {
-                    self.flow_at = item;
+                    self.flow.at = item;
                 }
                 self.action('v')
             }
@@ -187,8 +187,8 @@ impl App {
             return Vec::new();
         };
         self.shared.message = None;
-        let active = self.flow_view.new.active;
-        let none = self.flow_view.new.none;
+        let active = self.flow.state.new.active;
+        let none = self.flow.state.new.none;
         match &obj {
             Obj::Roam(Slot::Terminal) => self.tell(words::ACTIVE_ABOUT),
             Obj::New(Slot::Terminal) if active => self.tell(words::ACTIVE_ABOUT),
@@ -313,7 +313,7 @@ impl App {
     fn pick(&mut self, piece: Piece) -> Vec<Effect> {
         let doc = flowdraw::shown_doc(self, paths::read(&self.shared.inputs.flow));
         let flow = &self.shared.inputs.flow;
-        let state = &mut self.flow_view;
+        let state = &mut self.flow.state;
         let was_font = state.new.font.clone();
         let done = match &piece {
             // the default font set is the absence of one
@@ -463,7 +463,7 @@ impl App {
     /// changed, or cleared, which takes it out.
     fn revise(&mut self, obj: &Obj) -> Vec<Effect> {
         let doc: Doc = paths::read(&self.shared.inputs.flow);
-        if !self.flow_view.new.is_empty() {
+        if !self.flow.state.new.is_empty() {
             return self.tell(words::EDITOR_BUSY);
         }
         let (taken, said, revising, at) = match obj {
@@ -931,7 +931,7 @@ impl App {
                 Vec::new()
             }
             Key::Enter => {
-                let key = self.flow_view.picker.as_ref().map(|p| p.key);
+                let key = self.flow.state.picker.as_ref().map(|p| p.key);
                 // a value typed without a match key takes the picker's key
                 let bare = typed.trim();
                 let keyed = vtium_settings::Token::KEYS
@@ -970,7 +970,8 @@ impl App {
         let flow = &self.shared.inputs.flow;
         let doc = flowdraw::shown_doc(self, paths::read(flow));
         let made: Vec<String> = self
-            .flow_view
+            .flow
+            .state
             .parts
             .iter()
             .filter_map(|p| match &p.piece {
@@ -1000,7 +1001,7 @@ impl App {
         let flow = &self.shared.inputs.flow;
         let mut name = title.clone();
         let there = {
-            let s = &mut self.flow_view;
+            let s = &mut self.flow.state;
             let there = s.new.has(&piece);
             let at = parts::make(&mut s.parts, flow, piece.clone(), title);
             if let Some(p) = s.parts.get(at) {
@@ -1036,7 +1037,7 @@ impl App {
     /// A click on the document: on a box, highlights it, and on the
     /// highlighted box, opens it.
     pub(crate) fn flow_click(&mut self, col: usize, row: usize) -> Vec<Effect> {
-        let state = self.flow_view.clone();
+        let state = self.flow.state.clone();
         if state.layer.is_some() || state.typing.is_some() {
             return Vec::new();
         }
@@ -1093,7 +1094,7 @@ mod tests {
     }
 
     fn state(app: &App) -> &State {
-        &app.flow_view
+        app.flow.state()
     }
 
     fn highlight(app: &mut App, obj: Obj) {

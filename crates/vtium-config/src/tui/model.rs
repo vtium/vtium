@@ -17,9 +17,9 @@ use std::time::Duration;
 use vtium_settings::keys;
 use vtium_settings::{setting, switch as conf_switch};
 
-use super::desk::{Done, Kept, Op, Opened};
+use super::desk::{Done, Op, Opened};
 use super::edit::Change as DraftChange;
-use super::flow::{Flow, Item};
+use super::flow::Flow;
 use super::input::{Button, Input, Key, Mouse, Reply};
 use super::replies::{Answer, Asker, Batch, Query, Queue};
 use crate::draft::{FileEdit, Plan, Removal};
@@ -507,19 +507,10 @@ pub struct App {
     pub looks: super::tabs::looks::Looks,
     /// The Settings tab's state.
     pub settings: super::tabs::settings::Settings,
-    /// The Flow view's selected item.
-    pub flow_at: Item,
     /// The Help tab's state.
     pub help: super::tabs::help::Help,
-    /// The read-only pager over the draft, when it is open.
-    pub pager: Option<Pager>,
-    /// The installed history Restore lists, and the entry highlighted.
-    pub restore: Option<(Vec<Kept>, usize)>,
-    /// The item to select once the desk answers the change in flight.
-    pub(crate) select_after: Option<Item>,
-    /// The Flow view's state: where its highlight is and what is open
-    /// over it.
-    pub flow_view: super::flowview::State,
+    /// The Flow tab's state.
+    pub flow: super::tabs::flow::Flow,
 }
 
 /// A question the Flow view asks before it acts.
@@ -577,7 +568,7 @@ impl App {
             .and_then(|n| inputs.fonts.iter().position(|f| f.name == n))
             .unwrap_or(0);
         let view = inputs.view;
-        let flow_at = first_item(&inputs.flow);
+        let flow = super::tabs::flow::Flow::new(&inputs.flow);
         let mut app = App {
             nav: super::nav::Nav {
                 view,
@@ -620,12 +611,8 @@ impl App {
             fonts: super::tabs::fonts::Fonts::new(font_at),
             looks: super::tabs::looks::Looks::default(),
             settings: super::tabs::settings::Settings::default(),
-            flow_at,
+            flow,
             help: super::tabs::help::Help::default(),
-            pager: None,
-            restore: None,
-            select_after: None,
-            flow_view: super::flowview::State::default(),
         };
         // the Flow view's highlight on its first box from the first frame,
         // and what reading the color file found on the message line
@@ -1178,11 +1165,11 @@ impl App {
     /// A key in the Flow view (ADR-1403 D7) while the file view or
     /// Restore's list is open over it.
     pub(crate) fn flow_open_key(&mut self, key: Key) -> Vec<Effect> {
-        if self.pager.is_some() {
+        if self.flow.pager.is_some() {
             self.pager_key(key);
             return Vec::new();
         }
-        if self.restore.is_some() {
+        if self.flow.restore.is_some() {
             return self.restore_key(key);
         }
         Vec::new()
@@ -1283,19 +1270,6 @@ impl App {
             self.shared.start_font = Some(name);
         }
     }
-}
-
-/// The item the Flow view selects first: the first display, else the
-/// first item of the first column that has one.
-pub(crate) fn first_item(flow: &Flow) -> Item {
-    flow.columns()
-        .iter()
-        .find_map(|c| {
-            c.iter()
-                .copied()
-                .find(|i| *i != Item::Base && !matches!(i, Item::New(_)))
-        })
-        .unwrap_or(Item::Base)
 }
 
 /// The most bytes a typed field holds.

@@ -3018,7 +3018,7 @@ mod flow_view {
                 for _ in 0..boxes {
                     type_in(&mut a, RIGHT);
                 }
-                let at = a.flow_view.at.clone();
+                let at = a.flow.state().at.clone();
                 assert!(at.is_some());
                 let out = type_in(&mut a, key);
                 assert_eq!(a.nav.view, next, "{key:?} from box {boxes}");
@@ -3027,7 +3027,7 @@ mod flow_view {
                 let back = if key == TAB { BACKTAB } else { TAB };
                 let out = type_in(&mut a, back);
                 assert_eq!(
-                    (a.nav.view, &a.flow_view.at),
+                    (a.nav.view, &a.flow.state().at),
                     (View::Flow, &at),
                     "box {boxes}"
                 );
@@ -3068,19 +3068,19 @@ mod flow_view {
         // while each is open (ADR-1403 D7, The keys)
         let mut a = drafted(80, 25);
         type_in(&mut a, b"\r");
-        let layer = a.flow_view.layer.clone();
+        let layer = a.flow.state().layer.clone();
         assert!(layer.is_some(), "{}", text(&a));
         for key in [TAB, BACKTAB] {
             type_in(&mut a, key);
-            assert_eq!((a.nav.view, &a.flow_view.layer), (View::Flow, &layer));
+            assert_eq!((a.nav.view, &a.flow.state().layer), (View::Flow, &layer));
         }
         type_in(&mut a, b"\x1b");
-        assert!(a.flow_view.layer.is_none());
+        assert!(a.flow.state().layer.is_none());
         type_in(&mut a, b"v");
-        assert!(a.pager.is_some());
+        assert!(a.flow.pager().is_some());
         for key in [TAB, BACKTAB] {
             type_in(&mut a, key);
-            assert_eq!((a.nav.view, a.pager.is_some()), (View::Flow, true));
+            assert_eq!((a.nav.view, a.flow.pager().is_some()), (View::Flow, true));
         }
     }
 
@@ -3090,13 +3090,13 @@ mod flow_view {
         let looks = cell(&a, "Looks");
         type_in(&mut a, b"v");
         click(&mut a, looks);
-        assert_eq!((a.nav.view, a.pager.is_some()), (View::Flow, true));
+        assert_eq!((a.nav.view, a.flow.pager().is_some()), (View::Flow, true));
         let mut a = drafted(80, 25);
         type_in(&mut a, b"\r");
-        assert!(a.flow_view.layer.is_some());
+        assert!(a.flow.state().layer.is_some());
         click(&mut a, looks);
         assert_eq!(
-            (a.nav.view, a.flow_view.layer.is_some()),
+            (a.nav.view, a.flow.state().layer.is_some()),
             (View::Flow, true)
         );
         // with nothing open, the click switches
@@ -3246,7 +3246,7 @@ mod flow_view {
             assert!(screen.starts_with("This terminal is too small"), "{screen}");
             // the flow's keys do nothing there; q still leaves
             press(&mut a, Key::Right);
-            assert_eq!(a.flow_at, Item::Display(0));
+            assert_eq!(a.flow.at(), Item::Display(0));
             let out = press(&mut a, Key::Char('q'));
             assert_eq!(out.last(), Some(&Effect::Exit(0)));
         }
@@ -3255,7 +3255,7 @@ mod flow_view {
     #[test]
     fn the_help_view_draws_the_keys_from_the_contract_and_about_from_its_source() {
         let mut a = app(80, 25);
-        a.flow_at = Item::Display(0);
+        assert_eq!(a.flow.at(), Item::Display(0));
         press(&mut a, Key::BackTab);
         assert_eq!(a.nav.view, View::Help);
         let joined = |a: &App| text(a).lines().map(str::trim).collect::<Vec<_>>().join(" ");

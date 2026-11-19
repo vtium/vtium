@@ -141,15 +141,15 @@ pub fn node(app: &App) -> &'static str {
     if super::view::too_small(app) {
         return "any.too-small";
     }
-    let flow = &app.flow_view;
+    let flow = app.flow.state();
     match app.nav.view {
         View::Flow if flow.typing.is_some() && flow.picker.is_some() => "flow.maker.picker.typing",
         View::Flow if flow.typing.is_some() => match flow.layer {
             Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal)) => "flow.card.typing",
             _ => "flow.detail.typing",
         },
-        View::Flow if app.pager.is_some() => "flow.file",
-        View::Flow if app.restore.is_some() => "flow.restore",
+        View::Flow if app.flow.pager().is_some() => "flow.file",
+        View::Flow if app.flow.restore().is_some() => "flow.restore",
         View::Flow if flow.picker.is_some() => "flow.maker.picker",
         View::Flow => match &flow.layer {
             None => "flow",

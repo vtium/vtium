@@ -163,7 +163,7 @@ pub fn of(sim: &Sim) -> Abs {
     // a part maker's line, and the picker's, decide what Enter opens: a
     // part, the picker, or the value typed after Other…
     if matches!(abs.narrow.as_str(), "flow-maker" | "picker") {
-        abs.focus = format!("line {}", app.flow_view.line);
+        abs.focus = format!("line {}", app.flow.state().line);
     }
     // the new-frit form's row: Enter steps from field to field, and the
     // last row adds the font set
@@ -263,7 +263,7 @@ fn focus(app: &App) -> String {
         }
         View::Help => if app.help.about() { "about" } else { "help" }.into(),
         View::Flow => {
-            let obj = match &app.flow_view.at {
+            let obj = match &app.flow.state().at {
                 None => return "none".into(),
                 Some(obj) => obj,
             };

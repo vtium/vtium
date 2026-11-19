@@ -981,11 +981,11 @@ fn flow_screen(canvas: &mut Canvas, app: &App) {
             Style::text(palette::GREY),
         );
     }
-    if let Some(pager) = app.pager {
+    if let Some(pager) = app.flow.pager() {
         pager_screen(canvas, app, pager, bottom);
         return;
     }
-    if let Some((kept, at)) = &app.restore {
+    if let Some((kept, at)) = app.flow.restore() {
         let room = bottom.saturating_sub(FLOW_TOP).max(1);
         for (i, row) in restore_rows(kept, *at, room).iter().enumerate() {
             let mut x = 1usize;

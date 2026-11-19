@@ -64,7 +64,9 @@ const DOUBLE: [char; 6] = ['═', '║', '╔', '╗', '╚', '╝'];
 /// Whether the document of paths is on the screen: the Flow view with
 /// neither the file view nor Restore's list open over it.
 pub fn shown(app: &App) -> bool {
-    app.nav.view == super::model::View::Flow && app.pager.is_none() && app.restore.is_none()
+    app.nav.view == super::model::View::Flow
+        && app.flow.pager().is_none()
+        && app.flow.restore().is_none()
 }
 
 /// The font sets the palette offers: every font the TUI lists that reads.
@@ -82,9 +84,9 @@ pub fn font_names(app: &App) -> Vec<String> {
 pub fn layout_of(app: &App) -> Layout {
     let flow = &app.shared.inputs.flow;
     let doc = paths::read(flow);
-    let new = app.flow_view.new.clone();
+    let new = app.flow.state().new.clone();
     let doc = shown_doc(app, doc);
-    let parts = app.flow_view.parts.clone();
+    let parts = app.flow.state().parts.clone();
     flowview::layout(&Ctx {
         flow,
         doc: &doc,
@@ -99,7 +101,7 @@ pub fn layout_of(app: &App) -> Layout {
 /// being revised in NEW PATH. The draft keeps it until the new path is
 /// added or cleared, so adding it back unchanged changes nothing.
 pub fn shown_doc(app: &App, doc: paths::Doc) -> paths::Doc {
-    match app.flow_view.revising.as_ref() {
+    match app.flow.state().revising.as_ref() {
         Some(flowview::Revising::Path(name)) => doc.revise(name).map_or(doc, |(rest, _)| rest),
         Some(flowview::Revising::Active) => doc.revise_active().map_or(doc, |(rest, _)| rest),
         Some(flowview::Revising::Nothing) => doc.revise_none().map_or(doc, |(rest, _)| rest),
@@ -579,7 +581,7 @@ fn message(canvas: &mut Canvas, app: &App) {
 
 /// Draws the Flow view on `canvas`, below the tab bar.
 pub fn screen(canvas: &mut Canvas, app: &App) {
-    let state = &app.flow_view;
+    let state = app.flow.state();
     let flow = &app.shared.inputs.flow;
     let layout = layout_of(app);
     message(canvas, app);
@@ -775,7 +777,7 @@ pub fn card_path(app: &App, obj: &Obj) -> Option<Path> {
     match obj {
         Obj::Doc(name, Slot::Terminal) => doc.path(name).cloned(),
         Obj::New(Slot::Terminal) => {
-            let mut p = app.flow_view.new.clone();
+            let mut p = app.flow.state().new.clone();
             if p.name.is_none() {
                 p.name = Some(paths::new_name(flow, &doc));
             }

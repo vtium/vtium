@@ -165,7 +165,7 @@ impl App {
         };
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
         self.shared.message = Some(commands.join("\n"));
-        self.select_after = select;
+        self.flow.select_after = select;
         // one action of the person's is one change, whatever it edits
         self.shared.unsaved = self.shared.unsaved.saturating_add(1);
         // the draft holds the change at once, so a key that comes before
@@ -231,7 +231,7 @@ impl App {
         let done = match done {
             Ok(done) => done,
             Err(why) => {
-                self.select_after = None;
+                self.flow.select_after = None;
                 self.shared.quit_after_install = None;
                 return self.say(&why);
             }
@@ -265,15 +265,15 @@ impl App {
                     _ => {}
                 }
                 self.shared.draft = Some(opened);
-                let select = self.select_after.take();
+                let select = self.flow.select_after.take();
                 self.rebuild(select);
                 // the draft read at start, or one that replaces it: the
                 // highlight goes to the first box of CONFIGURATION
                 // (ADR-1403 D7, "This screen")
                 if matches!(op, Op::Open | Op::Revert | Op::New | Op::Restore(_)) {
-                    self.flow_at = super::model::first_item(&self.shared.inputs.flow);
-                    self.flow_view.at = None;
-                    self.flow_view.top = 0;
+                    self.flow.at = super::tabs::flow::first_item(&self.shared.inputs.flow);
+                    self.flow.state.at = None;
+                    self.flow.state.top = 0;
                 }
             }
             Done::Plan(mut plan) => {
@@ -335,7 +335,7 @@ impl App {
                 self.shared.message = Some(lines.join(sep));
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
-            Done::History(kept) => self.restore = Some((kept, 0)),
+            Done::History(kept) => self.flow.restore = Some((kept, 0)),
             Done::Present(present) => self.set_present(present),
             // only an install answers with this, as [`App::installed`]
             Done::Installed(..) => {}
@@ -415,8 +415,8 @@ impl App {
         let new = &self.shared.inputs.flow;
         let at = select
             .filter(|i| new.has(*i))
-            .unwrap_or_else(|| carry(&old, new, self.flow_at));
-        self.flow_at = at;
+            .unwrap_or_else(|| carry(&old, new, self.flow.at));
+        self.flow.at = at;
     }
 
     /// Opens the pager at the line of the card selected in the flow.
@@ -424,9 +424,9 @@ impl App {
         let Some(d) = &self.shared.draft else {
             return;
         };
-        let mark = item_line(&self.shared.inputs.flow, &d.text, self.flow_at);
+        let mark = item_line(&self.shared.inputs.flow, &d.text, self.flow.at);
         let room = self.size.rows.saturating_sub(4).max(1);
-        self.pager = Some(Pager {
+        self.flow.pager = Some(Pager {
             top: mark.saturating_sub(room / 2).saturating_sub(1),
             left: 0,
             mark,
@@ -447,11 +447,11 @@ impl App {
         let room = self.size.rows.saturating_sub(4).saturating_sub(keys).max(1);
         let last = lines.saturating_sub(room);
         let half = (room / 2).max(1);
-        let Some(p) = self.pager.as_mut() else {
+        let Some(p) = self.flow.pager.as_mut() else {
             return;
         };
         match key {
-            Key::Escape => self.pager = None,
+            Key::Escape => self.flow.pager = None,
             Key::Char('j') | Key::Down => p.top = p.top.saturating_add(1).min(last),
             Key::Char('k') | Key::Up => p.top = p.top.saturating_sub(1),
             Key::Char('l') | Key::Right => p.left = p.left.saturating_add(8),
@@ -468,11 +468,11 @@ impl App {
     /// Enter asks to copy the file into the draft, and Esc closes it. `q`
     /// quits, as it does everywhere.
     pub(crate) fn restore_key(&mut self, key: Key) -> Vec<Effect> {
-        let Some((kept, at)) = self.restore.as_mut() else {
+        let Some((kept, at)) = self.flow.restore.as_mut() else {
             return Vec::new();
         };
         match key {
-            Key::Escape => self.restore = None,
+            Key::Escape => self.flow.restore = None,
             Key::Enter => {
                 let n = at.saturating_add(1);
                 let restored = kept.get(*at).map(|k| k.text.clone()).unwrap_or_default();
@@ -483,7 +483,7 @@ impl App {
                     .map(|d| d.text.clone())
                     .unwrap_or_default();
                 let (added, removed) = crate::drafts::counts(&restored, &now);
-                self.restore = None;
+                self.flow.restore = None;
                 self.ask(
                     words::losing_unsaved(
                         words::restore_question(n, added, removed),
@@ -612,5 +612,5 @@ fn carry(old: &Flow, new: &Flow, item: Item) -> Item {
     };
     carried
         .filter(|i| new.has(*i))
-        .unwrap_or_else(|| super::model::first_item(new))
+        .unwrap_or_else(|| super::tabs::flow::first_item(new))
 }

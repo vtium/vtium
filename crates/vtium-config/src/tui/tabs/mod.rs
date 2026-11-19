@@ -12,6 +12,7 @@
 //! - ADR-1206 D4: a tab's update calls its own state, the shared part
 //!   read-only and words.rs, and never another tab's module.
 
+pub mod flow;
 pub mod fonts;
 pub mod help;
 pub mod looks;

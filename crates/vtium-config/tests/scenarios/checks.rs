@@ -224,7 +224,7 @@ impl Seen<'_> {
     /// The terminal card open in `sim`, with the line under its cursor:
     /// its object, its path and the line. `None` outside a card.
     fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
-        let fv = &sim.app.flow_view;
+        let fv = sim.app.flow.state();
         let obj = fv.layer.clone()?;
         let path = flowdraw::card_path(&sim.app, &obj)?;
         let line = flowdraw::card_lines(&path, matches!(obj, Obj::New(_)))
@@ -241,12 +241,12 @@ impl Seen<'_> {
         let Some((_, _, line)) = Self::card(self.before) else {
             return Err("no card was open".into());
         };
-        let pick = self.before.app.flow_view.pick;
+        let pick = self.before.app.flow.state().pick;
         if self.exited() {
             return Err("Enter left the TUI".into());
         }
         if flowdraw::card_types(&self.before.app, &line, pick) {
-            return if self.after.app.flow_view.typing.is_some() {
+            return if self.after.app.flow.state().typing.is_some() {
                 Ok(())
             } else {
                 Err("Enter on a typed choice did not start the typing".into())
@@ -284,7 +284,8 @@ impl Seen<'_> {
 
     fn typed(sim: &Sim) -> Option<String> {
         let app = &sim.app;
-        app.flow_view
+        app.flow
+            .state()
             .typing
             .clone()
             .or_else(|| app.settings.editing().map(str::to_owned))
@@ -345,7 +346,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         "esc.view.flow",
         (
             |s| {
-                if s.after.app.flow_view.new == Default::default() && !s.exited() {
+                if s.after.app.flow.state().new == Default::default() && !s.exited() {
                     Ok(())
                 } else {
                     Err("NEW PATH is not empty".into())
@@ -507,7 +508,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         (
             |s| {
                 saves(s)?;
-                if s.after.app.pager.is_some() {
+                if s.after.app.flow.pager().is_some() {
                     Ok(())
                 } else {
                     Err("the file view closed".into())
@@ -523,7 +524,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         (
             |s| {
                 installs(s)?;
-                if s.after.app.pager.is_some() {
+                if s.after.app.flow.pager().is_some() {
                     Ok(())
                 } else {
                     Err("the file view closed".into())
@@ -573,7 +574,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // of a question does not show
     let still: Check = |s| {
         s.nothing()?;
-        if s.before.app.flow_view.at == s.after.app.flow_view.at
+        if s.before.app.flow.state().at == s.after.app.flow.state().at
             && s.after.app.nav.confirm.is_some()
         {
             Ok(())
@@ -669,7 +670,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         "left.layer.flow-card",
         (
             |s| {
-                let (a, b) = (&s.before.app.flow_view, &s.after.app.flow_view);
+                let (a, b) = (s.before.app.flow.state(), s.after.app.flow.state());
                 if s.exited() || !s.kept() || a.line != b.line {
                     return Err("Left left the card, changed a line or changed the draft".into());
                 }
@@ -689,7 +690,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         "right.layer.flow-card",
         (
             |s| {
-                let (a, b) = (&s.before.app.flow_view, &s.after.app.flow_view);
+                let (a, b) = (s.before.app.flow.state(), s.after.app.flow.state());
                 if s.exited() || !s.kept() || a.line != b.line {
                     return Err("Right left the card, changed a line or changed the draft".into());
                 }
@@ -725,14 +726,15 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                     return Err("e left the TUI".into());
                 }
                 // NEW PATH holds another path already, which e says
-                if !s.before.app.flow_view.new.is_empty() {
+                if !s.before.app.flow.state().new.is_empty() {
                     return if s.after.app.shared.message.is_some() && s.kept() {
                         Ok(())
                     } else {
                         Err("e over a full NEW PATH said nothing or changed something".into())
                     };
                 }
-                if s.after.app.flow_view.revising.is_some() && s.after.app.flow_view.layer.is_none()
+                if s.after.app.flow.state().revising.is_some()
+                    && s.after.app.flow.state().layer.is_none()
                 {
                     Ok(())
                 } else {
@@ -820,10 +822,10 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
     // the line under the detail's cursor before and after the key, with
     // the number of choices below the label line
     fn lines(s: &Seen<'_>) -> Result<(usize, usize, usize), String> {
-        let fv = &s.before.app.flow_view;
+        let fv = s.before.app.flow.state();
         let obj = fv.layer.as_ref().ok_or("no detail was open")?;
         let len = flowdraw::choices_for(&s.before.app, obj).len();
-        Ok((fv.line, s.after.app.flow_view.line, len))
+        Ok((fv.line, s.after.app.flow.state().line, len))
     }
     m.insert("up.layer.flow-detail", (|s| s.nothing(), None));
     m.insert(
@@ -845,7 +847,7 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
             |s| {
                 s.goes_to("flow.detail.typing")?;
                 let doc = vtium_config::tui::paths::read(&s.before.app.shared.inputs.flow);
-                let obj = s.before.app.flow_view.layer.clone().ok_or("no detail")?;
+                let obj = s.before.app.flow.state().layer.clone().ok_or("no detail")?;
                 let (kind, sel) = flowdraw::label_target(&obj).ok_or("no label")?;
                 let now = doc.label(kind, &sel).unwrap_or_default().to_owned();
                 match Seen::typed(s.after) {
@@ -943,7 +945,7 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
         "enter.layer.flow-choices",
         (
             |s| {
-                let fv = &s.before.app.flow_view;
+                let fv = s.before.app.flow.state();
                 let obj = fv.layer.clone().ok_or("no detail was open")?;
                 let list = flowdraw::choices_for(&s.before.app, &obj);
                 let Some(sel) = list
@@ -954,7 +956,7 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
                     // it does nothing
                     return s.nothing();
                 };
-                if s.exited() || s.after.app.flow_view.layer.is_some() || !s.kept() {
+                if s.exited() || s.after.app.flow.state().layer.is_some() || !s.kept() {
                     return Err("Enter left the detail open, quit, or changed the draft".into());
                 }
                 let piece = match obj {
@@ -963,7 +965,7 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
                 };
                 let said = s.after.app.shared.message.is_some()
                     && s.after.app.shared.message != s.before.app.shared.message;
-                if s.after.app.flow_view.new.has(&piece) || said {
+                if s.after.app.flow.state().new.has(&piece) || said {
                     Ok(())
                 } else {
                     Err(format!(
@@ -1120,7 +1122,7 @@ fn goes_to_tab(s: &Seen<'_>) -> Result<(), String> {
     if s.exited() || !s.kept() {
         return Err("the digit quit or changed what the person made".into());
     }
-    if s.after.app.flow_view.at != s.before.app.flow_view.at
+    if s.after.app.flow.state().at != s.before.app.flow.state().at
         || s.after.app.fonts.at() != s.before.app.fonts.at()
         || s.after.app.settings.section_at() != s.before.app.settings.section_at()
     {
@@ -1227,7 +1229,8 @@ impl Checks {
     /// card.
     pub fn card_line_count(sim: &Sim) -> usize {
         sim.app
-            .flow_view
+            .flow
+            .state()
             .layer
             .as_ref()
             .and_then(|obj| {
