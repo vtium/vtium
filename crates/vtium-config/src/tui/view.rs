@@ -1055,4 +1055,32 @@ mod tests {
             .collect();
         all_shown(&shot, "in a picture of the TUI");
     }
+
+    #[test]
+    fn after_an_install_the_tui_measures_by_the_rule_the_console_started_with() {
+        // the console reads `cluster-width` when vtium starts, so an
+        // install that sets it to `double` leaves the console on `single`
+        // until vtium restarts, and the TUI keeps measuring by `single`
+        let mut inputs = super::super::fixture::inputs();
+        inputs.conf = Some("cluster-width = single\n".to_owned());
+        let (mut app, _) = App::new(inputs, 80, 25);
+        let installed = super::super::desk::Opened {
+            name: "vtium.conf".into(),
+            text: "cluster-width = double\n".into(),
+            ..Default::default()
+        };
+        app.event(super::super::model::Event::Installed(Ok(
+            super::super::desk::Done::Draft(installed, None),
+        )));
+        assert_eq!(app.configured("cluster-width").as_deref(), Some("double"));
+        app.shared.message = Some("ab \u{BCA}.xYz".to_owned());
+        let row = texts(&app)
+            .into_iter()
+            .find(|r| r.contains('Y'))
+            .unwrap_or_default();
+        // read back cell by cell, the row fills the 80 cells only when the
+        // vowel sign's character took one cell, as it does under `single`
+        let _single = super::super::canvas::measure_by(vtium_term::ClusterWidth::Single);
+        assert_eq!(super::super::canvas::cells(&row), 80, "{row:?}");
+    }
 }

@@ -344,6 +344,13 @@ pub struct Shared {
     answers: Answers,
     /// The font to give back: the start query's answer, or what was saved.
     pub start_font: Option<String>,
+    /// The console's `cluster-width` rule, which decides whether a syllable
+    /// with a spacing vowel sign takes one cell or two. vtium reads the key
+    /// only when it starts, so the TUI reads it from the installed
+    /// vtium.conf at its own start and keeps it. An install that changes
+    /// the key leaves the console on the old rule until vtium restarts, and
+    /// the TUI measures text by that rule until then.
+    pub cluster_width: vtium_term::ClusterWidth,
     /// The font the console is to draw, which a switch is sent for once no
     /// other is in flight: the live trial's font, or the font it puts
     /// back (D4).
@@ -436,10 +443,7 @@ impl Shared {
     /// rows update counts for a list, a page or a click are the rows the
     /// view draws.
     pub fn measure(&self) -> super::canvas::MeasureBy {
-        super::canvas::measure_by(match self.configured("cluster-width").as_deref() {
-            Some("single") => vtium_term::ClusterWidth::Single,
-            _ => vtium_term::ClusterWidth::Double,
-        })
+        super::canvas::measure_by(self.cluster_width)
     }
 
     /// The configuration the views show: the draft, else the installed
@@ -623,6 +627,16 @@ impl App {
             .unwrap_or(0);
         let view = inputs.view;
         let flow = super::tabs::flow::Flow::new(&inputs.flow);
+        let cluster_width = match inputs
+            .conf
+            .as_deref()
+            .and_then(|c| setting(c, "cluster-width"))
+            .as_deref()
+        {
+            Some("single") => vtium_term::ClusterWidth::Single,
+            _ => vtium_term::ClusterWidth::Double,
+        };
+        let _rule = super::canvas::measure_by(cluster_width);
         let mut app = App {
             nav: super::nav::Nav {
                 view,
@@ -636,6 +650,7 @@ impl App {
                 graphics: false,
                 answers: Answers::default(),
                 start_font: None,
+                cluster_width,
                 want: None,
                 specimen: None,
                 asked: None,
@@ -672,7 +687,6 @@ impl App {
         };
         // the Flow view's highlight on its first box from the first frame,
         // and what reading the color file found on the message line
-        let _rule = app.shared.measure();
         app.flow_settle();
         app.shared.message = app
             .shared
