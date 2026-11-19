@@ -193,6 +193,7 @@ pub fn drive_with(
 ) -> io::Result<u8> {
     inputs.desk = desk.is_some();
     let (mut app, first) = App::start(inputs, size_of(port));
+    let mut painter = view::Painter::new()?;
     let mut decoder = Decoder::keys();
     let mut queue: Vec<Effect> = first;
     loop {
@@ -200,7 +201,14 @@ pub fn drive_with(
         while !queue.is_empty() {
             for effect in std::mem::take(&mut queue) {
                 match effect {
-                    Effect::Write(bytes) => port.write(&bytes)?,
+                    Effect::Write(bytes) => {
+                        port.write(&bytes)?;
+                        // the picture's cells come back as the text under
+                        // them, so the next frame draws whole
+                        if bytes == crate::kitty::delete(crate::kitty::IMAGE_ID) {
+                            painter.forget()?;
+                        }
+                    }
                     Effect::Wait(d) => port.arm(d),
                     Effect::Exit(status) => {
                         port.on_panic(give_back(&app));
@@ -239,13 +247,16 @@ pub fn drive_with(
                         queue.extend(app.event(Event::Desked(op, done)));
                     }
                     Effect::Install(plan) => {
-                        port.write(&view::draw(&app))?;
+                        port.write(&painter.frame(&app)?)?;
                         let result = match desk.as_deref_mut() {
                             Some(desk) => port.privileged(&mut |run, out, ask| {
                                 desk.install(&plan, run, out, ask)
                             }),
                             None => Err(super::words::NO_DESK.to_owned()),
                         };
+                        // the privileged step wrote to the terminal, so
+                        // the next frame draws whole
+                        painter.forget()?;
                         queue.extend(app.event(Event::Resize(size_of(port))));
                         queue.extend(app.event(Event::Installed(result)));
                     }
@@ -253,7 +264,7 @@ pub fn drive_with(
             }
         }
         port.on_panic(give_back(&app));
-        port.write(&view::draw(&app))?;
+        port.write(&painter.frame(&app)?)?;
         for wake in port.wait()? {
             let events = match wake {
                 Wake::Bytes(bytes) => {

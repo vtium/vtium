@@ -21,6 +21,7 @@
 //! from: the frits as text, never a font file (D3), and vtium.conf, which
 //! holds the heads, looks and rules too.
 
+pub mod backend;
 pub mod canvas;
 pub mod color;
 mod console;

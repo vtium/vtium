@@ -1,6 +1,6 @@
 //! The TUI's screen (ADR-1201 D3, ADR-1403 D7): the state drawn on a
-//! [`Canvas`], and the bytes that draw it whole, with ECMA-48's cursor
-//! position, erase and SGR sequences only (D7).
+//! [`Canvas`], then into ratatui's buffer, whose Backend writes ECMA-48's
+//! cursor position, erase and SGR sequences only.
 //!
 //! Every view has the tab bar, with the views and the actions, and the
 //! status line. The Flow view then draws its document of paths and parts,
@@ -430,40 +430,220 @@ fn strip(text: &str) -> String {
     out
 }
 
-/// The bytes that draw `rows` whole: each row placed with CUP and erased
-/// in the terminal's own colors, then each span in its style by SGR, color
-/// only when `color` is on. The row is erased before it is written: after a
-/// character in the last column, the cursor waits there for the wrap, and
-/// an erase would take that character with it.
-pub fn paint(rows: &[Row], color: bool) -> Vec<u8> {
-    let mut out = String::new();
-    for (i, row) in rows.iter().enumerate() {
-        out.push_str(&format!("\x1b[{};1H\x1b[2K", i.saturating_add(1)));
-        for s in row {
-            if s.raw {
-                out.push_str(&s.text);
-                out.push_str("\x1b[0m");
-                continue;
+/// One cell of a raw span: a character and the style its SGR set.
+type RawCell = (char, ratatui_core::style::Style);
+
+/// The characters of a raw span, each in the style its SGR sequences set:
+/// the About page's banner, which its own module styles in 24-bit or 256
+/// colors.
+fn raw_cells(text: &str) -> Vec<RawCell> {
+    use ratatui_core::style::{Color as C, Modifier as M, Style as S};
+    let mut out = Vec::new();
+    let mut style = S::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push((c, style));
+            continue;
+        }
+        if chars.peek() != Some(&'[') {
+            continue;
+        }
+        chars.next();
+        let mut params = String::new();
+        let mut last = ' ';
+        for c in chars.by_ref() {
+            if ('@'..='~').contains(&c) {
+                last = c;
+                break;
             }
-            // a name read from a file never carries a control onto the
-            // screen
-            let shown: String = s
-                .text
-                .chars()
-                .map(|c| if c.is_control() { '?' } else { c })
-                .collect();
-            let sgr = s.style.sgr(color);
-            if sgr.is_empty() {
-                out.push_str(&shown);
-            } else {
-                out.push_str(&format!("{sgr}{shown}\x1b[0m"));
-            }
+            params.push(c);
+        }
+        if last != 'm' {
+            continue;
+        }
+        let ps: Vec<u8> = params.split(';').map(|p| p.parse().unwrap_or(0)).collect();
+        let mut ps = ps.into_iter();
+        while let Some(p) = ps.next() {
+            // the color after 38 or 48: 5 and an index, or 2 and its red,
+            // green and blue
+            let extended = |ps: &mut std::vec::IntoIter<u8>| match ps.next() {
+                Some(5) => C::Indexed(ps.next().unwrap_or(0)),
+                Some(2) => C::Rgb(
+                    ps.next().unwrap_or(0),
+                    ps.next().unwrap_or(0),
+                    ps.next().unwrap_or(0),
+                ),
+                _ => C::Reset,
+            };
+            style = match p {
+                0 => S::new(),
+                1 => style.add_modifier(M::BOLD),
+                3 => style.add_modifier(M::ITALIC),
+                4 => style.add_modifier(M::UNDERLINED),
+                7 => style.add_modifier(M::REVERSED),
+                30..=37 => style.fg(C::Indexed(p.saturating_sub(30))),
+                90..=97 => style.fg(C::Indexed(p.saturating_sub(82))),
+                40..=47 => style.bg(C::Indexed(p.saturating_sub(40))),
+                100..=107 => style.bg(C::Indexed(p.saturating_sub(92))),
+                38 => style.fg(extended(&mut ps)),
+                48 => style.bg(extended(&mut ps)),
+                39 => style.fg(C::Reset),
+                49 => style.bg(C::Reset),
+                _ => style,
+            };
         }
     }
-    out.into_bytes()
+    out
 }
 
-/// The bytes that draw `app`'s screen whole.
+/// Writes `rows` into `buf` from its top left, each character in as many
+/// cells as the console's width rule gives it, as the terminal lays it
+/// out. A character the console and Unicode's tables measure differently
+/// keeps the console's width in the buffer, so ratatui's diff steps over
+/// the same cells the terminal's cursor does.
+pub fn fill(buf: &mut ratatui_core::buffer::Buffer, rows: &[Row]) {
+    use ratatui_core::buffer::{CellDiffOption, CellWidth};
+    let area = buf.area;
+    for (y, row) in (area.top()..area.bottom()).zip(rows) {
+        let cells = row.iter().flat_map(|s| -> Vec<RawCell> {
+            if s.raw {
+                raw_cells(&s.text)
+            } else {
+                let style = s.style.cell();
+                s.text.chars().map(|c| (c, style)).collect()
+            }
+        });
+        let mut x = area.left();
+        for (c, style) in cells {
+            // a name read from a file never carries a control onto the
+            // screen
+            let c = if c.is_control() { '?' } else { c };
+            let mut symbol = [0u8; 4];
+            let symbol: &str = c.encode_utf8(&mut symbol);
+            let width = super::backend::console_width(symbol).max(1);
+            if x.saturating_add(width) > area.right() {
+                break;
+            }
+            let cell = &mut buf[(x, y)];
+            cell.set_symbol(symbol).set_style(style);
+            if symbol.cell_width() != width
+                && let Some(w) = std::num::NonZeroU16::new(width)
+            {
+                cell.set_diff_option(CellDiffOption::ForcedWidth(w));
+            }
+            // the cell that a wide character covers holds nothing of its
+            // own
+            for covered in 1..width {
+                buf[(x.saturating_add(covered), y)].reset();
+            }
+            x = x.saturating_add(width);
+        }
+    }
+}
+
+/// Draws `app`'s screen into ratatui's frame.
+pub fn render(app: &App, frame: &mut ratatui_core::terminal::Frame) {
+    fill(frame.buffer_mut(), &screen(app));
+}
+
+/// The terminal as ratatui last drew it, so that each frame writes only
+/// the cells that changed. The loop keeps one for the whole run.
+pub struct Painter {
+    terminal: ratatui_core::terminal::Terminal<super::backend::Vt>,
+}
+
+impl Painter {
+    pub fn new() -> std::io::Result<Painter> {
+        Ok(Painter {
+            terminal: ratatui_core::terminal::Terminal::new(super::backend::Vt::new(0, 0, true))?,
+        })
+    }
+
+    /// The bytes that bring the terminal from the last frame to `app`'s
+    /// screen. A new size clears the screen and draws the frame whole.
+    pub fn frame(&mut self, app: &App) -> std::io::Result<Vec<u8>> {
+        let cols = u16::try_from(app.size.cols).unwrap_or(u16::MAX);
+        let rows = u16::try_from(app.size.rows).unwrap_or(u16::MAX);
+        let backend = self.terminal.backend_mut();
+        backend.set_size(cols, rows);
+        backend.set_color(app.shared.inputs.color);
+        self.terminal.draw(|frame| render(app, frame))?;
+        Ok(self.terminal.backend_mut().take())
+    }
+
+    /// Clears the screen and forgets what it showed, so the next frame
+    /// draws whole: after another program wrote to the terminal, or after
+    /// a picture left it.
+    pub fn forget(&mut self) -> std::io::Result<()> {
+        self.terminal.clear()
+    }
+}
+
+/// The bytes that draw `app`'s screen whole, on a terminal that shows
+/// nothing yet.
 pub fn draw(app: &App) -> Vec<u8> {
-    paint(&screen(app), app.shared.inputs.color)
+    Painter::new()
+        .and_then(|mut p| p.frame(app))
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui_core::buffer::Buffer;
+    use ratatui_core::layout::Rect;
+
+    use super::super::canvas::span;
+    use super::*;
+
+    #[test]
+    fn a_row_is_laid_out_by_the_console_s_width_rule_and_its_diff_steps_the_same_cells() {
+        // U+17A4 takes one cell by the console's rule and two by Unicode's
+        // tables, and 日 takes two by both
+        let rows = vec![vec![span("a\u{17a4}b日c", Style::PLAIN)]];
+        let mut next = Buffer::empty(Rect::new(0, 0, 8, 1));
+        fill(&mut next, &rows);
+        let at = |b: &Buffer, x: u16| b[(x, 0)].symbol().to_owned();
+        assert_eq!(
+            (0..6).map(|x| at(&next, x)).collect::<Vec<_>>(),
+            ["a", "\u{17a4}", "b", "日", " ", "c"]
+        );
+        // a diff against a blank screen writes `b`, which a width of two
+        // for the vowel would step over, and steps over the cell 日 covers
+        let blank = Buffer::empty(next.area);
+        let written: Vec<(u16, String)> = blank
+            .diff(&next)
+            .into_iter()
+            .map(|(x, _, c)| (x, c.symbol().to_owned()))
+            .collect();
+        assert_eq!(
+            written,
+            [
+                (0, "a".to_owned()),
+                (1, "\u{17a4}".to_owned()),
+                (2, "b".to_owned()),
+                (3, "日".to_owned()),
+                (5, "c".to_owned())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_raw_span_s_colors_reach_ratatui_s_cells() {
+        use ratatui_core::style::Color as C;
+        let cells = raw_cells("\x1b[38;2;1;2;3mA\x1b[48;5;200mB\x1b[0mC\x1b[95mD");
+        let got: Vec<(char, C, C)> = cells
+            .iter()
+            .map(|(c, s)| (*c, s.fg.unwrap_or(C::Reset), s.bg.unwrap_or(C::Reset)))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ('A', C::Rgb(1, 2, 3), C::Reset),
+                ('B', C::Rgb(1, 2, 3), C::Indexed(200)),
+                ('C', C::Reset, C::Reset),
+                ('D', C::Indexed(13), C::Reset)
+            ]
+        );
+    }
 }

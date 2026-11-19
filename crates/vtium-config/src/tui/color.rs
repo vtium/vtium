@@ -162,46 +162,51 @@ impl Style {
         }
     }
 
-    /// The SGR sequence that sets this style from the terminal's default,
-    /// drawing color only when `color` is on; empty for plain text.
-    pub fn sgr(self, color: bool) -> String {
-        let mut params: Vec<String> = Vec::new();
-        if self.bold {
-            params.push("1".into());
-        }
-        if self.italic {
-            params.push("3".into());
-        }
-        if self.underline {
-            params.push("4".into());
-        }
-        if self.reverse {
-            params.push("7".into());
-        }
-        match self.script {
-            vtium_font::Script::Baseline => {}
-            vtium_font::Script::Super => params.push("73".into()),
-            vtium_font::Script::Sub => params.push("74".into()),
-        }
-        if color {
-            match self.rgb {
-                Some([r, g, b]) => params.push(format!("38;2;{r};{g};{b}")),
-                None => params.extend(self.fg.map(|c| c.fg().to_string())),
-            }
-            match self.back {
+    /// The style as ratatui's buffer holds it, so that ratatui's cells
+    /// carry what the TUI sends: the 24-bit color where one is set,
+    /// else the named color by its index, and the box fill's color before
+    /// the background's. The two script positions ride on the modifiers
+    /// that [`super::backend::SUPER`] and [`super::backend::SUB`] name.
+    pub fn cell(self) -> ratatui_core::style::Style {
+        use ratatui_core::style::{Color as C, Modifier as M};
+        let fg = match (self.rgb, self.fg) {
+            (Some([r, g, b]), _) => C::Rgb(r, g, b),
+            (None, Some(c)) => C::Indexed(c.index()),
+            (None, None) => C::Reset,
+        };
+        let bg = match (self.back, self.bg) {
+            (
                 Some(Back {
                     rgb: Some([r, g, b]),
                     ..
-                }) => params.push(format!("48;2;{r};{g};{b}")),
-                Some(Back { basic, .. }) => params.push(basic.bg().to_string()),
-                None => params.extend(self.bg.map(|c| c.bg().to_string())),
+                }),
+                _,
+            ) => C::Rgb(r, g, b),
+            // a basic fill's SGR code is 40 and its index
+            (Some(Back { basic, .. }), _) => C::Indexed(basic.bg().saturating_sub(40)),
+            (None, Some(c)) => C::Indexed(c.index()),
+            (None, None) => C::Reset,
+        };
+        let mut m = M::empty();
+        for (on, bit) in [
+            (self.bold, M::BOLD),
+            (self.italic, M::ITALIC),
+            (self.underline, M::UNDERLINED),
+            (self.reverse, M::REVERSED),
+            (
+                self.script == vtium_font::Script::Super,
+                super::backend::SUPER,
+            ),
+            (self.script == vtium_font::Script::Sub, super::backend::SUB),
+        ] {
+            if on {
+                m |= bit;
             }
         }
-        if params.is_empty() {
-            String::new()
-        } else {
-            format!("\x1b[{}m", params.join(";"))
-        }
+        ratatui_core::style::Style::new()
+            .fg(fg)
+            .bg(bg)
+            .add_modifier(m)
     }
 }
 
@@ -283,13 +288,20 @@ mod tests {
         );
     }
 
+    /// The SGR sequence the Backend sends for a cell in `style`.
+    fn sent(style: Style, color: bool) -> String {
+        let mut cell = ratatui_core::buffer::Cell::default();
+        cell.set_style(style.cell());
+        super::super::backend::sgr(&cell, color)
+    }
+
     #[test]
     fn a_block_is_black_on_its_color_and_reverse_keeps_both() {
         let s = Style::block(Color::BrightCyan);
-        assert_eq!(s.sgr(true), "\x1b[30;106m");
-        assert_eq!(s.reversed().sgr(true), "\x1b[7;30;106m");
-        assert_eq!(s.reversed().sgr(false), "\x1b[7m");
-        assert_eq!(s.sgr(false), "");
+        assert_eq!(sent(s, true), "\x1b[30;106m");
+        assert_eq!(sent(s.reversed(), true), "\x1b[7;30;106m");
+        assert_eq!(sent(s.reversed(), false), "\x1b[7m");
+        assert_eq!(sent(s, false), "");
     }
 
     #[test]
@@ -302,9 +314,9 @@ mod tests {
             script: vtium_font::Script::Sub,
             ..Style::text(Color::Cyan)
         };
-        assert_eq!(sup.sgr(false), "\x1b[73m");
-        assert_eq!(sub.sgr(true), "\x1b[74;36m");
-        assert_eq!(Style::PLAIN.sgr(true), "");
+        assert_eq!(sent(sup, false), "\x1b[73m");
+        assert_eq!(sent(sub, true), "\x1b[74;36m");
+        assert_eq!(sent(Style::PLAIN, true), "");
     }
 
     #[test]
