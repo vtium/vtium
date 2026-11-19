@@ -1,0 +1,30 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+assertion_line: 117
+description: "help at 80×25, keys: Shift-Tab"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+ Fonts lists the font sets (frits) and the built-in fonts, with any font files
+ each is missing. Below the list, the console draws every character of the
+ preview in the font it uses now. Press t to try the highlighted font on the
+ console, k to keep it, and s to save it in the draft. Press n to make a new
+ font set.
+     Enter choose  t try live  s save  n new  r remove  i install  q quit
+
+ The Effects tab: a line of filters, then one list in three groups, with a
+ preview of the console with the highlighted item applied. The vtlooks come
+ first: No filter, then the presets, then the administrator's vtlooks, where
+ one that takes a preset's name marks the preset as hidden. Then come the color
+ maps and the shaders, each with its active mark and trust mark
+   ↑          Moves to the item above.
+   ↓          Moves to the item below.
+   Home       Goes to the first item.
+   End        Goes to the last item.
+   PgUp       Moves up by a page.
+   PgDn       Moves down by a page.
+   Space      On a font, a color map, a shader, a color scheme file or a pointer
+
+--------------------------------------------------------------------------------
+ ↑↓ scroll  ←→ Help, About  q quit  . more 1/4
