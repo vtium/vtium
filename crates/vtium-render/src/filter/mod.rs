@@ -188,13 +188,20 @@ enum Step {
 
 impl Map {
     /// The color filter `declaration` with `values`, one for each of its
-    /// parameters in the declaration's order. `None` when `declaration` is
-    /// not one of [`COLOR`], or when a value is not of its parameter's
-    /// kind. The vtlook reader has already checked each value's range.
+    /// parameters in the declaration's order. Parameters left off at the
+    /// end take their declared defaults, as a vtlook's section that leaves
+    /// a parameter out does, so a parameter added to a filter with a
+    /// default that changes nothing keeps every older list of values
+    /// meaning what it meant. `None` when `declaration` is not one of
+    /// [`COLOR`], when `values` holds more than the declaration's
+    /// parameters, when a parameter left off has no default, or when a
+    /// value is not of its parameter's kind. The vtlook reader has already
+    /// checked each value's range.
     pub fn new(declaration: &Declaration, values: &[Given]) -> Option<Map> {
-        if values.len() != declaration.params.len() {
-            return None;
-        }
+        let rest = declaration.params.get(values.len()..)?;
+        let defaults: Option<Vec<Given>> = rest.iter().map(|p| p.default).collect();
+        let values = [values, &defaults?].concat();
+        let values = values.as_slice();
         let step = match declaration.name {
             "gamma" => Step::Gamma(gamma::Gamma::of(values)?),
             "contrast" => Step::Contrast(contrast::Contrast::of(values)?),
@@ -358,5 +365,37 @@ mod tests {
         assert_eq!(Layer::of_word("Color"), None);
         assert_eq!(color("gamma").map(|d| d.name), Some("gamma"));
         assert_eq!(color("sepia"), None);
+    }
+
+    // Values left off at the end take their parameters' defaults, so a
+    // list written before a parameter existed still makes the same map. A
+    // list longer than the parameters makes none, and a parameter left
+    // off with no default makes none.
+    #[test]
+    #[expect(clippy::panic, reason = "a test fails by panicking")]
+    fn values_left_off_at_the_end_take_their_defaults() {
+        let tint = color("tint").unwrap_or_else(|| panic!("tint"));
+        let amber = Given::Color([255, 176, 0]);
+        let one = Given::Number(Fixed::of(1, 0));
+        let zero = Given::Number(Fixed::of(0, 0));
+        let full = Map::new(tint, &[amber, one, zero]);
+        assert!(full.is_some());
+        assert_eq!(Map::new(tint, &[amber, one]), full);
+        assert_eq!(Map::new(tint, &[amber]), full);
+        assert_eq!(Map::defaults(tint), full);
+        assert_eq!(Map::new(tint, &[amber, one, zero, zero]), None);
+        const NO_DEFAULT: &[Param] = &[Param {
+            name: "gamma",
+            kind: Kind::Number {
+                min: Fixed::of(0, 5000),
+                max: Fixed::of(2, 0),
+            },
+            default: None,
+            help: "",
+        }];
+        let mut gamma = *color("gamma").unwrap_or_else(|| panic!("gamma"));
+        gamma.params = NO_DEFAULT;
+        assert_eq!(Map::new(&gamma, &[]), None);
+        assert!(Map::new(&gamma, &[one]).is_some());
     }
 }

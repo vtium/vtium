@@ -32,6 +32,7 @@ gpu = any           # any; yes for the GPU path only; no for the CPU path only
 # Turns the screen toward one color, as a single-color phosphor.
 # color = 255,176,0 # color, r,g,b: the phosphor's color
 # amount = 1.0      # number, 0 to 1: how far toward it
+# floor = 0.0       # number, 0 to 1: how far dark colors rise above black
 
 # [color color-blind]
 # Simulates a color vision deficiency, or corrects for it.

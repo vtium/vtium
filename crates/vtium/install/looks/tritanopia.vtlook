@@ -1,0 +1,17 @@
+# tritanopia.vtlook: colors corrected for a viewer with tritanopia.
+#
+# Helps a viewer with tritanopia, who sees little blue light and so has
+# trouble telling blue from green and yellow from violet. vtium works out
+# which differences between colors such a viewer cannot see, and moves them
+# into colors the viewer can tell apart. Grays, black and white stay as they
+# are.
+#
+# vtium ships this vtlook in /usr/share/vtium/looks. To change it, copy it to
+# /etc/vtium/looks under the same name and edit the copy: vtium reads the copy
+# instead. Lower amount to apply only part of the correction.
+version = 1
+
+[color color-blind]
+kind = tritanopia
+mode = correct
+amount = 1.0

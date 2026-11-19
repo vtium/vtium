@@ -129,6 +129,54 @@ pub fn read(name: &str, dir: &Path, trust: &Trust) -> Result<Vtlook, Failure> {
     }
 }
 
+/// Reads the vtlook `name` from the first of `folders` that holds a file
+/// of that name, under the ownership check `trust`, as [`read`] reads it
+/// from one folder. vtium passes [`folders`](super::folders), the
+/// administrator's folder and then the package's, so an administrator's
+/// vtlook replaces a preset of the same name. The first folder that holds
+/// the file is the one vtium reads, even when that file fails a check: a
+/// broken copy of a preset is an error to fix, and vtium does not quietly
+/// draw the preset instead. `Err` names every folder when none holds the
+/// file.
+///
+/// References:
+/// - ADR-1304 D4, its note of 2026-11-19: the administrator's vtlook wins over a preset of the same name.
+/// - ADR-1304 D15: the rule it follows, a local shader hiding a packaged one until it is removed.
+pub fn find(name: &str, folders: &[&Path], trust: &Trust) -> Result<Vtlook, Failure> {
+    let first = folders.first().copied().unwrap_or(Path::new(LOOKS));
+    if name == DEFAULT || !named(name) {
+        // the name is no file's in any folder, and read says why
+        return read(name, first, trust);
+    }
+    let file = format!("{name}{SUFFIX}");
+    let held = folders
+        .iter()
+        .find(|dir| match dir.join(&file).symlink_metadata() {
+            Ok(_) => true,
+            Err(e) => !matches!(
+                e.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+            ),
+        });
+    if let Some(dir) = held {
+        return read(name, dir, trust);
+    }
+    let names: Vec<String> = folders.iter().map(|d| d.display().to_string()).collect();
+    let within = match names.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        None => first.display().to_string(),
+    };
+    Err(Failure::one(Report {
+        vtlook: quoted(name),
+        file: first.join(&file),
+        line: None,
+        part: None,
+        stage: Stage::Reading,
+        message: format!("There is no file {file} in {within}."),
+    }))
+}
+
 /// Reads a vtlook's bytes, `bytes`, as the file `file` of the vtlook
 /// `name`, against vtium's own filters.
 pub fn read_text(name: &str, file: &Path, bytes: &[u8]) -> Result<Vtlook, Failure> {
@@ -1024,6 +1072,75 @@ mod tests {
             "The file is larger than 65536 bytes, the most a vtlook may hold."
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A vtlook in the administrator's folder wins over the package's preset
+    // of the same name, even when the administrator's copy is broken, and
+    // removing the copy brings the preset back. A name in neither folder
+    // names both.
+    #[test]
+    fn the_administrator_s_vtlook_wins_over_the_package_s_preset() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = std::env::temp_dir().join(format!("vtlook-find-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (etc, share) = (root.join("etc"), root.join("share"));
+        for dir in [&root, &etc, &share] {
+            std::fs::create_dir_all(dir).unwrap_or_default();
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755));
+        }
+        let me = std::fs::metadata(&root).map_or(0, |m| m.uid());
+        let trust = Trust::owner(me).below(&root);
+        let write = |path: &Path, text: &str| {
+            std::fs::write(path, text).unwrap_or_default();
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644));
+        };
+        let folders = [etc.as_path(), share.as_path()];
+        let filter = |r: Result<Vtlook, Failure>| {
+            r.map(|l| {
+                l.color
+                    .iter()
+                    .map(|f| f.declaration.name)
+                    .collect::<Vec<_>>()
+            })
+            .map_err(|e| e.reports.first().map(|r| r.message.clone()))
+        };
+        write(&share.join("amber.vtlook"), "version = 1\n[color tint]\n");
+        assert_eq!(filter(find("amber", &folders, &trust)), Ok(vec!["tint"]));
+        write(&etc.join("amber.vtlook"), "version = 1\n[color gamma]\n");
+        assert_eq!(filter(find("amber", &folders, &trust)), Ok(vec!["gamma"]));
+        // a broken copy is the copy's error, not the preset drawn instead
+        write(&etc.join("amber.vtlook"), "version = 1\n[color sepia]\n");
+        let broken = find("amber", &folders, &trust).err().unwrap_or(Failure {
+            reports: Vec::new(),
+            more: 0,
+        });
+        assert_eq!(
+            broken.reports.first().map(|r| r.file.clone()),
+            Some(etc.join("amber.vtlook"))
+        );
+        let _ = std::fs::remove_file(etc.join("amber.vtlook"));
+        assert_eq!(filter(find("amber", &folders, &trust)), Ok(vec!["tint"]));
+        assert_eq!(
+            filter(find("green", &folders, &trust)),
+            Err(Some(format!(
+                "There is no file green.vtlook in {} or {}.",
+                etc.display(),
+                share.display()
+            )))
+        );
+        // a folder that does not exist holds nothing
+        let gone = root.join("gone");
+        assert_eq!(
+            filter(find("amber", &[gone.as_path(), share.as_path()], &trust)),
+            Ok(vec!["tint"])
+        );
+        // the built-in vtlook's name is no file's in any folder
+        write(&share.join("default.vtlook"), "version = 1\n");
+        assert!(
+            filter(find("default", &folders, &trust))
+                .is_err_and(|e| e.is_some_and(|m| m.starts_with("vtium never reads")))
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     // A byte-order mark before the first line is not part of it, as in

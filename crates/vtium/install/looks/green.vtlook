@@ -1,0 +1,15 @@
+# green.vtlook: a green monochrome monitor.
+#
+# Shows the screen in shades of one green color, as a monitor with a green
+# phosphor did. Each color becomes a shade as light as the color itself, so
+# yellow and white are the brightest and blue is nearly black.
+#
+# vtium ships this vtlook in /usr/share/vtium/looks. To change it, copy it to
+# /etc/vtium/looks under the same name and edit the copy: vtium reads the
+# copy instead. To keep dark colors visible, raise floor, for example to 0.15.
+version = 1
+
+[color tint]
+color = 51,255,102
+amount = 1.0
+floor = 0.0
