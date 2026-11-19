@@ -36,9 +36,6 @@ pub fn waits(screen: &Screen) -> Option<&'static str> {
     if screen.depth == Depth::One {
         return Some("a 1-bit display waits for present's depth reduction (ADR-1301)");
     }
-    if screen.color_filters.is_some() {
-        return Some("a vtlook's color filters wait for present's color step (ADR-1304 D2)");
-    }
     None
 }
 
