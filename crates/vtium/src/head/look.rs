@@ -19,7 +19,10 @@
 //! display that does not meet it draws the built-in vtlook alone, while
 //! the head's other displays keep the look, and vtium logs one line that
 //! names the display and the first requirement it does not meet. That is
-//! not an error of the vtlook.
+//! not an error of the vtlook. vtium checks a display again at each
+//! modeset that may change its size, refresh or depth, and each time the
+//! head moves between the GPU path and the CPU path. A display that meets
+//! the requirements again draws the vtlook again, with no reread.
 //!
 //! A build without the `filters` feature reads no vtlook. It logs once
 //! for each head whose configuration names one, and draws the built-in
@@ -29,7 +32,7 @@
 //! - ADR-1304 D5: a head's vtlook comes from its look, else the top level, else the built-in one.
 //! - ADR-1304 D2: the table is built on the CPU once for each head.
 //! - ADR-1304 D6: any error drops the head to the built-in vtlook, with one log line, and no retry.
-//! - ADR-1304 D7: a display that does not meet the requirements draws the built-in vtlook, with one log line.
+//! - ADR-1304 D7: a display that does not meet the requirements draws the built-in vtlook, with one log line, and vtium checks it again when its mode, its depth or the head's path changes.
 //! - ADR-1304 D10: a build without `filters` logs once and draws the built-in vtlook.
 //! - ADR-1304 D12: the built-in vtlook reads no file.
 
@@ -82,21 +85,41 @@ impl Chosen {
         match unmet(&look.requires, display) {
             None => (self.table.clone(), None),
             Some(why) => {
-                let (w, h) = display.size;
-                let depth = match display.depth {
-                    vtlook::Depth::One => "1 bit",
-                    vtlook::Depth::Gray => "8-bit gray",
-                    vtlook::Depth::Sixteen => "16 bits",
-                    vtlook::Depth::TwentyFour => "24 bits",
-                };
                 let line = format!(
-                    "vtlook {}: display {} ({w}x{h}, {depth}) draws the built-in vtlook: requires {why}",
-                    look.name, display.name
+                    "vtlook {}: display {} draws the built-in vtlook: requires {why}",
+                    look.name,
+                    described(display)
                 );
                 (None, Some(line))
             }
         }
     }
+
+    /// The line vtium logs when display `display`, which drew the built-in
+    /// vtlook because it did not meet the vtlook's requirements, meets
+    /// them again and draws the vtlook. `None` with no vtlook.
+    pub(crate) fn met_again(&self, display: &Display<'_>) -> Option<String> {
+        let look = self.vtlook.as_ref()?;
+        Some(format!(
+            "vtlook {}: display {} meets the vtlook's requirements again and draws the vtlook",
+            look.name,
+            described(display)
+        ))
+    }
+}
+
+/// Display `display` as a log line names it: its connector, its mode and
+/// its depth, such as `DP-1 (1280x800, 1 bit)`.
+#[cfg(feature = "filters")]
+fn described(display: &Display<'_>) -> String {
+    let (w, h) = display.size;
+    let depth = match display.depth {
+        vtlook::Depth::One => "1 bit",
+        vtlook::Depth::Gray => "8-bit gray",
+        vtlook::Depth::Sixteen => "16 bits",
+        vtlook::Depth::TwentyFour => "24 bits",
+    };
+    format!("{} ({w}x{h}, {depth})", display.name)
 }
 
 /// The first of `requires` that `display` does not meet, as the log line

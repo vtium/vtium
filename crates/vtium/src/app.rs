@@ -1667,7 +1667,7 @@ impl App {
             head.views.insert(key.clone(), view);
         }
         #[cfg(feature = "filters")]
-        self.give_colors(h, &key, &name, size, levels);
+        self.give_colors(h, &key);
         if !self.relayout(h) {
             if let Some(head) = self.heads.get_mut(h) {
                 head.drop_views(|k| *k == key);
@@ -1849,35 +1849,51 @@ impl App {
         }
     }
 
-    /// The density head `h`'s points convert at (the operator's decision
-    /// on vtium/vtium#145): `display-dpi`; else the lowest of the head's
-    /// displays', each one's measured down its rows as vtium draws it, or
-    /// [`DPI_ASSUMED`] where it measures none; [`DPI_ASSUMED`] with no
-    /// display.
-    /// Hands the view of display `key`, named `name`, of `size` and showing
-    /// `levels`, the color table of head `h`'s vtlook when the display meets
-    /// the vtlook's requirements, and else the built-in vtlook, with the
-    /// line that says why. vtium takes the display's density from
-    /// `display-dpi`, else from the size the display reports, else assumes
-    /// 96. A display drawn in color counts as 24 bits, as every DRM buffer
-    /// vtium draws into is.
+    /// Checks display `key` of head `h` against the requirements of the
+    /// head's vtlook, and hands the display's view the vtlook's color table
+    /// when the display meets them, else the built-in vtlook. vtium runs
+    /// the check when the display joins the head, at each modeset that may
+    /// change the display's size, refresh or depth, and each time the head
+    /// moves between the GPU path and the CPU path. A display that stops
+    /// meeting the requirements draws the built-in vtlook, with the line
+    /// that names the requirement it misses, and a display that meets them
+    /// again draws the vtlook again, with no reread of the vtlook. vtium
+    /// logs each new answer once, so a check that gives the same answer
+    /// logs nothing.
+    ///
+    /// The display's depth is its drawing's: 1 bit, gray, or for a color
+    /// display the bits a pixel of its buffer holds, so a 16-bit
+    /// framebuffer counts as 16. Its density comes from `display-dpi`,
+    /// else from the size the display reports, else vtium assumes 96.
     ///
     /// References:
-    /// - ADR-1304 D7: each display is checked against the vtlook's requirements when it joins the head.
+    /// - ADR-1304 D7: when vtium checks a display against the requirements, and how it judges depth, size, density and the path.
     #[cfg(feature = "filters")]
-    fn give_colors(
-        &mut self,
-        h: usize,
-        key: &(PathBuf, DisplayId),
-        name: &str,
-        size: (u32, u32),
-        levels: Option<u8>,
-    ) {
+    fn give_colors(&mut self, h: usize, key: &(PathBuf, DisplayId)) {
         use vtium_settings::vtlook::Depth as Needs;
+        let Some(video) = self.videos.get(&key.0) else {
+            return;
+        };
+        let name = video.name(key.1);
+        let (levels, bits, reported) = (
+            video.levels(key.1),
+            video.buffer_bits(key.1),
+            video.dpi(key.1),
+        );
+        let Some(size) = video
+            .size(key.1)
+            .or_else(|| Some(self.heads.get(h)?.views.get(key)?.size))
+        else {
+            return;
+        };
         let depth = match depth(&self.head_config(h), levels) {
             Depth::One => Needs::One,
             Depth::Gray(_) => Needs::Gray,
-            Depth::Color => Needs::TwentyFour,
+            Depth::Color => match bits {
+                Some(1) => Needs::One,
+                Some(b) if b <= 16 => Needs::Sixteen,
+                _ => Needs::TwentyFour,
+            },
         };
         let turned = self
             .heads
@@ -1888,7 +1904,7 @@ impl App {
             .number(&keys::DISPLAY_DPI)
             .map(|d| d as f64)
             .or_else(|| {
-                let (across, down) = self.videos.get(&key.0)?.dpi(key.1)?;
+                let (across, down) = reported?;
                 Some(if turned { across } else { down })
             })
             .unwrap_or(DPI_ASSUMED);
@@ -1899,24 +1915,66 @@ impl App {
         )]
         let dpi = dpi.round().clamp(0.0, f64::from(u32::MAX)) as u32;
         let display = crate::head::look::Display {
-            name,
+            name: &name,
             size,
             depth,
             dpi,
-            gpu: self.gpu_source(h).is_some(),
+            gpu: self.draws_on_gpu(h),
         };
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
         let (table, line) = head.vtlook.table_for(&display);
-        if let Some(line) = line {
-            log::info!(target: "look", "{line}");
-        }
-        if let Some(view) = head.views.get_mut(key) {
-            view.set_colors(table);
+        let again = head.vtlook.met_again(&display);
+        let Some(view) = head.views.get_mut(key) else {
+            return;
+        };
+        view.set_colors(table);
+        if view.set_unmet(line.clone()).is_some()
+            && let Some(said) = line.or(again)
+        {
+            log::info!(target: "look", "{said}");
         }
     }
 
+    /// Checks each display of head `h` against the requirements of the
+    /// head's vtlook again, as [`App::give_colors`] does, after the head
+    /// moved between the GPU path and the CPU path.
+    #[cfg(feature = "filters")]
+    fn give_colors_again(&mut self, h: usize) {
+        let keys: Vec<_> = self
+            .heads
+            .get(h)
+            .map(|head| head.views.keys().cloned().collect())
+            .unwrap_or_default();
+        for key in &keys {
+            self.give_colors(h, key);
+        }
+    }
+
+    /// Whether head `h` draws on the GPU path, as a vtlook's `gpu`
+    /// requirement judges it: the path its render thread reported, once it
+    /// has, and the path the head is set up for until then, so that a
+    /// display that joins before the render thread starts is judged by
+    /// the path it is about to draw on. A head whose render thread could
+    /// not start draws on the CPU path.
+    #[cfg(feature = "filters")]
+    fn draws_on_gpu(&self, h: usize) -> bool {
+        let Some(head) = self.heads.get(h) else {
+            return false;
+        };
+        match &head.painter {
+            Some(painter) if painter.known() => painter.path() == crate::painter::Path::Gpu,
+            _ if head.painter_refused => false,
+            _ => self.gpu_source(h).is_some(),
+        }
+    }
+
+    /// The density head `h`'s points convert at (the operator's decision
+    /// on vtium/vtium#145): `display-dpi`; else the lowest of the head's
+    /// displays', each one's measured down its rows as vtium draws it, or
+    /// [`DPI_ASSUMED`] where it measures none; [`DPI_ASSUMED`] with no
+    /// display.
     fn dpi(&self, h: usize) -> f64 {
         if let Some(dpi) = self.head_config(h).number(&keys::DISPLAY_DPI) {
             return dpi as f64;
@@ -2931,6 +2989,12 @@ impl App {
                 }
                 if let Some(h) = resized {
                     self.relayout(h);
+                }
+                // The modeset may have given the display a size, refresh or
+                // depth that the head's vtlook judges differently.
+                #[cfg(feature = "filters")]
+                if let Some(h) = self.head_of(node, id) {
+                    self.give_colors(h, &key);
                 }
             }
             // A frame waiting on this flip is drawn at the turn's end,
@@ -5040,6 +5104,10 @@ impl App {
                     head.name()
                 );
                 head.painter_refused = true;
+                // The head draws on the CPU path, which a vtlook that
+                // requires the GPU path does not accept.
+                #[cfg(feature = "filters")]
+                self.give_colors_again(h);
             }
         }
     }
@@ -5083,10 +5151,13 @@ impl App {
             awake,
             ..
         } = self;
-        for head in heads.iter_mut() {
+        let mut moved = Vec::new();
+        for (h, head) in heads.iter_mut().enumerate() {
             let Some(painter) = &mut head.painter else {
                 continue;
             };
+            let path = |p: &Painter| (p.known(), p.path());
+            let before = path(painter);
             let frames = painter.take();
             // the render thread told the loop which path draws the head
             if painter.take_known() {
@@ -5122,7 +5193,19 @@ impl App {
                     head.figures.frame(shown.compose, now);
                 }
             }
+            if head.painter.as_ref().map(path) != Some(before) {
+                moved.push(h);
+            }
         }
+        // A head that moved between the GPU path and the CPU path, or
+        // whose render thread first said which path draws it, has its
+        // displays checked against the `gpu` requirement of its vtlook.
+        #[cfg(feature = "filters")]
+        for h in moved {
+            self.give_colors_again(h);
+        }
+        #[cfg(not(feature = "filters"))]
+        let _ = moved;
     }
 
     /// The render timer's figures for each display, once a second: its
@@ -5824,6 +5907,12 @@ mod tests {
         /// The levels it reports for each of its displays: `None` for
         /// color, and 2 for black and white.
         pub(super) levels: Option<u8>,
+        /// The mode of each of its displays, at most 320x160, the memory
+        /// it draws into.
+        pub(super) size: (u32, u32),
+        /// The bits a pixel of each display's buffer holds, as it reports
+        /// them.
+        pub(super) bits: Option<u8>,
     }
 
     impl Still {
@@ -5851,6 +5940,8 @@ mod tests {
                 hotplugs: 0,
                 asks_for_vt: None,
                 levels: None,
+                size: (320, 160),
+                bits: Some(32),
             }
         }
 
@@ -5887,7 +5978,7 @@ mod tests {
                 .to_owned()
         }
         fn size(&self, _: DisplayId) -> Option<(u32, u32)> {
-            Some((320, 160))
+            Some(self.size)
         }
         fn refresh_mhz(&self, _: DisplayId) -> Option<u32> {
             None
@@ -5897,6 +5988,9 @@ mod tests {
         }
         fn levels(&self, _: DisplayId) -> Option<u8> {
             self.levels
+        }
+        fn buffer_bits(&self, _: DisplayId) -> Option<u8> {
+            self.bits
         }
         fn identity(&self, id: DisplayId) -> Option<Identity> {
             Some(Identity {
@@ -5912,7 +6006,13 @@ mod tests {
                 return None;
             }
             let memory: Arc<Memory> = self.pixels.clone();
-            Some(Token::new(id, (320, 160), 320 * 4, 0, memory))
+            Some(Token::new(
+                id,
+                self.size,
+                self.size.0.saturating_mul(4),
+                0,
+                memory,
+            ))
         }
         fn give_back(&mut self, _: Token) {}
         fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
@@ -6168,6 +6268,128 @@ mod tests {
                 .collect();
             assert_eq!(held, [takes], "{requires:?}");
         }
+    }
+
+    /// Gives head `a` of `app` the vtlook amber, a tint under `requires`,
+    /// and returns the color table it draws with.
+    #[cfg(feature = "filters")]
+    fn amber(app: &mut App, requires: &str) -> std::sync::Arc<vtium_render::filter::Table> {
+        use std::sync::Arc;
+        use vtium_settings::vtlook;
+        let text =
+            format!("version = 1\n[requires]\n{requires}\n[color tint]\ncolor = 255,176,0\n");
+        let look = vtlook::read_text(
+            "amber",
+            Path::new("/etc/vtium/looks/amber.vtlook"),
+            text.as_bytes(),
+        )
+        .unwrap();
+        let table = Arc::new(vtlook::table(&look).unwrap());
+        let head = app.heads.first_mut().unwrap();
+        head.vtlook = crate::head::look::Chosen {
+            vtlook: Some(look),
+            table: Some(Arc::clone(&table)),
+        };
+        table
+    }
+
+    /// Whether each display of `app` draws with `table`.
+    #[cfg(feature = "filters")]
+    fn holding(app: &App, table: &std::sync::Arc<vtium_render::filter::Table>) -> Vec<bool> {
+        app.heads
+            .iter()
+            .flat_map(|h| h.views.values())
+            .map(|v| v.colors().is_some_and(|t| std::sync::Arc::ptr_eq(t, table)))
+            .collect()
+    }
+
+    #[cfg(feature = "filters")]
+    /// The Still at `/dev/mem0` of `app`.
+    fn still(app: &mut App) -> &mut Still {
+        let video = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        video.as_any().downcast_mut::<Still>().unwrap()
+    }
+
+    #[cfg(feature = "filters")]
+    const ONE_HEAD: &str = "version = 1\n[head a]\n[rules]\ndisplay connector:mem/A -> a\n";
+
+    // A modeset that gives a display a mode the head's vtlook does not
+    // accept puts that display on the built-in vtlook, and the next modeset
+    // back to a mode it accepts gives it the vtlook's table again, with no
+    // reread of the vtlook.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_mode_change_checks_the_display_against_the_vtlook_s_min_size_again() {
+        let (_lp, mut app) = seat(Some(ONE_HEAD), no_fonts());
+        let table = amber(&mut app, "min-size = 320x160");
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        assert_eq!(holding(&app, &table), [true], "at 320x160");
+        for (size, takes) in [((200, 100), false), ((320, 160), true)] {
+            let s = still(&mut app);
+            s.size = size;
+            s.events.push(Event::Redraw(DisplayId(1)));
+            app.turn(Instant::now());
+            assert_eq!(holding(&app, &table), [takes], "at {size:?}");
+        }
+    }
+
+    // A color display is judged by the bits a pixel of its buffer holds,
+    // so a 16-bit framebuffer does not meet `min-depth = 24`; when the
+    // device is set up again at 32 bits, the display takes the vtlook.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_16_bit_buffer_does_not_meet_min_depth_24() {
+        let (_lp, mut app) = seat(Some(ONE_HEAD), no_fonts());
+        let table = amber(&mut app, "min-depth = 24");
+        let mut s = Still::new(&[(1, "A")]);
+        s.bits = Some(16);
+        app.add_video(PathBuf::from("/dev/mem0"), Box::new(s));
+        shown(&mut app);
+        assert_eq!(holding(&app, &table), [false], "16 bits");
+        let s = still(&mut app);
+        s.bits = Some(32);
+        s.events.push(Event::Redraw(DisplayId(1)));
+        app.turn(Instant::now());
+        assert_eq!(holding(&app, &table), [true], "32 bits");
+    }
+
+    // A vtlook with `gpu = yes` draws on a head the GPU path draws. When
+    // the GPU path ends, here at a lost context, the head draws on the CPU
+    // path and its display draws the built-in vtlook.
+    #[cfg(all(feature = "filters", feature = "gpu"))]
+    #[test]
+    fn a_head_that_leaves_the_gpu_path_drops_a_vtlook_that_requires_it() {
+        use crate::painter::{Fault, GpuSource, TestGpu};
+        let t = Instant::now();
+        let (mut lp, mut app) =
+            seat_with(&["--font-size=16", "--hwaccel"], Some(ONE_HEAD), no_fonts());
+        let gpu = std::sync::Arc::new(TestGpu::default());
+        app.set_gpu_source(GpuSource::Test(std::sync::Arc::clone(&gpu)));
+        let table = amber(&mut app, "gpu = yes");
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown_at(&mut app, t);
+        settle(&mut lp, &mut app, t);
+        let path = |app: &App| {
+            app.heads
+                .first()
+                .and_then(|h| h.painter.as_ref())
+                .map(Painter::path)
+        };
+        assert_eq!(path(&app), Some(crate::painter::Path::Gpu));
+        assert_eq!(holding(&app, &table), [true], "on the GPU path");
+        gpu.faults.lock().unwrap().push_back(Fault::ContextLost);
+        app.heads.first_mut().unwrap().draw_now = true;
+        app.turn(t);
+        settle(&mut lp, &mut app, t);
+        assert_eq!(path(&app), Some(crate::painter::Path::Cpu));
+        assert_eq!(holding(&app, &table), [false], "on the CPU path");
     }
 
     // ADR-1401 D9 and vtium-settings's Identity: a display's order is its

@@ -1069,6 +1069,10 @@ pub struct View {
     /// The drawing's renderer holds `colors` already.
     #[cfg(feature = "filters")]
     colors_held: bool,
+    /// The line that says which requirement of the head's vtlook this
+    /// display does not meet, `None` while it meets them all.
+    #[cfg(feature = "filters")]
+    unmet: Option<String>,
 }
 
 impl View {
@@ -1120,6 +1124,8 @@ impl View {
             colors: None,
             #[cfg(feature = "filters")]
             colors_held: true,
+            #[cfg(feature = "filters")]
+            unmet: None,
         };
         view.install(renderer);
         view
@@ -1252,14 +1258,32 @@ impl View {
     /// display takes it, or with none for the built-in vtlook. The
     /// renderer takes it at the next draw, while a frame is composing
     /// too, and each renderer a zoom, turn or font change makes takes it
-    /// as well.
+    /// as well. The table the view draws with already changes nothing, so
+    /// a check that gives the same answer again draws no frame whole.
     ///
     /// References:
     /// - ADR-1304 D2: every display of the head draws through the head's table.
     #[cfg(feature = "filters")]
     pub fn set_colors(&mut self, colors: Option<Arc<vtium_render::filter::Table>>) {
-        self.colors = colors;
-        self.colors_held = false;
+        let same = match (&self.colors, &colors) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
+        if !same {
+            self.colors = colors;
+            self.colors_held = false;
+        }
+    }
+
+    /// Records `unmet`, the line that says which requirement of the head's
+    /// vtlook the display does not meet, or `None` when it meets them all.
+    /// Returns the line before when `unmet` differs from it, so that vtium
+    /// logs each new answer once, and not again at each check that gives
+    /// the same answer.
+    #[cfg(feature = "filters")]
+    pub fn set_unmet(&mut self, unmet: Option<String>) -> Option<Option<String>> {
+        (self.unmet != unmet).then(|| std::mem::replace(&mut self.unmet, unmet))
     }
 
     /// The color table this display draws with, for the tests.
@@ -1803,6 +1827,27 @@ mod tests {
         view.set_colors(None);
         draw(&mut term, &mut view, &mut video, None);
         assert_eq!(colors(&view), Some(false));
+    }
+
+    // A check of the display against the vtlook that gives the same answer
+    // again hands the renderer nothing, so the display draws no frame
+    // whole, and says nothing new to log.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn the_same_answer_again_changes_nothing() {
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        let table = Arc::new(vtium_render::filter::Table::build(&[]).unwrap());
+        view.set_colors(Some(Arc::clone(&table)));
+        term.terminal.input(b"A");
+        draw(&mut term, &mut view, &mut video, None);
+        assert!(view.colors_held, "the renderer holds the table");
+        view.set_colors(Some(table));
+        assert!(view.colors_held, "the same table again");
+        let line = Some("vtlook amber: display A draws the built-in vtlook".to_owned());
+        assert_eq!(view.set_unmet(line.clone()), Some(None), "a new answer");
+        assert_eq!(view.set_unmet(line.clone()), None, "the same answer");
+        assert_eq!(view.set_unmet(None), Some(line), "met again");
     }
 
     // A notice drawn through the color slot is the notice drawn without
