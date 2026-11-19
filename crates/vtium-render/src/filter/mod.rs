@@ -13,26 +13,33 @@
 //! parameter is described in one place only.
 //!
 //! [`COLOR`] is the one list of the color filters: `gamma`, `contrast`,
-//! `tint` and `color-blind`. Each has a module of its own, which holds its
-//! declaration beside its function. A [`Map`] is one color filter with its
-//! parameters set, and [`Table`] merges a look's maps into one color
-//! table, which the CPU path reads through a [`Lookup`] and the GPU path
-//! uploads as a texture.
+//! `tint`, `color-blind` and `cube`. Each has a module of its own, which
+//! holds its declaration beside its function. A [`Map`] is one color filter
+//! with its parameters set, and [`Table`] merges a look's maps into one
+//! color table, which the CPU path reads through a [`Lookup`] and the GPU
+//! path uploads as a texture. `cube` takes its function from a `.cube`
+//! file: vtium-settings reads the file into a [`Cube`], and [`Map::cube`]
+//! makes the filter from it.
 //!
 //! References:
 //! - ADR-1304 D1: a filter's declaration and the kinds a parameter takes.
 //! - ADR-1304 D2: the color layer's contract, and the one table it merges into.
 //! - ADR-1304 D8: the first color filters.
+//! - ADR-1304 D9: the `cube` filter, a color table from a file.
 //! - ADR-1304 D10: the color filters live here, behind the `filters` feature.
+
+use std::sync::Arc;
 
 mod color_blind;
 mod contrast;
+mod cube;
 mod gamma;
 mod math;
 mod slot;
 mod table;
 mod tint;
 
+pub use cube::{Cube, SIDES_3D, SIZES_1D, Shape};
 pub(crate) use slot::Colored;
 pub use table::{Lookup, Table};
 
@@ -169,21 +176,24 @@ pub const COLOR: &[&Declaration] = &[
     &contrast::DECLARATION,
     &tint::DECLARATION,
     &color_blind::DECLARATION,
+    &cube::DECLARATION,
 ];
 
 /// One color filter with its parameters set: the function from one color to
 /// another that the table is built from. A color filter reads only the
 /// color it maps, never the pixel's place, its cell or the time, so the
-/// whole layer can be a table.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// whole layer can be a table. A clone of a `cube` filter shares its
+/// table, so a clone costs no copy of the file's entries.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Map(Step);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 enum Step {
     Gamma(gamma::Gamma),
     Contrast(contrast::Contrast),
     Tint(tint::Tint),
     ColorBlind(color_blind::ColorBlind),
+    Cube(Arc<Cube>),
 }
 
 impl Map {
@@ -196,7 +206,9 @@ impl Map {
     /// [`COLOR`], when `values` holds more than the declaration's
     /// parameters, when a parameter left off has no default, or when a
     /// value is not of its parameter's kind. The vtlook reader has already
-    /// checked each value's range.
+    /// checked each value's range. `cube` is always `None` here, since its
+    /// one parameter names a file: [`Map::cube`] makes it from the file's
+    /// table.
     pub fn new(declaration: &Declaration, values: &[Given]) -> Option<Map> {
         let rest = declaration.params.get(values.len()..)?;
         let defaults: Option<Vec<Given>> = rest.iter().map(|p| p.default).collect();
@@ -210,6 +222,11 @@ impl Map {
             _ => return None,
         };
         Some(Map(step))
+    }
+
+    /// The `cube` filter of the table `cube`, read from its `.cube` file.
+    pub fn cube(cube: Arc<Cube>) -> Map {
+        Map(Step::Cube(cube))
     }
 
     /// The color filter `declaration` with every parameter at its default,
@@ -227,6 +244,7 @@ impl Map {
             Step::Contrast(f) => f.apply(c),
             Step::Tint(f) => f.apply(c),
             Step::ColorBlind(f) => f.apply(c),
+            Step::Cube(f) => f.apply(c),
         }
     }
 }
@@ -298,17 +316,18 @@ mod tests {
     use super::*;
 
     // Every declaration of the list is well formed: its names, its ranges
-    // and its defaults, and each makes a map at its defaults. The check is
-    // also run on declarations made here, to show it catches a fault.
+    // and its defaults, and each makes a map at its defaults but `cube`,
+    // whose file has no default. The check is also run on declarations
+    // made here, to show it catches a fault.
     #[test]
     fn each_declaration_is_well_formed() {
         for d in COLOR {
             assert_eq!(fault(d), None);
             assert_eq!(d.layer, Layer::Color, "{}", d.name);
-            assert!(Map::defaults(d).is_some(), "{}", d.name);
+            assert_eq!(Map::defaults(d).is_some(), d.name != "cube", "{}", d.name);
         }
         let names: Vec<&str> = COLOR.iter().map(|d| d.name).collect();
-        assert_eq!(names, ["gamma", "contrast", "tint", "color-blind"]);
+        assert_eq!(names, ["gamma", "contrast", "tint", "color-blind", "cube"]);
         const GOOD: Declaration = Declaration {
             name: "gamma",
             layer: Layer::Color,
