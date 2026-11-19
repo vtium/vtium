@@ -10,6 +10,8 @@ A `# kit:` line names the VT demo's review kit the page belongs to (`sixel` or `
 
 `font-probe.sh` and `font-probe-alone.sh` draw no screen of the scenario either: tier 3's font-sources check (`t3_fonts.py`) runs them to draw its probe characters, and `font-probe-alone.sh` first switches the console to the reference set `cullet-alone` and reports the switch on the event port.
 
+`key-echo.sh` draws no screen of the scenario either: tier 3's key-echo check (`t3_keyecho.py`) runs it. A program in raw mode echoes the keys the driver types. The script reports its window and the keys the program read on the event port, as a benchmark screen does.
+
 `pointer.sh` draws no screen of the scenario: tier 3's pointer case (`t3_pointer.py`) runs it after each move of the pointer, and it prints the guest's DRM atomic state on the event port, where the case reads the cursor plane.
 
 The `img-*.sh` screens are vtium's own, drawn by the images variant (the tier 3 README's Pictures). All but `img-tmux-pane`, which plays a clip in a tmux pane as the acceptance screens do (`acceptance.inc`), share `img-common.inc`, which sources `kitty-common.inc` and `sixel-common.inc` for the senders and queries, and they send the test pictures that `tools/tier3/t3_pictures.py` writes into `pictures/` beside them when a run builds the variant's disc. Without that directory they print where the pictures come from and report `T3-NO-PICTURES` on the event port.

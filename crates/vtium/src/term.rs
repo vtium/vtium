@@ -76,6 +76,58 @@ pub struct Term {
     pub parsed: u64,
     /// The keys sent to the program since the start ([`Term::key_sent`]).
     keys: u64,
+    /// When each of the last [`KEYS_KEPT`] keys was sent, at the key's
+    /// number modulo [`KEYS_KEPT`].
+    sent_at: [Option<Instant>; KEYS_KEPT],
+    /// The keys sent to the program when its output last changed the
+    /// screen. The output parsed after a key answers that key, so a frame
+    /// that carries the output carries the key's echo.
+    answered: u64,
+    /// The time from each key to the present of the frame that carries its
+    /// echo.
+    echoes: Echoes,
+}
+
+/// How many keys' send times a term keeps. A display whose last frame
+/// carried an older key's echo measures its next echo from the oldest key
+/// kept that the program's output has answered, and measures none when
+/// the output answered only keys older than those kept.
+const KEYS_KEPT: usize = 8;
+
+/// The key-to-present times a term's displays measured: the time from a
+/// key vtium sent to the program until a display presents the first frame
+/// that carries output the program wrote after that key. When several
+/// keys wait for their echo, the frame that carries the echo answers the
+/// oldest of them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Echoes {
+    /// The frames presented since the start that carried a key's echo,
+    /// one for each display that presented one.
+    pub count: u64,
+    /// The key-to-present time of the last such frame.
+    pub last: Option<std::time::Duration>,
+    /// The figures since the log's last line took them.
+    pub figures: EchoFigures,
+}
+
+/// The key-to-present times measured since the log's last line: how many,
+/// their sum and the largest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EchoFigures {
+    pub count: u32,
+    pub sum: std::time::Duration,
+    pub max: std::time::Duration,
+}
+
+impl Echoes {
+    fn add(&mut self, time: std::time::Duration) {
+        self.count = self.count.saturating_add(1);
+        self.last = Some(time);
+        let f = &mut self.figures;
+        f.count = f.count.saturating_add(1);
+        f.sum = f.sum.saturating_add(time);
+        f.max = f.max.max(time);
+    }
 }
 
 impl Term {
@@ -95,6 +147,9 @@ impl Term {
             exited: None,
             parsed: 0,
             keys: 0,
+            sent_at: [None; KEYS_KEPT],
+            answered: 0,
+            echoes: Echoes::default(),
         }
     }
 
@@ -102,8 +157,47 @@ impl Term {
     /// every change the program's output makes to the screen draws at once
     /// until the display's next flip completes ([`View::flipped`],
     /// ADR-1401 D2).
+    ///
+    /// The term also notes when the key was sent, so the display that
+    /// presents the key's echo can measure the time in between
+    /// ([`Term::echoes`]).
     pub fn key_sent(&mut self) {
         self.keys = self.keys.wrapping_add(1);
+        let at = (self.clock)();
+        if let Some(slot) = self.sent_at.get_mut(kept_slot(self.keys)) {
+            *slot = Some(at);
+        }
+    }
+
+    /// When the oldest key was sent that came after key number `seen`,
+    /// that the program's output has answered, and that the term still
+    /// keeps. `None` when no such key exists: the output answered no key
+    /// after `seen`, or every key it answered is older than the keys kept.
+    /// A key sent after the last answer is never returned, because a frame
+    /// taken now does not carry its echo.
+    fn first_key_after(&self, seen: u64) -> Option<Instant> {
+        // Key numbers wrap, so each test measures a distance from `seen`.
+        let answered = self.answered.wrapping_sub(seen);
+        if answered == 0 {
+            return None;
+        }
+        let back = self.keys.wrapping_sub(seen).min(KEYS_KEPT as u64);
+        let first = self.keys.wrapping_sub(back).wrapping_add(1);
+        if first.wrapping_sub(seen) > answered {
+            return None;
+        }
+        self.sent_at.get(kept_slot(first)).copied().flatten()
+    }
+
+    /// The key-to-present times the term's displays measured.
+    pub fn echoes(&self) -> &Echoes {
+        &self.echoes
+    }
+
+    /// The key-to-present figures since the log's last line, which the
+    /// head's frame times line takes.
+    pub(crate) fn echo_figures(&mut self) -> &mut EchoFigures {
+        &mut self.echoes.figures
     }
 
     /// The keys sent to the program since the start. A view keeps the
@@ -169,13 +263,38 @@ impl Term {
         let end = (self.clock)();
         self.coalesce.input(start, end, taken);
         self.unparsed = taken < output.len();
-        self.changed |= before.changed(&self.terminal);
+        if before.changed(&self.terminal) {
+            self.changed = true;
+            // This output answers every key sent so far.
+            self.answered = self.keys;
+        }
         self.parsed = self
             .parsed
             .saturating_add(u64::try_from(taken).unwrap_or(u64::MAX));
         let action = self.sync.input(&mut self.terminal, end, self.unparsed);
         self.act(action);
         taken
+    }
+}
+
+/// A frame that carries the echo of a key sent at `key` was presented
+/// now, as `clock` reads it: `term` records the time in between.
+fn echoed(term: &mut Term, key: Option<Instant>, clock: &dyn Fn() -> Instant) {
+    if let Some(key) = key {
+        term.echoes.add(clock().saturating_duration_since(key));
+    }
+}
+
+/// Where a term keeps key number `key`'s send time.
+fn kept_slot(key: u64) -> usize {
+    usize::try_from(key.checked_rem(KEYS_KEPT as u64).unwrap_or(0)).unwrap_or(0)
+}
+
+/// The earlier of two send times, either of which may be missing.
+fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
     }
 }
 
@@ -483,8 +602,49 @@ impl Overlay {
         if self.notice.is_none() && self.mark.is_none() {
             return Vec::new();
         }
-        let own = renderer.font();
-        let depth = renderer.depth();
+        self.draw_in(
+            renderer.font(),
+            renderer.depth(),
+            grid,
+            orientation,
+            size,
+            target,
+        )
+    }
+
+    /// Draws the overlay into `target` as [`Overlay::draw_into`] does,
+    /// through the renderer's color slot, so that a vtlook's color filters
+    /// reach the notices and the mark as they reach the frame.
+    ///
+    /// References:
+    /// - ADR-1304 D2: every pixel of the display passes through the color slot.
+    #[cfg(feature = "filters")]
+    pub fn draw_colored<F: Face>(
+        &self,
+        renderer: &mut Renderer<F>,
+        grid: (usize, usize),
+        orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
+        if self.notice.is_none() && self.mark.is_none() {
+            return Vec::new();
+        }
+        let (font, depth, mut colored) = renderer.colored_with_font(target);
+        self.draw_in(font, depth, grid, orientation, size, &mut colored)
+    }
+
+    /// Draws the overlay into `target` with vtium's built-in font in the
+    /// cell of `own`, the renderer's font, under `own`'s sprite policy.
+    fn draw_in<F: Face>(
+        &self,
+        own: &Font<F>,
+        depth: Depth,
+        grid: (usize, usize),
+        orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
         match crate::font::own_face(own.face().cell()) {
             Some(face) => {
                 let font = Font::new(face).with_policy(own.policy());
@@ -597,6 +757,8 @@ pub struct Job {
     /// The display lost its picture: the frame is drawn whole, whatever
     /// the buffer's age.
     whole: bool,
+    /// When the oldest key whose echo this frame carries was sent.
+    echo: Option<Instant>,
 }
 
 impl Job {
@@ -676,6 +838,15 @@ impl Job {
                     .collect();
                 let (most_cols, most_rows) = drawing.renderer.grid_size();
                 let grid = (grid.0.min(most_cols), grid.1.min(most_rows));
+                #[cfg(feature = "filters")]
+                let overlaid = self.overlay.draw_colored(
+                    &mut drawing.renderer,
+                    grid,
+                    self.orientation,
+                    size,
+                    &mut target,
+                );
+                #[cfg(not(feature = "filters"))]
                 let overlaid = self.overlay.draw_into(
                     &drawing.renderer,
                     grid,
@@ -703,6 +874,7 @@ impl Job {
             refused_gpu,
             back_on_gpu: false,
             left_gpu: None,
+            echo: self.echo,
         }
     }
 }
@@ -754,6 +926,8 @@ pub struct Composed {
     /// Where the display's cursor plane shows the pointer's tip.
     at: Option<(i32, i32)>,
     tip: Option<(u32, u32)>,
+    /// When the oldest key whose echo this frame carries was sent.
+    echo: Option<Instant>,
 }
 
 /// What [`View::prepare`] made of a draw.
@@ -783,6 +957,8 @@ struct Cost {
     cpu: std::time::Duration,
     damage_px: u64,
     misses: u32,
+    /// When the oldest key whose echo the frame carries was sent.
+    echo: Option<Instant>,
 }
 
 impl Cost {
@@ -796,6 +972,7 @@ impl Cost {
             cpu: self.cpu.saturating_add(kept.cpu),
             damage_px: self.damage_px.saturating_add(kept.damage_px),
             misses: self.misses.saturating_add(kept.misses),
+            echo: earliest(self.echo, kept.echo),
         }
     }
 }
@@ -832,6 +1009,15 @@ pub struct View {
     /// flip completes. While the term has counted a key since, a key's
     /// window is open on this display ([`View::flipped`], ADR-1401 D2).
     flipped_keys: Option<u64>,
+    /// The term's answered keys ([`Term::answered`]) when this view's last
+    /// frame was taken, or `None` before the view's first frame and after a
+    /// switch to another console's term, until the next frame is taken. A frame taken while the term has
+    /// answered more keys carries the echo of the first of them.
+    answered: Option<u64>,
+    /// When the oldest key was sent whose echo a frame carried that the
+    /// display has not presented yet, as a frame the render thread could
+    /// not take or one the display dropped and draws again.
+    echo_owed: Option<Instant>,
     /// A draw waits for the display to take a frame, as after its flip in
     /// flight, or for the frame composing.
     pub pending: bool,
@@ -884,6 +1070,17 @@ pub struct View {
     pub overlay: Overlay,
     /// The overlay the last frame took, `None` when unknown.
     overlay_sent: Option<Overlay>,
+    /// The color table of the head's vtlook that this display draws with,
+    /// `None` for the built-in vtlook ([`View::set_colors`]).
+    #[cfg(feature = "filters")]
+    colors: Option<Arc<vtium_render::filter::Table>>,
+    /// The drawing's renderer holds `colors` already.
+    #[cfg(feature = "filters")]
+    colors_held: bool,
+    /// The line that says which requirement of the head's vtlook this
+    /// display does not meet, `None` while it meets them all.
+    #[cfg(feature = "filters")]
+    unmet: Option<String>,
 }
 
 impl View {
@@ -911,6 +1108,11 @@ impl View {
             since: Age::NEVER,
             wait: Wait::default(),
             flipped_keys: Some(0),
+            // A display that joins while vtium runs starts from the keys
+            // the term has already answered, so its first frame times no
+            // key sent before it joined.
+            answered: None,
+            echo_owed: None,
             pending: false,
             kept: None,
             owed: false,
@@ -929,6 +1131,12 @@ impl View {
             sent: None,
             overlay: Overlay::default(),
             overlay_sent: None,
+            #[cfg(feature = "filters")]
+            colors: None,
+            #[cfg(feature = "filters")]
+            colors_held: true,
+            #[cfg(feature = "filters")]
+            unmet: None,
         };
         view.install(renderer);
         view
@@ -947,6 +1155,10 @@ impl View {
         self.arrived.clear();
         self.overlaid.clear();
         self.overlay_sent = None;
+        #[cfg(feature = "filters")]
+        {
+            self.colors_held = self.colors.is_none();
+        }
         self.drop_kept();
     }
 
@@ -992,6 +1204,8 @@ impl View {
         self.drop_kept();
         // The other screen's term counts its own keys.
         self.flipped_keys = None;
+        self.answered = None;
+        self.echo_owed = None;
     }
 
     /// The display's flip completed, as its flip event says, while it shows
@@ -1049,6 +1263,66 @@ impl View {
     /// The font's sprite policy and missing glyph.
     pub fn font_policy(&self) -> (SpritePolicy, Missing) {
         self.policy
+    }
+
+    /// Draws with `colors`, the color table of the head's vtlook as this
+    /// display takes it, or with none for the built-in vtlook. The
+    /// renderer takes it at the next draw, while a frame is composing
+    /// too, and each renderer a zoom, turn or font change makes takes it
+    /// as well. The table the view draws with already changes nothing, so
+    /// a check that gives the same answer again draws no frame whole.
+    ///
+    /// References:
+    /// - ADR-1304 D2: every display of the head draws through the head's table.
+    #[cfg(feature = "filters")]
+    pub fn set_colors(&mut self, colors: Option<Arc<vtium_render::filter::Table>>) {
+        let same = match (&self.colors, &colors) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
+        if !same {
+            self.colors = colors;
+            self.colors_held = false;
+        }
+    }
+
+    /// Records `unmet`, the line that says which requirement of the head's
+    /// vtlook the display does not meet, or `None` when it meets them all.
+    /// Returns the line before when `unmet` differs from it, so that vtium
+    /// logs each new answer once, and not again at each check that gives
+    /// the same answer.
+    #[cfg(feature = "filters")]
+    pub fn set_unmet(&mut self, unmet: Option<String>) -> Option<Option<String>> {
+        (self.unmet != unmet).then(|| std::mem::replace(&mut self.unmet, unmet))
+    }
+
+    /// The color table this display draws with, for the tests.
+    #[cfg(all(test, feature = "filters"))]
+    pub(crate) fn colors(&self) -> Option<&Arc<vtium_render::filter::Table>> {
+        self.colors.as_ref()
+    }
+
+    /// Hands the drawing's renderer the display's color table when it
+    /// does not hold it yet. A renderer that cannot take it for want of
+    /// memory keeps the table it had, and vtium logs why, naming the
+    /// display by its connector on `video`.
+    #[cfg(feature = "filters")]
+    fn hand_colors(&mut self, video: &dyn Video) {
+        if self.colors_held {
+            return;
+        }
+        let Some(drawing) = self.drawing.as_mut() else {
+            return;
+        };
+        self.colors_held = true;
+        if let Err(e) = drawing.renderer.set_color_table(self.colors.as_deref()) {
+            log::warn!(
+                target: "look",
+                "display {} keeps its previous colors: vtium has no memory for the vtlook's color table: {e}",
+                video.name(self.id)
+            );
+        }
     }
 
     /// Whether a frame of this view is composing.
@@ -1241,6 +1515,8 @@ impl View {
             return Prepared::Nothing;
         }
         let tip = state.pointer;
+        #[cfg(feature = "filters")]
+        self.hand_colors(video);
         if let Some(drawing) = self.drawing.as_mut() {
             let shape = term.terminal.pointer_shape();
             self.pointer.follow(
@@ -1277,6 +1553,7 @@ impl View {
         self.owed = false;
         self.unshown = false;
         self.lost = false;
+        let echo = self.take_echo(term);
         self.sent = Some(clock());
         // An overlay that changed leaves its old areas to the renderer.
         let gone = if self.overlay_sent.as_ref() == Some(&self.overlay) {
@@ -1299,7 +1576,18 @@ impl View {
             orientation: self.orientation,
             gone,
             whole,
+            echo,
         }))
+    }
+
+    /// When the oldest key was sent whose echo the frame taken now carries:
+    /// a key the term's output answered since this view's last frame was
+    /// taken, or one whose echo the display still owes. The view then
+    /// remembers the keys this frame answers.
+    fn take_echo(&mut self, term: &Term) -> Option<Instant> {
+        let seen = self.answered.replace(term.answered);
+        let new = seen.and_then(|a| term.first_key_after(a));
+        earliest(self.echo_owed.take(), new)
     }
 
     /// A job the render thread could not take: its token goes back to
@@ -1314,6 +1602,7 @@ impl View {
             self.lost |= job.whole;
             self.overlaid.extend(job.gone);
             self.overlay_sent = None;
+            self.echo_owed = earliest(self.echo_owed, job.echo);
         }
     }
 
@@ -1341,12 +1630,15 @@ impl View {
             stats,
             at,
             tip,
+            echo,
             ..
         } = composed;
         if generation != self.generation {
             // A new renderer draws every buffer whole at first, so the
-            // buffer the old one drew into needs no damage.
+            // buffer the old one drew into needs no damage. The new
+            // renderer's first frame carries the echo instead.
             video.give_back(token);
+            self.echo_owed = earliest(self.echo_owed, echo);
             return Presented::default();
         }
         if !self.forgotten.is_empty() {
@@ -1374,6 +1666,7 @@ impl View {
             cpu: stats.cpu,
             damage_px: stats.damage_px,
             misses: stats.misses,
+            echo,
         }
         .with(self.kept.take());
         let queued = match video.swap(token, &damage) {
@@ -1385,9 +1678,11 @@ impl View {
                 self.kept = Some(cost);
                 false
             }
-            // The display draws the frame whole once it is ready again.
+            // The display draws the frame whole once it is ready again,
+            // and that frame carries the echo.
             Err(SwapError::Dropped) => {
                 self.pending = true;
+                self.echo_owed = earliest(self.echo_owed, cost.echo);
                 false
             }
             Err(SwapError::Off) => false,
@@ -1396,6 +1691,9 @@ impl View {
                 false
             }
         };
+        if queued {
+            echoed(term, cost.echo, clock);
+        }
         // the display gave the plane up: the renderer draws the pointer
         self.pending |= self.pointer.after_swap(video, self.id);
         // A frame kept is counted when it goes out.
@@ -1434,8 +1732,9 @@ impl View {
     /// drawn over it and carries it. A commit that sends nothing leaves a
     /// draw pending, so the swap of that draw sends whatever the display
     /// still holds and no frame is lost. The cursor plane follows the
-    /// commit as it follows a swap.
-    pub fn send_kept(&mut self, video: &mut dyn Video) -> Presented {
+    /// commit as it follows a swap. A kept frame that carries a key's echo
+    /// presents the echo when the commit sends it, which `term` records.
+    pub fn send_kept(&mut self, term: &mut Term, video: &mut dyn Video) -> Presented {
         if self.lost {
             self.drop_kept();
         }
@@ -1458,6 +1757,10 @@ impl View {
         };
         self.kept = None;
         self.pending |= !queued;
+        if queued {
+            let clock = Rc::clone(&term.clock);
+            echoed(term, cost.echo, &*clock);
+        }
         self.pending |= self.pointer.after_swap(video, self.id);
         if let Some(timer) = &mut self.timer {
             timer.frame(cost.cpu, queued, cost.damage_px, cost.misses);
@@ -1515,6 +1818,142 @@ mod tests {
 
     const ID: DisplayId = DisplayId(1);
     const SIZE: (u32, u32) = (36, 34);
+
+    // A display's view hands the head's color table to its renderer at
+    // the next draw, and to each renderer a rebuild makes after it; the
+    // built-in vtlook takes the table away again.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_view_hands_its_color_table_to_each_renderer() {
+        let colors = |view: &View| view.drawing.as_ref().map(|d| d.renderer.colors());
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        let table = Arc::new(vtium_render::filter::Table::build(&[]).unwrap());
+        view.set_colors(Some(table));
+        assert_eq!(colors(&view), Some(false), "nothing drawn yet");
+        term.terminal.input(b"A");
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(true));
+        let face: DisplayFace = Box::new(Unifont::new(16));
+        view.rebuild(Font::new(face), 16, RenderConfig::default());
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(true), "the rebuilt renderer");
+        view.set_colors(None);
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(false));
+    }
+
+    // A check of the display against the vtlook that gives the same answer
+    // again hands the renderer nothing, so the display draws no frame
+    // whole, and says nothing new to log.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn the_same_answer_again_changes_nothing() {
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        let table = Arc::new(vtium_render::filter::Table::build(&[]).unwrap());
+        view.set_colors(Some(Arc::clone(&table)));
+        term.terminal.input(b"A");
+        draw(&mut term, &mut view, &mut video, None);
+        assert!(view.colors_held, "the renderer holds the table");
+        view.set_colors(Some(table));
+        assert!(view.colors_held, "the same table again");
+        let line = Some("vtlook amber: display A draws the built-in vtlook".to_owned());
+        assert_eq!(view.set_unmet(line.clone()), Some(None), "a new answer");
+        assert_eq!(view.set_unmet(line.clone()), None, "the same answer");
+        assert_eq!(view.set_unmet(None), Some(line), "met again");
+    }
+
+    // A notice drawn through the color slot is the notice drawn without
+    // one, each pixel looked up in the vtlook's table, so the look's
+    // colors reach the box and its text as they reach the frame.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_notice_draws_through_the_vtlook_s_color_table() {
+        use vtium_render::filter::{Fixed, Given, Lookup, Map, Table, color};
+        let tint = Map::new(
+            color("tint").unwrap(),
+            &[Given::Color([255, 176, 0]), Given::Number(Fixed::of(1, 0))],
+        )
+        .unwrap();
+        let table = Table::build(&[tint]).unwrap();
+        let overlay = Overlay::new(None, &["a notice"], None, OverlayColors::default());
+        let face = || -> DisplayFace { Box::new(Unifont::new(16)) };
+        let (w, h) = (320, 96);
+        let plain_renderer = Renderer::new(Font::new(face()), w, h, RenderConfig::default());
+        let mut plain = Canvas::new(w, h, 0);
+        let drawn = overlay.draw(&plain_renderer, (40, 6), Orientation::Normal, &mut plain);
+        let mut renderer = Renderer::new(Font::new(face()), w, h, RenderConfig::default());
+        renderer.set_color_table(Some(&table)).unwrap();
+        let mut colored = Canvas::new(w, h, 0);
+        let rects = overlay.draw_colored(
+            &mut renderer,
+            (40, 6),
+            Orientation::Normal,
+            (w, h),
+            &mut colored,
+        );
+        assert_eq!(rects, drawn);
+        let mut lookup = Lookup::new(&table).unwrap();
+        let mut moved = 0;
+        for r in &rects {
+            for y in r.y..r.y + r.height {
+                for x in r.x..r.x + r.width {
+                    let (p, c) = (plain.pixel(x, y).unwrap(), colored.pixel(x, y).unwrap());
+                    assert_eq!(c, lookup.map(p), "{x},{y}: {p:06x}");
+                    moved += usize::from(c != p);
+                }
+            }
+        }
+        assert!(moved > 0, "the tint moved no pixel of the notice");
+    }
+
+    // A frame that a view composes with a notice over it, on a display
+    // whose vtlook holds a color filter, is the same frame composed with
+    // no filter, each pixel looked up in the table: the notice that
+    // `Job::compose` draws beside the renderer's frame passes the color
+    // slot as the cells do.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_composed_notice_passes_the_vtlook_s_color_table() {
+        use vtium_render::filter::{Fixed, Given, Lookup, Map, Table, color};
+        let tint = Map::new(
+            color("tint").unwrap(),
+            &[Given::Color([255, 176, 0]), Given::Number(Fixed::of(1, 0))],
+        )
+        .unwrap();
+        let table = Arc::new(Table::build(&[tint]).unwrap());
+        let pixels = |video: &Flip| -> Vec<u32> {
+            video
+                .pixels(0)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|p| u32::from_le_bytes(*p))
+                .collect()
+        };
+        let frame = |colors: Option<Arc<Table>>, notice: bool| {
+            let (mut term, mut view) = view();
+            let mut video = Flip::new();
+            term.terminal.input(b"AB");
+            view.set_colors(colors);
+            if notice {
+                view.overlay = Overlay::new(None, &["a notice"], None, OverlayColors::default());
+            }
+            draw(&mut term, &mut view, &mut video, None);
+            pixels(&video)
+        };
+        let bare = frame(None, false);
+        let plain = frame(None, true);
+        let colored = frame(Some(Arc::clone(&table)), true);
+        let mut lookup = Lookup::new(&table).unwrap();
+        let mut moved = 0;
+        for (i, ((&p, &c), &b)) in plain.iter().zip(&colored).zip(&bare).enumerate() {
+            assert_eq!(c, lookup.map(p), "pixel {i}: {p:08x}");
+            moved += usize::from(p != b && c != p);
+        }
+        assert!(moved > 0, "the tint moved no pixel of the notice");
+    }
 
     // ADR-1002, section 7: the frame a head's render thread draws from the
     // snapshot carries the labels of link hints and vtium's note on the
@@ -2636,7 +3075,7 @@ mod tests {
         let holding = term.sync.holding(&term.terminal);
         let draws = view.draws(term, &*video, now_all, frame_end, holding, clock());
         if !draws || (holding && !view.lost) {
-            view.send_kept(video);
+            view.send_kept(term, video);
         }
         if draws {
             view.draw(term, video, &DrawState::default(), &*clock);
@@ -3059,6 +3498,227 @@ mod tests {
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2Hk"]);
         assert!(!view.wait.for_flip(), "the echo waits for no flip");
         assert_eq!(video.composed, after_key + 1, "the echo composed at once");
+    }
+
+    /// The key-to-present times `term`'s displays measured, in
+    /// milliseconds.
+    fn echo_ms(term: &Term) -> (u64, Option<u128>) {
+        let e = term.echoes();
+        (e.count, e.last.map(|d| d.as_millis()))
+    }
+
+    /// Draws `view` of `term` on `video` with the pointer at `pointer`,
+    /// presenting at the time `term`'s clock reads.
+    fn draw_at(term: &mut Term, view: &mut View, video: &mut dyn Video, pointer: (u32, u32)) {
+        let clock = Rc::clone(&term.clock);
+        let state = DrawState {
+            pointer: Some(pointer),
+            ..DrawState::default()
+        };
+        view.draw(term, video, &state, &*clock);
+    }
+
+    // A key's echo is timed from the moment vtium sends the key to the
+    // present of the first frame that carries output the program wrote
+    // after the key. A frame presented after the key that carries no such
+    // output, such as one the pointer draws, does not count, and output
+    // that changes nothing on the screen answers no key.
+    #[test]
+    fn a_keys_echo_is_timed_from_the_key_to_the_frame_that_carries_it() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::new();
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        hand.at(10);
+        term.key_sent();
+        // The pointer moves and its frame goes out before the program
+        // answers.
+        hand.at(12);
+        let sent = video.sent;
+        draw_at(&mut term, &mut view, &mut video, (20, 20));
+        assert_eq!(video.sent, sent + 1, "the pointer's frame went out");
+        assert_eq!(echo_ms(&term), (0, None), "no echo in the pointer's frame");
+        // A query changes nothing on the screen, so it answers no key, and
+        // the pointer's next frame carries no echo either.
+        hand.at(13);
+        turn(&mut term, &mut view, &mut video, &[b"\x1b[c"]);
+        hand.at(14);
+        let sent = video.sent;
+        draw_at(&mut term, &mut view, &mut video, (4, 4));
+        assert_eq!(video.sent, sent + 1, "the pointer's frame went out");
+        assert_eq!(echo_ms(&term), (0, None), "a query is no echo");
+        // The echo is parsed at 15 and its frame presents at 17.
+        hand.at(15);
+        assert_eq!(term.parse(b"b", &mut |_| {}), 1);
+        hand.at(17);
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(echo_ms(&term), (1, Some(7)), "from the key at 10 to 17");
+        // Output with no key before it is no echo.
+        hand.at(30);
+        turn(&mut term, &mut view, &mut video, &[b"c"]);
+        assert_eq!(echo_ms(&term), (1, Some(7)), "no key, no echo");
+    }
+
+    // Two keys sent before the program answers either share the frame that
+    // carries the answer, and that frame is timed from the first key.
+    #[test]
+    fn a_frame_that_answers_two_keys_is_timed_from_the_first() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::new();
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        term.key_sent();
+        hand.at(15);
+        turn(&mut term, &mut view, &mut video, &[b"bc"]);
+        assert_eq!(echo_ms(&term), (1, Some(5)), "from the first key, at 10");
+    }
+
+    // With three buffers, a key's echo composed while a flip is in flight
+    // waits in the display, which refused the swap as busy. The echo is
+    // presented when the flip ends and the display sends the frame it
+    // kept, and that is the time it is measured at.
+    #[test]
+    fn an_echo_kept_from_a_busy_swap_is_timed_when_it_goes_out() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        video.flipping = true;
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        turn(&mut term, &mut view, &mut video, &[b"b"]);
+        assert_eq!(video.composed, 2, "the echo composed during the flip");
+        assert_eq!(echo_ms(&term), (0, None), "the display kept it");
+        hand.at(20);
+        video.flipping = false;
+        view.flipped(&term);
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(video.sent, 2, "the kept frame went out");
+        assert_eq!(echo_ms(&term), (1, Some(10)), "from the key at 10 to 20");
+    }
+
+    // A frame drawn over a kept frame carries the kept frame's echo too, so
+    // the frame that goes out is timed from the older key.
+    #[test]
+    fn a_frame_drawn_over_a_kept_echo_is_timed_from_its_key() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::with(3);
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        video.flipping = true;
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        turn(&mut term, &mut view, &mut video, &[b"b"]);
+        assert_eq!(video.composed, 2, "the first echo, kept");
+        hand.at(14);
+        term.key_sent();
+        hand.at(15);
+        turn(&mut term, &mut view, &mut video, &[b"c"]);
+        assert_eq!(video.composed, 2, "the second echo waits for a buffer");
+        hand.at(20);
+        video.flipping = false;
+        view.flipped(&term);
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(video.composed, 3, "one frame drawn over the kept one");
+        assert_eq!(echo_ms(&term), (1, Some(10)), "from the first key, at 10");
+    }
+
+    // Each display of a head times the echo at its own present: a display
+    // that presents later measures a longer time, from the same key.
+    #[test]
+    fn each_display_times_the_echo_at_its_own_present() {
+        let hand = Hand::new();
+        let (mut term, mut first) = view_at(&hand);
+        let (_, mut second) = view();
+        let (mut one, mut two) = (Flip::new(), Flip::new());
+        turn(&mut term, &mut first, &mut one, &[b"A"]);
+        second.draw(&mut term, &mut two, &DrawState::default(), &Instant::now);
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        assert_eq!(term.parse(b"b", &mut |_| {}), 1);
+        hand.at(14);
+        let clock = Rc::clone(&term.clock);
+        first.draw(&mut term, &mut one, &DrawState::default(), &*clock);
+        assert_eq!(echo_ms(&term), (1, Some(4)), "the first display at 14");
+        hand.at(19);
+        second.draw(&mut term, &mut two, &DrawState::default(), &*clock);
+        assert_eq!(echo_ms(&term), (2, Some(9)), "the second display at 19");
+        // Neither display times the same echo again.
+        hand.at(25);
+        draw_at(&mut term, &mut first, &mut one, (20, 20));
+        draw_at(&mut term, &mut second, &mut two, (20, 20));
+        assert_eq!(echo_ms(&term).0, 2, "each echo once on each display");
+    }
+
+    // A display plugged in while vtium runs starts from the keys the term
+    // has already answered, so its first frame times no echo. A key sent
+    // long before the display joined would otherwise give a figure as long
+    // as the time since that key.
+    #[test]
+    fn a_display_added_late_times_no_echo_from_an_old_key() {
+        let hand = Hand::new();
+        let (mut term, mut first) = view_at(&hand);
+        let mut one = Flip::new();
+        turn(&mut term, &mut first, &mut one, &[b"A"]);
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        turn(&mut term, &mut first, &mut one, &[b"b"]);
+        assert_eq!(echo_ms(&term), (1, Some(2)), "the echo at 12");
+        hand.at(5000);
+        let (_, mut second) = view();
+        let mut two = Flip::new();
+        let clock = Rc::clone(&term.clock);
+        second.draw(&mut term, &mut two, &DrawState::default(), &*clock);
+        assert_eq!(two.sent, 1, "the new display's first frame went out");
+        assert_eq!(echo_ms(&term), (1, Some(2)), "the first frame is no echo");
+        // The new display times the next key's echo at its own present.
+        hand.at(5010);
+        term.key_sent();
+        hand.at(5012);
+        assert_eq!(term.parse(b"c", &mut |_| {}), 1);
+        hand.at(5015);
+        second.draw(&mut term, &mut two, &DrawState::default(), &*clock);
+        assert_eq!(echo_ms(&term), (2, Some(5)), "from the key at 5010");
+    }
+
+    // The term keeps the send times of only the last eight keys. When the
+    // program answers a key and eight more keys follow before the next
+    // frame, the answered key's time is gone. The frame then times no echo
+    // rather than one from a later key, whose echo the frame does not carry
+    // and whose figure would be too short. The next frame that carries an
+    // answer times it from the oldest key kept that the answer covers.
+    #[test]
+    fn a_frame_is_timed_only_from_a_key_its_output_answers() {
+        let hand = Hand::new();
+        let (mut term, mut view) = view_at(&hand);
+        let mut video = Flip::new();
+        turn(&mut term, &mut view, &mut video, &[b"A"]);
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        assert_eq!(term.parse(b"b", &mut |_| {}), 1);
+        for ms in 20..28 {
+            hand.at(ms);
+            term.key_sent();
+        }
+        hand.at(30);
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(video.sent, 2, "the answer's frame went out");
+        assert_eq!(echo_ms(&term), (0, None), "the answered key is not kept");
+        // The program answers the eight keys, and the next frame is timed
+        // from the first of them, sent at 20.
+        hand.at(32);
+        assert_eq!(term.parse(b"c", &mut |_| {}), 1);
+        hand.at(35);
+        turn(&mut term, &mut view, &mut video, &[]);
+        assert_eq!(echo_ms(&term), (1, Some(15)), "from the key at 20");
     }
 
     // ADR-1401 D2: with one buffer, or on a display that says so, as a
@@ -3785,10 +4445,10 @@ mod tests {
         turn(&mut term, &mut view, &mut video, &[b"\x1b[1;2HB\x1b[2;1H"]);
         assert_eq!((video.composed, video.sent), (2, 1));
         view.show_another();
-        assert!(view.send_kept(&mut video) == Presented::default());
+        assert!(view.send_kept(&mut term, &mut video) == Presented::default());
         video.flipping = false;
         assert!(
-            view.send_kept(&mut video) == Presented::default(),
+            view.send_kept(&mut term, &mut video) == Presented::default(),
             "not sent"
         );
         assert_eq!(video.sent, 1);
@@ -3890,7 +4550,7 @@ mod tests {
             panic!("a job for the render thread");
         };
         assert!(view.away());
-        let sent = view.send_kept(&mut video);
+        let sent = view.send_kept(&mut term, &mut video);
         assert_eq!((sent.queued, video.sent), (false, 1), "nothing sent");
         let shown = view.present(job.compose(None), &mut term, &mut video, true, clock);
         assert!(shown.queued);

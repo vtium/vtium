@@ -3,7 +3,9 @@
 //!
 //! [`drive`] is the one loop: it takes what the [`Port`] gives, decodes the
 //! bytes into keys and replies, hands each to the state machine, carries
-//! out the effects, and draws the screen whole after each turn. A test
+//! out the effects, and draws the screen whole after each turn. The
+//! decoder asks the state machine before each input whether a reply is
+//! awaited, which decides what an ESC that ends a read is. A test
 //! drives the same loop through a port of its own.
 //!
 //! [`Tty`] is the real port, the terminal on standard input and output: in
@@ -31,7 +33,7 @@ use vtium_platform::watch::Watch;
 use super::desk::Desk;
 use super::desk::Done;
 use super::input::Decoder;
-use super::model::{App, Effect, Event, Inputs, Live};
+use super::model::{self, App, Effect, Event, Inputs, Live};
 use super::view;
 use crate::apply::{Ask, Runner};
 
@@ -160,6 +162,21 @@ pub trait Port {
 pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?25l";
 pub const LEAVE: &[u8] = b"\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l";
 
+/// The terminal's size as `port` reports it: its grid, and its cell in
+/// pixels where it reports one. The loop hands the size to the model in a
+/// message and never sets the model's size itself.
+///
+/// References:
+/// - ADR-1206 D2: the size changes only through a message.
+fn size_of(port: &mut dyn Port) -> super::model::Size {
+    let (cols, rows) = port.size();
+    super::model::Size {
+        cols,
+        rows,
+        cell_px: port.cell_px(),
+    }
+}
+
 /// Runs the TUI from `inputs` on `port` until it leaves, with no desk, so
 /// the Flow view shows `inputs`'s flow and changes nothing; returns its
 /// exit status.
@@ -175,9 +192,8 @@ pub fn drive_with(
     mut desk: Option<&mut dyn Desk>,
 ) -> io::Result<u8> {
     inputs.desk = desk.is_some();
-    let (cols, rows) = port.size();
-    let (mut app, first) = App::new(inputs, cols, rows);
-    app.cell_px = port.cell_px();
+    let (mut app, first) = App::start(inputs, size_of(port));
+    let mut painter = view::Painter::new()?;
     let mut decoder = Decoder::keys();
     let mut queue: Vec<Effect> = first;
     loop {
@@ -185,7 +201,14 @@ pub fn drive_with(
         while !queue.is_empty() {
             for effect in std::mem::take(&mut queue) {
                 match effect {
-                    Effect::Write(bytes) => port.write(&bytes)?,
+                    Effect::Write(bytes) => {
+                        port.write(&bytes)?;
+                        // the picture's cells come back as the text under
+                        // them, so the next frame draws whole
+                        if bytes == crate::kitty::delete(crate::kitty::IMAGE_ID) {
+                            port.write(&painter.forget()?)?;
+                        }
+                    }
                     Effect::Wait(d) => port.arm(d),
                     Effect::Exit(status) => {
                         port.on_panic(give_back(&app));
@@ -193,6 +216,16 @@ pub fn drive_with(
                     }
                     Effect::Cell { font, height } => port.draw(Draw::Cell { font, height }),
                     Effect::Picture(shot) => port.draw(Draw::Picture(shot)),
+                    Effect::ScreenPicture(mut shot) => {
+                        let (cols, rows) = shot.grid;
+                        let size = model::Size {
+                            cols,
+                            rows,
+                            ..app.size
+                        };
+                        shot.screen = view::screen_at(&app, size);
+                        port.draw(Draw::Picture(shot));
+                    }
                     Effect::Specimen {
                         font,
                         height,
@@ -214,30 +247,31 @@ pub fn drive_with(
                         queue.extend(app.event(Event::Desked(op, done)));
                     }
                     Effect::Install(plan) => {
-                        port.write(&view::draw(&app))?;
+                        port.write(&painter.frame(&app)?)?;
                         let result = match desk.as_deref_mut() {
                             Some(desk) => port.privileged(&mut |run, out, ask| {
                                 desk.install(&plan, run, out, ask)
                             }),
                             None => Err(super::words::NO_DESK.to_owned()),
                         };
-                        let (cols, rows) = port.size();
-                        queue.extend(app.event(Event::Resize { cols, rows }));
+                        // the privileged step wrote to the terminal, so
+                        // the next frame draws whole
+                        port.write(&painter.forget()?)?;
+                        queue.extend(app.event(Event::Resize(size_of(port))));
                         queue.extend(app.event(Event::Installed(result)));
                     }
                 }
             }
         }
         port.on_panic(give_back(&app));
-        port.write(&view::draw(&app))?;
+        port.write(&painter.frame(&app)?)?;
         for wake in port.wait()? {
             let events = match wake {
-                Wake::Bytes(bytes) => decoder.feed(&bytes).into_iter().map(Event::Input).collect(),
-                Wake::Resize => {
-                    let (cols, rows) = port.size();
-                    app.cell_px = port.cell_px();
-                    vec![Event::Resize { cols, rows }]
+                Wake::Bytes(bytes) => {
+                    decoder.push(&bytes);
+                    Vec::new()
                 }
+                Wake::Resize => vec![Event::Resize(size_of(port))],
                 Wake::Signal(n) => vec![Event::Signal(n)],
                 Wake::Sourced(found) => vec![Event::Sourced(found)],
                 Wake::Timeout => vec![Event::Timeout],
@@ -247,6 +281,12 @@ pub fn drive_with(
             for event in events {
                 queue.extend(app.event(event));
             }
+            // each input is decoded while the model says whether it awaits
+            // a reply, so a reply that settles the last query, or the
+            // deadline at start, decides what a lone ESC after it is
+            while let Some(input) = decoder.next(app.awaiting()) {
+                queue.extend(app.event(Event::Input(input)));
+            }
         }
     }
 }
@@ -254,9 +294,14 @@ pub fn drive_with(
 /// The bytes that give the console its start font back, when a switch
 /// changed it.
 fn give_back(app: &App) -> Vec<u8> {
-    match (&app.live, &app.start_font) {
+    match (&app.shared.live, &app.shared.start_font) {
         (Live::On, Some(start))
-            if app.in_flight.as_ref().or(app.shown_font.as_ref()) != Some(start) =>
+            if app
+                .shared
+                .in_flight
+                .as_ref()
+                .or(app.shared.shown_font.as_ref())
+                != Some(start) =>
         {
             format!("\x1b]50;{start}\x1b\\").into_bytes()
         }

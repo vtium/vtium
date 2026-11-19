@@ -1,0 +1,17 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+#
+# A seed replays its case only while ADR-1403's two tables and the
+# explorer's ALPHABET stay as they are: proptest draws each key again from
+# the keys the reference offers, so after an edit to either the same seed
+# gives another sequence. The test
+# the_sequences_proptest_found_replay_as_the_tables_say in walk.rs presses
+# the shrunk sequence each line records after "shrinks to", so keep that
+# comment on every line.
+cc 2cdf988a3c614a7ba59b85b616fe4bbcc7ec9bf2fc59da02975c9a5efa44c6dd # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: None }, ["4", "o", "Esc"], None)
+cc ebd6f858638273b6ac9800d736e1ddd245b4e8f0ed08d566b3447f05dd7fc2fc # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: None }, ["n", "Grow", "Tab", "n", "Tab"], None)
+cc 6d86a4ff543c4965c7b41f9b4f7a5b844962b7ef4a51e4531c2139cd19dd3e92 # shrinks to (initial_state, transitions, seen_counter) = (RefState { term: Vtium, node: "fonts", tab: "fonts", under: [], left: None }, ["n", "3"], None)

@@ -1317,6 +1317,8 @@ impl Glyphs {
                         px.copy_from_slice(&rgba(argb));
                     }
                 }
+                // a glyph pool is never the color table's 3D texture
+                Format::Rgba16f => {}
             }
         }
         let rect = Rect {

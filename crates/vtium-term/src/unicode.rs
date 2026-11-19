@@ -357,6 +357,85 @@ pub fn cluster_width_with(cluster: &[char], rule: ClusterWidth) -> u8 {
     width_of(cluster.iter().copied(), rule)
 }
 
+/// The characters a line of the screen shows for `text`, printed on it from
+/// the line's first column, in order: each one a grapheme cluster and the
+/// cells the screen gives it under the rule `rule`. Another program, such
+/// as vtium-config's TUI, reads them to lay text out in the cells the
+/// console gives it.
+///
+/// The screen cuts the text as it prints it, with clusters following UAX
+/// #29 (mode 2027 set, the terminal's default). A codepoint that UAX #29
+/// does not join to the cluster before it starts a cluster of its own,
+/// unless it takes no cell, such as U+200B ZERO WIDTH SPACE. Such a
+/// codepoint joins the cluster before it all the same. A cluster takes
+/// [`cluster_width_with`]'s cells for the first [`CLUSTER_MAX`] codepoints,
+/// the most a cell keeps, and the screen drops the codepoints past them.
+/// They still belong to that cluster here, so the clusters joined give
+/// `text` back.
+///
+/// The screen drops the codepoints of no width at the start of a line,
+/// since there is no cluster for them to join. They come first, together,
+/// as one cluster of width 0. A printed control, which the terminal
+/// interprets before the screen sees it, counts as a codepoint of no
+/// width.
+///
+/// The screen also keeps fewer codepoints of a cluster when its line's
+/// budget of cluster bytes is spent ([`CLUSTER_BYTES_PER_CELL`] for each
+/// cell). These clusters leave that budget out: it bounds a line's memory
+/// and not the text one line of a TUI holds.
+///
+/// [`CLUSTER_MAX`]: crate::CLUSTER_MAX
+/// [`CLUSTER_BYTES_PER_CELL`]: crate::CLUSTER_BYTES_PER_CELL
+pub fn clusters(text: &str, rule: ClusterWidth) -> Clusters<'_> {
+    Clusters {
+        rest: text,
+        rule,
+        first: true,
+    }
+}
+
+/// The iterator [`clusters`] returns: each cluster's text and its cells.
+#[derive(Clone, Debug)]
+pub struct Clusters<'a> {
+    /// The text not yet cut.
+    rest: &'a str,
+    rule: ClusterWidth,
+    /// Nothing is cut yet, so codepoints of no width have no cluster to
+    /// join.
+    first: bool,
+}
+
+impl<'a> Iterator for Clusters<'a> {
+    type Item = (&'a str, u8);
+
+    fn next(&mut self) -> Option<(&'a str, u8)> {
+        let first = self.rest.chars().next()?;
+        if core::mem::take(&mut self.first) && char_width(first) == 0 {
+            let end = self
+                .rest
+                .find(|c| char_width(c) != 0)
+                .unwrap_or(self.rest.len());
+            let (dropped, rest) = self.rest.split_at(end);
+            self.rest = rest;
+            return Some((dropped, 0));
+        }
+        let mut state = Segmenter::start(first);
+        let mut end = first.len_utf8();
+        for c in self.rest.get(end..).unwrap_or_default().chars() {
+            // `continues` moves the state past `c` whether or not `c`
+            // joins, as the screen's print does
+            if !state.continues(c) && char_width(c) != 0 {
+                break;
+            }
+            end = end.saturating_add(c.len_utf8());
+        }
+        let (cluster, rest) = self.rest.split_at(end);
+        self.rest = rest;
+        let kept = cluster.chars().take(crate::CLUSTER_MAX);
+        Some((cluster, width_of(kept, self.rule)))
+    }
+}
+
 /// [`cluster_width`] of a cluster's characters as an iterator gives them,
 /// the one place the rule is written.
 pub(crate) fn width_of(mut chars: impl Iterator<Item = char>, rule: ClusterWidth) -> u8 {

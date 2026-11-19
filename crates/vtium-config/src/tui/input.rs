@@ -3,12 +3,54 @@
 //! flow view asks for it (ADR-1403 D7), and the replies to the TUI's
 //! requests (ADR-1201 D4, D7).
 //!
-//! A sequence split across reads waits in the decoder for its end. In the
-//! TUI's decoder ([`Decoder::keys`]), an ESC that is the last byte of a
-//! read is the escape key: a terminal writes a sequence in one write, and
-//! the escape key alone arrives alone, so the decoder takes it as the key
-//! without waiting for a byte that may never come. The decoder that only
-//! reads replies, as `set` does, keeps a lone ESC for the next read.
+//! A sequence split across reads waits in the decoder for its end, so a
+//! reply cut by a read comes out whole once the rest arrives.
+//!
+//! An ESC inside a string or a control sequence cancels that sequence,
+//! unless it begins ST (`ESC \`), which ends a control string in ECMA-48.
+//! Decoding starts again at that ESC, as a VT's parser does. So a reply
+//! always comes out whole even when the Esc key or a broken sequence comes
+//! before it. In `ESC ESC`, the first ESC is the Esc key and the second
+//! begins whatever follows.
+//!
+//! Any other C0 control inside a control sequence acts at once as its key,
+//! and the sequence goes on without it, as ECMA-48 and a VT's parser have
+//! it. Alt+[ sends `ESC [`, which opens a control sequence, so Ctrl-C
+//! typed after it still interrupts. No reply holds a C0 control, so one
+//! inside a sequence that a lone ESC was guessed to begin shows that the
+//! ESC was the Esc key.
+//!
+//! An ESC that is the last byte of a read can be the Esc key or the first
+//! byte of a reply. The TUI's decoder ([`Decoder::keys`]) decides by
+//! whether the TUI awaits a reply. With no query outstanding, the ESC is
+//! the Esc key at once: a terminal writes a sequence in one write, and the
+//! Esc key alone arrives alone. While a query is outstanding, the decoder
+//! keeps the ESC until the next byte arrives, which it always does,
+//! because DA1's reply is still due. If that byte continues a reply or a
+//! key's sequence (`[`, `]`, `_` or `P`), the ESC begins it, and any other
+//! byte makes the ESC the Esc key. The guess can still turn out wrong:
+//! the person may press Esc and then `]`. Every reply begins with ESC, so
+//! the reply that is still due cancels the sequence the guess began. The
+//! decoder then knows the ESC was the Esc key, and decodes the bytes after
+//! it as keys. Once no reply is due, a sequence the guess began and that
+//! has not ended is taken as keys too. So a real Esc waits only while
+//! replies are in flight. The decoder that only reads replies, as `set`
+//! does, always keeps a lone ESC for the next read.
+//!
+//! A vtium console sends Alt and a key as ESC and the key, so Alt+Shift+P,
+//! Alt+] and Alt+Shift+_ begin a DCS, an OSC and an APC. With no reply
+//! due, nothing ends such a string, so the TUI's decoder takes the string
+//! that has not ended as Alt and a key, which it drops, and decodes the
+//! bytes after it as keys. Ctrl-C and Esc then still act. A reply that
+//! arrives after the deadline at start cleared the queue, cut by a read
+//! inside its string, decodes as keys too.
+//!
+//! References:
+//! - ADR-1206 D2, "Esc stays the key that goes back": a lone ESC waits
+//!   for its next byte only while a batch of queries is outstanding.
+//! - ADR-1206 D2, the note of 2026-11-19: an ESC that does not begin ST
+//!   cancels the sequence in progress, and a wrong guess about a lone ESC
+//!   ends as the Esc key.
 
 /// A key the TUI acts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,8 +129,17 @@ const STRING_MAX: usize = 4096;
 #[derive(Debug, Default)]
 pub struct Decoder {
     held: Vec<u8>,
-    /// A lone ESC at the end of a read is the escape key.
+    /// A lone ESC at the end of a read is the escape key, unless a reply
+    /// is awaited.
     escape: bool,
+    /// The ESC at the front of `held` ended an earlier read while a reply
+    /// was awaited, so the byte after it decides what it is.
+    lone: bool,
+    /// The sequence at the front of `held` begins with an ESC that ended
+    /// an earlier read and that the decoder took as the start of a reply.
+    /// If another ESC cancels the sequence, or no reply is due before it
+    /// ends, that ESC was the Esc key.
+    guessed: bool,
 }
 
 /// What the bytes at the front hold.
@@ -97,49 +148,142 @@ enum Front {
     Took(usize, Option<Input>),
     /// The bytes end before the sequence does.
     Short,
+    /// An ESC this far in, which does not begin ST, cancels the sequence:
+    /// the bytes before it are dropped, and decoding starts again at it.
+    Cancelled(usize),
+    /// A C0 control this far in, inside a control sequence: it acts at
+    /// once, and the sequence goes on without it.
+    Control(usize),
 }
 
 impl Decoder {
     /// The TUI's decoder, which takes an ESC that ends a read as the
-    /// escape key.
+    /// escape key unless a reply is awaited.
     pub fn keys() -> Decoder {
         Decoder {
-            held: Vec::new(),
             escape: true,
+            ..Decoder::default()
         }
     }
 
-    /// Decodes `bytes` after what was held, and holds a sequence they end
-    /// in the middle of.
+    /// Decodes `bytes` after what was held, with no reply awaited, and
+    /// holds a sequence they end in the middle of.
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<Input> {
+        self.push(bytes);
+        std::iter::from_fn(|| self.next(false)).collect()
+    }
+
+    /// Adds the bytes of a read after what is held, for [`Decoder::next`].
+    pub fn push(&mut self, bytes: &[u8]) {
         self.held.extend_from_slice(bytes);
-        let mut out = Vec::new();
-        let mut at = 0;
-        while let Some(rest) = self.held.get(at..).filter(|r| !r.is_empty()) {
-            match front(rest) {
-                Front::Took(n, input) => {
-                    out.extend(input);
-                    at = at.saturating_add(n.max(1));
+    }
+
+    /// The next whole input in what is held, if there is one. `awaiting`
+    /// says whether the TUI awaits a reply now, which decides what a lone
+    /// ESC at the end is. The loop asks again after each input it hands
+    /// on, because the input may settle the last query outstanding.
+    pub fn next(&mut self, awaiting: bool) -> Option<Input> {
+        loop {
+            if self.lone {
+                match self.held.get(1) {
+                    None if awaiting => return None,
+                    // the ESC begins a reply, or a key's sequence
+                    Some(b'[' | b']' | b'_' | b'P') => {
+                        self.lone = false;
+                        self.guessed = true;
+                    }
+                    // the queries are settled, or the byte after the ESC
+                    // begins nothing: the ESC was the Esc key
+                    _ => {
+                        self.lone = false;
+                        self.held.drain(..1);
+                        return Some(Input::Key(Key::Escape));
+                    }
                 }
-                Front::Short if rest.len() > STRING_MAX => at = self.held.len(),
-                Front::Short => break,
+            }
+            if self.held.is_empty() {
+                return None;
+            }
+            match front(&self.held) {
+                // a reply's ESC cancelled the sequence that the guess began,
+                // or no reply is due to end it: the guess was wrong
+                Front::Cancelled(_) if self.guessed => return Some(self.escape_key()),
+                // no reply holds a C0 control, so one inside the sequence
+                // that the guess began shows the guess was wrong too
+                Front::Control(_) if self.guessed => return Some(self.escape_key()),
+                Front::Short if self.guessed && !awaiting => return Some(self.escape_key()),
+                // with no reply due, nothing will end a string that has not
+                // ended: Alt and `P`, `]` or `_` began it, which the decoder
+                // drops as it drops any Alt chord, and what follows is keys
+                Front::Short
+                    if self.escape
+                        && !awaiting
+                        && matches!(self.held.as_slice(), [0x1b, b'P' | b']' | b'_', ..]) =>
+                {
+                    self.held.drain(..2);
+                }
+                Front::Cancelled(n) => {
+                    self.held.drain(..n.clamp(1, self.held.len()));
+                }
+                Front::Control(i) => {
+                    if i < self.held.len() {
+                        let control = self.held.remove(i);
+                        if let Front::Took(_, input @ Some(_)) = front(&[control]) {
+                            return input;
+                        }
+                    }
+                }
+                Front::Took(n, input) => {
+                    self.guessed = false;
+                    self.held.drain(..n.clamp(1, self.held.len()));
+                    if input.is_some() {
+                        return input;
+                    }
+                }
+                Front::Short if self.held.len() > STRING_MAX => {
+                    self.guessed = false;
+                    self.held.clear();
+                }
+                Front::Short if self.escape && self.held == [0x1b] => {
+                    if awaiting {
+                        self.lone = true;
+                        return None;
+                    }
+                    self.held.clear();
+                    return Some(Input::Key(Key::Escape));
+                }
+                Front::Short => return None,
             }
         }
-        self.held.drain(..at.min(self.held.len()));
-        if self.escape && self.held == [0x1b] {
-            self.held.clear();
-            out.push(Input::Key(Key::Escape));
-        }
-        out
+    }
+
+    /// The ESC at the front was the Esc key after all: the decoder drops
+    /// it, and decodes the bytes after it afresh.
+    fn escape_key(&mut self) -> Input {
+        self.guessed = false;
+        self.held.drain(..1);
+        Input::Key(Key::Escape)
     }
 }
 
-/// Where the string that starts at `body` ends: its length and the end's
-/// length, ST (`ESC \`) or, for OSC, BEL.
-fn string_end(body: &[u8], bel: bool) -> Option<(usize, usize)> {
+/// How the string that starts at `body` ends.
+enum StringEnd {
+    /// At ST (`ESC \`) or, for OSC, BEL: the string's length and the end's.
+    At(usize, usize),
+    /// At an ESC, this far in, that does not begin ST.
+    Cancelled(usize),
+}
+
+/// Where the string that starts at `body` ends, or `None` while it has not
+/// ended, an ESC at the very end included, since it may begin ST.
+fn string_end(body: &[u8], bel: bool) -> Option<StringEnd> {
     body.iter().enumerate().find_map(|(i, &b)| match b {
-        0x07 if bel => Some((i, 1)),
-        0x1b if body.get(i.saturating_add(1)) == Some(&b'\\') => Some((i, 2)),
+        0x07 if bel => Some(StringEnd::At(i, 1)),
+        0x1b => match body.get(i.saturating_add(1)) {
+            None => None,
+            Some(b'\\') => Some(StringEnd::At(i, 2)),
+            Some(_) => Some(StringEnd::Cancelled(i)),
+        },
         _ => None,
     })
 }
@@ -189,14 +333,20 @@ fn escape(rest: &[u8]) -> Front {
     };
     let took = |body_len: usize, input| Front::Took(body_len.saturating_add(2), input);
     match kind {
+        // the first ESC is the Esc key, and the second begins what follows
+        0x1b => Front::Took(1, Some(Input::Key(Key::Escape))),
         b'[' => csi(body),
         b'O' => match body.first() {
             None => Front::Short,
+            // Alt and O, then whatever the ESC begins
+            Some(0x1b) => Front::Cancelled(2),
             Some(&b) => took(1, arrow(b).map(Input::Key)),
         },
         b'P' | b']' | b'_' => {
-            let Some((end, end_len)) = string_end(body, kind == b']') else {
-                return Front::Short;
+            let (end, end_len) = match string_end(body, kind == b']') {
+                None => return Front::Short,
+                Some(StringEnd::Cancelled(i)) => return Front::Cancelled(i.saturating_add(2)),
+                Some(StringEnd::At(end, end_len)) => (end, end_len),
             };
             let content = body.get(..end).unwrap_or_default();
             let input = match kind {
@@ -233,9 +383,14 @@ fn arrow(b: u8) -> Option<Key> {
 }
 
 /// A control sequence after `ESC [`: parameters, intermediates, then a
-/// final byte from `@` to `~`.
+/// final byte from `@` to `~`. An ESC before the final byte cancels the
+/// sequence, and any other C0 control there acts at once while the
+/// sequence goes on.
 fn csi(body: &[u8]) -> Front {
-    let Some(end) = body.iter().position(|&b| (0x40..=0x7e).contains(&b)) else {
+    let Some(end) = body
+        .iter()
+        .position(|&b| b < 0x20 || (0x40..=0x7e).contains(&b))
+    else {
         return if body.len() > STRING_MAX {
             Front::Took(body.len().saturating_add(2), None)
         } else {
@@ -244,6 +399,12 @@ fn csi(body: &[u8]) -> Front {
     };
     let params = body.get(..end).unwrap_or_default();
     let last = body.get(end).copied().unwrap_or(0);
+    if last == 0x1b {
+        return Front::Cancelled(end.saturating_add(2));
+    }
+    if last < 0x20 {
+        return Front::Control(end.saturating_add(2));
+    }
     if let Some(sgr) = params.strip_prefix(b"<")
         && matches!(last, b'M' | b'm')
     {
@@ -251,7 +412,17 @@ fn csi(body: &[u8]) -> Front {
         return Front::Took(end.saturating_add(3), mouse);
     }
     if params.is_empty() && last == b'M' {
-        // mode 1000 without 1006: three bytes, each its value plus 32
+        // mode 1000 without 1006: three bytes, each its value plus 32. None
+        // of them can be ESC, so an ESC among them begins what follows and
+        // cancels the report.
+        let mut three = body
+            .get(end.saturating_add(1)..)
+            .unwrap_or_default()
+            .iter()
+            .take(3);
+        if let Some(i) = three.position(|&b| b == 0x1b) {
+            return Front::Cancelled(end.saturating_add(i).saturating_add(3));
+        }
         let Some(&[b, x, y]) = body.get(end.saturating_add(1)..end.saturating_add(4)) else {
             return Front::Short;
         };
@@ -400,6 +571,156 @@ mod tests {
     }
 
     #[test]
+    fn a_lone_esc_waits_for_its_next_byte_while_a_reply_is_awaited() {
+        let font = |n: &str| Some(Input::Reply(Reply::Font(n.into())));
+        let esc = Some(Input::Key(Key::Escape));
+        let mut d = Decoder::keys();
+        // the ESC begins DA1's reply, which the read cut
+        d.push(b"\x1b]50;tiny5\x1b\\\x1b");
+        assert_eq!(d.next(true), font("tiny5"));
+        assert_eq!(d.next(true), None);
+        d.push(b"[?62;4c");
+        assert_eq!(d.next(true), Some(Input::Reply(Reply::Attributes)));
+        assert_eq!(d.next(false), None);
+        // the Esc key, then a reply: the ESC after it makes it the key
+        d.push(b"\x1b");
+        assert_eq!(d.next(true), None);
+        d.push(b"\x1b]50;tiny5\x07");
+        assert_eq!(d.next(true), esc);
+        assert_eq!(d.next(true), font("tiny5"));
+        // the Esc key, then a letter
+        d.push(b"\x1b");
+        assert_eq!(d.next(true), None);
+        d.push(b"q");
+        assert_eq!(d.next(true), esc);
+        assert_eq!(d.next(true), Some(Input::Key(Key::Char('q'))));
+        // the queries are settled and nothing more came: the Esc key
+        d.push(b"\x1b");
+        assert_eq!(d.next(true), None);
+        assert_eq!(d.next(false), esc);
+        assert_eq!(d.next(false), None);
+        // with no reply awaited, the Esc key at once
+        d.push(b"\x1b");
+        assert_eq!(d.next(false), esc);
+        // the decoder that reads replies only never takes it as a key
+        let mut replies = Decoder::default();
+        replies.push(b"\x1b");
+        assert_eq!(replies.next(false), None);
+    }
+
+    /// Everything the decoder holds whole, with `awaiting` fixed.
+    fn drain(d: &mut Decoder, awaiting: bool) -> Vec<Input> {
+        std::iter::from_fn(|| d.next(awaiting)).collect()
+    }
+
+    const ESC: Input = Input::Key(Key::Escape);
+    const DA1: Input = Input::Reply(Reply::Attributes);
+
+    fn font(name: &str) -> Input {
+        Input::Reply(Reply::Font(name.into()))
+    }
+
+    #[test]
+    fn in_esc_esc_the_first_is_the_escape_key_and_the_second_begins_a_reply() {
+        // the Esc key and a whole batch's replies in one read
+        let mut d = Decoder::keys();
+        d.push(b"\x1b\x1b]50;tiny5\x1b\\\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [ESC, font("tiny5"), DA1]);
+        // the Esc key between a batch's replies, in one read
+        d.push(b"\x1b]50;tiny5\x1b\\\x1b\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [font("tiny5"), ESC, DA1]);
+        // the decoder that reads replies only keeps every reply too
+        let mut replies = Decoder::default();
+        assert_eq!(
+            replies.feed(b"\x1b\x1bP>|vtium(0.1.0)\x1b\\\x1b\x1b[?62;4c"),
+            [
+                ESC,
+                Input::Reply(Reply::Version("vtium(0.1.0)".into())),
+                ESC,
+                DA1
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lone_esc_then_a_reply_in_the_next_read_is_the_escape_key() {
+        let replies: [(&[u8], Input); 3] = [
+            (b"\x1b[?62;4c", DA1),
+            (
+                b"\x1bP>|vtium(0.1.0)\x1b\\",
+                Input::Reply(Reply::Version("vtium(0.1.0)".into())),
+            ),
+            (b"\x1b_Gi=31;OK\x1b\\", Input::Reply(Reply::Graphics(true))),
+        ];
+        for (reply, heard) in replies {
+            let mut d = Decoder::keys();
+            d.push(b"\x1b");
+            assert_eq!(drain(&mut d, true), []);
+            d.push(reply);
+            assert_eq!(drain(&mut d, true), [ESC, heard], "{reply:?}");
+        }
+    }
+
+    /// The Esc key, then a key whose byte could continue a reply, each in
+    /// a read of its own, then a reply. The reply's ESC shows that the
+    /// first ESC began no reply, so it is the Esc key, and the byte after
+    /// it is a key of its own.
+    #[test]
+    fn a_reply_after_the_esc_key_and_a_bracket_shows_the_esc_was_the_key() {
+        for typed in *b"[]_P" {
+            for (reply, heard) in [
+                (&b"\x1b[?62;4c"[..], vec![DA1]),
+                (b"\x1b]50;tiny5\x1b\\\x1b[?62;4c", vec![font("tiny5"), DA1]),
+                (
+                    b"\x1bP>|vtium(0.1.0)\x1b\\\x1b[?62;4c",
+                    vec![Input::Reply(Reply::Version("vtium(0.1.0)".into())), DA1],
+                ),
+                (
+                    b"\x1b_Gi=31;OK\x1b\\\x1b[?62;4c",
+                    vec![Input::Reply(Reply::Graphics(true)), DA1],
+                ),
+            ] {
+                let mut d = Decoder::keys();
+                d.push(b"\x1b");
+                assert_eq!(drain(&mut d, true), []);
+                d.push(&[typed]);
+                assert_eq!(drain(&mut d, true), [], "{}", char::from(typed));
+                d.push(reply);
+                let mut want = vec![ESC, Input::Key(Key::Char(char::from(typed)))];
+                want.extend(heard);
+                assert_eq!(drain(&mut d, true), want, "{}", char::from(typed));
+            }
+        }
+    }
+
+    /// The Esc key and a bracket, and then the queries are settled with no
+    /// reply after them: no reply is due, so the ESC was the Esc key.
+    #[test]
+    fn an_esc_and_a_bracket_are_keys_once_no_reply_is_due() {
+        let mut d = Decoder::keys();
+        d.push(b"\x1b");
+        assert_eq!(drain(&mut d, true), []);
+        d.push(b"]");
+        assert_eq!(drain(&mut d, true), []);
+        assert_eq!(drain(&mut d, false), [ESC, Input::Key(Key::Char(']'))]);
+    }
+
+    /// An ESC that does not begin ST cancels the string or control
+    /// sequence in progress, and decoding starts again at that ESC.
+    #[test]
+    fn an_esc_inside_a_sequence_cancels_it() {
+        assert_eq!(keys(b"\x1b]50;tin\x1b[?62;4c"), [DA1]);
+        assert_eq!(keys(b"\x1bP>|vt\x1b]50;tiny5\x07"), [font("tiny5")]);
+        assert_eq!(keys(b"\x1b_Gi=31\x1b[A"), [Input::Key(Key::Up)]);
+        assert_eq!(keys(b"\x1b[1;\x1b[?62;4c"), [DA1]);
+        assert_eq!(keys(b"\x1bO\x1b[B"), [Input::Key(Key::Down)]);
+        // ST still ends a string, and a read may cut it
+        let mut d = Decoder::default();
+        assert_eq!(d.feed(b"\x1b]50;tiny5\x1b"), []);
+        assert_eq!(d.feed(b"\\"), [font("tiny5")]);
+    }
+
+    #[test]
     fn mouse_reports_decode_in_both_encodings() {
         let at = |button, col, row| Input::Key(Key::Mouse(Mouse { button, col, row }));
         assert_eq!(
@@ -426,6 +747,146 @@ mod tests {
         assert_eq!(d.feed(b"#%"), [at(Button::Press(0), 2, 4)]);
         // a report with a cell of 0 or too many numbers is dropped
         assert_eq!(keys(b"\x1b[<0;0;5M\x1b[<0;1;2;3M"), []);
+    }
+
+    /// A mode 1000 report's three bytes are each a value plus 32, so an
+    /// ESC among them is the start of what follows, and it cancels the
+    /// report as it cancels any other sequence.
+    #[test]
+    fn an_esc_among_a_mouse_reports_three_bytes_cancels_the_report() {
+        // ESC [ M, then DA1's reply, in one read
+        let mut d = Decoder::keys();
+        d.push(b"\x1b[M\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [DA1]);
+        // ESC [ M, then the font reply and DA1's, in one read
+        d.push(b"\x1b[M\x1b]50;tiny5\x1b\\\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [font("tiny5"), DA1]);
+        // the ESC as the second or third of the three bytes
+        d.push(b"\x1b[M \x1b[?62;4c\x1b[M #\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [DA1, DA1]);
+        // the Esc key, `[` and `M`, each in a read of its own, then DA1's
+        // reply: the ESC was the Esc key, and `[` and `M` are keys
+        let mut d = Decoder::keys();
+        for typed in [&b"\x1b"[..], b"[", b"M"] {
+            d.push(typed);
+            assert_eq!(drain(&mut d, true), []);
+        }
+        d.push(b"\x1b[?62;4c");
+        assert_eq!(
+            drain(&mut d, true),
+            [
+                ESC,
+                Input::Key(Key::Char('[')),
+                Input::Key(Key::Char('M')),
+                DA1
+            ]
+        );
+    }
+
+    /// A vtium console sends Alt and a key as ESC and the key, so Alt+Shift+P,
+    /// Alt+] and Alt+Shift+_ begin a DCS, an OSC and an APC. With no reply
+    /// due, no reply can end such a string: it is Alt and a key, which the
+    /// decoder drops as it drops `ESC x`, and the bytes after it are keys.
+    #[test]
+    fn with_no_reply_due_an_unfinished_string_is_alt_and_a_key() {
+        const INTERRUPT: Input = Input::Key(Key::Interrupt);
+        for alt in [&b"\x1bP"[..], b"\x1b]", b"\x1b_"] {
+            let mut d = Decoder::keys();
+            d.push(alt);
+            assert_eq!(drain(&mut d, false), [], "{alt:?}");
+            d.push(b"q");
+            assert_eq!(drain(&mut d, false), [Input::Key(Key::Char('q'))]);
+            d.push(b"\x03");
+            assert_eq!(drain(&mut d, false), [INTERRUPT]);
+            d.push(b"\x1b");
+            assert_eq!(drain(&mut d, false), [ESC]);
+            // the key and the bytes after it in one read
+            let mut d = Decoder::keys();
+            d.push(&[alt, b"q\x03\x1b"].concat());
+            assert_eq!(
+                drain(&mut d, false),
+                [Input::Key(Key::Char('q')), INTERRUPT, ESC],
+                "{alt:?}"
+            );
+        }
+        // while a reply is due, the string waits for the rest of the reply
+        let mut d = Decoder::keys();
+        d.push(b"\x1b]50;tin");
+        assert_eq!(drain(&mut d, true), []);
+        d.push(b"y5\x1b\\");
+        assert_eq!(drain(&mut d, true), [font("tiny5")]);
+    }
+
+    /// Alt+[ sends `ESC [`, which opens a control sequence. A C0 control
+    /// inside a control sequence acts at once as its key, and the sequence
+    /// goes on, as ECMA-48 and a VT's parser have it.
+    #[test]
+    fn a_c0_control_inside_a_control_sequence_acts_at_once() {
+        const INTERRUPT: Input = Input::Key(Key::Interrupt);
+        for awaiting in [false, true] {
+            // Alt+[, then Ctrl-C in a read of its own, then the final byte
+            let mut d = Decoder::keys();
+            d.push(b"\x1b[");
+            assert_eq!(drain(&mut d, awaiting), []);
+            d.push(b"\x03");
+            assert_eq!(drain(&mut d, awaiting), [INTERRUPT], "{awaiting}");
+            d.push(b"A");
+            assert_eq!(drain(&mut d, awaiting), [Input::Key(Key::Up)], "{awaiting}");
+            // all in one read, with parameters on both sides of the control
+            let mut d = Decoder::keys();
+            d.push(b"\x1b[1\x03~");
+            assert_eq!(
+                drain(&mut d, awaiting),
+                [INTERRUPT, Input::Key(Key::Home)],
+                "{awaiting}"
+            );
+        }
+        // the other C0 controls act as the decoder maps them, and a control
+        // with no key is dropped, while the sequence goes on
+        assert_eq!(
+            keys(b"\x1b[\r\t\x08\x04\x15\x01A"),
+            [
+                Key::Enter,
+                Key::Tab,
+                Key::Backspace,
+                Key::Ctrl('d'),
+                Key::Ctrl('u'),
+                Key::Up
+            ]
+            .map(Input::Key)
+        );
+        // a reply goes on around the control too
+        assert_eq!(keys(b"\x1b[?62\x03;4c"), [INTERRUPT, DA1]);
+        // a mouse report: a control among its parameters acts, and its three
+        // bytes after `ESC [ M`, each 0x20 or above, are left as they are
+        let at = |button, col, row| Input::Key(Key::Mouse(Mouse { button, col, row }));
+        assert_eq!(
+            keys(b"\x1b[<0;\x0310;5M"),
+            [INTERRUPT, at(Button::Press(0), 9, 4)]
+        );
+        let mut d = Decoder::keys();
+        assert_eq!(d.feed(b"\x1b["), []);
+        assert_eq!(d.feed(b"M"), []);
+        assert_eq!(d.feed(b" #%"), [at(Button::Press(0), 2, 4)]);
+    }
+
+    /// The Esc key and `[`, each in a read of its own while a reply is
+    /// due, then Ctrl-C. No reply holds a C0 control, so the ESC was the
+    /// Esc key, and the keys come out in the order they were typed.
+    #[test]
+    fn a_c0_control_after_a_guessed_esc_shows_the_esc_was_the_key() {
+        let mut d = Decoder::keys();
+        for typed in [&b"\x1b"[..], b"["] {
+            d.push(typed);
+            assert_eq!(drain(&mut d, true), []);
+        }
+        d.push(b"\x03");
+        assert_eq!(
+            drain(&mut d, true),
+            [ESC, Input::Key(Key::Char('[')), Input::Key(Key::Interrupt)]
+        );
+        d.push(b"\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [DA1]);
     }
 
     #[test]

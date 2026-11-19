@@ -4,10 +4,11 @@
 //! A vtlook is a file root installs and any user can hand to `vtium
 //! check-config`, and the console reads it at start, so its reader must
 //! never panic. The first byte chooses the declarations. vtium's own list
-//! is empty until the color layer arrives, so against it every filter's
-//! section stops at the lookup. The fixed list lets the input reach the
-//! value parsers: numbers with a sign and a fraction, integers, colors,
-//! choices, switches, file names, and a parameter with no default.
+//! holds the color filters, and a vtlook that reads cleanly against it
+//! goes on to build its color table, which must succeed, since the reader
+//! has checked every value it builds from. The fixed list lets the input
+//! reach every value parser: numbers with a sign and a fraction, integers,
+//! colors, choices, switches, file names, and a parameter with no default.
 //!
 //! The target also checks that the reader's answer is consistent. A
 //! vtlook that reads cleanly comes with no error, and each filter it holds
@@ -18,6 +19,7 @@
 //!
 //! References:
 //! - ADR-1304 D1: a filter's declaration and its parameters' kinds.
+//! - ADR-1304 D2: a look's color filters build one color table.
 //! - ADR-1304 D4: the vtlook's syntax and bounds.
 //! - ADR-1304 D6: any error fails the whole vtlook, and each report names its file and line.
 #![no_main]
@@ -126,8 +128,13 @@ fuzz_target!(|data: &[u8]| {
         Ok(look) => {
             assert_eq!(look.name, "fuzz");
             if !fixed {
-                // vtium declares no filter yet, so nothing reads cleanly with one
-                assert!(!look.holds_filters());
+                // vtium's own color filters build their table from any
+                // values the reader accepts, and it has no spatial filter
+                assert!(look.spatial.is_empty());
+                if !look.color.is_empty() {
+                    let built = vtium_settings::vtlook::table(&look);
+                    assert!(built.is_ok(), "{built:?}");
+                }
             }
             for f in look.color.iter().chain(&look.spatial) {
                 let names: Vec<&str> = f.values.iter().map(|(n, _)| *n).collect();

@@ -145,6 +145,10 @@ other any.too-small +unsaved	q	other any.question.quit below 80×25 +unsaved
 other any.too-small +unsaved +pending	Ctrl-C	other left	save, exit 130
 other any.too-small +unsaved +pending	Grow	other fonts(marked) +unsaved +pending	
 other any.too-small +unsaved +pending	q	other any.question.leave below 80×25 +unsaved +pending	
+other flow(doc display)	1	other fonts(builtin)	mouse off
+other flow(doc display)	3	other looks	mouse off
+other flow(doc display)	5	other settings(first)	mouse off
+other flow(doc display)	6	other help(help)	mouse off
 other flow(doc display)	Click box	other flow(doc terminal)	
 other flow(doc display)	Click tab	other looks	mouse off
 other flow(doc display)	Ctrl-C	other left	mouse off, exit 130
@@ -165,6 +169,10 @@ other flow(doc display)	o	other flow.restore	history
 other flow(doc display)	q	other left	mouse off, exit 0
 other flow(doc display)	r	other any.question.confirm	
 other flow(doc display)	v	other flow.file	
+other flow(doc display) +pending	1	other fonts(marked) +pending	mouse off
+other flow(doc display) +pending	3	other looks +pending	mouse off
+other flow(doc display) +pending	5	other settings(first) +pending	mouse off
+other flow(doc display) +pending	6	other help(help) +pending	mouse off
 other flow(doc display) +pending	Click box	other flow(doc terminal) +pending	
 other flow(doc display) +pending	Click tab	other looks +pending	mouse off
 other flow(doc display) +pending	Ctrl-C	other left	mouse off, exit 130
@@ -185,6 +193,10 @@ other flow(doc display) +pending	o	other flow.restore +pending	history
 other flow(doc display) +pending	q	other any.question.leave +pending	
 other flow(doc display) +pending	r	other any.question.confirm +pending	
 other flow(doc display) +pending	v	other flow.file +pending	
+other flow(doc display) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(doc display) +unsaved	3	other looks +unsaved	mouse off
+other flow(doc display) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(doc display) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(doc display) +unsaved	Click box	other flow(doc terminal) +unsaved	
 other flow(doc display) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(doc display) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
@@ -206,6 +218,10 @@ other flow(doc display) +unsaved	q	other any.question.quit +unsaved
 other flow(doc display) +unsaved	r	other any.question.confirm +unsaved	
 other flow(doc display) +unsaved	s	other flow(doc display)	save
 other flow(doc display) +unsaved	v	other flow.file +unsaved	
+other flow(doc display) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(doc display) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(doc display) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(doc display) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	Click box	other flow(doc terminal) +unsaved +pending	
 other flow(doc display) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
@@ -227,6 +243,10 @@ other flow(doc display) +unsaved +pending	q	other any.question.leave +unsaved +p
 other flow(doc display) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(doc display) +unsaved +pending	s	other flow(doc display) +pending	save
 other flow(doc display) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(doc terminal)	1	other fonts(builtin)	mouse off
+other flow(doc terminal)	3	other looks	mouse off
+other flow(doc terminal)	5	other settings(first)	mouse off
+other flow(doc terminal)	6	other help(help)	mouse off
 other flow(doc terminal)	Click tab	other looks	mouse off
 other flow(doc terminal)	Ctrl-C	other left	mouse off, exit 130
 other flow(doc terminal)	Down	other flow(new empty)	
@@ -247,6 +267,10 @@ other flow(doc terminal)	o	other flow.restore	history
 other flow(doc terminal)	q	other left	mouse off, exit 0
 other flow(doc terminal)	r	other any.question.confirm	
 other flow(doc terminal)	v	other flow.file	
+other flow(doc terminal) +pending	1	other fonts(marked) +pending	mouse off
+other flow(doc terminal) +pending	3	other looks +pending	mouse off
+other flow(doc terminal) +pending	5	other settings(first) +pending	mouse off
+other flow(doc terminal) +pending	6	other help(help) +pending	mouse off
 other flow(doc terminal) +pending	Click tab	other looks +pending	mouse off
 other flow(doc terminal) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(doc terminal) +pending	Down	other flow(new empty) +pending	
@@ -267,6 +291,10 @@ other flow(doc terminal) +pending	o	other flow.restore +pending	history
 other flow(doc terminal) +pending	q	other any.question.leave +pending	
 other flow(doc terminal) +pending	r	other any.question.confirm +pending	
 other flow(doc terminal) +pending	v	other flow.file +pending	
+other flow(doc terminal) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(doc terminal) +unsaved	3	other looks +unsaved	mouse off
+other flow(doc terminal) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(doc terminal) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(doc terminal) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(doc terminal) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(doc terminal) +unsaved	Down	other flow(new empty) +unsaved	
@@ -288,6 +316,10 @@ other flow(doc terminal) +unsaved	q	other any.question.quit +unsaved
 other flow(doc terminal) +unsaved	r	other any.question.confirm +unsaved	
 other flow(doc terminal) +unsaved	s	other flow(doc terminal)	save
 other flow(doc terminal) +unsaved	v	other flow.file +unsaved	
+other flow(doc terminal) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(doc terminal) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(doc terminal) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(doc terminal) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(doc terminal) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(doc terminal) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(doc terminal) +unsaved +pending	Down	other flow(new empty) +unsaved +pending	
@@ -309,6 +341,10 @@ other flow(doc terminal) +unsaved +pending	q	other any.question.leave +unsaved +
 other flow(doc terminal) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(doc terminal) +unsaved +pending	s	other flow(doc terminal) +pending	save
 other flow(doc terminal) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(new display)	1	other fonts(builtin)	mouse off
+other flow(new display)	3	other looks	mouse off
+other flow(new display)	5	other settings(first)	mouse off
+other flow(new display)	6	other help(help)	mouse off
 other flow(new display)	Click box	other flow(new terminal)	
 other flow(new display)	Click tab	other looks	mouse off
 other flow(new display)	Ctrl-C	other left	mouse off, exit 130
@@ -335,6 +371,10 @@ other flow(new display)	o	other flow.restore	history
 other flow(new display)	q	other left	mouse off, exit 0
 other flow(new display)	r	other any.question.confirm	
 other flow(new display)	v	other flow.file	
+other flow(new display) +pending	1	other fonts(marked) +pending	mouse off
+other flow(new display) +pending	3	other looks +pending	mouse off
+other flow(new display) +pending	5	other settings(first) +pending	mouse off
+other flow(new display) +pending	6	other help(help) +pending	mouse off
 other flow(new display) +pending	Click box	other flow(new terminal) +pending	
 other flow(new display) +pending	Click tab	other looks +pending	mouse off
 other flow(new display) +pending	Ctrl-C	other left	mouse off, exit 130
@@ -361,6 +401,10 @@ other flow(new display) +pending	o	other flow.restore +pending	history
 other flow(new display) +pending	q	other any.question.leave +pending	
 other flow(new display) +pending	r	other any.question.confirm +pending	
 other flow(new display) +pending	v	other flow.file +pending	
+other flow(new display) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(new display) +unsaved	3	other looks +unsaved	mouse off
+other flow(new display) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(new display) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(new display) +unsaved	Click box	other flow(new terminal) +unsaved	
 other flow(new display) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(new display) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
@@ -388,6 +432,10 @@ other flow(new display) +unsaved	q	other any.question.quit +unsaved
 other flow(new display) +unsaved	r	other any.question.confirm +unsaved	
 other flow(new display) +unsaved	s	other flow(new display)	save
 other flow(new display) +unsaved	v	other flow.file +unsaved	
+other flow(new display) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(new display) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(new display) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(new display) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	Click box	other flow(new terminal) +unsaved +pending	
 other flow(new display) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
@@ -415,6 +463,10 @@ other flow(new display) +unsaved +pending	q	other any.question.leave +unsaved +p
 other flow(new display) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(new display) +unsaved +pending	s	other flow(new display) +pending	save
 other flow(new display) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(new empty)	1	other fonts(builtin)	mouse off
+other flow(new empty)	3	other looks	mouse off
+other flow(new empty)	5	other settings(first)	mouse off
+other flow(new empty)	6	other help(help)	mouse off
 other flow(new empty)	Click box	other flow(doc terminal)	
 other flow(new empty)	Click tab	other looks	mouse off
 other flow(new empty)	Ctrl-C	other left	mouse off, exit 130
@@ -436,6 +488,10 @@ other flow(new empty)	o	other flow.restore	history
 other flow(new empty)	q	other left	mouse off, exit 0
 other flow(new empty)	r	other any.question.confirm	
 other flow(new empty)	v	other flow.file	
+other flow(new empty) +pending	1	other fonts(marked) +pending	mouse off
+other flow(new empty) +pending	3	other looks +pending	mouse off
+other flow(new empty) +pending	5	other settings(first) +pending	mouse off
+other flow(new empty) +pending	6	other help(help) +pending	mouse off
 other flow(new empty) +pending	Click box	other flow(doc terminal) +pending	
 other flow(new empty) +pending	Click tab	other looks +pending	mouse off
 other flow(new empty) +pending	Ctrl-C	other left	mouse off, exit 130
@@ -457,6 +513,10 @@ other flow(new empty) +pending	o	other flow.restore +pending	history
 other flow(new empty) +pending	q	other any.question.leave +pending	
 other flow(new empty) +pending	r	other any.question.confirm +pending	
 other flow(new empty) +pending	v	other flow.file +pending	
+other flow(new empty) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(new empty) +unsaved	3	other looks +unsaved	mouse off
+other flow(new empty) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(new empty) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(new empty) +unsaved	Click box	other flow(doc terminal) +unsaved	
 other flow(new empty) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(new empty) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
@@ -479,6 +539,10 @@ other flow(new empty) +unsaved	q	other any.question.quit +unsaved
 other flow(new empty) +unsaved	r	other any.question.confirm +unsaved	
 other flow(new empty) +unsaved	s	other flow(new empty)	save
 other flow(new empty) +unsaved	v	other flow.file +unsaved	
+other flow(new empty) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(new empty) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(new empty) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(new empty) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	Click box	other flow(doc terminal) +unsaved +pending	
 other flow(new empty) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
@@ -501,6 +565,10 @@ other flow(new empty) +unsaved +pending	q	other any.question.leave +unsaved +pen
 other flow(new empty) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(new empty) +unsaved +pending	s	other flow(new empty) +pending	save
 other flow(new empty) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(new terminal)	1	other fonts(builtin)	mouse off
+other flow(new terminal)	3	other looks	mouse off
+other flow(new terminal)	5	other settings(first)	mouse off
+other flow(new terminal)	6	other help(help)	mouse off
 other flow(new terminal)	Click box	other flow.new-card	
 other flow(new terminal)	Click tab	other looks	mouse off
 other flow(new terminal)	Ctrl-C	other left	mouse off, exit 130
@@ -526,6 +594,10 @@ other flow(new terminal)	o	other flow.restore	history
 other flow(new terminal)	q	other left	mouse off, exit 0
 other flow(new terminal)	r	other any.question.confirm	
 other flow(new terminal)	v	other flow.file	
+other flow(new terminal) +pending	1	other fonts(marked) +pending	mouse off
+other flow(new terminal) +pending	3	other looks +pending	mouse off
+other flow(new terminal) +pending	5	other settings(first) +pending	mouse off
+other flow(new terminal) +pending	6	other help(help) +pending	mouse off
 other flow(new terminal) +pending	Click box	other flow.new-card +pending	
 other flow(new terminal) +pending	Click tab	other looks +pending	mouse off
 other flow(new terminal) +pending	Ctrl-C	other left	mouse off, exit 130
@@ -551,6 +623,10 @@ other flow(new terminal) +pending	o	other flow.restore +pending	history
 other flow(new terminal) +pending	q	other any.question.leave +pending	
 other flow(new terminal) +pending	r	other any.question.confirm +pending	
 other flow(new terminal) +pending	v	other flow.file +pending	
+other flow(new terminal) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(new terminal) +unsaved	3	other looks +unsaved	mouse off
+other flow(new terminal) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(new terminal) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(new terminal) +unsaved	Click box	other flow.new-card +unsaved	
 other flow(new terminal) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(new terminal) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
@@ -577,6 +653,10 @@ other flow(new terminal) +unsaved	q	other any.question.quit +unsaved
 other flow(new terminal) +unsaved	r	other any.question.confirm +unsaved	
 other flow(new terminal) +unsaved	s	other flow(new terminal)	save
 other flow(new terminal) +unsaved	v	other flow.file +unsaved	
+other flow(new terminal) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(new terminal) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(new terminal) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(new terminal) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	Click box	other flow.new-card +unsaved +pending	
 other flow(new terminal) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
@@ -603,6 +683,10 @@ other flow(new terminal) +unsaved +pending	q	other any.question.leave +unsaved +
 other flow(new terminal) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(new terminal) +unsaved +pending	s	other flow(new terminal) +pending	save
 other flow(new terminal) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(others)	1	other fonts(builtin)	mouse off
+other flow(others)	3	other looks	mouse off
+other flow(others)	5	other settings(first)	mouse off
+other flow(others)	6	other help(help)	mouse off
 other flow(others)	Click box	other flow(parts special)	
 other flow(others)	Click tab	other looks	mouse off
 other flow(others)	Ctrl-C	other left	mouse off, exit 130
@@ -626,6 +710,10 @@ other flow(others)	o	other flow.restore	history
 other flow(others)	q	other left	mouse off, exit 0
 other flow(others)	r	other any.question.confirm	
 other flow(others)	v	other flow.file	
+other flow(others) +pending	1	other fonts(marked) +pending	mouse off
+other flow(others) +pending	3	other looks +pending	mouse off
+other flow(others) +pending	5	other settings(first) +pending	mouse off
+other flow(others) +pending	6	other help(help) +pending	mouse off
 other flow(others) +pending	Click box	other flow(parts special) +pending	
 other flow(others) +pending	Click tab	other looks +pending	mouse off
 other flow(others) +pending	Ctrl-C	other left	mouse off, exit 130
@@ -649,6 +737,10 @@ other flow(others) +pending	o	other flow.restore +pending	history
 other flow(others) +pending	q	other any.question.leave +pending	
 other flow(others) +pending	r	other any.question.confirm +pending	
 other flow(others) +pending	v	other flow.file +pending	
+other flow(others) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(others) +unsaved	3	other looks +unsaved	mouse off
+other flow(others) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(others) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(others) +unsaved	Click box	other flow(parts special) +unsaved	
 other flow(others) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(others) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
@@ -673,6 +765,10 @@ other flow(others) +unsaved	q	other any.question.quit +unsaved
 other flow(others) +unsaved	r	other any.question.confirm +unsaved	
 other flow(others) +unsaved	s	other flow(others)	save
 other flow(others) +unsaved	v	other flow.file +unsaved	
+other flow(others) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(others) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(others) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(others) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	Click box	other flow(parts special) +unsaved +pending	
 other flow(others) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
@@ -697,6 +793,10 @@ other flow(others) +unsaved +pending	q	other any.question.leave +unsaved +pendin
 other flow(others) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(others) +unsaved +pending	s	other flow(others) +pending	save
 other flow(others) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(parts any input)	1	other fonts(builtin)	mouse off
+other flow(parts any input)	3	other looks	mouse off
+other flow(parts any input)	5	other settings(first)	mouse off
+other flow(parts any input)	6	other help(help)	mouse off
 other flow(parts any input)	Click box	other flow(parts template)	
 other flow(parts any input)	Click tab	other looks	mouse off
 other flow(parts any input)	Ctrl-C	other left	mouse off, exit 130
@@ -720,6 +820,10 @@ other flow(parts any input)	o	other flow.restore	history
 other flow(parts any input)	q	other left	mouse off, exit 0
 other flow(parts any input)	r	other any.question.confirm	
 other flow(parts any input)	v	other flow.file	
+other flow(parts any input) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts any input) +pending	3	other looks +pending	mouse off
+other flow(parts any input) +pending	5	other settings(first) +pending	mouse off
+other flow(parts any input) +pending	6	other help(help) +pending	mouse off
 other flow(parts any input) +pending	Click box	other flow(parts template) +pending	
 other flow(parts any input) +pending	Click tab	other looks +pending	mouse off
 other flow(parts any input) +pending	Ctrl-C	other left	mouse off, exit 130
@@ -743,6 +847,10 @@ other flow(parts any input) +pending	o	other flow.restore +pending	history
 other flow(parts any input) +pending	q	other any.question.leave +pending	
 other flow(parts any input) +pending	r	other any.question.confirm +pending	
 other flow(parts any input) +pending	v	other flow.file +pending	
+other flow(parts any input) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts any input) +unsaved	3	other looks +unsaved	mouse off
+other flow(parts any input) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(parts any input) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts any input) +unsaved	Click box	other flow(parts template) +unsaved	
 other flow(parts any input) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts any input) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
@@ -767,6 +875,10 @@ other flow(parts any input) +unsaved	q	other any.question.quit +unsaved
 other flow(parts any input) +unsaved	r	other any.question.confirm +unsaved	
 other flow(parts any input) +unsaved	s	other flow(parts any input)	save
 other flow(parts any input) +unsaved	v	other flow.file +unsaved	
+other flow(parts any input) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts any input) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(parts any input) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(parts any input) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	Click box	other flow(parts template) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
@@ -791,6 +903,10 @@ other flow(parts any input) +unsaved +pending	q	other any.question.leave +unsave
 other flow(parts any input) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts any input) +unsaved +pending	s	other flow(parts any input) +pending	save
 other flow(parts any input) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(parts display)	1	other fonts(builtin)	mouse off
+other flow(parts display)	3	other looks	mouse off
+other flow(parts display)	5	other settings(first)	mouse off
+other flow(parts display)	6	other help(help)	mouse off
 other flow(parts display)	Click tab	other looks	mouse off
 other flow(parts display)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts display)	Down	other flow(parts template)	
@@ -813,6 +929,10 @@ other flow(parts display)	o	other flow.restore	history
 other flow(parts display)	q	other left	mouse off, exit 0
 other flow(parts display)	r	other any.question.confirm	
 other flow(parts display)	v	other flow.file	
+other flow(parts display) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts display) +pending	3	other looks +pending	mouse off
+other flow(parts display) +pending	5	other settings(first) +pending	mouse off
+other flow(parts display) +pending	6	other help(help) +pending	mouse off
 other flow(parts display) +pending	Click tab	other looks +pending	mouse off
 other flow(parts display) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts display) +pending	Down	other flow(parts template) +pending	
@@ -835,6 +955,10 @@ other flow(parts display) +pending	o	other flow.restore +pending	history
 other flow(parts display) +pending	q	other any.question.leave +pending	
 other flow(parts display) +pending	r	other any.question.confirm +pending	
 other flow(parts display) +pending	v	other flow.file +pending	
+other flow(parts display) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts display) +unsaved	3	other looks +unsaved	mouse off
+other flow(parts display) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(parts display) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts display) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts display) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts display) +unsaved	Down	other flow(parts template) +unsaved	
@@ -858,6 +982,10 @@ other flow(parts display) +unsaved	q	other any.question.quit +unsaved
 other flow(parts display) +unsaved	r	other any.question.confirm +unsaved	
 other flow(parts display) +unsaved	s	other flow(parts display)	save
 other flow(parts display) +unsaved	v	other flow.file +unsaved	
+other flow(parts display) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts display) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(parts display) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(parts display) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts display) +unsaved +pending	Down	other flow(parts template) +unsaved +pending	
@@ -881,6 +1009,10 @@ other flow(parts display) +unsaved +pending	q	other any.question.leave +unsaved 
 other flow(parts display) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts display) +unsaved +pending	s	other flow(parts display) +pending	save
 other flow(parts display) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(parts font)	1	other fonts(builtin)	mouse off
+other flow(parts font)	3	other looks	mouse off
+other flow(parts font)	5	other settings(first)	mouse off
+other flow(parts font)	6	other help(help)	mouse off
 other flow(parts font)	Click tab	other looks	mouse off
 other flow(parts font)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts font)	Home	other flow(doc display)	
@@ -895,6 +1027,10 @@ other flow(parts font)	o	other flow.restore	history
 other flow(parts font)	q	other left	mouse off, exit 0
 other flow(parts font)	r	other any.question.confirm	
 other flow(parts font)	v	other flow.file	
+other flow(parts font) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts font) +pending	3	other looks +pending	mouse off
+other flow(parts font) +pending	5	other settings(first) +pending	mouse off
+other flow(parts font) +pending	6	other help(help) +pending	mouse off
 other flow(parts font) +pending	Click tab	other looks +pending	mouse off
 other flow(parts font) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts font) +pending	Home	other flow(doc display) +pending	
@@ -909,6 +1045,10 @@ other flow(parts font) +pending	o	other flow.restore +pending	history
 other flow(parts font) +pending	q	other any.question.leave +pending	
 other flow(parts font) +pending	r	other any.question.confirm +pending	
 other flow(parts font) +pending	v	other flow.file +pending	
+other flow(parts font) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts font) +unsaved	3	other looks +unsaved	mouse off
+other flow(parts font) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(parts font) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts font) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts font) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts font) +unsaved	Home	other flow(doc display) +unsaved	
@@ -924,6 +1064,10 @@ other flow(parts font) +unsaved	q	other any.question.quit +unsaved
 other flow(parts font) +unsaved	r	other any.question.confirm +unsaved	
 other flow(parts font) +unsaved	s	other flow(parts font)	save
 other flow(parts font) +unsaved	v	other flow.file +unsaved	
+other flow(parts font) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts font) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(parts font) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(parts font) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts font) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts font) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts font) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
@@ -939,6 +1083,10 @@ other flow(parts font) +unsaved +pending	q	other any.question.leave +unsaved +pe
 other flow(parts font) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts font) +unsaved +pending	s	other flow(parts font) +pending	save
 other flow(parts font) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(parts input)	1	other fonts(builtin)	mouse off
+other flow(parts input)	3	other looks	mouse off
+other flow(parts input)	5	other settings(first)	mouse off
+other flow(parts input)	6	other help(help)	mouse off
 other flow(parts input)	Click tab	other looks	mouse off
 other flow(parts input)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts input)	Down	other flow(parts any input)	
@@ -961,6 +1109,10 @@ other flow(parts input)	o	other flow.restore	history
 other flow(parts input)	q	other left	mouse off, exit 0
 other flow(parts input)	r	other any.question.confirm	
 other flow(parts input)	v	other flow.file	
+other flow(parts input) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts input) +pending	3	other looks +pending	mouse off
+other flow(parts input) +pending	5	other settings(first) +pending	mouse off
+other flow(parts input) +pending	6	other help(help) +pending	mouse off
 other flow(parts input) +pending	Click tab	other looks +pending	mouse off
 other flow(parts input) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts input) +pending	Down	other flow(parts any input) +pending	
@@ -983,6 +1135,10 @@ other flow(parts input) +pending	o	other flow.restore +pending	history
 other flow(parts input) +pending	q	other any.question.leave +pending	
 other flow(parts input) +pending	r	other any.question.confirm +pending	
 other flow(parts input) +pending	v	other flow.file +pending	
+other flow(parts input) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts input) +unsaved	3	other looks +unsaved	mouse off
+other flow(parts input) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(parts input) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts input) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts input) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts input) +unsaved	Down	other flow(parts any input) +unsaved	
@@ -1006,6 +1162,10 @@ other flow(parts input) +unsaved	q	other any.question.quit +unsaved
 other flow(parts input) +unsaved	r	other any.question.confirm +unsaved	
 other flow(parts input) +unsaved	s	other flow(parts input)	save
 other flow(parts input) +unsaved	v	other flow.file +unsaved	
+other flow(parts input) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts input) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(parts input) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(parts input) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts input) +unsaved +pending	Down	other flow(parts any input) +unsaved +pending	
@@ -1029,6 +1189,10 @@ other flow(parts input) +unsaved +pending	q	other any.question.leave +unsaved +p
 other flow(parts input) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts input) +unsaved +pending	s	other flow(parts input) +pending	save
 other flow(parts input) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(parts keyboard)	1	other fonts(builtin)	mouse off
+other flow(parts keyboard)	3	other looks	mouse off
+other flow(parts keyboard)	5	other settings(first)	mouse off
+other flow(parts keyboard)	6	other help(help)	mouse off
 other flow(parts keyboard)	Click tab	other looks	mouse off
 other flow(parts keyboard)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts keyboard)	End	other flow(parts font)	
@@ -1049,6 +1213,10 @@ other flow(parts keyboard)	o	other flow.restore	history
 other flow(parts keyboard)	q	other left	mouse off, exit 0
 other flow(parts keyboard)	r	other any.question.confirm	
 other flow(parts keyboard)	v	other flow.file	
+other flow(parts keyboard) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts keyboard) +pending	3	other looks +pending	mouse off
+other flow(parts keyboard) +pending	5	other settings(first) +pending	mouse off
+other flow(parts keyboard) +pending	6	other help(help) +pending	mouse off
 other flow(parts keyboard) +pending	Click tab	other looks +pending	mouse off
 other flow(parts keyboard) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts keyboard) +pending	End	other flow(parts font) +pending	
@@ -1069,6 +1237,10 @@ other flow(parts keyboard) +pending	o	other flow.restore +pending	history
 other flow(parts keyboard) +pending	q	other any.question.leave +pending	
 other flow(parts keyboard) +pending	r	other any.question.confirm +pending	
 other flow(parts keyboard) +pending	v	other flow.file +pending	
+other flow(parts keyboard) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts keyboard) +unsaved	3	other looks +unsaved	mouse off
+other flow(parts keyboard) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(parts keyboard) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts keyboard) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts keyboard) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts keyboard) +unsaved	End	other flow(parts font) +unsaved	
@@ -1090,6 +1262,10 @@ other flow(parts keyboard) +unsaved	q	other any.question.quit +unsaved
 other flow(parts keyboard) +unsaved	r	other any.question.confirm +unsaved	
 other flow(parts keyboard) +unsaved	s	other flow(parts keyboard)	save
 other flow(parts keyboard) +unsaved	v	other flow.file +unsaved	
+other flow(parts keyboard) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts keyboard) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(parts keyboard) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(parts keyboard) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts keyboard) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -1111,6 +1287,10 @@ other flow(parts keyboard) +unsaved +pending	q	other any.question.leave +unsaved
 other flow(parts keyboard) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	s	other flow(parts keyboard) +pending	save
 other flow(parts keyboard) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(parts pointer)	1	other fonts(builtin)	mouse off
+other flow(parts pointer)	3	other looks	mouse off
+other flow(parts pointer)	5	other settings(first)	mouse off
+other flow(parts pointer)	6	other help(help)	mouse off
 other flow(parts pointer)	Click box	other flow(parts special)	
 other flow(parts pointer)	Click tab	other looks	mouse off
 other flow(parts pointer)	Ctrl-C	other left	mouse off, exit 130
@@ -1134,6 +1314,10 @@ other flow(parts pointer)	o	other flow.restore	history
 other flow(parts pointer)	q	other left	mouse off, exit 0
 other flow(parts pointer)	r	other any.question.confirm	
 other flow(parts pointer)	v	other flow.file	
+other flow(parts pointer) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts pointer) +pending	3	other looks +pending	mouse off
+other flow(parts pointer) +pending	5	other settings(first) +pending	mouse off
+other flow(parts pointer) +pending	6	other help(help) +pending	mouse off
 other flow(parts pointer) +pending	Click box	other flow(parts special) +pending	
 other flow(parts pointer) +pending	Click tab	other looks +pending	mouse off
 other flow(parts pointer) +pending	Ctrl-C	other left	mouse off, exit 130
@@ -1157,6 +1341,10 @@ other flow(parts pointer) +pending	o	other flow.restore +pending	history
 other flow(parts pointer) +pending	q	other any.question.leave +pending	
 other flow(parts pointer) +pending	r	other any.question.confirm +pending	
 other flow(parts pointer) +pending	v	other flow.file +pending	
+other flow(parts pointer) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts pointer) +unsaved	3	other looks +unsaved	mouse off
+other flow(parts pointer) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(parts pointer) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts pointer) +unsaved	Click box	other flow(parts special) +unsaved	
 other flow(parts pointer) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts pointer) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
@@ -1181,6 +1369,10 @@ other flow(parts pointer) +unsaved	q	other any.question.quit +unsaved
 other flow(parts pointer) +unsaved	r	other any.question.confirm +unsaved	
 other flow(parts pointer) +unsaved	s	other flow(parts pointer)	save
 other flow(parts pointer) +unsaved	v	other flow.file +unsaved	
+other flow(parts pointer) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts pointer) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(parts pointer) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(parts pointer) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	Click box	other flow(parts special) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
@@ -1205,6 +1397,10 @@ other flow(parts pointer) +unsaved +pending	q	other any.question.leave +unsaved 
 other flow(parts pointer) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	s	other flow(parts pointer) +pending	save
 other flow(parts pointer) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(parts special)	1	other fonts(builtin)	mouse off
+other flow(parts special)	3	other looks	mouse off
+other flow(parts special)	5	other settings(first)	mouse off
+other flow(parts special)	6	other help(help)	mouse off
 other flow(parts special)	Click tab	other looks	mouse off
 other flow(parts special)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts special)	Down	other flow(parts input)	
@@ -1226,6 +1422,10 @@ other flow(parts special)	o	other flow.restore	history
 other flow(parts special)	q	other left	mouse off, exit 0
 other flow(parts special)	r	other any.question.confirm	
 other flow(parts special)	v	other flow.file	
+other flow(parts special) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts special) +pending	3	other looks +pending	mouse off
+other flow(parts special) +pending	5	other settings(first) +pending	mouse off
+other flow(parts special) +pending	6	other help(help) +pending	mouse off
 other flow(parts special) +pending	Click tab	other looks +pending	mouse off
 other flow(parts special) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts special) +pending	Down	other flow(parts input) +pending	
@@ -1247,6 +1447,10 @@ other flow(parts special) +pending	o	other flow.restore +pending	history
 other flow(parts special) +pending	q	other any.question.leave +pending	
 other flow(parts special) +pending	r	other any.question.confirm +pending	
 other flow(parts special) +pending	v	other flow.file +pending	
+other flow(parts special) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts special) +unsaved	3	other looks +unsaved	mouse off
+other flow(parts special) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(parts special) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts special) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts special) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts special) +unsaved	Down	other flow(parts input) +unsaved	
@@ -1269,6 +1473,10 @@ other flow(parts special) +unsaved	q	other any.question.quit +unsaved
 other flow(parts special) +unsaved	r	other any.question.confirm +unsaved	
 other flow(parts special) +unsaved	s	other flow(parts special)	save
 other flow(parts special) +unsaved	v	other flow.file +unsaved	
+other flow(parts special) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts special) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(parts special) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(parts special) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts special) +unsaved +pending	Down	other flow(parts input) +unsaved +pending	
@@ -1291,6 +1499,10 @@ other flow(parts special) +unsaved +pending	q	other any.question.leave +unsaved 
 other flow(parts special) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts special) +unsaved +pending	s	other flow(parts special) +pending	save
 other flow(parts special) +unsaved +pending	v	other flow.file +unsaved +pending	
+other flow(parts template)	1	other fonts(builtin)	mouse off
+other flow(parts template)	3	other looks	mouse off
+other flow(parts template)	5	other settings(first)	mouse off
+other flow(parts template)	6	other help(help)	mouse off
 other flow(parts template)	Click box	other flow(parts display)	
 other flow(parts template)	Click tab	other looks	mouse off
 other flow(parts template)	Ctrl-C	other left	mouse off, exit 130
@@ -1314,6 +1526,10 @@ other flow(parts template)	o	other flow.restore	history
 other flow(parts template)	q	other left	mouse off, exit 0
 other flow(parts template)	r	other any.question.confirm	
 other flow(parts template)	v	other flow.file	
+other flow(parts template) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts template) +pending	3	other looks +pending	mouse off
+other flow(parts template) +pending	5	other settings(first) +pending	mouse off
+other flow(parts template) +pending	6	other help(help) +pending	mouse off
 other flow(parts template) +pending	Click box	other flow(parts display) +pending	
 other flow(parts template) +pending	Click tab	other looks +pending	mouse off
 other flow(parts template) +pending	Ctrl-C	other left	mouse off, exit 130
@@ -1337,6 +1553,10 @@ other flow(parts template) +pending	o	other flow.restore +pending	history
 other flow(parts template) +pending	q	other any.question.leave +pending	
 other flow(parts template) +pending	r	other any.question.confirm +pending	
 other flow(parts template) +pending	v	other flow.file +pending	
+other flow(parts template) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts template) +unsaved	3	other looks +unsaved	mouse off
+other flow(parts template) +unsaved	5	other settings(first) +unsaved	mouse off
+other flow(parts template) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts template) +unsaved	Click box	other flow(parts display) +unsaved	
 other flow(parts template) +unsaved	Click tab	other looks +unsaved	mouse off
 other flow(parts template) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
@@ -1361,6 +1581,10 @@ other flow(parts template) +unsaved	q	other any.question.quit +unsaved
 other flow(parts template) +unsaved	r	other any.question.confirm +unsaved	
 other flow(parts template) +unsaved	s	other flow(parts template)	save
 other flow(parts template) +unsaved	v	other flow.file +unsaved	
+other flow(parts template) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts template) +unsaved +pending	3	other looks +unsaved +pending	mouse off
+other flow(parts template) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
+other flow(parts template) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	Click box	other flow(parts display) +unsaved +pending	
 other flow(parts template) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
@@ -1923,6 +2147,10 @@ other flow.restore +unsaved +pending	Enter	other any.question.confirm +unsaved +
 other flow.restore +unsaved +pending	Esc	other flow(doc display) +unsaved +pending	
 other flow.restore +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.restore +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(builtin)	3	other looks	
+other fonts(builtin)	4	other flow(doc display)	mouse on
+other fonts(builtin)	5	other settings(first)	
+other fonts(builtin)	6	other help(help)	
 other fonts(builtin)	Ctrl-C	other left	exit 130
 other fonts(builtin)	Enter	other fonts(builtin) +unsaved	check
 other fonts(builtin)	Home	other fonts(refused)	
@@ -1934,6 +2162,10 @@ other fonts(builtin)	Up	other fonts(frit)
 other fonts(builtin)	i	other fonts(builtin)	prepare
 other fonts(builtin)	n	other looks.new-frit.typing(row 0)	
 other fonts(builtin)	q	other left	exit 0
+other fonts(builtin) +pending	3	other looks +pending	
+other fonts(builtin) +pending	4	other flow(doc display) +pending	mouse on
+other fonts(builtin) +pending	5	other settings(first) +pending	
+other fonts(builtin) +pending	6	other help(help) +pending	
 other fonts(builtin) +pending	Ctrl-C	other left	exit 130
 other fonts(builtin) +pending	Enter	other fonts(builtin) +unsaved +pending	check
 other fonts(builtin) +pending	Home	other fonts(refused) +pending	
@@ -1945,6 +2177,10 @@ other fonts(builtin) +pending	Up	other fonts(marked) +pending
 other fonts(builtin) +pending	i	other any.question.confirm +pending	prepare
 other fonts(builtin) +pending	n	other looks.new-frit.typing(row 0) +pending	
 other fonts(builtin) +pending	q	other any.question.leave +pending	
+other fonts(builtin) +unsaved	3	other looks +unsaved	
+other fonts(builtin) +unsaved	4	other flow(doc display) +unsaved	mouse on
+other fonts(builtin) +unsaved	5	other settings(first) +unsaved	
+other fonts(builtin) +unsaved	6	other help(help) +unsaved	
 other fonts(builtin) +unsaved	Ctrl-C	other left	save, exit 130
 other fonts(builtin) +unsaved	Enter	other fonts(builtin) +unsaved	check
 other fonts(builtin) +unsaved	Home	other fonts(refused) +unsaved	
@@ -1956,6 +2192,10 @@ other fonts(builtin) +unsaved	Up	other fonts(frit) +unsaved
 other fonts(builtin) +unsaved	i	other fonts(builtin)	save, prepare
 other fonts(builtin) +unsaved	n	other looks.new-frit.typing(row 0) +unsaved	
 other fonts(builtin) +unsaved	q	other any.question.quit +unsaved	
+other fonts(builtin) +unsaved +pending	3	other looks +unsaved +pending	
+other fonts(builtin) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other fonts(builtin) +unsaved +pending	5	other settings(first) +unsaved +pending	
+other fonts(builtin) +unsaved +pending	6	other help(help) +unsaved +pending	
 other fonts(builtin) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts(builtin) +unsaved +pending	Enter	other fonts(builtin) +unsaved +pending	check
 other fonts(builtin) +unsaved +pending	Home	other fonts(refused) +unsaved +pending	
@@ -1967,6 +2207,10 @@ other fonts(builtin) +unsaved +pending	Up	other fonts(marked) +unsaved +pending
 other fonts(builtin) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other fonts(builtin) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
 other fonts(builtin) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(frit)	3	other looks	
+other fonts(frit)	4	other flow(doc display)	mouse on
+other fonts(frit)	5	other settings(first)	
+other fonts(frit)	6	other help(help)	
 other fonts(frit)	Ctrl-C	other left	exit 130
 other fonts(frit)	Down	other fonts(builtin)	
 other fonts(frit)	End	other fonts(builtin)	
@@ -1981,6 +2225,10 @@ other fonts(frit)	i	other fonts(frit)	prepare
 other fonts(frit)	n	other looks.new-frit.typing(row 0)	
 other fonts(frit)	q	other left	exit 0
 other fonts(frit)	r	other fonts(marked) +pending	
+other fonts(frit) +pending	3	other looks +pending	
+other fonts(frit) +pending	4	other flow(doc display) +pending	mouse on
+other fonts(frit) +pending	5	other settings(first) +pending	
+other fonts(frit) +pending	6	other help(help) +pending	
 other fonts(frit) +pending	Ctrl-C	other left	exit 130
 other fonts(frit) +pending	Down	other fonts(marked) +pending	
 other fonts(frit) +pending	End	other fonts(builtin) +pending	
@@ -1994,6 +2242,10 @@ other fonts(frit) +pending	Tab	other settings(first) +pending
 other fonts(frit) +pending	i	other any.question.confirm +pending	prepare
 other fonts(frit) +pending	n	other looks.new-frit.typing(row 0) +pending	
 other fonts(frit) +pending	q	other any.question.leave +pending	
+other fonts(frit) +unsaved	3	other looks +unsaved	
+other fonts(frit) +unsaved	4	other flow(doc display) +unsaved	mouse on
+other fonts(frit) +unsaved	5	other settings(first) +unsaved	
+other fonts(frit) +unsaved	6	other help(help) +unsaved	
 other fonts(frit) +unsaved	Ctrl-C	other left	save, exit 130
 other fonts(frit) +unsaved	Down	other fonts(builtin) +unsaved	
 other fonts(frit) +unsaved	End	other fonts(builtin) +unsaved	
@@ -2007,6 +2259,10 @@ other fonts(frit) +unsaved	Tab	other settings(first) +unsaved
 other fonts(frit) +unsaved	i	other any.question.confirm	save, prepare
 other fonts(frit) +unsaved	n	other looks.new-frit.typing(row 0) +unsaved	
 other fonts(frit) +unsaved	q	other any.question.quit +unsaved	
+other fonts(frit) +unsaved +pending	3	other looks +unsaved +pending	
+other fonts(frit) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other fonts(frit) +unsaved +pending	5	other settings(first) +unsaved +pending	
+other fonts(frit) +unsaved +pending	6	other help(help) +unsaved +pending	
 other fonts(frit) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts(frit) +unsaved +pending	Down	other fonts(marked) +unsaved +pending	
 other fonts(frit) +unsaved +pending	End	other fonts(builtin) +unsaved +pending	
@@ -2020,6 +2276,10 @@ other fonts(frit) +unsaved +pending	Tab	other settings(first) +unsaved +pending
 other fonts(frit) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other fonts(frit) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
 other fonts(frit) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(marked) +pending	3	other looks +pending	
+other fonts(marked) +pending	4	other flow(doc display) +pending	mouse on
+other fonts(marked) +pending	5	other settings(first) +pending	
+other fonts(marked) +pending	6	other help(help) +pending	
 other fonts(marked) +pending	Ctrl-C	other left	exit 130
 other fonts(marked) +pending	Down	other fonts(builtin) +pending	
 other fonts(marked) +pending	End	other fonts(builtin) +pending	
@@ -2035,6 +2295,10 @@ other fonts(marked) +pending	i	other any.question.confirm +pending	prepare
 other fonts(marked) +pending	n	other looks.new-frit.typing(row 0) +pending	
 other fonts(marked) +pending	q	other any.question.leave +pending	
 other fonts(marked) +pending	r	other fonts(frit)	
+other fonts(marked) +unsaved +pending	3	other looks +unsaved +pending	
+other fonts(marked) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other fonts(marked) +unsaved +pending	5	other settings(first) +unsaved +pending	
+other fonts(marked) +unsaved +pending	6	other help(help) +unsaved +pending	
 other fonts(marked) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts(marked) +unsaved +pending	Down	other fonts(builtin) +unsaved +pending	
 other fonts(marked) +unsaved +pending	End	other fonts(builtin) +unsaved +pending	
@@ -2050,6 +2314,10 @@ other fonts(marked) +unsaved +pending	i	other fonts(marked) +pending	save, prepa
 other fonts(marked) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
 other fonts(marked) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other fonts(marked) +unsaved +pending	r	other fonts(frit) +unsaved	
+other fonts(refused)	3	other looks	
+other fonts(refused)	4	other flow(doc display)	mouse on
+other fonts(refused)	5	other settings(first)	
+other fonts(refused)	6	other help(help)	
 other fonts(refused)	Ctrl-C	other left	exit 130
 other fonts(refused)	Down	other fonts(frit)	
 other fonts(refused)	End	other fonts(builtin)	
@@ -2061,6 +2329,10 @@ other fonts(refused)	i	other fonts(refused)	prepare
 other fonts(refused)	n	other looks.new-frit.typing(row 0)	
 other fonts(refused)	q	other left	exit 0
 other fonts(refused)	r	other fonts(marked) +pending	
+other fonts(refused) +pending	3	other looks +pending	
+other fonts(refused) +pending	4	other flow(doc display) +pending	mouse on
+other fonts(refused) +pending	5	other settings(first) +pending	
+other fonts(refused) +pending	6	other help(help) +pending	
 other fonts(refused) +pending	Ctrl-C	other left	exit 130
 other fonts(refused) +pending	Down	other fonts(frit) +pending	
 other fonts(refused) +pending	End	other fonts(builtin) +pending	
@@ -2072,6 +2344,10 @@ other fonts(refused) +pending	i	other any.question.confirm +pending	prepare
 other fonts(refused) +pending	n	other looks.new-frit.typing(row 0) +pending	
 other fonts(refused) +pending	q	other any.question.leave +pending	
 other fonts(refused) +pending	r	other fonts(marked) +pending	
+other fonts(refused) +unsaved	3	other looks +unsaved	
+other fonts(refused) +unsaved	4	other flow(doc display) +unsaved	mouse on
+other fonts(refused) +unsaved	5	other settings(first) +unsaved	
+other fonts(refused) +unsaved	6	other help(help) +unsaved	
 other fonts(refused) +unsaved	Ctrl-C	other left	save, exit 130
 other fonts(refused) +unsaved	Down	other fonts(frit) +unsaved	
 other fonts(refused) +unsaved	End	other fonts(builtin) +unsaved	
@@ -2083,6 +2359,10 @@ other fonts(refused) +unsaved	i	other fonts(refused)	save, prepare
 other fonts(refused) +unsaved	n	other looks.new-frit.typing(row 0) +unsaved	
 other fonts(refused) +unsaved	q	other any.question.quit +unsaved	
 other fonts(refused) +unsaved	r	other fonts(marked) +unsaved +pending	
+other fonts(refused) +unsaved +pending	3	other looks +unsaved +pending	
+other fonts(refused) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other fonts(refused) +unsaved +pending	5	other settings(first) +unsaved +pending	
+other fonts(refused) +unsaved +pending	6	other help(help) +unsaved +pending	
 other fonts(refused) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts(refused) +unsaved +pending	Down	other fonts(frit) +unsaved +pending	
 other fonts(refused) +unsaved +pending	End	other fonts(builtin) +unsaved +pending	
@@ -2093,6 +2373,10 @@ other fonts(refused) +unsaved +pending	Tab	other settings(first) +unsaved +pendi
 other fonts(refused) +unsaved +pending	i	other fonts(refused) +pending	save, prepare
 other fonts(refused) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
 other fonts(refused) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other help(about)	1	other fonts(builtin)	
+other help(about)	3	other looks	
+other help(about)	4	other flow(doc display)	mouse on
+other help(about)	5	other settings(first)	
 other help(about)	Ctrl-C	other left	exit 130
 other help(about)	Left	other help(help)	
 other help(about)	Right	other help(help)	
@@ -2100,6 +2384,10 @@ other help(about)	Shift-Tab	other settings(first)
 other help(about)	Shrink	other any.too-small	
 other help(about)	Tab	other flow(doc display)	mouse on
 other help(about)	q	other left	exit 0
+other help(about) +pending	1	other fonts(marked) +pending	
+other help(about) +pending	3	other looks +pending	
+other help(about) +pending	4	other flow(doc display) +pending	mouse on
+other help(about) +pending	5	other settings(first) +pending	
 other help(about) +pending	Ctrl-C	other left	exit 130
 other help(about) +pending	Left	other help(help) +pending	
 other help(about) +pending	Right	other help(help) +pending	
@@ -2107,6 +2395,10 @@ other help(about) +pending	Shift-Tab	other settings(first) +pending
 other help(about) +pending	Shrink	other any.too-small +pending	
 other help(about) +pending	Tab	other flow(doc display) +pending	mouse on
 other help(about) +pending	q	other any.question.leave +pending	
+other help(about) +unsaved	1	other fonts(builtin) +unsaved	
+other help(about) +unsaved	3	other looks +unsaved	
+other help(about) +unsaved	4	other flow(doc display) +unsaved	mouse on
+other help(about) +unsaved	5	other settings(first) +unsaved	
 other help(about) +unsaved	Ctrl-C	other left	save, exit 130
 other help(about) +unsaved	Left	other help(help) +unsaved	
 other help(about) +unsaved	Right	other help(help) +unsaved	
@@ -2114,6 +2406,10 @@ other help(about) +unsaved	Shift-Tab	other settings(first) +unsaved
 other help(about) +unsaved	Shrink	other any.too-small +unsaved	
 other help(about) +unsaved	Tab	other flow(doc display) +unsaved	mouse on
 other help(about) +unsaved	q	other any.question.quit +unsaved	
+other help(about) +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other help(about) +unsaved +pending	3	other looks +unsaved +pending	
+other help(about) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other help(about) +unsaved +pending	5	other settings(first) +unsaved +pending	
 other help(about) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other help(about) +unsaved +pending	Left	other help(help) +unsaved +pending	
 other help(about) +unsaved +pending	Right	other help(help) +unsaved +pending	
@@ -2121,6 +2417,10 @@ other help(about) +unsaved +pending	Shift-Tab	other settings(first) +unsaved +pe
 other help(about) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other help(about) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other help(about) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other help(help)	1	other fonts(builtin)	
+other help(help)	3	other looks	
+other help(help)	4	other flow(doc display)	mouse on
+other help(help)	5	other settings(first)	
 other help(help)	Ctrl-C	other left	exit 130
 other help(help)	Left	other help(about)	
 other help(help)	Right	other help(about)	
@@ -2128,6 +2428,10 @@ other help(help)	Shift-Tab	other settings(first)
 other help(help)	Shrink	other any.too-small	
 other help(help)	Tab	other flow(doc display)	mouse on
 other help(help)	q	other left	exit 0
+other help(help) +pending	1	other fonts(marked) +pending	
+other help(help) +pending	3	other looks +pending	
+other help(help) +pending	4	other flow(doc display) +pending	mouse on
+other help(help) +pending	5	other settings(first) +pending	
 other help(help) +pending	Ctrl-C	other left	exit 130
 other help(help) +pending	Left	other help(about) +pending	
 other help(help) +pending	Right	other help(about) +pending	
@@ -2135,6 +2439,10 @@ other help(help) +pending	Shift-Tab	other settings(first) +pending
 other help(help) +pending	Shrink	other any.too-small +pending	
 other help(help) +pending	Tab	other flow(doc display) +pending	mouse on
 other help(help) +pending	q	other any.question.leave +pending	
+other help(help) +unsaved	1	other fonts(builtin) +unsaved	
+other help(help) +unsaved	3	other looks +unsaved	
+other help(help) +unsaved	4	other flow(doc display) +unsaved	mouse on
+other help(help) +unsaved	5	other settings(first) +unsaved	
 other help(help) +unsaved	Ctrl-C	other left	save, exit 130
 other help(help) +unsaved	Left	other help(about) +unsaved	
 other help(help) +unsaved	Right	other help(about) +unsaved	
@@ -2142,6 +2450,10 @@ other help(help) +unsaved	Shift-Tab	other settings(first) +unsaved
 other help(help) +unsaved	Shrink	other any.too-small +unsaved	
 other help(help) +unsaved	Tab	other flow(doc display) +unsaved	mouse on
 other help(help) +unsaved	q	other any.question.quit +unsaved	
+other help(help) +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other help(help) +unsaved +pending	3	other looks +unsaved +pending	
+other help(help) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other help(help) +unsaved +pending	5	other settings(first) +unsaved +pending	
 other help(help) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other help(help) +unsaved +pending	Left	other help(about) +unsaved +pending	
 other help(help) +unsaved +pending	Right	other help(about) +unsaved +pending	
@@ -2149,6 +2461,10 @@ other help(help) +unsaved +pending	Shift-Tab	other settings(first) +unsaved +pen
 other help(help) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other help(help) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other help(help) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks	1	other fonts(builtin)	
+other looks	4	other flow(doc display)	mouse on
+other looks	5	other settings(first)	
+other looks	6	other help(help)	
 other looks	Ctrl-C	other left	exit 130
 other looks	Enter	other looks +unsaved	check
 other looks	Shift-Tab	other flow(doc display)	mouse on
@@ -2156,6 +2472,10 @@ other looks	Shrink	other any.too-small
 other looks	Tab	other fonts(builtin)	
 other looks	i	other looks	prepare
 other looks	q	other left	exit 0
+other looks +pending	1	other fonts(marked) +pending	
+other looks +pending	4	other flow(doc display) +pending	mouse on
+other looks +pending	5	other settings(first) +pending	
+other looks +pending	6	other help(help) +pending	
 other looks +pending	Ctrl-C	other left	exit 130
 other looks +pending	Enter	other looks +unsaved +pending	check
 other looks +pending	Shift-Tab	other flow(doc display) +pending	mouse on
@@ -2163,6 +2483,10 @@ other looks +pending	Shrink	other any.too-small +pending
 other looks +pending	Tab	other fonts(marked) +pending	
 other looks +pending	i	other any.question.confirm +pending	prepare
 other looks +pending	q	other any.question.leave +pending	
+other looks +unsaved	1	other fonts(builtin) +unsaved	
+other looks +unsaved	4	other flow(doc display) +unsaved	mouse on
+other looks +unsaved	5	other settings(first) +unsaved	
+other looks +unsaved	6	other help(help) +unsaved	
 other looks +unsaved	Ctrl-C	other left	save, exit 130
 other looks +unsaved	Enter	other looks +unsaved	check
 other looks +unsaved	Shift-Tab	other flow(doc display) +unsaved	mouse on
@@ -2171,6 +2495,10 @@ other looks +unsaved	Tab	other fonts(builtin) +unsaved
 other looks +unsaved	i	other looks	save, prepare
 other looks +unsaved	q	other any.question.quit +unsaved	
 other looks +unsaved	s	other looks	save
+other looks +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other looks +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other looks +unsaved +pending	5	other settings(first) +unsaved +pending	
+other looks +unsaved +pending	6	other help(help) +unsaved +pending	
 other looks +unsaved +pending	Ctrl-C	other left	save, exit 130
 other looks +unsaved +pending	Enter	other looks +unsaved +pending	check
 other looks +unsaved +pending	Shift-Tab	other flow(doc display) +unsaved +pending	mouse on
@@ -2303,6 +2631,10 @@ other looks.new-frit.typing(row 5) +unsaved +pending	Ctrl-C	other left	save, exi
 other looks.new-frit.typing(row 5) +unsaved +pending	Enter	other looks.new-frit(row 6) +unsaved +pending	
 other looks.new-frit.typing(row 5) +unsaved +pending	Esc	other fonts(marked) +unsaved +pending	
 other looks.new-frit.typing(row 5) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other settings(first)	1	other fonts(builtin)	
+other settings(first)	3	other looks	
+other settings(first)	4	other flow(doc display)	mouse on
+other settings(first)	6	other help(help)	
 other settings(first)	Ctrl-C	other left	exit 130
 other settings(first)	Down	other settings(later)	
 other settings(first)	End	other settings(later)	
@@ -2313,6 +2645,10 @@ other settings(first)	Shrink	other any.too-small
 other settings(first)	Tab	other help(help)	
 other settings(first)	i	other settings(first)	prepare
 other settings(first)	q	other left	exit 0
+other settings(first) +pending	1	other fonts(marked) +pending	
+other settings(first) +pending	3	other looks +pending	
+other settings(first) +pending	4	other flow(doc display) +pending	mouse on
+other settings(first) +pending	6	other help(help) +pending	
 other settings(first) +pending	Ctrl-C	other left	exit 130
 other settings(first) +pending	Down	other settings(later) +pending	
 other settings(first) +pending	End	other settings(later) +pending	
@@ -2323,6 +2659,10 @@ other settings(first) +pending	Shrink	other any.too-small +pending
 other settings(first) +pending	Tab	other help(help) +pending	
 other settings(first) +pending	i	other any.question.confirm +pending	prepare
 other settings(first) +pending	q	other any.question.leave +pending	
+other settings(first) +unsaved	1	other fonts(builtin) +unsaved	
+other settings(first) +unsaved	3	other looks +unsaved	
+other settings(first) +unsaved	4	other flow(doc display) +unsaved	mouse on
+other settings(first) +unsaved	6	other help(help) +unsaved	
 other settings(first) +unsaved	Ctrl-C	other left	save, exit 130
 other settings(first) +unsaved	Down	other settings(later) +unsaved	
 other settings(first) +unsaved	End	other settings(later) +unsaved	
@@ -2334,6 +2674,10 @@ other settings(first) +unsaved	Tab	other help(help) +unsaved
 other settings(first) +unsaved	i	other settings(first)	save, prepare
 other settings(first) +unsaved	q	other any.question.quit +unsaved	
 other settings(first) +unsaved	s	other settings(first)	save
+other settings(first) +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other settings(first) +unsaved +pending	3	other looks +unsaved +pending	
+other settings(first) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other settings(first) +unsaved +pending	6	other help(help) +unsaved +pending	
 other settings(first) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other settings(first) +unsaved +pending	Down	other settings(later) +unsaved +pending	
 other settings(first) +unsaved +pending	End	other settings(later) +unsaved +pending	
@@ -2345,6 +2689,10 @@ other settings(first) +unsaved +pending	Tab	other help(help) +unsaved +pending
 other settings(first) +unsaved +pending	i	other settings(first) +pending	save, prepare
 other settings(first) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other settings(first) +unsaved +pending	s	other settings(first) +pending	save
+other settings(later)	1	other fonts(builtin)	
+other settings(later)	3	other looks	
+other settings(later)	4	other flow(doc display)	mouse on
+other settings(later)	6	other help(help)	
 other settings(later)	Ctrl-C	other left	exit 130
 other settings(later)	Enter	other settings.section(choice)	
 other settings(later)	Home	other settings(first)	
@@ -2355,6 +2703,10 @@ other settings(later)	Tab	other help(help)
 other settings(later)	Up	other settings(first)	
 other settings(later)	i	other settings(later)	prepare
 other settings(later)	q	other left	exit 0
+other settings(later) +pending	1	other fonts(marked) +pending	
+other settings(later) +pending	3	other looks +pending	
+other settings(later) +pending	4	other flow(doc display) +pending	mouse on
+other settings(later) +pending	6	other help(help) +pending	
 other settings(later) +pending	Ctrl-C	other left	exit 130
 other settings(later) +pending	Enter	other settings.section(choice) +pending	
 other settings(later) +pending	Home	other settings(first) +pending	
@@ -2365,6 +2717,10 @@ other settings(later) +pending	Tab	other help(help) +pending
 other settings(later) +pending	Up	other settings(first) +pending	
 other settings(later) +pending	i	other any.question.confirm +pending	prepare
 other settings(later) +pending	q	other any.question.leave +pending	
+other settings(later) +unsaved	1	other fonts(builtin) +unsaved	
+other settings(later) +unsaved	3	other looks +unsaved	
+other settings(later) +unsaved	4	other flow(doc display) +unsaved	mouse on
+other settings(later) +unsaved	6	other help(help) +unsaved	
 other settings(later) +unsaved	Ctrl-C	other left	save, exit 130
 other settings(later) +unsaved	Enter	other settings.section(choice) +unsaved	
 other settings(later) +unsaved	Home	other settings(first) +unsaved	
@@ -2376,6 +2732,10 @@ other settings(later) +unsaved	Up	other settings(first) +unsaved
 other settings(later) +unsaved	i	other settings(later)	save, prepare
 other settings(later) +unsaved	q	other any.question.quit +unsaved	
 other settings(later) +unsaved	s	other settings(later)	save
+other settings(later) +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other settings(later) +unsaved +pending	3	other looks +unsaved +pending	
+other settings(later) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other settings(later) +unsaved +pending	6	other help(help) +unsaved +pending	
 other settings(later) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other settings(later) +unsaved +pending	Enter	other settings.section(choice) +unsaved +pending	
 other settings(later) +unsaved +pending	Home	other settings(first) +unsaved +pending	

@@ -6,9 +6,12 @@
 
 mod checks;
 mod explore;
+mod reference;
 mod sim;
+mod snapshots;
 mod state;
 mod tables;
+mod walk;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -124,7 +127,7 @@ fn card_lines(map: &Map, checks: &mut Checks) {
 /// map records none of these transitions.
 fn from_a_second_page(map: &Map, checks: &mut Checks) {
     for (abs, (sim, path, start)) in &map.reps {
-        let line = vtium_config::tui::view::key_line(&sim.app);
+        let line = vtium_config::tui::layout::key_line(&sim.app);
         if !line
             .rsplit("  ")
             .next()
@@ -281,6 +284,39 @@ fn every_named_key_acts(acted_once: &BTreeSet<(String, String, &'static str)>) -
     out
 }
 
+/// Where the key took the TUI, against where the reading of the tables in
+/// `reference.rs` says it goes, for the keys whose effect the tables
+/// decide whatever a tab holds. A failure names the scenario, the shortest
+/// keys from the start that take the transition.
+fn as_the_tables_say(step: &explore::Step) -> Option<String> {
+    if step.from.kind == StateKind::Left {
+        return None;
+    }
+    let want = reference::expect(&step.from.node(), step.key)?;
+    let to = if step.to.kind == StateKind::Left {
+        String::new()
+    } else {
+        step.to.node()
+    };
+    let mut agrees = reference::agrees(&want, &to, step.did.exit);
+    // a key that leaves the TUI where it was leaves the tab under it too
+    // below the minimum size no tab shows, so there is none to compare
+    let shown = !step.from.view.is_empty() && !step.to.view.is_empty();
+    if agrees.is_ok()
+        && shown
+        && want == reference::Expect::At(step.from.node())
+        && step.to.view != step.from.view
+    {
+        agrees = Err(format!(
+            "the tables keep the TUI at {to}, and the tab under it went from {} to {}",
+            step.from.view, step.to.view
+        ));
+    }
+    agrees
+        .err()
+        .map(|e| format!("{}: from {}: {e}", step.scenario(), step.from.node()))
+}
+
 /// The 0-switch run: every key in every state of every kind of terminal,
 /// each terminal on a thread of its own, with every check after every
 /// key, the map compared with the committed one, and the tables met.
@@ -293,12 +329,15 @@ fn every_key_in_every_state_keeps_the_rules() {
             .map(|term| {
                 scope.spawn(move || {
                     let mut checks = Checks::new();
+                    let mut moved = Vec::new();
                     let map = explore::explore(term, |step, before, after| {
                         checks.see(step, before, after);
+                        moved.extend(as_the_tables_say(step));
                     });
                     card_lines(&map, &mut checks);
                     from_a_second_page(&map, &mut checks);
                     let acts = named_keys_that_act(&map);
+                    checks.found.failures.extend(moved);
                     (term, map, checks, acts)
                 })
             })
@@ -489,10 +528,11 @@ fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     // in Fonts: proof as the font, one change; tiny5 marked for removal
     press(&mut sim, &["Up", "Up", "Enter", "Down", "r", "q"]);
-    assert_eq!(sim.app.unsaved, 1);
-    assert_eq!(sim.app.pending.removals, ["tiny5"]);
+    assert_eq!(sim.app.shared.unsaved, 1);
+    assert_eq!(sim.app.shared.pending.removals, ["tiny5"]);
     let question = sim
         .app
+        .nav
         .confirm
         .clone()
         .expect("the leave question")
@@ -506,15 +546,25 @@ fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
         let mut asked = sim.clone();
         asked.press(press_of(stray));
         assert_eq!(asked.exited, None, "{stray} left");
-        assert!(asked.app.confirm.is_some(), "{stray} closed the question");
+        assert!(
+            asked.app.nav.confirm.is_some(),
+            "{stray} closed the question"
+        );
         assert_eq!(asked.desk.writes, 0, "{stray} saved");
     }
     for no in ["Esc", "Ctrl-C"] {
         let mut asked = sim.clone();
         asked.press(press_of(no));
         assert_eq!(asked.exited, None, "{no} left");
-        assert!(asked.app.confirm.is_none(), "{no} kept the question open");
-        assert_eq!((asked.desk.writes, asked.app.unsaved), (0, 1), "{no}");
+        assert!(
+            asked.app.nav.confirm.is_none(),
+            "{no} kept the question open"
+        );
+        assert_eq!(
+            (asked.desk.writes, asked.app.shared.unsaved),
+            (0, 1),
+            "{no}"
+        );
     }
     let mut n = sim.clone();
     n.press(press_of("n"));
@@ -534,6 +584,7 @@ fn the_leave_question_with_nothing_unsaved_installs_on_y() {
     press(&mut sim, &["Up", "r", "q"]);
     let question = sim
         .app
+        .nav
         .confirm
         .clone()
         .expect("the leave question")
@@ -557,7 +608,7 @@ fn the_leave_question_with_nothing_unsaved_installs_on_y() {
 fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     press(&mut sim, &["Up", "Enter", "Shrink", "q"]);
-    assert_eq!(sim.app.unsaved, 1);
+    assert_eq!(sim.app.shared.unsaved, 1);
     assert_eq!(sim.exited, None);
     let first = sim.screen().first().cloned().unwrap_or_default();
     assert!(
@@ -566,7 +617,7 @@ fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
     );
     let mut back = sim.clone();
     back.press(press_of("Esc"));
-    assert_eq!((back.exited, back.app.unsaved), (None, 1));
+    assert_eq!((back.exited, back.app.shared.unsaved), (None, 1));
     let mut drop = sim.clone();
     drop.press(press_of("n"));
     assert_eq!((drop.exited, drop.desk.writes), (Some(0), 0));
@@ -586,22 +637,26 @@ fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
 fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     press(&mut sim, &["n", "x"]);
-    assert_eq!(sim.app.view, vtium_config::tui::model::View::New);
+    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::New);
     assert_eq!(
-        sim.app.new_frit.fields.first().map(String::as_str),
+        sim.app.fonts.form().fields.first().map(String::as_str),
         Some("x")
     );
     for moving in ["Up", "Down", "Home", "End", "PgUp", "PgDn", "Left", "Right"] {
         let mut typed = sim.clone();
         let did = typed.press(press_of(moving));
-        assert_eq!(typed.app.new_frit, sim.app.new_frit, "{moving} moved");
+        assert_eq!(
+            typed.app.fonts.form(),
+            sim.app.fonts.form(),
+            "{moving} moved"
+        );
         assert!(did.effects.is_empty(), "{moving}: {did:?}");
     }
     let mut kept = sim.clone();
     press(&mut kept, &["Enter"]);
-    assert_eq!(kept.app.new_frit.at, 1);
+    assert_eq!(kept.app.fonts.form().at, 1);
     press(&mut sim, &["Esc"]);
-    assert_eq!(sim.app.view, vtium_config::tui::model::View::Fonts);
+    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Fonts);
 }
 
 /// A Settings key's list of values opens on the value the key has now, and
@@ -618,11 +673,11 @@ fn a_value_list_opens_on_the_value_now_and_esc_keeps_the_section() {
     use vtium_config::tui::model::View;
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     for _ in 0..View::TABS.len() {
-        if sim.app.view != View::Settings {
+        if sim.app.nav.view != View::Settings {
             press(&mut sim, &["Tab"]);
         }
     }
-    assert_eq!(sim.app.view, View::Settings);
+    assert_eq!(sim.app.nav.view, View::Settings);
     // the first section's last key is cluster-width, which takes double,
     // its default, or single
     press(&mut sim, &["Enter", "End"]);
@@ -631,25 +686,26 @@ fn a_value_list_opens_on_the_value_now_and_esc_keeps_the_section() {
         Some("cluster-width")
     );
     press(&mut sim, &["Enter"]);
-    assert_eq!(sim.app.settings.values.map(|l| l.at), Some(0));
+    assert_eq!(sim.app.settings.values().map(|l| l.at), Some(0));
     press(&mut sim, &["Down", "Enter"]);
-    assert_eq!(sim.app.settings.values, None);
+    assert_eq!(sim.app.settings.values(), None);
     let draft = sim
         .app
+        .shared
         .draft
         .as_ref()
         .map(|d| d.text.clone())
         .unwrap_or_default();
     assert!(draft.contains("\ncluster-width=single\n"), "{draft}");
     press(&mut sim, &["Enter"]);
-    assert_eq!(sim.app.settings.values.map(|l| l.at), Some(1));
+    assert_eq!(sim.app.settings.values().map(|l| l.at), Some(1));
     press(&mut sim, &["Esc", "Esc"]);
-    assert_eq!(sim.app.settings.open, None);
+    assert_eq!(sim.app.settings.open(), None);
     press(&mut sim, &["Down", "Down", "Enter"]);
-    assert_eq!(sim.app.settings.open.map(|(at, _)| at), Some(2));
+    assert_eq!(sim.app.settings.open().map(|(at, _)| at), Some(2));
     press(&mut sim, &["Esc"]);
-    assert_eq!(sim.app.settings.open, None);
-    assert_eq!(sim.app.settings.sections.at, 2);
+    assert_eq!(sim.app.settings.open(), None);
+    assert_eq!(sim.app.settings.section_at(), 2);
 }
 
 /// The leave question's `y` installs a draft that wires no complete route
@@ -669,6 +725,7 @@ fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
     assert_eq!(sim.exited, None);
     let question = sim
         .app
+        .nav
         .confirm
         .clone()
         .expect("the no-route question")
@@ -678,7 +735,7 @@ fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
     back.press(press_of("Esc"));
     let did = back.press(press_of("i"));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
-    assert!(back.app.confirm.is_some(), "i installed without asking");
+    assert!(back.app.nav.confirm.is_some(), "i installed without asking");
     let did = sim.press(press_of("y"));
     assert!(did.effects.iter().any(|e| e == "install"), "{did:?}");
     assert_eq!(sim.exited, Some(0));
@@ -689,14 +746,14 @@ fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
 #[test]
 fn the_leave_question_without_a_draft_leaves_no_install_waiting() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
-    let draft = sim.app.draft.take();
+    let draft = sim.app.shared.draft.take();
     press(&mut sim, &["Up", "r", "q", "y"]);
     assert_eq!(sim.exited, None);
-    sim.app.draft = draft;
+    sim.app.shared.draft = draft;
     let did = sim.press(press_of("i"));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
     assert_eq!(sim.exited, None);
-    assert!(sim.app.confirm.is_some(), "i installed without asking");
+    assert!(sim.app.nav.confirm.is_some(), "i installed without asking");
 }
 
 /// Below the minimum size, the leave question says what quitting loses
@@ -769,7 +826,7 @@ fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
             press(&mut sim, keys);
             sim.press(sim::Press::Resize(cols, rows));
             press(&mut sim, &["q"]);
-            assert!(sim.app.confirm.is_some(), "{name} at {cols}x{rows}");
+            assert!(sim.app.nav.confirm.is_some(), "{name} at {cols}x{rows}");
             let screen = sim.screen();
             let text = joined(&screen);
             for part in said {

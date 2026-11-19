@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "any.trial at 80×25, keys: Up t"
+---
+ Flow  Looks  Fonts  Settings  Help                               Save  Install
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+   broken     cannot be read: line 2: unknown key colour
+   minspec-16 reads
+   proof      reads
+ > tiny5      reads
+   unifont    built in, installed
+   unscii-8   built in
+
+ The console draws these characters in tiny5, the font it uses now. Press t to
+ try the highlighted font on the console, k to keep it, and s to save it in the
+ draft.
+
+  !"#$%&'()*+,-./0123456789:;<=>?
+ @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+ `abcdefghijklmnopqrstuvwxyz{|}~
+ ÀÁÂÄÅÆÇÈÉÊËÍÎÏÑÓÔÖØÚÜÝß àáâäåæçèéêëíîïñ
+ óôöøúüýÿ ŁłŒœŠšŽžĞğİıŞş ¡¿«»“”‘’„–—…•
+ ┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝
+
+ Trying tiny5 on the console for 10 s. Press k to keep it, or any other key to
+ put the font back.
+--------------------------------------------------------------------------------
+ k keep  other keys put back  Ctrl-C save and quit

@@ -149,6 +149,16 @@ pub trait Video: Any {
     fn levels(&self, _: DisplayId) -> Option<u8> {
         None
     }
+    /// The bits a pixel of the display's buffer holds: 1, 16, 24 or 32. A
+    /// vtlook's `min-depth` and `max-depth` judge a color display by it.
+    /// vtium draws every frame in XRGB8888, so a device whose buffer is the
+    /// memory vtium draws into holds 32, which this default says; a
+    /// framebuffer that vtium converts each frame for says its own depth.
+    /// `None` where the device does not know it now, such as a
+    /// framebuffer while it is asleep.
+    fn buffer_bits(&self, _: DisplayId) -> Option<u8> {
+        Some(32)
+    }
     /// Whether a swap with no damage has something to send, as a cursor
     /// shown, moved or hidden.
     fn need_commit(&self, _: DisplayId) -> bool {
@@ -243,6 +253,9 @@ macro_rules! drm2d_video {
             }
             fn levels(&self, id: DisplayId) -> Option<u8> {
                 <$device>::levels(self, id)
+            }
+            fn buffer_bits(&self, id: DisplayId) -> Option<u8> {
+                <$device>::buffer_bits(self, id)
             }
             fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
                 <$device>::density(self, id)
@@ -364,6 +377,9 @@ impl Video for Fbdev<Fb> {
     fn levels(&self, id: DisplayId) -> Option<u8> {
         Fbdev::levels(self, id)
     }
+    fn buffer_bits(&self, id: DisplayId) -> Option<u8> {
+        Fbdev::buffer_bits(self, id)
+    }
     fn dpi(&self, id: DisplayId) -> Option<(f64, f64)> {
         Fbdev::density(self, id)
             .filter(Density::measured)
@@ -442,6 +458,9 @@ mod tests {
             None
         }
         fn levels(&self, _: DisplayId) -> Option<u8> {
+            None
+        }
+        fn buffer_bits(&self, _: DisplayId) -> Option<u8> {
             None
         }
         fn density(&self, _: DisplayId) -> Option<Density> {

@@ -614,7 +614,7 @@ MSRV := $(shell sed -n 's/^rust-version = "\(.*\)"$$/\1/p' Cargo.toml)
 # the same way on every machine.
 DENY_VERSION   = 0.20.2
 DENY_INSTALL   = cargo install --locked cargo-deny --version $(DENY_VERSION)
-DENY_MANIFESTS = Cargo.toml $(sort $(wildcard crates/*/fuzz/Cargo.toml crates/*/gen-*/Cargo.toml))
+DENY_MANIFESTS = Cargo.toml tools/shader-timing/Cargo.toml $(sort $(wildcard crates/*/fuzz/Cargo.toml crates/*/gen-*/Cargo.toml))
 define deny-version
 @v=$$(cargo deny --version 2>/dev/null) || v=; [ "$$v" = "cargo-deny $(DENY_VERSION)" ] || { echo "$@ needs cargo-deny $(DENY_VERSION), and this machine has $${v:-no cargo-deny}. Install it with: $(DENY_INSTALL)" >&2; exit 1; }
 endef
@@ -718,7 +718,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest, the font files' staging and check, and the Cullet Mono build's checks without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest, the font files' staging and check, and the Cullet Mono build's checks, the shader timing harness on llvmpipe without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -740,6 +740,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	cargo test -q -p vtium-tier1-shots --features draw
 	cargo test -q -p vtium-site
 	cargo test -q --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool
+	cargo test -q --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
@@ -942,6 +943,22 @@ cullet-mono: ## Build Cullet Mono from its pinned sources into target/cullet-mon
 cullet-mono-check: ## Check the Cullet Mono faces in target/cullet-mono against pins.tsv, without building them again
 	$(CULLET_MONO) check $(CULLET_MONO_OUT)
 
+# The shader timing harness, which times spatial shaders off-screen on a
+# GPU's render node through EGL, with no DRM master. Not a gate: its numbers
+# belong to the machine that runs it. DEVICE picks the GPU: surfaceless (the
+# default, the GPU Mesa picks), software (llvmpipe) or a render node such as
+# /dev/dri/renderD128. ARGS passes more options, such as ARGS='--frames 7'.
+# The rows go to target/shader-timing/DEVICE.tsv as well as to the terminal.
+#
+# References:
+# - ADR-1304 D18, "measuring first": what the harness measures, and why.
+SHADER_TIMING := cargo run --release --locked --manifest-path tools/shader-timing/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/shader-timing-tool --
+SHADER_TIMING_OUT := $(or $(CARGO_TARGET_DIR),target)/shader-timing
+.PHONY: shader-timing
+shader-timing: ## Time the spatial shaders of ADR-1304 D18 off-screen on DEVICE (surfaceless, software or a render node; default surfaceless) at 1920x1080 and 3840x2160, into target/shader-timing/DEVICE.tsv; ARGS='...' passes more options
+	@mkdir -p $(SHADER_TIMING_OUT)
+	$(SHADER_TIMING) run --device '$(or $(DEVICE),surfaceless)' --tsv '$(SHADER_TIMING_OUT)/$(notdir $(or $(DEVICE),surfaceless)).tsv' $(ARGS)
+
 # What the maintainer reviews tier 1's goldens on (ADR-1505, V3); not a
 # gate. tier1-shots replays every case of the corpus and of vtium's own
 # cases, and every behaviour scenario, through vtium-replay's code, checks
@@ -970,7 +987,7 @@ tier1-play: ## Play one tier 1 case (CASE=NAME) or scenario (SCENARIO=NAME) in t
 # throwaway home that tools/tui-review/demo removes afterwards.
 TUI_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tui-shots)
 .PHONY: tui-shots tui-demo
-tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in unifont, into OUT=DIR (default target/tui-shots)
+tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in unifont, into OUT=DIR (default target/tui-shots), the provisional ones included and marked
 	rm -rf $(TUI_SHOTS)/bytes
 	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 the_flow_view_s_states_at_80x25_and_120x32
 	cargo build --release -p vtium-tui-review --bin tui-shots
@@ -1051,17 +1068,41 @@ release-notes: ## Write the GitHub release body for VERSION=V from docs/releases
 # lint reports a warning or worse on one; a style note passes. make install
 # and make install-tree install them in PREFIX/share/man, the gallery's page
 # only with images in FEATURES, as its program.
+#
+# man-check runs the mandoc it finds on PATH. When there is none, as on an
+# Arch desktop that keeps man-db, it runs the same lint in docker: it builds
+# tools/man/mandoc.Dockerfile once as MANDOC_IMAGE, with Ubuntu 24.04's
+# mandoc like CI's, and reuses that image afterwards. The container has no
+# network, runs as the invoking user, and mounts only man/, read-only.
+# mandoc's exit status passes through docker run, so a warning still fails
+# the gate. MANDOC_DOCKER=0 turns the docker fallback off.
 MAN_DIR := man
 MAN_PAGES := vtium.8 vtium-config.1 vtium.conf.5 vtium-clipboard.1 vtium-gallery.1
+MAN_LINT := mandoc -T lint -W warning $(addprefix $(MAN_DIR)/,$(MAN_PAGES))
+MANDOC_DOCKER ?= 1
+MANDOC_IMAGE := vtium-mandoc:1
 
 .PHONY: man man-check
 man: ## Write vtium's man pages into man/ from the key table, the commands' option lists and tools/man's templates
 	cargo run -q -p vtium-man -- write $(MAN_DIR)
 
-man-check: ## Fail when a man page in man/ is stale or mandoc -T lint finds a warning or worse in one (needs mandoc)
+man-check: ## Fail when a man page in man/ is stale or mandoc -T lint finds a warning or worse in one (needs mandoc, or docker when mandoc is missing)
 	cargo run -q -p vtium-man -- check $(MAN_DIR)
-	@command -v mandoc >/dev/null || { echo "man-check: mandoc is not installed, so it cannot lint the man pages. Install the mandoc package." >&2; exit 1; }
-	mandoc -T lint -W warning $(addprefix $(MAN_DIR)/,$(MAN_PAGES))
+	@if command -v mandoc >/dev/null; then \
+		echo "man-check: linting the man pages with $$(command -v mandoc)"; \
+		$(MAN_LINT); \
+	elif [ "$(MANDOC_DOCKER)" != 0 ] && docker info >/dev/null 2>&1; then \
+		echo "man-check: mandoc is not installed, so man-check lints the man pages in the docker image $(MANDOC_IMAGE)"; \
+		docker image inspect $(MANDOC_IMAGE) >/dev/null 2>&1 \
+			|| docker build -t $(MANDOC_IMAGE) - < tools/man/mandoc.Dockerfile \
+			|| { echo "man-check: cannot build the docker image $(MANDOC_IMAGE) from tools/man/mandoc.Dockerfile." >&2; exit 1; }; \
+		docker run --rm --network=none --user "$$(id -u):$$(id -g)" \
+			-v "$(CURDIR)/$(MAN_DIR):/vtium/$(MAN_DIR):ro" -w /vtium \
+			$(MANDOC_IMAGE) $(MAN_LINT); \
+	else \
+		echo "man-check: mandoc is not installed and docker is not available, so man-check cannot lint the man pages. Install mandoc, or make docker available." >&2; \
+		exit 1; \
+	fi
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the goldens in

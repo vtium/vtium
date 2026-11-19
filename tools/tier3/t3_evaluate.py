@@ -12,6 +12,7 @@ import t3_devices
 import t3_handover
 import t3_heads
 import t3_images
+import t3_keyecho
 import t3_pictures
 import t3_pointer
 import t3_power
@@ -270,6 +271,7 @@ CHECKS = {
     **t3_images.CHECKS,
     **t3_seat.CHECKS,
     **t3_handover.CHECKS,
+    **t3_keyecho.CHECKS,
     **t3_seat.CAPTIONS,
     **t3_builtin.CAPTIONS,
     **t3_fonts.CHECKS,
@@ -280,7 +282,7 @@ CHECKS = {
 # whose figures are reported, not judged, and whose picture judges only
 # that the screen finished.
 NO_GOLDEN = {"vt-switch", "sync-clock", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
-             *t3_images.CHECKS, *t3_seat.CHECKS, *t3_handover.CHECKS,
+             *t3_images.CHECKS, *t3_seat.CHECKS, *t3_handover.CHECKS, *t3_keyecho.CHECKS,
              *t3_heads.CHECKS, *t3_fonts.CHECKS}
 
 PROVISIONAL_FILE = os.path.join(HERE, "provisional.tsv")

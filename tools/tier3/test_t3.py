@@ -56,6 +56,7 @@ import t3_power  # noqa: E402
 import t3_rootchecks  # noqa: E402
 import t3_seat  # noqa: E402
 import t3_handover  # noqa: E402
+import t3_keyecho  # noqa: E402
 import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
@@ -2758,7 +2759,11 @@ class PointerTest(unittest.TestCase):
             with self.subTest(name):
                 cases = t3_scenario.variant_cases(name)
                 if t3_scenario.VARIANTS[name].get("pointer"):
-                    self.assertEqual(cases[-1], t3_pointer.CASE)
+                    # after every screen's case, followed only by the
+                    # variant's checks
+                    checks = t3_scenario.VARIANTS[name].get("checks", [])
+                    self.assertEqual(cases[len(cases) - len(checks) - 1:],
+                                     [t3_pointer.CASE] + checks)
                 else:
                     self.assertNotIn(t3_pointer.CASE, cases)
         self.assertEqual([n for n, v in t3_scenario.VARIANTS.items() if v.get("pointer")],
@@ -7759,6 +7764,201 @@ class HandOverTest(unittest.TestCase):
             agent = f.read()
         self.assertIn("        hand-over)\n", agent)
         self.assertIn("t3-probe take-master --check hand-over", agent)
+
+
+def figures_line(t, frames, echoes=None, head="Virtual-1", pid=505, before=""):
+    """A head's frame-times line on the serial log, as vtium logs it at debug
+    level under the render target (Head::figures_line), with its
+    key-to-present times when `echoes` is (count, mean, max)."""
+    line = ("%s[%12.6f] vtium[%d]: render: head %s: %d frames, compose mean 1200 max 3400 us"
+            % (before, t, pid, head, frames))
+    if echoes:
+        line += ", %d key echoes, key to present mean %d max %d us" % echoes
+    return line
+
+
+class KeyEchoTest(unittest.TestCase):
+    """The key-echo check (t3_keyecho.py) and its parser of the frame-times
+    line (t3_bench.figure_lines), without a guest."""
+
+    EVENT = "T3-BENCH key-echo start=100.00 end=104.00 keys=54 read=54"
+    CONF = ["no-blink", "render-timer=log", "debug"]
+
+    def test_figure_lines(self):
+        text = "\n".join([
+            "[  99.000000] vtium[505]: render: head Virtual-1: 3 frames",  # cut short
+            figures_line(99.5, 3),
+            # a console line after a prompt on the same line, from a head
+            # whose name has a space
+            figures_line(100.5, 20, (18, 2100, 5300), head="left desk", before="$ "),
+            timer_line(100.6, 3, 3),
+        ])
+        got = t3_bench.figure_lines(text)
+        self.assertEqual(got, [
+            {"t": 99.5, "pid": 505, "head": "Virtual-1", "frames": 3, "compose_us_mean": 1200,
+             "compose_us_max": 3400, "echoes": 0, "echo_us_mean": 0, "echo_us_max": 0},
+            {"t": 100.5, "pid": 505, "head": "left desk", "frames": 20, "compose_us_mean": 1200,
+             "compose_us_max": 3400, "echoes": 18, "echo_us_mean": 2100, "echo_us_max": 5300},
+        ])
+
+    def test_lines_another_writer_broke_are_counted(self):
+        # The serial console also carries the getty's and the kernel's
+        # output, which can break into a frame-times line. figure_lines
+        # leaves such a line out, and unread_figure_lines gives the stamp of
+        # each one.
+        text = "\n".join([
+            "[  99.000000] vtium[505]: render: head Virtual-1: 3 frames",  # cut short
+            figures_line(100.5, 20, (18, 2100, 5300)),
+            # cut inside its echo part
+            figures_line(101.5, 20) + ", 18 key ech",
+            # a kernel message glued after it
+            figures_line(102.5, 20, (18, 2100, 5300)) + "[  102.600000] random: crng init",
+            # cut right after its compose times: its start reads as a line
+            # with no echo, and its echo part follows another writer's line
+            figures_line(103.5, 20),
+            "[  103.600000] getty[400]: login: ",
+            ", 18 key echoes, key to present mean 2100 max 5300 us",
+            timer_line(103.7, 3, 3),
+        ])
+        self.assertEqual([x["t"] for x in t3_bench.figure_lines(text)], [100.5, 103.5])
+        self.assertEqual(t3_bench.unread_figure_lines(text), [99.0, 101.5, 102.5, 103.5])
+        self.assertEqual(t3_bench.unread_figure_lines(self.serial()), [])
+
+    def test_key_echoes_in_the_window(self):
+        # Only the lines stamped inside the window count. The mean is each
+        # line's mean weighted by its echoes, and the max the largest.
+        lines = t3_bench.figure_lines("\n".join([
+            figures_line(99.9, 4, (12, 900, 1000)),      # before the window: out
+            figures_line(100.8, 20, (20, 2000, 4000)),
+            figures_line(101.8, 21, (20, 3000, 9000)),
+            figures_line(102.8, 14, (14, 1000, 2000)),
+            figures_line(103.2, 2),                       # no key echoed
+            figures_line(104.6, 3, (3, 500, 600)),       # after the window: out
+        ]))
+        self.assertEqual(t3_bench.key_echoes(lines, 100.0, 104.0),
+                         {"figure_lines": 4, "frames": 57, "key_echoes": 54,
+                          "key_to_present_us_mean": 2111, "key_to_present_us_max": 9000})
+        self.assertEqual(t3_bench.key_echoes(lines, 105.0, 106.0),
+                         {"figure_lines": 0, "frames": 0, "key_echoes": 0})
+
+    def serial(self):
+        return "\n".join([figures_line(100.8, 20, (20, 2000, 4000)),
+                          figures_line(101.8, 21, (20, 3000, 9000)),
+                          figures_line(102.8, 14, (14, 1000, 2000))])
+
+    def test_measure(self):
+        got = t3_bench.measure(self.serial(), self.EVENT, self.CONF)
+        self.assertEqual(got, {"seconds": 4.0, "keys": 54, "keys_read": 54, "figure_lines": 3,
+                               "figure_lines_unread": 0, "frames": 55, "key_echoes": 54,
+                               "key_to_present_us_mean": 2111, "key_to_present_us_max": 9000})
+
+    def test_verdicts(self):
+        serial = self.serial()
+        # the echoing program read fewer keys than the driver typed
+        got = t3_bench.measure(serial, self.EVENT.replace("read=54", "read=50"), self.CONF)
+        self.assertEqual(got["error"], "the echoing program read 50 of the 54 keys typed")
+        # more echoes than keys: the window holds keys typed outside the program
+        got = t3_bench.measure(serial, self.EVENT.replace("keys=54 read=54", "keys=40 read=40"),
+                               self.CONF)
+        self.assertEqual(got["error"], "vtium measured 54 key echoes in the window, more than "
+                                       "the 40 keys typed")
+        # no echo measured, with debug logging on, fails
+        got = t3_bench.measure(figures_line(101.0, 3), self.EVENT, self.CONF)
+        self.assertEqual(got["error"], "no frame-times line stamped in the window 100.00 to "
+                                       "104.00 s gives a key echo")
+        # a frame-times line in the window that another writer broke into
+        # fails the case, since its key echoes go uncounted
+        broken = figures_line(103.5, 20, (18, 2100, 5300))
+        for cut in (broken[:-20], broken + "[  103.600000] random: crng init"):
+            with self.subTest(cut=cut):
+                got = t3_bench.measure(serial + "\n" + cut, self.EVENT, self.CONF)
+                self.assertEqual(got["figure_lines_unread"], 1)
+                self.assertEqual(got["error"], "1 frame-times line stamped in the window 100.00 "
+                                               "to 104.00 s cannot be read, because another "
+                                               "writer broke into it on the serial console")
+        # one broken outside the window is not needed, and fails nothing
+        got = t3_bench.measure(serial + "\n" + broken.replace("103.5", "99.5")[:-20],
+                               self.EVENT, self.CONF)
+        self.assertEqual(got["figure_lines_unread"], 0)
+        self.assertNotIn("error", got)
+        # with debug logging off, vtium logs no frame-times line: a note
+        got = t3_bench.measure("", self.EVENT, ["no-blink", "render-timer=log"])
+        self.assertNotIn("error", got)
+        self.assertEqual(got["note"], "debug is off for this variant, so vtium logs no "
+                                      "frame-times line")
+
+    def test_a_window_without_keys_fails(self):
+        # The screen's name chooses the key-echo figures, so a window that
+        # leaves out keys= fails instead of reading as another benchmark's.
+        got = t3_bench.measure(self.serial(), self.EVENT.replace(" keys=54", ""), self.CONF)
+        self.assertEqual(got["error"], "the key-echo screen reported no keys= count, so the "
+                                       "check cannot tell how many keys were typed")
+        self.assertEqual(t3_keyecho.CASE, t3_bench.KEY_ECHO)
+
+    def test_the_minspec_variant_runs_the_check_with_debug_logging(self):
+        v = t3_scenario.VARIANTS["2d-potato-min"]
+        self.assertEqual(v["checks"], [t3_keyecho.CASE])
+        self.assertEqual(v["conf_extra"], ["debug"])
+        self.assertEqual(t3_heads.conf_lines(v), ["no-blink", "render-timer=log", "debug"])
+        self.assertTrue(t3_heads.guest_conf(v).endswith("render-timer=log\ndebug\n"))
+        self.assertIn(t3_keyecho.CASE, t3_scenario.CHECK_RUNS)
+        self.assertIn(t3_keyecho.CASE, t3_evaluate.NO_GOLDEN)
+        self.assertEqual(t3_scenario.variant_cases("2d-potato-min")[-1], t3_keyecho.CASE)
+        self.assertEqual(t3_evaluate.describe(t3_keyecho.CASE),
+                         (t3_keyecho.CHECKS[t3_keyecho.CASE], None))
+        # the other variants of the minimal configuration keep it as it is
+        self.assertNotIn("debug", t3_heads.conf_lines(t3_scenario.VARIANTS["builtin-font"]))
+        # make tier3-minimal runs the variant
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            minimal = re.search(r"^tier3-minimal:.*\n\t(.*)", f.read(), re.M).group(1)
+        self.assertIn("2d-potato-min", re.split(r"[\s,()]+", minimal))
+
+    def test_the_keys_are_typable_and_the_script_reads_that_many(self):
+        for ch in t3_keyecho.KEYS:
+            t3_qemu.char_qcodes(ch)
+        self.assertNotIn("\n", t3_keyecho.KEYS)
+        with open(os.path.join(t3_common.GUEST, "screens", t3_keyecho.CASE + ".sh")) as f:
+            script = f.read()
+        self.assertIn("keys=%d\n" % len(t3_keyecho.KEYS), script)
+        self.assertIn("stty raw -echo\n", script)
+        self.assertIn('echo "T3-KEYS key-echo" > "$out"', script)
+
+    def test_the_check_types_the_keys_and_judges_the_figures(self):
+        # A stand-in VM: it answers the events the script reports and keeps
+        # what the driver typed; the serial log holds the figures.
+        with tempfile.TemporaryDirectory() as d:
+            serial = os.path.join(d, "serial.log")
+            with open(serial, "w") as f:
+                f.write(self.serial() + "\n")
+            events = os.path.join(d, "events.log")
+            with open(events, "w") as f:
+                f.write("T3-KEYS key-echo\n" + self.EVENT + "\nT3-DONE key-echo\n")
+            typed = []
+            vm = mock.Mock(serial=serial, events=events)
+            vm.type.side_effect = typed.append
+            img = t3img.Image(2, 1, b"\1" * 6)
+            v = dict(t3_scenario.VARIANTS["2d-potato-min"])
+            for figures, want in ((self.serial(), None),
+                                  (figures_line(101.0, 3), "gives a key echo")):
+                with self.subTest(want=want):
+                    with open(serial, "w") as f:
+                        f.write(figures + "\n")
+                    typed.clear()
+                    caps, errors = {}, {}
+                    with mock.patch.object(t3_keyecho, "wait_stable", return_value=img):
+                        t3_keyecho.check_key_echo(v, vm, d, caps, errors, LOG)
+                    self.assertEqual(typed, ["t3 key-echo\n", t3_keyecho.KEYS])
+                    if want:
+                        self.assertIn(want, errors[t3_keyecho.CASE])
+                        self.assertNotIn(t3_keyecho.CASE, caps)
+                    else:
+                        self.assertEqual(errors, {})
+                        self.assertEqual(caps, {t3_keyecho.CASE: os.path.join(d, "key-echo.ppm")})
+            # the figures go into the variant's records with the benchmarks'
+            with open(serial, "w") as f:
+                f.write(self.serial() + "\n")
+            got = t3_scenario.bench_figures(vm, {t3_keyecho.CASE: "x"}, self.CONF, images=False)
+            self.assertEqual(got[t3_keyecho.CASE]["key_to_present_us_max"], 9000)
 
 
 class RootChecksTest(unittest.TestCase):

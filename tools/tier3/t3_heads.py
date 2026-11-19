@@ -862,17 +862,30 @@ def head_file(variant):
 
 def guest_conf(variant):
     """The vtium.conf guest/setup installs for `variant`: its configuration,
-    vtium's own keys, then its head file, if it names one, whose `version`
-    and `policy` lines join the top level and whose sections come below it
-    (ADR-1403 D1)."""
+    vtium's own keys, and the lines the variant adds to it ("conf_extra"),
+    then its head file, if it names one, whose `version` and `policy` lines
+    join the top level and whose sections come below it (ADR-1403 D1)."""
     with open(os.path.join(GUEST, variant["conf"])) as f:
         text = f.read()
+    if variant.get("conf_extra"):
+        if text and not text.endswith("\n"):
+            text += "\n"
+        text += "".join(line + "\n" for line in variant["conf_extra"])
     if "heads" in variant:
         if text and not text.endswith("\n"):
             text += "\n"
         with open(head_file(variant)) as f:
             text += f.read()
     return text
+
+
+def conf_lines(variant):
+    """The lines of `variant`'s configuration that set a key, without its
+    comments and its head file: its configuration file's, then the ones the
+    variant adds ("conf_extra")."""
+    with open(os.path.join(GUEST, variant["conf"])) as f:
+        lines = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    return lines + list(variant.get("conf_extra", []))
 
 
 def ask_state(vm):

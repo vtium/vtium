@@ -12,14 +12,29 @@
 //! display of a filter, and the work that builds the color table, so a
 //! parameter is described in one place only.
 //!
-//! [`COLOR`] is the one list of the color filters. It is empty: the color
-//! filters arrive with the color layer, and until then a vtlook can name
-//! only its display requirements.
+//! [`COLOR`] is the one list of the color filters: `gamma`, `contrast`,
+//! `tint` and `color-blind`. Each has a module of its own, which holds its
+//! declaration beside its function. A [`Map`] is one color filter with its
+//! parameters set, and [`Table`] merges a look's maps into one color
+//! table, which the CPU path reads through a [`Lookup`] and the GPU path
+//! uploads as a texture.
 //!
 //! References:
 //! - ADR-1304 D1: a filter's declaration and the kinds a parameter takes.
+//! - ADR-1304 D2: the color layer's contract, and the one table it merges into.
+//! - ADR-1304 D8: the first color filters.
 //! - ADR-1304 D10: the color filters live here, behind the `filters` feature.
-//! - ADR-1304 D13: the declarations and the empty list come first, the color filters later.
+
+mod color_blind;
+mod contrast;
+mod gamma;
+mod math;
+mod slot;
+mod table;
+mod tint;
+
+pub(crate) use slot::Colored;
+pub use table::{Lookup, Table};
 
 /// The layer a filter runs in. The spatial filters run first, then the
 /// display's turn, then the color filters.
@@ -149,7 +164,73 @@ impl Declaration {
 }
 
 /// The color filters vtium builds in, in the order a template lists them.
-pub const COLOR: &[&Declaration] = &[];
+pub const COLOR: &[&Declaration] = &[
+    &gamma::DECLARATION,
+    &contrast::DECLARATION,
+    &tint::DECLARATION,
+    &color_blind::DECLARATION,
+];
+
+/// One color filter with its parameters set: the function from one color to
+/// another that the table is built from. A color filter reads only the
+/// color it maps, never the pixel's place, its cell or the time, so the
+/// whole layer can be a table.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Map(Step);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Step {
+    Gamma(gamma::Gamma),
+    Contrast(contrast::Contrast),
+    Tint(tint::Tint),
+    ColorBlind(color_blind::ColorBlind),
+}
+
+impl Map {
+    /// The color filter `declaration` with `values`, one for each of its
+    /// parameters in the declaration's order. `None` when `declaration` is
+    /// not one of [`COLOR`], or when a value is not of its parameter's
+    /// kind. The vtlook reader has already checked each value's range.
+    pub fn new(declaration: &Declaration, values: &[Given]) -> Option<Map> {
+        if values.len() != declaration.params.len() {
+            return None;
+        }
+        let step = match declaration.name {
+            "gamma" => Step::Gamma(gamma::Gamma::of(values)?),
+            "contrast" => Step::Contrast(contrast::Contrast::of(values)?),
+            "tint" => Step::Tint(tint::Tint::of(values)?),
+            "color-blind" => Step::ColorBlind(color_blind::ColorBlind::of(values)?),
+            _ => return None,
+        };
+        Some(Map(step))
+    }
+
+    /// The color filter `declaration` with every parameter at its default,
+    /// `None` when a parameter has none.
+    pub fn defaults(declaration: &Declaration) -> Option<Map> {
+        let values: Option<Vec<Given>> = declaration.params.iter().map(|p| p.default).collect();
+        Map::new(declaration, &values?)
+    }
+
+    /// The color `c` maps to, each channel from 0 to 1. The result may fall
+    /// outside 0 to 1, and the table holds it there.
+    pub(crate) fn apply(&self, c: [f64; 3]) -> [f64; 3] {
+        match &self.0 {
+            Step::Gamma(f) => f.apply(c),
+            Step::Contrast(f) => f.apply(c),
+            Step::Tint(f) => f.apply(c),
+            Step::ColorBlind(f) => f.apply(c),
+        }
+    }
+}
+
+/// A number parameter's value as a float, `None` for another kind.
+fn number(value: Option<&Given>) -> Option<f64> {
+    match value? {
+        Given::Number(n) => Some(f64::from(n.0) / f64::from(Fixed::ONE)),
+        _ => None,
+    }
+}
 
 /// The color filter named `name`.
 pub fn color(name: &str) -> Option<&'static Declaration> {
@@ -210,14 +291,17 @@ mod tests {
     use super::*;
 
     // Every declaration of the list is well formed: its names, its ranges
-    // and its defaults. The list is empty until the color layer arrives,
-    // so the check is also run on a declaration made here.
+    // and its defaults, and each makes a map at its defaults. The check is
+    // also run on declarations made here, to show it catches a fault.
     #[test]
     fn each_declaration_is_well_formed() {
         for d in COLOR {
             assert_eq!(fault(d), None);
             assert_eq!(d.layer, Layer::Color, "{}", d.name);
+            assert!(Map::defaults(d).is_some(), "{}", d.name);
         }
+        let names: Vec<&str> = COLOR.iter().map(|d| d.name).collect();
+        assert_eq!(names, ["gamma", "contrast", "tint", "color-blind"]);
         const GOOD: Declaration = Declaration {
             name: "gamma",
             layer: Layer::Color,
@@ -272,6 +356,7 @@ mod tests {
         assert_eq!(Layer::of_word("color"), Some(Layer::Color));
         assert_eq!(Layer::of_word("spatial"), Some(Layer::Spatial));
         assert_eq!(Layer::of_word("Color"), None);
-        assert_eq!(color("gamma"), None);
+        assert_eq!(color("gamma").map(|d| d.name), Some("gamma"));
+        assert_eq!(color("sepia"), None);
     }
 }

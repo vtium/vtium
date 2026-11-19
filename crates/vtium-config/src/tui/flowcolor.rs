@@ -753,9 +753,15 @@ mod tests {
         assert_eq!(p.style(Role::Display).fg, Some(Color::Cyan));
         p.truecolor = true;
         assert_eq!(p.style(Role::Display).rgb, Some([0x7f, 0xb3, 0xc8]));
-        assert_eq!(p.style(Role::Display).sgr(true), "\x1b[38;2;127;179;200m");
-        // NO_COLOR draws no color, 24-bit or not
-        assert_eq!(p.style(Role::Display).sgr(false), "");
+        // the Backend sends the 24-bit color, and NO_COLOR draws no color,
+        // 24-bit or not
+        let mut cell = ratatui_core::buffer::Cell::default();
+        cell.set_style(p.style(Role::Display).cell());
+        assert_eq!(
+            crate::tui::backend::sgr(&cell, true),
+            "\x1b[38;2;127;179;200m"
+        );
+        assert_eq!(crate::tui::backend::sgr(&cell, false), "");
     }
 
     /// `text` with the console set commented out and the set `name`

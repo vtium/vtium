@@ -18,6 +18,8 @@
 //! its intermediates exactly, as `vtium-parse`'s README asks: `CSI ? 5 A`
 //! is not CUU.
 
+#[cfg(test)]
+mod ascii_runs;
 #[cfg(feature = "bidi")]
 mod bidi;
 mod blank;
@@ -1089,6 +1091,39 @@ impl Consumer for State {
         if let Some(c) = self.charsets.map(c, eight_bit) {
             self.screen.print(c);
         }
+    }
+
+    /// Prints a run of printable ASCII as a [`print`](Self::print) of each
+    /// byte would, writing as much of it as the screen allows in one step.
+    /// Each byte that the step does not take goes through `print`, which
+    /// wraps, maps the byte through the character sets and joins a cluster
+    /// as it does for any character. The step itself starts only where the
+    /// character sets print ASCII as itself.
+    ///
+    /// Of what pauses the terminal, a print changes only the image work,
+    /// which a write of text counts when it cuts a picture. The step
+    /// therefore runs only while the screen in use holds no picture that
+    /// text cuts. The run stops after any print that leaves the terminal
+    /// paused, at the byte where the parser would have stopped if each byte
+    /// came alone.
+    fn print_ascii(&mut self, run: &[u8]) -> usize {
+        let mut taken: usize = 0;
+        while let Some(&b) = run.get(taken) {
+            self.print(char::from(b));
+            taken = taken.saturating_add(1);
+            if self.paused() {
+                break;
+            }
+            #[cfg(feature = "images")]
+            if self.screen.images().has_cuttable() {
+                continue;
+            }
+            if self.charsets.prints_ascii_as_itself() {
+                let rest = run.get(taken..).unwrap_or_default();
+                taken = taken.saturating_add(self.screen.print_ascii(rest));
+            }
+        }
+        taken
     }
 
     fn execute(&mut self, control: u8) {

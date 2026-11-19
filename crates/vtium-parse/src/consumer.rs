@@ -92,6 +92,32 @@ pub trait Consumer {
     /// is the consumer's.
     fn print(&mut self, c: char);
 
+    /// A run of printable ASCII that the parser found in ground state:
+    /// bytes 0x20 to 0x7E, each a character to print as
+    /// [`print`](Self::print) takes it. The consumer may take only the
+    /// first bytes, and returns how many it took, at least one. Taking
+    /// fewer than all is for a consumer that pauses after one of them, as
+    /// it may after any print. It then reports [`paused`](Self::paused),
+    /// and the parser returns with the rest of the run not consumed, to be
+    /// passed again with the rest of the input.
+    ///
+    /// The default prints each byte and stops after the first print that
+    /// leaves the consumer paused. A consumer that implements only `print`
+    /// therefore sees the same calls, and pauses at the same byte, as it
+    /// would if each byte came alone. A consumer that can write a whole run
+    /// in one step overrides this.
+    fn print_ascii(&mut self, run: &[u8]) -> usize {
+        let mut taken: usize = 0;
+        for &b in run {
+            self.print(char::from(b));
+            taken = taken.saturating_add(1);
+            if self.paused() {
+                break;
+            }
+        }
+        taken
+    }
+
     /// A C0 or C1 control to execute: 0x00 to 0x1F other
     /// than ESC, or 0x80 to 0x9F. CAN and SUB also cancel the
     /// sequence in progress, and the parser is back in ground state.

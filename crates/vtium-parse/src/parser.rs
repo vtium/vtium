@@ -434,15 +434,21 @@ impl Parser {
                 None if self.prints_as_itself(between, b) => {
                     // In ground state each printable ASCII byte prints as
                     // itself in every input mode, so a run of them skips
-                    // the state machine. The consumer may pause after any
-                    // print, as it may after any byte.
-                    let mut taken: usize = 0;
-                    for &b in rest.iter().take_while(|&&b| print_run_byte(b)) {
-                        consumer.print(char::from(b));
-                        taken = taken.saturating_add(1);
-                        if consumer.paused() {
-                            break;
-                        }
+                    // the state machine and reaches the consumer in one
+                    // call. The consumer may pause after any print, as it
+                    // may after any byte, and then takes only part of the
+                    // run.
+                    let n = rest.iter().take_while(|&&b| print_run_byte(b)).count();
+                    let run = rest.get(..n).unwrap_or_default();
+                    let taken = consumer.print_ascii(run).min(n);
+                    debug_assert!(
+                        taken == n || (taken > 0 && consumer.paused()),
+                        "a consumer that takes part of a run of text takes some of it and is paused"
+                    );
+                    if taken == 0 {
+                        // A consumer that breaks the contract and takes
+                        // nothing stops the call, so the loop never spins.
+                        break;
                     }
                     rest = rest.get(taken..).unwrap_or_default();
                 }
@@ -854,6 +860,135 @@ mod tests {
         assert_eq!(c.bytes, b"abcdefgh");
         assert_eq!(c.ends, 1);
         assert_eq!(calls, 3);
+    }
+
+    /// Keeps each run of text the parser hands it whole, and the
+    /// characters that reach `print` alone. With `room`, it takes at most
+    /// that many bytes of text and then pauses until `room` is given
+    /// again.
+    #[derive(Default)]
+    struct Runs {
+        runs: Vec<Vec<u8>>,
+        printed: Vec<char>,
+        room: Option<usize>,
+    }
+
+    impl Consumer for Runs {
+        fn print(&mut self, c: char) {
+            self.printed.push(c);
+        }
+        fn print_ascii(&mut self, run: &[u8]) -> usize {
+            let taken = self.room.map_or(run.len(), |room| run.len().min(room));
+            if let Some(room) = self.room.as_mut() {
+                *room = room.saturating_sub(taken);
+            }
+            self.runs
+                .push(run.get(..taken).unwrap_or_default().to_vec());
+            taken
+        }
+        fn execute(&mut self, _: u8) {}
+        fn esc_dispatch(&mut self, _: Intermediates, _: u8) {}
+        fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {}
+        fn osc_end(&mut self, _: &[u8], _: bool, _: StringEnd) {}
+        fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u8) {}
+        fn dcs_put(&mut self, _: Chunk<'_>) {}
+        fn dcs_unhook(&mut self, _: StringEnd) {}
+        fn apc_start(&mut self) {}
+        fn apc_put(&mut self, _: Chunk<'_>) {}
+        fn apc_end(&mut self, _: StringEnd) {}
+        fn xtgettcap(&mut self, _: Option<&[u8]>) {}
+        fn paused(&self) -> bool {
+            self.room == Some(0)
+        }
+    }
+
+    // Each run of printable ASCII in ground state reaches the consumer in
+    // one call, cut only where a control, a sequence, DEL, a character
+    // past ASCII or the end of the input cuts it. DEL and the character
+    // past ASCII reach `print` alone.
+    #[test]
+    fn a_run_of_printable_ascii_reaches_the_consumer_in_one_call() {
+        let mut parser = Parser::new();
+        let mut c = Runs::default();
+        let input = "ab c\x1b[1mdef\r\ngh\x7fij\u{e9}kl~".as_bytes();
+        assert_eq!(parser.advance(&mut c, input), input.len());
+        let runs: Vec<&[u8]> = c.runs.iter().map(Vec::as_slice).collect();
+        assert_eq!(runs, [&b"ab c"[..], b"def", b"gh", b"ij", b"kl~"]);
+        assert_eq!(c.printed, ['\u{7f}', '\u{e9}']);
+
+        // Input cut inside a run hands the run on in two calls.
+        let mut c = Runs::default();
+        assert_eq!(parser.advance(&mut c, b"abc"), 3);
+        assert_eq!(parser.advance(&mut c, b"de\x1b[m"), 5);
+        assert_eq!(c.runs, [b"abc".to_vec(), b"de".to_vec()]);
+    }
+
+    // A consumer that takes part of a run and pauses stops the parser
+    // there. The rest of the run comes in the next call, and the text
+    // arrives whole and in order.
+    #[test]
+    fn a_consumer_that_takes_part_of_a_run_of_text_resumes_where_it_stopped() {
+        let mut parser = Parser::new();
+        let mut c = Runs {
+            room: Some(3),
+            ..Runs::default()
+        };
+        let input = b"abcdefgh\r";
+        let mut rest: &[u8] = input;
+        let mut calls = 0;
+        while !rest.is_empty() {
+            let taken = parser.advance(&mut c, rest);
+            rest = rest.get(taken..).unwrap_or_default();
+            c.room = Some(3);
+            calls += 1;
+            assert!(calls < 10, "the parser made no progress");
+        }
+        assert_eq!(c.runs.concat(), b"abcdefgh");
+        assert_eq!(calls, 3);
+    }
+
+    /// Prints into `printed` and pauses after every `every` prints, as a
+    /// consumer that implements only `print` would.
+    struct PausesAfter {
+        every: usize,
+        printed: Vec<char>,
+    }
+
+    impl Consumer for PausesAfter {
+        fn print(&mut self, c: char) {
+            self.printed.push(c);
+        }
+        fn execute(&mut self, _: u8) {}
+        fn esc_dispatch(&mut self, _: Intermediates, _: u8) {}
+        fn csi_dispatch(&mut self, _: &Params, _: Intermediates, _: u8) {}
+        fn osc_end(&mut self, _: &[u8], _: bool, _: StringEnd) {}
+        fn dcs_hook(&mut self, _: &Params, _: Intermediates, _: u8) {}
+        fn dcs_put(&mut self, _: Chunk<'_>) {}
+        fn dcs_unhook(&mut self, _: StringEnd) {}
+        fn apc_start(&mut self) {}
+        fn apc_put(&mut self, _: Chunk<'_>) {}
+        fn apc_end(&mut self, _: StringEnd) {}
+        fn xtgettcap(&mut self, _: Option<&[u8]>) {}
+        fn paused(&self) -> bool {
+            self.printed.len().is_multiple_of(self.every) && !self.printed.is_empty()
+        }
+    }
+
+    // The default `print_ascii` prints each byte and stops at the first
+    // print that leaves the consumer paused, so a consumer that implements
+    // only `print` stops at the same byte as it did when each byte came
+    // alone.
+    #[test]
+    fn the_default_run_call_stops_after_the_print_that_pauses() {
+        let mut parser = Parser::new();
+        let mut c = PausesAfter {
+            every: 3,
+            printed: Vec::new(),
+        };
+        assert_eq!(parser.advance(&mut c, b"abcdefg"), 3);
+        assert_eq!(c.printed, ['a', 'b', 'c']);
+        assert_eq!(parser.advance(&mut c, b"defg"), 3);
+        assert_eq!(c.printed, ['a', 'b', 'c', 'd', 'e', 'f']);
     }
 
     impl Consumer for Count {

@@ -33,7 +33,7 @@ These parts are in place:
 | `src/frame.rs` | `Frame`, `FrameCell` and `Cursor`: what a renderer reads, a cell or a row at a time, with colors resolved at draw time and the selection drawn inverted or in its colors. |
 | `src/palette.rs` | `Palette`: the 256 colors, the two defaults and the cursor, pointer and selection colors, the named palettes the `palette` key chooses and the custom one (vtium/vtium#94). |
 | `src/screen.rs` | `Screen`: the main and alternate screens' lines, the cursor, the margins and tab stops, the scrollback and its view, the pen, and the accessors the mode table drives; cursor movement and resizing. |
-| `src/screen/print.rs` | Printing: grapheme clusters and the two width methods (mode 2027), wide characters and VS16, the pending wrap, insert mode, REP. |
+| `src/screen/print.rs` | Printing: grapheme clusters and the two width methods (mode 2027), wide characters and VS16, the pending wrap, insert mode, REP, and the one-step write of a run of ASCII. |
 | `src/screen/edit.rs` | Erasing (ED, EL, ECH, and their selective forms), inserting and deleting characters and lines, scrolling. |
 | `src/screen/selection.rs` | The selection, held by line identity, its copy and its cells in the frame. |
 | `src/screen/links.rs` | OSC 8 on the screen: the open link, the link store's sweep and strip, the hovered link and the overlay showing its URI. |
@@ -274,6 +274,7 @@ The table of diacritics in `src/placeholder.rs` is taken from Ghostty's `src/ter
   - No specification bounds a cluster. The reason for the budget is that a program cannot grow a line's memory past it.
   - In a build with images, a kitty placeholder cluster keeps its first three marks outside the budget (ADR-1001, "Placeholder cells").
   - Tests: `the_cluster_budget_cuts_a_cluster_on_a_one_column_line`, `a_placeholder_keeps_three_marks_whatever_the_budget`, `a_row_narrowed_past_its_budget_keeps_what_printing_there_keeps`, `a_screen_narrowed_from_a_wide_grid_holds_its_rows_to_their_bound`, `a_screen_widened_by_a_fraction_holds_its_rows_to_their_bound`.
+- **A run of printable ASCII goes into the screen in one step.** The parser hands vtium-term each run of the bytes 0x20 to 0x7E whole. The terminal writes the part that fits before the print edge in one loop, and marks the damage and moves the cursor once. The one-step write leaves the same cells, damage, cursor and open cluster as printing each byte alone. It runs only while GL holds ASCII with no single shift waiting, insert mode is off, and no wrap is pending. The cursor's row must also be single size and hold no sized run, and the screen in use must hold no picture that text cuts. Every other byte goes through `Screen::print`. Tests: `tests/ascii_runs.rs`, and `a_print_never_pauses_the_terminal` and `text_over_a_picture_stops_at_the_work_bound_inside_a_run` in `src/terminal/ascii_runs.rs`.
 
 ### Left and right margins
 

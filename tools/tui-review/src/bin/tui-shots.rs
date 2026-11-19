@@ -12,11 +12,17 @@
 //! vtium-render in unifont, as tier 2 draws its screens, into
 //! `OUT/NAME-COLSxROWS.png`. SCREENS is the directory of the committed
 //! goldens, `crates/vtium-config/tests/screens`. Before it writes a
-//! picture, the tool checks that the screen the test read is the committed
-//! golden `SCREENS/NAME-COLSxROWS.txt`, and that the same bytes played into
-//! a terminal of its own read as that screen. A golden that drifted, as a
-//! provisional one may without failing its test, is named and not drawn,
-//! and the tool exits non-zero. It also fails when BYTES holds no screen.
+//! picture, the tool checks that the same bytes played into a terminal of
+//! its own read as the screen the test read.
+//!
+//! A settled golden must also be the screen the test read: one that
+//! drifted is named and not drawn, and the tool exits non-zero. A
+//! provisional golden, one that `SCREENS/provisional.tsv` lists, judges
+//! nothing until the maintainer accepts it, so the tool draws it whatever
+//! its committed text says. The maintainer reviews those pictures, so each
+//! one is marked provisional in the tool's output, with a note where the
+//! screen differs from its committed golden. The tool also fails when
+//! BYTES holds no screen.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -63,11 +69,30 @@ fn text(bytes: &[u8], cols: usize, rows: usize) -> String {
         .collect()
 }
 
-/// Whether `bytes` may be drawn as a golden: `read`, the screen the golden
-/// test read, is `golden`, the committed golden, and the bytes draw it at
-/// `cols` by `rows`.
-fn check(bytes: &[u8], read: &str, golden: &str, cols: usize, rows: usize) -> Result<(), String> {
-    if read != golden {
+/// The names `provisional.tsv` in `screens` lists: the first field of each
+/// line that is not blank and not a comment. A missing file lists none.
+fn provisional(screens: &Path) -> Vec<String> {
+    std::fs::read_to_string(screens.join("provisional.tsv"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+        .filter_map(|l| l.split('\t').next())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether `bytes` may be drawn as a golden: the bytes draw `read`, the
+/// screen the golden test read, at `cols` by `rows`, and `read` is
+/// `golden`, the committed golden, unless the golden is `provisional`.
+fn check(
+    bytes: &[u8],
+    read: &str,
+    golden: &str,
+    provisional: bool,
+    cols: usize,
+    rows: usize,
+) -> Result<(), String> {
+    if read != golden && !provisional {
         return Err(
             "the screen the golden test drew differs from its committed golden, so it is not drawn"
                 .into(),
@@ -79,9 +104,14 @@ fn check(bytes: &[u8], read: &str, golden: &str, cols: usize, rows: usize) -> Re
     Ok(())
 }
 
-/// Draws the golden `name` from `dir` into `out`, when the screen its test
-/// drew is the committed golden in `screens`.
-fn shot(screens: &Path, dir: &Path, out: &Path, name: &str) -> Result<PathBuf, String> {
+/// Draws the golden `name` from `dir` into `out`, when [`check`] allows it.
+fn shot(
+    screens: &Path,
+    dir: &Path,
+    out: &Path,
+    name: &str,
+    provisional: bool,
+) -> Result<PathBuf, String> {
     let (cols, rows) = grid(name).ok_or("its name ends in no COLSxROWS")?;
     let bytes = std::fs::read(dir.join(format!("{name}.bytes"))).map_err(|e| e.to_string())?;
     let read =
@@ -89,7 +119,7 @@ fn shot(screens: &Path, dir: &Path, out: &Path, name: &str) -> Result<PathBuf, S
     let committed = screens.join(format!("{name}.txt"));
     let golden =
         std::fs::read_to_string(&committed).map_err(|e| format!("{}: {e}", committed.display()))?;
-    check(&bytes, &read, &golden, cols, rows)?;
+    check(&bytes, &read, &golden, provisional, cols, rows)?;
     // tier 2's screens hold their bytes for the whole run
     let screen = Screen::new(
         Box::leak(name.to_owned().into_boxed_str()),
@@ -136,10 +166,23 @@ fn main() -> ExitCode {
         eprintln!("tui-shots: {}: {e}", out.display());
         return ExitCode::FAILURE;
     }
-    let mut failed = 0usize;
+    let listed = provisional(screens);
+    let (mut failed, mut drawn_provisional) = (0usize, 0usize);
     for name in &names {
-        match shot(screens, dir, out, name) {
-            Ok(path) => println!("{}", path.display()),
+        let is_provisional = listed.contains(name);
+        match shot(screens, dir, out, name, is_provisional) {
+            Ok(path) if is_provisional => {
+                drawn_provisional = drawn_provisional.saturating_add(1);
+                let moved = std::fs::read_to_string(dir.join(format!("{name}.txt"))).ok()
+                    != std::fs::read_to_string(screens.join(format!("{name}.txt"))).ok();
+                let note = if moved {
+                    ", differs from its committed golden"
+                } else {
+                    ""
+                };
+                println!("{}\tprovisional{note}", path.display());
+            }
+            Ok(path) => println!("{}\tsettled", path.display()),
             Err(why) => {
                 eprintln!("tui-shots: {name}: {why}");
                 failed = failed.saturating_add(1);
@@ -147,7 +190,7 @@ fn main() -> ExitCode {
         }
     }
     println!(
-        "{} of {} screens drawn",
+        "{} of {} screens drawn, {drawn_provisional} of them provisional",
         names.len().saturating_sub(failed),
         names.len()
     );
@@ -168,17 +211,37 @@ mod tests {
 
     #[test]
     fn bytes_that_draw_their_golden_are_drawn() {
-        assert_eq!(check(BYTES, SCREEN, SCREEN, 4, 2), Ok(()));
+        assert_eq!(check(BYTES, SCREEN, SCREEN, false, 4, 2), Ok(()));
     }
 
     #[test]
     fn bytes_that_do_not_draw_the_screen_the_test_read_are_refused() {
-        assert!(check(BYTES, "ba\n\n", "ba\n\n", 4, 2).is_err());
+        assert!(check(BYTES, "ba\n\n", "ba\n\n", false, 4, 2).is_err());
+        assert!(check(BYTES, "ba\n\n", "ba\n\n", true, 4, 2).is_err());
     }
 
     #[test]
-    fn a_screen_that_drifted_from_its_committed_golden_is_refused() {
-        let why = check(BYTES, SCREEN, "ab c\n\n", 4, 2).expect_err("a drifted golden");
+    fn a_settled_screen_that_drifted_from_its_committed_golden_is_refused() {
+        let why = check(BYTES, SCREEN, "ab c\n\n", false, 4, 2).expect_err("a drifted golden");
         assert!(why.contains("golden"), "{why}");
+    }
+
+    #[test]
+    fn a_provisional_screen_that_drifted_from_its_committed_golden_is_drawn() {
+        assert_eq!(check(BYTES, SCREEN, "ab c\n\n", true, 4, 2), Ok(()));
+    }
+
+    #[test]
+    fn the_provisional_list_is_the_first_field_of_each_line_that_is_not_a_comment() {
+        let dir = std::env::temp_dir().join(format!("tui-shots-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory");
+        std::fs::write(
+            dir.join("provisional.tsv"),
+            "# names\nhelp-80x25\tthe Help view\n\nflow-default-120x32\tthe Flow view\n",
+        )
+        .expect("the list");
+        let got = provisional(&dir);
+        std::fs::remove_dir_all(&dir).expect("the directory removed");
+        assert_eq!(got, ["help-80x25", "flow-default-120x32"]);
     }
 }

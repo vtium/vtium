@@ -7,17 +7,22 @@
 //! and `t` tries a font on the live console through OSC 50 ([`shot`]). It
 //! installs what the user keeps through `apply`.
 //!
-//! [`model`] is the state machine, [`view`] its screen, [`flow`] the flow
+//! [`model`] is the state machine, [`nav`] where the person is in it,
+//! [`tabs`] the Help, Settings, Fonts and Looks tabs, each with its state
+//! and its update, [`view`] its screen, [`flow`] the flow
 //! read from the draft and the devices present, [`paths`] that flow as
 //! paths, [`parts`] the parts a path is made from, [`flowview`] how the
 //! Flow view lays the paths and parts out, [`flowdraw`] how it draws them
-//! and [`flowcolor`] their colors, [`canvas`] the cells a screen is drawn
-//! into, [`color`] its colors, [`input`] the decoder of what the terminal
-//! sends, [`words`] the catalog of what the TUI says, and [`port`] the
-//! loop and the terminal it runs on. [`gather`] reads what the TUI starts
+//! and [`flowcolor`] their colors, [`canvas`] the rows of styled text a
+//! screen is written in and the helpers that fit text to them, [`color`]
+//! their colors, [`input`] the decoder of what the terminal
+//! sends, [`replies`] the queue of who asked the terminal what, [`words`]
+//! the catalog of what the TUI says, and [`port`] the loop and the
+//! terminal it runs on. [`gather`] reads what the TUI starts
 //! from: the frits as text, never a font file (D3), and vtium.conf, which
 //! holds the heads, looks and rules too.
 
+pub mod backend;
 pub mod canvas;
 pub mod color;
 mod console;
@@ -31,16 +36,19 @@ pub mod flow;
 pub mod flowcolor;
 pub mod flowdraw;
 mod flowedit;
-mod flowkeys;
+pub mod flowlayout;
 pub mod flowview;
 pub mod input;
+pub mod layout;
 pub mod listbox;
 pub mod model;
+pub mod nav;
 pub mod parts;
 pub mod paths;
 pub mod port;
-pub mod settings;
+pub mod replies;
 pub mod shot;
+pub mod tabs;
 pub mod view;
 pub mod words;
 

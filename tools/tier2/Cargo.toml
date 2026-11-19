@@ -23,7 +23,9 @@ vtium-term = { workspace = true, features = ["images", "bidi"] }
 # the small displays draw their PSF fonts through the PSF loader, which the
 # console leaves out
 vtium-font = { workspace = true, features = ["psf"] }
-vtium-render = { workspace = true, features = ["images", "bidi"] }
+# the screens drawn with a vtlook's color filters look each pixel up in
+# their color table (ADR-1304 D2)
+vtium-render = { workspace = true, features = ["images", "bidi", "filters"] }
 # generates the test PSF fonts' glyphs through the engine the helper runs,
 # for the screens drawn from sets
 vtium-config = { path = "../../crates/vtium-config" }

@@ -31,6 +31,12 @@ basis:
   - precedent: ADR-1200
   - precedent: ADR-1201
   - precedent: ADR-1500
+  - operator: aaronsb
+    level: guided
+    said: "The way the TUI looks is acceptable, but its navigation is super clunky, especially moving through consoles and looks. The interface should be driven programmatically by following the tree of use, and the scenario walk should check consistency across tabs. I work over ssh at times, so every action needs a plain key that works in any terminal."
+    via: "the maintainer's review of vtium-config's TUI on 2026-11-17 and 2026-11-18, relayed by the steering session in the brief for D10; the wording is the steering session's apart from \"super clunky\" and \"following the tree of use\""
+    paraphrase: true
+  - precedent: ADR-1205
 agent:
   name: Claude
   model: claude-opus-5-5
@@ -495,6 +501,30 @@ considered:
     said: "The key line is always one row and shows a view's keys in pages. The first page holds the most-used keys, for the Flow view move, pick, open, add path, revise and quit. Where a view's keys do not fit on one row, the line ends with a more item and a page count, as in \". more 1/3\"; \".\" shows the next page and wraps round to the first page after the last. A view whose keys fit on one row shows no more item, and \".\" does nothing there. The pages come from the contract, so they stay true as keys change, and the Help page still lists every key with its meaning."
     via: the maintainer's decision of 2026-11-17, relayed by the steering session in the brief for the card that pages the key line, after the generated key lines wrapped the Flow view's key line onto four rows at 80×25; the wording is the steering session's
     paraphrase: true
+  - operator: aaronsb
+    said: "The digits 1 to 6 jump straight to a tab (1 Fonts, 2 Effects, 3 Looks, 4 Flow, 5 Settings, 6 Help) when no editor, list or question is open. Tab and Shift-Tab still step through the tabs."
+    via: the maintainer's answers to the steering session's questions, 2026-11-18
+    paraphrase: true
+    covers: [tab keys]
+  - operator: aaronsb
+    said: "Space activates and deactivates on Fonts, Effects and the pointer themes in Looks, as on Flow."
+    via: the maintainer's answers to the steering session's questions, 2026-11-18
+    paraphrase: true
+    covers: [Activate]
+  - operator: aaronsb
+    said: "Esc leaves an editor and keeps its changes in the draft. Revert undoes them."
+    via: the maintainer's answers to the steering session's questions, 2026-11-18
+    paraphrase: true
+    covers: [leaving an editor]
+  - operator: aaronsb
+    said: "Pointer themes are a third group in the Looks list, after Looks and Font sets."
+    via: the maintainer's answers to the steering session's questions, 2026-11-18
+    paraphrase: true
+    covers: [pointer themes]
+  - operator: aaronsb
+    said: "Accept D10, keep both [flow.info and flow.new-card stay as nodes of their own]"
+    via: the steering session, 2026-11-18, the maintainer's answer on accepting D10 with the two parked nodes kept
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -506,12 +536,17 @@ related: []
 
 ## Summary
 
-- **Decided:** The maintainer decided on 2026-11-04 that vtium's configuration is one flow, from the displays to the input devices: the displays, the display rules that send each display to a head, the heads, each head's look (its frit and size, the fonts that frit draws with, and the vtlook that holds its filters), the input rules that send each input device to a head, and the input devices. The whole flow lives in one file, `/etc/vtium/vtium.conf`. Its flat `key=value` lines stay, and they are the defaults every head inherits, so a kmscon.conf copied in still reads. Below them come sections with names, as heads.conf writes them: a `[look NAME]` section for each look, a `[head NAME]` section for each head, and one `[rules]` list, which each device tries top to bottom across every head (D4). vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference, and stops reading heads.conf, with no migration: the two installs that have either file are converted by hand (D6). vtium refuses a vtium.conf that root does not own or that others can write, and says why (D3). vtium-config gains a view, Flow, that shows the configuration as paths, each a row of bordered boxes that joins displays → a terminal ← inputs, with the terminal's font set inside it. The view builds a path in three stages: the person picks parts, made from the machine's own devices and from four templates, into a new path, then adds the path to the configuration, and vtium-config writes its head and rules, most specific first (D7, D8). A part whose device is unplugged stays on screen, greyed out, and nothing leaves the file unless the person takes it out (D7). vtium-config also gains `vtium config edit`, which works as visudo does: it opens the configuration in the user's editor and checks it with `vtium check-config` when the editor exits. Every edit, root's included, goes into the user's draft under the XDG path, `~/.config/vtium/drafts/`, which may be unfinished; only `install` needs a passing check, and installs the draft to `/etc/vtium/vtium.conf` through the privileged step `sudo vtium-config apply DIR`. The view and `vtium config flow` always say how the draft stands, and a draft can be deleted (D8). A draft keeps its font set changes, the frits it adds or replaces and the installed frits it removes, in a folder beside it, `~/.config/vtium/drafts/NAME.frits/`: they survive quitting the TUI, show in `vtium config diff`, travel with the draft to another machine, and install with it, frits before vtium.conf, so a failure part-way leaves a working system (D8). The view shows the draft as text on `v`, and the person can label a part with a name of their own, which vtium.conf keeps in a `[labels]` section. vtium shows a display's label when vtium-config identifies the displays (D4, D7). Every change the view makes is also a `vtium config` command with fixed exit codes, and `vtium config flow --json` prints the flow for scripts, so everything works without the TUI (D8). A valid configuration wires at least one complete route, a display present sent to a head that a keyboard present reaches, and `vtium check-config` refuses a file without one; Install asks before it installs a draft without one, and the shipped default always passes (D3). As soon as a new path is complete, the view asks the person to add it, and Revise takes a path back out to change it and adds it back byte for byte. The view's changes wait until Save writes them into the draft, and Install saves first (D7). This record's agent adds what the move forces: the lines above the first section keep vtium.conf's forgiving reading, and the sections keep the head file's strict one, so an error in a section never drops a top-level key (D3).
+- **Decided:** The maintainer decided on 2026-11-04 that vtium's configuration is one flow, from the displays to the input devices: the displays, the display rules that send each display to a head, the heads, each head's look (its frit and size, the fonts that frit draws with, and the vtlook that holds its filters), the input rules that send each input device to a head, and the input devices. The whole flow lives in one file, `/etc/vtium/vtium.conf`. Its flat `key=value` lines stay, and they are the defaults every head inherits, so a kmscon.conf copied in still reads. Below them come sections with names, as heads.conf writes them: a `[look NAME]` section for each look, a `[head NAME]` section for each head, and one `[rules]` list, which each device tries top to bottom across every head (D4). vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference, and stops reading heads.conf, with no migration: the two installs that have either file are converted by hand (D6). vtium refuses a vtium.conf that root does not own or that others can write, and says why (D3). vtium-config gains a view, Flow, that shows the configuration as paths, each a row of bordered boxes that joins displays → a terminal ← inputs, with the terminal's font set inside it. The view builds a path in three stages: the person picks parts, made from the machine's own devices and from four templates, into a new path, then adds the path to the configuration, and vtium-config writes its head and rules, most specific first (D7, D8). A part whose device is unplugged stays on screen, greyed out, and nothing leaves the file unless the person takes it out (D7). vtium-config also gains `vtium config edit`, which works as visudo does: it opens the configuration in the user's editor and checks it with `vtium check-config` when the editor exits. Every edit, root's included, goes into the user's draft under the XDG path, `~/.config/vtium/drafts/`, which may be unfinished; only `install` needs a passing check, and installs the draft to `/etc/vtium/vtium.conf` through the privileged step `sudo vtium-config apply DIR`. The view and `vtium config flow` always say how the draft stands, and a draft can be deleted (D8). A draft keeps its font set changes, the frits it adds or replaces and the installed frits it removes, in a folder beside it, `~/.config/vtium/drafts/NAME.frits/`: they survive quitting the TUI, show in `vtium config diff`, travel with the draft to another machine, and install with it, frits before vtium.conf, so a failure part-way leaves a working system (D8). The view shows the draft as text on `v`, and the person can label a part with a name of their own, which vtium.conf keeps in a `[labels]` section. vtium shows a display's label when vtium-config identifies the displays (D4, D7). Every change the view makes is also a `vtium config` command with fixed exit codes, and `vtium config flow --json` prints the flow for scripts, so everything works without the TUI (D8). A valid configuration wires at least one complete route, a display present sent to a head that a keyboard present reaches, and `vtium check-config` refuses a file without one; Install asks before it installs a draft without one, and the shipped default always passes (D3). As soon as a new path is complete, the view asks the person to add it, and Revise takes a path back out to change it and adds it back byte for byte. The view's changes wait until Save writes them into the draft, and Install saves first (D7). D10, added on 2026-11-18, extends the key table and the interface tree to the six tabs that ADR-1205 sets, so each action has one key on every tab, and Enter goes down the tree of use while Esc comes back up. The digits 1 to 6 go straight to a tab, Space activates a font, an effect or a pointer theme, and Esc keeps a card's changes (D10). This record's agent adds what the move forces: the lines above the first section keep vtium.conf's forgiving reading, and the sections keep the head file's strict one, so an error in a section never drops a top-level key (D3).
 - **Trades away:** One file holds two ways of handling a mistake, a forgiving one for the flat keys and a strict one for the sections. A heads.conf or seat file left in place stops working, with no warning. A vtium.conf that root does not own, which vtium reads today, is no longer read at all. While the packaged build and the development build share `/etc/vtium/vtium.conf` (ADR-1500 D4), a build older than this change reads a head section's `login` line and a look section's font lines as if they were top-level keys. The TUI needs a terminal of at least 80 by 25 cells, so a minspec board's 40-column console is configured over ssh, with the commands, or with a draft copied in. Every draft command reads the draft's font set folder as well as its vtium.conf, and a draft carried to another machine is two paths, its file and its folder.
 - **One-way?** No, but expensive once a release ships it: users then write their files in the merged form, and a later change of syntax means a migration. Until that release every part of this changes in a session.
 - **Probes:**
   - *Not confident (nested objects):* the recommendation keeps heads.conf's bracketed sections as they are, placed below vtium.conf's flat lines, and adds a `[look NAME]` section for each look, so a head names its look as it does today. The rules stay one ordered list in `[rules]`, outside the heads, because first match depends on their order across all heads. Is that the nesting you meant, or did you mean each head's rules written inside that head? (Answered 2026-11-04: that is the nesting meant; see `considered`.)
   - *Confident (no setup lost):* an installed heads.conf keeps working, with a warning at each start, until `vtium config fold` moves it into vtium.conf or the first beta release stops reading it. An installed `seat0.seat.conf` stops being read with this change; vtium says so at each start, and the same command folds its keys into vtium.conf. (Answered 2026-11-04: no migration, the two installs are converted by hand; see `considered` and D6.)
+  - *Confident (tab keys):* Tab and Shift-Tab step through the six tabs, and the number keys 1 to 6 go straight to one while nothing is open (D10). Lean: yes to the number keys, because Flow is the fourth of six tabs and one plain digit reaches any tab, over ssh too. Should 1 to 6 go straight to a tab? (Answered 2026-11-18: yes; see `considered` and D10.)
+  - *Confident (Activate):* Space activates or deactivates the highlighted font, effect or pointer theme (D10). Lean: Space, because in the Flow view Space already puts a part into the set being built, and every terminal sends it. Is Space the key for Activate? (Answered 2026-11-18: yes; see `considered` and D10.)
+  - *Confident (leaving an editor):* Esc closes a card, such as a look's card or a terminal's card, and keeps each change made there; only a value being typed is dropped (D10). Lean: keep the changes, because nothing reaches the draft until Save, and a second key to confirm would slow every edit. Does Esc keep a card's changes? (Answered 2026-11-18: yes, and Revert throws them away; see `considered` and D10.)
+  - *Not confident (pointer themes):* the Looks tab lists the installed pointer themes as a third group below the looks and the font sets, and Space activates them there (D10). Lean: one list, because it saves a level and the themes show where Space acts; the other end is a list of their own that opens from the tab. Should the pointer themes sit in the Looks tab's list? (Answered 2026-11-18: yes, as a third group after the looks and the font sets; see `considered` and D10.)
+  - *Settled (two parked nodes, D10):* the maintainer accepted D10 on 2026-11-18 and kept `flow.info` and `flow.new-card` as nodes of their own.
 - **Inversion:** Between "a file for each concern", the C reference's kmscon.conf with a seat file beside it, as vtium has today with heads.conf and planned look files, and "one document that holds everything the console reads". vtium takes the second for the flow of devices, heads and looks, and keeps frits, vtlooks and shaders as files of their own, because the glyph helper and the renderer read them and vtium-config manages them one by one.
 
 > Edited 2026-11-04: the maintainer answered the probes and the open questions the same day (`considered`), and the record now states the answers as decisions. The Summary listed five open questions with recommendations, and its first two sentences on the move read: "The head file's sections, today in `/etc/vtium/heads.conf`, move into vtium.conf below those lines. vtium stops reading the seat file, `seat0.seat.conf`, which is a departure from the C reference." The earlier text is in git at 33ea5db0.
@@ -532,7 +567,7 @@ The tree constrains the move in four ways, each read from the code on 2026-11-04
 
 ## Decision
 
-D1 to D3 state the maintainer's decisions and what the move forces. D4 to D8 were the open questions of this record's draft, which the maintainer answered on 2026-11-04 (`considered`); each states the answer. D9 lists what the code changes to fit.
+D1 to D3 state the maintainer's decisions and what the move forces. D4 to D8 were the open questions of this record's draft, which the maintainer answered on 2026-11-04 (`considered`); each states the answer. D9 lists what the code changes to fit. D10, added on 2026-11-18, sets how a person moves through the six tabs of ADR-1205.
 
 ### D1: one flow, from the displays to the input devices
 
@@ -669,6 +704,10 @@ The maintainer accepted these rules on 2026-11-04 as this record drafted them (`
 > Edited 2026-11-05: the maintainer gave a look the key `cell` (`considered`), and the steering session made `vtlook` a top-level key as well, the default that a look's `vtlook =` overrides (ADR-1304 D5). A look's keys ended at `display-dpi` and `vtlook`, and the bullet named no top-level `vtlook`.
 
 > Edited 2026-11-14: a look gains the login picture's four keys, as ADR-1100 D17 decides. The bullet's list of a look's keys ended with `cell` and `vtlook`.
+
+> Note 2026-11-19: ADR-1205 D10, proposed on this date and not yet accepted, would add `palette` to the keys a look takes. Under this decision's rule the look's value then wins over the top level's, so a look can pick its own color scheme while vtium.conf's `palette` stays the default for the looks that pick none. The value names a built-in palette, `custom`, or an active palette file. The `palette-*` keys that `custom` reads stay at the top level. This note changes nothing until the maintainer accepts ADR-1205 D10.
+
+> Note 2026-11-19, later the same day: the maintainer accepted ADR-1205 D10, so the change the note above describes holds.
 
 The other way is to let every key be set in a head's section. It would give each head its own palette or keyboard layout, but many keys belong to the process, the seat or an input device rather than a head, and each would need a rule for what a head's value means. A key can move into the head's list later, one row at a time, when someone needs it.
 
@@ -975,6 +1014,8 @@ Every row of the key table applies to at least one node, and every key a node na
 
 > Edited 2026-11-18: the code review of the work that generates the key lines from the contract found key lines that offered keys that did nothing. The detail of a path's display or input offered Up, Down and Enter, NEW PATH's terminal card offered `e`, a card offered `t`, and a question before an action offered `n`. The review's fix round split three nodes so that each key line names only keys that act there. `flow.info` is the read-only detail of a box of a path, `flow.new-card` is NEW PATH's terminal card, and `flow.detail` is a part's detail while its label line is under the cursor, with `flow.detail.choices` below it. `t` on a card became a planned row, which its key line leaves out until the work on the live preview builds it, and a question before an action no longer lists `n`. The scenario test checks that every key a key line names changes something in its node.
 
+> Note 2026-11-18: D10 extends the tree to the six tabs of ADR-1205 and draws them in a diagram of its own. The diagram below shows the tabs in the order they had before.
+
 The diagram shows the tree's top levels, with the Flow, Looks and Settings views opened one level or more:
 
 ```mermaid
@@ -1097,6 +1138,8 @@ The view and the docs use these words for one thing each. The maintainer fixed s
 > - The seven words, with tag and connect (the maintainer, 2026-11-05 and 2026-11-09), give way to the words above.
 > - "any display", "any keyboard" and "any pointer" as standing parts (the maintainer, 2026-11-09) become choices inside the templates (the maintainer, 2026-11-10: "we need to rename the 'any display' or 'any pointer' or 'any keyboard' to just mean display, pointer, keyboard (and maybe font set).").
 
+> Note 2026-11-18: ADR-1205, accepted on this date, changes this decision. A terminal takes a look from the Looks tab, and the Flow view no longer makes one (ADR-1205 D1). A path holds one look in place of a font set and the terminal's size. In PARTS, the FONT SETS group and its template give way to the draft's looks, and the part maker lists them, with the default look first. `New terminal…` asks for the terminal's name and its look. The terminal's subflow draws the look's font set and effects as before.
+
 ### D8: what vtium-config writes
 
 > Edited 2026-11-05: the term was unified under the maintainer's six words (D7): this record says draft wherever it said working copy, the user's copy of vtium.conf that every edit changes. The considered entries keep the words that were said.
@@ -1167,6 +1210,8 @@ A path in the Flow view (D7) is one head of vtium.conf and the rules that send d
 - **Labels** go into a `[labels]` section after `[rules]` (D4): one line for each labelled part that has a match, `display MATCH = LABEL` or `input MATCH = LABEL`, with exactly the MATCH its rule uses. The lines follow the order of the rules, and a label for a part that no rule uses comes after them. vtium-config writes the section's comment in the style of the shipped vtium.conf, wrapped at 78 columns, saying what a label is and that vtium shows a display's label when vtium-config identifies the displays.
 - **Revise and add back write nothing new.** Adding a path that Revise took out leaves the draft's text byte for byte as it was (D7). Removing a path, by clearing it after Revise, removes its head's section and its rules, and leaves its parts' labels.
 - **The rules that fit no path** are rules vtium-config does not write itself, such as a rule that sends to a head that does not exist. vtium-config keeps them where they are, and D7 counts them.
+
+> Note 2026-11-18: ADR-1205, accepted on this date, changes this decision. The first bullet's look writing changes. A path names a look that the draft already holds, and vtium-config writes that look's name as the head's `look =` line. vtium-config makes no look named for a frit, and prunes no look when a path's look changes, because the Looks tab creates and deletes looks (ADR-1201 D3, ADR-1205 D1). A path with no look still leaves `look` out.
 
 #### `vtium config edit`, the way visudo edits sudoers
 
@@ -1321,6 +1366,122 @@ These follow from D1 to D8 and the tree:
 - vtium-config keeps each draft's font set changes in its folder, `drafts/NAME.frits/`, and reads them with the draft (D8, "A draft's font set changes"). The TUI's list of font set changes held in memory goes, and with it the question it asked before leaving. `new-frit` and `remove-frit` write the current draft's folder and take `--install`. `vtium check-config` takes `--with-frit` and `--without-frit`, and both vtium-config's check of a draft and `apply DIR`'s check pass them. `install` builds the install bundle from the draft and its folder, and after the privileged step records what the system now matches, whether the step finished or stopped.
 
 > Edited 2026-11-06: the bullet on the draft's font set folder was added when the maintainer decided that a draft keeps its font set changes (`considered`).
+
+### D10: one way to move through the six tabs
+
+> Note 2026-11-18: this section was added on this date, after ADR-1205 gave vtium-config six tabs. The section extends D7's key table and interface tree from the Flow view to every tab. D7 keeps its meaning for the Flow view. Where this section changes a row of the two tables, the row's note or this section says what the row read before.
+
+The maintainer reviewed vtium-config's TUI on 2026-11-17 and 2026-11-18. The way it looks is acceptable, but its navigation is "super clunky", most of all when moving through consoles and looks. The maintainer asked for an interface driven by "following the tree of use", and for the scenario walk to check that the tabs behave alike. The maintainer works over ssh at times, so every action has a plain key that any terminal sends.
+
+ADR-1205 sets the tabs and their order: Fonts, Effects, Looks, Flow, Settings and Help, opening on Flow. ADR-1201's views table holds that order, what each tab bar shows and what each tab writes. This section decides how a person moves through the tabs and what each key does there. The interface tree and the key table beside this record hold the decision row by row.
+
+#### The tree of use
+
+Every tab is built the same way. The tab shows one list, or the Flow view's boxes, and each item opens one level down. Enter goes down a level, and Esc comes back up to the same item. The interface tree lists every level, and each level is one node.
+
+| Level | What it holds | How you reach it | How you leave it |
+|---|---|---|---|
+| The tab | a list of items in groups, or the Flow view's boxes | Tab and Shift-Tab, a digit from 1 to 6, or the start for Flow | Tab, Shift-Tab or a digit to another tab; `q` quits or asks |
+| A detail or a card | one item: a detail you read, or a card whose lines you change | Enter on the item | Esc, back to the item |
+| A list or a typed value | a line's choices as the shared list, or a value being typed | Enter on the line | Enter keeps the choice and Esc drops it, both back to the line |
+| A question | a question over everything, from the questions of D7 | the key that asks it | `y` answers, and Esc and Ctrl-C cancel |
+
+Tab, Shift-Tab and the digits act only on a tab with nothing open, as D7 decides for Tab. Each tab keeps its highlight while vtium-config runs, so coming back to a tab finds the item you left. D7 says this of the Flow view, and it now holds for every tab.
+
+A card keeps each change as you make it. Esc closes the card and keeps those changes, which wait for Save to write them into the draft, as every change does. Revert throws them away with the draft's other changes. Esc drops only a value being typed, and the card's other lines keep what they were given.
+
+#### The same key for the same action
+
+| Action | Key | Where it acts |
+|---|---|---|
+| Go to the next tab, or the tab before | Tab, Shift-Tab | a tab with nothing open |
+| Go straight to a tab | `1` Fonts, `2` Effects, `3` Looks, `4` Flow, `5` Settings, `6` Help | a tab with nothing open |
+| Move | the arrow keys, Home, End, PgUp, PgDn | every list, card and detail; in the Flow view, from box to box |
+| Open | Enter | the highlighted item's detail or card; on a card's line, its choices as a list, or the value for typing |
+| Go back | Esc | anything open |
+| Step a line through its choices | Left, Right | a card's line: the Flow view's terminal card and a look's card |
+| Activate or deactivate | Space | a font, an effect or a pointer theme |
+| Try on this console for 10 seconds | `t` | a font, a look or a font set, and a Flow card's look |
+| Switch the preview | `p` | the Fonts and Looks tabs |
+| Make a new item | `n` | the looks and the font sets of the Looks tab |
+| Remove an item | `r` | a look, which asks first, and a font set, which is marked for the next install |
+| Save, Install | `s`, `i` | every tab but Help |
+| Quit | `q`, and Ctrl-C saves and quits | everywhere, as D7 decides |
+| Show the key line's next page | `.` | everywhere but typing |
+
+Space puts the highlighted item into the set that the tab builds, or takes it out. In the Flow view that set is NEW PATH's parts. In the Fonts and Effects tabs it is the active fonts and effects, and among the Looks tab's pointer themes it is the active themes. So Space keeps one meaning on every tab. The key line shows it as `Space activate`, and deactivating an item that a look uses asks first, listing those looks.
+
+Two letters mean something else in the Flow view, as D7 decides. There `n` starts a new configuration and `r` reverts the draft, and both ask first. In the Looks tab, `n` and `r` act on the highlighted look or font set. The key table names each meaning in its own row.
+
+The details are read-only. Up and Down scroll a detail, and Esc goes back. A font's detail adds one action for a font from your own folders. Enter asks whether to install the font as a system font, and shows the exact command first (ADR-1205 D5).
+
+#### What each tab holds
+
+- **Fonts** (`fonts`): a filter line, then the fonts found on this system, with a preview of the highlighted font. Each font shows whether it is active and its trust mark. Enter on the filter line opens the filters as the shared list (`fonts.filter`). Enter on a font opens its detail (`fonts.font`). Space activates, `t` tries the font and `p` switches the preview.
+- **Effects** (`effects`): a filter line, then the color maps and shaders found on this system, each with its marks. The preview is a picture of the console with the highlighted effect applied. Enter opens the filters (`effects.filter`) or the effect's detail (`effects.effect`), and Space activates. The preview leaves the console alone, so `t` does nothing here.
+- **Looks** (`looks`): one list in three groups: the looks, then the font sets, then the installed pointer themes. The preview shows the highlighted look or font set. Enter on a look opens its card (`looks.look`). The card holds the look's name, font set, size, color map, shader and pointer theme, and below them what the look still misses, by role. Enter on a line of the card opens its choices (`looks.look.list`), and Enter on the name lets you type it (`looks.look.typing`). Enter on a font set or a pointer theme opens its detail (`looks.font-set`, `looks.pointer`). Space activates a pointer theme. Among the font sets, `n` opens the form for a new font set (`looks.new-frit`), whose fields are the roles of ADR-1205 D6.
+- **Flow** (`flow`): as D7 decides. A terminal's card holds a look in place of a font set and a size (ADR-1205 D1). Enter on the card's look line opens the looks as a list, and `t` tries that look.
+- **Settings** (`settings`): as D7 decides, with the sections of vtium.conf's keys.
+- **Help** (`help`): as D7 decides, with the help that the contract generates for the node you came from.
+
+This section adds two questions, which open over any tab. One comes before deactivating an item that a look uses (`any.question.deactivate`). The other comes before installing a font as a system font (`any.question.system-font`). Each takes the answer keys of every other question.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> flow
+    fonts --> effects: Tab
+    effects --> looks: Tab
+    looks --> flow: Tab
+    flow --> settings: Tab
+    settings --> help: Tab
+    help --> fonts: Tab
+    state fonts {
+        [*] --> font_list
+        font_list --> font_filter: Enter on the filter line
+        font_list --> font_detail: Enter on a font
+    }
+    state effects {
+        [*] --> effect_list
+        effect_list --> effect_filter: Enter on the filter line
+        effect_list --> effect_detail: Enter on an effect
+    }
+    state looks {
+        [*] --> look_list
+        look_list --> look_card: Enter on a look
+        look_card --> look_choices: Enter on a line
+        look_card --> look_name: Enter on the name
+        look_list --> font_set_detail: Enter on a font set
+        look_list --> pointer_detail: Enter on a pointer theme
+        look_list --> new_font_set: n among the font sets
+    }
+```
+
+#### The number keys
+
+Tab steps through six tabs, and vtium-config opens on Flow, the fourth. So the digits go straight to a tab: `1` to Fonts, `2` to Effects, `3` to Looks, `4` to Flow, `5` to Settings and `6` to Help. A digit acts only while nothing is open. In an editor, a list or a question it does nothing, and in a value being typed it is typed. Tab and Shift-Tab still step through the tabs. One plain digit reaches any tab, over ssh too.
+
+The key table has a row for each digit. Each tab lists the rows of the five other tabs' digits, so its key line never offers its own digit, which does nothing there. The rows for `1`, `3`, `4`, `5` and `6` are supported, since vtium-config has those tabs. The row for `2` stays planned until the Effects tab exists. The scenario walk presses every digit and checks each row.
+
+> Edited 2026-11-18: the work that builds the navigation module made the digits work for the tabs vtium-config has, and the steering session decided that each tab lists only the other tabs' digits, by the rule that a key line never offers a key that does nothing there. The paragraph read: "The key table has a planned row for each digit, and each of the six tabs lists the six rows. The TUI does not read the digits yet, so the scenario walk's alphabet leaves them out and the walk skips their rows. The digits join the alphabet when the TUI reads them."
+
+> Edited 2026-11-18: the maintainer answered the section's four probes the same day (`considered`), each as the draft leaned. The digits go to a tab, Space activates, Esc keeps a card's changes, and the pointer themes are the Looks list's third group. This subsection read: "Tab steps through six tabs, and vtium-config opens on Flow, the fourth. This section's agent proposes that the keys 1 to 6 go straight to a tab while nothing is open. The probe in the Summary asks the maintainer. Until the maintainer answers, the key table has no rows for them. Once the maintainer agrees, the key table gains a row for each, and the scenario walk's alphabet gains the digits." The card paragraph under **The tree of use** ended "which wait to be saved as every change does.", and neither table named the digits.
+
+#### How the tables carry this section
+
+The rows and nodes this section adds are planned, each with the issue that builds its tab. The scenario walk checks a planned row and a planned node in reverse, against what vtium-config does today. So the walk passes until the work that builds a tab moves its rows to supported. The walk keeps a verdict for each planned node: whether it reaches the node today. A new node needs that verdict when it joins the tree.
+
+Each node gives the walk what it needs to generate scenarios. The node is a state, and its `reach` and `leave` columns give the keys that enter and leave it. Each key row gives what the key means there. A row that several nodes share, such as Space's, is checked in each of them, so the tabs cannot drift apart.
+
+The tables changed in these ways:
+
+- The supported Flow, Settings and Help nodes say that Tab and Shift-Tab follow the views table's order, where they named their neighbours. The order itself changes when the work that sets ADR-1205's order lands.
+- The node `fonts` read "The Fonts tab, which goes into the Looks tab", as ADR-1201 D3 decided on 2026-11-16. Its rows for Enter and `t` now act on a font. Its `n` and `r` do nothing, because font sets moved to the Looks tab.
+- The node `looks.list` was the shared list of the font sets or the sizes, opened from the Looks tab. That list is now `looks.look.list`, which opens from a look's card. The rows `list.font-sets` and `list.font-sizes` moved with it, and their state became `layer:look`.
+- The row `list.font-set-files` keeps its id and now lists the looks, because a terminal's card picks a look (ADR-1205 D1). The row `t.layer.flow-card` tries the card's look.
+- The new-frit form's fields are the roles of ADR-1205 D6, and its list offers the active fonts that can fill a role.
+
+The two nodes that the code review of the generated key lines split out of the Flow view stay as they are. `flow.info` is the read-only detail of a box of a path, where only Esc and `e` act. `flow.new-card` is NEW PATH's terminal card, which offers no `e` because the path is already in NEW PATH. Each split keeps a key line from offering a key that does nothing.
 
 ## The maintainer's answers
 

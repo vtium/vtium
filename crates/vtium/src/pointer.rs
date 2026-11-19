@@ -31,11 +31,20 @@
 //! the arrow on its plane: an arrow made from the failed set would have no
 //! font to size it by, and the pointer would show nowhere.
 //!
+//! While the head's vtlook holds a color filter, the renderer draws the
+//! pointer into the frame on every display, so that the look's colors
+//! reach the arrow as they reach the cells, and the cursor plane is hidden.
+//! When the head goes back to the built-in vtlook, the next draw offers
+//! the arrow to the plane again.
+//!
 //! A program can ask for another shape with OSC 22, such as a hand over a
 //! link or an I-beam over text. Before each draw, [`Pointer::follow`] hands
 //! the shape the terminal names to the display's renderer. When the shape
 //! changed, the renderer draws the new shape's picture, and the next draw
 //! offers that picture to the cursor plane, as it does after a zoom.
+//!
+//! References:
+//! - ADR-1304 D7: the arrow is in the filter pass whenever a look holds a filter, and back on the plane with the built-in vtlook.
 
 use std::io;
 
@@ -86,6 +95,9 @@ pub struct Pointer {
     /// `route` and keeps this, so that the same decision made again is
     /// logged at debug level.
     logged: Option<Route>,
+    /// The renderer looks each pixel up in the vtlook's color table, so
+    /// it draws the pointer too ([`Renderer::colors`]).
+    colored: bool,
 }
 
 impl Pointer {
@@ -96,6 +108,7 @@ impl Pointer {
             route: Route::Unset,
             soft: true,
             logged: None,
+            colored: false,
         }
     }
 
@@ -113,6 +126,10 @@ impl Pointer {
     /// renderer's image that the cursor plane takes, the same. A new shape
     /// goes to the plane at this draw, through [`Pointer::reset`].
     ///
+    /// A renderer that starts or stops coloring its pixels with a vtlook's
+    /// color table changes who draws the pointer, so that too goes to the
+    /// plane, or off it, at this draw.
+    ///
     /// It also hands the renderer the pointer file's pictures in `file`,
     /// the console's store, when they changed since, so that a picture the
     /// font helper drew replaces vtium's own from this draw on. And it asks
@@ -125,6 +142,11 @@ impl Pointer {
         shape: PointerShape,
         file: &crate::pointer_file::Store,
     ) {
+        #[cfg(feature = "filters")]
+        if renderer.colors() != self.colored {
+            self.colored = renderer.colors();
+            self.reset();
+        }
         file.want(renderer.pointer_cell_height());
         let pictures = file.current();
         let same = match (renderer.pointer_pictures(), &pictures) {
@@ -171,6 +193,16 @@ impl Pointer {
                 id,
                 Route::Software,
                 format_args!("draws it in software: soft-cursor"),
+            );
+        }
+        if self.route == Route::Unset && tip.is_some() && self.colored {
+            // the plane may show the arrow from before the look took hold
+            plane.hide(id);
+            self.take(
+                &*plane,
+                id,
+                Route::Software,
+                format_args!("draws it in software: the vtlook's color filters color it"),
             );
         }
         if self.route == Route::Unset && tip.is_some() {
@@ -507,6 +539,41 @@ mod tests {
         p.before_draw(&mut plane, ID, r.arrow(), None);
         after(&mut p, &mut plane, &r, None);
         assert_eq!(plane.shown, None);
+    }
+
+    // While the renderer colors its pixels with a vtlook's table, the
+    // pointer leaves the cursor plane, which is hidden, and the renderer
+    // draws it; once the table goes, the next draw offers the arrow to
+    // the plane again.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_vtlook_s_colors_take_the_pointer_off_the_plane_while_they_last() {
+        let mut r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::default(), Fake::default());
+        let store = Store::default();
+        let mut arrow = r.arrow().clone();
+        let shape = r.pointer_shape();
+        let tip = Some((5, 6));
+        p.follow(&mut r, &mut arrow, shape, &store);
+        assert_eq!(p.before_draw(&mut plane, ID, &arrow, tip), None);
+        assert_eq!(p.route(), Route::Hardware);
+        // the plane shows the arrow somewhere when the look takes hold
+        plane.shown = Some((5, 6));
+        let table = vtium_render::filter::Table::build(&[]).unwrap();
+        r.set_color_table(Some(&table)).unwrap();
+        p.follow(&mut r, &mut arrow, shape, &store);
+        assert_eq!(p.before_draw(&mut plane, ID, &arrow, tip), tip);
+        after(&mut p, &mut plane, &r, tip);
+        assert_eq!((p.route(), plane.shown), (Route::Software, None));
+        // the next draws keep it in the frame, and offer the plane nothing
+        let set_ups = plane.set_ups;
+        p.follow(&mut r, &mut arrow, shape, &store);
+        assert_eq!(p.before_draw(&mut plane, ID, &arrow, tip), tip);
+        assert_eq!(plane.set_ups, set_ups);
+        r.set_color_table(None).unwrap();
+        p.follow(&mut r, &mut arrow, shape, &store);
+        assert_eq!(p.before_draw(&mut plane, ID, &arrow, tip), None);
+        assert_eq!((p.route(), plane.set_ups), (Route::Hardware, set_ups + 1));
     }
 
     // `soft-cursor`: the renderer draws the pointer, and the plane is

@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "help at 80×25, keys: 6"
+---
+ Flow  Looks  Fonts  Settings  Help
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+ The Flow view: CONFIGURATION, NEW PATH and PARTS
+   ↑          Moves to the box above.
+   ↓          Moves to the box below.
+   ←          Moves to the box before, and on to the line before.
+   →          Moves to the box after, and on to the next line.
+   Home       Goes to the first box.
+   End        Goes to the last box.
+   PgUp       Scrolls up by a window.
+   PgDn       Scrolls down by a window.
+   Space      Picks the highlighted part into NEW PATH, or takes it out.
+   Enter      Opens the highlighted box: a part's detail, a path's card, a
+              template's part maker, or the list of other inputs.
+   1          Goes straight to the Fonts tab.
+   3          Goes straight to the Looks tab.
+   5          Goes straight to the Settings tab.
+   6          Goes straight to the Help tab.
+   s          Saves the changes that are not saved into the draft.
+   i          Saves, then asks whether to install the draft.
+   r          Asks whether to throw away the draft's changes and copy the
+
+--------------------------------------------------------------------------------
+ ↑↓ scroll  ←→ Help, About  q quit  . more 1/4

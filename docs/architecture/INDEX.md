@@ -49,6 +49,8 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 | [ADR-1202](./font/ADR-1202-superscript-and-subscript-glyphs-are-drawn-at-a-smaller-size-by-the-source-they-come-from-and-a-bitmap-glyph-stays-one-bit.md) | Superscript and subscript glyphs are drawn at a smaller size by the source they come from, and a bitmap glyph stays one bit | accepted |
 | [ADR-1203](./font/ADR-1203-a-syllable-that-the-grapheme-rules-cut-into-several-clusters-is-shaped-once-and-drawn-across-their-cells.md) | A syllable that the grapheme rules cut into several clusters is shaped once and drawn across their cells | accepted |
 | [ADR-1204](./font/ADR-1204-vtium-draws-its-own-messages-in-one-small-built-in-font-and-ships-a-catalog-of-font-sets-built-from-layers-with-terminus-working-out-of-the-box.md) | vtium draws its own messages in one small built-in font and ships a catalog of font sets built from layers, with Terminus working out of the box | accepted |
+| [ADR-1205](./font/ADR-1205-a-look-is-assembled-from-the-active-resources-and-a-resource-can-be-activated-only-from-a-root-owned-folder-on-a-filesystem-that-stays-mounted.md) | A look is assembled from the active resources, and a resource can be activated only from a root-owned folder on a filesystem that stays mounted | accepted |
+| [ADR-1206](./font/ADR-1206-vtium-config-s-tui-draws-through-ratatui-s-core-and-widgets-over-its-own-terminal-layer-and-each-tab-is-a-module-that-one-navigation-module-and-one-update-loop-connect.md) | vtium-config's TUI draws through ratatui's core and widgets over its own terminal layer, and each tab is a module that one navigation module and one update loop connect | accepted |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_

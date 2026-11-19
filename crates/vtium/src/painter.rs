@@ -66,7 +66,7 @@ use std::time::{Duration, Instant};
 
 use vtium_platform::display::DisplayId;
 
-use crate::term::{Composed, Job};
+use crate::term::{Composed, EchoFigures, Job};
 
 /// The render thread's stack, in bytes: the vtium tests compose in 64 KiB
 /// in a debug build and in 16 KiB optimised.
@@ -224,6 +224,14 @@ enum Message {
     Release,
 }
 
+/// A note for the log from the GPU path about one of the head's displays,
+/// such as glyph textures at their ceiling.
+pub struct Note {
+    /// The display the note is about, by its device and its id there.
+    pub display: (PathBuf, DisplayId),
+    pub text: String,
+}
+
 /// A head's render thread, and the channels to it and back.
 pub struct Painter {
     /// The head's name, for the log.
@@ -243,9 +251,9 @@ pub struct Painter {
     /// A display of the head is at a size the GPU path could not set up,
     /// so the head draws on the CPU path for now (ADR-1303 D9).
     held_on_cpu: bool,
-    /// The GPU path's notes for the log, such as glyph textures at their
-    /// ceiling, which the loop logs.
-    notes: Option<Receiver<String>>,
+    /// The GPU path's notes for the log, which the loop takes with
+    /// [`Painter::take_notes`] and logs under each display's connector.
+    notes: Option<Receiver<Note>>,
     /// Ends when the thread does, for a thread given a [`GpuSource`]: the
     /// drop waits on it for at most [`LET_GO_MS`].
     ended: Option<Receiver<()>>,
@@ -271,7 +279,7 @@ impl Painter {
         let (jobs, todo) = sync_channel::<Message>(QUEUE);
         let (composed, done) = sync_channel::<Composed>(QUEUE);
         let (ready, set_up) = sync_channel::<Ready>(1);
-        let (note, notes) = sync_channel::<String>(QUEUE);
+        let (note, notes) = sync_channel::<Note>(QUEUE);
         let (end, ended) = sync_channel::<()>(0);
         let on_gpu = gpu.is_some();
         let gone = Arc::new(AtomicBool::new(false));
@@ -426,8 +434,8 @@ impl Painter {
 
     /// The frames composed since the last call, in the order composed,
     /// once the thread's set-up is taken, and the messages waiting sent.
-    /// The log gets why the GPU path could not start, once, and the GPU
-    /// path's notes. A thread that ended by a panic passes the panic on.
+    /// The log gets why the GPU path could not start, once. A thread that
+    /// ended by a panic passes the panic on.
     pub fn take(&mut self) -> Vec<Composed> {
         self.take_set_up();
         self.send_pending();
@@ -450,12 +458,15 @@ impl Painter {
         if !frames.is_empty() {
             self.take_set_up();
         }
-        if let Some(notes) = &self.notes {
-            for note in notes.try_iter() {
-                log::warn!("head {}: {note}", self.name);
-            }
-        }
         frames
+    }
+
+    /// The GPU path's notes for the log since the last call.
+    pub fn take_notes(&mut self) -> Vec<Note> {
+        self.notes
+            .as_ref()
+            .map(|notes| notes.try_iter().collect())
+            .unwrap_or_default()
     }
 
     /// Takes the thread's set-up, if it came: the path the head draws on,
@@ -489,7 +500,7 @@ fn draw_frames(
     ready: &SyncSender<Ready>,
     todo: &Receiver<Message>,
     composed: &SyncSender<Composed>,
-    notes: &SyncSender<String>,
+    notes: &SyncSender<Note>,
     wake: &impl Fn(),
 ) {
     use crate::gpu::head::HeadGpu;
@@ -551,7 +562,7 @@ fn draw_frames(
 /// Sends the GPU path's notes for the log to the loop; a note that finds
 /// the channel full is dropped, as the loop has not taken the last ones.
 #[cfg(feature = "gpu")]
-fn send_notes(head: &mut crate::gpu::head::HeadGpu, notes: &SyncSender<String>) {
+fn send_notes(head: &mut crate::gpu::head::HeadGpu, notes: &SyncSender<Note>) {
     for note in head.take_notes() {
         let _ = notes.try_send(note);
     }
@@ -564,7 +575,7 @@ fn draw_frames(
     ready: &SyncSender<Ready>,
     todo: &Receiver<Message>,
     composed: &SyncSender<Composed>,
-    _: &SyncSender<String>,
+    _: &SyncSender<Note>,
     wake: &impl Fn(),
 ) {
     let _ = ready.send((Path::Cpu, None));
@@ -735,7 +746,11 @@ pub fn let_go(painters: impl IntoIterator<Item = Painter>, clock: &dyn Fn() -> I
 
 /// A head's frame times since its last line: the frames presented, and
 /// the time each took to compose into its display's buffer, logged at
-/// debug level at most once a second while the head draws.
+/// debug level at most once a second while the head draws. The line also
+/// gives the key-to-present times its displays measured since the last
+/// line, when a key's echo was presented: the time from a key vtium sent
+/// to the program until a display presented the frame that carries the
+/// program's answer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Figures {
     frames: u32,
@@ -756,18 +771,29 @@ impl Figures {
         }
     }
 
-    /// The line for the head `name` once it is due at `now`, the figures
+    /// The line for the head `name` once it is due at `now`, with the
+    /// key-to-present times in `echoes`, the figures and the times
     /// starting again.
-    pub fn line(&mut self, name: &str, now: Instant) -> Option<String> {
+    pub fn line(&mut self, name: &str, echoes: &mut EchoFigures, now: Instant) -> Option<String> {
         self.due.filter(|&d| d <= now)?;
         let f = std::mem::take(self);
-        let mean = |sum: Duration| sum.checked_div(f.frames.max(1)).unwrap_or_default();
-        Some(format!(
+        let e = std::mem::take(echoes);
+        let mean = |sum: Duration, n: u32| sum.checked_div(n.max(1)).unwrap_or_default();
+        let mut line = format!(
             "head {name}: {} frames, compose mean {} max {} us",
             f.frames,
-            mean(f.compose.0).as_micros(),
+            mean(f.compose.0, f.frames).as_micros(),
             f.compose.1.as_micros(),
-        ))
+        );
+        if e.count > 0 {
+            line.push_str(&format!(
+                ", {} key echoes, key to present mean {} max {} us",
+                e.count,
+                mean(e.sum, e.count).as_micros(),
+                e.max.as_micros(),
+            ));
+        }
+        Some(line)
     }
 }
 
@@ -1892,11 +1918,51 @@ mod tests {
         };
         f.frame(ms(2), t0);
         f.frame(ms(4), t0);
-        assert_eq!(f.line("desk", t0), None, "not due");
+        let mut none = EchoFigures::default();
+        assert_eq!(f.line("desk", &mut none, t0), None, "not due");
         assert_eq!(
-            f.line("desk", t0 + Duration::from_secs(1)).as_deref(),
+            f.line("desk", &mut none, t0 + Duration::from_secs(1))
+                .as_deref(),
             Some("head desk: 2 frames, compose mean 3000 max 4000 us")
         );
         assert_eq!(f, Figures::default());
+    }
+
+    // The frame figures' line gives the key-to-present times of the keys
+    // whose echo the head's displays presented since the last line, and
+    // takes them, so the next line starts again.
+    #[test]
+    fn the_figures_line_gives_the_key_to_present_times() {
+        let t0 = Instant::now();
+        let us = Duration::from_micros;
+        let mut f = Figures {
+            due: Some(t0),
+            ..Figures::default()
+        };
+        f.frame(us(500), t0);
+        let mut echoes = EchoFigures {
+            count: 2,
+            sum: us(3000),
+            max: us(2000),
+        };
+        assert_eq!(
+            f.line("desk", &mut echoes, t0).as_deref(),
+            Some(
+                "head desk: 1 frames, compose mean 500 max 500 us, \
+                 2 key echoes, key to present mean 1500 max 2000 us"
+            )
+        );
+        assert_eq!(echoes, EchoFigures::default(), "the times start again");
+        let mut f = Figures {
+            due: Some(t0 + Duration::from_secs(1)),
+            ..Figures::default()
+        };
+        let mut echoes = EchoFigures {
+            count: 1,
+            sum: us(700),
+            max: us(700),
+        };
+        assert_eq!(f.line("desk", &mut echoes, t0), None, "not due");
+        assert_eq!(echoes.count, 1, "kept for the line that is due");
     }
 }

@@ -79,10 +79,13 @@ fn rect(r: Rect) -> PlatformRect {
     }
 }
 
-fn format(f: Format) -> platform::TextureFormat {
+/// vtium-platform's 2D format of `f`; `None` for RGBA16F, which only a 3D
+/// texture holds, and which the ledger refuses before a 2D texture is made.
+fn format(f: Format) -> Option<platform::TextureFormat> {
     match f {
-        Format::R8 => platform::TextureFormat::R8,
-        Format::Rgba8 => platform::TextureFormat::Rgba8,
+        Format::R8 => Some(platform::TextureFormat::R8),
+        Format::Rgba8 => Some(platform::TextureFormat::Rgba8),
+        Format::Rgba16f => None,
     }
 }
 
@@ -181,8 +184,19 @@ impl Gl for PlatformGl {
     fn create_texture(&mut self, f: Format, size: Size) -> Result<Texture, Error> {
         let (gl, mut met) = (&mut self.gl, Met::default());
         let made = self.ledger.create_texture(f, size, || {
-            gl.create_texture(format(f), size.width, size.height)
+            let f = format(f).ok_or_else(|| {
+                Error::new(ErrorKind::Misuse, "an RGBA16F texture is a 3D texture")
+            })?;
+            gl.create_texture(f, size.width, size.height)
                 .map_err(|e| met.keep(e))
+        });
+        self.settle(made, met)
+    }
+
+    fn create_volume(&mut self, side: u32, texels: &[u8]) -> Result<Texture, Error> {
+        let (gl, mut met) = (&mut self.gl, Met::default());
+        let made = self.ledger.create_volume(side, texels.len(), || {
+            gl.create_volume(side, texels).map_err(|e| met.keep(e))
         });
         self.settle(made, met)
     }
@@ -313,6 +327,7 @@ impl Gl for PlatformGl {
             .map(|&(name, value)| {
                 let value = match value {
                     Resolved::Texture(t, f) => platform::Uniform::Texture(t, filter(f)),
+                    Resolved::Volume(t, f) => platform::Uniform::Volume(t, filter(f)),
                     Resolved::Float(v) => platform::Uniform::Float(v),
                     Resolved::Vec2(v) => platform::Uniform::Vec2(v),
                     Resolved::Vec4(v) => platform::Uniform::Vec4(v),
@@ -433,7 +448,11 @@ mod tests {
     /// spatial step joined in. A step added to `Color` or `Spatial` is
     /// added here.
     fn configs() -> Vec<Config> {
-        let colors = [Color::None];
+        let colors = [
+            Color::None,
+            #[cfg(feature = "filters")]
+            Color::Table,
+        ];
         let spatials = [Spatial::None];
         colors
             .iter()
@@ -674,6 +693,134 @@ void main() {
         }
         gl.free_target(target).unwrap();
         pipeline.free(&mut gl).unwrap();
+        gl.check(Batch::Frame).unwrap();
+    }
+
+    /// A vtlook's color table on llvmpipe: present's color step lands each
+    /// channel within one level of the CPU path's lookup, over cells of
+    /// many colors, the border and the pointer, for an amber tint with
+    /// contrast and for simulated deuteranopia. The share of pixels off by
+    /// one level is printed for the report. Taking the table away draws as
+    /// a renderer that never had one, byte for byte.
+    ///
+    /// References:
+    /// - ADR-1304 D2: the GPU path's tolerance of one level against the CPU path.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_color_table_on_llvmpipe_lands_within_one_level_of_the_cpu_path() {
+        use vtium_font::{Font, Unifont};
+        use vtium_render::filter::{Fixed, Given, Map, Table, color};
+        use vtium_render::{Canvas, Config as RenderConfig, DrawState, Renderer};
+        use vtium_term::{Age, Terminal};
+
+        let table = |steps: &[(&str, &[Given])]| {
+            let maps: Vec<Map> = steps
+                .iter()
+                .map(|&(n, v)| Map::new(color(n).unwrap(), v).unwrap())
+                .collect();
+            Table::build(&maps).unwrap()
+        };
+        let amber = table(&[
+            (
+                "tint",
+                &[Given::Color([255, 176, 0]), Given::Number(Fixed::of(1, 0))],
+            ),
+            (
+                "contrast",
+                &[
+                    Given::Number(Fixed::of(1, 1500)),
+                    Given::Number(Fixed::of(0, 0)),
+                ],
+            ),
+        ]);
+        let deuteranopia = table(&[(
+            "color-blind",
+            &[
+                Given::Choice("deuteranopia"),
+                Given::Choice("simulate"),
+                Given::Number(Fixed::of(1, 0)),
+            ],
+        )]);
+        // 16 by 4 cells of 8x16 inside a border, each cell its own color
+        let size = Size::new(132, 67);
+        let mut term = Terminal::new(16, 4, 0);
+        let mut bytes = Vec::new();
+        for i in 0u32..64 {
+            let (r, g, b) = (i * 37 % 256, i * 91 % 256, i * 53 % 256);
+            bytes.extend(format!("\x1b[48;2;{r};{g};{b}m\x1b[38;2;{b};{r};{g}mA").bytes());
+        }
+        let mut rest = &bytes[..];
+        while !rest.is_empty() {
+            let taken = term.input(rest);
+            assert!(taken > 0, "the terminal stopped taking input");
+            rest = &rest[taken..];
+        }
+        let mut gl = software();
+        let font = || Font::new(Unifont::new(16));
+        let mut out = vec![0u8; (size.width * size.height * 4) as usize];
+        let state = DrawState {
+            background: term.palette().bg(),
+            pointer: Some((13, 7)),
+            ..DrawState::default()
+        };
+        for (name, table) in [("amber", &amber), ("deuteranopia", &deuteranopia)] {
+            let mut cpu = Renderer::new(font(), size.width, size.height, RenderConfig::default());
+            let mut gpu = Renderer::new(font(), size.width, size.height, RenderConfig::default());
+            cpu.set_color_table(Some(table)).unwrap();
+            gpu.set_color_table(Some(table)).unwrap();
+            let mut canvas = Canvas::new(size.width, size.height, 0);
+            let mut pipeline = Pipeline::new(&mut gl, size, Config::default()).unwrap();
+            let target = gl.create_frame(size).unwrap();
+            let frame = term.screen().frame(term.palette(), Age::NEVER);
+            cpu.draw(&frame, &mut canvas, 0, &state);
+            gpu.draw_gpu(&mut gl, &mut pipeline, &frame, &target, 0, &state, &[])
+                .unwrap();
+            assert_eq!(pipeline.color(), Color::Table);
+            gl.read(&target, size.rect(), &mut out).unwrap();
+            let (mut off, mut worst) = (0usize, 0u8);
+            for y in 0..size.height {
+                for x in 0..size.width {
+                    let i = ((y * size.width + x) * 4) as usize;
+                    let want = canvas.pixel(x, y).unwrap().to_be_bytes();
+                    let d = (0..3)
+                        .map(|c| out[i + c].abs_diff(want[c + 1]))
+                        .max()
+                        .unwrap();
+                    worst = worst.max(d);
+                    off += usize::from(d > 0);
+                }
+            }
+            let pixels = (size.width * size.height) as usize;
+            println!(
+                "{name}: {off} of {pixels} pixels ({:.3}%) differ from the CPU path",
+                off as f64 * 100.0 / pixels as f64
+            );
+            assert!(
+                worst <= 1,
+                "{name}: a channel {worst} levels off the CPU path"
+            );
+            // taking the table away draws as a renderer that never had one
+            cpu.set_color_table(None).unwrap();
+            gpu.set_color_table(None).unwrap();
+            cpu.draw(&frame, &mut canvas, 1, &state);
+            gpu.draw_gpu(&mut gl, &mut pipeline, &frame, &target, 1, &state, &[])
+                .unwrap();
+            assert_eq!(pipeline.color(), Color::None);
+            gl.read(&target, size.rect(), &mut out).unwrap();
+            let differ = (0..size.height)
+                .flat_map(|y| (0..size.width).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let i = ((y * size.width + x) * 4) as usize;
+                    let gpu = u32::from(out[i]) << 16
+                        | u32::from(out[i + 1]) << 8
+                        | u32::from(out[i + 2]);
+                    canvas.pixel(x, y) != Some(gpu)
+                })
+                .count();
+            assert_eq!(differ, 0, "{name}: pixels differ with no table");
+            gl.free_target(target).unwrap();
+            pipeline.free(&mut gl).unwrap();
+        }
         gl.check(Batch::Frame).unwrap();
     }
 

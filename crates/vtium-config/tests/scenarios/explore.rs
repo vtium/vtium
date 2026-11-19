@@ -14,7 +14,7 @@ use super::sim::{Did, Press, Sim, Term};
 use super::state::{self, Abs};
 
 /// What the explorer does in each state, each with the name the map
-/// writes: every key the TUI's code names, a letter it names nowhere
+/// writes: every key the TUI's code names, the digits, a letter it names nowhere
 /// (`z`) for "any other key", Ctrl-C, and the terminal shrinking below the
 /// minimum size and growing back to it.
 pub const ALPHABET: &[(&str, Press)] = &[
@@ -67,9 +67,16 @@ pub const ALPHABET: &[(&str, Press)] = &[
     ("Wheel down", Press::Mouse(Button::WheelDown, 3, 5)),
     ("Shrink", Press::Resize(79, 24)),
     ("Grow", Press::Resize(80, 25)),
-    // the key that shows a key line's next page, last, so that the
-    // walk reaches every other state by the same keys as without it
+    // the key that shows a key line's next page, then the digits that go
+    // straight to a tab, last, so that the walk reaches every other state
+    // by the same keys as without them
     (".", Press::Key(Key::Char('.'))),
+    ("1", Press::Key(Key::Char('1'))),
+    ("2", Press::Key(Key::Char('2'))),
+    ("3", Press::Key(Key::Char('3'))),
+    ("4", Press::Key(Key::Char('4'))),
+    ("5", Press::Key(Key::Char('5'))),
+    ("6", Press::Key(Key::Char('6'))),
 ];
 
 /// The grids the explorer starts at: the minimum, and one column and one
