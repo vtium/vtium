@@ -951,7 +951,7 @@ mod tests {
         assert_eq!(
             said,
             [
-                "color filter 2 of 2, sepia: checking: found sepia, needs gamma, contrast, tint or color-blind",
+                "color filter 2 of 2, sepia: checking: found sepia, needs gamma, contrast, tint, color-blind or cube",
                 "spatial filter 1 of 1, scanlines: checking: found scanlines, but this build of vtium has no spatial filters",
             ]
         );

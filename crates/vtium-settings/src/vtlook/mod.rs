@@ -17,16 +17,23 @@
 //! This part is in every build, so a build without frame filters still
 //! reads `vtlook` and says that it draws `default`. With the `filters`
 //! feature, [`read`] reads a vtlook against the filters' declarations,
-//! [`Report`] says where a vtlook fails, [`table`] merges a vtlook's color
-//! filters into the one color table both drawing paths read, and
+//! [`Report`] says where a vtlook fails, [`table_with`] merges a vtlook's
+//! color filters into the one color table both drawing paths read, and
 //! [`template`] gives the built-in vtlook's text, which vtium-config writes
-//! out to start a new vtlook.
+//! out to start a new vtlook. A `cube` filter takes its table from a
+//! `.cube` file in [`LOOKS`], which [`read_cube`] reads once the file has
+//! passed the [`Gate`]: the batch must hold it, and it must pass the trust
+//! rule.
 //!
 //! References:
 //! - ADR-1304 D4: the vtlook file and the built-in default, and its note of 2026-11-19: the presets in the package's folder, and the administrator's folder winning on a name.
 //! - ADR-1304 D5: how a head chooses its vtlook through its look section.
+//! - ADR-1304 D9: the `.cube` file a `cube` filter reads, beside the administrator's vtlooks.
 //! - ADR-1304 D10: the reader sits behind the `filters` feature, and the key is in every build.
+//! - ADR-1205 D4: a `.cube` file counts as missing unless the batch holds it and it passes the trust rule.
 
+#[cfg(feature = "filters")]
+mod cube;
 #[cfg(feature = "filters")]
 mod read;
 #[cfg(feature = "filters")]
@@ -39,13 +46,17 @@ mod table;
 mod template;
 
 #[cfg(feature = "filters")]
+pub use crate::bounds::CUBE_FILE_MAX;
+#[cfg(feature = "filters")]
+pub use cube::{Fault, Faults, Gate, read_cube};
+#[cfg(feature = "filters")]
 pub use read::{Filter, Value, Vtlook, find, read, read_text, read_text_with};
 #[cfg(feature = "filters")]
 pub use report::{Failure, Part, Report, Stage, log_line};
 #[cfg(feature = "filters")]
 pub use requires::{Depth, Fps, Gpu, Requires, Size};
 #[cfg(feature = "filters")]
-pub use table::table;
+pub use table::{table, table_with};
 #[cfg(feature = "filters")]
 pub use template::{TEMPLATE, template};
 

@@ -2,7 +2,10 @@
 //!
 //! Each fenced block whose info string is `vtlook` must read cleanly. Each
 //! `vtlook-error` block must give exactly the errors of the `text` block
-//! that follows it, as `vtium check-config` prints them. The block that
+//! that follows it, as `vtium check-config` prints them. Each `cube` block
+//! must read cleanly as a `.cube` file, and each `cube-error` block must
+//! give exactly the faults of the `text` block after it, each as its line
+//! and its message. The block that
 //! starts with the built-in vtlook's first line must be the template vtium
 //! compiles in. So a doc example that stops reading as the page says fails
 //! here.
@@ -12,7 +15,7 @@
 //! comments describe.
 //!
 //! References:
-//! - ADR-1304 D13: docs/looks.md carries the examples, and these two tests read them.
+//! - ADR-1304 D13: docs/looks.md carries the examples, slice 3 the `.cube` ones, and these tests read them.
 //! - ADR-1304 D14: the info strings that name what each block holds.
 //! - ADR-1304 D4, its note of 2026-11-19: the six presets, each phosphor a tint and each correction a color-blind filter in correct mode.
 #![cfg(feature = "filters")]
@@ -69,6 +72,8 @@ fn each_example_reads_as_the_page_says() {
     let blocks = blocks();
     let mut clean = 0;
     let mut wrong = 0;
+    let mut cubes = 0;
+    let mut bad_cubes = 0;
     for (i, (info, text)) in blocks.iter().enumerate() {
         let (name, file) = named(text);
         match info.as_str() {
@@ -92,13 +97,37 @@ fn each_example_reads_as_the_page_says() {
                 assert_eq!(errors, said.lines().collect::<Vec<_>>(), "{name}");
                 wrong += 1;
             }
+            "cube" => {
+                let read = vtlook::read_cube(text.as_bytes());
+                assert!(read.is_ok(), "block {i}: {:?}", read.err());
+                cubes += 1;
+            }
+            "cube-error" => {
+                let Some((_, said)) = blocks.get(i + 1).filter(|(info, _)| info == "text") else {
+                    panic!("block {i}: a cube-error block needs a text block after it");
+                };
+                let faults: Vec<String> = vtlook::read_cube(text.as_bytes())
+                    .err()
+                    .map(|f| {
+                        f.faults
+                            .iter()
+                            .map(|f| match f.line {
+                                Some(n) => format!("{n}: {}", f.message),
+                                None => f.message.clone(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                assert_eq!(faults, said.lines().collect::<Vec<_>>(), "block {i}");
+                bad_cubes += 1;
+            }
             _ => {}
         }
     }
-    // the page holds examples of both kinds, so an empty reading fails
+    // the page holds examples of each kind, so an empty reading fails
     assert!(
-        clean >= 2 && wrong >= 3,
-        "{clean} clean and {wrong} wrong examples"
+        clean >= 2 && wrong >= 3 && cubes >= 3 && bad_cubes >= 2,
+        "{clean} clean and {wrong} wrong vtlooks, {cubes} clean and {bad_cubes} wrong .cube files"
     );
 }
 

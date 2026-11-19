@@ -243,7 +243,7 @@ fn level(x: f32) -> u32 {
     reason = "a test fails by panicking, and its figures are small"
 )]
 mod tests {
-    use super::super::{COLOR, Fixed, Given, Map, color};
+    use super::super::{COLOR, Cube, Fixed, Given, Map, Shape, color};
     use super::*;
 
     /// The map of the color filter `name` with `values`.
@@ -364,14 +364,14 @@ mod tests {
         ];
         let got: Vec<(&str, u64)> = cases
             .iter()
-            .map(|(name, m, _)| (*name, digest(&table(&[*m]))))
+            .map(|(name, m, _)| (*name, digest(&table(std::slice::from_ref(m)))))
             .collect();
         let want: Vec<(&str, u64)> = cases.iter().map(|(name, _, d)| (*name, *d)).collect();
         assert_eq!(got, want);
     }
 
-    // Each filter's defaults make a map, and gamma and contrast at their
-    // defaults change no color.
+    // Each filter's defaults make a map, but cube's, whose file has no
+    // default, and gamma and contrast at their defaults change no color.
     #[test]
     fn gamma_and_contrast_at_their_defaults_are_the_identity() {
         let identity = table(&[]);
@@ -381,7 +381,7 @@ mod tests {
             assert_eq!(table(&[m]), identity, "{name}");
         }
         for d in COLOR {
-            assert!(Map::defaults(d).is_some(), "{}", d.name);
+            assert_eq!(Map::defaults(d).is_some(), d.name != "cube", "{}", d.name);
         }
     }
 
@@ -481,7 +481,7 @@ mod tests {
     fn filters_run_in_order_and_each_output_is_held() {
         let brighter = map("contrast", &[n(1, 0), n(0, 5000)]);
         let flatter = map("contrast", &[n(0, 5000), n(0, 0)]);
-        let t = table(&[brighter, flatter]);
+        let t = table(&[brighter.clone(), flatter.clone()]);
         assert_eq!(node(&t, 32, 32, 32), [0.75; 3]);
         let other = table(&[flatter, brighter]);
         assert_eq!(node(&other, 32, 32, 32), [1.0; 3]);
@@ -521,18 +521,152 @@ mod tests {
     }
 
     // The GPU path's upload holds the same halves, each node's red, green
-    // and blue with an alpha of 1, little-endian.
+    // and blue with an alpha of 1, little-endian, for a table built from
+    // a filter's formula and for one built from a .cube file's table, so
+    // the two paths read the same nodes whatever made them.
     #[test]
     fn the_upload_holds_the_same_halves_with_an_alpha_of_one() {
-        let t = table(&[map("gamma", &[n(1, 8000)])]);
-        let bytes = t.rgba16f().unwrap_or_else(|e| panic!("{e}"));
-        assert_eq!(bytes.len(), 35_937 * 8);
-        let (texels, rest) = bytes.as_chunks::<8>();
-        assert!(rest.is_empty());
-        for (texel, node) in texels.iter().zip(t.nodes()) {
-            let h = |i: usize| u16::from_le_bytes([texel[i], texel[i + 1]]);
-            assert_eq!([h(0), h(2), h(4)], *node);
-            assert_eq!(h(6), 0x3c00);
+        let swap = Map::cube(Arc::new(swap_cube(17)));
+        for t in [table(&[map("gamma", &[n(1, 8000)])]), table(&[swap])] {
+            let bytes = t.rgba16f().unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(bytes.len(), 35_937 * 8);
+            let (texels, rest) = bytes.as_chunks::<8>();
+            assert!(rest.is_empty());
+            for (texel, node) in texels.iter().zip(t.nodes()) {
+                let h = |i: usize| u16::from_le_bytes([texel[i], texel[i + 1]]);
+                assert_eq!([h(0), h(2), h(4)], *node);
+                assert_eq!(h(6), 0x3c00);
+            }
         }
+    }
+
+    /// A 3D table of `n` a side that swaps red and blue.
+    fn swap_cube(n: usize) -> Cube {
+        let last = (n - 1) as f64;
+        let mut entries = Vec::new();
+        for b in 0..n {
+            for g in 0..n {
+                for r in 0..n {
+                    entries.push([b as f64 / last, g as f64 / last, r as f64 / last]);
+                }
+            }
+        }
+        Cube::new(Shape::Three(n), entries).unwrap_or_else(|| panic!("{n}"))
+    }
+
+    // A table of 33 a side passes each of its entries into the merged
+    // table unchanged, since each node falls on an entry: every node holds
+    // its entry's halves. The entries differ from node to node, so a
+    // lookup that reads a neighbouring entry fails.
+    #[test]
+    fn a_cube_of_33_a_side_passes_into_the_table_unchanged() {
+        let mut entries = Vec::new();
+        for i in 0..33 * 33 * 33u32 {
+            // three values with few bits, each different from its
+            // neighbours along every axis
+            let v = |k: u32| f64::from((i * k + k * k) % 257) / 256.0;
+            entries.push([v(7), v(31), v(101)]);
+        }
+        let cube = Cube::new(Shape::Three(33), entries.clone()).unwrap_or_else(|| panic!("33"));
+        let t = table(&[Map::cube(Arc::new(cube))]);
+        for (i, (node, entry)) in t.nodes().iter().zip(&entries).enumerate() {
+            assert_eq!(*node, entry.map(half), "node {i}");
+        }
+    }
+
+    // An identity table returns the identity at 2, 17 and 65 a side, and
+    // an identity cube after a tint changes nothing the tint gave.
+    #[test]
+    fn an_identity_cube_builds_the_identity_table() {
+        let identity = |n: usize| {
+            let last = (n - 1) as f64;
+            let mut entries = Vec::new();
+            for b in 0..n {
+                for g in 0..n {
+                    for r in 0..n {
+                        entries.push([r as f64 / last, g as f64 / last, b as f64 / last]);
+                    }
+                }
+            }
+            Map::cube(Arc::new(
+                Cube::new(Shape::Three(n), entries).unwrap_or_else(|| panic!("{n}")),
+            ))
+        };
+        for n in [2, 17, 65] {
+            assert_eq!(table(&[identity(n)]), table(&[]), "{n} a side");
+        }
+        let amber = map("tint", &[Given::Color([255, 176, 0]), n(1, 0)]);
+        assert_eq!(
+            table(&[amber.clone(), identity(33)]),
+            table(&[amber]),
+            "after a tint"
+        );
+    }
+
+    // The warm table of ADR-1304 D14 scales each channel by a constant, so
+    // the merged table takes it exactly: a mid gray becomes 0.5, 0.475 and
+    // 0.425.
+    #[test]
+    fn the_warm_cube_scales_each_channel() {
+        let mut entries = Vec::new();
+        for b in [0.0, 0.85] {
+            for g in [0.0, 0.95] {
+                for r in [0.0, 1.0] {
+                    entries.push([r, g, b]);
+                }
+            }
+        }
+        let cube = Cube::new(Shape::Three(2), entries).unwrap_or_else(|| panic!("warm"));
+        let t = table(&[Map::cube(Arc::new(cube))]);
+        assert_eq!(
+            t.nodes()[(16 * SIDE + 16) * SIDE + 16],
+            [0.5, 0.475, 0.425].map(half)
+        );
+        assert_eq!(
+            node(&t, 32, 32, 32),
+            [1.0, 0.95, 0.85].map(|x| from_half(half(x)))
+        );
+    }
+
+    // The darken table of ADR-1304 D14, a 1D table of 5 points sampled
+    // from a gamma of 0.8, gives the merged table of a gamma filter at 0.8
+    // within the curve's own sampling: a straight line between 5 points
+    // lies within 0.015 of the curve.
+    #[test]
+    fn the_darken_curve_follows_a_gamma_of_0_8() {
+        let points = [0.0, 0.1768, 0.4204, 0.6986, 1.0].map(|x| [x; 3]);
+        let cube = Cube::new(Shape::One(5), points.to_vec()).unwrap_or_else(|| panic!("darken"));
+        let curve = table(&[Map::cube(Arc::new(cube))]);
+        let gamma = table(&[map("gamma", &[n(0, 8000)])]);
+        let mut worst = 0.0f32;
+        for (a, b) in curve.nodes().iter().zip(gamma.nodes()) {
+            for (x, y) in a.iter().zip(b) {
+                worst = worst.max((from_half(*x) - from_half(*y)).abs());
+            }
+        }
+        assert!(worst < 0.015, "{worst}");
+        assert!(worst > 0.0, "the curve is not the formula");
+    }
+
+    // A cube's table is the same bytes on every machine, as each filter's
+    // is: the blend uses only correctly rounded operations.
+    #[test]
+    fn a_cube_s_table_is_pinned_to_its_bytes() {
+        let swap = table(&[Map::cube(Arc::new(swap_cube(17)))]);
+        let curve = Cube::new(
+            Shape::One(4),
+            vec![
+                [0.0, 0.1, 0.2],
+                [0.3, 0.5, 0.2],
+                [0.9, 0.6, 0.4],
+                [1.0, 0.7, 1.0],
+            ],
+        )
+        .unwrap_or_else(|| panic!("curve"));
+        let curve = table(&[Map::cube(Arc::new(curve))]);
+        assert_eq!(
+            [digest(&swap), digest(&curve)],
+            [0xdf17_bb36_45b1_b9eb, 0x6731_c4a0_4f36_1b71]
+        );
     }
 }

@@ -39,3 +39,7 @@ gpu = any           # any; yes for the GPU path only; no for the CPU path only
 # kind = deuteranopia # protanopia, deuteranopia or tritanopia: the deficiency
 # mode = correct      # simulate or correct: show it, or correct for it
 # amount = 1.0        # number, 0 to 1: how much of the result to show
+
+# [color cube]
+# Maps each color through a table read from a .cube file.
+# file =            # file, a .cube file, no path: the color table it reads
