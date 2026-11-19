@@ -395,9 +395,6 @@ mod tests {
             f.table(text, &f.batch(&["panel.cube"])),
             Err(vec![
                 format!(
-                    "{at}: color filter 1 of 2, cube: checking: found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two"
-                ),
-                format!(
                     "{at}:2: color filter 1 of 2, cube: checking: found LUT_3D_SIZE 129, needs 2 to 65"
                 ),
                 format!(
@@ -417,7 +414,7 @@ mod tests {
         assert_eq!(
             super::super::log_line(&failure, "console"),
             Some(format!(
-                "vtlook amber ({at}): color filter 1 of 2, cube: checking: found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two; 2 more errors; head console draws the built-in vtlook instead"
+                "vtlook amber ({at}:2): color filter 1 of 2, cube: checking: found LUT_3D_SIZE 129, needs 2 to 65; 1 more error; head console draws the built-in vtlook instead"
             ))
         );
     }

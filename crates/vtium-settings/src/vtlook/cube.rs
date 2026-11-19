@@ -77,6 +77,9 @@ struct Reader {
     size: Option<(Shape, &'static str, usize)>,
     /// The line of each keyword read, in [`KEYWORDS`]' order.
     seen: [Option<usize>; 5],
+    /// Whether a size keyword has come on any line, one that does not
+    /// read included, so the file is not also said to lack a size line.
+    sized: bool,
     /// Whether a data line has come.
     data: bool,
     /// The data lines counted, those that do not read included.
@@ -113,6 +116,9 @@ impl Reader {
         let Some(&keyword) = KEYWORDS.get(k) else {
             return;
         };
+        if keyword.ends_with("_SIZE") {
+            self.sized = true;
+        }
         if self.data {
             self.fault(
                 Some(n),
@@ -328,6 +334,13 @@ pub fn read_cube(bytes: &[u8]) -> Result<Cube, Faults> {
         }
     }
     let Some((shape, keyword, _)) = r.size else {
+        if r.sized {
+            // the size line's own fault says what is wrong with it
+            return Err(Faults {
+                faults: r.faults,
+                more: r.more,
+            });
+        }
         r.faults.insert(
             0,
             Fault {
@@ -495,14 +508,11 @@ mod tests {
         );
         assert_eq!(
             faults("TITLE \"x\"\nLUT_3D_SIZE 129\n0 0 0\n"),
-            [
-                "found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two",
-                "2: found LUT_3D_SIZE 129, needs 2 to 65",
-            ]
+            ["2: found LUT_3D_SIZE 129, needs 2 to 65"]
         );
         assert_eq!(
-            faults("TITLE \"x\"\nLUT_1D_SIZE 8192\n")[1],
-            "2: found LUT_1D_SIZE 8192, needs 2 to 4096"
+            faults("TITLE \"x\"\nLUT_1D_SIZE 8192\n"),
+            ["2: found LUT_1D_SIZE 8192, needs 2 to 4096"]
         );
         assert_eq!(
             faults(&format!(
@@ -529,6 +539,35 @@ mod tests {
                 zeros(2)
             )),
             ["4: found DOMAIN_MAX 1 1 1.2, needs DOMAIN_MAX 1 1 1"]
+        );
+    }
+
+    // A size line that is present but fails gives its own fault and no
+    // fault saying the file lacks a size line: a value that is not a
+    // number, a comment after the value, and a size line after the data.
+    #[test]
+    fn a_size_line_that_fails_is_not_reported_missing() {
+        assert_eq!(
+            faults("LUT_3D_SIZE abc\n0 0 0\n"),
+            ["1: found LUT_3D_SIZE abc, needs 2 to 65"]
+        );
+        assert_eq!(
+            faults("LUT_1D_SIZE 2 # two\n0 0 0\n1 1 1\n"),
+            ["1: found LUT_1D_SIZE 2 # two, needs 2 to 4096"]
+        );
+        assert_eq!(
+            faults("TITLE \"x\"\n0 0 0\nLUT_1D_SIZE 1\n"),
+            [
+                "3: found LUT_1D_SIZE after the first data line, needs every keyword line before the data"
+            ]
+        );
+        // a keyword in the wrong case is no size line
+        assert_eq!(
+            faults("lut_1d_size 2\n"),
+            [
+                "found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two",
+                "1: found lut_1d_size, needs TITLE, LUT_3D_SIZE, LUT_1D_SIZE, DOMAIN_MIN or DOMAIN_MAX",
+            ]
         );
     }
 
