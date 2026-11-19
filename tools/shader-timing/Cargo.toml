@@ -1,0 +1,35 @@
+# Times real spatial shaders on a GPU before the spatial layer is built
+# (ADR-1304 D18): an OpenGL ES 3.0 program on a render node, through EGL,
+# that draws each shader off-screen and takes no DRM master. It runs by hand
+# through make shader-timing, on the machine whose GPU it measures. It is its
+# own workspace, so the main workspace and CI do not build it; make
+# test-tools runs its tests on Mesa's software renderer.
+[package]
+name = "vtium-shader-timing"
+description = "Times spatial shaders off-screen on a render node, for the cap on reads and the frame-rate floor"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "shader-timing"
+path = "src/main.rs"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[dependencies]
+# GL's function table, loaded through eglGetProcAddress, at the version
+# vtium-platform pins.
+glow = { version = "=0.18.0", default-features = false }
+# EGL, loaded from libEGL.so.1 at run time, at the version vtium-platform
+# pins.
+khronos-egl = { version = "=6.0.0", default-features = false, features = ["1_5", "dynamic"] }
+
+[workspace]
+members = ["."]

@@ -1,0 +1,77 @@
+# device	software
+# renderer	llvmpipe (LLVM 23.1.4, 256 bits)
+# version	OpenGL ES 3.2 Mesa 26.2.7-arch1.1
+# clock	GL_EXT_disjoint_timer_query, and glFinish around each frame
+plan	mode	size	texels	frames	gpu_median_ms	gpu_max_ms	wall_median_ms	wall_max_ms	fps	floor	meets
+negative	plain	1920x1080	1	5	0.142	0.677	0.657	0.777	1521	60	yes
+negative	smooth	1920x1080	4	5	0.071	0.885	0.868	0.977	1151	60	yes
+negative	ghostty	1920x1080	4	5	0.456	2.079	3.257	3.278	307	60	yes
+negative	gl-linear	1920x1080	1	5	0.043	0.049	0.811	0.845	1233	60	yes
+tft	plain	1920x1080	1	5	0.041	0.528	0.797	1.625	1254	60	yes
+tft	smooth	1920x1080	4	5	0.075	0.620	0.962	1.408	1039	60	yes
+tft	ghostty	1920x1080	4	5	0.679	0.685	3.438	3.450	291	60	yes
+tft	gl-linear	1920x1080	1	5	0.045	0.414	0.887	0.992	1127	60	yes
+dither	plain	1920x1080	1	5	0.054	0.951	0.992	1.004	1008	60	yes
+dither	smooth	1920x1080	4	5	0.066	0.068	1.266	1.280	790	60	yes
+dither	ghostty	1920x1080	4	5	0.590	0.695	3.421	3.447	292	60	yes
+dither	gl-linear	1920x1080	1	5	0.061	0.832	0.955	1.305	1048	60	yes
+cubes	plain	1920x1080	1	5	6.823	10.129	12.363	13.020	81	60	yes
+cubes	smooth	1920x1080	4	5	4.738	10.581	12.855	13.173	78	60	yes
+cubes	ghostty	1920x1080	4	5	10.999	13.271	13.829	15.782	72	60	yes
+cubes	gl-linear	1920x1080	1	5	6.946	10.382	12.447	15.687	80	60	yes
+galaxy	plain	1920x1080	1	5	7.100	7.706	10.283	10.479	97	60	yes
+galaxy	smooth	1920x1080	4	5	4.481	8.063	10.302	10.696	97	60	yes
+galaxy	ghostty	1920x1080	4	5	6.173	9.242	11.977	12.695	83	60	yes
+galaxy	gl-linear	1920x1080	1	5	7.664	8.183	10.244	10.795	98	60	yes
+fireworks-rockets	plain	1920x1080	1	5	8.655	55.513	57.512	59.213	17	60	no
+fireworks-rockets	smooth	1920x1080	4	5	10.002	13.612	55.814	58.022	18	60	no
+fireworks-rockets	ghostty	1920x1080	4	5	15.188	55.573	57.933	61.751	17	60	no
+fireworks-rockets	gl-linear	1920x1080	1	5	11.525	12.234	57.886	61.254	17	60	no
+just-snow	plain	1920x1080	1	5	4.888	6.666	17.702	19.107	56	60	no
+just-snow	smooth	1920x1080	4	5	7.657	14.839	17.528	17.953	57	60	no
+just-snow	ghostty	1920x1080	4	5	4.633	17.008	18.296	19.012	55	60	no
+just-snow	gl-linear	1920x1080	1	5	6.028	13.207	16.302	17.290	61	60	yes
+inside-the-matrix	plain	1920x1080	1	5	1.650	2.101	4.434	4.634	226	60	yes
+inside-the-matrix	smooth	1920x1080	4	5	1.489	1.649	4.313	4.791	232	60	yes
+inside-the-matrix	ghostty	1920x1080	4	5	2.833	3.116	5.537	5.712	181	60	yes
+inside-the-matrix	gl-linear	1920x1080	1	5	1.281	1.405	4.091	4.304	244	60	yes
+drunkard	plain	1920x1080	3	5	4.025	4.119	6.802	7.863	147	60	yes
+drunkard	smooth	1920x1080	12	5	6.780	8.762	10.009	11.836	100	60	yes
+drunkard	ghostty	1920x1080	12	5	5.819	5.901	8.570	8.770	117	60	yes
+drunkard	gl-linear	1920x1080	3	5	4.228	4.438	7.225	7.600	138	60	yes
+glitchy	plain	1920x1080	3	5	0.111	0.632	1.276	1.484	784	60	yes
+glitchy	smooth	1920x1080	12	5	0.135	0.142	1.535	1.677	652	60	yes
+glitchy	ghostty	1920x1080	12	5	0.314	0.605	2.934	3.667	341	60	yes
+glitchy	gl-linear	1920x1080	3	5	0.153	1.061	1.665	1.708	601	60	yes
+vhs	plain	1920x1080	5	5	0.147	0.611	1.675	2.452	597	60	yes
+vhs	smooth	1920x1080	20	5	0.206	0.216	2.472	2.580	405	60	yes
+vhs	ghostty	1920x1080	20	5	3.512	4.432	6.115	7.031	164	60	yes
+vhs	gl-linear	1920x1080	5	5	0.212	2.359	2.476	2.872	404	60	yes
+crt	plain	1920x1080	8	5	1.209	1.220	3.897	3.950	257	60	yes
+crt	smooth	1920x1080	32	5	3.060	4.057	5.805	6.769	172	60	yes
+crt	ghostty	1920x1080	32	5	3.855	12.193	14.678	15.004	68	60	yes
+crt	gl-linear	1920x1080	8	5	1.931	2.767	4.756	5.544	210	60	yes
+bloom	plain	1920x1080	25	5	4.072	7.255	9.835	10.521	102	60	yes
+bloom	smooth	1920x1080	100	5	4.537	15.509	18.278	18.706	55	60	no
+bloom	ghostty	1920x1080	100	5	6.391	6.960	42.402	45.592	24	60	no
+bloom	gl-linear	1920x1080	25	5	3.124	3.556	9.587	10.415	104	60	yes
+glow-rgbsplit-twitchy	plain	1920x1080	27	5	4.109	4.414	7.053	7.786	142	60	yes
+glow-rgbsplit-twitchy	smooth	1920x1080	108	5	4.504	6.490	17.870	17.992	56	60	no
+glow-rgbsplit-twitchy	ghostty	1920x1080	108	5	6.564	6.696	41.410	41.810	24	60	no
+glow-rgbsplit-twitchy	gl-linear	1920x1080	27	5	3.670	9.045	11.848	12.482	84	60	yes
+in-game-crt	plain	1920x1080	31	5	2.406	4.708	4.812	5.080	208	60	yes
+in-game-crt	smooth	1920x1080	124	5	3.935	10.705	12.717	13.443	79	60	yes
+in-game-crt	ghostty	1920x1080	124	5	7.107	11.163	39.936	42.588	25	60	no
+in-game-crt	gl-linear	1920x1080	31	5	4.765	8.479	9.849	10.454	102	60	yes
+smoke-and-ghost	plain	1920x1080	46	5	0.920	3.036	3.771	3.786	265	60	yes
+smoke-and-ghost	smooth	1920x1080	184	5	4.991	13.105	15.780	15.824	63	60	yes
+smoke-and-ghost	ghostty	1920x1080	184	5	8.669	15.517	61.760	64.025	16	60	no
+smoke-and-ghost	gl-linear	1920x1080	46	5	4.239	4.749	7.048	7.844	142	60	yes
+crt then bloom, one pass	plain	1920x1080	200	5	14.438	16.823	90.807	96.912	11	60	no
+crt then bloom, one pass	smooth	1920x1080	3200	5	68.501	75.021	524.432	526.692	2	60	no
+crt then bloom, one pass	ghostty	1920x1080	3200	5	226.344	235.739	1761.364	1782.086	1	60	no
+crt then bloom, one pass	gl-linear	1920x1080	200	5	16.874	19.150	116.055	116.625	9	60	no
+crt then bloom, two passes	plain	1920x1080	33	5	10.607	11.296	10.713	11.437	93	60	yes
+crt then bloom, two passes	smooth	1920x1080	132	5	23.875	25.089	23.953	25.160	42	60	no
+crt then bloom, two passes	ghostty	1920x1080	132	5	57.301	59.283	57.449	59.492	17	60	no
+crt then bloom, two passes	gl-linear	1920x1080	33	5	14.523	14.658	14.627	14.793	68	60	yes
