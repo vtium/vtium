@@ -50,6 +50,7 @@ nav = [
       { "The pointer file" = "reference/pointer-file.md" },
       { "The sections of vtium.conf" = "head-file.md" },
       { "Vtlook files" = "looks.md" },
+      { "Color schemes" = "palettes.md" },
       { "Modes" = "modes.md" },
       { "Escape sequences" = "sequences/index.md" },
       { "systemd, logind and PID 1" = "systemd.md" },
