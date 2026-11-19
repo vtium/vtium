@@ -127,8 +127,9 @@ pub fn name(words: &[&str], text: &str) -> bool {
 
 /// Why vtium refuses a [`Kind::Name`] value that is neither one of its
 /// words nor a file's name, as the console's reading and vtium-config say
-/// it.
-pub const NOT_A_NAME: &str = "a name is one of the listed names, or 1 to 64 of the characters A-Z a-z 0-9 . _ + -, with no path";
+/// it. `palette` is the one key of that kind, so the reason names its
+/// words, which `the_name_refusal_names_each_word_of_a_name_key` holds.
+pub const NOT_A_NAME: &str = "the value is a built-in color scheme (legacy, nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light or vga), custom, or a color scheme file's name, which has 1 to 64 of the characters A-Z a-z 0-9 . _ + - and no path";
 
 /// The smallest and largest side of a cell that a frit's `cell=` line
 /// and a look's `cell` state, in pixels: from minspec's 8 pixels to an 8K
@@ -903,7 +904,7 @@ pub const PALETTE: Key = Key {
     levels: TOP_LOOK,
     what: "The color scheme: the 16 basic colors, the default text and background colors, and the cursor and selection colors.\n\n\
            The value names a built-in palette, `custom`, which takes the colors from the `palette-*` keys, or a file `NAME.palette` in `/etc/vtium/palettes` or `/usr/share/vtium/palettes`. A look's own `palette` wins.\n\n\
-           [docs] A palette file uses Ghostty's theme format. When the file is missing or has an error, the heads that name it draw the palette this top-level key names, and vtium logs one line. See [Color schemes](palettes.md).",
+           [docs] A palette file uses Ghostty's theme format. When a palette file is missing or has an error, vtium logs one line and draws the color scheme below it: the top level's in place of a look's, and `legacy` in place of the top level's. See [Color schemes](palettes.md).",
 };
 
 pub const PALETTE_BLACK: Key = Key {
@@ -2966,5 +2967,22 @@ mod tests {
             assert!(!name(&words, refused), "{refused:?}");
         }
         assert_eq!(PALETTE.levels, Levels::TOP_LOOK);
+    }
+
+    // The reason vtium gives for a refused name value names each word the
+    // key takes, so the screen says what the value can be.
+    #[test]
+    fn the_name_refusal_names_each_word_of_a_name_key() {
+        let said: Vec<&str> = NOT_A_NAME
+            .split(|c: char| matches!(c, ' ' | '(' | ')' | ','))
+            .collect();
+        for key in KEYS.iter() {
+            if let Kind::Name(words) = key.kind {
+                assert_eq!(key.name, PALETTE.name, "a second key of the name kind");
+                for word in words {
+                    assert!(said.contains(word), "{word}");
+                }
+            }
+        }
     }
 }

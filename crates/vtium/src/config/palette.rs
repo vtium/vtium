@@ -69,7 +69,7 @@ impl Schemes {
         if let Some((_, palette)) = self.read.iter().find(|(n, _)| n == name) {
             return palette.clone();
         }
-        const INSTEAD: &str = "The heads that name it draw the color scheme that vtium.conf's top level names, or legacy when the top level names it.";
+        const INSTEAD: &str = "In its place, the heads draw the color scheme that vtium.conf's top level names. When the top level names this color scheme, or one that fails too, the heads draw legacy.";
         let palette = match palette::read(name, folders, trust) {
             Ok(Some(scheme)) => Some(scheme.palette),
             Ok(None) => {
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(
             absent,
             &format!(
-                "Color scheme absent: there is no file absent.palette in {}. The heads that name it draw the color scheme that vtium.conf's top level names, or legacy when the top level names it.",
+                "Color scheme absent: there is no file absent.palette in {}. In its place, the heads draw the color scheme that vtium.conf's top level names. When the top level names this color scheme, or one that fails too, the heads draw legacy.",
                 dir.display()
             )
         );

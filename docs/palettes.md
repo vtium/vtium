@@ -72,7 +72,7 @@ vtium reads these keys:
 | `cursor-color` | `COLOR` | The cursor's color. |
 | `selection-background`, `selection-foreground` | `COLOR` | The colors of selected text. |
 
-A `COLOR` is `#rrggbb`, `rrggbb`, or an X11 color name such as `DarkSlateGray`. In the last three keys, `cell-foreground` and `cell-background` leave the color unset. vtium then draws the cursor or the selection by inverting the cell, as it does with no color scheme.
+A `COLOR` is `#rrggbb`, `rrggbb`, or an X11 color name such as `DarkSlateGray`. In the last three keys, `cell-foreground` and `cell-background` leave the color unset. vtium then draws the cursor or the selection by inverting the cell, as it does when the color scheme sets no cursor or selection color.
 
 When a key appears twice, the later line wins. vtium ignores every other key, such as a font or a cursor style, and `vtium check-config` lists each one as a note. vtium never follows a `config-file` or `theme` line, so a color scheme sets colors and nothing else.
 

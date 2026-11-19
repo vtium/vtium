@@ -1121,7 +1121,7 @@ const TOP_SCHEME_HEADS: &str = "the heads whose look names no color scheme of it
 /// What the heads draw in place of a color scheme the top level names
 /// that fails, and of one a look names.
 const TOP_INSTEAD: &str = "draw the color scheme legacy instead";
-const LOOK_INSTEAD: &str = "draw the color scheme that vtium.conf's top level names instead";
+const LOOK_INSTEAD: &str = "draw the color scheme that vtium.conf's top level names instead, or legacy when that one fails too";
 
 /// What check-config says of the palette files, the color schemes, that a
 /// start would read: `top`, the one vtium.conf's top level or the command
@@ -1859,9 +1859,9 @@ mod tests {
                     "{b}:3: The color \"notacolor\" of foreground is not one vtium can read. A color is #rrggbb, rrggbb or an X11 color name such as DarkSlateGray."
                 ),
                 "/etc/vtium/vtium.conf:1: The color scheme broken has errors, so the heads whose look names no color scheme of its own draw the color scheme legacy instead.".to_owned(),
-                "/etc/vtium/vtium.conf:4: The color scheme broken has errors, so the heads that use look warm draw the color scheme that vtium.conf's top level names instead.".to_owned(),
+                "/etc/vtium/vtium.conf:4: The color scheme broken has errors, so the heads that use look warm draw the color scheme that vtium.conf's top level names instead, or legacy when that one fails too.".to_owned(),
                 format!(
-                    "/etc/vtium/vtium.conf:6: The color scheme absent does not exist. No built-in color scheme has that name, and there is no file absent.palette in {}. So the heads that use look cool draw the color scheme that vtium.conf's top level names instead.",
+                    "/etc/vtium/vtium.conf:6: The color scheme absent does not exist. No built-in color scheme has that name, and there is no file absent.palette in {}. So the heads that use look cool draw the color scheme that vtium.conf's top level names instead, or legacy when that one fails too.",
                     dir.display()
                 ),
                 format!(

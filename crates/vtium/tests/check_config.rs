@@ -65,8 +65,10 @@ fn each_warning_is_printed_and_it_exits_one() {
     );
     assert!(
         lines[2].ends_with(
-            "vtium.conf:2: palette=\"../frob\": a name is one of the listed names, or 1 to 64 \
-             of the characters A-Z a-z 0-9 . _ + -, with no path, ignored"
+            "vtium.conf:2: palette=\"../frob\": the value is a built-in color scheme (legacy, \
+             nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, \
+             base16-light or vga), custom, or a color scheme file's name, which has 1 to 64 of \
+             the characters A-Z a-z 0-9 . _ + - and no path, ignored"
         ),
         "{err}"
     );

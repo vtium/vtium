@@ -203,7 +203,10 @@ pub const VTLOOK_FILE_MAX: usize = VTLOOK_FILE.value as usize;
 /// Sections of a vtlook, its `[requires]` included (ADR-1304 D4).
 pub const VTLOOK_SECTIONS_MAX: usize = VTLOOK_SECTIONS.value as usize;
 
-/// Bytes of a palette file (ADR-1205 D10).
+/// Bytes of a palette file, a color scheme.
+///
+/// References:
+/// - ADR-1205 D10: the 16 KiB bound on a palette file.
 pub const PALETTE_FILE_MAX: usize = PALETTE_FILE.value as usize;
 
 #[cfg(test)]

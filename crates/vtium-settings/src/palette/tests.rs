@@ -385,6 +385,16 @@ fn a_file_named_like_a_built_in_palette_is_never_read() {
         .map(|failure| failure.file)
         .collect();
     assert_eq!(found, [custom_file, legacy_file]);
+    // the reason calls legacy a built-in color scheme, and custom the
+    // palette-* keys' colors, which is not a color scheme vtium holds
+    assert_eq!(
+        Reason::Shadows("legacy").to_string(),
+        "The file takes the name of the built-in color scheme legacy, so vtium never reads it. Give the file another name."
+    );
+    assert_eq!(
+        Reason::Shadows("custom").to_string(),
+        "The file takes the name custom, which stands for the colors of vtium.conf's palette-* keys, so vtium never reads it. Give the file another name."
+    );
 }
 
 // The ownership walk refuses a file others can write, and a file larger

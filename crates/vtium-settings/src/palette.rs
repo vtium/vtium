@@ -162,6 +162,10 @@ impl fmt::Display for Reason {
                 f,
                 "The file is larger than {PALETTE_FILE_MAX} bytes, the most a color scheme may hold."
             ),
+            Reason::Shadows(CUSTOM) => write!(
+                f,
+                "The file takes the name {CUSTOM}, which stands for the colors of vtium.conf's palette-* keys, so vtium never reads it. Give the file another name."
+            ),
             Reason::Shadows(name) => write!(
                 f,
                 "The file takes the name of the built-in color scheme {name}, so vtium never reads it. Give the file another name."
