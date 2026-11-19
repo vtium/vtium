@@ -139,7 +139,7 @@ impl Gate {
 
     /// Reads the font file at `path`, at most `limit` bytes, opened by
     /// [`Gate::open`].
-    fn read(&self, path: &Path, limit: u64) -> Result<Vec<u8>, SourceError> {
+    pub(crate) fn read(&self, path: &Path, limit: u64) -> Result<Vec<u8>, SourceError> {
         let file = self.open(path)?;
         read_limited(file, limit)
             .map_err(|e| SourceError::Failed(format!("{}: {e}", path.display())))

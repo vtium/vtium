@@ -348,6 +348,16 @@ pub const POINTER_XCURSOR: u32 = 2;
 pub const POINTER_HEIGHTS_MAX: usize = 16;
 /// The active fonts ([`ActiveAsk`]), read with a layout of its own.
 pub const ACTIVE: u32 = 10;
+/// A description of one font file ([`DescribeAsk`]), which only
+/// vtium-config sends.
+pub const DESCRIBE: u32 = 11;
+/// The answer to a [`DescribeAsk`]: the font file's
+/// [`crate::describe::Description`].
+pub const FRAME_DESCRIPTION: u32 = 18;
+/// The answer to a [`DescribeAsk`] when the helper has no description:
+/// why, as text. The file is missing, the helper's gate refuses it, or it
+/// is not a font that vtium reads.
+pub const FRAME_NO_DESCRIPTION: u32 = 19;
 /// The most bytes the paths of an [`ActiveAsk`] hold together: the batch
 /// file's own bound, since the paths come from it or from the shorter list
 /// of a fresh install.
@@ -787,6 +797,65 @@ pub enum Request {
     Serve(ServeRequest),
     Pointer(PointerAsk),
     Active(ActiveAsk),
+    Describe(DescribeAsk),
+}
+
+/// A description of one font file, for vtium-config's Fonts tab and its
+/// listing of the fonts found: the helper opens the file at `path` through
+/// its gate, reads it in its sandbox, and answers at once with a
+/// [`FRAME_DESCRIPTION`] or a [`FRAME_NO_DESCRIPTION`]. The console never
+/// sends it. A helper that vtium-config starts holds the open gate, so it
+/// describes a font in a user's folder too, which vtium-config shows but
+/// never activates. A helper that holds the active fonts describes only
+/// those.
+///
+/// References:
+/// - ADR-1205 D3: vtium-config reads a font's family, coverage and sizes
+///   only through the sandboxed helper, and may preview a user's font.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DescribeAsk {
+    /// The font file, an absolute path.
+    pub path: PathBuf,
+}
+
+impl DescribeAsk {
+    /// The request's bytes.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = REQUEST_MAGIC.to_vec();
+        put32(&mut out, DESCRIBE);
+        let bytes = self.path.as_os_str().as_encoded_bytes();
+        put32(&mut out, len32(bytes.len()));
+        out.extend_from_slice(bytes);
+        out
+    }
+
+    /// Reads the path that follows the kind: 1 to [`ACTIVE_PATH_MAX`]
+    /// bytes, UTF-8, absolute and with no NUL, checked before it is
+    /// allocated.
+    fn read_body<R: Read>(f: &mut Fields<'_, R>) -> Result<DescribeAsk, String> {
+        let len = f.count(ACTIVE_PATH_MAX, "a font file's path")?;
+        let path = String::from_utf8(f.bytes(len)?)
+            .ok()
+            .filter(|p| p.starts_with('/') && !p.contains('\0'))
+            .ok_or("a font file's path that is not an absolute UTF-8 path")?;
+        Ok(DescribeAsk {
+            path: PathBuf::from(path),
+        })
+    }
+
+    /// Opens the file through `gate`, reads at most
+    /// [`crate::outline::OUTLINE_BYTES_MAX`] bytes of it, and writes its description, or
+    /// why there is none.
+    fn answer(&self, gate: &Gate, out: &mut dyn Write) -> io::Result<()> {
+        let described = gate
+            .read(&self.path, crate::outline::OUTLINE_BYTES_MAX)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| crate::describe::describe(&bytes, &self.path.to_string_lossy()));
+        match described {
+            Ok(d) => write_frame(out, FRAME_DESCRIPTION, &d.encode()),
+            Err(why) => reason(out, FRAME_NO_DESCRIPTION, &why),
+        }
+    }
 }
 
 /// The active fonts, which the console sends first to each helper it
@@ -883,6 +952,8 @@ pub fn read_request(r: &mut impl Read) -> Result<Option<Request>, String> {
         PointerAsk::read_body(&mut f).map(|a| Some(Request::Pointer(a)))
     } else if kind == ACTIVE {
         ActiveAsk::read_body(&mut f).map(|a| Some(Request::Active(a)))
+    } else if kind == DESCRIBE {
+        DescribeAsk::read_body(&mut f).map(|a| Some(Request::Describe(a)))
     } else {
         ServeRequest::read_body(kind, &mut f).map(|r| Some(Request::Serve(r)))
     }
@@ -957,7 +1028,7 @@ impl PointerAsk {
         match read_request(r)? {
             None => Ok(None),
             Some(Request::Pointer(a)) => Ok(Some(a)),
-            Some(Request::Serve(_) | Request::Active(_)) => {
+            Some(Request::Serve(_) | Request::Active(_) | Request::Describe(_)) => {
                 Err("a glyph request where a pointer ask was expected".to_owned())
             }
         }
@@ -4790,6 +4861,7 @@ fn answer_requests(
                             work.asks.push_back(Queued::Pointer(a));
                             Ok(())
                         }
+                        Request::Describe(a) => a.answer(&work.gate, out),
                         Request::Active(a) => match work.activate(&a) {
                             Ok(()) => Ok(()),
                             Err(why) => {
