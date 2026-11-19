@@ -37,16 +37,16 @@ use super::{Change, Command, Request};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Flow {
     /// Where the highlight is on the document and what is open over it.
-    pub(crate) state: flowview::State,
+    state: flowview::State,
     /// The selected item of the flow, which the file view marks and a
     /// rebuild of the flow carries to the item that stands in its place.
-    pub(crate) at: Item,
+    at: Item,
     /// The read-only file view over the draft, when it is open.
-    pub(crate) pager: Option<Pager>,
+    pager: Option<Pager>,
     /// The installed history Restore lists, and the entry highlighted.
-    pub(crate) restore: Option<(Vec<Kept>, usize)>,
+    restore: Option<(Vec<Kept>, usize)>,
     /// The item to select once the desk answers the change in flight.
-    pub(crate) select_after: Option<Item>,
+    select_after: Option<Item>,
 }
 
 impl Flow {

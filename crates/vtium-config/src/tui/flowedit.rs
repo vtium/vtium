@@ -1,9 +1,14 @@
-//! The Flow view's changes to the draft (ADR-1403 D7, D8), as the state
-//! machine's: the actions View file, Install, Revert, Restore and New with
-//! their questions, the file view, and the devices read again at a hotplug
-//! or on `d`. Every change is made through [`super::edit::Change`] on the
-//! draft's text and handed to the desk to write, and the flow is rebuilt
-//! from what the desk answers.
+//! Update's changes to the draft and the desk's answers: the questions and
+//! their answer keys, Quit, Save, the actions View file, Install, Revert,
+//! Restore and New, and the devices read again at a hotplug or on `d`.
+//! Every change is made through [`super::edit::Change`] on the draft's
+//! text and handed to the desk to write. The flow is rebuilt from what the
+//! desk answers, and the Flow tab carries its selected item over to the
+//! rebuilt flow.
+//!
+//! References:
+//! - ADR-1403 D7: the actions, their questions and the answer keys.
+//! - ADR-1403 D8: an install writes the frits before vtium.conf.
 
 use super::desk::{Done, Op};
 use super::edit::Change;
