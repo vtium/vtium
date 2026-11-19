@@ -1417,7 +1417,7 @@ fn at_80x25_no_key_or_sentence_is_cut() {
             assert!(joined.contains(sentence), "{sentence:?}:\n{screen}");
         }
         // the views and the actions fit the tab bar
-        for name in ["Flow", "Looks", "Fonts", "Settings", "Help"] {
+        for name in ["Fonts", "Effects", "Looks", "Flow", "Settings", "Help"] {
             assert!(rows[0].contains(name), "{name}: {:?}", rows[0]);
         }
         // the Help view shows no actions
