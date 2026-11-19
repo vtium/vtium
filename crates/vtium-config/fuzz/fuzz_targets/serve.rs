@@ -3,8 +3,9 @@
 //! them (ADR-1301 D2): no panic, whatever the bytes, and each request it
 //! takes encodes back to bytes it reads as the same request. That holds
 //! for a glyph request, its style and its script among its fields
-//! (ADR-1202 D11), and for a pointer ask, its file kind, shape, size,
-//! heights and file among them (ADR-1309 D5).
+//! (ADR-1202 D11), for a pointer ask, its file kind, shape, size,
+//! heights and file among them (ADR-1309 D5), and for the active fonts,
+//! their account and paths (ADR-1205 D4).
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
@@ -16,6 +17,7 @@ fuzz_target!(|bytes: &[u8]| {
         let encoded = match &request {
             Request::Serve(r) => r.encode(),
             Request::Pointer(a) => a.encode(),
+            Request::Active(a) => a.encode(),
         };
         assert_eq!(
             read_request(&mut &encoded[..]),
