@@ -42,6 +42,7 @@ UTF-8 decoding follows the Unicode Standard. `src/utf8.rs` gives its seven rules
 - **GR acts as GL inside sequences in 8-bit mode.** Inside an ESC, CSI or DCS header, a byte from A0 to FF acts as the byte 80 below it. So `9B 31 ED` is SGR 1. In ground state and in strings, the byte stays itself. Spec: vt100.net, "In all states, these codes are treated identically to GL codes 20-7F."
 - **7-bit mode masks bit 8,** so 0x9B is ESC and 0xC1 is `A`.
 - **DEL reaches `print` in ground state,** as vt100.net has it. vtium-term decides whether it draws.
+- **A run of printable ASCII in ground state reaches the consumer in one call,** `Consumer::print_ascii`. A control, a sequence, DEL, a character past ASCII or the end of the input ends the run. The default method prints each byte and stops after the print that leaves the consumer paused. A consumer that implements only `print` therefore sees what it would see if each byte came alone. Tests: `a_run_of_printable_ascii_reaches_the_consumer_in_one_call`, `a_consumer_that_takes_part_of_a_run_of_text_resumes_where_it_stopped` and `the_default_run_call_stops_after_the_print_that_pauses`, in `src/parser.rs`.
 
 ## Notes for vtium-term
 

@@ -119,6 +119,13 @@ impl Charsets {
         self.single = Some(slot);
     }
 
+    /// Whether each printable ASCII character prints as itself: GL holds
+    /// ASCII and no single shift is pending, so [`map`](Self::map) would
+    /// change neither a character nor the state.
+    pub(super) fn prints_ascii_as_itself(&self) -> bool {
+        self.single.is_none() && self.g.get(self.gl) == Some(&Charset::Ascii)
+    }
+
     /// The character to print for `c`, or `None` to print nothing.
     /// `eight_bit` says `c` came from a byte of 8-bit input, so U+00A1 to
     /// U+00FE are GR. Every printed character takes the single shift; DEL,
