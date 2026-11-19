@@ -136,9 +136,17 @@ const IDLE: Bound = Bound {
     cite: "600 frames is ten seconds at 60 frames a second; ADR-1303 D9",
 };
 
+const COLOR_TABLE: Bound = Bound {
+    name: "COLOR_TABLE_SIDE",
+    value: 33,
+    what: "Nodes on each side of a look's color table, which merges the look's color filters into one lattice of red, green and blue, in a build with `filters`",
+    past: "Fixed: a color between two nodes is blended from the eight nodes around it",
+    cite: "ADR-1304 D2: 33 is the size `.cube` files most often hold, it keeps the table under half a megabyte, and a gamma of 1.2 stays within one level of the exact curve",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 15] = [
+pub(crate) const BOUNDS: [Bound; 16] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
@@ -154,7 +162,12 @@ pub(crate) const BOUNDS: [Bound; 15] = [
     GLYPH_TEXTURE,
     GLYPH_CEILING,
     IDLE,
+    COLOR_TABLE,
 ];
+
+/// Nodes on each side of a look's color table.
+#[cfg(feature = "filters")]
+pub const COLOR_TABLE_SIDE: usize = COLOR_TABLE.value;
 
 /// Bytes each glyph pool may hold in the performance profile.
 pub const POOL_BYTES_PERFORMANCE: u64 = POOL_BYTES.value as u64;
