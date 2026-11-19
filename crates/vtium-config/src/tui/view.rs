@@ -197,7 +197,7 @@ fn body(app: &App) -> Body {
                     (name, note.to_owned())
                 })
                 .collect();
-            let (list, keep) = list(&items, app.size_at, 10, cols);
+            let (list, keep) = list(&items, app.looks.at(), 10, cols);
             let sentence = if app.text_preview() || !app.shared.graphics {
                 app.preview_line()
                     .unwrap_or_else(|| words::NO_PICTURES.to_owned())

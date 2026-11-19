@@ -14,6 +14,7 @@
 
 pub mod fonts;
 pub mod help;
+pub mod looks;
 pub mod settings;
 
 use super::input::Key;

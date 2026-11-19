@@ -165,7 +165,7 @@ pub fn node(app: &App) -> &'static str {
         },
         View::Settings => app.settings.node(),
         View::New => app.fonts.form_node(),
-        View::Looks => "looks",
+        View::Looks => app.looks.node(),
         View::Fonts => app.fonts.node(),
         View::Help => app.help.node(),
     }

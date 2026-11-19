@@ -501,9 +501,10 @@ pub struct App {
     pub shared: Shared,
     /// The terminal's grid and its cell in pixels.
     pub size: Size,
-    pub size_at: usize,
     /// The Fonts tab's state.
     pub fonts: super::tabs::fonts::Fonts,
+    /// The Looks tab's state.
+    pub looks: super::tabs::looks::Looks,
     /// The Settings tab's state.
     pub settings: super::tabs::settings::Settings,
     /// The Flow view's selected item.
@@ -617,7 +618,7 @@ impl App {
             },
             size,
             fonts: super::tabs::fonts::Fonts::new(font_at),
-            size_at: 0,
+            looks: super::tabs::looks::Looks::default(),
             settings: super::tabs::settings::Settings::default(),
             flow_at,
             help: super::tabs::help::Help::default(),
@@ -792,10 +793,7 @@ impl App {
 
     /// The size the size view highlights, in points, 0 for automatic.
     pub fn size(&self) -> u32 {
-        match self.size_at {
-            0 => 0,
-            i => SIZES.get(i.saturating_sub(1)).copied().unwrap_or(0),
-        }
+        self.looks.points()
     }
 
     /// Whether a query the TUI sent is still outstanding, so the reader
@@ -1100,13 +1098,8 @@ impl App {
                 self.perform(commands)
             }
             View::Looks => {
-                let n = SIZES.len().saturating_add(1);
-                self.size_at = step(self.size_at, n, key);
-                if key == Key::Enter {
-                    let size = self.size().to_string();
-                    return self.top("font-size", Some(&size));
-                }
-                Vec::new()
+                let commands = self.looks.update(key);
+                self.perform(commands)
             }
             View::Settings => {
                 let commands = self.settings.update(&self.shared, key);
