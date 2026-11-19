@@ -5366,7 +5366,7 @@ fn draw_head(
         // ends, unless this pass composes a newer frame, which is drawn
         // over it and carries it.
         if !draws || (holding && !view.lost) {
-            let sent = view.send_kept(video.as_mut());
+            let sent = view.send_kept(term, video.as_mut());
             if sent.queued {
                 head.figures.frame(sent.compose, now);
             }

@@ -630,9 +630,11 @@ impl Head {
         !keys.is_empty()
     }
 
-    /// The line of the head's frame times, once it is due at `now`.
+    /// The line of the head's frame times and key-to-present times, once
+    /// it is due at `now`.
     pub(crate) fn figures_line(&mut self, now: std::time::Instant) -> Option<String> {
-        self.figures.line(&self.name, now)
+        let echoes = self.console.term.echo_figures();
+        self.figures.line(&self.name, echoes, now)
     }
 
     /// The head's grid.
