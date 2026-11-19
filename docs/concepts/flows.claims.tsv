@@ -19,7 +19,7 @@ an input no rule names roams under open and is ignored under closed	crates/vtium
 a head is isolated as its isolated key says, else as the policy leaves it	crates/vtium-settings/src/place.rs	Config::isolated
 the policy's answer for an unset isolated key: no under open, yes under closed	crates/vtium-settings/src/outcome.rs	Policy::unset
 the vt key	crates/vtium-settings/src/keys.rs	key vt
-the Flow view states the policy on its third line	crates/vtium-config/src/tui/words.rs	flow_policy
+the Flow view states the policy on its third line	crates/vtium-config/src/tui/words/flow.rs	flow_policy
 with no sections vtium runs its built-in configuration	crates/vtium-settings/src/config.rs	Config::builtin
 the built-in configuration's lines	crates/vtium-settings/src/config.rs	TEMPLATE
 the built-in configuration ignores every input its classes do not name	crates/vtium-settings/templates/heads.conf	input * -> ignore
@@ -39,9 +39,9 @@ switch-on-enter lets Enter on that keyboard switch to VT 4	crates/vtium-settings
 picture: each flow head carries vtium's own isolation answer	crates/vtium-config/src/flowmodel.rs	build
 picture: the roaming inputs line is drawn only beside a head that is not isolated	crates/vtium-config/src/tui/flowview.rs	isolated
 picture: the flow head's isolated field	crates/vtium-config/src/tui/flow.rs	Head
-pictures: the Flow view states each picture is drawn from	crates/vtium-config/tests/tui.rs	the_flow_view_s_states_at_80x25_and_120x32
-picture of the kiosk: the machine it is drawn on	crates/vtium-config/tests/tui.rs	kiosk_machine
-picture of the stations: the machine it is drawn on	crates/vtium-config/tests/tui.rs	stations_machine
+pictures: the Flow view states each picture is drawn from	crates/vtium-config/tests/tui_flow.rs	the_flow_view_s_states_at_80x25_and_120x32
+picture of the kiosk: the machine it is drawn on	crates/vtium-config/tests/tui_flow.rs	kiosk_machine
+picture of the stations: the machine it is drawn on	crates/vtium-config/tests/tui_flow.rs	stations_machine
 picture of the default: the built-in default's sentence	crates/vtium-config/tests/screens/flow-default-120x32.txt	This is vtium's built-in default
 picture of the kiosk: kiosk's row has no roaming line	crates/vtium-config/tests/screens/flow-kiosk-admin-120x32.txt	policy closed: vtium ignores a keyboard that no rule names
 picture of the stations: three stations, each on its port	crates/vtium-config/tests/screens/flow-stations-120x32.txt	station-3
