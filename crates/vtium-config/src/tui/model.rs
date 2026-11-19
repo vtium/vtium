@@ -1227,7 +1227,7 @@ impl App {
             }
             return self.set_view(view);
         }
-        if super::flowdraw::shown(self) {
+        if super::flowlayout::shown(self) {
             let keys = super::layout::key_rows(self).len();
             let commands = self
                 .flow

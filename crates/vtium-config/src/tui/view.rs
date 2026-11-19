@@ -328,7 +328,7 @@ pub fn screen(app: &App) -> Vec<Row> {
         return canvas.into_rows();
     }
     tab_bar(&mut canvas, app);
-    if super::flowdraw::shown(app) {
+    if super::flowlayout::shown(app) {
         super::flowdraw::screen(&mut canvas, app);
         return canvas.into_rows();
     }

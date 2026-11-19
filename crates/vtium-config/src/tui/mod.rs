@@ -34,6 +34,7 @@ pub mod flow;
 pub mod flowcolor;
 pub mod flowdraw;
 mod flowedit;
+pub mod flowlayout;
 pub mod flowview;
 pub mod input;
 pub mod layout;
