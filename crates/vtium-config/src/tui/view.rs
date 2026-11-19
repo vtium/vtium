@@ -13,8 +13,8 @@
 //! font preview, so the user can always get out. Where each thing stands
 //! comes from [`super::layout`], which update reads too.
 
-use super::canvas::{Canvas, Row, wrap};
-use super::color::{Style, palette};
+use super::canvas::{Canvas, Row, span, wrap};
+use super::color::{Colors, Style, palette};
 use super::layout::{
     Body, FLOW_TOP, MESSAGE_ROWS, Tab, body, item_rows, key_line, key_rows, list_window,
     message_rows, tab_places, too_small,
@@ -329,9 +329,53 @@ pub fn screen_at(app: &App, size: Size) -> Vec<Row> {
     screen(&frame)
 }
 
-/// The screen for `app`: exactly `app.rows` rows, none wider than
-/// `app.cols`.
+/// The screen for `app`, read back from the cells the view draws:
+/// exactly `app.rows` rows, none wider than `app.cols`. The cells are
+/// drawn with [`Colors::Named`], so a style keeps the named color that the
+/// pictures of the console draw, where the terminal is sent a 24-bit one.
 pub fn screen(app: &App) -> Vec<Row> {
+    let area = ratatui_core::layout::Rect::new(
+        0,
+        0,
+        u16::try_from(app.size.cols).unwrap_or(u16::MAX),
+        u16::try_from(app.size.rows).unwrap_or(u16::MAX),
+    );
+    let mut buf = ratatui_core::buffer::Buffer::empty(area);
+    view(app, Colors::Named, &mut buf);
+    rows(&buf)
+}
+
+/// The rows of `buf`, each run of cells in one style a span. A cell that
+/// a wide character covers, by the console's width rule, is the
+/// character's and adds nothing to the row.
+pub fn rows(buf: &ratatui_core::buffer::Buffer) -> Vec<Row> {
+    let area = buf.area;
+    (area.top()..area.bottom())
+        .map(|y| {
+            let mut row: Row = Vec::new();
+            let mut x = area.left();
+            while x < area.right() {
+                let cell = &buf[(x, y)];
+                let style = Style::of_cell(cell.style());
+                match row.last_mut() {
+                    Some(s) if s.style == style => s.text.push_str(cell.symbol()),
+                    _ => row.push(span(cell.symbol(), style)),
+                }
+                x = x.saturating_add(super::backend::console_width(cell.symbol()).max(1));
+            }
+            row
+        })
+        .collect()
+}
+
+/// Draws `app`'s screen into `buf`, its colors read as `colors` says.
+fn view(app: &App, colors: Colors, buf: &mut ratatui_core::buffer::Buffer) {
+    fill(buf, &canvas(app), colors);
+}
+
+/// The screen for `app` drawn on a canvas: exactly `app.rows` rows, none
+/// wider than `app.cols`.
+fn canvas(app: &App) -> Vec<Row> {
     let (cols, rows) = (app.size.cols, app.size.rows);
     let mut canvas = Canvas::new(cols, rows);
     if too_small(app.size) {
@@ -497,12 +541,13 @@ fn raw_cells(text: &str) -> Vec<RawCell> {
     out
 }
 
-/// Writes `rows` into `buf` from its top left, each character in as many
-/// cells as the console's width rule gives it, as the terminal lays it
-/// out. A character the console and Unicode's tables measure differently
-/// keeps the console's width in the buffer, so ratatui's diff steps over
-/// the same cells the terminal's cursor does.
-pub fn fill(buf: &mut ratatui_core::buffer::Buffer, rows: &[Row]) {
+/// Writes `rows` into `buf` from its top left, their colors read as
+/// `colors` says, each character in as many cells as the console's width
+/// rule gives it, as the terminal lays it out. A character the console and
+/// Unicode's tables measure differently keeps the console's width in the
+/// buffer, so ratatui's diff steps over the same cells the terminal's
+/// cursor does.
+pub fn fill(buf: &mut ratatui_core::buffer::Buffer, rows: &[Row], colors: Colors) {
     use ratatui_core::buffer::{CellDiffOption, CellWidth};
     let area = buf.area;
     for (y, row) in (area.top()..area.bottom()).zip(rows) {
@@ -510,7 +555,7 @@ pub fn fill(buf: &mut ratatui_core::buffer::Buffer, rows: &[Row]) {
             if s.raw {
                 raw_cells(&s.text)
             } else {
-                let style = s.style.cell();
+                let style = s.style.in_cells(colors);
                 s.text.chars().map(|c| (c, style)).collect()
             }
         });
@@ -542,9 +587,10 @@ pub fn fill(buf: &mut ratatui_core::buffer::Buffer, rows: &[Row]) {
     }
 }
 
-/// Draws `app`'s screen into ratatui's frame.
+/// Draws `app`'s screen into ratatui's frame, in the colors the terminal
+/// is sent.
 pub fn render(app: &App, frame: &mut ratatui_core::terminal::Frame) {
-    fill(frame.buffer_mut(), &screen(app));
+    view(app, Colors::Sent, frame.buffer_mut());
 }
 
 /// The terminal as ratatui last drew it, so that each frame writes only
@@ -602,7 +648,7 @@ mod tests {
         // tables, and 日 takes two by both
         let rows = vec![vec![span("a\u{17a4}b日c", Style::PLAIN)]];
         let mut next = Buffer::empty(Rect::new(0, 0, 8, 1));
-        fill(&mut next, &rows);
+        fill(&mut next, &rows, Colors::Sent);
         let at = |b: &Buffer, x: u16| b[(x, 0)].symbol().to_owned();
         assert_eq!(
             (0..6).map(|x| at(&next, x)).collect::<Vec<_>>(),
@@ -626,6 +672,26 @@ mod tests {
                 (5, "c".to_owned())
             ]
         );
+    }
+
+    #[test]
+    fn rows_read_back_from_the_cells_are_the_rows_drawn_into_them() {
+        // U+17A4 takes one cell by the console's rule, and 日 takes two
+        let grey = Style::text(palette::GREY);
+        let rows = vec![
+            vec![
+                span("a\u{17a4}", Style::PLAIN.reversed()),
+                span("日b", grey),
+                span(" ", Style::PLAIN),
+            ],
+            vec![
+                span("cd", Style::block(super::super::color::Color::Cyan)),
+                span("    ", Style::PLAIN),
+            ],
+        ];
+        let mut buf = Buffer::empty(Rect::new(0, 0, 6, 2));
+        fill(&mut buf, &rows, Colors::Named);
+        assert_eq!(super::rows(&buf), rows);
     }
 
     #[test]
