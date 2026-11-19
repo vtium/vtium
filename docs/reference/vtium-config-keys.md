@@ -130,7 +130,7 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
 | 1 | go to tab | Goes straight to the Fonts tab. |
-| 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| 2 | go to tab | Goes straight to the Effects tab. |
 | 3 | go to tab | Goes straight to the Looks tab. |
 | 5 | go to tab | Goes straight to the Settings tab. |
 | 6 | go to tab | Goes straight to the Help tab. |
@@ -549,7 +549,7 @@ Restore's list of the installed history, newest first.
 
 The Looks tab: the looks, the font sets and the installed pointer themes, as three groups of one list, with a preview of the highlighted look or font set.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the Looks tab is at place 2, after Flow, and is a list of sizes whose Enter writes the top-level font-size.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the Looks tab is a list of sizes whose Enter writes the top-level font-size.
 
 **Open it:** Tab from effects, Shift-Tab from flow; 3 from any tab with nothing open.
 
@@ -562,7 +562,7 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
 | 1 | go to tab | Goes straight to the Fonts tab. |
-| 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| 2 | go to tab | Goes straight to the Effects tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
 | 5 | go to tab | Goes straight to the Settings tab. |
 | 6 | go to tab | Goes straight to the Help tab. |
@@ -793,7 +793,7 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 
 The Fonts tab: a line of filters, then the fonts found on this system, each with its active mark and trust mark, with a preview of the highlighted font.
 
-This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375). Today: the Fonts tab is at place 3, between Looks and Settings, and lists the font sets, with n, r, t and s on them.
+This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375). Today: the Fonts tab lists the font sets, with n, r, t and s on them.
 
 **Open it:** Tab from help, Shift-Tab from effects; 1 from any tab with nothing open.
 
@@ -805,7 +805,7 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 | Esc | - | Does nothing here. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
-| 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| 2 | go to tab | Goes straight to the Effects tab. |
 | 3 | go to tab | Goes straight to the Looks tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
 | 5 | go to tab | Goes straight to the Settings tab. |
@@ -884,7 +884,7 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 
 The Effects tab: a line of filters, then the color maps and shaders found on this system, each with its active mark and trust mark, with a preview of the console with the highlighted effect applied.
 
-This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: vtium-config has no Effects tab.
+This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: the Effects tab shows one line that says the tab is coming, and lists no color maps or shaders.
 
 **Open it:** Tab from fonts, Shift-Tab from looks; 2 from any tab with nothing open.
 
@@ -981,7 +981,7 @@ The Settings view: the sections of vtium.conf's keys, as the shared list.
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
 | 1 | go to tab | Goes straight to the Fonts tab. |
-| 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| 2 | go to tab | Goes straight to the Effects tab. |
 | 3 | go to tab | Goes straight to the Looks tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
 | 6 | go to tab | Goes straight to the Help tab. |
@@ -1086,7 +1086,7 @@ The Help view: the Help and About pages.
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
 | 1 | go to tab | Goes straight to the Fonts tab. |
-| 2 | go to tab | Goes straight to the Effects tab. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| 2 | go to tab | Goes straight to the Effects tab. |
 | 3 | go to tab | Goes straight to the Looks tab. |
 | 4 | go to tab | Goes straight to the Flow tab. |
 | 5 | go to tab | Goes straight to the Settings tab. |
