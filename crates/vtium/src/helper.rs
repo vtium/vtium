@@ -5386,6 +5386,41 @@ mod tests {
         assert!(why.contains("is not absolute"), "{why}");
     }
 
+    // ADR-1205 D4: the configured helper is told the active fonts, under
+    // the account vtium runs as, whatever the system's batch holds
+    #[test]
+    fn a_configured_helper_is_told_the_active_fonts() {
+        let args = [std::ffi::OsString::from(format!(
+            "--font-helper={}",
+            stand_in_shell().display()
+        ))];
+        let config = crate::config::load(&args, &mut |_: &Path| Ok(None)).config;
+        let launcher = Launcher::configured(&config).unwrap();
+        let active = launcher.active.expect("the active fonts");
+        let me = rustix::process::geteuid().as_raw();
+        assert_eq!(&active[..8], b"VTVSREQA");
+        assert_eq!(active[8..12], ACTIVE.to_le_bytes());
+        assert_eq!(active[12..16], me.to_le_bytes());
+        // a stand-in started from a test's own command is told nothing
+        assert!(
+            Launcher::open(sh(stand_in_shell(), ""))
+                .unwrap()
+                .active
+                .is_none()
+        );
+    }
+
+    // a helper of an older build refuses the active fonts' request as a
+    // kind it does not know, and the console says what to do
+    #[test]
+    fn a_helper_that_does_not_know_the_active_fonts_is_of_another_build() {
+        assert_eq!(
+            failure("a malformed request: an unknown request kind\n"),
+            OTHER_BUILD
+        );
+        assert_eq!(failure("no glyph"), "the helper failed: no glyph");
+    }
+
     // a start that fails names /proc/self/fd, which a start without /proc
     // mounted fails at: the console asks for a glyph, the helper's start
     // fails, and the reason the console gives the helper up for is that

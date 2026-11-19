@@ -1951,5 +1951,19 @@ mod tests {
                 b"ter"
             );
         }
+        // a kbd name that finds a link, here to a font in the same folder,
+        // reads nothing, even when the batch lists both files
+        let link = t.0.join("kbd/consolefonts/alias.psf.gz");
+        std::os::unix::fs::symlink(&font, &link).unwrap();
+        let e = refused(
+            &t,
+            &active(&t, &[&font, &link]),
+            Origin::Kbd("alias".into()),
+        );
+        assert!(
+            matches!(&e, SourceError::Refused { path, because }
+                if path == &link && because.contains("is a symbolic link")),
+            "{e:?}"
+        );
     }
 }
