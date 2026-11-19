@@ -106,23 +106,25 @@ fn both_clocks_wait_for_the_gpu_to_finish_the_frame() {
         wall_light.0
     );
     if bench.timer_queries() {
+        // llvmpipe's query times only part of the frame, and the part
+        // grows with the work done for each pixel, so the GPU's clock also
+        // reads well over four times as long for sixteen times the work
         let (light, heavy) = (gpu_light.unwrap().0, gpu_heavy.unwrap().0);
         assert!(
             heavy > 4.0 * light,
             "the GPU's clock reads {heavy} ms for 640 rounds and {light} ms for 40"
         );
-        // a ratio of two readings near zero can pass by chance, so the two
-        // clocks are also held against each other: the CPU's clock around
-        // a frame covers the GPU's work, and for a frame this busy the
-        // GPU's work is most of that time
+        // The query lies inside the CPU's clock, between the two glFinish
+        // calls, so the GPU's clock never reads more than the CPU's. The
+        // test holds the GPU's clock to no share of the CPU's: how much of
+        // the frame llvmpipe's query covers depends on how many threads
+        // llvmpipe draws with. With LP_NUM_THREADS=1 the query read 4.4 ms
+        // of a 72 ms frame, with 4 threads 4.8 ms of 18 ms, and with 32
+        // threads nearly all of it. CI's runners have 2 to 4 CPUs, and
+        // llvmpipe starts a thread for each CPU.
         assert!(
             wall_heavy.0 >= heavy * 0.95,
             "the CPU's clock reads {} ms and the GPU's {heavy} ms",
-            wall_heavy.0
-        );
-        assert!(
-            heavy >= wall_heavy.0 * 0.5,
-            "the GPU's clock reads {heavy} ms and the CPU's {} ms",
             wall_heavy.0
         );
     }

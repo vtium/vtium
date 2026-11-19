@@ -51,6 +51,6 @@ Each row reports the median and the largest frame on both clocks. The rate in `f
 
 ## Its tests
 
-`make test-tools` runs the harness's tests on llvmpipe. The tests check that every plan compiles as GLSL ES 3.00 and draws in every read mode. A test draws the negative shader in three read modes and checks pixels against the frame, which catches a read that flips the picture. Another times a shader that runs 40 rounds of a hash and one that runs 640. It checks that the second takes well over four times as long on both clocks, and that the two clocks agree. A clock that stops before the GPU finishes fails that test.
+`make test-tools` runs the harness's tests on llvmpipe. The tests check that every plan compiles as GLSL ES 3.00 and draws in every read mode. A test draws the negative shader in three read modes and checks pixels against the frame, which catches a read that flips the picture. Another times a shader that runs 40 rounds of a hash and one that runs 640. It checks that the second takes well over four times as long on both clocks, and that the GPU's clock never reads more than the CPU's. A clock that stops before the GPU finishes fails that test. The test does not hold the GPU's clock to a share of the CPU's. llvmpipe's query covers only part of a frame, and the part depends on how many threads llvmpipe draws with. With 4 threads, as on CI's runners, the query reads about a quarter of the frame.
 
 The harness is a workspace of its own, with its own `Cargo.lock`, so the main workspace and CI do not build it. `make deny` checks its lock file.
