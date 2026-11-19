@@ -665,6 +665,43 @@ fn a_color_table_that_fails_empties_the_slot_and_only_serious_errors_fail() {
     }
 }
 
+// A table that failed is not tried again: the renderer hands its table
+// over before every frame, and a driver that refuses the table refuses it
+// each time, so another attempt would cost an upload or a compile, a note
+// for the log and a whole present at every frame. The same table handed
+// over again makes no call and gives no note, and the next frame presents
+// only its damage. A new table is tried.
+#[cfg(feature = "filters")]
+#[test]
+fn a_color_table_that_failed_is_not_tried_again() {
+    let table = amber();
+    for (op, kind) in [
+        (Op::CreateVolume, ErrorKind::Gl),
+        (Op::Compile, ErrorKind::Compile),
+    ] {
+        let mut gl = StandIn::new();
+        let mut p = set_up(&mut gl);
+        let buffer = gl.import_buffer(&DISPLAY).unwrap();
+        let work = Work::new(BORDER, &[], &[]);
+        p.frame(&mut gl, &work, &buffer, 0).unwrap();
+        gl.fail_next(op, kind);
+        p.set_color_table(&mut gl, Some((1, &table))).unwrap();
+        assert_eq!(p.take_notes().len(), 1, "{kind:?}");
+        p.frame(&mut gl, &work, &buffer, 1).unwrap();
+        for _ in 0..3 {
+            gl.clear_calls();
+            p.set_color_table(&mut gl, Some((1, &table))).unwrap();
+            assert_eq!(gl.calls(), &[], "{kind:?}");
+            assert_eq!(p.take_notes(), Vec::<String>::new(), "{kind:?}");
+            assert_eq!(p.color(), Color::None, "{kind:?}");
+            let damage = p.frame(&mut gl, &work, &buffer, 1).unwrap();
+            assert_eq!(damage, [], "{kind:?}");
+        }
+        p.set_color_table(&mut gl, Some((2, &table))).unwrap();
+        assert_eq!(p.color(), Color::Table, "{kind:?}");
+    }
+}
+
 // A pipeline set up with the color step and no table yet samples the
 // identity table, so every program the pipeline builds is checked with
 // the step joined.
