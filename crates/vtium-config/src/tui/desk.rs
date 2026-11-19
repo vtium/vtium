@@ -255,10 +255,17 @@ impl Store {
                 let text = installed.clone().unwrap_or_else(|| HEADER.to_owned());
                 self.store
                     .set_base(&name, installed.as_deref().map(str::as_bytes))?;
+                // the draft starts over, so its changes to the active
+                // resources go, as the command line's revert drops them
+                session.drop_batch(&name)?;
                 self.store.write_draft(&name, &text)?;
                 Ok(Done::Draft(self.opened(&name, &text)?, None))
             }
-            Op::New => self.write(&crate::ops::new_text(HEADER)),
+            Op::New => {
+                let (name, _) = session.current()?;
+                session.drop_batch(&name)?;
+                self.write(&crate::ops::new_text(HEADER))
+            }
             Op::Delete => {
                 let (name, _) = session.current()?;
                 self.store.remove_draft(&name)?;
