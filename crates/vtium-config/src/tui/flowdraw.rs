@@ -1069,11 +1069,16 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
     subflow(rows, app, &path, y.saturating_add(1), bottom);
 }
 
-/// The terminal's subflow on its card (ADR-1403 D7): its font set, then
-/// what its look draws, then its displays, left to right, and a grey line
-/// under them about the look's filters and requirements. vtium-config
-/// reads no vtlook file yet (ADR-1304), so the look shows by its name, or
-/// as the built-in look, and the grey line says so.
+/// The terminal's subflow on its card: its font set, then what its look
+/// draws, then its displays, left to right, and a grey line under them
+/// about the look's filters and requirements. vtium-config reads no vtlook
+/// file yet, so the look shows by its name, or as the built-in look, and
+/// the grey line says so.
+///
+/// References:
+/// - ADR-1403 D7, "The terminal's subflow: font set and effects": what
+///   the subflow shows.
+/// - ADR-1304: the vtlook file that chooses the look's filters.
 fn subflow(rows: &mut [Row], app: &App, path: &Path, y: usize, bottom: usize) {
     if y.saturating_add(3) > bottom || path.active || path.none {
         return;
