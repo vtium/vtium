@@ -732,7 +732,7 @@ mod tests {
         assert_eq!(
             said,
             Some(format!(
-                "vtlook film ({}): color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is not active: {} does not list it.; head console draws the built-in vtlook instead",
+                "vtlook film ({}): color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is not active: {} does not list it; head console draws the built-in vtlook instead",
                 dir.join("warm.cube").display(),
                 vtium_settings::batch::BATCH_FILE
             ))
