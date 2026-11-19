@@ -44,8 +44,8 @@ impl App {
     /// Reads the batch again before a new login, as vtium reads the font
     /// keys again there, so a resource that root activated or deactivated
     /// since the last login takes effect at this one, with no restart.
-    /// When the batch changed, the console's launcher and each running font
-    /// helper are told the new active fonts, every color scheme is read
+    /// When the batch changed, the console's launcher takes the new active
+    /// fonts before any glyph is asked for again, every color scheme is read
     /// again at its next use, and head `h`'s palette is read again for its
     /// console `id`, whose next session starts with it. The other heads keep
     /// their palette until their own next login. When the new batch no
@@ -66,13 +66,14 @@ impl App {
         font::log_batch_findings(&findings);
         let me = rustix::process::geteuid().as_raw();
         let gate = font::gate();
-        if before
-            .batch
-            .entries()
-            .iter()
-            .any(|e| !gate.batch.entries().contains(e))
-        {
-            self.drop_glyphs();
+        // The launcher and the pointer file's helper take the new active
+        // fonts first, so that every helper started or asked from here on
+        // reads them before any ask.
+        if let Ok(launcher) = &mut self.launcher {
+            *launcher = launcher.clone().with_active(me, &gate.batch);
+        }
+        if let (Ok(launcher), Some((_, helper))) = (&self.launcher, self.pointer_file.as_mut()) {
+            helper.activate(launcher);
         }
         if let Some(path) = self.config.text(&keys::POINTER_THEME) {
             let path = Path::new(path);
@@ -80,18 +81,13 @@ impl App {
                 self.reload_pointer_file();
             }
         }
-        if let Ok(launcher) = &mut self.launcher {
-            *launcher = launcher.clone().with_active(me, &gate.batch);
-        }
-        if let Ok(launcher) = &self.launcher {
-            for frit in self.frits.values_mut() {
-                if let Some(helper) = frit.helper.as_mut() {
-                    helper.activate(launcher);
-                }
-            }
-            if let Some((_, helper)) = self.pointer_file.as_mut() {
-                helper.activate(launcher);
-            }
+        if before
+            .batch
+            .entries()
+            .iter()
+            .any(|e| !gate.batch.entries().contains(e))
+        {
+            self.drop_glyphs();
         }
         crate::config::Config::forget_palettes();
         if let Some((h, id)) = ended {
@@ -105,7 +101,11 @@ impl App {
 
     /// Drops every glyph the font helpers drew, of every frit, and asks
     /// for the screen's glyphs again, so that no glyph of a font the batch
-    /// no longer holds stays drawn. The glyph store keeps no record of the
+    /// no longer holds stays drawn. Each running font helper ends, with
+    /// every ask it has not answered, so the helper that answers the new
+    /// asks starts under the console's launcher, which already names the
+    /// new active fonts, and no answer from the old batch's fonts arrives
+    /// after the drop. The glyph store keeps no record of the
     /// font each glyph came from, so vtium cannot drop the glyphs of one
     /// font alone. Root changes the batch rarely, so the cost is one
     /// refill of each screen at the login that finds the change. Each
@@ -117,9 +117,10 @@ impl App {
     fn drop_glyphs(&mut self) {
         let now = (self.clock)();
         for frit in self.frits.values_mut() {
-            match frit.helper.as_mut() {
-                Some(helper) => helper.retain(&[], now),
-                None => crate::deferred::lock(&frit.generated).retain(&[]),
+            match (frit.helper.as_mut(), &self.launcher) {
+                (Some(helper), Ok(launcher)) => helper.begin_again(launcher),
+                (Some(helper), Err(_)) => helper.retain(&[], now),
+                (None, _) => crate::deferred::lock(&frit.generated).retain(&[]),
             }
             frit.asked.clear();
         }

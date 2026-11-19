@@ -275,3 +275,81 @@ fn a_pointer_file_follows_its_place_in_the_batch_from_login_to_login() {
         "a deactivated pointer file is not read again"
     );
 }
+
+// A login whose batch changed ends the running font helper, so the helper
+// that draws the screen again reads the new active fonts before any ask,
+// and no glyph comes through a font root just deactivated. Each stand-in
+// writes what it reads to a file of its own, named by its process id.
+//
+// References:
+// - ADR-1205 D4, its note of 2026-11-19: a deactivation takes effect at the next login.
+#[test]
+fn the_helper_after_a_login_reads_the_new_active_fonts_before_any_ask() {
+    let dir = Scratch::new("batch-order");
+    std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").unwrap();
+    let read = dir.join("read");
+    std::fs::create_dir_all(&read).unwrap();
+    let file = dir.join("batch.conf");
+    let (font, more) = (
+        "/usr/share/fonts/batch-order-1.bdf",
+        "/usr/share/fonts/batch-order-2.bdf",
+    );
+    write(&file, &format!("{font}\n{more}\n"));
+    let me = rustix::process::geteuid().as_raw();
+    let fonts = font::Sources {
+        frits: dir.to_path_buf(),
+        trust: Trust::owner(me).below(&dir),
+        helper: Some(crate::helper::Command {
+            program: crate::helper::stand_in_shell().to_path_buf(),
+            args: vec![
+                "-c".into(),
+                "exec cat >\"$1/$$\"".into(),
+                "stand-in".into(),
+                read.clone().into(),
+            ],
+            account: None,
+        }),
+        ..no_fonts()
+    };
+    let t = Instant::now();
+    let (mut lp, mut app) = seat_with(&["--font-name=t"], None, fonts);
+    app.add_video(
+        PathBuf::from("/dev/mem0"),
+        Box::new(Still::new(&[(1, "A")])),
+    );
+    app.set_batch_places(
+        Places {
+            file: file.clone(),
+            vconsole_conf: PathBuf::from("/dev/null"),
+            cmdline: PathBuf::from("/dev/null"),
+            ..Places::system()
+        },
+        Rule::new(Trust::owner(me)).below(&dir),
+    );
+    shown_at(&mut app, t);
+    let id = app.heads.first().unwrap().console.id;
+    assert!(!app.frits.get("t").unwrap().asked.is_empty());
+    // root deactivates the first font, and the next login draws again
+    write(&file, &format!("{more}\n"));
+    app.return_font(0, id);
+    let after = app.active_fonts_request().unwrap();
+    // a helper that read the new active fonts first, then an ask
+    let first = |read: &Path| {
+        std::fs::read_dir(read).unwrap().flatten().any(|e| {
+            let bytes = std::fs::read(e.path()).unwrap_or_default();
+            bytes.starts_with(&after) && bytes.len() > after.len()
+        })
+    };
+    for _ in 0..1000 {
+        if first(&read) {
+            break;
+        }
+        lp.dispatch(Some(std::time::Duration::from_millis(10)), &mut app)
+            .unwrap();
+    }
+    assert!(
+        first(&read),
+        "a font helper reads the new active fonts before its first ask"
+    );
+}

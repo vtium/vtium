@@ -1415,6 +1415,27 @@ impl Helper {
         }
     }
 
+    /// Starts the frit's helper afresh under the active fonts of
+    /// `launcher`, the console's launcher once a new login found the batch
+    /// changed. vtium ends the running helper and forgets every cell, every
+    /// waiting ask and every stored glyph, so the next ask starts a helper
+    /// that reads the new active fonts before any ask. An answer to an ask
+    /// sent before this call comes from a font the old batch allowed, and
+    /// the console never takes it, because the ended helper's output is
+    /// closed with it.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login, with no restart.
+    pub fn begin_again(&mut self, launcher: &Launcher) {
+        self.launcher.active.clone_from(&launcher.active);
+        self.stop();
+        self.asks.clear();
+        self.early.clear();
+        self.cells.clear();
+        self.due = None;
+        crate::deferred::lock(&self.store).retain(&[]);
+    }
+
     /// The helper `launcher` starts for pointer asks alone, which a
     /// pointer file's loader sends one at a time
     /// ([`crate::pointer_file::Loader`]); its reader calls `wake` after
@@ -3136,6 +3157,56 @@ mod tests {
             [before, ask, after.clone()].concat()
         );
         assert_eq!(s.helper.launcher.active(), Some(after.as_slice()));
+    }
+
+    // A helper begun again at a new login whose batch changed takes no
+    // answer to an ask sent before the login, and the helper that answers
+    // the next ask reads the new active fonts before that ask. Both asks
+    // name A and Z. A stand-in that reads the old active fonts first holds
+    // its answer, which maps both, until the test lets it go after the
+    // login. One that reads the new active fonts first answers with A
+    // alone, as a font the new batch no longer holds would leave Z out.
+    //
+    // References:
+    // - ADR-1205 D4, its note of 2026-11-19: a deactivation takes effect at the next login.
+    #[test]
+    fn a_helper_begun_again_takes_no_answer_to_an_earlier_ask() {
+        let first = Batch::new(vec![Entry::Path(PathBuf::from("/one.bdf"))]);
+        let second = Batch::new(vec![Entry::Path(PathBuf::from("/two.bdf"))]);
+        let (before, after) = (active_request(1000, &first), active_request(1000, &second));
+        assert_eq!(before.len(), after.len());
+        let mut old = Vec::new();
+        for _ in 0..2 {
+            old.extend(frame_bytes(
+                FRAME_GLYPHS,
+                &styled(CELL, Style::default(), &['A', 'Z']),
+            ));
+            old.extend(frame_bytes(FRAME_DONE, &[]));
+        }
+        let mut new = frame_bytes(FRAME_GLYPHS, &styled(CELL, Style::default(), &['A']));
+        new.extend(frame_bytes(FRAME_DONE, &[]));
+        let script = format!(
+            "head -c {} >\"$1.$$\"; if cmp -s \"$1.$$\" \"$1.after\"; then cat \"$1.new\"; else while [ ! -e \"$1.go\" ]; do sleep 0.01; done; cat \"$1\"; fi; exec cat >/dev/null",
+            after.len()
+        );
+        let mut s = StandIn::new("begun-again", &script, &old);
+        std::fs::write(s.dir.join("answer.new"), &new).unwrap();
+        std::fs::write(s.dir.join("answer.after"), &after).unwrap();
+        s.helper.launcher = s.helper.launcher.clone().with_active(1000, &first);
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A', 'Z']), now);
+        let next = s.helper.launcher.clone().with_active(1000, &second);
+        s.helper.begin_again(&next);
+        std::fs::write(s.dir.join("answer.go"), b"").unwrap();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A', 'Z']), now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        let chars: Vec<Vec<char>> = answers.into_iter().map(|a| a.chars).collect();
+        assert_eq!(
+            chars,
+            [vec!['A']],
+            "the answer of a helper that read the new active fonts first, alone"
+        );
     }
 
     // The active fonts' paths stop before they pass the
