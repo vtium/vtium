@@ -28,7 +28,6 @@
 //! - ADR-1403 D5: a look's `palette` wins over the top level's.
 
 use std::path::Path;
-use std::sync::Mutex;
 
 use vtium_settings::cullet::Gate;
 use vtium_settings::palette::{self, CUSTOM};
@@ -101,8 +100,16 @@ impl Schemes {
     }
 }
 
-/// The palette files the console has read since it started.
-static SCHEMES: Mutex<Schemes> = Mutex::new(Schemes { read: Vec::new() });
+thread_local! {
+    /// The palette files the console has read since it started, on this
+    /// thread. The gate they pass is the thread's own (`crate::font::gate`),
+    /// so each thread keeps its own cache too: a palette is then never
+    /// drawn on a thread whose gate would refuse its file, as two tests'
+    /// threads with two batches would otherwise share one.
+    static SCHEMES: std::cell::RefCell<Schemes> = const {
+        std::cell::RefCell::new(Schemes { read: Vec::new() })
+    };
+}
 
 /// The palette file `name`'s palette, read once from the two palette
 /// folders as the account vtium runs as, through the console's gate;
@@ -111,11 +118,10 @@ fn file_palette(name: &str) -> Option<Palette> {
     let package = crate::font::package_palettes();
     let folders = [Path::new(palette::FOLDERS[0]), package.as_path()];
     let gate = crate::font::gate();
-    let mut schemes = SCHEMES
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    schemes.get(name, &folders, &gate, &mut |line| {
-        log::warn!(target: "palette", "{line}");
+    SCHEMES.with_borrow_mut(|schemes| {
+        schemes.get(name, &folders, &gate, &mut |line| {
+            log::warn!(target: "palette", "{line}");
+        })
     })
 }
 
@@ -127,11 +133,7 @@ impl Config {
     /// References:
     /// - ADR-1205 D4, its note of 2026-11-19: an activation takes effect at the next login.
     pub(crate) fn forget_palettes() {
-        SCHEMES
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .read
-            .clear();
+        SCHEMES.with_borrow_mut(|schemes| schemes.read.clear());
     }
 
     /// The palette `palette` names, with `legacy` in place of a palette
@@ -216,6 +218,58 @@ mod tests {
             Some(Mounts::system().unwrap_or_default()),
             Batch::new(active),
         )
+    }
+
+    // Each thread caches the palette files it read through its own gate, so
+    // a thread whose batch does not list a file never draws the palette that
+    // another thread read through a batch that does. Here the test's thread
+    // reads the scheme through a batch that lists it, and a second thread,
+    // whose batch lists nothing, finds no palette.
+    //
+    // References:
+    // - ADR-1205 D4: a color scheme draws only while the batch lists it.
+    #[test]
+    fn each_thread_reads_palettes_through_its_own_gate() {
+        let dir = Scratch::new("palette-threads");
+        let _ = std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o755));
+        let scheme = dir.join("palette-threads.palette");
+        std::fs::write(&scheme, "background = #282a36\n").unwrap_or_default();
+        let _ = std::fs::set_permissions(&scheme, std::fs::Permissions::from_mode(0o644));
+        let me = std::fs::metadata(&*dir).map_or(0, |m| m.uid());
+        let places = |listed: bool| {
+            let file = dir.join(if listed { "listed.conf" } else { "empty.conf" });
+            let text = if listed {
+                format!("{}\n", scheme.display())
+            } else {
+                "# nothing is active\n".to_owned()
+            };
+            std::fs::write(&file, text).unwrap_or_default();
+            let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+            batch::Places {
+                file,
+                vconsole_conf: std::path::PathBuf::from("/dev/null"),
+                cmdline: std::path::PathBuf::from("/dev/null"),
+                palettes: dir.to_path_buf(),
+                ..batch::Places::system()
+            }
+        };
+        let rule = Rule::new(Trust::owner(me)).below(&dir);
+        let trust = Trust::owner(me).below(&dir);
+        let _ = crate::font::load_batch(&places(true), &trust, rule.clone());
+        assert!(
+            file_palette("palette-threads").is_some(),
+            "the listed scheme"
+        );
+        let empty = places(false);
+        let other = std::thread::spawn(move || {
+            let _ = crate::font::load_batch(&empty, &trust, rule);
+            file_palette("palette-threads").is_some()
+        });
+        assert_eq!(
+            other.join().ok(),
+            Some(false),
+            "a thread whose batch does not list the scheme"
+        );
     }
 
     // The top level and the command line take a built-in palette's name
