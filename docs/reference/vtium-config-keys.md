@@ -25,11 +25,20 @@ flowchart LR
     flow_file["flow.file"]
     flow_restore["flow.restore"]
     looks["looks"]
-    looks_list["looks.list"]
+    looks_look["looks.look"]
+    looks_look_list["looks.look.list"]
+    looks_look_typing["looks.look.typing"]
+    looks_font_set["looks.font-set"]
+    looks_pointer["looks.pointer"]
     looks_new_frit["looks.new-frit"]
     looks_new_frit_typing["looks.new-frit.typing"]
     looks_new_frit_list["looks.new-frit.list"]
     fonts["fonts"]
+    fonts_filter["fonts.filter"]
+    fonts_font["fonts.font"]
+    effects["effects"]
+    effects_filter["effects.filter"]
+    effects_effect["effects.effect"]
     settings["settings"]
     settings_section["settings.section"]
     settings_section_typing["settings.section.typing"]
@@ -39,6 +48,8 @@ flowchart LR
     any_question_quit["any.question.quit"]
     any_question_leave["any.question.leave"]
     any_question_confirm["any.question.confirm"]
+    any_question_deactivate["any.question.deactivate"]
+    any_question_system_font["any.question.system-font"]
     any_question_window_ops["any.question.window-ops"]
     any_trial["any.trial"]
     any_too_small["any.too-small"]
@@ -58,11 +69,20 @@ flowchart LR
     flow --> flow_file
     flow --> flow_restore
     tui --> looks
-    looks --> looks_list
+    looks --> looks_look
+    looks_look --> looks_look_list
+    looks_look --> looks_look_typing
+    looks --> looks_font_set
+    looks --> looks_pointer
     looks --> looks_new_frit
     looks_new_frit --> looks_new_frit_typing
     looks_new_frit --> looks_new_frit_list
     tui --> fonts
+    fonts --> fonts_filter
+    fonts --> fonts_font
+    tui --> effects
+    effects --> effects_filter
+    effects --> effects_effect
     tui --> settings
     settings --> settings_section
     settings_section --> settings_section_typing
@@ -72,11 +92,13 @@ flowchart LR
     any --> any_question_quit
     any --> any_question_leave
     any --> any_question_confirm
+    any --> any_question_deactivate
+    any --> any_question_system_font
     any --> any_question_window_ops
     any --> any_trial
     any --> any_too_small
     classDef planned stroke-dasharray: 5 5
-    class flow_card_list,looks,looks_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,any_question_window_ops planned
+    class flow_card_list,looks,looks_look,looks_look_list,looks_look_typing,looks_font_set,looks_pointer,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,fonts_filter,fonts_font,effects,effects_filter,effects_effect,any_question_deactivate,any_question_system_font,any_question_window_ops planned
 ```
 
 Each section below names a screen by its place in the tree, says how you open and leave it, and lists its keys. The column "Shown as" gives the word the key line shows beside the key, and a dash marks a key that the key line leaves out.
@@ -97,9 +119,9 @@ Vtium-config's TUI, run at a terminal of at least 80×25.
 
 The Flow view: CONFIGURATION, NEW PATH and PARTS.
 
-**Open it:** The TUI opens here; Tab from help, Shift-Tab from looks.
+**Open it:** The TUI opens here; Tab from the tab before it, Shift-Tab from the tab after it, in the views table's order.
 
-**Leave it:** Tab to looks, Shift-Tab to help.
+**Leave it:** Tab to the next tab, Shift-Tab to the tab before, in the views table's order.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -252,8 +274,8 @@ An added path's terminal card, in CONFIGURATION.
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| t | try live | Tries the card's font set on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | Shows the font sets to choose from as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| t | try live | Tries the card's look on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On the card's look, shows the looks to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
@@ -334,9 +356,9 @@ NEW PATH's terminal card: the new terminal's name, its settings, and the display
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
-| t | try live | Tries the card's font set on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| t | try live | Tries the card's look on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | Enter | choose | Shows the card's displays, devices or VTs as a list inside the card. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| Enter | choose | Shows the font sets to choose from as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | choose | On the card's look, shows the looks to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
@@ -520,13 +542,13 @@ Restore's list of the installed history, newest first.
 
 ## `looks`
 
-The Looks tab: the looks and the font sets, with one preview of a look's font set and size.
+The Looks tab: the looks, the font sets and the installed pointer themes, as three groups of one list, with a preview of the highlighted look or font set.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the Looks tab is a list of sizes whose Enter writes the top-level font-size.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the Looks tab is at place 2, after Flow, and is a list of sizes whose Enter writes the top-level font-size.
 
-**Open it:** Tab from flow, Shift-Tab from settings.
+**Open it:** Tab from effects, Shift-Tab from flow.
 
-**Leave it:** Tab to settings, Shift-Tab to flow.
+**Leave it:** Tab to flow, Shift-Tab to effects.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -537,15 +559,14 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | save | Saves the changes that are not saved into the draft. |
 | i | install | Saves, then asks whether to install the draft. |
-| r | remove | Marks the highlighted font set for removal at the next install, or takes the mark back. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| n | new font set | Opens the form for a new font set. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| t | try live | Tries the highlighted font set on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | On a font set, chooses it for the look. On a size, tries the size on this console for 10 seconds: k keeps it, and any other key puts the size back. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| r | remove | On a look, asks whether to delete it. On a font set, marks it for removal at the next install, or takes the mark back. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| n | new font set | Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set. Among the pointer themes, does nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| t | try live | Tries the highlighted look or font set on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | open | On a look, opens its card. On a font set or a pointer theme, opens its detail. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | p | picture \| sample | Switches the preview between the sample characters and the picture of the console. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| Enter | choose | Shows the font sets to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | Shows the font sizes as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Space | activate | On a font, an effect or a pointer theme, activates it, or deactivates it when it is active. Deactivating asks first when a look uses it. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the item above. |
@@ -555,15 +576,46 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
 
-## `looks.list`
+## `looks.look`
 
-The shared list of the font sets, or of the sizes.
+A look's card: its name, font set, size, color map, shader and pointer theme, and below them what the look still misses, by role.
+
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no card for a look.
+
+**Open it:** Enter on a look, or n among the looks, which opens the card with its name being typed.
+
+**Leave it:** Esc to looks, with each change kept.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Esc | back | Goes back, with the same item highlighted. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| Up | move | Moves to the line above. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Down | move | Moves to the line below. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Left | change | Steps the highlighted line to its choice before. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Right | change | Steps the highlighted line to its next choice. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On the look's name, lets you type a new name. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On the look's font set, shows the font sets to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On the look's size, shows the sizes that the look's fonts supply as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On the look's color map or shader, shows the active ones as a list, with none first. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| t | try live | Tries this look on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+
+## `looks.look.list`
+
+The shared list of the choices for a line of the look's card: font sets, the sizes the fonts supply, active color maps, active shaders or active pointer themes.
 
 This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no such list.
 
-**Open it:** Enter on the look's font set or size.
+**Open it:** Enter on a line of the look's card other than its name.
 
-**Leave it:** Enter picks and Esc closes, both to looks.
+**Leave it:** Enter picks and Esc closes, both to looks.look.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -582,13 +634,80 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 
+## `looks.look.typing`
+
+The look's name being typed.
+
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no card for a look.
+
+**Open it:** Enter on the name of the look's card; n among the looks.
+
+**Leave it:** Enter keeps it and Esc drops it, both to looks.look.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | - | Types the letter q. |
+| Esc | cancel | Cancels what you typed and goes back. |
+| Tab | - | Does nothing while you type. |
+| Shift-Tab | - | Does nothing while you type. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| Enter | keep | Keeps the value you typed. |
+| Backspace | delete | Deletes the character before the cursor. |
+| any letter | type | Types the letter. |
+
+## `looks.font-set`
+
+A font set's detail, read-only: its fonts by role, what it still misses by role, and the looks that use it.
+
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no detail for a font set.
+
+**Open it:** Enter on a font set.
+
+**Leave it:** Esc to looks.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Esc | back | Goes back, with the same item highlighted. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+
+## `looks.pointer`
+
+A pointer theme's detail, read-only: its folder, whether it is active, its trust mark and the check it fails, and the looks that use it.
+
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#442](https://github.com/vtium/vtium/issues/442). Today: vtium-config lists no pointer themes.
+
+**Open it:** Enter on a pointer theme.
+
+**Leave it:** Esc to looks.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Esc | back | Goes back, with the same item highlighted. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+
 ## `looks.new-frit`
 
-The form for a new font set: a text font and the layers (the views table's new-frit).
+The form for a new font set: a field for each role, from the text font to the fallback, then the font set's name (the views table's new-frit).
 
 This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Fonts tab, o writes the top-level allow-font-ops in a vtium console with allow-font-ops off, and i installs from the last row.
 
-**Open it:** N.
+**Open it:** N among the font sets.
 
 **Leave it:** Esc to looks; its last row adds the font set and goes to looks.
 
@@ -609,7 +728,7 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | End | last | Goes to the last row. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Enter | choose | On a font field, shows the fonts and font sets found on this system as a list to pick from. You can still type a font that the list lacks. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| Enter | choose | On a role's field, shows the active fonts that can fill the role as a list to pick from. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 
 ## `looks.new-frit.typing`
 
@@ -635,11 +754,11 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 
 ## `looks.new-frit.list`
 
-The shared list of the layers in the frits' directory.
+The shared list of the active fonts that can fill a role.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the form has three source fields and no layers.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the form has three source fields that take typed text, and no list.
 
-**Open it:** Enter on the form's layer field.
+**Open it:** Enter on a role's field of the form.
 
 **Leave it:** Enter picks and Esc closes, both to looks.new-frit.
 
@@ -662,13 +781,13 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 
 ## `fonts`
 
-The Fonts tab, which goes into the Looks tab.
+The Fonts tab: a line of filters, then the fonts found on this system, each with its active mark and trust mark, with a preview of the highlighted font.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the Fonts tab is a tab of its own at place 3, with n, r, t and s on its font sets.
+This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375). Today: the Fonts tab is at place 3, between Looks and Settings, and lists the font sets, with n, r, t and s on them.
 
-**Open it:** Tab from looks, Shift-Tab from settings.
+**Open it:** Tab from help, Shift-Tab from effects.
 
-**Leave it:** Tab to settings, Shift-Tab to looks.
+**Leave it:** Tab to effects, Shift-Tab to help.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -677,7 +796,7 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
-| s | save | Saves the changes that are not saved into the draft, in the Looks tab that the Fonts view goes into. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| s | save | Saves the changes that are not saved into the draft. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
 | i | install | Saves, then asks whether to install the draft. |
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
@@ -688,18 +807,152 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Enter | choose | Chooses the highlighted font set. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| t | try live | Tries the highlighted font set on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| n | new | Opens the form for a new font set. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| r | remove | Marks the highlighted font set for removal at the next install, or takes the mark back. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Space | activate | On a font, an effect or a pointer theme, activates it, or deactivates it when it is active. Deactivating asks first when a look uses it. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | open | On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| t | try live | Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| p | preview | Switches the preview between the sample characters and the picture of the console. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| n | - | Does nothing here. New font sets are made in the Looks tab. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| r | - | Does nothing here. Font sets are removed in the Looks tab. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+
+## `fonts.filter`
+
+The shared list of the Fonts tab's filters: bitmap or outline, monospaced or not, each script, and well-known groups such as Nerd Fonts and color emoji.
+
+This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375). Today: vtium-config has no filters.
+
+**Open it:** Enter on the filter line.
+
+**Leave it:** Enter picks a filter and Esc closes, both to fonts.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| Up | move | Moves to the item above. |
+| Down | move | Moves to the item below. |
+| Home | first | Goes to the first item. |
+| End | last | Goes to the last item. |
+| PgUp | page up | Moves up by a page. |
+| PgDn | page down | Moves down by a page. |
+| Enter | pick | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. |
+| Esc | back | Closes the list without picking. |
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+
+## `fonts.font`
+
+A font's detail, read-only: its family and files, what it covers, its sizes, its trust mark and the check it fails, the looks that use it, and a duplicate mark.
+
+This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375). Today: vtium-config has no detail for a font.
+
+**Open it:** Enter on a font.
+
+**Leave it:** Esc to fonts; Enter on a font from your own folders asks any.question.system-font.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Esc | back | Goes back, with the same item highlighted. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | install as system font | On a font from your own folders, asks whether to install it as a system font. The question shows the exact command first. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+
+## `effects`
+
+The Effects tab: a line of filters, then the color maps and shaders found on this system, each with its active mark and trust mark, with a preview of the console with the highlighted effect applied.
+
+This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: vtium-config has no Effects tab.
+
+**Open it:** Tab from fonts, Shift-Tab from looks.
+
+**Leave it:** Tab to looks, Shift-Tab to fonts.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| Esc | - | Does nothing here. |
+| Tab | next view | Moves to the next view. |
+| Shift-Tab | view before | Moves to the view before. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s | save | Saves the changes that are not saved into the draft. |
+| i | install | Saves, then asks whether to install the draft. |
+| o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| Up | move | Moves to the item above. |
+| Down | move | Moves to the item below. |
+| Home | first | Goes to the first item. |
+| End | last | Goes to the last item. |
+| PgUp | page up | Moves up by a page. |
+| PgDn | page down | Moves down by a page. |
+| Space | activate | On a font, an effect or a pointer theme, activates it, or deactivates it when it is active. Deactivating asks first when a look uses it. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | open | On the filter line, shows the filters as a list. On a color map or a shader, opens its detail: its file, its trust mark and the looks that use it. Not built yet: see [#439](https://github.com/vtium/vtium/issues/439). |
+
+## `effects.filter`
+
+The shared list of the Effects tab's filters: color maps or shaders.
+
+This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: vtium-config has no Effects tab.
+
+**Open it:** Enter on the filter line.
+
+**Leave it:** Enter picks a filter and Esc closes, both to effects.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| Up | move | Moves to the item above. |
+| Down | move | Moves to the item below. |
+| Home | first | Goes to the first item. |
+| End | last | Goes to the last item. |
+| PgUp | page up | Moves up by a page. |
+| PgDn | page down | Moves down by a page. |
+| Enter | pick | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. |
+| Esc | back | Closes the list without picking. |
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+
+## `effects.effect`
+
+A color map's or a shader's detail, read-only: its file, whether it is active, its trust mark and the check it fails, and the looks whose vtlook names it.
+
+This screen is not built as described yet. See [#439](https://github.com/vtium/vtium/issues/439). Today: vtium-config has no Effects tab.
+
+**Open it:** Enter on a color map or a shader.
+
+**Leave it:** Esc to effects.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config, and asks first if changes are not saved. |
+| Esc | back | Goes back, with the same item highlighted. |
+| Tab | - | Does nothing until you close what is open with Esc. |
+| Shift-Tab | - | Does nothing until you close what is open with Esc. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s i r n v o | - | Do nothing until you close what is open with Esc. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| Up | scroll | Scrolls the detail up by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
+| Down | scroll | Scrolls the detail down by a line. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). |
 
 ## `settings`
 
 The Settings view: the sections of vtium.conf's keys, as the shared list.
 
-**Open it:** Tab from looks, Shift-Tab from help.
+**Open it:** Tab from the tab before it, Shift-Tab from the tab after it, in the views table's order.
 
-**Leave it:** Tab to help, Shift-Tab to looks.
+**Leave it:** Tab to the next tab, Shift-Tab to the tab before, in the views table's order.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -797,9 +1050,9 @@ The shared list of a key's allowed values.
 
 The Help view: the Help and About pages.
 
-**Open it:** Tab from settings, Shift-Tab from flow.
+**Open it:** Tab from the tab before it, Shift-Tab from the tab after it, in the views table's order.
 
-**Leave it:** Tab to flow, Shift-Tab to settings.
+**Leave it:** Tab to the next tab, Shift-Tab to the tab before, in the views table's order.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -893,6 +1146,48 @@ A question before an action: Install, Revert, Restore, New, or deleting a look.
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | Click | - | Does nothing. The question stays until you answer it or cancel it. |
 | Wheel up, Wheel down | - | Do nothing. The question stays until you answer it or cancel it. |
+
+## `any.question.deactivate`
+
+The question before a font, an effect or a pointer theme that a look uses is deactivated, which lists those looks.
+
+This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375), [#439](https://github.com/vtium/vtium/issues/439), [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no such question.
+
+**Open it:** Space on an active font, effect or pointer theme that a look uses.
+
+**Leave it:** Y deactivates it; Esc and Ctrl-C go back without acting; every other key does nothing.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| y | yes | Answers yes, and vtium-config does what the question asks. |
+| Esc | cancel | Cancels the question. Nothing changes. |
+| Ctrl-C | cancel | Cancels the question, as Esc does. Nothing changes. |
+| q | - | Does nothing. The question stays until you answer it or cancel it. |
+| Tab | - | Does nothing. The question stays until you answer it or cancel it. |
+| Shift-Tab | - | Does nothing. The question stays until you answer it or cancel it. |
+| any other key | - | Does nothing. The question stays until you answer it or cancel it. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+
+## `any.question.system-font`
+
+The question before a font from your own folders is installed as a system font, which shows the exact command.
+
+This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375), [#440](https://github.com/vtium/vtium/issues/440). Today: vtium-config has no such question.
+
+**Open it:** Enter in the detail of a font from your own folders.
+
+**Leave it:** Y installs the font; Esc and Ctrl-C go back without acting; every other key does nothing.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| y | yes | Answers yes, and vtium-config does what the question asks. |
+| Esc | cancel | Cancels the question. Nothing changes. |
+| Ctrl-C | cancel | Cancels the question, as Esc does. Nothing changes. |
+| q | - | Does nothing. The question stays until you answer it or cancel it. |
+| Tab | - | Does nothing. The question stays until you answer it or cancel it. |
+| Shift-Tab | - | Does nothing. The question stays until you answer it or cancel it. |
+| any other key | - | Does nothing. The question stays until you answer it or cancel it. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 
 ## `any.question.window-ops`
 
