@@ -676,12 +676,16 @@ impl Pipeline {
         }
         let texels = match table.rgba16f() {
             Ok(t) => t,
-            Err(e) => return self.drop_colors(gl, id, format!("building the color table: {e}")),
+            Err(e) => {
+                return self.drop_colors(gl, id, format!("building the color table failed: {e}"));
+            }
         };
         let texture = match upload(gl, &texels) {
             Ok(t) => t,
             Err(e) if serious(&e) => return Err(e),
-            Err(e) => return self.drop_colors(gl, id, format!("uploading the color table: {e}")),
+            Err(e) => {
+                return self.drop_colors(gl, id, format!("uploading the color table failed: {e}"));
+            }
         };
         if self.color != Color::Table {
             match Present::new(gl, Color::Table, self.spatial) {
@@ -693,7 +697,11 @@ impl Pipeline {
                 Err(e) => {
                     let _ = gl.free_texture(texture);
                     if e.kind == ErrorKind::Compile {
-                        return self.drop_colors(gl, id, format!("compiling the color step: {e}"));
+                        return self.drop_colors(
+                            gl,
+                            id,
+                            format!("compiling the color step failed: {e}"),
+                        );
                     }
                     return Err(e);
                 }
@@ -710,12 +718,13 @@ impl Pipeline {
 
     /// Empties the color slot after the table of `id` failed for a reason
     /// the look caused, with a note for the log that says what failed, and
-    /// remembers the id so that the table is not tried again.
+    /// remembers the id so that the table is not tried again. The head that
+    /// logs the note names the display it is about.
     #[cfg(feature = "filters")]
     fn drop_colors<G: Gl>(&mut self, gl: &mut G, id: u64, why: String) -> Result<(), Error> {
         self.failed = Some(id);
         self.notes.push(format!(
-            "the display draws without the vtlook's color filters: {why}"
+            "vtium draws this display without the vtlook's color filters: {why}"
         ));
         self.empty_color(gl)
     }
@@ -740,9 +749,12 @@ impl Pipeline {
     }
 }
 
-/// Whether `e` is a failure of the GPU path itself, which ADR-1303 D9
-/// sorts, whatever the look: GL out of memory, or a lost context. After
-/// either, nothing the context holds can be trusted.
+/// Whether `e` is a failure of the GPU path itself, whatever the look: GL
+/// out of memory, or a lost context. After either, nothing the context
+/// holds can be trusted.
+///
+/// References:
+/// - ADR-1303 D9: these two kinds are always the GPU path's failures, which it sorts.
 #[cfg(feature = "filters")]
 fn serious(e: &Error) -> bool {
     matches!(e.kind, ErrorKind::OutOfMemory | ErrorKind::ContextLost)

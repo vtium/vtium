@@ -1305,9 +1305,10 @@ impl View {
 
     /// Hands the drawing's renderer the display's color table when it
     /// does not hold it yet. A renderer that cannot take it for want of
-    /// memory keeps the table it had, and vtium logs why.
+    /// memory keeps the table it had, and vtium logs why, naming the
+    /// display by its connector on `video`.
     #[cfg(feature = "filters")]
-    fn hand_colors(&mut self) {
+    fn hand_colors(&mut self, video: &dyn Video) {
         if self.colors_held {
             return;
         }
@@ -1316,7 +1317,11 @@ impl View {
         };
         self.colors_held = true;
         if let Err(e) = drawing.renderer.set_color_table(self.colors.as_deref()) {
-            log::warn!(target: "look", "display {} keeps its colors: cannot hold the vtlook's color table: {e}", self.id.0);
+            log::warn!(
+                target: "look",
+                "display {} keeps its previous colors: vtium has no memory for the vtlook's color table: {e}",
+                video.name(self.id)
+            );
         }
     }
 
@@ -1511,7 +1516,7 @@ impl View {
         }
         let tip = state.pointer;
         #[cfg(feature = "filters")]
-        self.hand_colors();
+        self.hand_colors(video);
         if let Some(drawing) = self.drawing.as_mut() {
             let shape = term.terminal.pointer_shape();
             self.pointer.follow(

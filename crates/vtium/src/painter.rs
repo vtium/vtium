@@ -224,6 +224,14 @@ enum Message {
     Release,
 }
 
+/// A note for the log from the GPU path about one of the head's displays,
+/// such as glyph textures at their ceiling.
+pub struct Note {
+    /// The display the note is about, by its device and its id there.
+    pub display: (PathBuf, DisplayId),
+    pub text: String,
+}
+
 /// A head's render thread, and the channels to it and back.
 pub struct Painter {
     /// The head's name, for the log.
@@ -243,9 +251,9 @@ pub struct Painter {
     /// A display of the head is at a size the GPU path could not set up,
     /// so the head draws on the CPU path for now (ADR-1303 D9).
     held_on_cpu: bool,
-    /// The GPU path's notes for the log, such as glyph textures at their
-    /// ceiling, which the loop logs.
-    notes: Option<Receiver<String>>,
+    /// The GPU path's notes for the log, which the loop takes with
+    /// [`Painter::take_notes`] and logs under each display's connector.
+    notes: Option<Receiver<Note>>,
     /// Ends when the thread does, for a thread given a [`GpuSource`]: the
     /// drop waits on it for at most [`LET_GO_MS`].
     ended: Option<Receiver<()>>,
@@ -271,7 +279,7 @@ impl Painter {
         let (jobs, todo) = sync_channel::<Message>(QUEUE);
         let (composed, done) = sync_channel::<Composed>(QUEUE);
         let (ready, set_up) = sync_channel::<Ready>(1);
-        let (note, notes) = sync_channel::<String>(QUEUE);
+        let (note, notes) = sync_channel::<Note>(QUEUE);
         let (end, ended) = sync_channel::<()>(0);
         let on_gpu = gpu.is_some();
         let gone = Arc::new(AtomicBool::new(false));
@@ -426,8 +434,8 @@ impl Painter {
 
     /// The frames composed since the last call, in the order composed,
     /// once the thread's set-up is taken, and the messages waiting sent.
-    /// The log gets why the GPU path could not start, once, and the GPU
-    /// path's notes. A thread that ended by a panic passes the panic on.
+    /// The log gets why the GPU path could not start, once. A thread that
+    /// ended by a panic passes the panic on.
     pub fn take(&mut self) -> Vec<Composed> {
         self.take_set_up();
         self.send_pending();
@@ -450,12 +458,15 @@ impl Painter {
         if !frames.is_empty() {
             self.take_set_up();
         }
-        if let Some(notes) = &self.notes {
-            for note in notes.try_iter() {
-                log::warn!("head {}: {note}", self.name);
-            }
-        }
         frames
+    }
+
+    /// The GPU path's notes for the log since the last call.
+    pub fn take_notes(&mut self) -> Vec<Note> {
+        self.notes
+            .as_ref()
+            .map(|notes| notes.try_iter().collect())
+            .unwrap_or_default()
     }
 
     /// Takes the thread's set-up, if it came: the path the head draws on,
@@ -489,7 +500,7 @@ fn draw_frames(
     ready: &SyncSender<Ready>,
     todo: &Receiver<Message>,
     composed: &SyncSender<Composed>,
-    notes: &SyncSender<String>,
+    notes: &SyncSender<Note>,
     wake: &impl Fn(),
 ) {
     use crate::gpu::head::HeadGpu;
@@ -551,7 +562,7 @@ fn draw_frames(
 /// Sends the GPU path's notes for the log to the loop; a note that finds
 /// the channel full is dropped, as the loop has not taken the last ones.
 #[cfg(feature = "gpu")]
-fn send_notes(head: &mut crate::gpu::head::HeadGpu, notes: &SyncSender<String>) {
+fn send_notes(head: &mut crate::gpu::head::HeadGpu, notes: &SyncSender<Note>) {
     for note in head.take_notes() {
         let _ = notes.try_send(note);
     }
@@ -564,7 +575,7 @@ fn draw_frames(
     ready: &SyncSender<Ready>,
     todo: &Receiver<Message>,
     composed: &SyncSender<Composed>,
-    _: &SyncSender<String>,
+    _: &SyncSender<Note>,
     wake: &impl Fn(),
 ) {
     let _ = ready.send((Path::Cpu, None));

@@ -126,7 +126,7 @@ use crate::head::{Attached, Frit, Head, Start, place_display};
 use crate::helper::{self, Answer, FritText, Helper};
 use crate::layout::{self, Zoom};
 use crate::osd::{self, Osd};
-use crate::painter::Painter;
+use crate::painter::{Note, Painter};
 use crate::power::{self, Power};
 use crate::respawn;
 use crate::sync::Action;
@@ -5180,10 +5180,12 @@ impl App {
             let path = |p: &Painter| (p.known(), p.path());
             let before = path(painter);
             let frames = painter.take();
+            let notes = painter.take_notes();
             // the render thread told the loop which path draws the head
             if painter.take_known() {
                 display_lines(head, videos);
             }
+            gpu_notes(head, videos, notes);
             for mut composed in frames {
                 if let Some(why) = composed.left_gpu.take() {
                     left_gpu(head, videos, &why);
@@ -5628,6 +5630,17 @@ fn failed_gpu_frame(view: &mut View, video: &dyn Video, id: DisplayId, why: &str
         "display {}: a frame failed on the GPU path ({why}): the CPU path draws it, and later failures of this display's frames are not logged",
         video.name(id)
     );
+}
+
+/// Logs the GPU path's `notes` about the displays of `head`, each under
+/// its display's connector, so that on a head of several displays the log
+/// says which display a note is about.
+fn gpu_notes(head: &Head, videos: &BTreeMap<PathBuf, Box<dyn Video>>, notes: Vec<Note>) {
+    for note in notes {
+        let (node, id) = &note.display;
+        let name = videos.get(node).map(|v| v.name(*id)).unwrap_or_default();
+        log::warn!("head {}, display {name}: {}", head.name(), note.text);
+    }
 }
 
 /// The GPU path could not set up the display `key` of `head` at its size,
