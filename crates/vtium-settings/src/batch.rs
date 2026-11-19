@@ -22,7 +22,7 @@
 //! file. [`Batch::holds`] answers whether a path is in the batch.
 //!
 //! References:
-//! - ADR-1205 D4: the batch, its file, the fresh-install list, the note of 2026-11-18 on a missing file, and the note of 2026-11-19 on where the console font is found.
+//! - ADR-1205 D4: the batch, its file, the fresh-install list, the note of 2026-11-18 on a missing file, and the note of 2026-11-19 on where the console font is found and on a batch file vtium cannot use.
 //! - ADR-1205 D10: the palettes the package ships are active from the first start.
 //! - ADR-1401 D10: the owner and mode check the batch file passes, as vtium.conf does.
 
