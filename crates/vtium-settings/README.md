@@ -109,4 +109,5 @@ The sections, with the `version` and `policy` lines above them, make up the flow
 | `QUOTE_MAX` | 64 | Characters of the file's text an error quotes, escaped when shown | The quote is cut, and shown ending `...` | vtium's own: a name, a value or a token |
 | `VTLOOK_FILE_MAX` | 65536 | Bytes of a vtlook | The vtlook fails at its reading stage, and the head draws the built-in vtlook | ADR-1304 D4 |
 | `VTLOOK_SECTIONS_MAX` | 32 | Sections of a vtlook, its `[requires]` included | The vtlook fails at its reading stage, the first section past it named, and the head draws the built-in vtlook | ADR-1304 D4 |
+| `PALETTE_FILE_MAX` | 16384 | Bytes of a palette file, a color scheme | The file counts as missing, and the heads that name it draw the palette vtium.conf's top level names | ADR-1205 D10; a file that sets all 256 colors and every other key it may set is under 7 KiB |
 <!-- end of the bounds table -->

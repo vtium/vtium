@@ -164,6 +164,17 @@ pub(super) fn parse_color(spec: &[u8]) -> Option<Rgb> {
     Some(Rgb::new(next()?, next()?, next()?))
 }
 
+impl Rgb {
+    /// The color an X11 color name names, from X11's rgb.txt, as OSC 4
+    /// reads it: in any case and with any spaces, so `DarkSlateGray` and
+    /// `dark slate gray` name one color. `None` for a name rgb.txt lacks.
+    /// A palette file's reader resolves its color names through this, so
+    /// a name means the same color in a palette file as in OSC 4.
+    pub fn from_x11_name(name: &str) -> Option<Rgb> {
+        named(name.as_bytes())
+    }
+}
+
 /// A color name from X11's rgb.txt, read in any case and with any spaces,
 /// so `DarkSlateGray` and `dark slate gray` name one color.
 fn named(spec: &[u8]) -> Option<Rgb> {
@@ -556,6 +567,7 @@ mod tests {
             let joined = words.concat();
             for spelling in [name.clone(), name.to_ascii_uppercase(), joined.clone()] {
                 assert_eq!(named(spelling.as_bytes()), want, "{spelling:?}");
+                assert_eq!(Rgb::from_x11_name(&spelling), want, "{spelling:?}");
                 assert_eq!(parse_color(spelling.as_bytes()), want, "{spelling:?}");
             }
             folded.insert(joined.to_ascii_lowercase());
