@@ -4501,7 +4501,7 @@ impl App {
     /// leaves the font and the size as they were, with one line saying
     /// why.
     fn return_font(&mut self, h: usize, id: u64) {
-        self.reread_batch(Some((h, id)));
+        self.reread_batch(Some(h));
         let Some(due) = self.heads.get(h).map(|head| head.returns(id)) else {
             return;
         };

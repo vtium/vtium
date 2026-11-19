@@ -78,20 +78,27 @@ pub(crate) fn palette_with(
 impl super::Head {
     /// The head's palette, read again from `config`, the head's
     /// configuration, with `top`, the top level's palette, in place of a
-    /// palette file of the look's that fails or that no folder holds. The
-    /// console `id`, whose next session is about to start, takes it as the
+    /// palette file of the look's that fails or that no folder holds. vtium
+    /// calls this at every session end of the head, so the batch in force
+    /// decides the palette of the head's next login, whichever head's
+    /// session end found the batch changed. When the palette differs from
+    /// the one the head had, every console of the head takes it as the
     /// palette it is configured with, and so does each console the head
-    /// opens from now on. vtium calls this when a new login finds the batch
-    /// changed.
+    /// opens from now on. A console whose session still runs then draws in
+    /// the new palette, in place of the colors its program set.
     ///
     /// References:
-    /// - ADR-1205 D4, its note of 2026-11-19: an activation takes effect at the next login.
+    /// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
     /// - ADR-1205 D10: the look's palette is the head's configured palette.
-    pub(crate) fn repalette(&mut self, config: &Config, top: Palette, id: u64) {
-        self.palette = config.palette_or(|| top);
+    pub(crate) fn repalette(&mut self, config: &Config, top: Palette) {
+        let palette = config.palette_or(|| top);
+        if palette == self.palette {
+            return;
+        }
+        self.palette = palette;
         let palette = self.palette.clone();
-        if let Some(console) = self.console_mut(id) {
-            console.term.terminal.set_palette(palette);
+        for console in self.consoles_mut() {
+            console.term.terminal.set_palette(palette.clone());
         }
     }
 

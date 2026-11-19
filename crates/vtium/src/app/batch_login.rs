@@ -353,3 +353,91 @@ fn the_helper_after_a_login_reads_the_new_active_fonts_before_any_ask() {
         "a font helper reads the new active fonts before its first ask"
     );
 }
+
+// Every session end gives the ended head's consoles, all of them, the
+// palette the batch in force allows, whether or not that session end is
+// the one that found the batch changed. Here heads a and b both draw the
+// color scheme kiln, and head a has two consoles. Root activates kiln, a's
+// session ends and finds the change, then b's ends and finds the batch as
+// it was; both heads draw kiln. Root then deactivates kiln, and the same
+// two session ends take it from both.
+//
+// References:
+// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
+#[test]
+fn every_session_end_gives_its_heads_consoles_the_palette_the_batch_allows() {
+    let dir = Scratch::new("batch-heads");
+    let share = dir.join("share");
+    for d in [&*dir, &share] {
+        let _ = std::fs::create_dir_all(d);
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let scheme = share.join("batch-heads.palette");
+    write(&scheme, "background = #282a36\n");
+    let file = dir.join("batch.conf");
+    write(&file, "# nothing is active\n");
+    let me = rustix::process::geteuid().as_raw();
+    let fonts = font::Sources {
+        trust: Trust::owner(me).below(&dir),
+        ..no_fonts()
+    };
+    let heads = "version = 1\n[head a]\n[head b]\n[rules]\ndisplay connector:mem/A -> a\ndisplay connector:mem/B -> b\n";
+    let t = Instant::now();
+    let (_lp, mut app) = seat_with(&["--palette=batch-heads"], Some(heads), fonts);
+    app.add_video(
+        PathBuf::from("/dev/mem0"),
+        Box::new(Still::new(&[(1, "A"), (2, "B")])),
+    );
+    app.set_batch_places(
+        Places {
+            file: file.clone(),
+            vconsole_conf: PathBuf::from("/dev/null"),
+            cmdline: PathBuf::from("/dev/null"),
+            palettes: share.clone(),
+            ..Places::system()
+        },
+        Rule::new(Trust::owner(me)).below(&dir),
+    );
+    shown_at(&mut app, t);
+    assert!(app.open_console(0, t), "head a's second console");
+    let kiln = Rgb::new(0x28, 0x2a, 0x36);
+    let id = |app: &super::App, h: usize| app.heads.get(h).unwrap().console.id;
+    // whether every console of head `h` and the head itself draw kiln
+    let draws = |app: &super::App, h: usize| {
+        let head = app.heads.get(h).unwrap();
+        let mut all = head
+            .consoles()
+            .map(|c| c.term.terminal.palette().bg() == kiln);
+        let first = all.next().unwrap();
+        assert!(all.all(|c| c == first), "head {h}'s consoles agree");
+        assert_eq!(
+            head.palette().bg() == kiln,
+            first,
+            "head {h} and its consoles agree"
+        );
+        first
+    };
+    assert_eq!(app.heads.first().unwrap().console_count(), 2);
+    assert!(!draws(&app, 0) && !draws(&app, 1));
+    // root activates kiln
+    write(&file, &format!("{}\n", scheme.display()));
+    app.return_font(0, id(&app, 0));
+    assert!(draws(&app, 0), "head a, whose session end found the change");
+    app.return_font(1, id(&app, 1));
+    assert!(
+        draws(&app, 1),
+        "head b, whose session end found the batch as it was"
+    );
+    // root deactivates kiln
+    write(&file, "# nothing is active\n");
+    app.return_font(1, id(&app, 1));
+    assert!(
+        !draws(&app, 1),
+        "head b, whose session end found the change"
+    );
+    app.return_font(0, id(&app, 0));
+    assert!(
+        !draws(&app, 0),
+        "head a, whose session end found the batch as it was"
+    );
+}

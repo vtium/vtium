@@ -46,17 +46,26 @@ impl App {
     /// since the last login takes effect at this one, with no restart.
     /// When the batch changed, the console's launcher takes the new active
     /// fonts before any glyph is asked for again, every color scheme is read
-    /// again at its next use, and head `h`'s palette is read again for its
-    /// console `id`, whose next session starts with it. The other heads keep
-    /// their palette until their own next login. When the new batch no
-    /// longer lists a resource the old one listed, every stored glyph is
-    /// dropped and drawn again, because a glyph may come from a font that
-    /// is no longer active. When the pointer file's place in the batch
-    /// changed, the pointer file loads again through the new gate.
+    /// again at its next use, and every stored glyph is dropped and drawn
+    /// again when the new batch no longer lists a resource the old one
+    /// listed, because a glyph may come from a font that is no longer
+    /// active. When the pointer file's place in the batch changed, the
+    /// pointer file loads again through the new gate. Then head `ended`,
+    /// whose session ended, catches up with the batch in force, whether or
+    /// not this call found it changed.
     ///
     /// References:
     /// - ADR-1205 D4, its note of 2026-11-19: the batch is read again at each new login, where vtium reads the font settings again.
-    pub(super) fn reread_batch(&mut self, ended: Option<(usize, u64)>) {
+    pub(super) fn reread_batch(&mut self, ended: Option<usize>) {
+        self.batch_changed();
+        if let Some(h) = ended {
+            self.catch_up(h);
+        }
+    }
+
+    /// Reads the batch again, and when it changed brings the console's
+    /// font helpers, glyphs, color schemes and pointer file up to it.
+    fn batch_changed(&mut self) {
         let before = font::gate();
         let (places, rule) = &self.batch_places;
         let Some(findings) = font::load_batch(places, &self.font_sources.trust, rule.clone())
@@ -90,12 +99,21 @@ impl App {
             self.drop_glyphs();
         }
         crate::config::Config::forget_palettes();
-        if let Some((h, id)) = ended {
-            let top = self.config.palette();
-            let config = self.head_config(h);
-            if let Some(head) = self.heads.get_mut(h) {
-                head.repalette(&config, top, id);
-            }
+    }
+
+    /// Brings head `h`, whose session just ended, up to the batch in force,
+    /// at every session end of the head, whether or not this session end
+    /// found the batch changed: every console of the head takes the palette
+    /// the batch allows. A head whose next login is the first since another
+    /// head's session end found the change thus catches up at its own.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
+    fn catch_up(&mut self, h: usize) {
+        let top = self.config.palette();
+        let config = self.head_config(h);
+        if let Some(head) = self.heads.get_mut(h) {
+            head.repalette(&config, top);
         }
     }
 
