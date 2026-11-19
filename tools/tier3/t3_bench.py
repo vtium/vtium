@@ -16,6 +16,12 @@ must stay within (pane_verdict).
 kmscon, run with render-timer=log, writes one line per display per second,
 each covering the second before its stamp; the scenario's figures come from
 the lines whose seconds overlap the window.
+
+The key-echo check's screen (t3_keyecho) reports "keys", the keys the
+driver typed, and "read", the keys its echoing program read. Its figures
+come from vtium's frame-times lines (figure_lines), which give the time
+from each key vtium sent to the program until a display queued the frame
+that shows the program's echo.
 """
 
 import re
@@ -26,6 +32,16 @@ import statistics
 # on the same line, such as a prompt.
 _TIMER = re.compile(r"\[\s*(\d+\.\d+)\] (?:kmscon|vtium)\[(\d+)\]: terminal: render-timer: (.*)$")
 _BENCH = re.compile(r"T3-BENCH (\S+)((?: \w+=\S+)+)\s*$")
+
+# "[   12.345678] vtium[505]: render: head NAME: F frames, compose mean C max M us",
+# the frame-times line vtium logs at debug level, under the render target,
+# once a second while a head draws. When a display of the head queued the
+# frame that shows a key's echo in that second, the line goes on
+# ", K key echoes, key to present mean A max B us". The times are whole
+# microseconds.
+_FIGURES = re.compile(r"\[\s*(\d+\.\d+)\] vtium\[(\d+)\]: render: head (.+?): (\d+) frames, "
+                      r"compose mean (\d+) max (\d+) us"
+                      r"(?:, (\d+) key echoes, key to present mean (\d+) max (\d+) us)?$")
 
 # A console without a render timer logs this when its configuration names
 # render-timer. vtium reads render-timer in every build, so the line comes
@@ -51,6 +67,71 @@ def timer_lines(text):
         except ValueError:
             continue
         out.append(entry)
+    return out
+
+
+def figure_lines(text):
+    """The frame-times lines in console text, in order, as dicts: "t" (the
+    stamp, in seconds), "pid", "head", "frames", "compose_us_mean",
+    "compose_us_max", and "echoes", "echo_us_mean" and "echo_us_max", which
+    are 0 on a line that measured no key echo. A line another writer broke
+    into on the serial console is left out."""
+    out = []
+    for line in text.splitlines():
+        m = _FIGURES.search(line.strip())
+        if not m:
+            continue
+        g = m.groups()
+        out.append({"t": float(g[0]), "pid": int(g[1]), "head": g[2], "frames": int(g[3]),
+                    "compose_us_mean": int(g[4]), "compose_us_max": int(g[5]),
+                    "echoes": int(g[6] or 0), "echo_us_mean": int(g[7] or 0),
+                    "echo_us_max": int(g[8] or 0)})
+    return out
+
+
+def key_echoes(lines, start, end):
+    """The key-to-present figures of the window [start, end], from the
+    frame-times lines stamped inside it: how many lines and frames, how many
+    key echoes, and the key-to-present time's mean, weighted by each line's
+    echoes, and its largest, in microseconds.
+
+    A head logs its line once a second after the first frame the line
+    counts, so the line covers that frame and the ones after it. The
+    key-echo screen stays idle for longer than a second before and after
+    its window, so the lines stamped inside the window count its frames
+    and no other."""
+    window = [x for x in lines if start < x["t"] <= end]
+    echoes = sum(x["echoes"] for x in window)
+    out = {"figure_lines": len(window), "frames": sum(x["frames"] for x in window),
+           "key_echoes": echoes}
+    if echoes:
+        out["key_to_present_us_mean"] = round(
+            sum(x["echo_us_mean"] * x["echoes"] for x in window) / echoes)
+        out["key_to_present_us_max"] = max(x["echo_us_max"] for x in window)
+    return out
+
+
+def echo_figures(serial_text, start, end, counts, config):
+    """The report entry of the key-echo screen (t3_keyecho), whose window
+    reports "keys", the keys the driver typed, and "read", the keys the
+    echoing program read. "error", which fails the case, is set when the
+    program read fewer keys than were typed, when vtium measured more echoes
+    than keys, and when no line in the window gives an echo while debug
+    logging is on."""
+    out = {"seconds": round(end - start, 2), "keys": counts["keys"],
+           "keys_read": counts.get("read", 0)}
+    out.update(key_echoes(figure_lines(serial_text), start, end))
+    if out["keys_read"] < out["keys"]:
+        out["error"] = ("the echoing program read %d of the %d keys typed"
+                        % (out["keys_read"], out["keys"]))
+    elif out["key_echoes"] > out["keys"]:
+        out["error"] = ("vtium measured %d key echoes in the window, more than the %d keys "
+                        "typed" % (out["key_echoes"], out["keys"]))
+    elif not out["key_echoes"] and "debug" not in config:
+        out["note"] = "debug is off for this variant, so vtium logs no frame-times line"
+    elif not out["key_echoes"]:
+        out["error"] = ("no frame-times line stamped in the window %.2f to %.2f s gives a key "
+                        "echo" % (start, end))
     return out
 
 
@@ -225,6 +306,8 @@ def measure(serial_text, event_line, config):
     if window is None:
         return {"error": "the screen reported no benchmark window: %r" % event_line}
     name, start, end, counts = window
+    if "keys" in counts:
+        return echo_figures(serial_text, start, end, counts, config)
     out = summarize(timer_lines(serial_text), counts.get("lines"), start, end)
     out.update(program(counts, end - start))
     if "tmux_sixels" in counts:
