@@ -187,3 +187,62 @@ fn page_up_and_page_down_keep_each_entry_of_the_help_page_on_one_screen() {
         }
     }
 }
+
+/// The Help page describes the tabs in the order the tab bar shows them,
+/// so a reader finds each tab's section where the bar leads them to
+/// expect it. Each tab's section is found by what the tab is: the node's
+/// own words from the contract, or the hand-written words of a tab whose
+/// node is still planned.
+///
+/// References:
+/// - ADR-1205 D1: the six tabs and their order.
+/// - ADR-1403 D7, "The contract": the Help tab is generated from the
+///   tree.
+#[test]
+fn the_help_page_describes_the_tabs_in_the_tab_bars_order() {
+    use vtium_config::tui::contract::NODES;
+    use vtium_config::tui::words;
+    let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let node_of = |view: View| match view {
+        View::Fonts | View::New => "fonts",
+        View::Effects => "effects",
+        View::Looks => "looks",
+        View::Flow => "flow",
+        View::Settings => "settings",
+        View::Help => "help",
+    };
+    for (cols, rows) in [(80, 25), (100, 30)] {
+        let mut a = app(cols, rows);
+        press(&mut a, Key::Char('6'));
+        let page = words(
+            &a.help
+                .page(&a.shared, a.size)
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+        let mut before = 0;
+        for view in View::TABS {
+            let id = node_of(view);
+            let node = NODES.iter().find(|n| n.id == id).expect("a tab's node");
+            let heading = if node.supported {
+                words(node.what)
+            } else {
+                let (_, name, does, _) = words::HELP_PLANNED
+                    .iter()
+                    .find(|p| p.0 == id)
+                    .expect("a planned tab's words");
+                words(&format!("{name} {does}"))
+            };
+            let at = page
+                .find(&heading)
+                .unwrap_or_else(|| panic!("{cols}: the page leaves out {id}"));
+            assert!(
+                at >= before,
+                "{cols}: {id}'s section comes before the tab ahead of it in the bar"
+            );
+            before = at;
+        }
+    }
+}

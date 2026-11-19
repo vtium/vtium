@@ -651,8 +651,10 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             ),
         );
     }
+    // today `o` turns allow-font-ops on in Help and Settings, and does
+    // nothing on the Effects tab, which is new and follows the row
     let ops_on: Check = |s| {
-        if s.before.term == Term::OpsOff {
+        if s.before.term == Term::OpsOff && s.before.app.nav.view != View::Effects {
             if s.has("check") {
                 Ok(())
             } else {

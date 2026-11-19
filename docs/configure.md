@@ -344,11 +344,11 @@ The key line lists the keys of the Flow view and of what you open over it, such 
 
 The mouse selects a box with a click and opens it with a second click.
 
-The Effects tab is not built yet. It is to list the color maps and shaders that a look can use. See [the Effects tab issue](https://github.com/vtium/vtium/issues/439).
+The Fonts view lists the frits and the built-in fonts. It shows each one as a picture of the console rendered in that font. With `t`, it tries one on the live console. It also makes and removes frits. A frit that you make or remove there waits, and goes in with the next Install. See [Choose a font](fonts.md#choosing-a-font-with-vtium-config) for details.
+
+The Effects tab shows only a line that says the tab is coming. Once it is built, the tab lists the color maps and shaders that a look can use. See [the Effects tab issue](https://github.com/vtium/vtium/issues/439).
 
 The Looks view lists the console's sizes until vtium-config edits looks of their own.
-
-The Fonts view lists the frits and the built-in fonts. It shows each one as a picture of the console rendered in that font. With `t`, it tries one on the live console. It also makes and removes frits. A frit that you make or remove there waits, and goes in with the next Install. See [Choose a font](fonts.md#choosing-a-font-with-vtium-config) for details.
 
 The Settings view groups the settings into sections, such as Fonts and text, Colors and Key bindings, in the order the example vtium.conf uses. Enter opens a section, which shows its settings under the titles of their groups, each with its value. Esc goes back to the sections. On a setting that takes a fixed set of values, such as on and off, Enter opens a list of the values, and Enter there picks one. On any other setting, Enter lets you type the value. While you type, Enter keeps the value and Esc drops it. The Help view lists the keys of each view, and the commands. Its tab bar shows no action, so `s` and `i` do nothing there.
 
