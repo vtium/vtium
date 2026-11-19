@@ -83,12 +83,21 @@ pub enum Request {
     ShowFont(String),
 }
 
+/// Whether a value being typed takes the character `c`. Every tab types
+/// through this test, so no value takes a control character, C0 or C1.
+/// A value goes into vtium.conf as it is typed, and a C1 control such as
+/// U+009B is CSI to a terminal that reads 8-bit controls, so the file
+/// would act on the terminal of whoever shows it.
+pub fn typable(c: char) -> bool {
+    !c.is_control()
+}
+
 /// A character or Backspace typed into `text`, the value being edited. A
-/// control character does nothing, and `text` holds at most
-/// [`TYPED_MAX`] bytes.
+/// character that [`typable`] refuses does nothing, and `text` holds at
+/// most [`TYPED_MAX`] bytes.
 pub fn type_into(text: &mut String, key: Key) {
     match key {
-        Key::Char(c) if !c.is_control() && text.len() < TYPED_MAX => text.push(c),
+        Key::Char(c) if typable(c) && text.len() < TYPED_MAX => text.push(c),
         Key::Backspace => {
             text.pop();
         }

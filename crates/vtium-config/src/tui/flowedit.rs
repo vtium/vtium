@@ -144,7 +144,10 @@ impl App {
         }
     }
 
-    /// `s`: writes the unsaved changes into the draft (ADR-1403 D7).
+    /// `s`: writes the unsaved changes into the draft.
+    ///
+    /// References:
+    /// - ADR-1403 D7: Save writes the changes into the draft.
     pub(crate) fn save(&mut self) -> Vec<Effect> {
         if self.shared.draft.is_none() {
             return self.say(words::NO_DESK);
@@ -157,9 +160,12 @@ impl App {
 
     /// Makes `changes` on the draft, in order, and hands the result to the
     /// desk to check; all of them or, when one cannot be made, none. The
-    /// changes wait for Save (ADR-1403 D7). The message line shows the
-    /// commands that make the same changes, and `select` is the item to
-    /// select once the draft is checked.
+    /// changes wait for Save. The message line shows the commands that
+    /// make the same changes, and `select` is the item to select once the
+    /// draft is checked.
+    ///
+    /// References:
+    /// - ADR-1403 D7: a change waits for Save.
     pub(crate) fn make(&mut self, changes: Vec<Change>, select: Option<Item>) -> Vec<Effect> {
         let text = match self.shared.apply(&changes) {
             Ok(text) => text,
@@ -178,7 +184,10 @@ impl App {
         vec![Effect::Desk(Op::Check(text))]
     }
 
-    /// The action keys `i`, `d`, `v`, `r`, `o` and `n` (ADR-1403 D7).
+    /// The action keys `i`, `d`, `v`, `r`, `o` and `n`.
+    ///
+    /// References:
+    /// - ADR-1403 D7: the action keys and the questions they ask.
     pub(crate) fn action(&mut self, key: char) -> Vec<Effect> {
         if self.shared.draft.is_none() {
             return self.say(words::NO_DESK);
@@ -314,7 +323,10 @@ impl App {
                     _ => (0, 0),
                 };
                 // a draft whose only problem is that it wires no complete
-                // route installs only after this question (ADR-1403 D7)
+                // route installs only after this question
+                //
+                // References:
+                // - ADR-1403 D7: the question before such an install.
                 let question = if plan.no_route {
                     words::no_route_question(added, removed, n)
                 } else {

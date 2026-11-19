@@ -1389,7 +1389,8 @@ impl Checks {
     fn invariants(&mut self, s: &Seen<'_>) -> Result<(), String> {
         let app = &s.after.app;
         if s.after.exited.is_none() {
-            let screen = s.after.screen();
+            let shown = super::state::Shown::of(s.after);
+            let screen = shown.rows();
             if screen.len() != app.size.rows {
                 return Err(format!(
                     "{} rows on a screen of {}",
@@ -1400,6 +1401,10 @@ impl Checks {
             if let Some(row) = screen.iter().find(|r| r.chars().count() > app.size.cols) {
                 return Err(format!("a row wider than {}: {row:?}", app.size.cols));
             }
+            // the screen shows the node the navigation module names, read
+            // from its text and its tab bar, so a tab's `node` that names
+            // the wrong node fails here and not only in the map
+            shown.agrees(&s.step.to.node())?;
             // mouse reporting is on exactly while the Flow view is in front
             if s.after.mouse != (app.nav.view == View::Flow) {
                 return Err(format!(

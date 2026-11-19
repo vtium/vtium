@@ -13,10 +13,18 @@
 //!   navigation module name a tab's module. Every other module of the TUI
 //!   is shared by the tabs, and a path to a tab there would let one tab
 //!   reach another through it.
-//! - No module re-exports an item of a tab with `pub use`.
+//! - No module re-exports an item of a tab, with `pub use` or with a
+//!   public type alias such as `pub type Plant = super::tabs::fonts::Fonts;`,
+//!   which would let a tab reach another through the alias.
 //! - No `macro_rules!` body names a tab's module.
 //! - Only the view, the loop and the TUI's root module name the view's
 //!   modules, so update, the layout and the tabs never draw.
+//!
+//! The test leaves two rules to the call signatures: a tab's update never
+//! touches the navigation module's fields, and it never writes to the
+//! terminal. Update hands a tab's update only the tab's own state and the
+//! shared part, read-only, so neither is in reach. The test looks for no
+//! path to `tui::nav` or `tui::port` in a tab's file.
 //!
 //! The test resolves each path the way rustc does for the forms the TUI
 //! uses: `crate::`, `super::`, `self::`, a name a `use` brought in, and a
@@ -28,6 +36,8 @@
 //! - ADR-1206 D4, "who may call whom": the table of who may call whom.
 //! - ADR-1206 D4, "Three rules close the paths the test cannot see": the
 //!   rules on re-exports and macros, and that the test reads every file.
+//!   A public type alias re-exports as `pub use` does, so the rule on
+//!   re-exports covers it.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -233,12 +243,28 @@ fn use_tree(toks: &[Tok], i: &mut usize, prefix: &[String], out: &mut Vec<(Vec<S
 }
 
 /// One path a file names, resolved from the crate's root, and whether it
-/// stands in a `pub use` or in a `macro_rules!` body.
+/// stands in a `pub use`, on the right of a public type alias, or in a
+/// `macro_rules!` body.
 #[derive(Clone, Debug)]
 struct Named {
     path: Vec<String>,
     public_use: bool,
+    public_type: bool,
     in_macro: bool,
+}
+
+/// Whether the item whose keyword is at `toks[i]` is public in any way:
+/// `pub`, `pub(crate)`, `pub(super)` and the like.
+fn public_before(toks: &[Tok], i: usize) -> bool {
+    match i.checked_sub(1).map(|p| &toks[p]) {
+        Some(Tok::Ident(p)) => p == "pub",
+        Some(Tok::Close(')')) => {
+            let open = toks[..i].iter().rposition(|t| *t == Tok::Open('('));
+            open.and_then(|o| o.checked_sub(1))
+                .is_some_and(|p| toks[p] == Tok::Ident("pub".into()))
+        }
+        _ => false,
+    }
 }
 
 /// `segs` from the crate's root, as a path written in `module` resolves,
@@ -280,6 +306,10 @@ fn named(src: &str, module: &[String], modules: &BTreeSet<Vec<String>>) -> Vec<N
     let mut inline: Vec<(String, usize)> = Vec::new();
     let mut depth = 0usize;
     let mut macro_at: Option<usize> = None;
+    // the right side of a public type alias, open until its `;`: a path
+    // there re-exports what it names, as a `pub use` does, and so does a
+    // bare name that a `use` brought in
+    let mut public_type = false;
     let mut i = 0;
     while i < toks.len() {
         let here: Vec<String> = module
@@ -318,17 +348,18 @@ fn named(src: &str, module: &[String], modules: &BTreeSet<Vec<String>>) -> Vec<N
                     i += 1;
                 }
             }
+            Tok::Semi => {
+                public_type = false;
+                i += 1;
+            }
+            Tok::Ident(kw) if kw == "type" && public_before(&toks, i) => {
+                // `pub type Name = path;`: the alias's own name is no path
+                public_type = true;
+                i += 2;
+            }
             Tok::Ident(kw) if kw == "use" => {
                 // `pub use`, `pub(crate) use` and the like re-export
-                let public_use = match i.checked_sub(1).map(|p| &toks[p]) {
-                    Some(Tok::Ident(p)) => p == "pub",
-                    Some(Tok::Close(')')) => {
-                        let open = toks[..i].iter().rposition(|t| *t == Tok::Open('('));
-                        open.and_then(|o| o.checked_sub(1))
-                            .is_some_and(|p| toks[p] == Tok::Ident("pub".into()))
-                    }
-                    _ => false,
-                };
+                let public_use = public_before(&toks, i);
                 i += 1;
                 let mut tree = Vec::new();
                 use_tree(&toks, &mut i, &[], &mut tree);
@@ -342,6 +373,7 @@ fn named(src: &str, module: &[String], modules: &BTreeSet<Vec<String>>) -> Vec<N
                     out.push(Named {
                         path,
                         public_use,
+                        public_type: false,
                         in_macro: macro_at.is_some(),
                     });
                 }
@@ -362,9 +394,21 @@ fn named(src: &str, module: &[String], modules: &BTreeSet<Vec<String>>) -> Vec<N
                     out.push(Named {
                         path,
                         public_use: false,
+                        public_type,
                         in_macro: macro_at.is_some(),
                     });
                 }
+            }
+            Tok::Ident(name) if public_type => {
+                if let Some(path) = aliases.get(name) {
+                    out.push(Named {
+                        path: path.clone(),
+                        public_use: false,
+                        public_type,
+                        in_macro: macro_at.is_some(),
+                    });
+                }
+                i += 1;
             }
             _ => i += 1,
         }
@@ -435,6 +479,9 @@ fn check(files: &[(String, String)]) -> (Vec<String>, BTreeMap<String, Vec<Named
                 if n.public_use {
                     bad.push(format!("{file}: a pub use re-exports a tab's item: {path}"));
                 }
+                if n.public_type {
+                    bad.push(format!("{file}: a pub type names a tab's item: {path}"));
+                }
                 if n.in_macro {
                     bad.push(format!("{file}: a macro_rules! body names a tab: {path}"));
                 }
@@ -503,8 +550,9 @@ fn no_module_of_the_tui_crosses_the_lines_of_who_may_call_whom() {
 
 /// The rules catch each kind of crossing they claim to, on files written
 /// to cross them: a tab that names another through `super` and through a
-/// group, a shared module that names a tab, a re-export, a macro, and
-/// update calling the view.
+/// group, a shared module that names a tab, a re-export with `pub use` and
+/// with a public type alias, a macro, and update calling the view. A
+/// private alias in a file that may name a tab is no crossing.
 #[test]
 fn each_rule_catches_the_crossing_it_names() {
     let file = |path: &str, text: &str| (path.to_owned(), text.to_owned());
@@ -538,9 +586,15 @@ fn each_rule_catches_the_crossing_it_names() {
             "tui/view.rs",
             "macro_rules! m { () => { $crate::tui::tabs::fonts::X }; }",
         ),
+        file(
+            "tui/layout.rs",
+            "use super::tabs::looks::Looks;\npub type Plant = super::tabs::fonts::Fonts;\npub(crate) type Seen = Looks;\ntype Own = super::tabs::flow::Flow;",
+        ),
     ];
     let (bad, _) = check(&files);
     let expected = [
+        "tui/layout.rs: a pub type names a tab's item: tui::tabs::fonts::Fonts",
+        "tui/layout.rs: a pub type names a tab's item: tui::tabs::looks::Looks",
         "tui/model.rs: a pub use re-exports a tab's item: tui::tabs::flow::Flow",
         "tui/model.rs: update, a layout or a tab names the view: tui::view::screen",
         "tui/tabs/flow.rs: a tab names another tab: tui::tabs::fonts::Fonts",
