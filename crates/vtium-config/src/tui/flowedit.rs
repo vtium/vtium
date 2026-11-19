@@ -7,14 +7,14 @@
 
 use super::desk::{Done, Op};
 use super::edit::Change;
-use super::flow::{Device, Draft, Flow, Item, New};
+use super::flow::{Draft, Flow, Item};
 use super::input::Key;
-use super::model::{App, Confirm, Effect, Pager, Then, step};
+use super::model::{App, Confirm, Effect, Then};
 use super::words;
 use crate::flowmodel::Present;
 
 impl App {
-    fn ask(&mut self, question: String, then: Then) {
+    pub(crate) fn ask(&mut self, question: String, then: Then) {
         self.shared.message = Some(question.clone());
         self.nav.confirm = Some(Confirm { question, then });
     }
@@ -165,7 +165,7 @@ impl App {
         };
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
         self.shared.message = Some(commands.join("\n"));
-        self.flow.select_after = select;
+        self.flow.select_after(select);
         // one action of the person's is one change, whatever it edits
         self.shared.unsaved = self.shared.unsaved.saturating_add(1);
         // the draft holds the change at once, so a key that comes before
@@ -197,7 +197,7 @@ impl App {
             'd' => vec![Effect::Desk(Op::Devices)],
             'o' => vec![Effect::Desk(Op::History)],
             'v' => {
-                self.open_pager();
+                self.flow.open_pager(&self.shared, self.size);
                 Vec::new()
             }
             'r' => {
@@ -231,7 +231,7 @@ impl App {
         let done = match done {
             Ok(done) => done,
             Err(why) => {
-                self.flow.select_after = None;
+                self.flow.select_after(None);
                 self.shared.quit_after_install = None;
                 return self.say(&why);
             }
@@ -265,15 +265,13 @@ impl App {
                     _ => {}
                 }
                 self.shared.draft = Some(opened);
-                let select = self.flow.select_after.take();
+                let select = self.flow.take_select();
                 self.rebuild(select);
                 // the draft read at start, or one that replaces it: the
                 // highlight goes to the first box of CONFIGURATION
                 // (ADR-1403 D7, "This screen")
                 if matches!(op, Op::Open | Op::Revert | Op::New | Op::Restore(_)) {
-                    self.flow.at = super::tabs::flow::first_item(&self.shared.inputs.flow);
-                    self.flow.state.at = None;
-                    self.flow.state.top = 0;
+                    self.flow.restart(&self.shared.inputs.flow);
                 }
             }
             Done::Plan(mut plan) => {
@@ -335,7 +333,7 @@ impl App {
                 self.shared.message = Some(lines.join(sep));
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
-            Done::History(kept) => self.flow.restore = Some((kept, 0)),
+            Done::History(kept) => self.flow.show_history(kept),
             Done::Present(present) => self.set_present(present),
             // only an install answers with this, as [`App::installed`]
             Done::Installed(..) => {}
@@ -400,7 +398,8 @@ impl App {
     }
 
     /// Builds the flow again from the draft and the devices present, and
-    /// keeps the item the file view marks on the item it was on.
+    /// has the Flow tab carry its selected item over to the new flow, to
+    /// `select` where the new flow has it.
     fn rebuild(&mut self, select: Option<Item>) {
         let Some(d) = &self.shared.draft else {
             return;
@@ -412,205 +411,6 @@ impl App {
         };
         let new = crate::flowmodel::build(&d.text, &self.shared.present, Some(draft));
         let old = std::mem::replace(&mut self.shared.inputs.flow, new);
-        let new = &self.shared.inputs.flow;
-        let at = select
-            .filter(|i| new.has(*i))
-            .unwrap_or_else(|| carry(&old, new, self.flow.at));
-        self.flow.at = at;
+        self.flow.carry_over(&old, &self.shared.inputs.flow, select);
     }
-
-    /// Opens the pager at the line of the card selected in the flow.
-    fn open_pager(&mut self) {
-        let Some(d) = &self.shared.draft else {
-            return;
-        };
-        let mark = item_line(&self.shared.inputs.flow, &d.text, self.flow.at);
-        let room = self.size.rows.saturating_sub(4).max(1);
-        self.flow.pager = Some(Pager {
-            top: mark.saturating_sub(room / 2).saturating_sub(1),
-            left: 0,
-            mark,
-        });
-    }
-
-    /// A key in the pager: `j` `k` and the arrows scroll, `h` `l`
-    /// sideways, `g` `G` to the top and the bottom, Ctrl-d Ctrl-u by half a
-    /// page, and Esc back to the flow. `q` quits, as it does everywhere.
-    pub(crate) fn pager_key(&mut self, key: Key) {
-        let lines = self
-            .shared
-            .draft
-            .as_ref()
-            .map_or(0, |d| d.text.lines().count());
-        // the draft's lines run from row 4 to the row above the key line
-        let keys = super::view::key_rows(self).len();
-        let room = self.size.rows.saturating_sub(4).saturating_sub(keys).max(1);
-        let last = lines.saturating_sub(room);
-        let half = (room / 2).max(1);
-        let Some(p) = self.flow.pager.as_mut() else {
-            return;
-        };
-        match key {
-            Key::Escape => self.flow.pager = None,
-            Key::Char('j') | Key::Down => p.top = p.top.saturating_add(1).min(last),
-            Key::Char('k') | Key::Up => p.top = p.top.saturating_sub(1),
-            Key::Char('l') | Key::Right => p.left = p.left.saturating_add(8),
-            Key::Char('h') | Key::Left => p.left = p.left.saturating_sub(8),
-            Key::Char('g') | Key::Home => p.top = 0,
-            Key::Char('G') | Key::End => p.top = last,
-            Key::Ctrl('d') | Key::PageDown => p.top = p.top.saturating_add(half).min(last),
-            Key::Ctrl('u') | Key::PageUp => p.top = p.top.saturating_sub(half),
-            _ => {}
-        }
-    }
-
-    /// A key on Restore's list of the installed history: Up and Down move,
-    /// Enter asks to copy the file into the draft, and Esc closes it. `q`
-    /// quits, as it does everywhere.
-    pub(crate) fn restore_key(&mut self, key: Key) -> Vec<Effect> {
-        let Some((kept, at)) = self.flow.restore.as_mut() else {
-            return Vec::new();
-        };
-        match key {
-            Key::Escape => self.flow.restore = None,
-            Key::Enter => {
-                let n = at.saturating_add(1);
-                let restored = kept.get(*at).map(|k| k.text.clone()).unwrap_or_default();
-                let now = self
-                    .shared
-                    .draft
-                    .as_ref()
-                    .map(|d| d.text.clone())
-                    .unwrap_or_default();
-                let (added, removed) = crate::drafts::counts(&restored, &now);
-                self.flow.restore = None;
-                self.ask(
-                    words::losing_unsaved(
-                        words::restore_question(n, added, removed),
-                        self.shared.unsaved,
-                    ),
-                    Then::Desk(Op::Restore(n)),
-                );
-            }
-            _ => *at = step(*at, kept.len(), key),
-        }
-        Vec::new()
-    }
-}
-
-/// The line of the draft `text`, counted from 1, that the file view opens
-/// at for `item`: a rule's own line, a head's or a look's section heading,
-/// and the first line for anything else.
-fn item_line(flow: &Flow, text: &str, item: Item) -> usize {
-    let heading = |want: String| {
-        text.lines()
-            .position(|l| l.trim() == want)
-            .map_or(1, |i| i.saturating_add(1))
-    };
-    match item {
-        Item::Rule(r) => flow.rules.get(r).map_or(1, |r| r.line),
-        Item::Head(h) => flow
-            .heads
-            .get(h)
-            .map_or(1, |h| heading(format!("[head {}]", h.name))),
-        Item::HeadLook(h) => flow
-            .look_of(h)
-            .and_then(|l| flow.looks.get(l))
-            .map_or(1, |l| heading(format!("[look {}]", l.name))),
-        Item::Look(l) => flow
-            .looks
-            .get(l)
-            .map_or(1, |l| heading(format!("[look {}]", l.name))),
-        Item::Display(_) | Item::Input(_) => {
-            let rule = match item {
-                Item::Display(d) => flow.displays.get(d).and_then(|d| d.rule),
-                Item::Input(d) => flow.inputs.get(d).and_then(|d| d.rule),
-                _ => None,
-            };
-            rule.and_then(|r| flow.rules.get(r)).map_or(1, |r| r.line)
-        }
-        _ => 1,
-    }
-}
-
-/// The item of `new` that stands where `item` stood in `old`: the same
-/// device by its match keys, the same head or look by its name; a device that left becomes its
-/// `configured, not found` block, or its neighbor in the column; a rule
-/// keeps its number.
-fn carry(old: &Flow, new: &Flow, item: Item) -> Item {
-    let device = |olds: &[Device], news: &[Device], i: usize, make: fn(usize) -> Item| {
-        let dev = olds.get(i)?;
-        // a device is itself by its match keys, which tell apart two
-        // devices of one name; among several alike, the one at its place
-        let same: Vec<usize> = news
-            .iter()
-            .enumerate()
-            .filter(|(_, d)| d.keys == dev.keys && d.name == dev.name && d.found == dev.found)
-            .map(|(k, _)| k)
-            .collect();
-        same.iter()
-            .copied()
-            .find(|k| *k == i)
-            .or_else(|| same.first().copied())
-            .or_else(|| {
-                news.iter()
-                    .position(|d| !d.found && d.rule.is_some() && d.rule == dev.rule)
-            })
-            .or_else(|| (!news.is_empty()).then(|| i.min(news.len().saturating_sub(1))))
-            .map(make)
-    };
-    let carried = match item {
-        Item::Display(i) => device(&old.displays, &new.displays, i, Item::Display),
-        Item::Input(i) => device(&old.inputs, &new.inputs, i, Item::Input),
-        Item::Head(h) | Item::HeadLook(h) => {
-            let name = old.heads.get(h).map(|x| x.name.as_str());
-            let at = new
-                .heads
-                .iter()
-                .position(|x| Some(x.name.as_str()) == name)
-                .or_else(|| {
-                    (!new.heads.is_empty()).then(|| h.min(new.heads.len().saturating_sub(1)))
-                });
-            match (item, at) {
-                (Item::Head(_), Some(at)) => Some(Item::Head(at)),
-                (_, Some(at)) => Some(Item::HeadLook(at)),
-                (_, None) => Some(Item::New(New::Head)),
-            }
-        }
-        Item::Look(l) => {
-            let name = old.looks.get(l).map(|x| x.name.clone());
-            new.looks
-                .iter()
-                .position(|x| Some(&x.name) == name.as_ref())
-                .map(|at| {
-                    if new.used(at) {
-                        new.heads
-                            .iter()
-                            .position(|h| Some(&h.look) == name.as_ref())
-                            .map_or(Item::Look(at), Item::HeadLook)
-                    } else {
-                        Item::Look(at)
-                    }
-                })
-        }
-        Item::Rule(r) => {
-            let kind = old.rules.get(r).map(|x| x.kind);
-            let same = new.rules.get(r).map(|x| x.kind) == kind;
-            if same {
-                Some(Item::Rule(r))
-            } else {
-                new.rules
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, x)| Some(x.kind) == kind)
-                    .map(|(i, _)| i)
-                    .rfind(|i| *i < r)
-                    .map(Item::Rule)
-            }
-        }
-        other => Some(other),
-    };
-    carried
-        .filter(|i| new.has(*i))
-        .unwrap_or_else(|| super::tabs::flow::first_item(new))
 }

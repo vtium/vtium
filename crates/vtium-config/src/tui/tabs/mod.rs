@@ -19,7 +19,7 @@ pub mod looks;
 pub mod settings;
 
 use super::input::Key;
-use super::model::{Effect, Pending, TYPED_MAX, View};
+use super::model::{Effect, Pending, TYPED_MAX, Then, View};
 
 /// What a tab's update asks for, which update performs once the tab's
 /// update returns.
@@ -53,10 +53,12 @@ pub enum Change {
 }
 
 /// A request to the navigation module.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     /// Goes to this view.
     Go(View),
+    /// Asks this question, which does `then` on a yes.
+    Ask { question: String, then: Then },
 }
 
 /// A character or Backspace typed into `text`, the value being edited. A

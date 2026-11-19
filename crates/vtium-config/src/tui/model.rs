@@ -1140,6 +1140,7 @@ impl App {
         for request in requests {
             match request {
                 Request::Go(view) => effects.extend(self.set_view(view)),
+                Request::Ask { question, then } => self.ask(question, then),
             }
         }
         effects
@@ -1172,12 +1173,14 @@ impl App {
     /// A key in the Flow view (ADR-1403 D7) while the file view or
     /// Restore's list is open over it.
     pub(crate) fn flow_open_key(&mut self, key: Key) -> Vec<Effect> {
-        if self.flow.pager.is_some() {
-            self.pager_key(key);
+        if self.flow.pager().is_some() {
+            let keys = super::view::key_rows(self).len();
+            self.flow.pager_key(&self.shared, self.size, keys, key);
             return Vec::new();
         }
-        if self.flow.restore.is_some() {
-            return self.restore_key(key);
+        if self.flow.restore().is_some() {
+            let commands = self.flow.restore_key(&self.shared, key);
+            return self.perform(commands);
         }
         Vec::new()
     }
