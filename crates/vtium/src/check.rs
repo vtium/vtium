@@ -575,7 +575,7 @@ fn outcome_with(
         top_vtlook,
         path,
         &heads.vtlooks,
-        Path::new(vtium_settings::vtlook::LOOKS),
+        &vtium_settings::vtlook::folders(),
         &settings.trust,
     );
     // each color scheme a start would read, read as the start reads it
@@ -1012,15 +1012,17 @@ const TOP_HEADS: &str = "the heads whose look names no vtlook of its own";
 /// vtium.conf's other errors. A look's name passes the same rule when
 /// vtium.conf's sections are read.
 ///
-/// A build with frame filters reads each distinct vtlook once from `dir`
-/// under `trust`, as the start reads it. For each vtlook that fails, it
-/// lists the vtlook's errors, each starting with the vtlook's file and
-/// line, and then each place in vtium.conf that names the vtlook. It also
-/// reports a file named `default.vtlook` in `dir`, which vtium never
-/// reads.
+/// A build with frame filters reads each distinct vtlook once from the
+/// first of `folders` that holds it, under `trust`, as the start reads it:
+/// the administrator's folder and then the package's, so a preset the
+/// package ships is found with no copy in the administrator's folder. For
+/// each vtlook that fails, it lists the vtlook's errors, each starting with
+/// the vtlook's file and line, and then each place in vtium.conf that
+/// names the vtlook. It also reports a file named `default.vtlook` in any
+/// of `folders`, which vtium never reads.
 ///
 /// References:
-/// - ADR-1304 D4: vtium refuses a file named default.vtlook.
+/// - ADR-1304 D4: vtium refuses a file named default.vtlook, and its note of 2026-11-19 gives the two folders and the administrator's file winning on a name.
 /// - ADR-1304 D5: a vtlook's name, and the top level's `vtlook`.
 /// - ADR-1304 D6: check-config lists every error of the reading and checking stages, each report whole.
 #[cfg(feature = "filters")]
@@ -1028,7 +1030,7 @@ fn vtlook_findings(
     top: Option<(&str, String)>,
     conf: &Path,
     looks: &[(String, String, usize)],
-    dir: &Path,
+    folders: &[&Path],
     trust: &Trust,
 ) -> Vec<String> {
     use vtium_settings::vtlook::{self, DEFAULT, SUFFIX};
@@ -1040,15 +1042,15 @@ fn vtlook_findings(
     }
     let mut out = Vec::new();
     for name in names {
-        let Err(failure) = vtlook::read(name, dir, trust) else {
+        let Err(failure) = vtlook::find(name, folders, trust) else {
             continue;
         };
         out.extend(failure.reports.iter().map(|r| format!("{}: {r}", r.at())));
         if failure.more > 0 {
-            let file = dir.join(format!("{name}{SUFFIX}"));
+            let file = failure.reports.first().map(|r| r.file.clone());
             out.push(format!(
                 "{}: {}",
-                file.display(),
+                file.unwrap_or_default().display(),
                 crate::notice::more_errors(failure.more)
             ));
         }
@@ -1072,11 +1074,14 @@ fn vtlook_findings(
     }
     // a file that takes the built-in vtlook's name is never read, so only
     // the check can say so
-    if dir
-        .join(format!("{DEFAULT}{SUFFIX}"))
-        .symlink_metadata()
-        .is_ok()
-    {
+    for dir in folders {
+        if dir
+            .join(format!("{DEFAULT}{SUFFIX}"))
+            .symlink_metadata()
+            .is_err()
+        {
+            continue;
+        }
         let refused = vtlook::read(DEFAULT, dir, trust).err();
         out.extend(
             refused
@@ -1099,7 +1104,7 @@ fn vtlook_findings(
     top: Option<(&str, String)>,
     conf: &Path,
     looks: &[(String, String, usize)],
-    _dir: &Path,
+    _folders: &[&Path],
     _trust: &Trust,
 ) -> Vec<String> {
     let none = |heads: &str, name: &str| {
@@ -4771,14 +4776,27 @@ mod tests {
         let looks = [("warm".to_owned(), "amber".to_owned(), 3)];
         let top = Some(("crt", "/etc/vtium/vtium.conf:1".to_owned()));
         assert_eq!(
-            vtlook_findings(top, conf, &looks, Path::new("/nonexistent"), &font::trust()),
+            vtlook_findings(
+                top,
+                conf,
+                &looks,
+                &[Path::new("/nonexistent")],
+                &font::trust()
+            ),
             [
                 "/etc/vtium/vtium.conf:1: This build of vtium has no frame filters, so the heads whose look names no vtlook of its own draw the built-in vtlook instead of vtlook crt.",
                 "/etc/vtium/vtium.conf:3: This build of vtium has no frame filters, so the heads that use look warm draw the built-in vtlook instead of vtlook amber.",
             ]
         );
         assert!(
-            vtlook_findings(None, conf, &[], Path::new("/nonexistent"), &font::trust()).is_empty()
+            vtlook_findings(
+                None,
+                conf,
+                &[],
+                &[Path::new("/nonexistent")],
+                &font::trust()
+            )
+            .is_empty()
         );
     }
 
@@ -4808,7 +4826,7 @@ mod tests {
         ];
         let top = Some(("gone", "argument 2".to_owned()));
         assert_eq!(
-            vtlook_findings(top, conf, &looks, &dir, &trust),
+            vtlook_findings(top, conf, &looks, &[&dir], &trust),
             [
                 format!(
                     "{}: reading: There is no file gone.vtlook in {}.",
@@ -4826,14 +4844,14 @@ mod tests {
                 "/etc/vtium/vtium.conf:5: The vtlook old has errors, so the heads that use look b draw the built-in vtlook instead.".to_owned(),
             ]
         );
-        assert!(vtlook_findings(None, conf, &looks[2..], &dir, &trust).is_empty());
+        assert!(vtlook_findings(None, conf, &looks[2..], &[&dir], &trust).is_empty());
         // past the bound, the rest of a vtlook's errors are counted
         let many = write("many", &"a\n".repeat(100));
         let said = vtlook_findings(
             None,
             conf,
             &[("m".to_owned(), "many".to_owned(), 9)],
-            &dir,
+            &[&dir],
             &trust,
         );
         assert_eq!(said.len(), vtium_settings::ERRORS_MAX + 2, "{said:#?}");
@@ -4844,11 +4862,55 @@ mod tests {
         // a file named default.vtlook is reported though nothing names it
         write("default", "version = 1\n");
         assert_eq!(
-            vtlook_findings(None, conf, &looks[2..], &dir, &trust),
+            vtlook_findings(None, conf, &looks[2..], &[&dir], &trust),
             [format!(
                 "{}: reading: vtium never reads a file named default.vtlook, because default is the name of the built-in vtlook. Give the file another name.",
                 dir.join("default.vtlook").display()
             )]
+        );
+    }
+
+    // check-config reads a vtlook from the administrator's folder and then
+    // the package's, as the start does: a preset with no copy in the
+    // administrator's folder has nothing to report, and a broken copy there
+    // is the file check-config names, though the preset reads cleanly.
+    //
+    // References:
+    // - ADR-1304 D4, its note of 2026-11-19: the two folders, and the administrator's file winning on a name.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn check_config_reads_a_preset_and_names_the_administrator_s_copy() {
+        use std::os::unix::fs::PermissionsExt;
+        let top = Scratch::new("check-vtlook-presets");
+        let (etc, share) = (top.join("etc"), top.join("share"));
+        for dir in [&*top, &etc, &share] {
+            let _ = std::fs::create_dir_all(dir);
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755));
+        }
+        let trust = Trust::owner(rustix::process::geteuid().as_raw()).below(&top);
+        let write = |dir: &Path, text: &str| {
+            let file = dir.join("amber.vtlook");
+            let _ = std::fs::write(&file, text);
+            let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644));
+            file.display().to_string()
+        };
+        write(&share, "version = 1\n[color tint]\ncolor = 255,176,0\n");
+        let conf = Path::new("/etc/vtium/vtium.conf");
+        let looks = [("warm".to_owned(), "amber".to_owned(), 3)];
+        let folders = [etc.as_path(), share.as_path()];
+        assert_eq!(
+            vtlook_findings(None, conf, &looks, &folders, &trust),
+            Vec::<String>::new()
+        );
+        let copy = write(&etc, "version = 1\n[color sepia]\n");
+        assert_eq!(
+            vtlook_findings(None, conf, &looks, &folders, &trust),
+            [
+                format!(
+                    "{copy}:2: color filter 1 of 1, sepia: checking: found sepia, needs gamma, contrast, tint or color-blind"
+                ),
+                "/etc/vtium/vtium.conf:3: The vtlook amber has errors, so the heads that use look warm draw the built-in vtlook instead.".to_owned(),
+            ]
         );
     }
 

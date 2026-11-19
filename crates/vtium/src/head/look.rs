@@ -230,16 +230,17 @@ pub(crate) fn choose(head: &str, config: &Config) -> Chosen {
     chosen
 }
 
-/// Reads the vtlook `name` for head `head` from the looks folder, as the
-/// account vtium runs as reads it, with the line to log, if any.
+/// Reads the vtlook `name` for head `head`, as the account vtium runs as
+/// reads it, with the line to log, if any. vtium looks in the
+/// administrator's folder first and then in the package's, so a preset
+/// such as `amber` draws with no copy in the administrator's folder, and
+/// a copy there takes its place.
+///
+/// References:
+/// - ADR-1304 D4, its note of 2026-11-19: the two folders, and the administrator's vtlook winning on a name.
 #[cfg(feature = "filters")]
 fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
-    read_in(
-        head,
-        name,
-        std::path::Path::new(vtlook::LOOKS),
-        &crate::font::trust(),
-    )
+    read_in(head, name, &vtlook::folders(), &crate::font::trust())
 }
 
 /// What a build without frame filters does with the vtlook `name`: it
@@ -249,16 +250,17 @@ fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
     (Chosen::default(), Some(vtlook::no_filters(head, name)))
 }
 
-/// Reads the vtlook `name` from the folder `dir` under `trust`: the vtlook
-/// read, or the built-in one with the line that says why.
+/// Reads the vtlook `name` from the first of `folders` that holds it,
+/// under `trust`: the vtlook read, or the built-in one with the line that
+/// says why.
 #[cfg(feature = "filters")]
 fn read_in(
     head: &str,
     name: &str,
-    dir: &std::path::Path,
+    folders: &[&std::path::Path],
     trust: &vtium_settings::Trust,
 ) -> (Chosen, Option<String>) {
-    let look = match vtlook::read(name, dir, trust) {
+    let look = match vtlook::find(name, folders, trust) {
         Ok(look) => look,
         Err(failure) => return (Chosen::default(), vtlook::log_line(&failure, head)),
     };
@@ -435,14 +437,14 @@ mod tests {
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
         };
         write("plain", "version = 1\n[requires]\nmin-depth = 8\n");
-        let (chosen, said) = read_in("console", "plain", &dir, &trust);
+        let (chosen, said) = read_in("console", "plain", &[dir.as_path()], &trust);
         assert_eq!(said, None);
         assert!(chosen.vtlook.is_some_and(|l| !l.holds_filters()));
         write(
             "crt",
             "version = 1\n[requires]\nmin-depth = 12\n[color sepia]\n[spatial scanlines]\nperiod = 12\n",
         );
-        let (chosen, said) = read_in("console", "crt", &dir, &trust);
+        let (chosen, said) = read_in("console", "crt", &[dir.as_path()], &trust);
         assert_eq!(chosen, Chosen::default());
         assert_eq!(
             said,
@@ -451,7 +453,7 @@ mod tests {
                 dir.join("crt.vtlook").display()
             ))
         );
-        let (chosen, said) = read_in("desk", "gone", &dir, &trust);
+        let (chosen, said) = read_in("desk", "gone", &[dir.as_path()], &trust);
         assert_eq!(chosen, Chosen::default());
         assert!(
             said.as_deref()
@@ -487,9 +489,9 @@ mod tests {
             "version = 1\n[requires]\nmin-depth = 16\nmax-size = 1920x1080\nmin-dpi = 90\nmax-dpi = 200\ngpu = any\n[color tint]\ncolor = 255,176,0\n",
         );
         write("plain", "version = 1\n");
-        let (plain, said) = read_in("console", "plain", &dir, &trust);
+        let (plain, said) = read_in("console", "plain", &[dir.as_path()], &trust);
         assert_eq!((plain.table.is_none(), said), (true, None));
-        let (chosen, said) = read_in("console", "amber", &dir, &trust);
+        let (chosen, said) = read_in("console", "amber", &[dir.as_path()], &trust);
         assert_eq!(said, None);
         let want = chosen
             .vtlook
@@ -573,5 +575,47 @@ mod tests {
         // the built-in vtlook has no table on any display
         assert_eq!(Chosen::default().table_for(&display), (None, None));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A head reads a vtlook from the administrator's folder, and failing
+    // that from the package's: a preset with no copy in the
+    // administrator's folder draws, and a copy there takes its place.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_preset_draws_with_no_copy_and_the_administrator_s_copy_wins() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let top = std::env::temp_dir().join(format!("vtium-look-presets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let (etc, share) = (top.join("etc"), top.join("share"));
+        for dir in [&top, &etc, &share] {
+            std::fs::create_dir_all(dir).unwrap_or_default();
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755));
+        }
+        let me = std::fs::metadata(&top).map_or(0, |m| m.uid());
+        let trust = vtium_settings::Trust::owner(me).below(&top);
+        let write = |dir: &std::path::Path, text: &str| {
+            let path = dir.join("amber.vtlook");
+            std::fs::write(&path, text).unwrap_or_default();
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+        };
+        let folders = [etc.as_path(), share.as_path()];
+        let filters = |chosen: &Chosen| {
+            chosen.vtlook.as_ref().map(|l| {
+                l.color
+                    .iter()
+                    .map(|f| f.declaration.name.to_owned())
+                    .collect::<Vec<_>>()
+            })
+        };
+        write(&share, "version = 1\n[color tint]\ncolor = 255,176,0\n");
+        let (chosen, said) = read_in("console", "amber", &folders, &trust);
+        assert_eq!(said, None);
+        assert_eq!(filters(&chosen), Some(vec!["tint".to_owned()]));
+        assert!(chosen.table.is_some());
+        write(&etc, "version = 1\n[color gamma]\n");
+        let (chosen, said) = read_in("console", "amber", &folders, &trust);
+        assert_eq!(said, None);
+        assert_eq!(filters(&chosen), Some(vec!["gamma".to_owned()]));
+        let _ = std::fs::remove_dir_all(&top);
     }
 }
