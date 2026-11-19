@@ -155,12 +155,7 @@ impl Reader {
             "LUT_3D_SIZE" | "LUT_1D_SIZE" => self.size_line(n, keyword, rest, line),
             _ => {
                 let want = if keyword == "DOMAIN_MIN" { 0.0 } else { 1.0 };
-                let values: Vec<Option<f64>> = rest
-                    .split([' ', '\t'])
-                    .filter(|w| !w.is_empty())
-                    .map(number)
-                    .collect();
-                if values != [Some(want); 3] {
+                if three(rest) != Some([want; 3]) {
                     self.fault(
                         Some(n),
                         format!(
@@ -240,11 +235,7 @@ impl Reader {
     fn data_line(&mut self, n: usize, line: &str) {
         self.data = true;
         self.count = self.count.saturating_add(1);
-        let words: Vec<&str> = line.split([' ', '\t']).filter(|w| !w.is_empty()).collect();
-        let values: Option<Vec<f64>> = (words.len() == 3)
-            .then(|| words.iter().copied().map(number).collect())
-            .flatten();
-        let Some(&[r, g, b]) = values.as_deref() else {
+        let Some([r, g, b]) = three(line) else {
             self.fault(
                 Some(n),
                 format!(
@@ -258,6 +249,19 @@ impl Reader {
             self.entries.push([r, g, b]);
         }
     }
+}
+
+/// The three numbers `text` holds, separated by blanks, or `None` when it
+/// holds another count of words or a word that is not a number. The words
+/// are taken one at a time, and the fourth ends the search, so a line of
+/// millions of words costs no memory beyond the line itself.
+fn three(text: &str) -> Option<[f64; 3]> {
+    let mut words = text.split([' ', '\t']).filter(|w| !w.is_empty());
+    let mut values = [0.0; 3];
+    for v in &mut values {
+        *v = number(words.next()?)?;
+    }
+    words.next().is_none().then_some(values)
 }
 
 /// Whether a line whose first word is `word` is a keyword line, `data`
@@ -484,7 +488,6 @@ pub(super) fn load(file: &Path, gate: &Gate) -> Result<Cube, Unread> {
 #[expect(
     clippy::panic,
     clippy::arithmetic_side_effects,
-    clippy::indexing_slicing,
     reason = "a test fails by panicking, and its figures are small"
 )]
 mod tests {
