@@ -763,9 +763,9 @@ impl App {
         self.tab_of(self.nav.view)
     }
 
-    /// The state of the tab that `view` shows. This and
-    /// [`App::tab_mut`] are the one place that names each tab's state, so
-    /// a new tab adds a line to each.
+    /// The state of the tab that `view` shows. This and `App::tab_mut`
+    /// are the one place that names each tab's state, so a new tab adds a
+    /// line to each.
     pub fn tab_of(&self, view: View) -> &dyn super::tabs::Tab {
         match view {
             View::Flow => &self.flow,
@@ -1218,7 +1218,6 @@ impl App {
     fn view_key(&mut self, key: Key) -> Vec<Effect> {
         // the open tab says whether each action key acts there: not while
         // a level is open over it, nor where its own keys use the letter
-        // (ADR-1403 D7)
         let takes = |action: char| self.tab().takes_action(action);
         match key {
             Key::Char('i') if takes('i') && !self.typing() => return self.action('i'),
