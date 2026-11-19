@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "flow.detail.choices at 80×25, keys: 4 e Left Enter"
+---
+ Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ draft mine  ›  All displays   1 keyboard, 1 pointer and 1 display in no path ye
+
+ DISPLAY PART  All displays
+
+   Label     none, press Enter to add one    shown on the console's on-screen …
+
+ CHOOSE WHICH DISPLAYS THIS PART MATCHES
+   The choices go from the widest to the narrowest. Enter picks one into the
+   new path.
+
+   ● All displays   Every display, connected now or later
+   ○ DP-8   LARGE00001 · by EDID
+
+
+
+
+
+
+
+
+
+
+
+ ↑↓ move  Enter pick  Esc back  q quit  . more 1/3

@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "flow.maker.picker.typing at 80×25, keys: 4 PgDn Enter Down Enter Down Enter"
+---
+ Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ draft mine  ›  Display   1 keyboard and 1 pointer in no path yet · no changes…
+
+ THIS MONITOR
+   Each monitor lists what matches it now.
+
+   ○ edid:AAA:0x0001:LARGE00001    DP-8
+    _
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Enter keep  Backspace delete  letters type  Esc cancel  Ctrl-C save and quit

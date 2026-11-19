@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "settings.section at 100×30, keys: Tab Enter"
+---
+ Flow  Looks  Fonts  Settings  Help                                                   Save  Install
+ draft mine · no changes · no problems                                   text preview · t: try live
+----------------------------------------------------------------------------------------------------
+ Settings › Fonts and text
+
+ Font
+   font-name              unifont
+   font-frits             /etc/vtium/fonts (default)
+   font-paths             unset (default)
+   font-engine            unset (default)
+   font-ligatures         off (default)
+
+ Font size and spacing
+   font-size              0 (default)
+   font-hinting           unset (default)
+   font-line-spacing      unset (default)
+
+ Box drawing and block characters
+   glyph-source           unset (default)
+   glyph-source-box       unset (default)
+
+ Press Enter to type a setting's value, or to pick it from a list when the setting takes a fixed
+ set of values. Leave a typed value empty to use the default.
+ The console's font. The value is the name of a font set (a frit file, `NAME.vtfrit` in
+ `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf`
+ the path of a PSF font; vtium then uses that one font. When unset, vtium uses the font from
+ vconsole.conf. If there is none, or vtium cannot find the font, vtium uses its built-in font and …
+
+----------------------------------------------------------------------------------------------------
+ ↑↓ move  Enter change  Esc back  q quit  . more 1/3

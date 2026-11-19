@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "settings.section.list at 80×25, keys: Tab Down Enter Enter"
+---
+ Flow  Looks  Fonts  Settings  Help                               Save  Install
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+ Settings › Colors › palette
+
+   ● legacy           the default
+   ○ custom
+   ○ nord
+   ○ solarized
+   ○ solarized-black
+   ○ solarized-white
+   ○ soft-black
+   ○ base16-dark
+   ○ base16-light
+   ○ vga
+
+ Press Enter to pick the highlighted value, or Esc to close the list and leave
+ the setting as it is.
+ The sixteen basic colors, and the default text and background colors. The
+ value is the name of a palette, or `custom`, which takes the colors from the
+ `palette-*` keys. Colors 16 to 255 are xterm's in every palette.
+
+
+--------------------------------------------------------------------------------
+ ↑↓ move  Enter pick  Esc back  q quit  . more 1/3
