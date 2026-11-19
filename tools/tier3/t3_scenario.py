@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import time
 
+import t3_batch
 import t3_bench
 import t3_builtin
 import t3_devices
@@ -935,7 +936,8 @@ def check_guest(variant, installed):
 def build_disc(variant, work, impl):
     """The T3PKG disc: the tree as tree.tar, the variant's vtium.conf, its
     config with its head file below it if it names one (t3_heads.guest_conf),
-    the screens, its guest's setup, and t3-console on the guest without
+    the batch file batch.conf if the variant draws a font beyond the list of a
+    fresh install (t3_batch), the screens, its guest's setup, and t3-console on the guest without
     systemd, the variant's sysctl settings if it has any, vtium built with
     its features if it names any, the test fonts if it draws with them, the
     frits it builds, the frits it installs to be generated at run time, the
@@ -960,8 +962,13 @@ def build_disc(variant, work, impl):
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
     shutil.copy(impl["tar"], os.path.join(disc, "tree.tar"))
+    conf = t3_heads.guest_conf(VARIANTS[variant])
     with open(os.path.join(disc, "vtium.conf"), "w") as f:
-        f.write(t3_heads.guest_conf(VARIANTS[variant]))
+        f.write(conf)
+    batch = t3_batch.batch(VARIANTS[variant], conf, impl["tar"])
+    if batch is not None:
+        with open(os.path.join(disc, "batch.conf"), "w") as f:
+            f.write(batch)
     shutil.copytree(os.path.join(GUEST, "screens"), os.path.join(disc, "screens"))
     shutil.copy(os.path.join(GUEST, "t3"), disc)
     if VARIANTS[variant].get("pictures"):

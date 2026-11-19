@@ -458,11 +458,12 @@ PKGNAME := vtium
 LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt crates/vtium-config/licenses/tiny-skia-LICENSE
 INSTALL_TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)/install
 CARGO_BUILD_FLAGS :=
-# make install stages the package's color schemes and preset vtlooks under
-# PREFIX/share/vtium, so make install-build builds the console and
-# vtium-config to read them from there. At PREFIX=/usr these are the folders
-# both read when the variables are unset.
-package_folders = VTIUM_PACKAGE_PALETTES=$(PREFIX)/share/vtium/palettes VTIUM_PACKAGE_LOOKS=$(PREFIX)/share/vtium/looks
+# make install stages the package's font files, color schemes and preset
+# vtlooks under PREFIX/share/vtium, so make install-build builds the console
+# and vtium-config to read them from there, and the list of a fresh install
+# names the folder the fonts really are in. At PREFIX=/usr these are the
+# folders both read when the variables are unset.
+package_folders = VTIUM_PACKAGE_FONTS=$(PREFIX)/share/vtium/fonts VTIUM_PACKAGE_PALETTES=$(PREFIX)/share/vtium/palettes VTIUM_PACKAGE_LOOKS=$(PREFIX)/share/vtium/looks
 UNITDIR := $(PREFIX)/lib/systemd/system
 TERMINFO_SRC := $(VTIUM_INSTALL)/xterm-vtium.ti
 # The build settings a package names for two defaults (ADR-1500 D8):
