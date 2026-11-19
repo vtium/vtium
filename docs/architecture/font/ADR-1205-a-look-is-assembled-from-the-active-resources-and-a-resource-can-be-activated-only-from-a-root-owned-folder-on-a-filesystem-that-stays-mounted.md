@@ -142,6 +142,9 @@ considered:
   - operator: aaronsb
     said: "I think we keep one convention"
     via: the steering session's chat, 2026-11-19, after the maintainer said pointers not following the same trust conventions would be 'a rake in the yard to step on', answering the proposal of one gate for every resource kind
+  - operator: aaronsb
+    said: "can we add one more profile, a sun workstation (the horrifying white background on dark text) … later it can be composed with an actual sun workstation serifed font for those who wax nostalgic for java and sparc … maybe we call it 'sunny'"
+    via: the steering session's chat, 2026-11-19, after the maintainer saw the twelve shipped schemes' pictures
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -443,6 +446,8 @@ Here a head that takes the look `evening` draws Catppuccin Mocha's colors, and t
 | Kiln, an original scheme in Monokai's spirit | `kiln`, the maintainer's working name of 2026-11-19, settled when the maintainer judges its colors | vtium's own, its colors chosen independently: a warm near-black background, saturated accents and a light warm foreground | vtium's license. The file claims no lineage from Monokai and names no Monokai. |
 
 Nord and Solarized are already built-in palettes. vtium does not ship Monokai. Wimer Hazenberg's TextMate theme of 2006 carries no license from its author, who now sells Monokai Pro, and a port's license, such as the MIT of github.com/ku1ik/vim-monokai, cannot grant more than the port's author holds. The maintainer decided on 2026-11-19 that vtium ships an original scheme in the same spirit instead (`considered`). The slice that builds palettes chooses its colors without sampling Monokai's, and the maintainer judges them by eye on the picture page, as with the green and white presets. The maintainer named it Kiln, a warm dark chamber with glowing glazes, as a working name: "I like kiln … something like that" (`considered`). The name does not pun on Monokai, since a name that calls the mark to mind is what trademark law guards against, and a search on 2026-11-19 found no color scheme named Kiln. A person can still import Monokai as a file of their own.
+
+> Note 2026-11-19: the maintainer asked for one more original scheme, Sunny (`considered`): dark text on a white background, in the spirit of the white consoles of 1990s Unix workstations. vtium ships it as `sunny`, its colors chosen by vtium for legibility on white and judged by the maintainer on the picture page, as with Kiln. A later look can pair Sunny with a serifed workstation console font, once a font with a license vtium can ship is found.
 
 **What D10 changes in other records.**
 
