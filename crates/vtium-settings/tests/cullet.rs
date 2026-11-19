@@ -419,6 +419,10 @@ fn sysfs(dir: &Path) -> PathBuf {
         link(dev, &d);
         d
     };
+    mkdir(&sys.join("class/block"), 0o755);
+    for (name, p) in &parts {
+        symlink(p, sys.join("class/block").join(name)).expect("the class link");
+    }
     stacked("dm-0", "253:0", &[&parts["sdb1"]]);
     stacked("dm-1", "253:1", &[&parts["sdc1"]]);
     let md0 = stacked("md0", "9:0", &[&parts["sda1"], &parts["sda2"]]);
@@ -992,4 +996,37 @@ fn a_loop_device_is_judged_by_where_its_backing_file_sits() {
         "{deepest:?}"
     );
     assert!(steps > 1, "{steps}");
+}
+
+// btrfs reports an anonymous device number, major 0, in the mount table,
+// so vtium finds its disk by the device the mount's source names. A
+// btrfs filesystem on a removable stick fails; tmpfs, which names no
+// device, passes; and a device that sysfs does not know fails.
+#[test]
+fn a_filesystem_with_an_anonymous_device_is_judged_by_its_source() {
+    let dir = fixture("mounts-anonymous");
+    let table = "\
+22 1 0:30 /@ / rw - btrfs /dev/sda2 rw
+40 22 0:60 / /run/media/me/stick rw - btrfs /dev/sdb1 rw
+41 22 0:61 /@home /home rw - btrfs /dev/sda2 rw
+42 22 0:25 / /run rw - tmpfs tmpfs rw
+43 22 0:62 / /run/media/me/gone rw - btrfs /dev/vtium-test-none rw
+";
+    let mounts = Mounts::parse(table, &sysfs(&dir));
+    assert_eq!(
+        mounts.judge(&place((0, 60), "/run/media/me/stick/a.ttf")),
+        Err(Unsteady::Removable {
+            point: "/run/media/me/stick".into(),
+            disk: "/dev/sdb".into()
+        })
+    );
+    assert_eq!(mounts.judge(&place((0, 61), "/home/a.ttf")), Ok(()));
+    assert_eq!(mounts.judge(&place((0, 25), "/run/a.ttf")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((0, 62), "/run/media/me/gone/a.ttf")),
+        Err(Unsteady::UnknownDisk {
+            point: "/run/media/me/gone".into(),
+            source: "/dev/vtium-test-none".into()
+        })
+    );
 }

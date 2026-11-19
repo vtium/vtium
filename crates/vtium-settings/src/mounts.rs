@@ -6,7 +6,9 @@
 //! vtium while it runs fails: a network filesystem, a FUSE filesystem
 //! served by a user's program, an automounted filesystem, and a removable
 //! disk. vtium reads the kernel's mount table, `/proc/self/mountinfo`, and
-//! each block device's folder in sysfs. A device-mapper or md device is
+//! each block device's folder in sysfs. A filesystem such as btrfs, which
+//! reports an anonymous device number, is judged by the device its mount's
+//! source names. A device-mapper or md device is
 //! judged by the disks beneath it, and a loop device by the filesystem
 //! that holds its backing file. A disk counts as removable when its
 //! `removable` flag is 1 or when it sits on a USB bus. When vtium cannot
@@ -436,13 +438,22 @@ impl Mounts {
                 automount: automount.point.clone(),
             });
         }
-        // The root filesystem stays mounted whatever disk holds it, and a
-        // filesystem with no block device, whose major number is 0, is on
-        // no disk.
-        if mount.point == Path::new("/") || mount.dev.0 == 0 {
+        // The root filesystem stays mounted whatever disk holds it.
+        if mount.point == Path::new("/") {
             return Ok(());
         }
-        self.device(mount.dev, depth).map_err(|found| match found {
+        // A major number of 0 is an anonymous device. btrfs reports one
+        // even on a disk, so vtium then looks for the disk by the device
+        // the mount's source names. A filesystem whose source names no
+        // device, such as tmpfs, is on no disk.
+        let found = if mount.dev.0 != 0 {
+            self.device(mount.dev, depth)
+        } else if mount.source.starts_with("/dev/") {
+            self.named(Path::new(&mount.source), depth)
+        } else {
+            Ok(())
+        };
+        found.map_err(|found| match found {
             Found::Removable(disk) => Unsteady::Removable {
                 point: point(),
                 disk,
@@ -486,6 +497,19 @@ impl Mounts {
     fn device(&self, (major, minor): (u32, u32), depth: usize) -> Result<(), Found> {
         let link = self.sys.join(format!("dev/block/{major}:{minor}"));
         let dir = std::fs::canonicalize(link).map_err(|_| Found::Unread)?;
+        self.device_at(&dir, depth)
+    }
+
+    /// Whether the block device at `source`, a path in `/dev`, is on a
+    /// removable disk. sysfs knows the device by the name of the node that
+    /// `source` leads to, such as `dm-0` for `/dev/mapper/home`. When vtium
+    /// cannot resolve `source`, as inside a sandbox without `/dev`, it uses
+    /// the name `source` gives.
+    fn named(&self, source: &Path, depth: usize) -> Result<(), Found> {
+        let node = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+        let name = node.file_name().ok_or(Found::Unread)?;
+        let dir = std::fs::canonicalize(self.sys.join("class/block").join(name))
+            .map_err(|_| Found::Unread)?;
         self.device_at(&dir, depth)
     }
 
