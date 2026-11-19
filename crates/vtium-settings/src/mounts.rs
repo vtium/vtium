@@ -664,14 +664,16 @@ fn disk_of(dir: &Path) -> Option<&Path> {
 /// up from a filesystem and the walk that lists the root's disks share
 /// this one reader, so the console carries one copy of it.
 fn slaves(dir: &Path) -> Option<Vec<PathBuf>> {
-    match std::fs::read_dir(dir.join("slaves")) {
-        Ok(entries) => entries
-            .map(|e| e.and_then(|e| std::fs::canonicalize(e.path())))
-            .collect::<std::io::Result<Vec<PathBuf>>>()
-            .ok(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Vec::new()),
-        Err(_) => None,
+    let list = match std::fs::read_dir(dir.join("slaves")) {
+        Ok(list) => list,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let mut out = Vec::new();
+    for entry in list {
+        out.push(std::fs::canonicalize(entry.ok()?.path()).ok()?);
     }
+    Some(out)
 }
 
 /// What the walk down a block device's stack found.
