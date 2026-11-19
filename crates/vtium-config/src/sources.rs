@@ -441,7 +441,9 @@ pub fn find_outline_family(family: &str, dirs: &[PathBuf]) -> Result<Option<Path
 /// active gate, each candidate is opened through the gate, with no link
 /// followed, and its faces are read from the file the gate checked. A
 /// candidate the gate refuses is skipped, so it cannot hide a later one
-/// that passes, and the first refusal goes into `refused` for the message.
+/// that passes. The first refusal of a file named for the family goes into
+/// `refused` for the message. A refusal of a file the search opens to read
+/// its families says nothing of the family, so the search drops it.
 fn find_outline_family_capped(
     family: &str,
     dirs: &[PathBuf],
@@ -469,8 +471,11 @@ fn find_outline_family_capped(
         .collect();
     let mut opened = 0usize;
     // what the search learns of the candidate `path`: its faces, with the
-    // path the search returns for it, or why it is skipped
-    let mut look = |path: &PathBuf| -> Look {
+    // path the search returns for it, or why it is skipped. A refusal is
+    // kept, to report when no file matches, only where `named` holds: the
+    // file's name names the family. A refusal of any other file comes
+    // before its faces are read, so it says nothing of the family.
+    let mut look = |path: &PathBuf, named: bool| -> Look {
         let real = if gate.active() {
             path.clone()
         } else {
@@ -490,7 +495,9 @@ fn find_outline_family_capped(
             match gate.open(path) {
                 Ok(file) => Some(file),
                 Err(e) => {
-                    refused.get_or_insert(e);
+                    if named {
+                        refused.get_or_insert(e);
+                    }
                     return Look::Refused;
                 }
             }
@@ -527,7 +534,7 @@ fn find_outline_family_capped(
         .collect();
     named.sort();
     for (_, _, path) in &named {
-        match look(path) {
+        match look(path, true) {
             Look::Faces(found, faces) if declares(&faces).is_some() => return Ok(Some(found)),
             Look::Faces(..) | Look::Refused => {}
             Look::Over => return Err(over(None)),
@@ -545,7 +552,7 @@ fn find_outline_family_capped(
         if named.iter().any(|(_, _, p)| p == &path) {
             continue;
         }
-        match look(path) {
+        match look(path, false) {
             Look::Faces(found, faces) => match declares(&faces) {
                 Some(true) => return Ok(Some(found)),
                 Some(false) if first.is_none() => first = Some(found),
@@ -2035,6 +2042,45 @@ mod tests {
         let e = resolve(&family("Gone"), &h).unwrap_err();
         assert!(
             matches!(&e, SourceError::Missing(w) if w.starts_with("no font of family Gone:")),
+            "{e:?}"
+        );
+    }
+
+    // A family search through an active gate blames a refused file only
+    // when the file's name names the family. Here the batch lists b.ttf, of
+    // family B, and the gate refuses it because root does not own its
+    // folder. A search for family C, which the machine lacks, opens b.ttf in
+    // its second pass, which reads families from the files' name tables,
+    // and the gate refuses the file before any face is read. That refusal
+    // says nothing of family C, so the search reports the family missing.
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
+    #[test]
+    fn a_missing_family_is_missing_whatever_file_of_another_family_the_gate_refuses() {
+        use vtium_settings::Trust;
+        use vtium_settings::batch::Entry;
+        let t = Tree::new("gate-family-blame");
+        let other = t.file("a/b.ttf", &outline_font("B", "Regular"));
+        let consoles = Graphics;
+        let gate = Gate::Active(cullet::Gate::new(
+            Rule::new(Trust::ROOT).below(&t.0),
+            None,
+            Batch::new(vec![Entry::Path(other.clone())]),
+        ));
+        let mut h = host_through(&t, &consoles, &gate);
+        h.font_dirs = vec![t.0.join("a")];
+        let family = |name: &str| source("font:x", Origin::Font(name.into()), None);
+        // the file named for its family is refused, with why
+        let e = resolve(&family("B"), &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Refused { path, .. } if path == &other),
+            "{e:?}"
+        );
+        // a family the machine lacks is missing
+        let e = resolve(&family("C"), &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Missing(w) if w.starts_with("no font of family C:")),
             "{e:?}"
         );
     }

@@ -1192,10 +1192,13 @@ fn vtlook_findings(
 /// theme's folder is reported where it is named. An SVG file that fails
 /// the gate names the check it failed. A cursor theme's folder that fails
 /// the gate is one line, since every file in it fails the same way. In a
-/// theme that passes, check-config reads each shape's names in turn, as
-/// the console does, and stops at the first file that passes. Each file
-/// before it that fails is named once, with the check it failed, such as a
-/// symbolic link that leads out of the theme's folder.
+/// theme that passes, check-config walks each shape's file names in the
+/// console's order and stops at the first file that passes the gate. Each
+/// file before it that fails is named once, with the check it failed, such
+/// as a symbolic link that leads out of the theme's folder. check-config
+/// does not parse the files. The console stops at the first file it can
+/// draw, so a file that passes the gate but does not parse leads the
+/// console on to the shape's next name, which check-config does not check.
 ///
 /// References:
 /// - ADR-1205 D4: a pointer theme is a resource activated by its folder, its links pass while they stay inside the theme's folder, and check-config names the file and the check it failed.
