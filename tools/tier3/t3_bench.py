@@ -42,6 +42,10 @@ _BENCH = re.compile(r"T3-BENCH (\S+)((?: \w+=\S+)+)\s*$")
 _FIGURES = re.compile(r"\[\s*(\d+\.\d+)\] vtium\[(\d+)\]: render: head (.+?): (\d+) frames, "
                       r"compose mean (\d+) max (\d+) us"
                       r"(?:, (\d+) key echoes, key to present mean (\d+) max (\d+) us)?$")
+# The start of a frame-times line, and its key-echo part: a console line
+# that holds either but does not match _FIGURES is one another writer broke.
+_FIGURES_START = re.compile(r"(?:\[\s*(\d+\.\d+)\] )?vtium\[\d+\]: render: head ")
+_FIGURES_ECHOES = re.compile(r"\d+ key echoes, key to present mean ")
 
 # A console without a render timer logs this when its configuration names
 # render-timer. vtium reads render-timer in every build, so the line comes
@@ -75,7 +79,8 @@ def figure_lines(text):
     stamp, in seconds), "pid", "head", "frames", "compose_us_mean",
     "compose_us_max", and "echoes", "echo_us_mean" and "echo_us_max", which
     are 0 on a line that measured no key echo. A line another writer broke
-    into on the serial console is left out."""
+    into on the serial console is left out, and unread_figure_lines counts
+    it."""
     out = []
     for line in text.splitlines():
         m = _FIGURES.search(line.strip())
@@ -86,6 +91,33 @@ def figure_lines(text):
                     "compose_us_mean": int(g[4]), "compose_us_max": int(g[5]),
                     "echoes": int(g[6] or 0), "echo_us_mean": int(g[7] or 0),
                     "echo_us_max": int(g[8] or 0)})
+    return out
+
+
+def unread_figure_lines(text):
+    """The stamps, in seconds, of the frame-times lines in console text
+    that another writer broke into on the serial console, so that
+    figure_lines cannot read them. Such a line holds the start of a
+    frame-times line, or its key-echo part, and does not read as a whole
+    line. A line cut right after its compose times still reads as a line
+    with no echo, and its key-echo part then stands on a line of its own,
+    after the other writer's output. That part counts as unread, under the
+    stamp of the frame-times line begun before it. A broken line whose stamp
+    is lost also takes that stamp, or None when no frame-times line came
+    before it."""
+    out, last = [], None
+    for line in text.splitlines():
+        line = line.strip()
+        m = _FIGURES.search(line)
+        if m:
+            last = float(m.group(1))
+            continue
+        start = _FIGURES_START.search(line)
+        if start and start.group(1):
+            last = float(start.group(1))
+            out.append(last)
+        elif start or _FIGURES_ECHOES.search(line):
+            out.append(last)
     return out
 
 
@@ -115,15 +147,24 @@ def echo_figures(serial_text, start, end, counts, config):
     """The report entry of the key-echo screen (t3_keyecho), whose window
     reports "keys", the keys the driver typed, and "read", the keys the
     echoing program read. "error", which fails the case, is set when the
-    program read fewer keys than were typed, when vtium measured more echoes
-    than keys, and when no line in the window gives an echo while debug
-    logging is on."""
+    program read fewer keys than were typed, when a frame-times line stamped
+    in the window cannot be read (unread_figure_lines), when vtium measured
+    more echoes than keys, and when no line in the window gives an echo
+    while debug logging is on."""
     out = {"seconds": round(end - start, 2), "keys": counts["keys"],
            "keys_read": counts.get("read", 0)}
     out.update(key_echoes(figure_lines(serial_text), start, end))
+    out["figure_lines_unread"] = sum(
+        1 for t in unread_figure_lines(serial_text) if t is not None and start < t <= end)
+    unread = out["figure_lines_unread"]
     if out["keys_read"] < out["keys"]:
         out["error"] = ("the echoing program read %d of the %d keys typed"
                         % (out["keys_read"], out["keys"]))
+    elif unread:
+        out["error"] = ("%d frame-times line%s stamped in the window %.2f to %.2f s cannot be "
+                        "read, because another writer broke into %s on the serial console"
+                        % (unread, "" if unread == 1 else "s", start, end,
+                           "it" if unread == 1 else "them"))
     elif out["key_echoes"] > out["keys"]:
         out["error"] = ("vtium measured %d key echoes in the window, more than the %d keys "
                         "typed" % (out["key_echoes"], out["keys"]))

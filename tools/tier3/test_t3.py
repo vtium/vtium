@@ -7801,6 +7801,29 @@ class KeyEchoTest(unittest.TestCase):
              "compose_us_max": 3400, "echoes": 18, "echo_us_mean": 2100, "echo_us_max": 5300},
         ])
 
+    def test_lines_another_writer_broke_are_counted(self):
+        # The serial console also carries the getty's and the kernel's
+        # output, which can break into a frame-times line. figure_lines
+        # leaves such a line out, and unread_figure_lines gives the stamp of
+        # each one.
+        text = "\n".join([
+            "[  99.000000] vtium[505]: render: head Virtual-1: 3 frames",  # cut short
+            figures_line(100.5, 20, (18, 2100, 5300)),
+            # cut inside its echo part
+            figures_line(101.5, 20) + ", 18 key ech",
+            # a kernel message glued after it
+            figures_line(102.5, 20, (18, 2100, 5300)) + "[  102.600000] random: crng init",
+            # cut right after its compose times: its start reads as a line
+            # with no echo, and its echo part follows another writer's line
+            figures_line(103.5, 20),
+            "[  103.600000] getty[400]: login: ",
+            ", 18 key echoes, key to present mean 2100 max 5300 us",
+            timer_line(103.7, 3, 3),
+        ])
+        self.assertEqual([x["t"] for x in t3_bench.figure_lines(text)], [100.5, 103.5])
+        self.assertEqual(t3_bench.unread_figure_lines(text), [99.0, 101.5, 102.5, 103.5])
+        self.assertEqual(t3_bench.unread_figure_lines(self.serial()), [])
+
     def test_key_echoes_in_the_window(self):
         # Only the lines stamped inside the window count. The mean is each
         # line's mean weighted by its echoes, and the max the largest.
@@ -7826,8 +7849,8 @@ class KeyEchoTest(unittest.TestCase):
     def test_measure(self):
         got = t3_bench.measure(self.serial(), self.EVENT, self.CONF)
         self.assertEqual(got, {"seconds": 4.0, "keys": 54, "keys_read": 54, "figure_lines": 3,
-                               "frames": 55, "key_echoes": 54, "key_to_present_us_mean": 2111,
-                               "key_to_present_us_max": 9000})
+                               "figure_lines_unread": 0, "frames": 55, "key_echoes": 54,
+                               "key_to_present_us_mean": 2111, "key_to_present_us_max": 9000})
 
     def test_verdicts(self):
         serial = self.serial()
@@ -7843,6 +7866,21 @@ class KeyEchoTest(unittest.TestCase):
         got = t3_bench.measure(figures_line(101.0, 3), self.EVENT, self.CONF)
         self.assertEqual(got["error"], "no frame-times line stamped in the window 100.00 to "
                                        "104.00 s gives a key echo")
+        # a frame-times line in the window that another writer broke into
+        # fails the case, since its key echoes go uncounted
+        broken = figures_line(103.5, 20, (18, 2100, 5300))
+        for cut in (broken[:-20], broken + "[  103.600000] random: crng init"):
+            with self.subTest(cut=cut):
+                got = t3_bench.measure(serial + "\n" + cut, self.EVENT, self.CONF)
+                self.assertEqual(got["figure_lines_unread"], 1)
+                self.assertEqual(got["error"], "1 frame-times line stamped in the window 100.00 "
+                                               "to 104.00 s cannot be read, because another "
+                                               "writer broke into it on the serial console")
+        # one broken outside the window is not needed, and fails nothing
+        got = t3_bench.measure(serial + "\n" + broken.replace("103.5", "99.5")[:-20],
+                               self.EVENT, self.CONF)
+        self.assertEqual(got["figure_lines_unread"], 0)
+        self.assertNotIn("error", got)
         # with debug logging off, vtium logs no frame-times line: a note
         got = t3_bench.measure("", self.EVENT, ["no-blink", "render-timer=log"])
         self.assertNotIn("error", got)
