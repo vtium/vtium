@@ -65,6 +65,9 @@ pub struct Opened {
     pub problems: Vec<String>,
     /// The problems the status line counts, the commands' count.
     pub count: usize,
+    /// The draft's changes to the active resources, which the status line
+    /// counts among its changes.
+    pub batch: usize,
 }
 
 /// One file of the installed history.
@@ -175,6 +178,7 @@ impl Store {
             stale: matches!(state, State::Stale { .. }),
             count: checked.count(),
             problems: checked.problems,
+            batch: self.store.batch_changes(name)?.len(),
         })
     }
 

@@ -993,6 +993,14 @@ mod draft_flow {
     }
 
     #[test]
+    fn the_status_line_counts_a_draft_s_changes_to_the_active_resources() {
+        let b = bench("status-batch");
+        desk_with_a_batch_change(&b);
+        let status = run(&b, &[]).status();
+        assert!(status.contains("· 1 change · no problems"), "{status}");
+    }
+
+    #[test]
     fn revert_and_new_drop_the_draft_s_changes_to_the_active_resources() {
         for key in [b"r", b"n"] {
             let b = bench(&format!("reset-batch-{}", key[0] as char));

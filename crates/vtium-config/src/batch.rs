@@ -141,6 +141,15 @@ impl Changes {
     }
 }
 
+/// `1 change to the active resources`, or `N changes ...`, as the state
+/// line and `revert --dry-run` count a draft's changes.
+pub fn resource_changes(n: usize) -> String {
+    match n {
+        1 => "1 change to the active resources".to_owned(),
+        n => format!("{n} changes to the active resources"),
+    }
+}
+
 /// `word` as a path the batch file can list: an absolute path without
 /// `..`, with `.` and doubled slashes dropped, read as vtium reads a line
 /// of the batch file.

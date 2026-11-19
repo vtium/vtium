@@ -179,7 +179,7 @@ const TOPICS: &[Topic] = &[
             "diff",
             "show how the draft differs from the installed vtium.conf",
         )],
-        detail: "Shows each line the current draft changes from the installed /etc/vtium/vtium.conf, with its line number in the draft. It changes nothing.",
+        detail: "Shows each line the current draft changes from the installed /etc/vtium/vtium.conf, with its line number in the draft. When the draft changes the active resources, diff then shows each line that installing the draft changes in /etc/vtium/batch.conf. It changes nothing.",
         example: "vtium-config diff",
     },
     Topic {

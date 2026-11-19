@@ -569,3 +569,39 @@ fn a_line_vtium_ignores_in_root_s_batch_file_does_not_block_an_install() {
         format!("{by_hand}{}\n", f.arg("res/mine.ttf"))
     );
 }
+
+/// `diff` shows the edit an install makes to the batch file, and `flow`'s
+/// state line counts the draft's changes to the active resources.
+#[test]
+fn diff_and_the_state_line_show_a_draft_s_changes_to_the_active_resources() {
+    let f = fixture("diff");
+    let by_hand = "# root's own list\n";
+    std::fs::write(f.path("etc/batch.conf"), by_hand).expect("a batch file");
+    f.desk();
+    let mine = f.arg("res/mine.ttf");
+    f.ok(&["activate", &mine]);
+    let diff = f.ok(&["diff"]);
+    assert!(
+        diff.out.ends_with(
+            "--- ROOT/etc/batch.conf\n+++ ROOT/etc/batch.conf (after install)\n@@ line 2\n+ROOT/res/mine.ttf\n"
+        ),
+        "{}",
+        diff.out
+    );
+    let flow = f.ok(&["flow"]);
+    let first = flow.out.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with("draft desk: 1 change to the active resources · "),
+        "{first}"
+    );
+    // a change to vtium.conf and one to the active resources together
+    f.ok(&["set", "font-size", "14"]);
+    let flow = f.ok(&["flow"]);
+    let first = flow.out.lines().next().unwrap_or_default();
+    assert!(
+        first.starts_with(
+            "draft desk: 1 line added, 1 removed, 1 change to the active resources · "
+        ),
+        "{first}"
+    );
+}
