@@ -1277,30 +1277,31 @@ fn an_install_that_moves_the_frits_and_changes_a_frit_is_refused() {
         "font-name=unifont\nfont-frits=/srv/frits\n",
     );
     let (mut app, _) = App::new(inputs(), 80, 25);
-    app.draft = Some(drafted(&moved));
+    app.shared.draft = Some(drafted(&moved));
     assert!(app.frit_plan().is_ok());
-    app.pending.removals.push("tiny5".to_owned());
+    app.shared.pending.removals.push("tiny5".to_owned());
     let why = app.frit_plan().expect_err("a removal and a new directory");
     assert!(why.contains("font-frits"), "{why}");
-    app.pending.removals.clear();
-    app.pending
+    app.shared.pending.removals.clear();
+    app.shared
+        .pending
         .frits
         .push(("made".to_owned(), "source=builtin:unifont\n".to_owned()));
     let why = app.frit_plan().expect_err("a new frit and a new directory");
     assert!(why.contains("font-frits"), "{why}");
     // a draft that leaves font-frits alone is no move
     let (mut app, _) = App::new(inputs(), 80, 25);
-    app.draft = Some(drafted(
+    app.shared.draft = Some(drafted(
         &conf.replace("font-name=unifont", "font-name=proof"),
     ));
-    app.pending.removals.push("tiny5".to_owned());
+    app.shared.pending.removals.push("tiny5".to_owned());
     assert!(app.frit_plan().is_ok());
     // nor is one that names the directory the installed file names
     let mut named = inputs();
     named.conf = Some(moved.clone());
     let (mut app, _) = App::new(named, 80, 25);
-    app.draft = Some(drafted(&moved));
-    app.pending.removals.push("tiny5".to_owned());
+    app.shared.draft = Some(drafted(&moved));
+    app.shared.pending.removals.push("tiny5".to_owned());
     assert!(app.frit_plan().is_ok(), "{:?}", app.frit_plan());
 }
 
@@ -1883,9 +1884,9 @@ fn the_deadline_at_start_settles_the_four_requests() {
     ))));
     app.event(Event::Timeout);
     assert!(!app.awaiting());
-    assert_eq!(app.live, Live::OpsOff);
+    assert_eq!(app.shared.live, Live::OpsOff);
     assert_eq!(app.event(Event::Input(Input::Reply(Reply::Attributes))), []);
-    assert_eq!(app.live, Live::OpsOff);
+    assert_eq!(app.shared.live, Live::OpsOff);
 }
 
 /// Each font switch is one batch, which DA1 ends. A console that answers
@@ -1920,10 +1921,14 @@ fn a_switch_whose_query_goes_unanswered_marks_its_font_refused_at_da1() {
     assert!(app.awaiting());
     assert_eq!(app.event(Event::Input(Input::Reply(Reply::Attributes))), []);
     assert!(!app.awaiting());
-    assert!(app.refused.contains("tiny5"), "{:?}", app.refused);
-    assert!(app.in_flight.is_none() && app.trial.is_none());
+    assert!(
+        app.shared.refused.contains("tiny5"),
+        "{:?}",
+        app.shared.refused
+    );
+    assert!(app.shared.in_flight.is_none() && app.nav.trial.is_none());
     assert_eq!(
-        app.message.as_deref(),
+        app.shared.message.as_deref(),
         Some(vtium_config::tui::words::trial_refused("tiny5").as_str())
     );
     assert_eq!(app.event(Event::Input(Input::Key(Key::Char('t')))), []);
@@ -2051,14 +2056,14 @@ fn a_picture_that_comes_after_the_highlight_moved_is_not_shown() {
 fn a_failed_picture_leaves_the_live_trial_s_countdown() {
     use vtium_config::tui::model::Event;
     let mut app = trying_tiny5();
-    let countdown = app.message.clone();
+    let countdown = app.shared.message.clone();
     app.event(Event::Pictured(Err("the helper failed".into())));
     app.event(Event::Detailed {
         font: "tiny5".into(),
         height: 16,
         result: Err("the helper failed".into()),
     });
-    assert_eq!(app.message, countdown);
+    assert_eq!(app.shared.message, countdown);
 }
 
 /// The live trial counts its ticks down on the message line and, with no
@@ -2076,7 +2081,7 @@ fn the_live_trial_puts_the_font_back_after_its_ticks() {
             "{left} left"
         );
         assert_eq!(
-            app.message.as_deref(),
+            app.shared.message.as_deref(),
             Some(vtium_config::tui::words::trial_countdown("tiny5", left).as_str())
         );
     }
@@ -2084,7 +2089,7 @@ fn the_live_trial_puts_the_font_back_after_its_ticks() {
         app.event(Event::Timeout),
         [Effect::Write(model::switch("unifont"))]
     );
-    assert!(app.trial.is_none());
+    assert!(app.nav.trial.is_none());
     // a tick after the trial does nothing
     assert_eq!(app.event(Event::Timeout), []);
 }
@@ -2099,7 +2104,7 @@ fn the_keep_key_stops_the_live_trial_s_revert() {
     for _ in 0..20 {
         assert_eq!(app.event(Event::Timeout), []);
     }
-    assert_eq!(app.shown_font.as_deref(), Some("tiny5"));
+    assert_eq!(app.shared.shown_font.as_deref(), Some("tiny5"));
 }
 
 /// Any other key during the countdown puts the font back and does nothing
@@ -2117,7 +2122,10 @@ fn any_other_key_during_the_live_trial_puts_the_font_back() {
             "{key:?}"
         );
         assert_eq!(app.font_at, at, "{key:?} moved the highlight");
-        assert!(app.trial.is_none() && app.leaving.is_none(), "{key:?}");
+        assert!(
+            app.nav.trial.is_none() && app.shared.leaving.is_none(),
+            "{key:?}"
+        );
         assert_eq!(app.drafted("font-name").as_deref(), Some("unifont"));
     }
 }
@@ -2169,7 +2177,7 @@ fn leaving_during_the_live_trial_gives_the_start_font_back() {
             Some(&Effect::Write(model::switch("unifont"))),
             "{event:?}"
         );
-        assert!(app.trial.is_none());
+        assert!(app.nav.trial.is_none());
         let font = app.event(Event::Input(Input::Reply(Reply::Font("unifont".into()))));
         assert_eq!(font, [], "{event:?}");
         let done = app.event(Event::Input(Input::Reply(Reply::Attributes)));
@@ -2181,10 +2189,14 @@ fn leaving_during_the_live_trial_gives_the_start_font_back() {
 /// screen says first how to keep the font or put it back.
 #[test]
 fn the_small_screen_shows_the_live_trial_s_countdown() {
-    use vtium_config::tui::model::Event;
+    use vtium_config::tui::model::{Event, Size};
     use vtium_config::tui::view::{as_text, screen};
     let mut app = trying_tiny5();
-    app.event(Event::Resize { cols: 40, rows: 12 });
+    app.event(Event::Resize(Size {
+        cols: 40,
+        rows: 12,
+        cell_px: app.size.cell_px,
+    }));
     let text = as_text(&screen(&app));
     let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
@@ -2283,9 +2295,9 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
     use vtium_config::tui::model::{App, Event, Live};
     let (mut app, first) = App::new(inputs(), 80, 25);
     assert_eq!(first[1], model::Effect::Wait(model::WAIT));
-    assert_eq!(app.live, Live::Asking);
+    assert_eq!(app.shared.live, Live::Asking);
     app.event(Event::Timeout);
-    assert_eq!(app.live, Live::NotVtium);
+    assert_eq!(app.shared.live, Live::NotVtium);
 }
 
 #[test]
@@ -3009,12 +3021,16 @@ mod flow_view {
                 let at = a.flow_view.at.clone();
                 assert!(at.is_some());
                 let out = type_in(&mut a, key);
-                assert_eq!(a.view, next, "{key:?} from box {boxes}");
+                assert_eq!(a.nav.view, next, "{key:?} from box {boxes}");
                 assert!(writes(&out, MOUSE_OFF), "{out:?}");
                 // and back: the flow keeps the box that was highlighted
                 let back = if key == TAB { BACKTAB } else { TAB };
                 let out = type_in(&mut a, back);
-                assert_eq!((a.view, &a.flow_view.at), (View::Flow, &at), "box {boxes}");
+                assert_eq!(
+                    (a.nav.view, &a.flow_view.at),
+                    (View::Flow, &at),
+                    "box {boxes}"
+                );
                 assert!(writes(&out, MOUSE_ON), "{out:?}");
             }
         }
@@ -3030,7 +3046,7 @@ mod flow_view {
         for key in keys {
             for _ in 0..8 {
                 type_in(&mut a, key);
-                assert_eq!(a.view, View::Flow, "{key:?}");
+                assert_eq!(a.nav.view, View::Flow, "{key:?}");
             }
         }
     }
@@ -3038,7 +3054,7 @@ mod flow_view {
     /// The flow with a draft, so a card offers fields to change.
     fn drafted(cols: usize, rows: usize) -> App {
         let mut a = app(cols, rows);
-        a.draft = Some(vtium_config::tui::desk::Opened {
+        a.shared.draft = Some(vtium_config::tui::desk::Opened {
             name: "mine".into(),
             text: inputs().conf.expect("the fixture's vtium.conf"),
             ..Default::default()
@@ -3056,7 +3072,7 @@ mod flow_view {
         assert!(layer.is_some(), "{}", text(&a));
         for key in [TAB, BACKTAB] {
             type_in(&mut a, key);
-            assert_eq!((a.view, &a.flow_view.layer), (View::Flow, &layer));
+            assert_eq!((a.nav.view, &a.flow_view.layer), (View::Flow, &layer));
         }
         type_in(&mut a, b"\x1b");
         assert!(a.flow_view.layer.is_none());
@@ -3064,7 +3080,7 @@ mod flow_view {
         assert!(a.pager.is_some());
         for key in [TAB, BACKTAB] {
             type_in(&mut a, key);
-            assert_eq!((a.view, a.pager.is_some()), (View::Flow, true));
+            assert_eq!((a.nav.view, a.pager.is_some()), (View::Flow, true));
         }
     }
 
@@ -3074,16 +3090,19 @@ mod flow_view {
         let looks = cell(&a, "Looks");
         type_in(&mut a, b"v");
         click(&mut a, looks);
-        assert_eq!((a.view, a.pager.is_some()), (View::Flow, true));
+        assert_eq!((a.nav.view, a.pager.is_some()), (View::Flow, true));
         let mut a = drafted(80, 25);
         type_in(&mut a, b"\r");
         assert!(a.flow_view.layer.is_some());
         click(&mut a, looks);
-        assert_eq!((a.view, a.flow_view.layer.is_some()), (View::Flow, true));
+        assert_eq!(
+            (a.nav.view, a.flow_view.layer.is_some()),
+            (View::Flow, true)
+        );
         // with nothing open, the click switches
         let mut a = drafted(80, 25);
         click(&mut a, looks);
-        assert_eq!(a.view, View::Looks);
+        assert_eq!(a.nav.view, View::Looks);
     }
 
     /// The cell where `needle` starts on the screen of `app`.
@@ -3129,8 +3148,8 @@ mod flow_view {
         let mut a = app(80, 25);
         for key in ['d', 'v', 'r', 'o', 'n', 'x', 'i'] {
             let out = press(&mut a, Key::Char(key));
-            assert_eq!(a.message.as_deref(), Some(words::NO_DESK), "{key}");
-            assert_eq!(a.view, View::Flow);
+            assert_eq!(a.shared.message.as_deref(), Some(words::NO_DESK), "{key}");
+            assert_eq!(a.nav.view, View::Flow);
             assert!(out.is_empty(), "{key}: {out:?}");
         }
     }
@@ -3238,7 +3257,7 @@ mod flow_view {
         let mut a = app(80, 25);
         a.flow_at = Item::Display(0);
         press(&mut a, Key::BackTab);
-        assert_eq!(a.view, View::Help);
+        assert_eq!(a.nav.view, View::Help);
         let joined = |a: &App| text(a).lines().map(str::trim).collect::<Vec<_>>().join(" ");
         assert!(
             joined(&a).contains("The Flow view: CONFIGURATION, NEW PATH and PARTS"),
@@ -3281,7 +3300,7 @@ mod flow_view {
         for (cols, rows) in [(80, 25), (100, 30)] {
             let mut a = app(cols, rows);
             press(&mut a, Key::BackTab);
-            assert_eq!(a.view, View::Help);
+            assert_eq!(a.nav.view, View::Help);
             let page = words(
                 &view::help_rows(&a)
                     .iter()

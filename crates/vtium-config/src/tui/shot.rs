@@ -195,13 +195,14 @@ impl App {
             return None;
         }
         let readable = |name: &str| {
-            self.inputs
+            self.shared
+                .inputs
                 .fonts
                 .iter()
                 .find(|f| f.name == name)
                 .is_some_and(|f| !matches!(f.state, FontState::Refused(_)))
         };
-        match self.view {
+        match self.nav.view {
             View::Fonts => {
                 let font = self.font()?.name.clone();
                 readable(&font).then(|| Wanted {
@@ -229,7 +230,7 @@ impl App {
     pub fn height_of(&self, wanted: &Wanted) -> u32 {
         match wanted.cell {
             Some(c) => c.height,
-            None => crate::specimen::pixel_height(wanted.points, self.inputs.dpi.0),
+            None => crate::specimen::pixel_height(wanted.points, self.shared.inputs.dpi.0),
         }
     }
 
@@ -237,17 +238,20 @@ impl App {
     /// picture shows; with no pictures, the summary of the change.
     pub fn preview_line(&self) -> Option<String> {
         if self.text_preview() && !super::view::too_small(self) {
-            return match self.view {
-                View::Fonts => Some(words::console_font_caption(self.shown_font.as_deref())),
+            return match self.nav.view {
+                View::Fonts => Some(words::console_font_caption(
+                    self.shared.shown_font.as_deref(),
+                )),
                 View::Looks => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
                 _ => None,
             };
         }
         let wanted = self.wanted()?;
-        if self.graphics && wanted.detail {
+        if self.shared.graphics && wanted.detail {
             let height = self.height_of(&wanted);
             let (display, assumed) = self.display();
             let summary = self
+                .shared
                 .specimen
                 .as_ref()
                 .filter(|(f, h, _)| *f == wanted.font && *h == height)
@@ -260,11 +264,12 @@ impl App {
                 assumed,
             ));
         }
-        if self.graphics {
-            return self.shot.as_ref().map(words::caption);
+        if self.shared.graphics {
+            return self.shared.shot.as_ref().map(words::caption);
         }
         let height = self.height_of(&wanted);
         let summary = self
+            .shared
             .summary
             .as_ref()
             .filter(|(f, h, _)| *f == wanted.font && *h == height)
@@ -289,7 +294,7 @@ impl App {
 
     /// The display the picture shows, and whether it is assumed.
     fn display(&self) -> ((u32, u32), bool) {
-        match self.inputs.display {
+        match self.shared.inputs.display {
             Some(d) => (d, false),
             None => (ASSUMED_DISPLAY, true),
         }
@@ -299,7 +304,7 @@ impl App {
     /// terminal's cells.
     fn picture_max(&self) -> (u32, u32) {
         let (cols, rows) = super::view::picture_area(self);
-        let (cw, ch) = self.cell_px.unwrap_or(super::model::ASSUMED_CELL);
+        let (cw, ch) = self.size.cell_px.unwrap_or(super::model::ASSUMED_CELL);
         (
             u32::try_from(cols)
                 .unwrap_or(0)
@@ -317,28 +322,31 @@ impl App {
     /// the terminal draws kitty graphics, and a line of text where it does
     /// not. With nothing to preview, the picture on the screen is deleted.
     pub(crate) fn ask_picture(&mut self) -> Vec<Effect> {
-        if self.live == Live::Asking || self.leaving.is_some() || self.installing {
+        if self.shared.live == Live::Asking
+            || self.shared.leaving.is_some()
+            || self.shared.installing
+        {
             return Vec::new();
         }
         // in a vtium console the console draws the preview as text, so the
         // helper draws nothing
         if self.text_preview() {
-            self.asked = None;
-            self.shot = None;
+            self.shared.asked = None;
+            self.shared.shot = None;
             return self.drop_picture();
         }
         let asked = self.wanted().map(|wanted| Asked {
             wanted,
-            grid: (self.cols, self.rows),
-            cell_px: self.cell_px,
-            graphics: self.graphics,
+            grid: (self.size.cols, self.size.rows),
+            cell_px: self.size.cell_px,
+            graphics: self.shared.graphics,
         });
-        if asked == self.asked || self.drawing {
+        if asked == self.shared.asked || self.shared.drawing {
             return Vec::new();
         }
-        self.asked = asked.clone();
+        self.shared.asked = asked.clone();
         let Some(asked) = asked else {
-            self.shot = None;
+            self.shared.shot = None;
             return self.drop_picture();
         };
         let height = self.height_of(&asked.wanted);
@@ -348,18 +356,18 @@ impl App {
             cell,
             detail,
         } = asked.wanted;
-        if !self.graphics {
-            self.drawing = true;
+        if !self.shared.graphics {
+            self.shared.drawing = true;
             return vec![Effect::Summary { font, height }];
         }
         let max = self.picture_max();
         if max.0 == 0 || max.1 == 0 {
-            self.shot = None;
+            self.shared.shot = None;
             return self.drop_picture();
         }
-        self.drawing = true;
+        self.shared.drawing = true;
         if detail {
-            self.shot = None;
+            self.shared.shot = None;
             let display = self.display().0;
             return vec![Effect::Specimen {
                 font,
@@ -382,8 +390,8 @@ impl App {
         height: u32,
         cell: Result<(Cell, u32), String>,
     ) -> Vec<Effect> {
-        let Some(asked) = self.asked.clone() else {
-            self.drawing = false;
+        let Some(asked) = self.shared.asked.clone() else {
+            self.shared.drawing = false;
             return Vec::new();
         };
         let wanted = asked.wanted;
@@ -392,16 +400,16 @@ impl App {
             || self.height_of(&wanted) != height
             || wanted.cell.is_some()
             || self.wanted().as_ref() != Some(&wanted)
-            || self.leaving.is_some()
+            || self.shared.leaving.is_some()
         {
-            self.drawing = false;
+            self.shared.drawing = false;
             return Vec::new();
         }
         match cell {
             Ok(cell) => self.picture_of(wanted.font, wanted.points, height, cell),
             Err(why) => {
-                self.drawing = false;
-                self.shot = None;
+                self.shared.drawing = false;
+                self.shared.shot = None;
                 self.say_unless_trial(words::no_picture(why));
                 self.drop_picture()
             }
@@ -424,7 +432,7 @@ impl App {
             across(display.0, cell.width).min(GRID_MAX.0),
             across(display.1, cell.height).min(GRID_MAX.1),
         );
-        self.shot = Some(Caption {
+        self.shared.shot = Some(Caption {
             font: font.clone(),
             points,
             display,
@@ -434,7 +442,7 @@ impl App {
         });
         // the Looks view draws a nominal screen of sample content at the
         // look's cell; the caption still counts the real display's grid
-        let (display, grid, screen) = if self.view == View::Looks {
+        let (display, grid, screen) = if self.nav.view == View::Looks {
             let shown = (
                 across(PREVIEW_SCREEN.0, cell.width).min(GRID_MAX.0),
                 across(PREVIEW_SCREEN.1, cell.height).min(GRID_MAX.1),
@@ -456,23 +464,33 @@ impl App {
             grid,
             screen,
             palette,
-            color: self.inputs.color,
+            color: self.shared.inputs.color,
             max: self.picture_max(),
         })]
     }
 
     /// The TUI's screen as it would be at `grid`, with no picture on it.
     fn screen_at(&mut self, (cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
-        let kept = (self.cols, self.rows, self.picture, self.shot.take());
-        (self.cols, self.rows, self.picture) = (cols, rows, false);
+        let kept = (
+            self.size.cols,
+            self.size.rows,
+            self.shared.picture,
+            self.shared.shot.take(),
+        );
+        (self.size.cols, self.size.rows, self.shared.picture) = (cols, rows, false);
         let screen = super::view::screen(self);
-        (self.cols, self.rows, self.picture, self.shot) = kept;
+        (
+            self.size.cols,
+            self.size.rows,
+            self.shared.picture,
+            self.shared.shot,
+        ) = kept;
         screen
     }
 
     /// Deletes the picture on the screen, if any.
     pub(crate) fn drop_picture(&mut self) -> Vec<Effect> {
-        if std::mem::take(&mut self.picture) {
+        if std::mem::take(&mut self.shared.picture) {
             vec![Effect::Write(crate::kitty::delete(crate::kitty::IMAGE_ID))]
         } else {
             Vec::new()
@@ -485,16 +503,17 @@ impl App {
         &mut self,
         result: Result<crate::specimen::Picture, String>,
     ) -> Vec<Effect> {
-        self.drawing = false;
+        self.shared.drawing = false;
         let mut out = self.drop_picture();
         // a picture of a change no longer highlighted is not shown: the
         // next is asked for
         let current = self
+            .shared
             .asked
             .as_ref()
             .is_some_and(|a| self.wanted().as_ref() == Some(&a.wanted));
-        if !matches!(self.view, View::Looks | View::Fonts | View::Flow)
-            || self.leaving.is_some()
+        if !matches!(self.nav.view, View::Looks | View::Fonts | View::Flow)
+            || self.shared.leaving.is_some()
             || !current
         {
             return out;
@@ -509,11 +528,11 @@ impl App {
                     p.height,
                     &p.rgba,
                 ));
-                self.picture = true;
+                self.shared.picture = true;
                 out.push(Effect::Write(bytes));
             }
             Err(why) => {
-                self.shot = None;
+                self.shared.shot = None;
                 self.say_unless_trial(words::no_picture(why));
             }
         }
@@ -523,8 +542,8 @@ impl App {
     /// Puts `line` on the message line, unless the live trial's countdown
     /// holds it.
     fn say_unless_trial(&mut self, line: String) {
-        if self.trial.is_none() {
-            self.message = Some(line);
+        if self.nav.trial.is_none() {
+            self.shared.message = Some(line);
         }
     }
 
@@ -538,7 +557,7 @@ impl App {
     ) -> Vec<Effect> {
         match result {
             Ok((picture, summary)) => {
-                self.specimen = Some((font, height, summary));
+                self.shared.specimen = Some((font, height, summary));
                 self.pictured(Ok(picture))
             }
             Err(why) => self.pictured(Err(why)),
@@ -549,30 +568,31 @@ impl App {
     /// that puts the font it drew back (D4), where the console can be
     /// switched.
     pub(crate) fn try_live(&mut self, name: String) -> Vec<Effect> {
-        if self.live != Live::On {
-            self.message = Some(words::TRIAL_OFF.to_owned());
+        if self.shared.live != Live::On {
+            self.shared.message = Some(words::TRIAL_OFF.to_owned());
             return Vec::new();
         }
-        if self.refused.contains(&name) {
-            self.message = Some(words::KEPT.to_owned());
+        if self.shared.refused.contains(&name) {
+            self.shared.message = Some(words::KEPT.to_owned());
             return Vec::new();
         }
         let back = self
+            .shared
             .want
             .clone()
-            .or_else(|| self.shown_font.clone())
+            .or_else(|| self.shared.shown_font.clone())
             .unwrap_or_default();
         if back == name {
-            self.message = Some(words::trial_same(&name));
+            self.shared.message = Some(words::trial_same(&name));
             return Vec::new();
         }
-        self.trial = Some(Trial {
+        self.nav.trial = Some(Trial {
             font: name.clone(),
             back,
             left: TRIAL_TICKS,
         });
-        self.want = Some(name.clone());
-        self.message = Some(words::trial_countdown(&name, TRIAL_TICKS));
+        self.shared.want = Some(name.clone());
+        self.shared.message = Some(words::trial_countdown(&name, TRIAL_TICKS));
         let mut out = self.follow();
         out.push(Effect::Wait(TICK));
         out
@@ -583,8 +603,8 @@ impl App {
     pub(crate) fn trial_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
             Key::Char('k') => {
-                if let Some(t) = self.trial.take() {
-                    self.message = Some(words::trial_kept(&t.font));
+                if let Some(t) = self.nav.trial.take() {
+                    self.shared.message = Some(words::trial_kept(&t.font));
                 }
                 Vec::new()
             }
@@ -595,18 +615,18 @@ impl App {
     /// Ends the live trial and switches the console back to the font it
     /// drew before it.
     pub(crate) fn put_back(&mut self) -> Vec<Effect> {
-        let Some(t) = self.trial.take() else {
+        let Some(t) = self.nav.trial.take() else {
             return Vec::new();
         };
-        self.message = Some(words::trial_back(&t.back));
-        self.want = Some(t.back);
+        self.shared.message = Some(words::trial_back(&t.back));
+        self.shared.want = Some(t.back);
         self.follow()
     }
 
     /// One tick of the live trial's countdown: the next wait, or, at its
     /// end, the font put back.
     pub(crate) fn tick(&mut self) -> Vec<Effect> {
-        let Some(t) = self.trial.as_mut() else {
+        let Some(t) = self.nav.trial.as_mut() else {
             return Vec::new();
         };
         t.left = t.left.saturating_sub(1);
@@ -614,7 +634,7 @@ impl App {
             return self.put_back();
         }
         let (font, left) = (t.font.clone(), t.left);
-        self.message = Some(words::trial_countdown(&font, left));
+        self.shared.message = Some(words::trial_countdown(&font, left));
         vec![Effect::Wait(TICK)]
     }
 }

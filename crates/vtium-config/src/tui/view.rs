@@ -27,7 +27,7 @@ pub const MIN_ROWS: usize = 25;
 
 /// Whether `app`'s grid is below the minimum.
 pub fn too_small(app: &App) -> bool {
-    app.cols < MIN_COLS || app.rows < MIN_ROWS
+    app.size.cols < MIN_COLS || app.size.rows < MIN_ROWS
 }
 
 fn plain(text: impl Into<String>) -> Row {
@@ -115,10 +115,11 @@ fn tail(text: &str, cols: usize) -> Vec<Row> {
 
 /// The body of `app`'s view.
 fn body(app: &App) -> Body {
-    let cols = app.cols;
-    match app.view {
+    let cols = app.size.cols;
+    match app.nav.view {
         View::Fonts => {
             let width = app
+                .shared
                 .inputs
                 .fonts
                 .iter()
@@ -128,11 +129,12 @@ fn body(app: &App) -> Body {
                 .clamp(8, 24);
             let configured = app.configured("font-name");
             let items: Vec<(String, String)> = app
+                .shared
                 .inputs
                 .fonts
                 .iter()
                 .map(|f| {
-                    let mut note = match (&f.state, app.sources.get(&f.name)) {
+                    let mut note = match (&f.state, app.shared.sources.get(&f.name)) {
                         (FontState::Reads, Some(Sources::LeftOut(left))) if !left.is_empty() => {
                             format!("{}, {}", words::READS, words::sources_missing(left.len()))
                         }
@@ -146,10 +148,10 @@ fn body(app: &App) -> Body {
                         (FontState::BuiltIn, _) => words::BUILT_IN.to_owned(),
                         (FontState::Refused(why), _) => words::does_not_read(why),
                     };
-                    if app.refused.contains(&f.name) {
+                    if app.shared.refused.contains(&f.name) {
                         note = words::KEPT.to_owned();
                     }
-                    if app.pending.removals.contains(&f.name) {
+                    if app.shared.pending.removals.contains(&f.name) {
                         note = format!("{note}, {}", words::TO_REMOVE);
                     }
                     if app.changed("font-name")
@@ -195,13 +197,13 @@ fn body(app: &App) -> Body {
                 })
                 .collect();
             let (list, keep) = list(&items, app.size_at, 10, cols);
-            let sentence = if app.text_preview() || !app.graphics {
+            let sentence = if app.text_preview() || !app.shared.graphics {
                 app.preview_line()
                     .unwrap_or_else(|| words::NO_PICTURES.to_owned())
             } else if app.size() == 0 {
                 words::AUTOMATIC_PICTURE.to_owned()
             } else {
-                let (dpi, from) = app.inputs.dpi;
+                let (dpi, from) = app.shared.inputs.dpi;
                 let from = match from {
                     DpiFrom::Conf => words::DPI_FROM_CONF,
                     DpiFrom::Edid => words::DPI_FROM_EDID,
@@ -264,7 +266,7 @@ fn body(app: &App) -> Body {
 /// - ADR-1201 D3, the Settings bullet: sections, then groups of keys.
 /// - ADR-1403 D7, "One list for every set of items": the list's look.
 fn settings_body(app: &App) -> Body {
-    let cols = app.cols;
+    let cols = app.size.cols;
     let sections = super::settings::sections();
     let bold = Style {
         bold: true,
@@ -436,7 +438,7 @@ fn help_section(node: &super::contract::Node, cols: usize) -> Vec<Row> {
 /// line's help draws on; on the About page, what `vtium-config --help
 /// about` prints, from the same source.
 pub fn help_rows(app: &App) -> Vec<Row> {
-    let cols = app.cols;
+    let cols = app.size.cols;
     let bold = Style {
         bold: true,
         ..Style::PLAIN
@@ -536,7 +538,7 @@ pub fn help_rows(app: &App) -> Vec<Row> {
 /// the list of sizes, below the rule under the tabs; in the Fonts view
 /// below the list of fonts, whose notes reach across the screen.
 pub fn picture_at(app: &App) -> (usize, usize) {
-    match app.view {
+    match app.nav.view {
         View::Fonts => {
             let body = body(app);
             (
@@ -552,7 +554,7 @@ pub fn picture_at(app: &App) -> (usize, usize) {
         // below the sentence above the sizes and its blank row
         View::Looks => (
             PICTURE_ROW
-                .saturating_add(prose(words::LOOKS_SIZES, app.cols).len())
+                .saturating_add(prose(words::LOOKS_SIZES, app.size.cols).len())
                 .saturating_add(1),
             PICTURE_COL,
         ),
@@ -594,7 +596,7 @@ fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
     }
     let tabs_end = x;
     let actions = |long: bool, gap: usize| -> Vec<String> {
-        let list: &[(&str, &str)] = match app.view.tab() {
+        let list: &[(&str, &str)] = match app.nav.view.tab() {
             View::Flow => &words::FLOW_ACTIONS,
             View::Help => &[],
             _ => &words::ACTIONS,
@@ -608,7 +610,7 @@ fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
     };
     let fits = |a: &[String]| {
         let w: usize = a.iter().map(|t| t.chars().count()).sum::<usize>();
-        tabs_end.saturating_add(1).saturating_add(w) <= app.cols
+        tabs_end.saturating_add(1).saturating_add(w) <= app.size.cols
     };
     let shown = [actions(true, 1), actions(false, 1), actions(false, 0)]
         .into_iter()
@@ -623,7 +625,7 @@ fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
         } else {
             0
         });
-    let mut x = app.cols.saturating_sub(width);
+    let mut x = app.size.cols.saturating_sub(width);
     let tight = shown.first().is_some_and(|t| !t.starts_with(' '));
     for (i, text) in shown.into_iter().enumerate() {
         let w = text.chars().count();
@@ -637,7 +639,7 @@ fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
 fn tab_bar(canvas: &mut Canvas, app: &App) {
     for (tab, x, text) in tab_places(app) {
         let current = match tab {
-            Tab::View(v) => app.view.tab() == v,
+            Tab::View(v) => app.nav.view.tab() == v,
             Tab::Action(_) => false,
         };
         let style = match (tab, current) {
@@ -666,27 +668,28 @@ pub fn tab_at(app: &App, col: usize, row: usize) -> Option<View> {
 /// tags; at the right, how a change is previewed and whether `t` tries
 /// a font live.
 fn status(canvas: &mut Canvas, app: &App) {
-    let flow = &app.inputs.flow;
+    let flow = &app.shared.inputs.flow;
     // the left side with `waiting`, the words for the font sets waiting
     // to be installed
     let left_with = |waiting: &dyn Fn(usize) -> String| {
         let mut left = match &flow.draft {
-            Some(d) => words::draft_state(&d.name, d.changes, app.unsaved, d.problems),
+            Some(d) => words::draft_state(&d.name, d.changes, app.shared.unsaved, d.problems),
             None => words::NO_DRAFT.to_owned(),
         };
         let pending = app
+            .shared
             .pending
             .frits
             .len()
-            .saturating_add(app.pending.removals.len());
+            .saturating_add(app.shared.pending.removals.len());
         if pending > 0 {
             left = format!("{left} · {}", waiting(pending));
         }
-        if app.view == View::Flow && app.draft.is_some() {
-            if let Some(came) = &app.came {
+        if app.nav.view == View::Flow && app.shared.draft.is_some() {
+            if let Some(came) = &app.shared.came {
                 left = format!("{left} · {came}");
             }
-            if !(app.inputs.hotplug && app.present.udev) {
+            if !(app.shared.inputs.hotplug && app.shared.present.udev) {
                 left = format!("{left} · {}", words::NO_HOTPLUG);
             }
         }
@@ -694,8 +697,8 @@ fn status(canvas: &mut Canvas, app: &App) {
     };
     // the right side, in its long or its short words
     // a vtium console draws the preview as text, pictures or not
-    let pictures = app.graphics && !app.text_preview();
-    let live_with = |short: bool| match (&app.live, pictures) {
+    let pictures = app.shared.graphics && !app.text_preview();
+    let live_with = |short: bool| match (&app.shared.live, pictures) {
         (Live::Asking, _) => words::PREVIEW_ASKING.to_owned(),
         (live, graphics) => format!(
             "{} · {}",
@@ -715,7 +718,8 @@ fn status(canvas: &mut Canvas, app: &App) {
     // the room the left side has beside the right side, with the gap
     // between them and the margin after
     let room = |live: &str| {
-        app.cols
+        app.size
+            .cols
             .saturating_sub(live.chars().count())
             .saturating_sub(3)
     };
@@ -738,7 +742,7 @@ fn status(canvas: &mut Canvas, app: &App) {
     canvas.put(
         0,
         1,
-        &sides(&left, &format!("{live} "), app.cols),
+        &sides(&left, &format!("{live} "), app.size.cols),
         Style::PLAIN,
     );
 }
@@ -751,7 +755,7 @@ const MESSAGE_ROWS: usize = 3;
 /// rebuilds them and moves their nodes to supported, and the key line then
 /// comes from the contract, as everywhere else.
 fn planned_keys(app: &App) -> &'static str {
-    match app.view {
+    match app.nav.view {
         View::Looks => words::KEYS_LOOKS,
         View::Fonts if app.text_preview() => words::KEYS_FONTS_LIVE,
         View::Fonts => words::KEYS_FONTS,
@@ -772,7 +776,7 @@ fn planned_keys(app: &App) -> &'static str {
 pub fn key_line(app: &App) -> &'static str {
     match super::contract::key_pages(super::nav::node(app)) {
         Some(pages) => pages
-            .get(app.key_page)
+            .get(app.nav.key_page)
             .or_else(|| pages.first())
             .copied()
             .unwrap_or_default(),
@@ -811,13 +815,17 @@ fn item_rows(items: &str, width: usize) -> Vec<String> {
 /// right edge, and down to the row above the message line, so it never
 /// covers the keys.
 pub fn picture_area(app: &App) -> (usize, usize) {
-    if app.view == View::Flow {
+    if app.nav.view == View::Flow {
         // the rows above the message at its longest
         let bottom = app
+            .size
             .rows
             .saturating_sub(key_rows(app).len())
             .saturating_sub(MESSAGE_ROWS);
-        return (app.cols.saturating_sub(2), bottom.saturating_sub(FLOW_TOP));
+        return (
+            app.size.cols.saturating_sub(2),
+            bottom.saturating_sub(FLOW_TOP),
+        );
     }
     // the rule, the keys, and the message at its longest
     let footer = 1usize
@@ -825,8 +833,9 @@ pub fn picture_area(app: &App) -> (usize, usize) {
         .saturating_add(MESSAGE_ROWS);
     let (row, col) = picture_at(app);
     (
-        app.cols.saturating_sub(col.saturating_sub(1)),
-        app.rows
+        app.size.cols.saturating_sub(col.saturating_sub(1)),
+        app.size
+            .rows
             .saturating_sub(footer)
             .saturating_sub(row.saturating_sub(1)),
     )
@@ -835,8 +844,8 @@ pub fn picture_area(app: &App) -> (usize, usize) {
 /// The message under a view's list, wrapped to the screen.
 fn message_rows(app: &App) -> Vec<String> {
     wrap(
-        app.message.as_deref().unwrap_or(""),
-        app.cols.saturating_sub(2),
+        app.shared.message.as_deref().unwrap_or(""),
+        app.size.cols.saturating_sub(2),
         MESSAGE_ROWS,
     )
 }
@@ -847,6 +856,7 @@ fn message_rows(app: &App) -> Vec<String> {
 /// dropped and the list takes their rows.
 fn list_window(app: &App, list: usize, tail: usize) -> (usize, bool) {
     let room = app
+        .size
         .rows
         .saturating_sub(4)
         .saturating_sub(message_rows(app).len())
@@ -871,17 +881,17 @@ pub fn help_window(app: &App) -> (usize, usize) {
 
 /// The screen below the minimum size.
 fn small(canvas: &mut Canvas, app: &App) {
-    let cols = app.cols;
+    let cols = app.size.cols;
     let mut lines: Vec<String> = Vec::new();
     // the live trial's countdown, and its keys, first
-    if app.trial.is_some()
-        && let Some(message) = &app.message
+    if app.nav.trial.is_some()
+        && let Some(message) = &app.shared.message
     {
         lines.extend(wrap(message, cols, usize::MAX));
         lines.push(String::new());
     }
     lines.extend(wrap(
-        &words::too_small(app.cols, app.rows),
+        &words::too_small(app.size.cols, app.size.rows),
         cols,
         usize::MAX,
     ));
@@ -897,15 +907,19 @@ fn small(canvas: &mut Canvas, app: &App) {
     // wrapped to the width, so it shows whole however narrow the screen;
     // while it is open the screen's own keys give way to the question's,
     // since q does nothing under a question
-    let question: Vec<String> = match app.confirm.as_ref().map(|c| &c.then) {
+    let question: Vec<String> = match app.nav.confirm.as_ref().map(|c| &c.then) {
         None => Vec::new(),
         Some(Then::Quit(_)) => item_rows(
-            &format!("{}  {}", words::small_question(app.unsaved), key_line(app)),
+            &format!(
+                "{}  {}",
+                words::small_question(app.shared.unsaved),
+                key_line(app)
+            ),
             cols,
         ),
         // the leave question's keys fill a row, so what it says goes on
         // the row above them
-        Some(Then::Leave(_)) => wrap(&words::small_leave(app.unsaved), cols, usize::MAX)
+        Some(Then::Leave(_)) => wrap(&words::small_leave(app.shared.unsaved), cols, usize::MAX)
             .into_iter()
             .chain(item_rows(key_line(app), cols))
             .collect(),
@@ -925,8 +939,8 @@ fn small(canvas: &mut Canvas, app: &App) {
         Vec::new()
     };
     let mut lines: Vec<String> = question.into_iter().chain(lines).collect();
-    if lines.len() > app.rows {
-        let room = app.rows.saturating_sub(keys.len());
+    if lines.len() > app.size.rows {
+        let room = app.size.rows.saturating_sub(keys.len());
         lines.truncate(room);
         lines.extend(keys);
     }
@@ -938,9 +952,10 @@ fn small(canvas: &mut Canvas, app: &App) {
 /// The Flow view's screens that take the paths' place: the file view
 /// and Restore's list of the installed history.
 fn flow_screen(canvas: &mut Canvas, app: &App) {
-    let (cols, rows) = (app.cols, app.rows);
+    let (cols, rows) = (app.size.cols, app.size.rows);
     let keys = key_rows(app);
     let message = app
+        .shared
         .message
         .clone()
         .or_else(|| app.preview_line())
@@ -1013,7 +1028,7 @@ fn restore_rows(kept: &[super::desk::Kept], at: usize, room: usize) -> Vec<Vec<(
 /// in bright red, and the line of the card selected in the flow marked
 /// with [`SELECTED`].
 fn pager_screen(canvas: &mut Canvas, app: &App, pager: super::model::Pager, bottom: usize) {
-    let Some(draft) = &app.draft else {
+    let Some(draft) = &app.shared.draft else {
         return;
     };
     canvas.put(
@@ -1030,7 +1045,7 @@ fn pager_screen(canvas: &mut Canvas, app: &App, pager: super::model::Pager, bott
         .iter()
         .filter_map(|l| l.split(':').nth(1).and_then(|n| n.trim().parse().ok()))
         .collect();
-    let width = app.cols.saturating_sub(8);
+    let width = app.size.cols.saturating_sub(8);
     for (row, (i, line)) in (4..bottom).zip(draft.text.lines().enumerate().skip(pager.top)) {
         let n = i.saturating_add(1);
         let (mark, style) = if flagged.contains(&n) {
@@ -1052,7 +1067,7 @@ pub const SELECTED: &str = "▸";
 /// The screen for `app`: exactly `app.rows` rows, none wider than
 /// `app.cols`.
 pub fn screen(app: &App) -> Vec<Row> {
-    let (cols, rows) = (app.cols, app.rows);
+    let (cols, rows) = (app.size.cols, app.size.rows);
     let mut canvas = Canvas::new(cols, rows);
     if too_small(app) {
         small(&mut canvas, app);
@@ -1064,7 +1079,7 @@ pub fn screen(app: &App) -> Vec<Row> {
         return canvas.into_rows();
     }
     status(&mut canvas, app);
-    if app.view == View::Flow {
+    if app.nav.view == View::Flow {
         flow_screen(&mut canvas, app);
         return canvas.into_rows();
     }
@@ -1073,7 +1088,7 @@ pub fn screen(app: &App) -> Vec<Row> {
     let keys = key_rows(app);
     let Body { list, keep, tail } = body(app);
     let (list_room, show_tail) = list_window(app, list.len(), tail.len());
-    let first = if app.view == View::Help {
+    let first = if app.nav.view == View::Help {
         keep.min(list.len().saturating_sub(list_room))
     } else {
         keep.saturating_add(1).saturating_sub(list_room)
@@ -1185,5 +1200,5 @@ pub fn paint(rows: &[Row], color: bool) -> Vec<u8> {
 
 /// The bytes that draw `app`'s screen whole.
 pub fn draw(app: &App) -> Vec<u8> {
-    paint(&screen(app), app.inputs.color)
+    paint(&screen(app), app.shared.inputs.color)
 }

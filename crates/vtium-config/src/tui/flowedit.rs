@@ -15,12 +15,12 @@ use crate::flowmodel::Present;
 
 impl App {
     fn ask(&mut self, question: String, then: Then) {
-        self.message = Some(question.clone());
-        self.confirm = Some(Confirm { question, then });
+        self.shared.message = Some(question.clone());
+        self.nav.confirm = Some(Confirm { question, then });
     }
 
     fn say(&mut self, what: &str) -> Vec<Effect> {
-        self.message = Some(what.to_owned());
+        self.shared.message = Some(what.to_owned());
         Vec::new()
     }
 
@@ -36,17 +36,17 @@ impl App {
     ///   every question, as the maintainer amended them on 2026-11-16.
     pub(crate) fn confirm_key(&mut self, key: Key) -> Vec<Effect> {
         let leaves = matches!(
-            self.confirm.as_ref().map(|c| &c.then),
+            self.nav.confirm.as_ref().map(|c| &c.then),
             Some(Then::Quit(_) | Then::Leave(_))
         );
         match key {
             Key::Char('y') => {}
             Key::Char('n') if leaves => {}
             Key::Escape | Key::Interrupt => {
-                self.confirm = None;
+                self.nav.confirm = None;
                 // going back from the install the leave question started
                 // leaves no install waiting
-                self.quit_after_install = None;
+                self.shared.quit_after_install = None;
                 return self.say(if leaves {
                     words::NOT_LEFT
                 } else {
@@ -55,10 +55,10 @@ impl App {
             }
             _ => return Vec::new(),
         }
-        let Some(confirm) = self.confirm.take() else {
+        let Some(confirm) = self.nav.confirm.take() else {
             return Vec::new();
         };
-        self.message = None;
+        self.shared.message = None;
         match confirm.then {
             Then::Quit(status) if key == Key::Char('n') => self.leave(status),
             Then::Quit(status) => self.save_and_leave(status),
@@ -66,16 +66,16 @@ impl App {
             // Install saves first, and the TUI leaves once it ends well;
             // with no draft there is nothing to install, and nothing waits
             Then::Leave(status) => {
-                if self.draft.is_some() {
-                    self.quit_after_install = Some(status);
+                if self.shared.draft.is_some() {
+                    self.shared.quit_after_install = Some(status);
                 }
                 self.action('i')
             }
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
             Then::Install(plan) => {
-                self.installing = true;
-                self.message = Some(words::INSTALLING.to_owned());
+                self.shared.installing = true;
+                self.shared.message = Some(words::INSTALLING.to_owned());
                 vec![Effect::Install(plan)]
             }
         }
@@ -92,15 +92,25 @@ impl App {
     /// - ADR-1403 D7, "The same keys in every view": what `q` asks, and
     ///   that the leave question names and saves the unsaved changes.
     pub(crate) fn quit(&mut self, status: u8) -> Vec<Effect> {
-        if self.pending.is_empty() && self.unsaved > 0 {
-            self.ask(words::quit_question(self.unsaved), Then::Quit(status));
+        if self.shared.pending.is_empty() && self.shared.unsaved > 0 {
+            self.ask(
+                words::quit_question(self.shared.unsaved),
+                Then::Quit(status),
+            );
             return Vec::new();
         }
-        if self.pending.is_empty() {
+        if self.shared.pending.is_empty() {
             return self.leave(status);
         }
-        let added: Vec<String> = self.pending.frits.iter().map(|(n, _)| n.clone()).collect();
-        let question = words::leave_question(&added, &self.pending.removals, self.unsaved);
+        let added: Vec<String> = self
+            .shared
+            .pending
+            .frits
+            .iter()
+            .map(|(n, _)| n.clone())
+            .collect();
+        let question =
+            words::leave_question(&added, &self.shared.pending.removals, self.shared.unsaved);
         self.ask(question, Then::Leave(status));
         Vec::new()
     }
@@ -113,7 +123,7 @@ impl App {
     ///   changes before the TUI leaves.
     pub(crate) fn save_and_leave(&mut self, status: u8) -> Vec<Effect> {
         // a TUI already leaving has answered for its changes
-        if self.leaving.is_some() {
+        if self.shared.leaving.is_some() {
             return self.leave(status);
         }
         let mut out = self.save_effect();
@@ -123,18 +133,18 @@ impl App {
 
     /// The desk's write of the unsaved changes, where there are any.
     fn save_effect(&self) -> Vec<Effect> {
-        match &self.draft {
-            Some(d) if self.unsaved > 0 => vec![Effect::Desk(Op::Write(d.text.clone()))],
+        match &self.shared.draft {
+            Some(d) if self.shared.unsaved > 0 => vec![Effect::Desk(Op::Write(d.text.clone()))],
             _ => Vec::new(),
         }
     }
 
     /// `s`: writes the unsaved changes into the draft (ADR-1403 D7).
     pub(crate) fn save(&mut self) -> Vec<Effect> {
-        if self.draft.is_none() {
+        if self.shared.draft.is_none() {
             return self.say(words::NO_DESK);
         }
-        if self.unsaved == 0 {
+        if self.shared.unsaved == 0 {
             return self.say(words::NOTHING_TO_SAVE);
         }
         self.save_effect()
@@ -146,7 +156,7 @@ impl App {
     /// commands that make the same changes, and `select` is the item to
     /// select once the draft is checked.
     pub(crate) fn make(&mut self, changes: Vec<Change>, select: Option<Item>) -> Vec<Effect> {
-        let Some(draft) = &self.draft else {
+        let Some(draft) = &self.shared.draft else {
             return self.say(words::NO_DESK);
         };
         let text = match super::edit::apply_all(&draft.text, &changes) {
@@ -154,13 +164,13 @@ impl App {
             Err(fail) => return self.say(fail.text()),
         };
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
-        self.message = Some(commands.join("\n"));
+        self.shared.message = Some(commands.join("\n"));
         self.select_after = select;
         // one action of the person's is one change, whatever it edits
-        self.unsaved = self.unsaved.saturating_add(1);
+        self.shared.unsaved = self.shared.unsaved.saturating_add(1);
         // the draft holds the change at once, so a key that comes before
         // the check answers, such as `i` or `s`, acts on it
-        if let Some(d) = self.draft.as_mut() {
+        if let Some(d) = self.shared.draft.as_mut() {
             d.text.clone_from(&text);
         }
         vec![Effect::Desk(Op::Check(text))]
@@ -168,10 +178,11 @@ impl App {
 
     /// The action keys `i`, `d`, `v`, `r`, `o` and `n` (ADR-1403 D7).
     pub(crate) fn action(&mut self, key: char) -> Vec<Effect> {
-        if self.draft.is_none() {
+        if self.shared.draft.is_none() {
             return self.say(words::NO_DESK);
         }
         let lost = self
+            .shared
             .draft
             .as_ref()
             .map(|d| (d.added, d.removed))
@@ -191,14 +202,17 @@ impl App {
             }
             'r' => {
                 self.ask(
-                    words::losing_unsaved(words::revert_question(lost.0, lost.1), self.unsaved),
+                    words::losing_unsaved(
+                        words::revert_question(lost.0, lost.1),
+                        self.shared.unsaved,
+                    ),
                     Then::Desk(Op::Revert),
                 );
                 Vec::new()
             }
             'n' => {
                 self.ask(
-                    words::losing_unsaved(words::NEW_QUESTION.to_owned(), self.unsaved),
+                    words::losing_unsaved(words::NEW_QUESTION.to_owned(), self.shared.unsaved),
                     Then::Desk(Op::New),
                 );
                 Vec::new()
@@ -210,7 +224,7 @@ impl App {
     /// What the desk answered `op` with.
     pub(crate) fn desked(&mut self, op: &Op, done: Result<Done, String>) -> Vec<Effect> {
         let tried = if matches!(op, Op::WriteChecked(_)) {
-            self.saving_tried.take()
+            self.shared.saving_tried.take()
         } else {
             None
         };
@@ -218,45 +232,46 @@ impl App {
             Ok(done) => done,
             Err(why) => {
                 self.select_after = None;
-                self.quit_after_install = None;
+                self.shared.quit_after_install = None;
                 return self.say(&why);
             }
         };
         match done {
             Done::Draft(opened, present) => {
                 if let Some(present) = present {
-                    self.present = present;
+                    self.shared.present = present;
                 }
-                self.came = None;
+                self.shared.came = None;
                 // a check keeps the unsaved changes; every other op leaves
                 // the draft as the store holds it
                 match op {
                     Op::Check(_) => {}
-                    Op::Write(_) if self.unsaved > 0 => {
-                        self.message = Some(words::saved_draft(self.unsaved, &opened.name));
-                        self.unsaved = 0;
+                    Op::Write(_) if self.shared.unsaved > 0 => {
+                        self.shared.message =
+                            Some(words::saved_draft(self.shared.unsaved, &opened.name));
+                        self.shared.unsaved = 0;
                     }
                     Op::WriteChecked(_) => {
-                        self.message = tried;
-                        self.unsaved = 0;
+                        self.shared.message = tried;
+                        self.shared.unsaved = 0;
                     }
-                    _ => self.unsaved = 0,
+                    _ => self.shared.unsaved = 0,
                 }
                 match op {
-                    Op::Revert => self.message = Some(words::REVERTED.to_owned()),
-                    Op::New => self.message = Some(words::NEW_DONE.to_owned()),
-                    Op::Delete => self.message = Some(words::deleted_draft(&opened.name)),
-                    Op::Restore(_) => self.message = Some(words::RESTORED.to_owned()),
+                    Op::Revert => self.shared.message = Some(words::REVERTED.to_owned()),
+                    Op::New => self.shared.message = Some(words::NEW_DONE.to_owned()),
+                    Op::Delete => self.shared.message = Some(words::deleted_draft(&opened.name)),
+                    Op::Restore(_) => self.shared.message = Some(words::RESTORED.to_owned()),
                     _ => {}
                 }
-                self.draft = Some(opened);
+                self.shared.draft = Some(opened);
                 let select = self.select_after.take();
                 self.rebuild(select);
                 // the draft read at start, or one that replaces it: the
                 // highlight goes to the first box of CONFIGURATION
                 // (ADR-1403 D7, "This screen")
                 if matches!(op, Op::Open | Op::Revert | Op::New | Op::Restore(_)) {
-                    self.flow_at = super::model::first_item(&self.inputs.flow);
+                    self.flow_at = super::model::first_item(&self.shared.inputs.flow);
                     self.flow_view.at = None;
                     self.flow_view.top = 0;
                 }
@@ -267,7 +282,7 @@ impl App {
                 let frits = match self.frit_plan() {
                     Ok(frits) => frits,
                     Err(why) => {
-                        self.quit_after_install = None;
+                        self.shared.quit_after_install = None;
                         return self.say(&why);
                     }
                 };
@@ -277,20 +292,21 @@ impl App {
                 plan.files = files;
                 plan.removals = frits.removals;
                 if plan.is_empty() {
-                    return match self.quit_after_install.take() {
+                    return match self.shared.quit_after_install.take() {
                         Some(status) => self.leave(status),
                         None => self.say(words::NOTHING_TO_INSTALL),
                     };
                 }
                 // `y` at the leave question already said to install; a draft
                 // with no complete route still asks its own question first
-                if self.quit_after_install.is_some() && !plan.no_route {
-                    self.installing = true;
-                    self.message = Some(words::INSTALLING.to_owned());
+                if self.shared.quit_after_install.is_some() && !plan.no_route {
+                    self.shared.installing = true;
+                    self.shared.message = Some(words::INSTALLING.to_owned());
                     return vec![Effect::Install(plan)];
                 }
                 let (added, removed) = match plan.files.last() {
-                    Some(f) if self.draft.as_ref().is_some_and(|d| d.text == f.new) => self
+                    Some(f) if self.shared.draft.as_ref().is_some_and(|d| d.text == f.new) => self
+                        .shared
                         .draft
                         .as_ref()
                         .map(|d| (d.added, d.removed))
@@ -307,7 +323,7 @@ impl App {
                 self.ask(question, Then::Install(plan));
             }
             Done::Refused(why, problems) => {
-                self.quit_after_install = None;
+                self.shared.quit_after_install = None;
                 let mut lines = vec![why];
                 lines.extend(problems);
                 // the views beside the flow show one paragraph
@@ -316,7 +332,7 @@ impl App {
                 } else {
                     "\n"
                 };
-                self.message = Some(lines.join(sep));
+                self.shared.message = Some(lines.join(sep));
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.restore = Some((kept, 0)),
@@ -331,13 +347,13 @@ impl App {
     /// installed history, with the frits beside it, and what the step after
     /// the install did on the VTs (ADR-1201 D5), or why nothing is.
     pub(crate) fn installed(&mut self, result: Result<Done, String>) -> Vec<Effect> {
-        self.installing = false;
+        self.shared.installing = false;
         let (opened, outcome) = match result {
             Ok(Done::Draft(opened, _)) => (opened, None),
             Ok(Done::Installed(opened, outcome)) => (opened, Some(outcome)),
             Ok(_) => return Vec::new(),
             Err(why) => {
-                self.quit_after_install = None;
+                self.shared.quit_after_install = None;
                 return self.say(&words::install_failed(&why));
             }
         };
@@ -345,11 +361,11 @@ impl App {
             Some(outcome) => crate::vts::message(&opened.name, outcome),
             None => words::installed(&opened.name),
         };
-        self.draft = Some(opened);
+        self.shared.draft = Some(opened);
         self.frits_installed();
         self.rebuild(None);
-        if let Some(status) = self.quit_after_install.take() {
-            self.message = Some(message);
+        if let Some(status) = self.shared.quit_after_install.take() {
+            self.shared.message = Some(message);
             return self.leave(status);
         }
         self.say(&message)
@@ -366,10 +382,10 @@ impl App {
                 .map(|d| d.name.clone())
                 .collect()
         };
-        let before = names(&self.inputs.flow);
-        self.present = present;
+        let before = names(&self.shared.inputs.flow);
+        self.shared.present = present;
         self.rebuild(None);
-        let after = names(&self.inputs.flow);
+        let after = names(&self.shared.inputs.flow);
         let came: Vec<String> = after
             .iter()
             .filter(|n| !before.contains(n))
@@ -380,13 +396,13 @@ impl App {
             .filter(|n| !after.contains(n))
             .cloned()
             .collect();
-        self.came = Some(words::came_went(&came, &went));
+        self.shared.came = Some(words::came_went(&came, &went));
     }
 
     /// Builds the flow again from the draft and the devices present, and
     /// keeps the item the file view marks on the item it was on.
     fn rebuild(&mut self, select: Option<Item>) {
-        let Some(d) = &self.draft else {
+        let Some(d) = &self.shared.draft else {
             return;
         };
         let draft = Draft {
@@ -394,9 +410,9 @@ impl App {
             changes: d.added.max(d.removed),
             problems: d.count,
         };
-        let new = crate::flowmodel::build(&d.text, &self.present, Some(draft));
-        let old = std::mem::replace(&mut self.inputs.flow, new);
-        let new = &self.inputs.flow;
+        let new = crate::flowmodel::build(&d.text, &self.shared.present, Some(draft));
+        let old = std::mem::replace(&mut self.shared.inputs.flow, new);
+        let new = &self.shared.inputs.flow;
         let at = select
             .filter(|i| new.has(*i))
             .unwrap_or_else(|| carry(&old, new, self.flow_at));
@@ -405,11 +421,11 @@ impl App {
 
     /// Opens the pager at the line of the card selected in the flow.
     fn open_pager(&mut self) {
-        let Some(d) = &self.draft else {
+        let Some(d) = &self.shared.draft else {
             return;
         };
-        let mark = item_line(&self.inputs.flow, &d.text, self.flow_at);
-        let room = self.rows.saturating_sub(4).max(1);
+        let mark = item_line(&self.shared.inputs.flow, &d.text, self.flow_at);
+        let room = self.size.rows.saturating_sub(4).max(1);
         self.pager = Some(Pager {
             top: mark.saturating_sub(room / 2).saturating_sub(1),
             left: 0,
@@ -421,10 +437,14 @@ impl App {
     /// sideways, `g` `G` to the top and the bottom, Ctrl-d Ctrl-u by half a
     /// page, and Esc back to the flow. `q` quits, as it does everywhere.
     pub(crate) fn pager_key(&mut self, key: Key) {
-        let lines = self.draft.as_ref().map_or(0, |d| d.text.lines().count());
+        let lines = self
+            .shared
+            .draft
+            .as_ref()
+            .map_or(0, |d| d.text.lines().count());
         // the draft's lines run from row 4 to the row above the key line
         let keys = super::view::key_rows(self).len();
-        let room = self.rows.saturating_sub(4).saturating_sub(keys).max(1);
+        let room = self.size.rows.saturating_sub(4).saturating_sub(keys).max(1);
         let last = lines.saturating_sub(room);
         let half = (room / 2).max(1);
         let Some(p) = self.pager.as_mut() else {
@@ -457,6 +477,7 @@ impl App {
                 let n = at.saturating_add(1);
                 let restored = kept.get(*at).map(|k| k.text.clone()).unwrap_or_default();
                 let now = self
+                    .shared
                     .draft
                     .as_ref()
                     .map(|d| d.text.clone())
@@ -464,7 +485,10 @@ impl App {
                 let (added, removed) = crate::drafts::counts(&restored, &now);
                 self.restore = None;
                 self.ask(
-                    words::losing_unsaved(words::restore_question(n, added, removed), self.unsaved),
+                    words::losing_unsaved(
+                        words::restore_question(n, added, removed),
+                        self.shared.unsaved,
+                    ),
                     Then::Desk(Op::Restore(n)),
                 );
             }

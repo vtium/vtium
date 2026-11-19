@@ -67,8 +67,8 @@ pub fn fonts_lines(locale: &str) -> Vec<Vec<(&'static str, Style)>> {
 
 /// The preview text of `app`'s view, empty for a view with none.
 pub fn lines(app: &App) -> Vec<Vec<(&'static str, Style)>> {
-    match app.view {
-        View::Fonts => fonts_lines(&app.inputs.locale),
+    match app.nav.view {
+        View::Fonts => fonts_lines(&app.shared.inputs.locale),
         View::Looks => super::shot::sample_rows(),
         _ => Vec::new(),
     }
@@ -99,13 +99,13 @@ impl App {
     /// on the console itself. Anywhere else they preview as pictures, or
     /// as a written description where the terminal shows no pictures.
     pub fn text_preview(&self) -> bool {
-        self.live == Live::On
+        self.shared.live == Live::On
     }
 
     /// The console's head in `flow`, by `VTIUM_HEAD`, and the look it
     /// draws with where that look names a font of its own.
     fn head_look<'f>(&self, flow: &'f Flow) -> Option<(&'f str, &'f Look)> {
-        let name = self.inputs.head.as_deref()?;
+        let name = self.shared.inputs.head.as_deref()?;
         let h = flow.heads.iter().position(|h| h.name == name)?;
         let look = flow.look_of(h).and_then(|l| flow.looks.get(l))?;
         (!look.frit.is_empty()).then_some((flow.heads.get(h)?.name.as_str(), look))
@@ -116,7 +116,7 @@ impl App {
     /// `font-name`; `None` for vtium's default font.
     pub fn head_font(&self) -> Option<String> {
         let text = self.conf_text()?;
-        let flow = crate::flowmodel::build(text, &self.present, None);
+        let flow = crate::flowmodel::build(text, &self.shared.present, None);
         match self.head_look(&flow) {
             Some((_, look)) => Some(look.frit.clone()),
             None => vtium_settings::setting(text, "font-name"),
@@ -133,7 +133,7 @@ impl App {
         text: &str,
         font: &str,
     ) -> Result<(Vec<Change>, Place), String> {
-        let flow = crate::flowmodel::build(text, &self.present, None);
+        let flow = crate::flowmodel::build(text, &self.shared.present, None);
         if let Some((head, look)) = self.head_look(&flow) {
             let mut doc = super::paths::read(&flow);
             for path in &mut doc.paths {
@@ -161,7 +161,7 @@ impl App {
             };
             return Ok((changes, place));
         }
-        if self.inputs.head.is_none() && flow.looks.iter().any(|l| !l.frit.is_empty()) {
+        if self.shared.inputs.head.is_none() && flow.looks.iter().any(|l| !l.frit.is_empty()) {
             return Err(words::tried_no_head(font));
         }
         let changes = if vtium_settings::setting(text, "font-name").as_deref() == Some(font) {
@@ -181,12 +181,12 @@ impl App {
     /// check-config` passes the result; a draft it fails is not written,
     /// and the message line shows what the check says.
     pub(crate) fn save_tried(&mut self) -> Vec<Effect> {
-        let Some(draft) = &self.draft else {
-            self.message = Some(words::NO_DESK.to_owned());
+        let Some(draft) = &self.shared.draft else {
+            self.shared.message = Some(words::NO_DESK.to_owned());
             return Vec::new();
         };
-        let Some(font) = self.shown_font.clone() else {
-            self.message = Some(words::TRIED_UNKNOWN.to_owned());
+        let Some(font) = self.shared.shown_font.clone() else {
+            self.shared.message = Some(words::TRIED_UNKNOWN.to_owned());
             return Vec::new();
         };
         let name = draft.name.clone();
@@ -194,22 +194,22 @@ impl App {
         let (changes, place) = match self.tried_changes(&text, &font) {
             Ok(planned) => planned,
             Err(why) => {
-                self.message = Some(why);
+                self.shared.message = Some(why);
                 return Vec::new();
             }
         };
-        if changes.is_empty() && self.unsaved == 0 {
-            self.message = Some(words::tried_already(&font));
+        if changes.is_empty() && self.shared.unsaved == 0 {
+            self.shared.message = Some(words::tried_already(&font));
             return Vec::new();
         }
         let new = match super::edit::apply_all(&text, &changes) {
             Ok(new) => new,
             Err(fail) => {
-                self.message = Some(fail.text().to_owned());
+                self.shared.message = Some(fail.text().to_owned());
                 return Vec::new();
             }
         };
-        self.saving_tried = Some(match place {
+        self.shared.saving_tried = Some(match place {
             Place::Look { head, look } => words::tried_saved_look(&font, &head, &look, &name),
             Place::Top => words::tried_saved_top(&font, &name),
         });

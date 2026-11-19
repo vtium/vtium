@@ -162,6 +162,21 @@ pub trait Port {
 pub const ENTER: &[u8] = b"\x1b[?1049h\x1b[?25l";
 pub const LEAVE: &[u8] = b"\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l";
 
+/// The terminal's size as `port` reports it: its grid, and its cell in
+/// pixels where it reports one. The loop hands the size to the model in a
+/// message and never sets the model's size itself.
+///
+/// References:
+/// - ADR-1206 D2: the size changes only through a message.
+fn size_of(port: &mut dyn Port) -> super::model::Size {
+    let (cols, rows) = port.size();
+    super::model::Size {
+        cols,
+        rows,
+        cell_px: port.cell_px(),
+    }
+}
+
 /// Runs the TUI from `inputs` on `port` until it leaves, with no desk, so
 /// the Flow view shows `inputs`'s flow and changes nothing; returns its
 /// exit status.
@@ -177,9 +192,7 @@ pub fn drive_with(
     mut desk: Option<&mut dyn Desk>,
 ) -> io::Result<u8> {
     inputs.desk = desk.is_some();
-    let (cols, rows) = port.size();
-    let (mut app, first) = App::new(inputs, cols, rows);
-    app.cell_px = port.cell_px();
+    let (mut app, first) = App::start(inputs, size_of(port));
     let mut decoder = Decoder::keys();
     let mut queue: Vec<Effect> = first;
     loop {
@@ -223,8 +236,7 @@ pub fn drive_with(
                             }),
                             None => Err(super::words::NO_DESK.to_owned()),
                         };
-                        let (cols, rows) = port.size();
-                        queue.extend(app.event(Event::Resize { cols, rows }));
+                        queue.extend(app.event(Event::Resize(size_of(port))));
                         queue.extend(app.event(Event::Installed(result)));
                     }
                 }
@@ -238,11 +250,7 @@ pub fn drive_with(
                     decoder.push(&bytes);
                     Vec::new()
                 }
-                Wake::Resize => {
-                    let (cols, rows) = port.size();
-                    app.cell_px = port.cell_px();
-                    vec![Event::Resize { cols, rows }]
-                }
+                Wake::Resize => vec![Event::Resize(size_of(port))],
                 Wake::Signal(n) => vec![Event::Signal(n)],
                 Wake::Sourced(found) => vec![Event::Sourced(found)],
                 Wake::Timeout => vec![Event::Timeout],
@@ -265,9 +273,14 @@ pub fn drive_with(
 /// The bytes that give the console its start font back, when a switch
 /// changed it.
 fn give_back(app: &App) -> Vec<u8> {
-    match (&app.live, &app.start_font) {
+    match (&app.shared.live, &app.shared.start_font) {
         (Live::On, Some(start))
-            if app.in_flight.as_ref().or(app.shown_font.as_ref()) != Some(start) =>
+            if app
+                .shared
+                .in_flight
+                .as_ref()
+                .or(app.shared.shown_font.as_ref())
+                != Some(start) =>
         {
             format!("\x1b]50;{start}\x1b\\").into_bytes()
         }

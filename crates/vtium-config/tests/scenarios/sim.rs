@@ -11,7 +11,7 @@ use vtium_config::draft::{FileEdit, Plan};
 use vtium_config::flowmodel::Present;
 use vtium_config::tui::desk::{Done, Kept, Op, Opened};
 use vtium_config::tui::input::{Button, Input, Key, Mouse, Reply};
-use vtium_config::tui::model::{App, Effect, Event};
+use vtium_config::tui::model::{App, Effect, Event, Size};
 use vtium_settings::{Class, Identity};
 
 /// The kinds of terminal the TUI tells apart (ADR-1201 D4).
@@ -245,11 +245,15 @@ impl Sim {
             Press::Mouse(button, col, row) => {
                 Event::Input(Input::Key(Key::Mouse(Mouse { button, col, row })))
             }
-            Press::Resize(cols, rows) => Event::Resize { cols, rows },
+            Press::Resize(cols, rows) => Event::Resize(Size {
+                cols,
+                rows,
+                cell_px: self.app.size.cell_px,
+            }),
         };
         self.event(event, &mut did);
         // the wait for the console's reply ends once the TUI is leaving
-        if self.exited.is_none() && self.app.leaving.is_some() {
+        if self.exited.is_none() && self.app.shared.leaving.is_some() {
             self.event(Event::Timeout, &mut did);
         }
         did

@@ -131,12 +131,12 @@ pub fn of(sim: &Sim) -> Abs {
     let term = sim.term.name();
     let mut abs = Abs {
         term,
-        view: view_name(app.view),
+        view: view_name(app.nav.view),
         focus: String::new(),
         kind: StateKind::View,
         narrow: String::new(),
-        unsaved: app.unsaved > 0,
-        pending: !app.pending.is_empty(),
+        unsaved: app.shared.unsaved > 0,
+        pending: !app.shared.pending.is_empty(),
         at: nav::node(app),
     };
     if sim.exited.is_some() {
@@ -196,7 +196,7 @@ fn open(app: &App, at: &str) -> (StateKind, &'static str) {
         nav::Kind::Trial => StateKind::Trial,
         nav::Kind::TooSmall => StateKind::TooSmall,
     };
-    if let Some(confirm) = &app.confirm {
+    if let Some(confirm) = &app.nav.confirm {
         return (
             kind,
             match &confirm.then {
@@ -247,12 +247,12 @@ const NARROW: &[(&str, &str)] = &[
 /// kind of font in the Fonts view, the kind of setting in Settings, the
 /// kind of box in Flow, the page in Help, the add row of the new-frit form.
 fn focus(app: &App) -> String {
-    match app.view {
+    match app.nav.view {
         View::Fonts => {
             let Some(font) = app.font() else {
                 return "none".into();
             };
-            if app.pending.removals.contains(&font.name) {
+            if app.shared.pending.removals.contains(&font.name) {
                 return "marked".into();
             }
             match font.state {
@@ -282,6 +282,7 @@ fn focus(app: &App) -> String {
                 // selector that names the device
                 Slot::Input(name) => {
                     let sort = app
+                        .shared
                         .inputs
                         .flow
                         .inputs

@@ -143,11 +143,9 @@ pub struct Inputs {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
     Input(Input),
-    /// The terminal's grid changed.
-    Resize {
-        cols: usize,
-        rows: usize,
-    },
+    /// The terminal's grid changed, or its cell in pixels did: the size as
+    /// the loop reads it from the terminal after the change.
+    Resize(Size),
     /// A signal that ends the TUI arrived, by its number.
     Signal(i32),
     /// The wait the last [`Effect::Wait`] started ended.
@@ -354,13 +352,17 @@ struct Answers {
     graphics: bool,
 }
 
-/// The TUI's state.
+/// What every tab reads, and no tab changes itself: what the TUI started
+/// from, the draft and its unsaved changes, the live console's state, what
+/// the terminal answered, the pictures, the pending installs and the
+/// message line. A tab asks for a change to it, and update makes the
+/// change.
+///
+/// References:
+/// - ADR-1206 D2: the model's four parts, and what `shared` holds.
 #[derive(Clone, Debug)]
-pub struct App {
+pub struct Shared {
     pub inputs: Inputs,
-    pub cols: usize,
-    pub rows: usize,
-    pub view: View,
     pub live: Live,
     /// The terminal answered the kitty graphics query before DA1.
     pub graphics: bool,
@@ -371,20 +373,14 @@ pub struct App {
     /// other is in flight: the live trial's font, or the font it puts
     /// back (D4).
     pub want: Option<String>,
-    /// The Fonts view shows the detailed specimen of the highlighted font,
-    /// as it does at start, in place of the picture of the console, which
-    /// `s` switches to (ADR-1201 D4).
-    pub detail: bool,
     /// What the last detailed specimen gave: its font, its height and its
     /// summary.
     pub specimen: Option<(String, u32, crate::specimen::Summary)>,
-    /// The live trial counting down, if one is.
-    pub trial: Option<super::shot::Trial>,
     /// The picture last asked for, so the same one is not asked again.
-    pub(crate) asked: Option<super::shot::Asked>,
+    pub asked: Option<super::shot::Asked>,
     /// A preview is being drawn: the next is asked for once it comes, so
     /// one is drawn at a time.
-    pub(crate) drawing: bool,
+    pub drawing: bool,
     /// What the picture on the screen shows: the line beside it.
     pub shot: Option<super::shot::Caption>,
     /// The font the console last said it draws.
@@ -393,6 +389,69 @@ pub struct App {
     pub in_flight: Option<String>,
     /// Fonts the console refused, each marked in the list.
     pub refused: BTreeSet<String>,
+    /// Mouse reporting is on.
+    pub mouse: bool,
+    pub pending: Pending,
+    /// A line for the user, under the list.
+    pub message: Option<String>,
+    /// The TUI is leaving with this status once the font is back.
+    pub leaving: Option<u8>,
+    /// A specimen picture is on the screen.
+    pub picture: bool,
+    /// The last summary of a size: the font, the height and what it gave.
+    pub summary: Option<(String, u32, Result<crate::specimen::Summary, String>)>,
+    /// The sources each frit lacks, as the helper found them.
+    pub sources: std::collections::BTreeMap<String, SourcesFound>,
+    /// The queries sent and not yet settled, each with who asked it.
+    replies: Queue,
+    /// The draft the Flow view shows, as the desk last read or wrote it.
+    pub draft: Option<Opened>,
+    /// The devices present, which the flow places on the draft.
+    pub present: crate::flowmodel::Present,
+    /// The privileged step is installing the draft.
+    pub installing: bool,
+    /// What came and went at the last hotplug, which the status line shows
+    /// until the next change.
+    pub came: Option<String>,
+    /// The notice that the live trial is off has been shown.
+    live_said: bool,
+    /// What the message line says once the draft holds the font the
+    /// console shows, which `s` in a vtium console's Fonts view wrote.
+    pub saving_tried: Option<String>,
+    /// The TUI leaves with this status once the install that `y` at the
+    /// leave question started ends well.
+    pub quit_after_install: Option<u8>,
+    /// The changes made since the draft was last read or saved, which
+    /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
+    /// "Changes wait for Save").
+    pub unsaved: usize,
+}
+
+/// The terminal's grid, and its cell in pixels where it reports its size
+/// in pixels. It changes only through [`Event::Resize`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Size {
+    pub cols: usize,
+    pub rows: usize,
+    /// The terminal's cell in pixels, where it reports its size in pixels.
+    pub cell_px: Option<(u32, u32)>,
+}
+
+/// The TUI's state.
+#[derive(Clone, Debug)]
+pub struct App {
+    /// Where the person is: the open tab, the question over it, the live
+    /// trial and the key line's page.
+    pub nav: super::nav::Nav,
+    /// What every tab reads: the draft, the paths, and what the terminal
+    /// answered.
+    pub shared: Shared,
+    /// The terminal's grid and its cell in pixels.
+    pub size: Size,
+    /// The Fonts view shows the detailed specimen of the highlighted font,
+    /// as it does at start, in place of the picture of the console, which
+    /// `s` switches to (ADR-1201 D4).
+    pub detail: bool,
     pub font_at: usize,
     pub size_at: usize,
     /// Where the Settings view stands: the section highlighted or open,
@@ -404,63 +463,19 @@ pub struct App {
     pub about: bool,
     /// The Help view's first row in sight.
     pub help_at: usize,
-    /// Mouse reporting is on.
-    pub mouse: bool,
     /// The value being typed for the highlighted setting, while it is
     /// edited.
     pub editing: Option<String>,
     pub new_frit: NewFrit,
-    pub pending: Pending,
-    /// A line for the user, under the list.
-    pub message: Option<String>,
-    /// The TUI is leaving with this status once the font is back.
-    pub leaving: Option<u8>,
-    /// A specimen picture is on the screen.
-    pub picture: bool,
-    /// The terminal's cell in pixels, where it reports its size in pixels.
-    pub cell_px: Option<(u32, u32)>,
-    /// The last summary of a size: the font, the height and what it gave.
-    pub summary: Option<(String, u32, Result<crate::specimen::Summary, String>)>,
-    /// The sources each frit lacks, as the helper found them.
-    pub sources: std::collections::BTreeMap<String, SourcesFound>,
-    /// The queries sent and not yet settled, each with who asked it.
-    replies: Queue,
-    /// The draft the Flow view shows, as the desk last read or wrote it.
-    pub draft: Option<Opened>,
-    /// The devices present, which the flow places on the draft.
-    pub present: crate::flowmodel::Present,
-    /// The question the view asks before it acts, and what it does on yes.
-    pub confirm: Option<Confirm>,
     /// The read-only pager over the draft, when it is open.
     pub pager: Option<Pager>,
     /// The installed history Restore lists, and the entry highlighted.
     pub restore: Option<(Vec<Kept>, usize)>,
-    /// The privileged step is installing the draft.
-    pub installing: bool,
-    /// What came and went at the last hotplug, which the status line shows
-    /// until the next change.
-    pub came: Option<String>,
     /// The item to select once the desk answers the change in flight.
     pub(crate) select_after: Option<Item>,
     /// The Flow view's state: where its highlight is and what is open
     /// over it.
     pub flow_view: super::flowview::State,
-    /// The notice that the live trial is off has been shown.
-    live_said: bool,
-    /// What the message line says once the draft holds the font the
-    /// console shows, which `s` in a vtium console's Fonts view wrote.
-    pub(crate) saving_tried: Option<String>,
-    /// The TUI leaves with this status once the install that `y` at the
-    /// leave question started ends well.
-    pub(crate) quit_after_install: Option<u8>,
-    /// The changes made since the draft was last read or saved, which
-    /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
-    /// "Changes wait for Save").
-    pub unsaved: usize,
-    /// The page of the key line that shows, counted from 0. It goes back
-    /// to the first page whenever the TUI moves to another node of the
-    /// interface tree.
-    pub key_page: usize,
 }
 
 /// A question the Flow view asks before it acts.
@@ -496,9 +511,22 @@ pub struct Pager {
 }
 
 impl App {
-    /// The TUI at its start in a terminal of `cols` by `rows`, and what it
-    /// does first: the four requests, and the wait for their answers.
+    /// The TUI at its start in a terminal of `cols` by `rows` that reports
+    /// no size in pixels, and what it does first, as [`App::start`] says.
     pub fn new(inputs: Inputs, cols: usize, rows: usize) -> (App, Vec<Effect>) {
+        App::start(
+            inputs,
+            Size {
+                cols,
+                rows,
+                cell_px: None,
+            },
+        )
+    }
+
+    /// The TUI at its start in a terminal of `size`, and what it does
+    /// first: the four requests, and the wait for their answers.
+    pub fn start(inputs: Inputs, size: Size) -> (App, Vec<Effect>) {
         let configured = inputs.conf.as_deref().and_then(|c| setting(c, "font-name"));
         let font_at = configured
             .as_deref()
@@ -507,68 +535,71 @@ impl App {
         let view = inputs.view;
         let flow_at = first_item(&inputs.flow);
         let mut app = App {
-            inputs,
-            cols,
-            rows,
-            view,
-            live: Live::Asking,
-            graphics: false,
-            answers: Answers::default(),
-            start_font: None,
-            want: None,
+            nav: super::nav::Nav {
+                view,
+                trial: None,
+                confirm: None,
+                key_page: 0,
+            },
+            shared: Shared {
+                inputs,
+                live: Live::Asking,
+                graphics: false,
+                answers: Answers::default(),
+                start_font: None,
+                want: None,
+                specimen: None,
+                asked: None,
+                drawing: false,
+                shot: None,
+                shown_font: None,
+                in_flight: None,
+                refused: BTreeSet::new(),
+                mouse: false,
+                pending: Pending::default(),
+                message: None,
+                leaving: None,
+                picture: false,
+                summary: None,
+                sources: std::collections::BTreeMap::new(),
+                replies: Queue::default(),
+                draft: None,
+                present: crate::flowmodel::Present::default(),
+                installing: false,
+                came: None,
+                live_said: false,
+                saving_tried: None,
+                quit_after_install: None,
+                unsaved: 0,
+            },
+            size,
             detail: true,
-            specimen: None,
-            trial: None,
-            asked: None,
-            drawing: false,
-            shot: None,
-            shown_font: None,
-            in_flight: None,
-            refused: BTreeSet::new(),
             font_at,
             size_at: 0,
             settings: super::settings::Settings::default(),
             flow_at,
             about: false,
             help_at: 0,
-            mouse: false,
             editing: None,
             new_frit: NewFrit::default(),
-            pending: Pending::default(),
-            message: None,
-            leaving: None,
-            picture: false,
-            cell_px: None,
-            summary: None,
-            sources: std::collections::BTreeMap::new(),
-            replies: Queue::default(),
-            draft: None,
-            present: crate::flowmodel::Present::default(),
-            confirm: None,
             pager: None,
             restore: None,
-            installing: false,
-            came: None,
             select_after: None,
             flow_view: super::flowview::State::default(),
-            live_said: false,
-            saving_tried: None,
-            quit_after_install: None,
-            unsaved: 0,
-            key_page: 0,
         };
         // the Flow view's highlight on its first box from the first frame,
         // and what reading the color file found on the message line
         app.flow_settle();
-        app.message = app
+        app.shared.message = app
+            .shared
             .message
             .take()
-            .or_else(|| app.inputs.colors_note.clone());
+            .or_else(|| app.shared.inputs.colors_note.clone());
         let mut first = vec![
-            Effect::Write(app.replies.send(start_batch())),
+            Effect::Write(app.shared.replies.send(start_batch())),
             Effect::Wait(WAIT),
         ];
-        if app.inputs.desk {
+        if app.shared.inputs.desk {
             first.push(Effect::Desk(Op::Open));
         }
         first.extend(app.mouse_for_view());
@@ -578,11 +609,11 @@ impl App {
     /// Turns mouse reporting on when the view is Flow and off when it is
     /// not, where it is not so already.
     fn mouse_for_view(&mut self) -> Vec<Effect> {
-        let want = self.view == View::Flow;
-        if want == self.mouse {
+        let want = self.nav.view == View::Flow;
+        if want == self.shared.mouse {
             return Vec::new();
         }
-        self.mouse = want;
+        self.shared.mouse = want;
         vec![Effect::Write(
             if want { MOUSE_ON } else { MOUSE_OFF }.to_vec(),
         )]
@@ -591,7 +622,7 @@ impl App {
     /// Goes to `view`, turning the mouse on or off for it, and asks for
     /// what the view shows: a specimen, a font switch.
     pub(crate) fn set_view(&mut self, view: View) -> Vec<Effect> {
-        self.view = view;
+        self.nav.view = view;
         self.editing = None;
         self.say_live_off();
         self.mouse_for_view()
@@ -601,22 +632,22 @@ impl App {
     /// is off and why. The Flow view says it only when `t` is pressed
     /// (ADR-1403 D7).
     fn say_live_off(&mut self) {
-        if self.view == View::Flow || self.live_said {
+        if self.nav.view == View::Flow || self.shared.live_said {
             return;
         }
-        let notice = match self.live {
+        let notice = match self.shared.live {
             Live::OpsOff => super::words::OPS_OFF,
             Live::NotVtium => super::words::NOT_VTIUM,
             _ => return,
         };
-        self.live_said = true;
-        self.message = Some(notice.to_owned());
+        self.shared.live_said = true;
+        self.shared.message = Some(notice.to_owned());
     }
 
     /// Tab's step to the next view, or Shift-Tab's to the one before. The
     /// Flow view keeps the item it had selected.
     fn step_view(&mut self, forward: bool) -> Vec<Effect> {
-        let tab = self.view.tab();
+        let tab = self.nav.view.tab();
         let at = View::TABS.iter().position(|v| *v == tab).unwrap_or(0);
         let n = View::TABS.len();
         let next = if forward {
@@ -630,21 +661,26 @@ impl App {
 
     /// The highlighted font.
     pub fn font(&self) -> Option<&Font> {
-        self.inputs.fonts.get(self.font_at)
+        self.shared.inputs.fonts.get(self.font_at)
     }
 
     /// The installed vtium.conf's value of `key`.
     pub fn configured(&self, key: &str) -> Option<String> {
-        self.inputs.conf.as_deref().and_then(|c| setting(c, key))
+        self.shared
+            .inputs
+            .conf
+            .as_deref()
+            .and_then(|c| setting(c, key))
     }
 
     /// The configuration the views show: the draft, else the installed
     /// vtium.conf the TUI read at start.
     pub fn conf_text(&self) -> Option<&str> {
-        self.draft
+        self.shared
+            .draft
             .as_ref()
             .map(|d| d.text.as_str())
-            .or(self.inputs.conf.as_deref())
+            .or(self.shared.inputs.conf.as_deref())
     }
 
     /// The draft's value of `key`, else the installed file's.
@@ -655,7 +691,7 @@ impl App {
     /// Whether the draft gives `key` another value than the installed
     /// file.
     pub fn changed(&self, key: &str) -> bool {
-        self.draft.is_some() && self.drafted(key) != self.configured(key)
+        self.shared.draft.is_some() && self.drafted(key) != self.configured(key)
     }
 
     /// Whether the draft leaves `allow-font-ops` on, its default.
@@ -681,7 +717,7 @@ impl App {
         // a key line shows its first page in each node the TUI moves to,
         // where the keys a person uses most are
         if super::nav::node(self) != node {
-            self.key_page = 0;
+            self.nav.key_page = 0;
         }
         out
     }
@@ -691,9 +727,8 @@ impl App {
             Event::Input(Input::Reply(reply)) => self.reply(reply),
             Event::Input(Input::Key(Key::Mouse(mouse))) => self.click(mouse),
             Event::Input(Input::Key(key)) => self.key(key),
-            Event::Resize { cols, rows } => {
-                self.cols = cols;
-                self.rows = rows;
+            Event::Resize(size) => {
+                self.size = size;
                 Vec::new()
             }
             // a signal saves the unsaved changes before the TUI leaves
@@ -716,12 +751,12 @@ impl App {
                 height,
                 summary,
             } => {
-                self.drawing = false;
-                self.summary = Some((font, height, summary));
+                self.shared.drawing = false;
+                self.shared.summary = Some((font, height, summary));
                 Vec::new()
             }
             Event::Sourced(found) => {
-                self.sources.extend(found);
+                self.shared.sources.extend(found);
                 Vec::new()
             }
             Event::Desked(op, done) => self.desked(&op, done),
@@ -740,14 +775,14 @@ impl App {
     /// Whether a query the TUI sent is still outstanding, so the reader
     /// keeps an ESC that ends a read for the next read.
     pub fn awaiting(&self) -> bool {
-        self.replies.awaiting()
+        self.shared.replies.awaiting()
     }
 
     /// A reply from the terminal, which the queue of askers hands to the
     /// part of the TUI that asked. Once the TUI is leaving and every query
     /// is settled, it leaves.
     fn reply(&mut self, reply: Reply) -> Vec<Effect> {
-        let heard = self.replies.answer(reply);
+        let heard = self.shared.replies.answer(reply);
         let settled = !heard.is_empty();
         let mut out = Vec::new();
         for (asker, answer) in heard {
@@ -756,15 +791,15 @@ impl App {
                 Asker::Switch => self.switch_answer(answer),
                 Asker::Leave => {
                     if let Answer::Reply(Reply::Font(name)) = answer {
-                        self.shown_font = Some(name);
+                        self.shared.shown_font = Some(name);
                     }
                     Vec::new()
                 }
             });
         }
-        if let Some(status) = self.leaving
+        if let Some(status) = self.shared.leaving
             && settled
-            && !self.replies.awaiting()
+            && !self.shared.replies.awaiting()
         {
             out.push(Effect::Exit(status));
         }
@@ -774,13 +809,13 @@ impl App {
     /// What the four requests at start hear back, until DA1's reply
     /// settles what the terminal is.
     fn start_answer(&mut self, answer: Answer) -> Vec<Effect> {
-        if self.live != Live::Asking {
+        if self.shared.live != Live::Asking {
             return Vec::new();
         }
         match answer {
-            Answer::Reply(Reply::Version(v)) => self.answers.version = Some(v),
-            Answer::Reply(Reply::Font(f)) => self.answers.font = Some(f),
-            Answer::Reply(Reply::Graphics(ok)) => self.answers.graphics |= ok,
+            Answer::Reply(Reply::Version(v)) => self.shared.answers.version = Some(v),
+            Answer::Reply(Reply::Font(f)) => self.shared.answers.font = Some(f),
+            Answer::Reply(Reply::Graphics(ok)) => self.shared.answers.graphics |= ok,
             Answer::Reply(Reply::Attributes) => {
                 self.decide();
                 return self.started();
@@ -800,25 +835,25 @@ impl App {
             Answer::Unanswered(Query::Font) => None,
             _ => return Vec::new(),
         };
-        let asked = self.in_flight.take();
-        if self.leaving.is_some() {
-            self.shown_font = shown.or(self.shown_font.take());
+        let asked = self.shared.in_flight.take();
+        if self.shared.leaving.is_some() {
+            self.shared.shown_font = shown.or(self.shared.shown_font.take());
             return Vec::new();
         }
         if let Some(asked) = asked
             && shown.as_ref() != Some(&asked)
         {
-            self.refused.insert(asked.clone());
-            if self.want.as_deref() == Some(asked.as_str()) {
-                self.want = shown.clone().or_else(|| self.shown_font.clone());
+            self.shared.refused.insert(asked.clone());
+            if self.shared.want.as_deref() == Some(asked.as_str()) {
+                self.shared.want = shown.clone().or_else(|| self.shared.shown_font.clone());
             }
-            if self.trial.as_ref().is_some_and(|t| t.font == asked) {
-                self.trial = None;
-                self.message = Some(super::words::trial_refused(&asked));
+            if self.nav.trial.as_ref().is_some_and(|t| t.font == asked) {
+                self.nav.trial = None;
+                self.shared.message = Some(super::words::trial_refused(&asked));
             }
         }
         if shown.is_some() {
-            self.shown_font = shown;
+            self.shared.shown_font = shown;
         }
         self.follow()
     }
@@ -828,6 +863,7 @@ impl App {
     /// one shows.
     fn started(&mut self) -> Vec<Effect> {
         let frits: Vec<String> = self
+            .shared
             .inputs
             .fonts
             .iter()
@@ -844,16 +880,17 @@ impl App {
     /// Settles what the terminal is, from the answers that came.
     fn decide(&mut self) {
         let vtium = self
+            .shared
             .answers
             .version
             .as_deref()
             .is_some_and(|v| v.starts_with("vtium("));
-        self.graphics = self.answers.graphics;
-        self.live = match (vtium, self.answers.font.take()) {
+        self.shared.graphics = self.shared.answers.graphics;
+        self.shared.live = match (vtium, self.shared.answers.font.take()) {
             (true, Some(font)) => {
-                self.start_font = Some(font.clone());
-                self.shown_font = Some(font.clone());
-                if let Some(at) = self.inputs.fonts.iter().position(|f| f.name == font) {
+                self.shared.start_font = Some(font.clone());
+                self.shared.shown_font = Some(font.clone());
+                if let Some(at) = self.shared.inputs.fonts.iter().position(|f| f.name == font) {
                     self.font_at = at;
                 }
                 Live::On
@@ -868,12 +905,12 @@ impl App {
     /// not answer DA1, so the TUI decides from the answers that came and
     /// forgets the queries, which no reply will settle now.
     fn timeout(&mut self) -> Vec<Effect> {
-        if self.live == Live::Asking {
-            self.replies.clear();
+        if self.shared.live == Live::Asking {
+            self.shared.replies.clear();
             self.decide();
             return self.started();
         }
-        match self.leaving {
+        match self.shared.leaving {
             Some(status) => vec![Effect::Exit(status)],
             None => self.tick(),
         }
@@ -883,32 +920,39 @@ impl App {
     /// and the console draws another (D4): one switch at a time, naming
     /// whatever is wanted when the last reply came.
     pub(crate) fn follow(&mut self) -> Vec<Effect> {
-        if self.live != Live::On || self.in_flight.is_some() {
+        if self.shared.live != Live::On || self.shared.in_flight.is_some() {
             return Vec::new();
         }
-        let Some(name) = self.want.clone() else {
+        let Some(name) = self.shared.want.clone() else {
             return Vec::new();
         };
-        if self.shown_font.as_deref() == Some(&name) || self.refused.contains(&name) {
+        if self.shared.shown_font.as_deref() == Some(&name) || self.shared.refused.contains(&name) {
             return Vec::new();
         }
-        let bytes = self.replies.send(switch_batch(Asker::Switch, &[], &name));
-        self.in_flight = Some(name);
+        let bytes = self
+            .shared
+            .replies
+            .send(switch_batch(Asker::Switch, &[], &name));
+        self.shared.in_flight = Some(name);
         vec![Effect::Write(bytes)]
     }
 
     /// Leaves with `status`, giving the console its start font back first
     /// when a switch changed it (D4).
     pub fn leave(&mut self, status: u8) -> Vec<Effect> {
-        if self.leaving.is_some() {
+        if self.shared.leaving.is_some() {
             return Vec::new();
         }
-        self.trial = None;
+        self.nav.trial = None;
         // the font the console ends in once the switch in flight, if any,
         // is answered: the start font is sent only where it is another
-        let last = self.in_flight.as_ref().or(self.shown_font.as_ref());
-        let back = last != self.start_font.as_ref();
-        let mouse = std::mem::take(&mut self.mouse);
+        let last = self
+            .shared
+            .in_flight
+            .as_ref()
+            .or(self.shared.shown_font.as_ref());
+        let back = last != self.shared.start_font.as_ref();
+        let mouse = std::mem::take(&mut self.shared.mouse);
         let mut bytes = self
             .drop_picture()
             .into_iter()
@@ -920,23 +964,24 @@ impl App {
         if mouse {
             bytes.extend_from_slice(MOUSE_OFF);
         }
-        match (&self.live, self.start_font.clone()) {
+        match (&self.shared.live, self.shared.start_font.clone()) {
             (Live::On, Some(start)) if back => {
                 let bytes = self
+                    .shared
                     .replies
                     .send(switch_batch(Asker::Leave, &bytes, &start));
-                self.leaving = Some(status);
-                self.message = Some(super::words::LEAVING.to_owned());
+                self.shared.leaving = Some(status);
+                self.shared.message = Some(super::words::LEAVING.to_owned());
                 vec![Effect::Write(bytes), Effect::Wait(WAIT)]
             }
             // a query is still outstanding: the switch in flight, which
             // gives the start font back, so nothing is sent again, or the
             // DA1 after a switch already answered. The TUI waits for the
             // replies, so that none reaches the shell after it leaves.
-            (Live::On, Some(_)) if self.replies.awaiting() => {
-                self.leaving = Some(status);
-                if self.in_flight.is_some() {
-                    self.message = Some(super::words::LEAVING.to_owned());
+            (Live::On, Some(_)) if self.shared.replies.awaiting() => {
+                self.shared.leaving = Some(status);
+                if self.shared.in_flight.is_some() {
+                    self.shared.message = Some(super::words::LEAVING.to_owned());
                 }
                 let mut out = Vec::new();
                 if !bytes.is_empty() {
@@ -946,7 +991,7 @@ impl App {
                 out
             }
             _ => {
-                self.leaving = Some(status);
+                self.shared.leaving = Some(status);
                 let mut out = Vec::new();
                 if !bytes.is_empty() {
                     out.push(Effect::Write(bytes));
@@ -961,7 +1006,7 @@ impl App {
     /// on a field, and in the settings view while a value is edited. Esc
     /// drops what is typed in the settings view.
     fn typing(&self) -> bool {
-        match self.view {
+        match self.nav.view {
             View::New => self.new_frit.at < NEW_FIELDS,
             View::Settings => self.editing.is_some(),
             _ => false,
@@ -983,7 +1028,7 @@ impl App {
             Route::Quit => self.quit(0),
             Route::Type => self.type_key(key),
             Route::NextPage(pages) => {
-                self.key_page = self.key_page.saturating_add(1) % pages.max(1);
+                self.nav.key_page = self.nav.key_page.saturating_add(1) % pages.max(1);
                 Vec::new()
             }
             Route::Step(forward) => self.step_view(forward),
@@ -994,35 +1039,37 @@ impl App {
 
     /// A key that the open view acts on itself.
     fn view_key(&mut self, key: Key) -> Vec<Effect> {
-        if self.view == View::Flow {
+        if self.nav.view == View::Flow {
             return self.flow_key(key);
         }
         // the action keys do nothing while a Settings section is open
         // over the list of sections, as in every layer (ADR-1403 D7)
-        let layer = self.view == View::Settings && self.settings.open.is_some();
+        let layer = self.nav.view == View::Settings && self.settings.open.is_some();
         match key {
             // Install acts where the tab bar shows it: not in Help, whose
             // tab bar shows no action, nor in the new-frit form, which is
             // open over the Fonts view
             Key::Char('i')
-                if !layer && !self.typing() && !matches!(self.view, View::Help | View::New) =>
+                if !layer && !self.typing() && !matches!(self.nav.view, View::Help | View::New) =>
             {
                 return self.action('i');
             }
             // Save in the views whose own keys leave `s` free (ADR-1403 D7)
             Key::Char('s')
                 if !layer
-                    && matches!(self.view, View::Looks | View::Settings)
+                    && matches!(self.nav.view, View::Looks | View::Settings)
                     && !self.typing() =>
             {
                 return self.save();
             }
-            Key::Char('o') if !layer && self.live == Live::OpsOff && self.view != View::New => {
+            Key::Char('o')
+                if !layer && self.shared.live == Live::OpsOff && self.nav.view != View::New =>
+            {
                 return self.top("allow-font-ops", Some("on"));
             }
             _ => {}
         }
-        match self.view {
+        match self.nav.view {
             View::Flow => Vec::new(),
             View::Fonts => self.fonts_key(key),
             View::Looks => {
@@ -1084,13 +1131,19 @@ impl App {
         match key {
             Key::Char('q') => self.quit(0),
             Key::Char('u') => {
-                let Some(start) = self.start_font.clone() else {
+                let Some(start) = self.shared.start_font.clone() else {
                     return Vec::new();
                 };
-                if let Some(at) = self.inputs.fonts.iter().position(|f| f.name == start) {
+                if let Some(at) = self
+                    .shared
+                    .inputs
+                    .fonts
+                    .iter()
+                    .position(|f| f.name == start)
+                {
                     self.font_at = at;
                 }
-                self.want = Some(start);
+                self.shared.want = Some(start);
                 self.follow()
             }
             _ => Vec::new(),
@@ -1116,17 +1169,17 @@ impl App {
     /// second click on the selected item opens it; the wheel moves as Up
     /// and Down do.
     fn click(&mut self, mouse: Mouse) -> Vec<Effect> {
-        if self.trial.is_some() && self.leaving.is_none() && !self.installing {
+        if self.nav.trial.is_some() && self.shared.leaving.is_none() && !self.shared.installing {
             return self.put_back();
         }
         // a question takes only its answer keys, so a click or the wheel
         // leaves it open and changes nothing under it
-        if self.confirm.is_some() {
+        if self.nav.confirm.is_some() {
             return Vec::new();
         }
-        if self.view != View::Flow
-            || self.leaving.is_some()
-            || self.installing
+        if self.nav.view != View::Flow
+            || self.shared.leaving.is_some()
+            || self.shared.installing
             || super::view::too_small(self)
         {
             return Vec::new();
@@ -1176,13 +1229,13 @@ impl App {
                 None => Vec::new(),
             };
         }
-        let n = self.inputs.fonts.len();
+        let n = self.shared.inputs.fonts.len();
         self.font_at = step(self.font_at, n, key);
         let mut out = Vec::new();
         if key == Key::Enter
             && let Some(font) = self.font()
             && !matches!(font.state, FontState::Refused(_))
-            && !self.refused.contains(&font.name)
+            && !self.shared.refused.contains(&font.name)
         {
             let name = font.name.clone();
             out.extend(self.top("font-name", Some(&name)));
@@ -1201,42 +1254,43 @@ impl App {
         let Some(name) = self.font().map(|f| f.name.clone()) else {
             return;
         };
-        if let Some(at) = self.pending.removals.iter().position(|n| *n == name) {
-            self.pending.removals.remove(at);
-            self.message = Some(super::words::remove_dropped(&name));
+        if let Some(at) = self.shared.pending.removals.iter().position(|n| *n == name) {
+            self.shared.pending.removals.remove(at);
+            self.shared.message = Some(super::words::remove_dropped(&name));
             return;
         }
         let refused = crate::commands::removal_refusal(&name, self.conf_text())
             .or_else(|| {
-                self.pending
+                self.shared
+                    .pending
                     .frits
                     .iter()
                     .any(|(n, _)| *n == name)
                     .then(|| super::words::remove_replaced(&name))
             })
             .or_else(|| {
-                (!self.inputs.installed.contains_key(&name))
+                (!self.shared.inputs.installed.contains_key(&name))
                     .then(|| super::words::remove_unread(&name))
             });
         if let Some(why) = refused {
-            self.message = Some(super::words::remove_refused(&name, why));
+            self.shared.message = Some(super::words::remove_refused(&name, why));
             return;
         }
-        self.pending.removals.push(name.clone());
+        self.shared.pending.removals.push(name.clone());
         // the install as it would be with the removal: refused when the
         // draft names the frit
         match self.frit_plan() {
-            Ok(_) => self.message = Some(super::words::remove_pending(&name)),
+            Ok(_) => self.shared.message = Some(super::words::remove_pending(&name)),
             Err(why) => {
-                self.pending.removals.retain(|n| *n != name);
-                self.message = Some(super::words::remove_refused(&name, why));
+                self.shared.pending.removals.retain(|n| *n != name);
+                self.shared.message = Some(super::words::remove_refused(&name, why));
             }
         }
     }
 
     /// A character or Backspace typed into the field being edited.
     fn type_key(&mut self, key: Key) -> Vec<Effect> {
-        let text = match self.view {
+        let text = match self.nav.view {
             View::New => self.new_frit.fields.get_mut(self.new_frit.at),
             _ => self.editing.as_mut(),
         };
@@ -1388,11 +1442,12 @@ impl App {
         }
         let name = self.new_frit.name();
         let text = self.new_frit.text();
-        let path = self.inputs.frits.join(format!("{name}.vtfrit"));
+        let path = self.shared.inputs.frits.join(format!("{name}.vtfrit"));
         let read =
             if !crate::frit::valid_name(&name) || crate::frit::RESERVED.contains(&name.as_str()) {
                 Err(super::words::NEW_BAD_NAME.to_owned())
             } else if self
+                .shared
                 .inputs
                 .installed
                 .get(&name)
@@ -1406,14 +1461,14 @@ impl App {
             };
         match read {
             Ok(()) => {
-                self.pending.frits.retain(|(n, _)| *n != name);
-                self.pending.removals.retain(|n| *n != name);
-                self.pending.frits.push((name.clone(), text));
+                self.shared.pending.frits.retain(|(n, _)| *n != name);
+                self.shared.pending.removals.retain(|n| *n != name);
+                self.shared.pending.frits.push((name.clone(), text));
                 self.new_frit = NewFrit::default();
-                self.message = Some(super::words::new_added(&name));
-                self.view = View::Fonts;
+                self.shared.message = Some(super::words::new_added(&name));
+                self.nav.view = View::Fonts;
             }
-            Err(why) => self.message = Some(super::words::new_refused(why)),
+            Err(why) => self.shared.message = Some(super::words::new_refused(why)),
         }
     }
 
@@ -1422,11 +1477,12 @@ impl App {
     /// it removes, or moves the frits' directory while frits change,
     /// since they would go to the directory the TUI started with.
     pub fn frit_plan(&self) -> Result<Plan, String> {
-        let p = &self.pending;
+        let p = &self.shared.pending;
         let mut files = Vec::new();
         for (name, text) in &p.frits {
-            let path = self.inputs.frits.join(format!("{name}.vtfrit"));
+            let path = self.shared.inputs.frits.join(format!("{name}.vtfrit"));
             let old = self
+                .shared
                 .inputs
                 .installed
                 .get(name)
@@ -1447,13 +1503,14 @@ impl App {
                 return Err(why);
             }
             let old = self
+                .shared
                 .inputs
                 .installed
                 .get(name)
                 .cloned()
                 .ok_or_else(|| super::words::remove_unread(name))?;
             removals.push(Removal {
-                path: self.inputs.frits.join(format!("{name}.vtfrit")),
+                path: self.shared.inputs.frits.join(format!("{name}.vtfrit")),
                 old,
             });
         }
@@ -1468,23 +1525,28 @@ impl App {
     /// pending, and on a live console the font the draft gives the
     /// console's head is the one leaving gives back (ADR-1201 D4).
     pub(crate) fn frits_installed(&mut self) {
-        let removed = std::mem::take(&mut self.pending.removals);
-        self.inputs.fonts.retain(|f| !removed.contains(&f.name));
+        let removed = std::mem::take(&mut self.shared.pending.removals);
+        self.shared
+            .inputs
+            .fonts
+            .retain(|f| !removed.contains(&f.name));
         for name in &removed {
-            self.inputs.installed.remove(name);
-            self.sources.remove(name);
+            self.shared.inputs.installed.remove(name);
+            self.shared.sources.remove(name);
         }
-        for (name, text) in std::mem::take(&mut self.pending.frits) {
-            self.inputs.installed.insert(name, text.into_bytes());
+        for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
+            self.shared.inputs.installed.insert(name, text.into_bytes());
         }
-        self.font_at = self.font_at.min(self.inputs.fonts.len().saturating_sub(1));
-        self.inputs.conf = self.draft.as_ref().map(|d| d.text.clone());
+        self.font_at = self
+            .font_at
+            .min(self.shared.inputs.fonts.len().saturating_sub(1));
+        self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one
-        if self.live == Live::On
+        if self.shared.live == Live::On
             && let Some(name) = self.head_font()
         {
-            self.start_font = Some(name);
+            self.shared.start_font = Some(name);
         }
     }
 }

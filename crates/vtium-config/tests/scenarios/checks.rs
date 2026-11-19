@@ -42,20 +42,20 @@ impl Seen<'_> {
     }
 
     fn draft(sim: &Sim) -> Option<&str> {
-        sim.app.draft.as_ref().map(|d| d.text.as_str())
+        sim.app.shared.draft.as_ref().map(|d| d.text.as_str())
     }
 
     /// Nothing the person made changed: the draft, the changes that wait
     /// for Save and the font sets that wait for an install.
     fn kept(&self) -> bool {
         Self::draft(self.before) == Self::draft(self.after)
-            && self.before.app.unsaved == self.after.app.unsaved
-            && self.before.app.pending == self.after.app.pending
+            && self.before.app.shared.unsaved == self.after.app.shared.unsaved
+            && self.before.app.shared.pending == self.after.app.shared.pending
     }
 
     /// The changes that waited for Save are in the draft the desk keeps.
     fn saved(&self) -> bool {
-        self.before.app.unsaved == 0
+        self.before.app.shared.unsaved == 0
             || (self.has("save") && self.after.desk.draft == Self::draft(self.before).unwrap_or(""))
     }
 
@@ -64,9 +64,9 @@ impl Seen<'_> {
     /// sets wait for an install.
     fn quits_or_asks(&self) -> Result<(), String> {
         let app = &self.before.app;
-        let want = if !app.pending.is_empty() {
+        let want = if !app.shared.pending.is_empty() {
             "question:leave"
-        } else if app.unsaved > 0 {
+        } else if app.shared.unsaved > 0 {
             "question:quit"
         } else {
             return self.exits(0);
@@ -187,10 +187,10 @@ impl Seen<'_> {
     /// The live trial ends, its font is put back, and nothing else
     /// changes.
     fn puts_back(&self) -> Result<(), String> {
-        let Some(trial) = &self.before.app.trial else {
+        let Some(trial) = &self.before.app.nav.trial else {
             return Err("no trial".into());
         };
-        if self.after.app.trial.is_some() || self.exited() || !self.kept() {
+        if self.after.app.nav.trial.is_some() || self.exited() || !self.kept() {
             return Err("the trial goes on, or something else changed".into());
         }
         if self.before.term == Term::Vtium && self.after.console_font != trial.back {
@@ -252,7 +252,9 @@ impl Seen<'_> {
                 Err("Enter on a typed choice did not start the typing".into())
             };
         }
-        if self.after.app.message.is_some() && self.after.app.message != self.before.app.message {
+        if self.after.app.shared.message.is_some()
+            && self.after.app.shared.message != self.before.app.shared.message
+        {
             return Ok(());
         }
         // a display's or a device's one choice disconnects it, so its line
@@ -286,7 +288,7 @@ impl Seen<'_> {
             .typing
             .clone()
             .or_else(|| app.editing.clone())
-            .or_else(|| match app.view {
+            .or_else(|| match app.nav.view {
                 View::New => app.new_frit.fields.get(app.new_frit.at).cloned(),
                 _ => None,
             })
@@ -353,7 +355,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         ),
     );
     let closes: Check = |s| {
-        if s.step.to.kind == StateKind::View && s.after.app.view.tab() == s.before.app.view.tab() {
+        if s.step.to.kind == StateKind::View
+            && s.after.app.nav.view.tab() == s.before.app.nav.view.tab()
+        {
             Ok(())
         } else {
             Err("expected the view under it".into())
@@ -431,7 +435,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             |s| {
                 // an install refused or failed keeps the TUI, which says why
                 if !s.exited() {
-                    return if s.has("install") || s.after.app.message.is_none() {
+                    return if s.has("install") || s.after.app.shared.message.is_none() {
                         Err("the TUI stays after an install, or says nothing".into())
                     } else {
                         Ok(())
@@ -488,7 +492,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 // outside a vtium console, s switches the preview and saves
                 // nothing
                 if s.before.term != Term::Vtium
-                    && (s.has("save") || s.after.app.unsaved != s.before.app.unsaved)
+                    && (s.has("save") || s.after.app.shared.unsaved != s.before.app.shared.unsaved)
                 {
                     Err("s saved outside a vtium console".into())
                 } else {
@@ -569,7 +573,9 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // of a question does not show
     let still: Check = |s| {
         s.nothing()?;
-        if s.before.app.flow_view.at == s.after.app.flow_view.at && s.after.app.confirm.is_some() {
+        if s.before.app.flow_view.at == s.after.app.flow_view.at
+            && s.after.app.nav.confirm.is_some()
+        {
             Ok(())
         } else {
             Err("the highlight moved under the question, or it closed".into())
@@ -720,7 +726,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 }
                 // NEW PATH holds another path already, which e says
                 if !s.before.app.flow_view.new.is_empty() {
-                    return if s.after.app.message.is_some() && s.kept() {
+                    return if s.after.app.shared.message.is_some() && s.kept() {
                         Ok(())
                     } else {
                         Err("e over a full NEW PATH said nothing or changed something".into())
@@ -756,7 +762,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 if s.before.term != Term::Vtium && s.step.did.switches > 0 {
                     return Err("a switch outside a vtium console".into());
                 }
-                if s.exited() || s.after.app.view != View::Flow {
+                if s.exited() || s.after.app.nav.view != View::Flow {
                     return Err("t left the card".into());
                 }
                 Ok(())
@@ -769,7 +775,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         "k.trial",
         (
             |s| {
-                if s.after.app.trial.is_none() && s.step.did.switches == 0 && s.kept() {
+                if s.after.app.nav.trial.is_none() && s.step.did.switches == 0 && s.kept() {
                     Ok(())
                 } else {
                     Err("k did not keep the font".into())
@@ -838,7 +844,7 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
         (
             |s| {
                 s.goes_to("flow.detail.typing")?;
-                let doc = vtium_config::tui::paths::read(&s.before.app.inputs.flow);
+                let doc = vtium_config::tui::paths::read(&s.before.app.shared.inputs.flow);
                 let obj = s.before.app.flow_view.layer.clone().ok_or("no detail")?;
                 let (kind, sel) = flowdraw::label_target(&obj).ok_or("no label")?;
                 let now = doc.label(kind, &sel).unwrap_or_default().to_owned();
@@ -955,8 +961,8 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
                     Obj::Pal(Slot::Display(_)) | Obj::New(Slot::Display(_)) => Piece::Display(sel),
                     _ => Piece::Input(sel),
                 };
-                let said =
-                    s.after.app.message.is_some() && s.after.app.message != s.before.app.message;
+                let said = s.after.app.shared.message.is_some()
+                    && s.after.app.shared.message != s.before.app.shared.message;
                 if s.after.app.flow_view.new.has(&piece) || said {
                     Ok(())
                 } else {
@@ -1076,7 +1082,7 @@ fn step_view(s: &Seen<'_>, forward: bool) -> Result<(), String> {
     let tabs = View::TABS;
     let at = tabs
         .iter()
-        .position(|v| *v == s.before.app.view.tab())
+        .position(|v| *v == s.before.app.nav.view.tab())
         .unwrap_or(0);
     let n = tabs.len();
     let next = if forward {
@@ -1084,7 +1090,7 @@ fn step_view(s: &Seen<'_>, forward: bool) -> Result<(), String> {
     } else {
         (at + n - 1) % n
     };
-    if Some(&s.after.app.view) == tabs.get(next) {
+    if Some(&s.after.app.nav.view) == tabs.get(next) {
         Ok(())
     } else {
         Err(format!("expected {:?}", tabs.get(next)))
@@ -1107,7 +1113,7 @@ fn goes_to_tab(s: &Seen<'_>) -> Result<(), String> {
         "6" => "help",
         other => return Err(format!("{other} is no digit of a tab")),
     };
-    let to = view_name(s.after.app.view);
+    let to = view_name(s.after.app.nav.view);
     if to != want || s.step.to.kind != StateKind::View {
         return Err(format!("expected the {want} tab, and the TUI is in {to}"));
     }
@@ -1124,14 +1130,14 @@ fn goes_to_tab(s: &Seen<'_>) -> Result<(), String> {
 }
 
 fn saves(s: &Seen<'_>) -> Result<(), String> {
-    if s.before.app.unsaved == 0 {
+    if s.before.app.shared.unsaved == 0 {
         return if s.quiet() && s.kept() {
             Ok(())
         } else {
             Err("nothing to save, but something happened".into())
         };
     }
-    if s.saved() && s.after.app.unsaved == 0 {
+    if s.saved() && s.after.app.shared.unsaved == 0 {
         Ok(())
     } else {
         Err("expected a save".into())
@@ -1381,24 +1387,28 @@ impl Checks {
         let app = &s.after.app;
         if s.after.exited.is_none() {
             let screen = s.after.screen();
-            if screen.len() != app.rows {
-                return Err(format!("{} rows on a screen of {}", screen.len(), app.rows));
+            if screen.len() != app.size.rows {
+                return Err(format!(
+                    "{} rows on a screen of {}",
+                    screen.len(),
+                    app.size.rows
+                ));
             }
-            if let Some(row) = screen.iter().find(|r| r.chars().count() > app.cols) {
-                return Err(format!("a row wider than {}: {row:?}", app.cols));
+            if let Some(row) = screen.iter().find(|r| r.chars().count() > app.size.cols) {
+                return Err(format!("a row wider than {}: {row:?}", app.size.cols));
             }
             // mouse reporting is on exactly while the Flow view is in front
-            if s.after.mouse != (app.view == View::Flow) {
+            if s.after.mouse != (app.nav.view == View::Flow) {
                 return Err(format!(
                     "mouse reporting is {} in {:?}",
-                    s.after.mouse, app.view
+                    s.after.mouse, app.nav.view
                 ));
             }
             // a question that throws the draft away counts the changes it
             // also throws away
-            if let Some(c) = &app.confirm
+            if let Some(c) = &app.nav.confirm
                 && matches!(c.then, Then::Desk(_))
-                && app.unsaved > 0
+                && app.shared.unsaved > 0
                 && !c.question.contains("not saved")
             {
                 return Err(format!(
@@ -1410,10 +1420,10 @@ impl Checks {
             // file view, once their key-line rows are supported
             let flow_lines =
                 self.supported("key-line.view.flow") && self.supported("key-line.layer.file-view");
-            if app.view != View::Flow || app.confirm.is_some() || flow_lines {
+            if app.nav.view != View::Flow || app.nav.confirm.is_some() || flow_lines {
                 let shown = screen.join("\n");
                 let line = vtium_config::tui::view::key_line(app);
-                let small = vtium_config::tui::view::too_small(app) && app.confirm.is_none();
+                let small = vtium_config::tui::view::too_small(app) && app.nav.confirm.is_none();
                 if let Some(key) = line.split("  ").find(|k| !shown.contains(k)) {
                     return Err(format!("the key line leaves out {key:?}"));
                 }
@@ -1427,7 +1437,7 @@ impl Checks {
             if s.after.mouse {
                 return Err("left with mouse reporting on".into());
             }
-            if let Some(start) = &app.start_font
+            if let Some(start) = &app.shared.start_font
                 && s.after.term == Term::Vtium
                 && s.after.console_font != *start
             {
@@ -1438,7 +1448,7 @@ impl Checks {
             }
         }
         if matches!(s.step.key, "Tab" | "Shift-Tab") {
-            let moved = s.before.app.view.tab() != app.view.tab();
+            let moved = s.before.app.nav.view.tab() != app.nav.view.tab();
             if moved != (s.step.from.kind == StateKind::View) {
                 return Err(format!("Tab changed the view: {moved}"));
             }
@@ -1449,7 +1459,7 @@ impl Checks {
     /// Records what the key wrote and what the tab bar shows, for the
     /// views table's check.
     fn views(&mut self, s: &Seen<'_>) {
-        let view = view_name(s.before.app.view);
+        let view = view_name(s.before.app.nav.view);
         if s.after.exited.is_none() && matches!(s.step.to.kind, StateKind::View) {
             let top = s.after.screen().first().cloned().unwrap_or_default();
             let bar = top
@@ -1462,7 +1472,7 @@ impl Checks {
                 .collect();
             self.found
                 .actions
-                .entry(view_name(s.after.app.view))
+                .entry(view_name(s.after.app.nav.view))
                 .or_default()
                 .extend(shown);
         }
@@ -1474,7 +1484,7 @@ impl Checks {
             let parts = written(before, after);
             self.found.writes.entry(view).or_default().extend(parts);
         }
-        if s.before.app.pending != s.after.app.pending && !s.has("install") {
+        if s.before.app.shared.pending != s.after.app.shared.pending && !s.has("install") {
             self.found
                 .writes
                 .entry(view)

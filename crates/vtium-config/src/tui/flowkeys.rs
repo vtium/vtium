@@ -29,7 +29,7 @@ impl App {
     pub(crate) fn flow_settle(&mut self) {
         // the parts, enumerated again and merged by their matches, so a
         // device that comes or goes after any event shows at once
-        let flow = &self.inputs.flow;
+        let flow = &self.shared.inputs.flow;
         let now = parts::enumerate(flow, &paths::read(flow));
         parts::merge(&mut self.flow_view.parts, flow, now);
         let layout = flowdraw::layout_of(self);
@@ -91,7 +91,7 @@ impl App {
     }
 
     fn tell(&mut self, what: impl Into<String>) -> Vec<Effect> {
-        self.message = Some(what.into());
+        self.shared.message = Some(what.into());
         Vec::new()
     }
 
@@ -101,7 +101,7 @@ impl App {
         let (_, height) = flowdraw::window(self);
         let at = state.at.clone();
         if !matches!(key, Key::Char(' ' | 'a' | 'e' | 'p' | 't' | 's')) {
-            self.message = None;
+            self.shared.message = None;
         }
         match key {
             Key::Up | Key::Down | Key::Left | Key::Right | Key::Home | Key::End => {
@@ -123,11 +123,11 @@ impl App {
                 _ => self.tell(words::REVISE_WHERE),
             },
             Key::Escape if !state.new.is_empty() => self.clear(state),
-            Key::Char('p') => self.tell(match self.live {
+            Key::Char('p') => self.tell(match self.shared.live {
                 Live::On => words::PREVIEW_PATH_LATER,
                 _ => words::PREVIEW_PATH_NOT_HERE,
             }),
-            Key::Char('t') => self.tell(match self.live {
+            Key::Char('t') => self.tell(match self.shared.live {
                 Live::On => words::LIVE_ON,
                 Live::OpsOff => words::OPS_OFF,
                 _ => words::NOT_VTIUM,
@@ -148,7 +148,7 @@ impl App {
     /// The flow's item an added path's box stands for, whose line the file
     /// view opens at.
     fn doc_item(&self, obj: &Obj) -> Option<Item> {
-        let flow = &self.inputs.flow;
+        let flow = &self.shared.inputs.flow;
         if let Obj::Roam(slot) = obj {
             let roams = |sel: &str| {
                 flow.rules.iter().position(|r| {
@@ -186,7 +186,7 @@ impl App {
         let Some(obj) = at else {
             return Vec::new();
         };
-        self.message = None;
+        self.shared.message = None;
         let active = self.flow_view.new.active;
         let none = self.flow_view.new.none;
         match &obj {
@@ -220,7 +220,7 @@ impl App {
                 let Some(f) = f else {
                     return self.tell(words::DEFAULT_FONT_PREVIEW);
                 };
-                if let Some(at) = self.inputs.fonts.iter().position(|x| x.name == *f) {
+                if let Some(at) = self.shared.inputs.fonts.iter().position(|x| x.name == *f) {
                     self.font_at = at;
                 }
                 self.set_view(View::Fonts)
@@ -253,7 +253,7 @@ impl App {
     /// Space: picks a palette piece into the editor or takes it out, takes
     /// an editor piece out, and says why anything else cannot be picked.
     fn space(&mut self, state: &State, at: Option<Obj>) -> Vec<Effect> {
-        let flow = &self.inputs.flow;
+        let flow = &self.shared.inputs.flow;
         let doc = flowdraw::shown_doc(self, paths::read(flow));
         let Some(obj) = at else {
             return Vec::new();
@@ -313,8 +313,8 @@ impl App {
     /// Picks `piece` into the editor, or takes it out, and says what that
     /// did, whether the input will roam, and what the path needs next.
     fn pick(&mut self, piece: Piece) -> Vec<Effect> {
-        let doc = flowdraw::shown_doc(self, paths::read(&self.inputs.flow));
-        let flow = &self.inputs.flow;
+        let doc = flowdraw::shown_doc(self, paths::read(&self.shared.inputs.flow));
+        let flow = &self.shared.inputs.flow;
         let state = &mut self.flow_view;
         let was_font = state.new.font.clone();
         let done = match &piece {
@@ -381,7 +381,7 @@ impl App {
     /// stays. A path being revised is still in the draft, so adding it
     /// back unchanged changes nothing.
     fn add(&mut self, state: &State) -> Vec<Effect> {
-        let flow = &self.inputs.flow;
+        let flow = &self.shared.inputs.flow;
         let doc = flowdraw::shown_doc(self, paths::read(flow));
         let mut new = state.new.clone();
         if new.name.is_none() && !new.active && !new.none {
@@ -428,7 +428,7 @@ impl App {
                 s.at = Some(w);
             }
         });
-        self.message = Some(said);
+        self.shared.message = Some(said);
         out
     }
 
@@ -437,17 +437,17 @@ impl App {
     fn clear(&mut self, state: &State) -> Vec<Effect> {
         let out = match &state.revising {
             Some(_) => {
-                let doc = flowdraw::shown_doc(self, paths::read(&self.inputs.flow));
-                let changes = paths::plan(&self.inputs.flow, &doc);
+                let doc = flowdraw::shown_doc(self, paths::read(&self.shared.inputs.flow));
+                let changes = paths::plan(&self.shared.inputs.flow, &doc);
                 let out = self.make(changes, None);
                 if out.is_empty() {
                     return out;
                 }
-                self.message = Some(words::REVISED_DROPPED.to_owned());
+                self.shared.message = Some(words::REVISED_DROPPED.to_owned());
                 out
             }
             None => {
-                self.message = Some(words::EDITOR_CLEARED.to_owned());
+                self.shared.message = Some(words::EDITOR_CLEARED.to_owned());
                 Vec::new()
             }
         };
@@ -464,7 +464,7 @@ impl App {
     /// NEW PATH is added, which puts it back as it was when nothing in it
     /// changed, or cleared, which takes it out.
     fn revise(&mut self, obj: &Obj) -> Vec<Effect> {
-        let doc: Doc = paths::read(&self.inputs.flow);
+        let doc: Doc = paths::read(&self.shared.inputs.flow);
         if !self.flow_view.new.is_empty() {
             return self.tell(words::EDITOR_BUSY);
         }
@@ -525,7 +525,7 @@ impl App {
                 Vec::new()
             }
             Key::Enter if state.line == 0 => {
-                let doc = paths::read(&self.inputs.flow);
+                let doc = paths::read(&self.shared.inputs.flow);
                 let now = doc.label(kind, &sel).unwrap_or_default().to_owned();
                 self.flow_with(|s| s.typing = Some(now));
                 Vec::new()
@@ -598,7 +598,7 @@ impl App {
             Key::Enter => self.set_label(kind, sel, &typed),
             Key::Escape => {
                 self.flow_with(|s| s.typing = None);
-                self.message = None;
+                self.shared.message = None;
                 Vec::new()
             }
             _ => Vec::new(),
@@ -615,7 +615,7 @@ impl App {
         if label.starts_with('#') {
             return self.tell(words::LABEL_HASH);
         }
-        let flow = &self.inputs.flow;
+        let flow = &self.shared.inputs.flow;
         let mut doc = paths::read(flow);
         doc.set_label(kind, sel, label);
         let changes = paths::plan(flow, &doc);
@@ -625,7 +625,7 @@ impl App {
         }
         let out = self.make(changes, None);
         if !out.is_empty() {
-            self.message = Some(if label.is_empty() {
+            self.shared.message = Some(if label.is_empty() {
                 words::LABEL_REMOVED.to_owned()
             } else {
                 words::label_set(label)
@@ -740,7 +740,7 @@ impl App {
             Key::Enter => self.card_apply(obj, path, line, typed),
             Key::Escape => {
                 self.flow_with(|s| s.typing = None);
-                self.message = None;
+                self.shared.message = None;
                 Vec::new()
             }
             _ => Vec::new(),
@@ -760,7 +760,7 @@ impl App {
         value: String,
     ) -> Vec<Effect> {
         use flowdraw::CardLine;
-        let flow = &self.inputs.flow;
+        let flow = &self.shared.inputs.flow;
         let mut doc = paths::read(flow);
         let own = path.name.clone().unwrap_or_default();
         if *line == CardLine::Name && value != own {
@@ -787,7 +787,7 @@ impl App {
             }
         }
         self.flow_with(|s| s.typing = None);
-        self.message = None;
+        self.shared.message = None;
         match obj {
             Obj::New(_) => {
                 if matches!(line, CardLine::Part(_)) {
@@ -807,14 +807,14 @@ impl App {
                 if let Some(slot) = doc.paths.get_mut(at) {
                     *slot = changed.clone();
                 }
-                let changes = paths::plan(&self.inputs.flow, &doc);
+                let changes = paths::plan(&self.shared.inputs.flow, &doc);
                 if changes.is_empty() {
                     return Vec::new();
                 }
                 let out = self.make(changes, None);
                 if !out.is_empty() {
                     let name = changed.name.clone().unwrap_or_else(|| own.clone());
-                    self.message = Some(words::changed_in_draft(&name));
+                    self.shared.message = Some(words::changed_in_draft(&name));
                 }
                 if !out.is_empty() && *line == CardLine::Name {
                     let renamed = Obj::Doc(value, Slot::Terminal);
@@ -837,7 +837,7 @@ impl App {
         }
         let fonts = flowdraw::font_names(self);
         let length = match &state.picker {
-            Some(p) => parts::picker(&self.inputs.flow, p.stage, p.key).len(),
+            Some(p) => parts::picker(&self.shared.inputs.flow, p.stage, p.key).len(),
             None => parts::makes(stage, &fonts).len(),
         };
         match key {
@@ -867,27 +867,29 @@ impl App {
                 Vec::new()
             }
             Key::Enter => match &state.picker {
-                Some(p) => match parts::picker(&self.inputs.flow, p.stage, p.key).get(state.line) {
-                    Some(Pick::Value { sel, .. }) => {
-                        let piece = match stage {
-                            Stage::Display => Piece::Display(sel.clone()),
-                            _ => Piece::Input(sel.clone()),
-                        };
-                        let title = parts::title_of(&self.inputs.flow, &piece);
-                        self.make_part(piece, title, from_new)
+                Some(p) => {
+                    match parts::picker(&self.shared.inputs.flow, p.stage, p.key).get(state.line) {
+                        Some(Pick::Value { sel, .. }) => {
+                            let piece = match stage {
+                                Stage::Display => Piece::Display(sel.clone()),
+                                _ => Piece::Input(sel.clone()),
+                            };
+                            let title = parts::title_of(&self.shared.inputs.flow, &piece);
+                            self.make_part(piece, title, from_new)
+                        }
+                        Some(Pick::Typed) => {
+                            self.flow_with(|s| s.typing = Some(String::new()));
+                            Vec::new()
+                        }
+                        None => Vec::new(),
                     }
-                    Some(Pick::Typed) => {
-                        self.flow_with(|s| s.typing = Some(String::new()));
-                        Vec::new()
-                    }
-                    None => Vec::new(),
-                },
+                }
                 None => match parts::makes(stage, &fonts)
                     .get(state.line)
                     .map(|(_, _, m)| m.clone())
                 {
                     Some(Make::Part(piece)) => {
-                        let title = parts::title_of(&self.inputs.flow, &piece);
+                        let title = parts::title_of(&self.shared.inputs.flow, &piece);
                         self.make_part(piece, title, from_new)
                     }
                     Some(Make::Filter(key)) => {
@@ -956,7 +958,7 @@ impl App {
             }
             Key::Escape => {
                 self.flow_with(|s| s.typing = None);
-                self.message = None;
+                self.shared.message = None;
                 Vec::new()
             }
             _ => Vec::new(),
@@ -967,7 +969,7 @@ impl App {
     /// NEW PATH it also goes into the new path, and the new path's
     /// terminal card opens, where its name, font set and size are set.
     fn new_terminal(&mut self, from_new: bool) -> Vec<Effect> {
-        let flow = &self.inputs.flow;
+        let flow = &self.shared.inputs.flow;
         let doc = flowdraw::shown_doc(self, paths::read(flow));
         let made: Vec<String> = self
             .flow_view
@@ -997,7 +999,7 @@ impl App {
     /// part also goes into the new path, and the highlight moves to it
     /// there; else the highlight moves to it in PARTS.
     fn make_part(&mut self, piece: Piece, title: String, from_new: bool) -> Vec<Effect> {
-        let flow = &self.inputs.flow;
+        let flow = &self.shared.inputs.flow;
         let mut name = title.clone();
         let there = {
             let s = &mut self.flow_view;
@@ -1107,7 +1109,7 @@ mod tests {
         highlight(&mut app, template.clone());
         keys(&mut app, &[Key::Char(' ')]);
         assert_eq!(
-            app.message.as_deref(),
+            app.shared.message.as_deref(),
             Some("The Input template adds inputs. Press Enter to add one.")
         );
         assert!(
@@ -1146,7 +1148,7 @@ mod tests {
         let mut app = app();
         highlight(&mut app, Obj::New(Slot::Empty(Stage::Input)));
         keys(&mut app, &[Key::Char(' ')]);
-        assert_eq!(app.message.as_deref(), Some(words::EMPTY_SPACE));
+        assert_eq!(app.shared.message.as_deref(), Some(words::EMPTY_SPACE));
         // no input, the first choice
         keys(&mut app, &[Key::Enter, Key::Enter]);
         assert!(state(&app).new.no_input);
@@ -1165,7 +1167,7 @@ mod tests {
         assert_eq!(state(&app).typing.as_deref(), Some(""));
         type_text(&mut app, "aaa:1:2");
         keys(&mut app, &[Key::Enter]);
-        let why = app.message.clone().unwrap_or_default();
+        let why = app.shared.message.clone().unwrap_or_default();
         assert_eq!(
             why,
             "This monitor is not a valid EDID. An EDID looks like AAA:0x0001:LARGE00001."
@@ -1181,7 +1183,7 @@ mod tests {
     #[test]
     fn a_part_made_from_a_template_choice_carries_a_label() {
         let mut app = app();
-        app.draft = Some(super::super::desk::Opened {
+        app.shared.draft = Some(super::super::desk::Opened {
             name: "north".into(),
             text: super::super::paths::tests::TEXT.into(),
             ..Default::default()
@@ -1215,7 +1217,7 @@ mod tests {
         keys(&mut app, &[Key::Enter]);
         type_text(&mut app, "#2");
         keys(&mut app, &[Key::Enter]);
-        assert_eq!(app.message.as_deref(), Some(words::LABEL_HASH));
+        assert_eq!(app.shared.message.as_deref(), Some(words::LABEL_HASH));
         assert!(state(&app).typing.is_some(), "the label stays to fix");
     }
 
@@ -1225,7 +1227,8 @@ mod tests {
     #[test]
     fn the_login_line_picks_the_default_or_a_checked_command() {
         let mut app = app();
-        app.inputs
+        app.shared
+            .inputs
             .flow
             .base
             .set
@@ -1267,7 +1270,7 @@ mod tests {
             keys(&mut app, &[Key::Escape, Key::Enter]);
             type_text(&mut app, typed);
             keys(&mut app, &[Key::Enter]);
-            assert_eq!(app.message.as_deref(), Some(why.as_str()), "{typed}");
+            assert_eq!(app.shared.message.as_deref(), Some(why.as_str()), "{typed}");
             assert!(state(&app).typing.is_some(), "{typed} stays to fix");
             assert_eq!(state(&app).new.setting("login"), "", "{typed}");
         }
@@ -1281,8 +1284,8 @@ mod tests {
         keys(&mut app, &[Key::Left, Key::Enter]);
         assert!(state(&app).typing.is_none());
         assert_eq!(state(&app).new.setting("login"), "");
-        let doc = paths::read(&app.inputs.flow).with(state(&app).new.clone());
-        let text = paths::plan(&app.inputs.flow, &doc)
+        let doc = paths::read(&app.shared.inputs.flow).with(state(&app).new.clone());
+        let text = paths::plan(&app.shared.inputs.flow, &doc)
             .iter()
             .fold(paths::tests::TEXT.to_owned(), |t, c| {
                 c.apply(&t).expect("the change applies")
@@ -1297,13 +1300,13 @@ mod tests {
     fn picking_a_display_part_held_on_a_shared_vt_is_refused() {
         let mut app = app();
         let text = "version = 1\n[head desk]\nvt = 3\n[head panel]\nvt = 4\n[rules]\ndisplay * -> desk\ndisplay * -> panel\n";
-        app.inputs.flow =
+        app.shared.inputs.flow =
             crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None);
         app.flow_settle();
         highlight(&mut app, Obj::Pal(Slot::Display("*".into())));
         keys(&mut app, &[Key::Char(' ')]);
         assert_eq!(
-            app.message.as_deref(),
+            app.shared.message.as_deref(),
             Some(words::display_taken("All displays", "desk", Some(3)).as_str())
         );
         assert!(state(&app).new.displays.is_empty());
@@ -1312,9 +1315,9 @@ mod tests {
     /// The Flow view on the draft `text`, with `head`'s card open.
     fn card_of(text: &str, head: &str) -> App {
         let mut app = app();
-        app.inputs.flow =
+        app.shared.inputs.flow =
             crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None);
-        app.draft = Some(super::super::desk::Opened {
+        app.shared.draft = Some(super::super::desk::Opened {
             name: "north".into(),
             text: text.into(),
             ..Default::default()
@@ -1362,7 +1365,7 @@ mod tests {
             .map(|(w, _)| w)
             .collect();
         assert_eq!(words, [words::SWITCH_OFF, words::SWITCH_ON]);
-        let path = paths::read(&app.inputs.flow)
+        let path = paths::read(&app.shared.inputs.flow)
             .path("desk")
             .cloned()
             .expect("desk");
@@ -1373,7 +1376,7 @@ mod tests {
         );
         let on = "version = 1\npolicy = open\n[head desk]\nswitch-on-enter = yes\nvt = 3\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
         let mut app = card_of(on, "desk");
-        let path = paths::read(&app.inputs.flow)
+        let path = paths::read(&app.shared.inputs.flow)
             .path("desk")
             .cloned()
             .expect("desk");
@@ -1397,7 +1400,7 @@ mod tests {
         let line = flowdraw::CardLine::Setting("switch-on-enter");
         let hint = |text: &str| -> String {
             let app = card_of(text, "desk");
-            let path = paths::read(&app.inputs.flow)
+            let path = paths::read(&app.shared.inputs.flow)
                 .path("desk")
                 .cloned()
                 .expect("desk");

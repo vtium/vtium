@@ -51,7 +51,29 @@
 use super::contract;
 use super::flowview::{Obj, Slot};
 use super::input::Key;
-use super::model::{App, NEW_FIELDS, Then, View};
+use super::model::{App, Confirm, NEW_FIELDS, Then, View};
+
+/// Where the person is in the TUI: the open tab, the question over
+/// everything when one is open, the live trial, and the key line's page.
+/// What is open inside a tab, its card, its list or its typed value, is
+/// the tab's own state, which [`node`] asks each tab for.
+///
+/// References:
+/// - ADR-1206 D3: the navigation state, and the tab's `node` query it
+///   reads.
+#[derive(Clone, Debug)]
+pub struct Nav {
+    /// The open tab.
+    pub view: View,
+    /// The live trial counting down, if one is.
+    pub trial: Option<super::shot::Trial>,
+    /// The question the view asks before it acts, and what it does on yes.
+    pub confirm: Option<Confirm>,
+    /// The page of the key line that shows, counted from 0. It goes back
+    /// to the first page whenever the TUI moves to another node of the
+    /// interface tree.
+    pub key_page: usize,
+}
 
 /// The kind of state a node is, as the key table names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -106,21 +128,21 @@ pub enum Route {
 /// the next key, then the live trial, then the screen below the minimum
 /// size, then a value being typed, then what is open over the view.
 pub fn node(app: &App) -> &'static str {
-    if let Some(confirm) = &app.confirm {
+    if let Some(confirm) = &app.nav.confirm {
         return match confirm.then {
             Then::Quit(_) => "any.question.quit",
             Then::Leave(_) => "any.question.leave",
             _ => "any.question.confirm",
         };
     }
-    if app.trial.is_some() {
+    if app.nav.trial.is_some() {
         return "any.trial";
     }
     if super::view::too_small(app) {
         return "any.too-small";
     }
     let flow = &app.flow_view;
-    match app.view {
+    match app.nav.view {
         View::Flow if flow.typing.is_some() && flow.picker.is_some() => "flow.maker.picker.typing",
         View::Flow if flow.typing.is_some() => match flow.layer {
             Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal)) => "flow.card.typing",
@@ -252,7 +274,7 @@ fn row_route(here: &str, id: &str, key: Key) -> Option<Route> {
 /// node lists decide Tab, Shift-Tab, the digits, `q` and `.`, and the open
 /// view acts on every other key.
 pub fn route(app: &App, key: Key) -> Route {
-    if app.leaving.is_some() || app.installing {
+    if app.shared.leaving.is_some() || app.shared.installing {
         return Route::Ignore;
     }
     let here = node(app);
