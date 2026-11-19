@@ -9,15 +9,18 @@ other any.question.confirm	y	other flow(doc display)	restore
 other any.question.confirm	y	other flow(doc display)	revert
 other any.question.confirm	y	other flow(new empty)	new
 other any.question.confirm	y	other fonts(frit)	install
+other any.question.confirm +pending	Ctrl-C	other effects +pending	
 other any.question.confirm +pending	Ctrl-C	other flow(doc display) +pending	
 other any.question.confirm +pending	Ctrl-C	other fonts(marked) +pending	
 other any.question.confirm +pending	Ctrl-C	other looks +pending	
 other any.question.confirm +pending	Ctrl-C	other settings(first) +pending	
+other any.question.confirm +pending	Esc	other effects +pending	
 other any.question.confirm +pending	Esc	other flow(doc display) +pending	
 other any.question.confirm +pending	Esc	other fonts(marked) +pending	
 other any.question.confirm +pending	Esc	other looks +pending	
 other any.question.confirm +pending	Esc	other settings(first) +pending	
 other any.question.confirm +pending	Shrink	other any.question.confirm below 80×25 +pending	
+other any.question.confirm +pending	y	other effects	install
 other any.question.confirm +pending	y	other flow(doc display)	install
 other any.question.confirm +pending	y	other flow(doc display) +pending	restore
 other any.question.confirm +pending	y	other flow(doc display) +pending	revert
@@ -63,12 +66,14 @@ other any.question.confirm below 80×25 +unsaved +pending	Grow	other any.questio
 other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small +pending	new
 other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small +pending	restore
 other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small +pending	revert
+other any.question.leave +pending	Ctrl-C	other effects +pending	
 other any.question.leave +pending	Ctrl-C	other flow(doc display) +pending	
 other any.question.leave +pending	Ctrl-C	other fonts(marked) +pending	
 other any.question.leave +pending	Ctrl-C	other help(help) +pending	
 other any.question.leave +pending	Ctrl-C	other looks +pending	
 other any.question.leave +pending	Ctrl-C	other looks.new-frit(row 6) +pending	
 other any.question.leave +pending	Ctrl-C	other settings(first) +pending	
+other any.question.leave +pending	Esc	other effects +pending	
 other any.question.leave +pending	Esc	other flow(doc display) +pending	
 other any.question.leave +pending	Esc	other fonts(marked) +pending	
 other any.question.leave +pending	Esc	other help(help) +pending	
@@ -80,12 +85,14 @@ other any.question.leave +pending	n	other left	exit 0
 other any.question.leave +pending	n	other left	mouse off, exit 0
 other any.question.leave +pending	y	other left	prepare, install, exit 0
 other any.question.leave +pending	y	other left	prepare, install, mouse off, exit 0
+other any.question.leave +unsaved +pending	Ctrl-C	other effects +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other flow(doc display) +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other fonts(marked) +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other help(help) +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other looks +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other looks.new-frit(row 6) +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other settings(first) +unsaved +pending	
+other any.question.leave +unsaved +pending	Esc	other effects +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other flow(doc display) +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other fonts(marked) +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other help(help) +unsaved +pending	
@@ -95,6 +102,7 @@ other any.question.leave +unsaved +pending	Esc	other settings(first) +unsaved +p
 other any.question.leave +unsaved +pending	Shrink	other any.question.leave below 80×25 +unsaved +pending	
 other any.question.leave +unsaved +pending	n	other left	save, exit 0
 other any.question.leave +unsaved +pending	n	other left	save, mouse off, exit 0
+other any.question.leave +unsaved +pending	y	other effects +pending	save, prepare
 other any.question.leave +unsaved +pending	y	other flow(doc display) +pending	save, prepare
 other any.question.leave +unsaved +pending	y	other fonts(marked) +pending	save, prepare
 other any.question.leave +unsaved +pending	y	other help(help) +pending	save, prepare
@@ -111,12 +119,14 @@ other any.question.leave below 80×25 +unsaved +pending	Esc	other any.too-small 
 other any.question.leave below 80×25 +unsaved +pending	Grow	other any.question.leave +unsaved +pending	
 other any.question.leave below 80×25 +unsaved +pending	n	other left	save, exit 0
 other any.question.leave below 80×25 +unsaved +pending	y	other any.too-small +pending	save, prepare
+other any.question.quit +unsaved	Ctrl-C	other effects +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other flow(doc display) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other fonts(builtin) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other help(help) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other looks +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other looks.new-frit(row 6) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other settings(first) +unsaved	
+other any.question.quit +unsaved	Esc	other effects +unsaved	
 other any.question.quit +unsaved	Esc	other flow(doc display) +unsaved	
 other any.question.quit +unsaved	Esc	other fonts(builtin) +unsaved	
 other any.question.quit +unsaved	Esc	other help(help) +unsaved	
@@ -145,21 +155,68 @@ other any.too-small +unsaved	q	other any.question.quit below 80×25 +unsaved
 other any.too-small +unsaved +pending	Ctrl-C	other left	save, exit 130
 other any.too-small +unsaved +pending	Grow	other fonts(marked) +unsaved +pending	
 other any.too-small +unsaved +pending	q	other any.question.leave below 80×25 +unsaved +pending	
+other effects	1	other fonts(builtin)	
+other effects	3	other looks	
+other effects	4	other flow(doc display)	mouse on
+other effects	5	other settings(first)	
+other effects	6	other help(help)	
+other effects	Ctrl-C	other left	exit 130
+other effects	Shift-Tab	other fonts(builtin)	
+other effects	Shrink	other any.too-small	
+other effects	Tab	other looks	
+other effects	i	other effects	prepare
+other effects	q	other left	exit 0
+other effects +pending	1	other fonts(marked) +pending	
+other effects +pending	3	other looks +pending	
+other effects +pending	4	other flow(doc display) +pending	mouse on
+other effects +pending	5	other settings(first) +pending	
+other effects +pending	6	other help(help) +pending	
+other effects +pending	Ctrl-C	other left	exit 130
+other effects +pending	Shift-Tab	other fonts(marked) +pending	
+other effects +pending	Shrink	other any.too-small +pending	
+other effects +pending	Tab	other looks +pending	
+other effects +pending	i	other any.question.confirm +pending	prepare
+other effects +pending	q	other any.question.leave +pending	
+other effects +unsaved	1	other fonts(builtin) +unsaved	
+other effects +unsaved	3	other looks +unsaved	
+other effects +unsaved	4	other flow(doc display) +unsaved	mouse on
+other effects +unsaved	5	other settings(first) +unsaved	
+other effects +unsaved	6	other help(help) +unsaved	
+other effects +unsaved	Ctrl-C	other left	save, exit 130
+other effects +unsaved	Shift-Tab	other fonts(builtin) +unsaved	
+other effects +unsaved	Shrink	other any.too-small +unsaved	
+other effects +unsaved	Tab	other looks +unsaved	
+other effects +unsaved	i	other effects	save, prepare
+other effects +unsaved	q	other any.question.quit +unsaved	
+other effects +unsaved	s	other effects	save
+other effects +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other effects +unsaved +pending	3	other looks +unsaved +pending	
+other effects +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
+other effects +unsaved +pending	5	other settings(first) +unsaved +pending	
+other effects +unsaved +pending	6	other help(help) +unsaved +pending	
+other effects +unsaved +pending	Ctrl-C	other left	save, exit 130
+other effects +unsaved +pending	Shift-Tab	other fonts(marked) +unsaved +pending	
+other effects +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other effects +unsaved +pending	Tab	other looks +unsaved +pending	
+other effects +unsaved +pending	i	other effects +pending	save, prepare
+other effects +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects +unsaved +pending	s	other effects +pending	save
 other flow(doc display)	1	other fonts(builtin)	mouse off
+other flow(doc display)	2	other effects	mouse off
 other flow(doc display)	3	other looks	mouse off
 other flow(doc display)	5	other settings(first)	mouse off
 other flow(doc display)	6	other help(help)	mouse off
 other flow(doc display)	Click box	other flow(doc terminal)	
-other flow(doc display)	Click tab	other looks	mouse off
+other flow(doc display)	Click tab	other effects	mouse off
 other flow(doc display)	Ctrl-C	other left	mouse off, exit 130
 other flow(doc display)	Down	other flow(doc terminal)	
 other flow(doc display)	End	other flow(parts font)	
 other flow(doc display)	Enter	other flow.info	
 other flow(doc display)	PgDn	other flow(parts template)	
 other flow(doc display)	Right	other flow(doc terminal)	
-other flow(doc display)	Shift-Tab	other help(help)	mouse off
+other flow(doc display)	Shift-Tab	other looks	mouse off
 other flow(doc display)	Shrink	other any.too-small	
-other flow(doc display)	Tab	other looks	mouse off
+other flow(doc display)	Tab	other settings(first)	mouse off
 other flow(doc display)	Wheel down	other flow(doc terminal)	
 other flow(doc display)	d	other flow(doc display)	devices
 other flow(doc display)	e	other flow(new terminal)	
@@ -170,20 +227,21 @@ other flow(doc display)	q	other left	mouse off, exit 0
 other flow(doc display)	r	other any.question.confirm	
 other flow(doc display)	v	other flow.file	
 other flow(doc display) +pending	1	other fonts(marked) +pending	mouse off
+other flow(doc display) +pending	2	other effects +pending	mouse off
 other flow(doc display) +pending	3	other looks +pending	mouse off
 other flow(doc display) +pending	5	other settings(first) +pending	mouse off
 other flow(doc display) +pending	6	other help(help) +pending	mouse off
 other flow(doc display) +pending	Click box	other flow(doc terminal) +pending	
-other flow(doc display) +pending	Click tab	other looks +pending	mouse off
+other flow(doc display) +pending	Click tab	other effects +pending	mouse off
 other flow(doc display) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(doc display) +pending	Down	other flow(doc terminal) +pending	
 other flow(doc display) +pending	End	other flow(parts font) +pending	
 other flow(doc display) +pending	Enter	other flow.info +pending	
 other flow(doc display) +pending	PgDn	other flow(parts template) +pending	
 other flow(doc display) +pending	Right	other flow(doc terminal) +pending	
-other flow(doc display) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(doc display) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(doc display) +pending	Shrink	other any.too-small +pending	
-other flow(doc display) +pending	Tab	other looks +pending	mouse off
+other flow(doc display) +pending	Tab	other settings(first) +pending	mouse off
 other flow(doc display) +pending	Wheel down	other flow(doc terminal) +pending	
 other flow(doc display) +pending	d	other flow(doc display) +pending	devices
 other flow(doc display) +pending	e	other flow(new terminal) +pending	
@@ -194,20 +252,21 @@ other flow(doc display) +pending	q	other any.question.leave +pending
 other flow(doc display) +pending	r	other any.question.confirm +pending	
 other flow(doc display) +pending	v	other flow.file +pending	
 other flow(doc display) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(doc display) +unsaved	2	other effects +unsaved	mouse off
 other flow(doc display) +unsaved	3	other looks +unsaved	mouse off
 other flow(doc display) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(doc display) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(doc display) +unsaved	Click box	other flow(doc terminal) +unsaved	
-other flow(doc display) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(doc display) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(doc display) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(doc display) +unsaved	Down	other flow(doc terminal) +unsaved	
 other flow(doc display) +unsaved	End	other flow(parts font) +unsaved	
 other flow(doc display) +unsaved	Enter	other flow.info +unsaved	
 other flow(doc display) +unsaved	PgDn	other flow(parts template) +unsaved	
 other flow(doc display) +unsaved	Right	other flow(doc terminal) +unsaved	
-other flow(doc display) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(doc display) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(doc display) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(doc display) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(doc display) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(doc display) +unsaved	Wheel down	other flow(doc terminal) +unsaved	
 other flow(doc display) +unsaved	d	other flow(doc display) +unsaved	devices
 other flow(doc display) +unsaved	e	other flow(new terminal) +unsaved	
@@ -219,20 +278,21 @@ other flow(doc display) +unsaved	r	other any.question.confirm +unsaved
 other flow(doc display) +unsaved	s	other flow(doc display)	save
 other flow(doc display) +unsaved	v	other flow.file +unsaved	
 other flow(doc display) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(doc display) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	Click box	other flow(doc terminal) +unsaved +pending	
-other flow(doc display) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(doc display) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(doc display) +unsaved +pending	Down	other flow(doc terminal) +unsaved +pending	
 other flow(doc display) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
 other flow(doc display) +unsaved +pending	Enter	other flow.info +unsaved +pending	
 other flow(doc display) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
 other flow(doc display) +unsaved +pending	Right	other flow(doc terminal) +unsaved +pending	
-other flow(doc display) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(doc display) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(doc display) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(doc display) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(doc display) +unsaved +pending	Wheel down	other flow(doc terminal) +unsaved +pending	
 other flow(doc display) +unsaved +pending	d	other flow(doc display) +unsaved +pending	devices
 other flow(doc display) +unsaved +pending	e	other flow(new terminal) +unsaved +pending	
@@ -244,10 +304,11 @@ other flow(doc display) +unsaved +pending	r	other any.question.confirm +unsaved 
 other flow(doc display) +unsaved +pending	s	other flow(doc display) +pending	save
 other flow(doc display) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(doc terminal)	1	other fonts(builtin)	mouse off
+other flow(doc terminal)	2	other effects	mouse off
 other flow(doc terminal)	3	other looks	mouse off
 other flow(doc terminal)	5	other settings(first)	mouse off
 other flow(doc terminal)	6	other help(help)	mouse off
-other flow(doc terminal)	Click tab	other looks	mouse off
+other flow(doc terminal)	Click tab	other effects	mouse off
 other flow(doc terminal)	Ctrl-C	other left	mouse off, exit 130
 other flow(doc terminal)	Down	other flow(new empty)	
 other flow(doc terminal)	End	other flow(parts font)	
@@ -255,9 +316,9 @@ other flow(doc terminal)	Enter	other flow.card
 other flow(doc terminal)	Home	other flow(doc display)	
 other flow(doc terminal)	PgDn	other flow(parts template)	
 other flow(doc terminal)	Right	other flow(new empty)	
-other flow(doc terminal)	Shift-Tab	other help(help)	mouse off
+other flow(doc terminal)	Shift-Tab	other looks	mouse off
 other flow(doc terminal)	Shrink	other any.too-small	
-other flow(doc terminal)	Tab	other looks	mouse off
+other flow(doc terminal)	Tab	other settings(first)	mouse off
 other flow(doc terminal)	Wheel down	other flow(new empty)	
 other flow(doc terminal)	d	other flow(doc terminal)	devices
 other flow(doc terminal)	e	other flow(new terminal)	
@@ -268,10 +329,11 @@ other flow(doc terminal)	q	other left	mouse off, exit 0
 other flow(doc terminal)	r	other any.question.confirm	
 other flow(doc terminal)	v	other flow.file	
 other flow(doc terminal) +pending	1	other fonts(marked) +pending	mouse off
+other flow(doc terminal) +pending	2	other effects +pending	mouse off
 other flow(doc terminal) +pending	3	other looks +pending	mouse off
 other flow(doc terminal) +pending	5	other settings(first) +pending	mouse off
 other flow(doc terminal) +pending	6	other help(help) +pending	mouse off
-other flow(doc terminal) +pending	Click tab	other looks +pending	mouse off
+other flow(doc terminal) +pending	Click tab	other effects +pending	mouse off
 other flow(doc terminal) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(doc terminal) +pending	Down	other flow(new empty) +pending	
 other flow(doc terminal) +pending	End	other flow(parts font) +pending	
@@ -279,9 +341,9 @@ other flow(doc terminal) +pending	Enter	other flow.card +pending
 other flow(doc terminal) +pending	Home	other flow(doc display) +pending	
 other flow(doc terminal) +pending	PgDn	other flow(parts template) +pending	
 other flow(doc terminal) +pending	Right	other flow(new empty) +pending	
-other flow(doc terminal) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(doc terminal) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(doc terminal) +pending	Shrink	other any.too-small +pending	
-other flow(doc terminal) +pending	Tab	other looks +pending	mouse off
+other flow(doc terminal) +pending	Tab	other settings(first) +pending	mouse off
 other flow(doc terminal) +pending	Wheel down	other flow(new empty) +pending	
 other flow(doc terminal) +pending	d	other flow(doc terminal) +pending	devices
 other flow(doc terminal) +pending	e	other flow(new terminal) +pending	
@@ -292,10 +354,11 @@ other flow(doc terminal) +pending	q	other any.question.leave +pending
 other flow(doc terminal) +pending	r	other any.question.confirm +pending	
 other flow(doc terminal) +pending	v	other flow.file +pending	
 other flow(doc terminal) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(doc terminal) +unsaved	2	other effects +unsaved	mouse off
 other flow(doc terminal) +unsaved	3	other looks +unsaved	mouse off
 other flow(doc terminal) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(doc terminal) +unsaved	6	other help(help) +unsaved	mouse off
-other flow(doc terminal) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(doc terminal) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(doc terminal) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(doc terminal) +unsaved	Down	other flow(new empty) +unsaved	
 other flow(doc terminal) +unsaved	End	other flow(parts font) +unsaved	
@@ -303,9 +366,9 @@ other flow(doc terminal) +unsaved	Enter	other flow.card +unsaved
 other flow(doc terminal) +unsaved	Home	other flow(doc display) +unsaved	
 other flow(doc terminal) +unsaved	PgDn	other flow(parts template) +unsaved	
 other flow(doc terminal) +unsaved	Right	other flow(new empty) +unsaved	
-other flow(doc terminal) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(doc terminal) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(doc terminal) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(doc terminal) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(doc terminal) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(doc terminal) +unsaved	Wheel down	other flow(new empty) +unsaved	
 other flow(doc terminal) +unsaved	d	other flow(doc terminal) +unsaved	devices
 other flow(doc terminal) +unsaved	e	other flow(new terminal) +unsaved	
@@ -317,10 +380,11 @@ other flow(doc terminal) +unsaved	r	other any.question.confirm +unsaved
 other flow(doc terminal) +unsaved	s	other flow(doc terminal)	save
 other flow(doc terminal) +unsaved	v	other flow.file +unsaved	
 other flow(doc terminal) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(doc terminal) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(doc terminal) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(doc terminal) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(doc terminal) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
-other flow(doc terminal) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(doc terminal) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(doc terminal) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(doc terminal) +unsaved +pending	Down	other flow(new empty) +unsaved +pending	
 other flow(doc terminal) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -328,9 +392,9 @@ other flow(doc terminal) +unsaved +pending	Enter	other flow.card +unsaved +pendi
 other flow(doc terminal) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
 other flow(doc terminal) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
 other flow(doc terminal) +unsaved +pending	Right	other flow(new empty) +unsaved +pending	
-other flow(doc terminal) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(doc terminal) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(doc terminal) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(doc terminal) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(doc terminal) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(doc terminal) +unsaved +pending	Wheel down	other flow(new empty) +unsaved +pending	
 other flow(doc terminal) +unsaved +pending	d	other flow(doc terminal) +unsaved +pending	devices
 other flow(doc terminal) +unsaved +pending	e	other flow(new terminal) +unsaved +pending	
@@ -342,11 +406,12 @@ other flow(doc terminal) +unsaved +pending	r	other any.question.confirm +unsaved
 other flow(doc terminal) +unsaved +pending	s	other flow(doc terminal) +pending	save
 other flow(doc terminal) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(new display)	1	other fonts(builtin)	mouse off
+other flow(new display)	2	other effects	mouse off
 other flow(new display)	3	other looks	mouse off
 other flow(new display)	5	other settings(first)	mouse off
 other flow(new display)	6	other help(help)	mouse off
 other flow(new display)	Click box	other flow(new terminal)	
-other flow(new display)	Click tab	other looks	mouse off
+other flow(new display)	Click tab	other effects	mouse off
 other flow(new display)	Ctrl-C	other left	mouse off, exit 130
 other flow(new display)	Down	other flow(parts template)	
 other flow(new display)	End	other flow(parts font)	
@@ -356,10 +421,10 @@ other flow(new display)	Home	other flow(doc terminal)
 other flow(new display)	Left	other flow(doc terminal)	
 other flow(new display)	PgDn	other flow(parts special)	
 other flow(new display)	Right	other flow(new terminal)	
-other flow(new display)	Shift-Tab	other help(help)	mouse off
+other flow(new display)	Shift-Tab	other looks	mouse off
 other flow(new display)	Shrink	other any.too-small	
 other flow(new display)	Space	other flow(new empty)	
-other flow(new display)	Tab	other looks	mouse off
+other flow(new display)	Tab	other settings(first)	mouse off
 other flow(new display)	Up	other flow(doc terminal)	
 other flow(new display)	Wheel down	other flow(parts template)	
 other flow(new display)	Wheel up	other flow(doc terminal)	
@@ -372,11 +437,12 @@ other flow(new display)	q	other left	mouse off, exit 0
 other flow(new display)	r	other any.question.confirm	
 other flow(new display)	v	other flow.file	
 other flow(new display) +pending	1	other fonts(marked) +pending	mouse off
+other flow(new display) +pending	2	other effects +pending	mouse off
 other flow(new display) +pending	3	other looks +pending	mouse off
 other flow(new display) +pending	5	other settings(first) +pending	mouse off
 other flow(new display) +pending	6	other help(help) +pending	mouse off
 other flow(new display) +pending	Click box	other flow(new terminal) +pending	
-other flow(new display) +pending	Click tab	other looks +pending	mouse off
+other flow(new display) +pending	Click tab	other effects +pending	mouse off
 other flow(new display) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(new display) +pending	Down	other flow(parts template) +pending	
 other flow(new display) +pending	End	other flow(parts font) +pending	
@@ -386,10 +452,10 @@ other flow(new display) +pending	Home	other flow(doc terminal) +pending
 other flow(new display) +pending	Left	other flow(doc terminal) +pending	
 other flow(new display) +pending	PgDn	other flow(parts special) +pending	
 other flow(new display) +pending	Right	other flow(new terminal) +pending	
-other flow(new display) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(new display) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(new display) +pending	Shrink	other any.too-small +pending	
 other flow(new display) +pending	Space	other flow(new empty) +pending	
-other flow(new display) +pending	Tab	other looks +pending	mouse off
+other flow(new display) +pending	Tab	other settings(first) +pending	mouse off
 other flow(new display) +pending	Up	other flow(doc terminal) +pending	
 other flow(new display) +pending	Wheel down	other flow(parts template) +pending	
 other flow(new display) +pending	Wheel up	other flow(doc terminal) +pending	
@@ -402,11 +468,12 @@ other flow(new display) +pending	q	other any.question.leave +pending
 other flow(new display) +pending	r	other any.question.confirm +pending	
 other flow(new display) +pending	v	other flow.file +pending	
 other flow(new display) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(new display) +unsaved	2	other effects +unsaved	mouse off
 other flow(new display) +unsaved	3	other looks +unsaved	mouse off
 other flow(new display) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(new display) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(new display) +unsaved	Click box	other flow(new terminal) +unsaved	
-other flow(new display) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(new display) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(new display) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(new display) +unsaved	Down	other flow(parts template) +unsaved	
 other flow(new display) +unsaved	End	other flow(parts font) +unsaved	
@@ -416,10 +483,10 @@ other flow(new display) +unsaved	Home	other flow(doc terminal) +unsaved
 other flow(new display) +unsaved	Left	other flow(doc terminal) +unsaved	
 other flow(new display) +unsaved	PgDn	other flow(parts special) +unsaved	
 other flow(new display) +unsaved	Right	other flow(new terminal) +unsaved	
-other flow(new display) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(new display) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(new display) +unsaved	Shrink	other any.too-small +unsaved	
 other flow(new display) +unsaved	Space	other flow(new empty) +unsaved	
-other flow(new display) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(new display) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(new display) +unsaved	Up	other flow(doc terminal) +unsaved	
 other flow(new display) +unsaved	Wheel down	other flow(parts template) +unsaved	
 other flow(new display) +unsaved	Wheel up	other flow(doc terminal) +unsaved	
@@ -433,11 +500,12 @@ other flow(new display) +unsaved	r	other any.question.confirm +unsaved
 other flow(new display) +unsaved	s	other flow(new display)	save
 other flow(new display) +unsaved	v	other flow.file +unsaved	
 other flow(new display) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(new display) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	Click box	other flow(new terminal) +unsaved +pending	
-other flow(new display) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(new display) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(new display) +unsaved +pending	Down	other flow(parts template) +unsaved +pending	
 other flow(new display) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -447,10 +515,10 @@ other flow(new display) +unsaved +pending	Home	other flow(doc terminal) +unsaved
 other flow(new display) +unsaved +pending	Left	other flow(doc terminal) +unsaved +pending	
 other flow(new display) +unsaved +pending	PgDn	other flow(parts special) +unsaved +pending	
 other flow(new display) +unsaved +pending	Right	other flow(new terminal) +unsaved +pending	
-other flow(new display) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(new display) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow(new display) +unsaved +pending	Space	other flow(new empty) +unsaved +pending	
-other flow(new display) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(new display) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(new display) +unsaved +pending	Up	other flow(doc terminal) +unsaved +pending	
 other flow(new display) +unsaved +pending	Wheel down	other flow(parts template) +unsaved +pending	
 other flow(new display) +unsaved +pending	Wheel up	other flow(doc terminal) +unsaved +pending	
@@ -464,20 +532,21 @@ other flow(new display) +unsaved +pending	r	other any.question.confirm +unsaved 
 other flow(new display) +unsaved +pending	s	other flow(new display) +pending	save
 other flow(new display) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(new empty)	1	other fonts(builtin)	mouse off
+other flow(new empty)	2	other effects	mouse off
 other flow(new empty)	3	other looks	mouse off
 other flow(new empty)	5	other settings(first)	mouse off
 other flow(new empty)	6	other help(help)	mouse off
 other flow(new empty)	Click box	other flow(doc terminal)	
-other flow(new empty)	Click tab	other looks	mouse off
+other flow(new empty)	Click tab	other effects	mouse off
 other flow(new empty)	Ctrl-C	other left	mouse off, exit 130
 other flow(new empty)	Down	other flow(parts display)	
 other flow(new empty)	End	other flow(parts font)	
 other flow(new empty)	Enter	other flow.maker(line 0)	
 other flow(new empty)	Home	other flow(doc display)	
 other flow(new empty)	PgDn	other flow(parts template)	
-other flow(new empty)	Shift-Tab	other help(help)	mouse off
+other flow(new empty)	Shift-Tab	other looks	mouse off
 other flow(new empty)	Shrink	other any.too-small	
-other flow(new empty)	Tab	other looks	mouse off
+other flow(new empty)	Tab	other settings(first)	mouse off
 other flow(new empty)	Up	other flow(doc terminal)	
 other flow(new empty)	Wheel down	other flow(parts display)	
 other flow(new empty)	Wheel up	other flow(doc terminal)	
@@ -489,20 +558,21 @@ other flow(new empty)	q	other left	mouse off, exit 0
 other flow(new empty)	r	other any.question.confirm	
 other flow(new empty)	v	other flow.file	
 other flow(new empty) +pending	1	other fonts(marked) +pending	mouse off
+other flow(new empty) +pending	2	other effects +pending	mouse off
 other flow(new empty) +pending	3	other looks +pending	mouse off
 other flow(new empty) +pending	5	other settings(first) +pending	mouse off
 other flow(new empty) +pending	6	other help(help) +pending	mouse off
 other flow(new empty) +pending	Click box	other flow(doc terminal) +pending	
-other flow(new empty) +pending	Click tab	other looks +pending	mouse off
+other flow(new empty) +pending	Click tab	other effects +pending	mouse off
 other flow(new empty) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(new empty) +pending	Down	other flow(parts display) +pending	
 other flow(new empty) +pending	End	other flow(parts font) +pending	
 other flow(new empty) +pending	Enter	other flow.maker(line 0) +pending	
 other flow(new empty) +pending	Home	other flow(doc display) +pending	
 other flow(new empty) +pending	PgDn	other flow(parts template) +pending	
-other flow(new empty) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(new empty) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(new empty) +pending	Shrink	other any.too-small +pending	
-other flow(new empty) +pending	Tab	other looks +pending	mouse off
+other flow(new empty) +pending	Tab	other settings(first) +pending	mouse off
 other flow(new empty) +pending	Up	other flow(doc terminal) +pending	
 other flow(new empty) +pending	Wheel down	other flow(parts display) +pending	
 other flow(new empty) +pending	Wheel up	other flow(doc terminal) +pending	
@@ -514,20 +584,21 @@ other flow(new empty) +pending	q	other any.question.leave +pending
 other flow(new empty) +pending	r	other any.question.confirm +pending	
 other flow(new empty) +pending	v	other flow.file +pending	
 other flow(new empty) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(new empty) +unsaved	2	other effects +unsaved	mouse off
 other flow(new empty) +unsaved	3	other looks +unsaved	mouse off
 other flow(new empty) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(new empty) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(new empty) +unsaved	Click box	other flow(doc terminal) +unsaved	
-other flow(new empty) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(new empty) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(new empty) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(new empty) +unsaved	Down	other flow(parts display) +unsaved	
 other flow(new empty) +unsaved	End	other flow(parts font) +unsaved	
 other flow(new empty) +unsaved	Enter	other flow.maker(line 0) +unsaved	
 other flow(new empty) +unsaved	Home	other flow(doc display) +unsaved	
 other flow(new empty) +unsaved	PgDn	other flow(parts template) +unsaved	
-other flow(new empty) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(new empty) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(new empty) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(new empty) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(new empty) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(new empty) +unsaved	Up	other flow(doc terminal) +unsaved	
 other flow(new empty) +unsaved	Wheel down	other flow(parts display) +unsaved	
 other flow(new empty) +unsaved	Wheel up	other flow(doc terminal) +unsaved	
@@ -540,20 +611,21 @@ other flow(new empty) +unsaved	r	other any.question.confirm +unsaved
 other flow(new empty) +unsaved	s	other flow(new empty)	save
 other flow(new empty) +unsaved	v	other flow.file +unsaved	
 other flow(new empty) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(new empty) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	Click box	other flow(doc terminal) +unsaved +pending	
-other flow(new empty) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(new empty) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(new empty) +unsaved +pending	Down	other flow(parts display) +unsaved +pending	
 other flow(new empty) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
 other flow(new empty) +unsaved +pending	Enter	other flow.maker(line 0) +unsaved +pending	
 other flow(new empty) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
 other flow(new empty) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
-other flow(new empty) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(new empty) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(new empty) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(new empty) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(new empty) +unsaved +pending	Up	other flow(doc terminal) +unsaved +pending	
 other flow(new empty) +unsaved +pending	Wheel down	other flow(parts display) +unsaved +pending	
 other flow(new empty) +unsaved +pending	Wheel up	other flow(doc terminal) +unsaved +pending	
@@ -566,11 +638,12 @@ other flow(new empty) +unsaved +pending	r	other any.question.confirm +unsaved +p
 other flow(new empty) +unsaved +pending	s	other flow(new empty) +pending	save
 other flow(new empty) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(new terminal)	1	other fonts(builtin)	mouse off
+other flow(new terminal)	2	other effects	mouse off
 other flow(new terminal)	3	other looks	mouse off
 other flow(new terminal)	5	other settings(first)	mouse off
 other flow(new terminal)	6	other help(help)	mouse off
 other flow(new terminal)	Click box	other flow.new-card	
-other flow(new terminal)	Click tab	other looks	mouse off
+other flow(new terminal)	Click tab	other effects	mouse off
 other flow(new terminal)	Ctrl-C	other left	mouse off, exit 130
 other flow(new terminal)	Down	other flow(parts display)	
 other flow(new terminal)	End	other flow(parts font)	
@@ -580,9 +653,9 @@ other flow(new terminal)	Home	other flow(doc terminal)
 other flow(new terminal)	Left	other flow(new display)	
 other flow(new terminal)	PgDn	other flow(parts template)	
 other flow(new terminal)	Right	other flow(new empty)	
-other flow(new terminal)	Shift-Tab	other help(help)	mouse off
+other flow(new terminal)	Shift-Tab	other looks	mouse off
 other flow(new terminal)	Shrink	other any.too-small	
-other flow(new terminal)	Tab	other looks	mouse off
+other flow(new terminal)	Tab	other settings(first)	mouse off
 other flow(new terminal)	Up	other flow(doc terminal)	
 other flow(new terminal)	Wheel down	other flow(parts display)	
 other flow(new terminal)	Wheel up	other flow(doc terminal)	
@@ -595,11 +668,12 @@ other flow(new terminal)	q	other left	mouse off, exit 0
 other flow(new terminal)	r	other any.question.confirm	
 other flow(new terminal)	v	other flow.file	
 other flow(new terminal) +pending	1	other fonts(marked) +pending	mouse off
+other flow(new terminal) +pending	2	other effects +pending	mouse off
 other flow(new terminal) +pending	3	other looks +pending	mouse off
 other flow(new terminal) +pending	5	other settings(first) +pending	mouse off
 other flow(new terminal) +pending	6	other help(help) +pending	mouse off
 other flow(new terminal) +pending	Click box	other flow.new-card +pending	
-other flow(new terminal) +pending	Click tab	other looks +pending	mouse off
+other flow(new terminal) +pending	Click tab	other effects +pending	mouse off
 other flow(new terminal) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(new terminal) +pending	Down	other flow(parts display) +pending	
 other flow(new terminal) +pending	End	other flow(parts font) +pending	
@@ -609,9 +683,9 @@ other flow(new terminal) +pending	Home	other flow(doc terminal) +pending
 other flow(new terminal) +pending	Left	other flow(new display) +pending	
 other flow(new terminal) +pending	PgDn	other flow(parts template) +pending	
 other flow(new terminal) +pending	Right	other flow(new empty) +pending	
-other flow(new terminal) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(new terminal) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(new terminal) +pending	Shrink	other any.too-small +pending	
-other flow(new terminal) +pending	Tab	other looks +pending	mouse off
+other flow(new terminal) +pending	Tab	other settings(first) +pending	mouse off
 other flow(new terminal) +pending	Up	other flow(doc terminal) +pending	
 other flow(new terminal) +pending	Wheel down	other flow(parts display) +pending	
 other flow(new terminal) +pending	Wheel up	other flow(doc terminal) +pending	
@@ -624,11 +698,12 @@ other flow(new terminal) +pending	q	other any.question.leave +pending
 other flow(new terminal) +pending	r	other any.question.confirm +pending	
 other flow(new terminal) +pending	v	other flow.file +pending	
 other flow(new terminal) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(new terminal) +unsaved	2	other effects +unsaved	mouse off
 other flow(new terminal) +unsaved	3	other looks +unsaved	mouse off
 other flow(new terminal) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(new terminal) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(new terminal) +unsaved	Click box	other flow.new-card +unsaved	
-other flow(new terminal) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(new terminal) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(new terminal) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(new terminal) +unsaved	Down	other flow(parts display) +unsaved	
 other flow(new terminal) +unsaved	End	other flow(parts font) +unsaved	
@@ -638,9 +713,9 @@ other flow(new terminal) +unsaved	Home	other flow(doc terminal) +unsaved
 other flow(new terminal) +unsaved	Left	other flow(new display) +unsaved	
 other flow(new terminal) +unsaved	PgDn	other flow(parts template) +unsaved	
 other flow(new terminal) +unsaved	Right	other flow(new empty) +unsaved	
-other flow(new terminal) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(new terminal) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(new terminal) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(new terminal) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(new terminal) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(new terminal) +unsaved	Up	other flow(doc terminal) +unsaved	
 other flow(new terminal) +unsaved	Wheel down	other flow(parts display) +unsaved	
 other flow(new terminal) +unsaved	Wheel up	other flow(doc terminal) +unsaved	
@@ -654,11 +729,12 @@ other flow(new terminal) +unsaved	r	other any.question.confirm +unsaved
 other flow(new terminal) +unsaved	s	other flow(new terminal)	save
 other flow(new terminal) +unsaved	v	other flow.file +unsaved	
 other flow(new terminal) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(new terminal) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	Click box	other flow.new-card +unsaved +pending	
-other flow(new terminal) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(new terminal) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(new terminal) +unsaved +pending	Down	other flow(parts display) +unsaved +pending	
 other flow(new terminal) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -668,9 +744,9 @@ other flow(new terminal) +unsaved +pending	Home	other flow(doc terminal) +unsave
 other flow(new terminal) +unsaved +pending	Left	other flow(new display) +unsaved +pending	
 other flow(new terminal) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
 other flow(new terminal) +unsaved +pending	Right	other flow(new empty) +unsaved +pending	
-other flow(new terminal) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(new terminal) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(new terminal) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(new terminal) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(new terminal) +unsaved +pending	Up	other flow(doc terminal) +unsaved +pending	
 other flow(new terminal) +unsaved +pending	Wheel down	other flow(parts display) +unsaved +pending	
 other flow(new terminal) +unsaved +pending	Wheel up	other flow(doc terminal) +unsaved +pending	
@@ -684,11 +760,12 @@ other flow(new terminal) +unsaved +pending	r	other any.question.confirm +unsaved
 other flow(new terminal) +unsaved +pending	s	other flow(new terminal) +pending	save
 other flow(new terminal) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(others)	1	other fonts(builtin)	mouse off
+other flow(others)	2	other effects	mouse off
 other flow(others)	3	other looks	mouse off
 other flow(others)	5	other settings(first)	mouse off
 other flow(others)	6	other help(help)	mouse off
 other flow(others)	Click box	other flow(parts special)	
-other flow(others)	Click tab	other looks	mouse off
+other flow(others)	Click tab	other effects	mouse off
 other flow(others)	Ctrl-C	other left	mouse off, exit 130
 other flow(others)	Down	other flow(parts font)	
 other flow(others)	End	other flow(parts font)	
@@ -697,9 +774,9 @@ other flow(others)	Home	other flow(doc display)
 other flow(others)	Left	other flow(parts pointer)	
 other flow(others)	PgUp	other flow(parts display)	
 other flow(others)	Right	other flow(parts template)	
-other flow(others)	Shift-Tab	other help(help)	mouse off
+other flow(others)	Shift-Tab	other looks	mouse off
 other flow(others)	Shrink	other any.too-small	
-other flow(others)	Tab	other looks	mouse off
+other flow(others)	Tab	other settings(first)	mouse off
 other flow(others)	Up	other flow(parts any input)	
 other flow(others)	Wheel down	other flow(parts font)	
 other flow(others)	Wheel up	other flow(parts any input)	
@@ -711,11 +788,12 @@ other flow(others)	q	other left	mouse off, exit 0
 other flow(others)	r	other any.question.confirm	
 other flow(others)	v	other flow.file	
 other flow(others) +pending	1	other fonts(marked) +pending	mouse off
+other flow(others) +pending	2	other effects +pending	mouse off
 other flow(others) +pending	3	other looks +pending	mouse off
 other flow(others) +pending	5	other settings(first) +pending	mouse off
 other flow(others) +pending	6	other help(help) +pending	mouse off
 other flow(others) +pending	Click box	other flow(parts special) +pending	
-other flow(others) +pending	Click tab	other looks +pending	mouse off
+other flow(others) +pending	Click tab	other effects +pending	mouse off
 other flow(others) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(others) +pending	Down	other flow(parts font) +pending	
 other flow(others) +pending	End	other flow(parts font) +pending	
@@ -724,9 +802,9 @@ other flow(others) +pending	Home	other flow(doc display) +pending
 other flow(others) +pending	Left	other flow(parts pointer) +pending	
 other flow(others) +pending	PgUp	other flow(parts display) +pending	
 other flow(others) +pending	Right	other flow(parts template) +pending	
-other flow(others) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(others) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(others) +pending	Shrink	other any.too-small +pending	
-other flow(others) +pending	Tab	other looks +pending	mouse off
+other flow(others) +pending	Tab	other settings(first) +pending	mouse off
 other flow(others) +pending	Up	other flow(parts any input) +pending	
 other flow(others) +pending	Wheel down	other flow(parts font) +pending	
 other flow(others) +pending	Wheel up	other flow(parts any input) +pending	
@@ -738,11 +816,12 @@ other flow(others) +pending	q	other any.question.leave +pending
 other flow(others) +pending	r	other any.question.confirm +pending	
 other flow(others) +pending	v	other flow.file +pending	
 other flow(others) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(others) +unsaved	2	other effects +unsaved	mouse off
 other flow(others) +unsaved	3	other looks +unsaved	mouse off
 other flow(others) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(others) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(others) +unsaved	Click box	other flow(parts special) +unsaved	
-other flow(others) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(others) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(others) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(others) +unsaved	Down	other flow(parts font) +unsaved	
 other flow(others) +unsaved	End	other flow(parts font) +unsaved	
@@ -751,9 +830,9 @@ other flow(others) +unsaved	Home	other flow(doc display) +unsaved
 other flow(others) +unsaved	Left	other flow(parts pointer) +unsaved	
 other flow(others) +unsaved	PgUp	other flow(parts display) +unsaved	
 other flow(others) +unsaved	Right	other flow(parts template) +unsaved	
-other flow(others) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(others) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(others) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(others) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(others) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(others) +unsaved	Up	other flow(parts any input) +unsaved	
 other flow(others) +unsaved	Wheel down	other flow(parts font) +unsaved	
 other flow(others) +unsaved	Wheel up	other flow(parts any input) +unsaved	
@@ -766,11 +845,12 @@ other flow(others) +unsaved	r	other any.question.confirm +unsaved
 other flow(others) +unsaved	s	other flow(others)	save
 other flow(others) +unsaved	v	other flow.file +unsaved	
 other flow(others) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(others) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	Click box	other flow(parts special) +unsaved +pending	
-other flow(others) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(others) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(others) +unsaved +pending	Down	other flow(parts font) +unsaved +pending	
 other flow(others) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -779,9 +859,9 @@ other flow(others) +unsaved +pending	Home	other flow(doc display) +unsaved +pend
 other flow(others) +unsaved +pending	Left	other flow(parts pointer) +unsaved +pending	
 other flow(others) +unsaved +pending	PgUp	other flow(parts display) +unsaved +pending	
 other flow(others) +unsaved +pending	Right	other flow(parts template) +unsaved +pending	
-other flow(others) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(others) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(others) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(others) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	Up	other flow(parts any input) +unsaved +pending	
 other flow(others) +unsaved +pending	Wheel down	other flow(parts font) +unsaved +pending	
 other flow(others) +unsaved +pending	Wheel up	other flow(parts any input) +unsaved +pending	
@@ -794,11 +874,12 @@ other flow(others) +unsaved +pending	r	other any.question.confirm +unsaved +pend
 other flow(others) +unsaved +pending	s	other flow(others) +pending	save
 other flow(others) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(parts any input)	1	other fonts(builtin)	mouse off
+other flow(parts any input)	2	other effects	mouse off
 other flow(parts any input)	3	other looks	mouse off
 other flow(parts any input)	5	other settings(first)	mouse off
 other flow(parts any input)	6	other help(help)	mouse off
 other flow(parts any input)	Click box	other flow(parts template)	
-other flow(parts any input)	Click tab	other looks	mouse off
+other flow(parts any input)	Click tab	other effects	mouse off
 other flow(parts any input)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts any input)	Down	other flow(parts pointer)	
 other flow(parts any input)	End	other flow(parts font)	
@@ -807,9 +888,9 @@ other flow(parts any input)	Home	other flow(doc display)
 other flow(parts any input)	Left	other flow(parts keyboard)	
 other flow(parts any input)	PgUp	other flow(parts display)	
 other flow(parts any input)	Right	other flow(parts keyboard)	
-other flow(parts any input)	Shift-Tab	other help(help)	mouse off
+other flow(parts any input)	Shift-Tab	other looks	mouse off
 other flow(parts any input)	Shrink	other any.too-small	
-other flow(parts any input)	Tab	other looks	mouse off
+other flow(parts any input)	Tab	other settings(first)	mouse off
 other flow(parts any input)	Up	other flow(parts input)	
 other flow(parts any input)	Wheel down	other flow(parts pointer)	
 other flow(parts any input)	Wheel up	other flow(parts input)	
@@ -821,11 +902,12 @@ other flow(parts any input)	q	other left	mouse off, exit 0
 other flow(parts any input)	r	other any.question.confirm	
 other flow(parts any input)	v	other flow.file	
 other flow(parts any input) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts any input) +pending	2	other effects +pending	mouse off
 other flow(parts any input) +pending	3	other looks +pending	mouse off
 other flow(parts any input) +pending	5	other settings(first) +pending	mouse off
 other flow(parts any input) +pending	6	other help(help) +pending	mouse off
 other flow(parts any input) +pending	Click box	other flow(parts template) +pending	
-other flow(parts any input) +pending	Click tab	other looks +pending	mouse off
+other flow(parts any input) +pending	Click tab	other effects +pending	mouse off
 other flow(parts any input) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts any input) +pending	Down	other flow(parts pointer) +pending	
 other flow(parts any input) +pending	End	other flow(parts font) +pending	
@@ -834,9 +916,9 @@ other flow(parts any input) +pending	Home	other flow(doc display) +pending
 other flow(parts any input) +pending	Left	other flow(parts keyboard) +pending	
 other flow(parts any input) +pending	PgUp	other flow(parts display) +pending	
 other flow(parts any input) +pending	Right	other flow(parts keyboard) +pending	
-other flow(parts any input) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(parts any input) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(parts any input) +pending	Shrink	other any.too-small +pending	
-other flow(parts any input) +pending	Tab	other looks +pending	mouse off
+other flow(parts any input) +pending	Tab	other settings(first) +pending	mouse off
 other flow(parts any input) +pending	Up	other flow(parts input) +pending	
 other flow(parts any input) +pending	Wheel down	other flow(parts pointer) +pending	
 other flow(parts any input) +pending	Wheel up	other flow(parts input) +pending	
@@ -848,11 +930,12 @@ other flow(parts any input) +pending	q	other any.question.leave +pending
 other flow(parts any input) +pending	r	other any.question.confirm +pending	
 other flow(parts any input) +pending	v	other flow.file +pending	
 other flow(parts any input) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts any input) +unsaved	2	other effects +unsaved	mouse off
 other flow(parts any input) +unsaved	3	other looks +unsaved	mouse off
 other flow(parts any input) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts any input) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts any input) +unsaved	Click box	other flow(parts template) +unsaved	
-other flow(parts any input) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(parts any input) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(parts any input) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts any input) +unsaved	Down	other flow(parts pointer) +unsaved	
 other flow(parts any input) +unsaved	End	other flow(parts font) +unsaved	
@@ -861,9 +944,9 @@ other flow(parts any input) +unsaved	Home	other flow(doc display) +unsaved
 other flow(parts any input) +unsaved	Left	other flow(parts keyboard) +unsaved	
 other flow(parts any input) +unsaved	PgUp	other flow(parts display) +unsaved	
 other flow(parts any input) +unsaved	Right	other flow(parts keyboard) +unsaved	
-other flow(parts any input) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(parts any input) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(parts any input) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(parts any input) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(parts any input) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(parts any input) +unsaved	Up	other flow(parts input) +unsaved	
 other flow(parts any input) +unsaved	Wheel down	other flow(parts pointer) +unsaved	
 other flow(parts any input) +unsaved	Wheel up	other flow(parts input) +unsaved	
@@ -876,11 +959,12 @@ other flow(parts any input) +unsaved	r	other any.question.confirm +unsaved
 other flow(parts any input) +unsaved	s	other flow(parts any input)	save
 other flow(parts any input) +unsaved	v	other flow.file +unsaved	
 other flow(parts any input) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts any input) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	Click box	other flow(parts template) +unsaved +pending	
-other flow(parts any input) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(parts any input) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts any input) +unsaved +pending	Down	other flow(parts pointer) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -889,9 +973,9 @@ other flow(parts any input) +unsaved +pending	Home	other flow(doc display) +unsa
 other flow(parts any input) +unsaved +pending	Left	other flow(parts keyboard) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	PgUp	other flow(parts display) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	Right	other flow(parts keyboard) +unsaved +pending	
-other flow(parts any input) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(parts any input) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(parts any input) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(parts any input) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	Up	other flow(parts input) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	Wheel down	other flow(parts pointer) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	Wheel up	other flow(parts input) +unsaved +pending	
@@ -904,10 +988,11 @@ other flow(parts any input) +unsaved +pending	r	other any.question.confirm +unsa
 other flow(parts any input) +unsaved +pending	s	other flow(parts any input) +pending	save
 other flow(parts any input) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(parts display)	1	other fonts(builtin)	mouse off
+other flow(parts display)	2	other effects	mouse off
 other flow(parts display)	3	other looks	mouse off
 other flow(parts display)	5	other settings(first)	mouse off
 other flow(parts display)	6	other help(help)	mouse off
-other flow(parts display)	Click tab	other looks	mouse off
+other flow(parts display)	Click tab	other effects	mouse off
 other flow(parts display)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts display)	Down	other flow(parts template)	
 other flow(parts display)	End	other flow(parts font)	
@@ -916,9 +1001,9 @@ other flow(parts display)	Home	other flow(doc display)
 other flow(parts display)	PgDn	other flow(parts template)	
 other flow(parts display)	PgUp	other flow(new empty)	
 other flow(parts display)	Right	other flow(parts template)	
-other flow(parts display)	Shift-Tab	other help(help)	mouse off
+other flow(parts display)	Shift-Tab	other looks	mouse off
 other flow(parts display)	Shrink	other any.too-small	
-other flow(parts display)	Tab	other looks	mouse off
+other flow(parts display)	Tab	other settings(first)	mouse off
 other flow(parts display)	Up	other flow(parts template)	
 other flow(parts display)	Wheel down	other flow(parts template)	
 other flow(parts display)	Wheel up	other flow(parts template)	
@@ -930,10 +1015,11 @@ other flow(parts display)	q	other left	mouse off, exit 0
 other flow(parts display)	r	other any.question.confirm	
 other flow(parts display)	v	other flow.file	
 other flow(parts display) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts display) +pending	2	other effects +pending	mouse off
 other flow(parts display) +pending	3	other looks +pending	mouse off
 other flow(parts display) +pending	5	other settings(first) +pending	mouse off
 other flow(parts display) +pending	6	other help(help) +pending	mouse off
-other flow(parts display) +pending	Click tab	other looks +pending	mouse off
+other flow(parts display) +pending	Click tab	other effects +pending	mouse off
 other flow(parts display) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts display) +pending	Down	other flow(parts template) +pending	
 other flow(parts display) +pending	End	other flow(parts font) +pending	
@@ -942,9 +1028,9 @@ other flow(parts display) +pending	Home	other flow(doc display) +pending
 other flow(parts display) +pending	PgDn	other flow(parts template) +pending	
 other flow(parts display) +pending	PgUp	other flow(new empty) +pending	
 other flow(parts display) +pending	Right	other flow(parts template) +pending	
-other flow(parts display) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(parts display) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(parts display) +pending	Shrink	other any.too-small +pending	
-other flow(parts display) +pending	Tab	other looks +pending	mouse off
+other flow(parts display) +pending	Tab	other settings(first) +pending	mouse off
 other flow(parts display) +pending	Up	other flow(parts template) +pending	
 other flow(parts display) +pending	Wheel down	other flow(parts template) +pending	
 other flow(parts display) +pending	Wheel up	other flow(parts template) +pending	
@@ -956,10 +1042,11 @@ other flow(parts display) +pending	q	other any.question.leave +pending
 other flow(parts display) +pending	r	other any.question.confirm +pending	
 other flow(parts display) +pending	v	other flow.file +pending	
 other flow(parts display) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts display) +unsaved	2	other effects +unsaved	mouse off
 other flow(parts display) +unsaved	3	other looks +unsaved	mouse off
 other flow(parts display) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts display) +unsaved	6	other help(help) +unsaved	mouse off
-other flow(parts display) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(parts display) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(parts display) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts display) +unsaved	Down	other flow(parts template) +unsaved	
 other flow(parts display) +unsaved	End	other flow(parts font) +unsaved	
@@ -968,9 +1055,9 @@ other flow(parts display) +unsaved	Home	other flow(doc display) +unsaved
 other flow(parts display) +unsaved	PgDn	other flow(parts template) +unsaved	
 other flow(parts display) +unsaved	PgUp	other flow(new empty) +unsaved	
 other flow(parts display) +unsaved	Right	other flow(parts template) +unsaved	
-other flow(parts display) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(parts display) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(parts display) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(parts display) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(parts display) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(parts display) +unsaved	Up	other flow(parts template) +unsaved	
 other flow(parts display) +unsaved	Wheel down	other flow(parts template) +unsaved	
 other flow(parts display) +unsaved	Wheel up	other flow(parts template) +unsaved	
@@ -983,10 +1070,11 @@ other flow(parts display) +unsaved	r	other any.question.confirm +unsaved
 other flow(parts display) +unsaved	s	other flow(parts display)	save
 other flow(parts display) +unsaved	v	other flow.file +unsaved	
 other flow(parts display) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts display) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
-other flow(parts display) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(parts display) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts display) +unsaved +pending	Down	other flow(parts template) +unsaved +pending	
 other flow(parts display) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -995,9 +1083,9 @@ other flow(parts display) +unsaved +pending	Home	other flow(doc display) +unsave
 other flow(parts display) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
 other flow(parts display) +unsaved +pending	PgUp	other flow(new empty) +unsaved +pending	
 other flow(parts display) +unsaved +pending	Right	other flow(parts template) +unsaved +pending	
-other flow(parts display) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(parts display) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(parts display) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(parts display) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	Up	other flow(parts template) +unsaved +pending	
 other flow(parts display) +unsaved +pending	Wheel down	other flow(parts template) +unsaved +pending	
 other flow(parts display) +unsaved +pending	Wheel up	other flow(parts template) +unsaved +pending	
@@ -1010,16 +1098,17 @@ other flow(parts display) +unsaved +pending	r	other any.question.confirm +unsave
 other flow(parts display) +unsaved +pending	s	other flow(parts display) +pending	save
 other flow(parts display) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(parts font)	1	other fonts(builtin)	mouse off
+other flow(parts font)	2	other effects	mouse off
 other flow(parts font)	3	other looks	mouse off
 other flow(parts font)	5	other settings(first)	mouse off
 other flow(parts font)	6	other help(help)	mouse off
-other flow(parts font)	Click tab	other looks	mouse off
+other flow(parts font)	Click tab	other effects	mouse off
 other flow(parts font)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts font)	Home	other flow(doc display)	
 other flow(parts font)	PgUp	other flow(parts special)	
-other flow(parts font)	Shift-Tab	other help(help)	mouse off
+other flow(parts font)	Shift-Tab	other looks	mouse off
 other flow(parts font)	Shrink	other any.too-small	
-other flow(parts font)	Tab	other looks	mouse off
+other flow(parts font)	Tab	other settings(first)	mouse off
 other flow(parts font)	d	other flow(parts font)	devices
 other flow(parts font)	i	other flow(parts font)	prepare
 other flow(parts font)	n	other any.question.confirm	
@@ -1028,16 +1117,17 @@ other flow(parts font)	q	other left	mouse off, exit 0
 other flow(parts font)	r	other any.question.confirm	
 other flow(parts font)	v	other flow.file	
 other flow(parts font) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts font) +pending	2	other effects +pending	mouse off
 other flow(parts font) +pending	3	other looks +pending	mouse off
 other flow(parts font) +pending	5	other settings(first) +pending	mouse off
 other flow(parts font) +pending	6	other help(help) +pending	mouse off
-other flow(parts font) +pending	Click tab	other looks +pending	mouse off
+other flow(parts font) +pending	Click tab	other effects +pending	mouse off
 other flow(parts font) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts font) +pending	Home	other flow(doc display) +pending	
 other flow(parts font) +pending	PgUp	other flow(parts special) +pending	
-other flow(parts font) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(parts font) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(parts font) +pending	Shrink	other any.too-small +pending	
-other flow(parts font) +pending	Tab	other looks +pending	mouse off
+other flow(parts font) +pending	Tab	other settings(first) +pending	mouse off
 other flow(parts font) +pending	d	other flow(parts font) +pending	devices
 other flow(parts font) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts font) +pending	n	other any.question.confirm +pending	
@@ -1046,16 +1136,17 @@ other flow(parts font) +pending	q	other any.question.leave +pending
 other flow(parts font) +pending	r	other any.question.confirm +pending	
 other flow(parts font) +pending	v	other flow.file +pending	
 other flow(parts font) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts font) +unsaved	2	other effects +unsaved	mouse off
 other flow(parts font) +unsaved	3	other looks +unsaved	mouse off
 other flow(parts font) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts font) +unsaved	6	other help(help) +unsaved	mouse off
-other flow(parts font) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(parts font) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(parts font) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts font) +unsaved	Home	other flow(doc display) +unsaved	
 other flow(parts font) +unsaved	PgUp	other flow(parts special) +unsaved	
-other flow(parts font) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(parts font) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(parts font) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(parts font) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(parts font) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(parts font) +unsaved	d	other flow(parts font) +unsaved	devices
 other flow(parts font) +unsaved	i	other flow(parts font)	save, prepare
 other flow(parts font) +unsaved	n	other any.question.confirm +unsaved	
@@ -1065,16 +1156,17 @@ other flow(parts font) +unsaved	r	other any.question.confirm +unsaved
 other flow(parts font) +unsaved	s	other flow(parts font)	save
 other flow(parts font) +unsaved	v	other flow.file +unsaved	
 other flow(parts font) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts font) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(parts font) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(parts font) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts font) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
-other flow(parts font) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(parts font) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(parts font) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts font) +unsaved +pending	Home	other flow(doc display) +unsaved +pending	
 other flow(parts font) +unsaved +pending	PgUp	other flow(parts special) +unsaved +pending	
-other flow(parts font) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(parts font) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(parts font) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(parts font) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(parts font) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(parts font) +unsaved +pending	d	other flow(parts font) +unsaved +pending	devices
 other flow(parts font) +unsaved +pending	i	other flow(parts font) +pending	save, prepare
 other flow(parts font) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
@@ -1084,10 +1176,11 @@ other flow(parts font) +unsaved +pending	r	other any.question.confirm +unsaved +
 other flow(parts font) +unsaved +pending	s	other flow(parts font) +pending	save
 other flow(parts font) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(parts input)	1	other fonts(builtin)	mouse off
+other flow(parts input)	2	other effects	mouse off
 other flow(parts input)	3	other looks	mouse off
 other flow(parts input)	5	other settings(first)	mouse off
 other flow(parts input)	6	other help(help)	mouse off
-other flow(parts input)	Click tab	other looks	mouse off
+other flow(parts input)	Click tab	other effects	mouse off
 other flow(parts input)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts input)	Down	other flow(parts any input)	
 other flow(parts input)	End	other flow(parts font)	
@@ -1096,9 +1189,9 @@ other flow(parts input)	Home	other flow(doc display)
 other flow(parts input)	Left	other flow(parts template)	
 other flow(parts input)	PgDn	other flow(parts keyboard)	
 other flow(parts input)	PgUp	other flow(new empty)	
-other flow(parts input)	Shift-Tab	other help(help)	mouse off
+other flow(parts input)	Shift-Tab	other looks	mouse off
 other flow(parts input)	Shrink	other any.too-small	
-other flow(parts input)	Tab	other looks	mouse off
+other flow(parts input)	Tab	other settings(first)	mouse off
 other flow(parts input)	Up	other flow(parts special)	
 other flow(parts input)	Wheel down	other flow(parts any input)	
 other flow(parts input)	Wheel up	other flow(parts special)	
@@ -1110,10 +1203,11 @@ other flow(parts input)	q	other left	mouse off, exit 0
 other flow(parts input)	r	other any.question.confirm	
 other flow(parts input)	v	other flow.file	
 other flow(parts input) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts input) +pending	2	other effects +pending	mouse off
 other flow(parts input) +pending	3	other looks +pending	mouse off
 other flow(parts input) +pending	5	other settings(first) +pending	mouse off
 other flow(parts input) +pending	6	other help(help) +pending	mouse off
-other flow(parts input) +pending	Click tab	other looks +pending	mouse off
+other flow(parts input) +pending	Click tab	other effects +pending	mouse off
 other flow(parts input) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts input) +pending	Down	other flow(parts any input) +pending	
 other flow(parts input) +pending	End	other flow(parts font) +pending	
@@ -1122,9 +1216,9 @@ other flow(parts input) +pending	Home	other flow(doc display) +pending
 other flow(parts input) +pending	Left	other flow(parts template) +pending	
 other flow(parts input) +pending	PgDn	other flow(parts keyboard) +pending	
 other flow(parts input) +pending	PgUp	other flow(new empty) +pending	
-other flow(parts input) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(parts input) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(parts input) +pending	Shrink	other any.too-small +pending	
-other flow(parts input) +pending	Tab	other looks +pending	mouse off
+other flow(parts input) +pending	Tab	other settings(first) +pending	mouse off
 other flow(parts input) +pending	Up	other flow(parts special) +pending	
 other flow(parts input) +pending	Wheel down	other flow(parts any input) +pending	
 other flow(parts input) +pending	Wheel up	other flow(parts special) +pending	
@@ -1136,10 +1230,11 @@ other flow(parts input) +pending	q	other any.question.leave +pending
 other flow(parts input) +pending	r	other any.question.confirm +pending	
 other flow(parts input) +pending	v	other flow.file +pending	
 other flow(parts input) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts input) +unsaved	2	other effects +unsaved	mouse off
 other flow(parts input) +unsaved	3	other looks +unsaved	mouse off
 other flow(parts input) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts input) +unsaved	6	other help(help) +unsaved	mouse off
-other flow(parts input) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(parts input) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(parts input) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts input) +unsaved	Down	other flow(parts any input) +unsaved	
 other flow(parts input) +unsaved	End	other flow(parts font) +unsaved	
@@ -1148,9 +1243,9 @@ other flow(parts input) +unsaved	Home	other flow(doc display) +unsaved
 other flow(parts input) +unsaved	Left	other flow(parts template) +unsaved	
 other flow(parts input) +unsaved	PgDn	other flow(parts keyboard) +unsaved	
 other flow(parts input) +unsaved	PgUp	other flow(new empty) +unsaved	
-other flow(parts input) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(parts input) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(parts input) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(parts input) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(parts input) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(parts input) +unsaved	Up	other flow(parts special) +unsaved	
 other flow(parts input) +unsaved	Wheel down	other flow(parts any input) +unsaved	
 other flow(parts input) +unsaved	Wheel up	other flow(parts special) +unsaved	
@@ -1163,10 +1258,11 @@ other flow(parts input) +unsaved	r	other any.question.confirm +unsaved
 other flow(parts input) +unsaved	s	other flow(parts input)	save
 other flow(parts input) +unsaved	v	other flow.file +unsaved	
 other flow(parts input) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts input) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
-other flow(parts input) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(parts input) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts input) +unsaved +pending	Down	other flow(parts any input) +unsaved +pending	
 other flow(parts input) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -1175,9 +1271,9 @@ other flow(parts input) +unsaved +pending	Home	other flow(doc display) +unsaved 
 other flow(parts input) +unsaved +pending	Left	other flow(parts template) +unsaved +pending	
 other flow(parts input) +unsaved +pending	PgDn	other flow(parts keyboard) +unsaved +pending	
 other flow(parts input) +unsaved +pending	PgUp	other flow(new empty) +unsaved +pending	
-other flow(parts input) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(parts input) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(parts input) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(parts input) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	Up	other flow(parts special) +unsaved +pending	
 other flow(parts input) +unsaved +pending	Wheel down	other flow(parts any input) +unsaved +pending	
 other flow(parts input) +unsaved +pending	Wheel up	other flow(parts special) +unsaved +pending	
@@ -1190,10 +1286,11 @@ other flow(parts input) +unsaved +pending	r	other any.question.confirm +unsaved 
 other flow(parts input) +unsaved +pending	s	other flow(parts input) +pending	save
 other flow(parts input) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(parts keyboard)	1	other fonts(builtin)	mouse off
+other flow(parts keyboard)	2	other effects	mouse off
 other flow(parts keyboard)	3	other looks	mouse off
 other flow(parts keyboard)	5	other settings(first)	mouse off
 other flow(parts keyboard)	6	other help(help)	mouse off
-other flow(parts keyboard)	Click tab	other looks	mouse off
+other flow(parts keyboard)	Click tab	other effects	mouse off
 other flow(parts keyboard)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts keyboard)	End	other flow(parts font)	
 other flow(parts keyboard)	Enter	other flow.detail	
@@ -1201,9 +1298,9 @@ other flow(parts keyboard)	Home	other flow(doc display)
 other flow(parts keyboard)	Left	other flow(parts input)	
 other flow(parts keyboard)	PgUp	other flow(parts special)	
 other flow(parts keyboard)	Right	other flow(parts any input)	
-other flow(parts keyboard)	Shift-Tab	other help(help)	mouse off
+other flow(parts keyboard)	Shift-Tab	other looks	mouse off
 other flow(parts keyboard)	Shrink	other any.too-small	
-other flow(parts keyboard)	Tab	other looks	mouse off
+other flow(parts keyboard)	Tab	other settings(first)	mouse off
 other flow(parts keyboard)	Up	other flow(parts template)	
 other flow(parts keyboard)	Wheel up	other flow(parts template)	
 other flow(parts keyboard)	d	other flow(parts keyboard)	devices
@@ -1214,10 +1311,11 @@ other flow(parts keyboard)	q	other left	mouse off, exit 0
 other flow(parts keyboard)	r	other any.question.confirm	
 other flow(parts keyboard)	v	other flow.file	
 other flow(parts keyboard) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts keyboard) +pending	2	other effects +pending	mouse off
 other flow(parts keyboard) +pending	3	other looks +pending	mouse off
 other flow(parts keyboard) +pending	5	other settings(first) +pending	mouse off
 other flow(parts keyboard) +pending	6	other help(help) +pending	mouse off
-other flow(parts keyboard) +pending	Click tab	other looks +pending	mouse off
+other flow(parts keyboard) +pending	Click tab	other effects +pending	mouse off
 other flow(parts keyboard) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts keyboard) +pending	End	other flow(parts font) +pending	
 other flow(parts keyboard) +pending	Enter	other flow.detail +pending	
@@ -1225,9 +1323,9 @@ other flow(parts keyboard) +pending	Home	other flow(doc display) +pending
 other flow(parts keyboard) +pending	Left	other flow(parts input) +pending	
 other flow(parts keyboard) +pending	PgUp	other flow(parts special) +pending	
 other flow(parts keyboard) +pending	Right	other flow(parts any input) +pending	
-other flow(parts keyboard) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(parts keyboard) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(parts keyboard) +pending	Shrink	other any.too-small +pending	
-other flow(parts keyboard) +pending	Tab	other looks +pending	mouse off
+other flow(parts keyboard) +pending	Tab	other settings(first) +pending	mouse off
 other flow(parts keyboard) +pending	Up	other flow(parts template) +pending	
 other flow(parts keyboard) +pending	Wheel up	other flow(parts template) +pending	
 other flow(parts keyboard) +pending	d	other flow(parts keyboard) +pending	devices
@@ -1238,10 +1336,11 @@ other flow(parts keyboard) +pending	q	other any.question.leave +pending
 other flow(parts keyboard) +pending	r	other any.question.confirm +pending	
 other flow(parts keyboard) +pending	v	other flow.file +pending	
 other flow(parts keyboard) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts keyboard) +unsaved	2	other effects +unsaved	mouse off
 other flow(parts keyboard) +unsaved	3	other looks +unsaved	mouse off
 other flow(parts keyboard) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts keyboard) +unsaved	6	other help(help) +unsaved	mouse off
-other flow(parts keyboard) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(parts keyboard) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(parts keyboard) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts keyboard) +unsaved	End	other flow(parts font) +unsaved	
 other flow(parts keyboard) +unsaved	Enter	other flow.detail +unsaved	
@@ -1249,9 +1348,9 @@ other flow(parts keyboard) +unsaved	Home	other flow(doc display) +unsaved
 other flow(parts keyboard) +unsaved	Left	other flow(parts input) +unsaved	
 other flow(parts keyboard) +unsaved	PgUp	other flow(parts special) +unsaved	
 other flow(parts keyboard) +unsaved	Right	other flow(parts any input) +unsaved	
-other flow(parts keyboard) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(parts keyboard) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(parts keyboard) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(parts keyboard) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(parts keyboard) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(parts keyboard) +unsaved	Up	other flow(parts template) +unsaved	
 other flow(parts keyboard) +unsaved	Wheel up	other flow(parts template) +unsaved	
 other flow(parts keyboard) +unsaved	d	other flow(parts keyboard) +unsaved	devices
@@ -1263,10 +1362,11 @@ other flow(parts keyboard) +unsaved	r	other any.question.confirm +unsaved
 other flow(parts keyboard) +unsaved	s	other flow(parts keyboard)	save
 other flow(parts keyboard) +unsaved	v	other flow.file +unsaved	
 other flow(parts keyboard) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts keyboard) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
-other flow(parts keyboard) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(parts keyboard) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts keyboard) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
@@ -1274,9 +1374,9 @@ other flow(parts keyboard) +unsaved +pending	Home	other flow(doc display) +unsav
 other flow(parts keyboard) +unsaved +pending	Left	other flow(parts input) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	PgUp	other flow(parts special) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Right	other flow(parts any input) +unsaved +pending	
-other flow(parts keyboard) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(parts keyboard) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(parts keyboard) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(parts keyboard) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	Up	other flow(parts template) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Wheel up	other flow(parts template) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	d	other flow(parts keyboard) +unsaved +pending	devices
@@ -1288,11 +1388,12 @@ other flow(parts keyboard) +unsaved +pending	r	other any.question.confirm +unsav
 other flow(parts keyboard) +unsaved +pending	s	other flow(parts keyboard) +pending	save
 other flow(parts keyboard) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(parts pointer)	1	other fonts(builtin)	mouse off
+other flow(parts pointer)	2	other effects	mouse off
 other flow(parts pointer)	3	other looks	mouse off
 other flow(parts pointer)	5	other settings(first)	mouse off
 other flow(parts pointer)	6	other help(help)	mouse off
 other flow(parts pointer)	Click box	other flow(parts special)	
-other flow(parts pointer)	Click tab	other looks	mouse off
+other flow(parts pointer)	Click tab	other effects	mouse off
 other flow(parts pointer)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts pointer)	Down	other flow(parts font)	
 other flow(parts pointer)	End	other flow(parts font)	
@@ -1301,9 +1402,9 @@ other flow(parts pointer)	Home	other flow(doc display)
 other flow(parts pointer)	Left	other flow(parts keyboard)	
 other flow(parts pointer)	PgUp	other flow(parts display)	
 other flow(parts pointer)	Right	other flow(others)	
-other flow(parts pointer)	Shift-Tab	other help(help)	mouse off
+other flow(parts pointer)	Shift-Tab	other looks	mouse off
 other flow(parts pointer)	Shrink	other any.too-small	
-other flow(parts pointer)	Tab	other looks	mouse off
+other flow(parts pointer)	Tab	other settings(first)	mouse off
 other flow(parts pointer)	Up	other flow(parts any input)	
 other flow(parts pointer)	Wheel down	other flow(parts font)	
 other flow(parts pointer)	Wheel up	other flow(parts any input)	
@@ -1315,11 +1416,12 @@ other flow(parts pointer)	q	other left	mouse off, exit 0
 other flow(parts pointer)	r	other any.question.confirm	
 other flow(parts pointer)	v	other flow.file	
 other flow(parts pointer) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts pointer) +pending	2	other effects +pending	mouse off
 other flow(parts pointer) +pending	3	other looks +pending	mouse off
 other flow(parts pointer) +pending	5	other settings(first) +pending	mouse off
 other flow(parts pointer) +pending	6	other help(help) +pending	mouse off
 other flow(parts pointer) +pending	Click box	other flow(parts special) +pending	
-other flow(parts pointer) +pending	Click tab	other looks +pending	mouse off
+other flow(parts pointer) +pending	Click tab	other effects +pending	mouse off
 other flow(parts pointer) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts pointer) +pending	Down	other flow(parts font) +pending	
 other flow(parts pointer) +pending	End	other flow(parts font) +pending	
@@ -1328,9 +1430,9 @@ other flow(parts pointer) +pending	Home	other flow(doc display) +pending
 other flow(parts pointer) +pending	Left	other flow(parts keyboard) +pending	
 other flow(parts pointer) +pending	PgUp	other flow(parts display) +pending	
 other flow(parts pointer) +pending	Right	other flow(others) +pending	
-other flow(parts pointer) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(parts pointer) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(parts pointer) +pending	Shrink	other any.too-small +pending	
-other flow(parts pointer) +pending	Tab	other looks +pending	mouse off
+other flow(parts pointer) +pending	Tab	other settings(first) +pending	mouse off
 other flow(parts pointer) +pending	Up	other flow(parts any input) +pending	
 other flow(parts pointer) +pending	Wheel down	other flow(parts font) +pending	
 other flow(parts pointer) +pending	Wheel up	other flow(parts any input) +pending	
@@ -1342,11 +1444,12 @@ other flow(parts pointer) +pending	q	other any.question.leave +pending
 other flow(parts pointer) +pending	r	other any.question.confirm +pending	
 other flow(parts pointer) +pending	v	other flow.file +pending	
 other flow(parts pointer) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts pointer) +unsaved	2	other effects +unsaved	mouse off
 other flow(parts pointer) +unsaved	3	other looks +unsaved	mouse off
 other flow(parts pointer) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts pointer) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts pointer) +unsaved	Click box	other flow(parts special) +unsaved	
-other flow(parts pointer) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(parts pointer) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(parts pointer) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts pointer) +unsaved	Down	other flow(parts font) +unsaved	
 other flow(parts pointer) +unsaved	End	other flow(parts font) +unsaved	
@@ -1355,9 +1458,9 @@ other flow(parts pointer) +unsaved	Home	other flow(doc display) +unsaved
 other flow(parts pointer) +unsaved	Left	other flow(parts keyboard) +unsaved	
 other flow(parts pointer) +unsaved	PgUp	other flow(parts display) +unsaved	
 other flow(parts pointer) +unsaved	Right	other flow(others) +unsaved	
-other flow(parts pointer) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(parts pointer) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(parts pointer) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(parts pointer) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(parts pointer) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(parts pointer) +unsaved	Up	other flow(parts any input) +unsaved	
 other flow(parts pointer) +unsaved	Wheel down	other flow(parts font) +unsaved	
 other flow(parts pointer) +unsaved	Wheel up	other flow(parts any input) +unsaved	
@@ -1370,11 +1473,12 @@ other flow(parts pointer) +unsaved	r	other any.question.confirm +unsaved
 other flow(parts pointer) +unsaved	s	other flow(parts pointer)	save
 other flow(parts pointer) +unsaved	v	other flow.file +unsaved	
 other flow(parts pointer) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts pointer) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	Click box	other flow(parts special) +unsaved +pending	
-other flow(parts pointer) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(parts pointer) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts pointer) +unsaved +pending	Down	other flow(parts font) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -1383,9 +1487,9 @@ other flow(parts pointer) +unsaved +pending	Home	other flow(doc display) +unsave
 other flow(parts pointer) +unsaved +pending	Left	other flow(parts keyboard) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	PgUp	other flow(parts display) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	Right	other flow(others) +unsaved +pending	
-other flow(parts pointer) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(parts pointer) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(parts pointer) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(parts pointer) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	Up	other flow(parts any input) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	Wheel down	other flow(parts font) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	Wheel up	other flow(parts any input) +unsaved +pending	
@@ -1398,10 +1502,11 @@ other flow(parts pointer) +unsaved +pending	r	other any.question.confirm +unsave
 other flow(parts pointer) +unsaved +pending	s	other flow(parts pointer) +pending	save
 other flow(parts pointer) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(parts special)	1	other fonts(builtin)	mouse off
+other flow(parts special)	2	other effects	mouse off
 other flow(parts special)	3	other looks	mouse off
 other flow(parts special)	5	other settings(first)	mouse off
 other flow(parts special)	6	other help(help)	mouse off
-other flow(parts special)	Click tab	other looks	mouse off
+other flow(parts special)	Click tab	other effects	mouse off
 other flow(parts special)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts special)	Down	other flow(parts input)	
 other flow(parts special)	End	other flow(parts font)	
@@ -1409,9 +1514,9 @@ other flow(parts special)	Home	other flow(doc display)
 other flow(parts special)	PgDn	other flow(parts keyboard)	
 other flow(parts special)	PgUp	other flow(new empty)	
 other flow(parts special)	Right	other flow(parts template)	
-other flow(parts special)	Shift-Tab	other help(help)	mouse off
+other flow(parts special)	Shift-Tab	other looks	mouse off
 other flow(parts special)	Shrink	other any.too-small	
-other flow(parts special)	Tab	other looks	mouse off
+other flow(parts special)	Tab	other settings(first)	mouse off
 other flow(parts special)	Up	other flow(parts template)	
 other flow(parts special)	Wheel down	other flow(parts input)	
 other flow(parts special)	Wheel up	other flow(parts template)	
@@ -1423,10 +1528,11 @@ other flow(parts special)	q	other left	mouse off, exit 0
 other flow(parts special)	r	other any.question.confirm	
 other flow(parts special)	v	other flow.file	
 other flow(parts special) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts special) +pending	2	other effects +pending	mouse off
 other flow(parts special) +pending	3	other looks +pending	mouse off
 other flow(parts special) +pending	5	other settings(first) +pending	mouse off
 other flow(parts special) +pending	6	other help(help) +pending	mouse off
-other flow(parts special) +pending	Click tab	other looks +pending	mouse off
+other flow(parts special) +pending	Click tab	other effects +pending	mouse off
 other flow(parts special) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts special) +pending	Down	other flow(parts input) +pending	
 other flow(parts special) +pending	End	other flow(parts font) +pending	
@@ -1434,9 +1540,9 @@ other flow(parts special) +pending	Home	other flow(doc display) +pending
 other flow(parts special) +pending	PgDn	other flow(parts keyboard) +pending	
 other flow(parts special) +pending	PgUp	other flow(new empty) +pending	
 other flow(parts special) +pending	Right	other flow(parts template) +pending	
-other flow(parts special) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(parts special) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(parts special) +pending	Shrink	other any.too-small +pending	
-other flow(parts special) +pending	Tab	other looks +pending	mouse off
+other flow(parts special) +pending	Tab	other settings(first) +pending	mouse off
 other flow(parts special) +pending	Up	other flow(parts template) +pending	
 other flow(parts special) +pending	Wheel down	other flow(parts input) +pending	
 other flow(parts special) +pending	Wheel up	other flow(parts template) +pending	
@@ -1448,10 +1554,11 @@ other flow(parts special) +pending	q	other any.question.leave +pending
 other flow(parts special) +pending	r	other any.question.confirm +pending	
 other flow(parts special) +pending	v	other flow.file +pending	
 other flow(parts special) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts special) +unsaved	2	other effects +unsaved	mouse off
 other flow(parts special) +unsaved	3	other looks +unsaved	mouse off
 other flow(parts special) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts special) +unsaved	6	other help(help) +unsaved	mouse off
-other flow(parts special) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(parts special) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(parts special) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts special) +unsaved	Down	other flow(parts input) +unsaved	
 other flow(parts special) +unsaved	End	other flow(parts font) +unsaved	
@@ -1459,9 +1566,9 @@ other flow(parts special) +unsaved	Home	other flow(doc display) +unsaved
 other flow(parts special) +unsaved	PgDn	other flow(parts keyboard) +unsaved	
 other flow(parts special) +unsaved	PgUp	other flow(new empty) +unsaved	
 other flow(parts special) +unsaved	Right	other flow(parts template) +unsaved	
-other flow(parts special) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(parts special) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(parts special) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(parts special) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(parts special) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(parts special) +unsaved	Up	other flow(parts template) +unsaved	
 other flow(parts special) +unsaved	Wheel down	other flow(parts input) +unsaved	
 other flow(parts special) +unsaved	Wheel up	other flow(parts template) +unsaved	
@@ -1474,10 +1581,11 @@ other flow(parts special) +unsaved	r	other any.question.confirm +unsaved
 other flow(parts special) +unsaved	s	other flow(parts special)	save
 other flow(parts special) +unsaved	v	other flow.file +unsaved	
 other flow(parts special) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts special) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
-other flow(parts special) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(parts special) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts special) +unsaved +pending	Down	other flow(parts input) +unsaved +pending	
 other flow(parts special) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -1485,9 +1593,9 @@ other flow(parts special) +unsaved +pending	Home	other flow(doc display) +unsave
 other flow(parts special) +unsaved +pending	PgDn	other flow(parts keyboard) +unsaved +pending	
 other flow(parts special) +unsaved +pending	PgUp	other flow(new empty) +unsaved +pending	
 other flow(parts special) +unsaved +pending	Right	other flow(parts template) +unsaved +pending	
-other flow(parts special) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(parts special) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(parts special) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(parts special) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	Up	other flow(parts template) +unsaved +pending	
 other flow(parts special) +unsaved +pending	Wheel down	other flow(parts input) +unsaved +pending	
 other flow(parts special) +unsaved +pending	Wheel up	other flow(parts template) +unsaved +pending	
@@ -1500,11 +1608,12 @@ other flow(parts special) +unsaved +pending	r	other any.question.confirm +unsave
 other flow(parts special) +unsaved +pending	s	other flow(parts special) +pending	save
 other flow(parts special) +unsaved +pending	v	other flow.file +unsaved +pending	
 other flow(parts template)	1	other fonts(builtin)	mouse off
+other flow(parts template)	2	other effects	mouse off
 other flow(parts template)	3	other looks	mouse off
 other flow(parts template)	5	other settings(first)	mouse off
 other flow(parts template)	6	other help(help)	mouse off
 other flow(parts template)	Click box	other flow(parts display)	
-other flow(parts template)	Click tab	other looks	mouse off
+other flow(parts template)	Click tab	other effects	mouse off
 other flow(parts template)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts template)	Down	other flow(parts display)	
 other flow(parts template)	End	other flow(parts font)	
@@ -1513,9 +1622,9 @@ other flow(parts template)	Home	other flow(doc display)
 other flow(parts template)	Left	other flow(new empty)	
 other flow(parts template)	PgUp	other flow(new empty)	
 other flow(parts template)	Right	other flow(parts display)	
-other flow(parts template)	Shift-Tab	other help(help)	mouse off
+other flow(parts template)	Shift-Tab	other looks	mouse off
 other flow(parts template)	Shrink	other any.too-small	
-other flow(parts template)	Tab	other looks	mouse off
+other flow(parts template)	Tab	other settings(first)	mouse off
 other flow(parts template)	Up	other flow(new empty)	
 other flow(parts template)	Wheel down	other flow(parts display)	
 other flow(parts template)	Wheel up	other flow(new empty)	
@@ -1527,11 +1636,12 @@ other flow(parts template)	q	other left	mouse off, exit 0
 other flow(parts template)	r	other any.question.confirm	
 other flow(parts template)	v	other flow.file	
 other flow(parts template) +pending	1	other fonts(marked) +pending	mouse off
+other flow(parts template) +pending	2	other effects +pending	mouse off
 other flow(parts template) +pending	3	other looks +pending	mouse off
 other flow(parts template) +pending	5	other settings(first) +pending	mouse off
 other flow(parts template) +pending	6	other help(help) +pending	mouse off
 other flow(parts template) +pending	Click box	other flow(parts display) +pending	
-other flow(parts template) +pending	Click tab	other looks +pending	mouse off
+other flow(parts template) +pending	Click tab	other effects +pending	mouse off
 other flow(parts template) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts template) +pending	Down	other flow(parts display) +pending	
 other flow(parts template) +pending	End	other flow(parts font) +pending	
@@ -1540,9 +1650,9 @@ other flow(parts template) +pending	Home	other flow(doc display) +pending
 other flow(parts template) +pending	Left	other flow(new empty) +pending	
 other flow(parts template) +pending	PgUp	other flow(new empty) +pending	
 other flow(parts template) +pending	Right	other flow(parts display) +pending	
-other flow(parts template) +pending	Shift-Tab	other help(help) +pending	mouse off
+other flow(parts template) +pending	Shift-Tab	other looks +pending	mouse off
 other flow(parts template) +pending	Shrink	other any.too-small +pending	
-other flow(parts template) +pending	Tab	other looks +pending	mouse off
+other flow(parts template) +pending	Tab	other settings(first) +pending	mouse off
 other flow(parts template) +pending	Up	other flow(new empty) +pending	
 other flow(parts template) +pending	Wheel down	other flow(parts display) +pending	
 other flow(parts template) +pending	Wheel up	other flow(new empty) +pending	
@@ -1554,11 +1664,12 @@ other flow(parts template) +pending	q	other any.question.leave +pending
 other flow(parts template) +pending	r	other any.question.confirm +pending	
 other flow(parts template) +pending	v	other flow.file +pending	
 other flow(parts template) +unsaved	1	other fonts(builtin) +unsaved	mouse off
+other flow(parts template) +unsaved	2	other effects +unsaved	mouse off
 other flow(parts template) +unsaved	3	other looks +unsaved	mouse off
 other flow(parts template) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts template) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts template) +unsaved	Click box	other flow(parts display) +unsaved	
-other flow(parts template) +unsaved	Click tab	other looks +unsaved	mouse off
+other flow(parts template) +unsaved	Click tab	other effects +unsaved	mouse off
 other flow(parts template) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts template) +unsaved	Down	other flow(parts display) +unsaved	
 other flow(parts template) +unsaved	End	other flow(parts font) +unsaved	
@@ -1567,9 +1678,9 @@ other flow(parts template) +unsaved	Home	other flow(doc display) +unsaved
 other flow(parts template) +unsaved	Left	other flow(new empty) +unsaved	
 other flow(parts template) +unsaved	PgUp	other flow(new empty) +unsaved	
 other flow(parts template) +unsaved	Right	other flow(parts display) +unsaved	
-other flow(parts template) +unsaved	Shift-Tab	other help(help) +unsaved	mouse off
+other flow(parts template) +unsaved	Shift-Tab	other looks +unsaved	mouse off
 other flow(parts template) +unsaved	Shrink	other any.too-small +unsaved	
-other flow(parts template) +unsaved	Tab	other looks +unsaved	mouse off
+other flow(parts template) +unsaved	Tab	other settings(first) +unsaved	mouse off
 other flow(parts template) +unsaved	Up	other flow(new empty) +unsaved	
 other flow(parts template) +unsaved	Wheel down	other flow(parts display) +unsaved	
 other flow(parts template) +unsaved	Wheel up	other flow(new empty) +unsaved	
@@ -1582,11 +1693,12 @@ other flow(parts template) +unsaved	r	other any.question.confirm +unsaved
 other flow(parts template) +unsaved	s	other flow(parts template)	save
 other flow(parts template) +unsaved	v	other flow.file +unsaved	
 other flow(parts template) +unsaved +pending	1	other fonts(marked) +unsaved +pending	mouse off
+other flow(parts template) +unsaved +pending	2	other effects +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	3	other looks +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	Click box	other flow(parts display) +unsaved +pending	
-other flow(parts template) +unsaved +pending	Click tab	other looks +unsaved +pending	mouse off
+other flow(parts template) +unsaved +pending	Click tab	other effects +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts template) +unsaved +pending	Down	other flow(parts display) +unsaved +pending	
 other flow(parts template) +unsaved +pending	End	other flow(parts font) +unsaved +pending	
@@ -1595,9 +1707,9 @@ other flow(parts template) +unsaved +pending	Home	other flow(doc display) +unsav
 other flow(parts template) +unsaved +pending	Left	other flow(new empty) +unsaved +pending	
 other flow(parts template) +unsaved +pending	PgUp	other flow(new empty) +unsaved +pending	
 other flow(parts template) +unsaved +pending	Right	other flow(parts display) +unsaved +pending	
-other flow(parts template) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	mouse off
+other flow(parts template) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow(parts template) +unsaved +pending	Tab	other looks +unsaved +pending	mouse off
+other flow(parts template) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
 other flow(parts template) +unsaved +pending	Up	other flow(new empty) +unsaved +pending	
 other flow(parts template) +unsaved +pending	Wheel down	other flow(parts display) +unsaved +pending	
 other flow(parts template) +unsaved +pending	Wheel up	other flow(new empty) +unsaved +pending	
@@ -2147,6 +2259,7 @@ other flow.restore +unsaved +pending	Enter	other any.question.confirm +unsaved +
 other flow.restore +unsaved +pending	Esc	other flow(doc display) +unsaved +pending	
 other flow.restore +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.restore +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(builtin)	2	other effects	
 other fonts(builtin)	3	other looks	
 other fonts(builtin)	4	other flow(doc display)	mouse on
 other fonts(builtin)	5	other settings(first)	
@@ -2155,13 +2268,14 @@ other fonts(builtin)	Ctrl-C	other left	exit 130
 other fonts(builtin)	Enter	other fonts(builtin) +unsaved	check
 other fonts(builtin)	Home	other fonts(refused)	
 other fonts(builtin)	PgUp	other fonts(refused)	
-other fonts(builtin)	Shift-Tab	other looks	
+other fonts(builtin)	Shift-Tab	other help(help)	
 other fonts(builtin)	Shrink	other any.too-small	
-other fonts(builtin)	Tab	other settings(first)	
+other fonts(builtin)	Tab	other effects	
 other fonts(builtin)	Up	other fonts(frit)	
 other fonts(builtin)	i	other fonts(builtin)	prepare
 other fonts(builtin)	n	other looks.new-frit.typing(row 0)	
 other fonts(builtin)	q	other left	exit 0
+other fonts(builtin) +pending	2	other effects +pending	
 other fonts(builtin) +pending	3	other looks +pending	
 other fonts(builtin) +pending	4	other flow(doc display) +pending	mouse on
 other fonts(builtin) +pending	5	other settings(first) +pending	
@@ -2170,13 +2284,14 @@ other fonts(builtin) +pending	Ctrl-C	other left	exit 130
 other fonts(builtin) +pending	Enter	other fonts(builtin) +unsaved +pending	check
 other fonts(builtin) +pending	Home	other fonts(refused) +pending	
 other fonts(builtin) +pending	PgUp	other fonts(refused) +pending	
-other fonts(builtin) +pending	Shift-Tab	other looks +pending	
+other fonts(builtin) +pending	Shift-Tab	other help(help) +pending	
 other fonts(builtin) +pending	Shrink	other any.too-small +pending	
-other fonts(builtin) +pending	Tab	other settings(first) +pending	
+other fonts(builtin) +pending	Tab	other effects +pending	
 other fonts(builtin) +pending	Up	other fonts(marked) +pending	
 other fonts(builtin) +pending	i	other any.question.confirm +pending	prepare
 other fonts(builtin) +pending	n	other looks.new-frit.typing(row 0) +pending	
 other fonts(builtin) +pending	q	other any.question.leave +pending	
+other fonts(builtin) +unsaved	2	other effects +unsaved	
 other fonts(builtin) +unsaved	3	other looks +unsaved	
 other fonts(builtin) +unsaved	4	other flow(doc display) +unsaved	mouse on
 other fonts(builtin) +unsaved	5	other settings(first) +unsaved	
@@ -2185,13 +2300,14 @@ other fonts(builtin) +unsaved	Ctrl-C	other left	save, exit 130
 other fonts(builtin) +unsaved	Enter	other fonts(builtin) +unsaved	check
 other fonts(builtin) +unsaved	Home	other fonts(refused) +unsaved	
 other fonts(builtin) +unsaved	PgUp	other fonts(refused) +unsaved	
-other fonts(builtin) +unsaved	Shift-Tab	other looks +unsaved	
+other fonts(builtin) +unsaved	Shift-Tab	other help(help) +unsaved	
 other fonts(builtin) +unsaved	Shrink	other any.too-small +unsaved	
-other fonts(builtin) +unsaved	Tab	other settings(first) +unsaved	
+other fonts(builtin) +unsaved	Tab	other effects +unsaved	
 other fonts(builtin) +unsaved	Up	other fonts(frit) +unsaved	
 other fonts(builtin) +unsaved	i	other fonts(builtin)	save, prepare
 other fonts(builtin) +unsaved	n	other looks.new-frit.typing(row 0) +unsaved	
 other fonts(builtin) +unsaved	q	other any.question.quit +unsaved	
+other fonts(builtin) +unsaved +pending	2	other effects +unsaved +pending	
 other fonts(builtin) +unsaved +pending	3	other looks +unsaved +pending	
 other fonts(builtin) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other fonts(builtin) +unsaved +pending	5	other settings(first) +unsaved +pending	
@@ -2200,13 +2316,14 @@ other fonts(builtin) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts(builtin) +unsaved +pending	Enter	other fonts(builtin) +unsaved +pending	check
 other fonts(builtin) +unsaved +pending	Home	other fonts(refused) +unsaved +pending	
 other fonts(builtin) +unsaved +pending	PgUp	other fonts(refused) +unsaved +pending	
-other fonts(builtin) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	
+other fonts(builtin) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	
 other fonts(builtin) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other fonts(builtin) +unsaved +pending	Tab	other settings(first) +unsaved +pending	
+other fonts(builtin) +unsaved +pending	Tab	other effects +unsaved +pending	
 other fonts(builtin) +unsaved +pending	Up	other fonts(marked) +unsaved +pending	
 other fonts(builtin) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other fonts(builtin) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
 other fonts(builtin) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(frit)	2	other effects	
 other fonts(frit)	3	other looks	
 other fonts(frit)	4	other flow(doc display)	mouse on
 other fonts(frit)	5	other settings(first)	
@@ -2218,13 +2335,14 @@ other fonts(frit)	Enter	other fonts(frit) +unsaved	check
 other fonts(frit)	Home	other fonts(refused)	
 other fonts(frit)	PgDn	other fonts(builtin)	
 other fonts(frit)	PgUp	other fonts(refused)	
-other fonts(frit)	Shift-Tab	other looks	
+other fonts(frit)	Shift-Tab	other help(help)	
 other fonts(frit)	Shrink	other any.too-small	
-other fonts(frit)	Tab	other settings(first)	
+other fonts(frit)	Tab	other effects	
 other fonts(frit)	i	other fonts(frit)	prepare
 other fonts(frit)	n	other looks.new-frit.typing(row 0)	
 other fonts(frit)	q	other left	exit 0
 other fonts(frit)	r	other fonts(marked) +pending	
+other fonts(frit) +pending	2	other effects +pending	
 other fonts(frit) +pending	3	other looks +pending	
 other fonts(frit) +pending	4	other flow(doc display) +pending	mouse on
 other fonts(frit) +pending	5	other settings(first) +pending	
@@ -2236,12 +2354,13 @@ other fonts(frit) +pending	Enter	other fonts(frit) +unsaved +pending	check
 other fonts(frit) +pending	Home	other fonts(refused) +pending	
 other fonts(frit) +pending	PgDn	other fonts(builtin) +pending	
 other fonts(frit) +pending	PgUp	other fonts(refused) +pending	
-other fonts(frit) +pending	Shift-Tab	other looks +pending	
+other fonts(frit) +pending	Shift-Tab	other help(help) +pending	
 other fonts(frit) +pending	Shrink	other any.too-small +pending	
-other fonts(frit) +pending	Tab	other settings(first) +pending	
+other fonts(frit) +pending	Tab	other effects +pending	
 other fonts(frit) +pending	i	other any.question.confirm +pending	prepare
 other fonts(frit) +pending	n	other looks.new-frit.typing(row 0) +pending	
 other fonts(frit) +pending	q	other any.question.leave +pending	
+other fonts(frit) +unsaved	2	other effects +unsaved	
 other fonts(frit) +unsaved	3	other looks +unsaved	
 other fonts(frit) +unsaved	4	other flow(doc display) +unsaved	mouse on
 other fonts(frit) +unsaved	5	other settings(first) +unsaved	
@@ -2253,12 +2372,13 @@ other fonts(frit) +unsaved	Enter	other fonts(frit) +unsaved	check
 other fonts(frit) +unsaved	Home	other fonts(refused) +unsaved	
 other fonts(frit) +unsaved	PgDn	other fonts(builtin) +unsaved	
 other fonts(frit) +unsaved	PgUp	other fonts(refused) +unsaved	
-other fonts(frit) +unsaved	Shift-Tab	other looks +unsaved	
+other fonts(frit) +unsaved	Shift-Tab	other help(help) +unsaved	
 other fonts(frit) +unsaved	Shrink	other any.too-small +unsaved	
-other fonts(frit) +unsaved	Tab	other settings(first) +unsaved	
+other fonts(frit) +unsaved	Tab	other effects +unsaved	
 other fonts(frit) +unsaved	i	other any.question.confirm	save, prepare
 other fonts(frit) +unsaved	n	other looks.new-frit.typing(row 0) +unsaved	
 other fonts(frit) +unsaved	q	other any.question.quit +unsaved	
+other fonts(frit) +unsaved +pending	2	other effects +unsaved +pending	
 other fonts(frit) +unsaved +pending	3	other looks +unsaved +pending	
 other fonts(frit) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other fonts(frit) +unsaved +pending	5	other settings(first) +unsaved +pending	
@@ -2270,12 +2390,13 @@ other fonts(frit) +unsaved +pending	Enter	other fonts(frit) +unsaved +pending	ch
 other fonts(frit) +unsaved +pending	Home	other fonts(refused) +unsaved +pending	
 other fonts(frit) +unsaved +pending	PgDn	other fonts(builtin) +unsaved +pending	
 other fonts(frit) +unsaved +pending	PgUp	other fonts(refused) +unsaved +pending	
-other fonts(frit) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	
+other fonts(frit) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	
 other fonts(frit) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other fonts(frit) +unsaved +pending	Tab	other settings(first) +unsaved +pending	
+other fonts(frit) +unsaved +pending	Tab	other effects +unsaved +pending	
 other fonts(frit) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other fonts(frit) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
 other fonts(frit) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(marked) +pending	2	other effects +pending	
 other fonts(marked) +pending	3	other looks +pending	
 other fonts(marked) +pending	4	other flow(doc display) +pending	mouse on
 other fonts(marked) +pending	5	other settings(first) +pending	
@@ -2287,14 +2408,15 @@ other fonts(marked) +pending	Enter	other fonts(marked) +unsaved +pending	check
 other fonts(marked) +pending	Home	other fonts(refused) +pending	
 other fonts(marked) +pending	PgDn	other fonts(builtin) +pending	
 other fonts(marked) +pending	PgUp	other fonts(refused) +pending	
-other fonts(marked) +pending	Shift-Tab	other looks +pending	
+other fonts(marked) +pending	Shift-Tab	other help(help) +pending	
 other fonts(marked) +pending	Shrink	other any.too-small +pending	
-other fonts(marked) +pending	Tab	other settings(first) +pending	
+other fonts(marked) +pending	Tab	other effects +pending	
 other fonts(marked) +pending	Up	other fonts(frit) +pending	
 other fonts(marked) +pending	i	other any.question.confirm +pending	prepare
 other fonts(marked) +pending	n	other looks.new-frit.typing(row 0) +pending	
 other fonts(marked) +pending	q	other any.question.leave +pending	
 other fonts(marked) +pending	r	other fonts(frit)	
+other fonts(marked) +unsaved +pending	2	other effects +unsaved +pending	
 other fonts(marked) +unsaved +pending	3	other looks +unsaved +pending	
 other fonts(marked) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other fonts(marked) +unsaved +pending	5	other settings(first) +unsaved +pending	
@@ -2306,14 +2428,15 @@ other fonts(marked) +unsaved +pending	Enter	other fonts(marked) +unsaved +pendin
 other fonts(marked) +unsaved +pending	Home	other fonts(refused) +unsaved +pending	
 other fonts(marked) +unsaved +pending	PgDn	other fonts(builtin) +unsaved +pending	
 other fonts(marked) +unsaved +pending	PgUp	other fonts(refused) +unsaved +pending	
-other fonts(marked) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	
+other fonts(marked) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	
 other fonts(marked) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other fonts(marked) +unsaved +pending	Tab	other settings(first) +unsaved +pending	
+other fonts(marked) +unsaved +pending	Tab	other effects +unsaved +pending	
 other fonts(marked) +unsaved +pending	Up	other fonts(frit) +unsaved +pending	
 other fonts(marked) +unsaved +pending	i	other fonts(marked) +pending	save, prepare
 other fonts(marked) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
 other fonts(marked) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other fonts(marked) +unsaved +pending	r	other fonts(frit) +unsaved	
+other fonts(refused)	2	other effects	
 other fonts(refused)	3	other looks	
 other fonts(refused)	4	other flow(doc display)	mouse on
 other fonts(refused)	5	other settings(first)	
@@ -2322,13 +2445,14 @@ other fonts(refused)	Ctrl-C	other left	exit 130
 other fonts(refused)	Down	other fonts(frit)	
 other fonts(refused)	End	other fonts(builtin)	
 other fonts(refused)	PgDn	other fonts(builtin)	
-other fonts(refused)	Shift-Tab	other looks	
+other fonts(refused)	Shift-Tab	other help(help)	
 other fonts(refused)	Shrink	other any.too-small	
-other fonts(refused)	Tab	other settings(first)	
+other fonts(refused)	Tab	other effects	
 other fonts(refused)	i	other fonts(refused)	prepare
 other fonts(refused)	n	other looks.new-frit.typing(row 0)	
 other fonts(refused)	q	other left	exit 0
 other fonts(refused)	r	other fonts(marked) +pending	
+other fonts(refused) +pending	2	other effects +pending	
 other fonts(refused) +pending	3	other looks +pending	
 other fonts(refused) +pending	4	other flow(doc display) +pending	mouse on
 other fonts(refused) +pending	5	other settings(first) +pending	
@@ -2337,13 +2461,14 @@ other fonts(refused) +pending	Ctrl-C	other left	exit 130
 other fonts(refused) +pending	Down	other fonts(frit) +pending	
 other fonts(refused) +pending	End	other fonts(builtin) +pending	
 other fonts(refused) +pending	PgDn	other fonts(builtin) +pending	
-other fonts(refused) +pending	Shift-Tab	other looks +pending	
+other fonts(refused) +pending	Shift-Tab	other help(help) +pending	
 other fonts(refused) +pending	Shrink	other any.too-small +pending	
-other fonts(refused) +pending	Tab	other settings(first) +pending	
+other fonts(refused) +pending	Tab	other effects +pending	
 other fonts(refused) +pending	i	other any.question.confirm +pending	prepare
 other fonts(refused) +pending	n	other looks.new-frit.typing(row 0) +pending	
 other fonts(refused) +pending	q	other any.question.leave +pending	
 other fonts(refused) +pending	r	other fonts(marked) +pending	
+other fonts(refused) +unsaved	2	other effects +unsaved	
 other fonts(refused) +unsaved	3	other looks +unsaved	
 other fonts(refused) +unsaved	4	other flow(doc display) +unsaved	mouse on
 other fonts(refused) +unsaved	5	other settings(first) +unsaved	
@@ -2352,13 +2477,14 @@ other fonts(refused) +unsaved	Ctrl-C	other left	save, exit 130
 other fonts(refused) +unsaved	Down	other fonts(frit) +unsaved	
 other fonts(refused) +unsaved	End	other fonts(builtin) +unsaved	
 other fonts(refused) +unsaved	PgDn	other fonts(builtin) +unsaved	
-other fonts(refused) +unsaved	Shift-Tab	other looks +unsaved	
+other fonts(refused) +unsaved	Shift-Tab	other help(help) +unsaved	
 other fonts(refused) +unsaved	Shrink	other any.too-small +unsaved	
-other fonts(refused) +unsaved	Tab	other settings(first) +unsaved	
+other fonts(refused) +unsaved	Tab	other effects +unsaved	
 other fonts(refused) +unsaved	i	other fonts(refused)	save, prepare
 other fonts(refused) +unsaved	n	other looks.new-frit.typing(row 0) +unsaved	
 other fonts(refused) +unsaved	q	other any.question.quit +unsaved	
 other fonts(refused) +unsaved	r	other fonts(marked) +unsaved +pending	
+other fonts(refused) +unsaved +pending	2	other effects +unsaved +pending	
 other fonts(refused) +unsaved +pending	3	other looks +unsaved +pending	
 other fonts(refused) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other fonts(refused) +unsaved +pending	5	other settings(first) +unsaved +pending	
@@ -2367,13 +2493,14 @@ other fonts(refused) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts(refused) +unsaved +pending	Down	other fonts(frit) +unsaved +pending	
 other fonts(refused) +unsaved +pending	End	other fonts(builtin) +unsaved +pending	
 other fonts(refused) +unsaved +pending	PgDn	other fonts(builtin) +unsaved +pending	
-other fonts(refused) +unsaved +pending	Shift-Tab	other looks +unsaved +pending	
+other fonts(refused) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pending	
 other fonts(refused) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other fonts(refused) +unsaved +pending	Tab	other settings(first) +unsaved +pending	
+other fonts(refused) +unsaved +pending	Tab	other effects +unsaved +pending	
 other fonts(refused) +unsaved +pending	i	other fonts(refused) +pending	save, prepare
 other fonts(refused) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
 other fonts(refused) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other help(about)	1	other fonts(builtin)	
+other help(about)	2	other effects	
 other help(about)	3	other looks	
 other help(about)	4	other flow(doc display)	mouse on
 other help(about)	5	other settings(first)	
@@ -2382,9 +2509,10 @@ other help(about)	Left	other help(help)
 other help(about)	Right	other help(help)	
 other help(about)	Shift-Tab	other settings(first)	
 other help(about)	Shrink	other any.too-small	
-other help(about)	Tab	other flow(doc display)	mouse on
+other help(about)	Tab	other fonts(builtin)	
 other help(about)	q	other left	exit 0
 other help(about) +pending	1	other fonts(marked) +pending	
+other help(about) +pending	2	other effects +pending	
 other help(about) +pending	3	other looks +pending	
 other help(about) +pending	4	other flow(doc display) +pending	mouse on
 other help(about) +pending	5	other settings(first) +pending	
@@ -2393,9 +2521,10 @@ other help(about) +pending	Left	other help(help) +pending
 other help(about) +pending	Right	other help(help) +pending	
 other help(about) +pending	Shift-Tab	other settings(first) +pending	
 other help(about) +pending	Shrink	other any.too-small +pending	
-other help(about) +pending	Tab	other flow(doc display) +pending	mouse on
+other help(about) +pending	Tab	other fonts(marked) +pending	
 other help(about) +pending	q	other any.question.leave +pending	
 other help(about) +unsaved	1	other fonts(builtin) +unsaved	
+other help(about) +unsaved	2	other effects +unsaved	
 other help(about) +unsaved	3	other looks +unsaved	
 other help(about) +unsaved	4	other flow(doc display) +unsaved	mouse on
 other help(about) +unsaved	5	other settings(first) +unsaved	
@@ -2404,9 +2533,10 @@ other help(about) +unsaved	Left	other help(help) +unsaved
 other help(about) +unsaved	Right	other help(help) +unsaved	
 other help(about) +unsaved	Shift-Tab	other settings(first) +unsaved	
 other help(about) +unsaved	Shrink	other any.too-small +unsaved	
-other help(about) +unsaved	Tab	other flow(doc display) +unsaved	mouse on
+other help(about) +unsaved	Tab	other fonts(builtin) +unsaved	
 other help(about) +unsaved	q	other any.question.quit +unsaved	
 other help(about) +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other help(about) +unsaved +pending	2	other effects +unsaved +pending	
 other help(about) +unsaved +pending	3	other looks +unsaved +pending	
 other help(about) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other help(about) +unsaved +pending	5	other settings(first) +unsaved +pending	
@@ -2415,9 +2545,10 @@ other help(about) +unsaved +pending	Left	other help(help) +unsaved +pending
 other help(about) +unsaved +pending	Right	other help(help) +unsaved +pending	
 other help(about) +unsaved +pending	Shift-Tab	other settings(first) +unsaved +pending	
 other help(about) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other help(about) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
+other help(about) +unsaved +pending	Tab	other fonts(marked) +unsaved +pending	
 other help(about) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other help(help)	1	other fonts(builtin)	
+other help(help)	2	other effects	
 other help(help)	3	other looks	
 other help(help)	4	other flow(doc display)	mouse on
 other help(help)	5	other settings(first)	
@@ -2426,9 +2557,10 @@ other help(help)	Left	other help(about)
 other help(help)	Right	other help(about)	
 other help(help)	Shift-Tab	other settings(first)	
 other help(help)	Shrink	other any.too-small	
-other help(help)	Tab	other flow(doc display)	mouse on
+other help(help)	Tab	other fonts(builtin)	
 other help(help)	q	other left	exit 0
 other help(help) +pending	1	other fonts(marked) +pending	
+other help(help) +pending	2	other effects +pending	
 other help(help) +pending	3	other looks +pending	
 other help(help) +pending	4	other flow(doc display) +pending	mouse on
 other help(help) +pending	5	other settings(first) +pending	
@@ -2437,9 +2569,10 @@ other help(help) +pending	Left	other help(about) +pending
 other help(help) +pending	Right	other help(about) +pending	
 other help(help) +pending	Shift-Tab	other settings(first) +pending	
 other help(help) +pending	Shrink	other any.too-small +pending	
-other help(help) +pending	Tab	other flow(doc display) +pending	mouse on
+other help(help) +pending	Tab	other fonts(marked) +pending	
 other help(help) +pending	q	other any.question.leave +pending	
 other help(help) +unsaved	1	other fonts(builtin) +unsaved	
+other help(help) +unsaved	2	other effects +unsaved	
 other help(help) +unsaved	3	other looks +unsaved	
 other help(help) +unsaved	4	other flow(doc display) +unsaved	mouse on
 other help(help) +unsaved	5	other settings(first) +unsaved	
@@ -2448,9 +2581,10 @@ other help(help) +unsaved	Left	other help(about) +unsaved
 other help(help) +unsaved	Right	other help(about) +unsaved	
 other help(help) +unsaved	Shift-Tab	other settings(first) +unsaved	
 other help(help) +unsaved	Shrink	other any.too-small +unsaved	
-other help(help) +unsaved	Tab	other flow(doc display) +unsaved	mouse on
+other help(help) +unsaved	Tab	other fonts(builtin) +unsaved	
 other help(help) +unsaved	q	other any.question.quit +unsaved	
 other help(help) +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other help(help) +unsaved +pending	2	other effects +unsaved +pending	
 other help(help) +unsaved +pending	3	other looks +unsaved +pending	
 other help(help) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other help(help) +unsaved +pending	5	other settings(first) +unsaved +pending	
@@ -2459,51 +2593,55 @@ other help(help) +unsaved +pending	Left	other help(about) +unsaved +pending
 other help(help) +unsaved +pending	Right	other help(about) +unsaved +pending	
 other help(help) +unsaved +pending	Shift-Tab	other settings(first) +unsaved +pending	
 other help(help) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other help(help) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
+other help(help) +unsaved +pending	Tab	other fonts(marked) +unsaved +pending	
 other help(help) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other looks	1	other fonts(builtin)	
+other looks	2	other effects	
 other looks	4	other flow(doc display)	mouse on
 other looks	5	other settings(first)	
 other looks	6	other help(help)	
 other looks	Ctrl-C	other left	exit 130
 other looks	Enter	other looks +unsaved	check
-other looks	Shift-Tab	other flow(doc display)	mouse on
+other looks	Shift-Tab	other effects	
 other looks	Shrink	other any.too-small	
-other looks	Tab	other fonts(builtin)	
+other looks	Tab	other flow(doc display)	mouse on
 other looks	i	other looks	prepare
 other looks	q	other left	exit 0
 other looks +pending	1	other fonts(marked) +pending	
+other looks +pending	2	other effects +pending	
 other looks +pending	4	other flow(doc display) +pending	mouse on
 other looks +pending	5	other settings(first) +pending	
 other looks +pending	6	other help(help) +pending	
 other looks +pending	Ctrl-C	other left	exit 130
 other looks +pending	Enter	other looks +unsaved +pending	check
-other looks +pending	Shift-Tab	other flow(doc display) +pending	mouse on
+other looks +pending	Shift-Tab	other effects +pending	
 other looks +pending	Shrink	other any.too-small +pending	
-other looks +pending	Tab	other fonts(marked) +pending	
+other looks +pending	Tab	other flow(doc display) +pending	mouse on
 other looks +pending	i	other any.question.confirm +pending	prepare
 other looks +pending	q	other any.question.leave +pending	
 other looks +unsaved	1	other fonts(builtin) +unsaved	
+other looks +unsaved	2	other effects +unsaved	
 other looks +unsaved	4	other flow(doc display) +unsaved	mouse on
 other looks +unsaved	5	other settings(first) +unsaved	
 other looks +unsaved	6	other help(help) +unsaved	
 other looks +unsaved	Ctrl-C	other left	save, exit 130
 other looks +unsaved	Enter	other looks +unsaved	check
-other looks +unsaved	Shift-Tab	other flow(doc display) +unsaved	mouse on
+other looks +unsaved	Shift-Tab	other effects +unsaved	
 other looks +unsaved	Shrink	other any.too-small +unsaved	
-other looks +unsaved	Tab	other fonts(builtin) +unsaved	
+other looks +unsaved	Tab	other flow(doc display) +unsaved	mouse on
 other looks +unsaved	i	other looks	save, prepare
 other looks +unsaved	q	other any.question.quit +unsaved	
 other looks +unsaved	s	other looks	save
 other looks +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other looks +unsaved +pending	2	other effects +unsaved +pending	
 other looks +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other looks +unsaved +pending	5	other settings(first) +unsaved +pending	
 other looks +unsaved +pending	6	other help(help) +unsaved +pending	
 other looks +unsaved +pending	Ctrl-C	other left	save, exit 130
 other looks +unsaved +pending	Enter	other looks +unsaved +pending	check
-other looks +unsaved +pending	Shift-Tab	other flow(doc display) +unsaved +pending	mouse on
+other looks +unsaved +pending	Shift-Tab	other effects +unsaved +pending	
 other looks +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks +unsaved +pending	Tab	other fonts(marked) +unsaved +pending	
+other looks +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks +unsaved +pending	i	other looks +pending	save, prepare
 other looks +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other looks +unsaved +pending	s	other looks +pending	save
@@ -2632,6 +2770,7 @@ other looks.new-frit.typing(row 5) +unsaved +pending	Enter	other looks.new-frit(
 other looks.new-frit.typing(row 5) +unsaved +pending	Esc	other fonts(marked) +unsaved +pending	
 other looks.new-frit.typing(row 5) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other settings(first)	1	other fonts(builtin)	
+other settings(first)	2	other effects	
 other settings(first)	3	other looks	
 other settings(first)	4	other flow(doc display)	mouse on
 other settings(first)	6	other help(help)	
@@ -2640,12 +2779,13 @@ other settings(first)	Down	other settings(later)
 other settings(first)	End	other settings(later)	
 other settings(first)	Enter	other settings.section(value)	
 other settings(first)	PgDn	other settings(later)	
-other settings(first)	Shift-Tab	other fonts(builtin)	
+other settings(first)	Shift-Tab	other flow(doc display)	mouse on
 other settings(first)	Shrink	other any.too-small	
 other settings(first)	Tab	other help(help)	
 other settings(first)	i	other settings(first)	prepare
 other settings(first)	q	other left	exit 0
 other settings(first) +pending	1	other fonts(marked) +pending	
+other settings(first) +pending	2	other effects +pending	
 other settings(first) +pending	3	other looks +pending	
 other settings(first) +pending	4	other flow(doc display) +pending	mouse on
 other settings(first) +pending	6	other help(help) +pending	
@@ -2654,12 +2794,13 @@ other settings(first) +pending	Down	other settings(later) +pending
 other settings(first) +pending	End	other settings(later) +pending	
 other settings(first) +pending	Enter	other settings.section(value) +pending	
 other settings(first) +pending	PgDn	other settings(later) +pending	
-other settings(first) +pending	Shift-Tab	other fonts(marked) +pending	
+other settings(first) +pending	Shift-Tab	other flow(doc display) +pending	mouse on
 other settings(first) +pending	Shrink	other any.too-small +pending	
 other settings(first) +pending	Tab	other help(help) +pending	
 other settings(first) +pending	i	other any.question.confirm +pending	prepare
 other settings(first) +pending	q	other any.question.leave +pending	
 other settings(first) +unsaved	1	other fonts(builtin) +unsaved	
+other settings(first) +unsaved	2	other effects +unsaved	
 other settings(first) +unsaved	3	other looks +unsaved	
 other settings(first) +unsaved	4	other flow(doc display) +unsaved	mouse on
 other settings(first) +unsaved	6	other help(help) +unsaved	
@@ -2668,13 +2809,14 @@ other settings(first) +unsaved	Down	other settings(later) +unsaved
 other settings(first) +unsaved	End	other settings(later) +unsaved	
 other settings(first) +unsaved	Enter	other settings.section(value) +unsaved	
 other settings(first) +unsaved	PgDn	other settings(later) +unsaved	
-other settings(first) +unsaved	Shift-Tab	other fonts(builtin) +unsaved	
+other settings(first) +unsaved	Shift-Tab	other flow(doc display) +unsaved	mouse on
 other settings(first) +unsaved	Shrink	other any.too-small +unsaved	
 other settings(first) +unsaved	Tab	other help(help) +unsaved	
 other settings(first) +unsaved	i	other settings(first)	save, prepare
 other settings(first) +unsaved	q	other any.question.quit +unsaved	
 other settings(first) +unsaved	s	other settings(first)	save
 other settings(first) +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other settings(first) +unsaved +pending	2	other effects +unsaved +pending	
 other settings(first) +unsaved +pending	3	other looks +unsaved +pending	
 other settings(first) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other settings(first) +unsaved +pending	6	other help(help) +unsaved +pending	
@@ -2683,13 +2825,14 @@ other settings(first) +unsaved +pending	Down	other settings(later) +unsaved +pen
 other settings(first) +unsaved +pending	End	other settings(later) +unsaved +pending	
 other settings(first) +unsaved +pending	Enter	other settings.section(value) +unsaved +pending	
 other settings(first) +unsaved +pending	PgDn	other settings(later) +unsaved +pending	
-other settings(first) +unsaved +pending	Shift-Tab	other fonts(marked) +unsaved +pending	
+other settings(first) +unsaved +pending	Shift-Tab	other flow(doc display) +unsaved +pending	mouse on
 other settings(first) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other settings(first) +unsaved +pending	Tab	other help(help) +unsaved +pending	
 other settings(first) +unsaved +pending	i	other settings(first) +pending	save, prepare
 other settings(first) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other settings(first) +unsaved +pending	s	other settings(first) +pending	save
 other settings(later)	1	other fonts(builtin)	
+other settings(later)	2	other effects	
 other settings(later)	3	other looks	
 other settings(later)	4	other flow(doc display)	mouse on
 other settings(later)	6	other help(help)	
@@ -2697,13 +2840,14 @@ other settings(later)	Ctrl-C	other left	exit 130
 other settings(later)	Enter	other settings.section(choice)	
 other settings(later)	Home	other settings(first)	
 other settings(later)	PgUp	other settings(first)	
-other settings(later)	Shift-Tab	other fonts(builtin)	
+other settings(later)	Shift-Tab	other flow(doc display)	mouse on
 other settings(later)	Shrink	other any.too-small	
 other settings(later)	Tab	other help(help)	
 other settings(later)	Up	other settings(first)	
 other settings(later)	i	other settings(later)	prepare
 other settings(later)	q	other left	exit 0
 other settings(later) +pending	1	other fonts(marked) +pending	
+other settings(later) +pending	2	other effects +pending	
 other settings(later) +pending	3	other looks +pending	
 other settings(later) +pending	4	other flow(doc display) +pending	mouse on
 other settings(later) +pending	6	other help(help) +pending	
@@ -2711,13 +2855,14 @@ other settings(later) +pending	Ctrl-C	other left	exit 130
 other settings(later) +pending	Enter	other settings.section(choice) +pending	
 other settings(later) +pending	Home	other settings(first) +pending	
 other settings(later) +pending	PgUp	other settings(first) +pending	
-other settings(later) +pending	Shift-Tab	other fonts(marked) +pending	
+other settings(later) +pending	Shift-Tab	other flow(doc display) +pending	mouse on
 other settings(later) +pending	Shrink	other any.too-small +pending	
 other settings(later) +pending	Tab	other help(help) +pending	
 other settings(later) +pending	Up	other settings(first) +pending	
 other settings(later) +pending	i	other any.question.confirm +pending	prepare
 other settings(later) +pending	q	other any.question.leave +pending	
 other settings(later) +unsaved	1	other fonts(builtin) +unsaved	
+other settings(later) +unsaved	2	other effects +unsaved	
 other settings(later) +unsaved	3	other looks +unsaved	
 other settings(later) +unsaved	4	other flow(doc display) +unsaved	mouse on
 other settings(later) +unsaved	6	other help(help) +unsaved	
@@ -2725,7 +2870,7 @@ other settings(later) +unsaved	Ctrl-C	other left	save, exit 130
 other settings(later) +unsaved	Enter	other settings.section(choice) +unsaved	
 other settings(later) +unsaved	Home	other settings(first) +unsaved	
 other settings(later) +unsaved	PgUp	other settings(first) +unsaved	
-other settings(later) +unsaved	Shift-Tab	other fonts(builtin) +unsaved	
+other settings(later) +unsaved	Shift-Tab	other flow(doc display) +unsaved	mouse on
 other settings(later) +unsaved	Shrink	other any.too-small +unsaved	
 other settings(later) +unsaved	Tab	other help(help) +unsaved	
 other settings(later) +unsaved	Up	other settings(first) +unsaved	
@@ -2733,6 +2878,7 @@ other settings(later) +unsaved	i	other settings(later)	save, prepare
 other settings(later) +unsaved	q	other any.question.quit +unsaved	
 other settings(later) +unsaved	s	other settings(later)	save
 other settings(later) +unsaved +pending	1	other fonts(marked) +unsaved +pending	
+other settings(later) +unsaved +pending	2	other effects +unsaved +pending	
 other settings(later) +unsaved +pending	3	other looks +unsaved +pending	
 other settings(later) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
 other settings(later) +unsaved +pending	6	other help(help) +unsaved +pending	
@@ -2740,7 +2886,7 @@ other settings(later) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other settings(later) +unsaved +pending	Enter	other settings.section(choice) +unsaved +pending	
 other settings(later) +unsaved +pending	Home	other settings(first) +unsaved +pending	
 other settings(later) +unsaved +pending	PgUp	other settings(first) +unsaved +pending	
-other settings(later) +unsaved +pending	Shift-Tab	other fonts(marked) +unsaved +pending	
+other settings(later) +unsaved +pending	Shift-Tab	other flow(doc display) +unsaved +pending	mouse on
 other settings(later) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other settings(later) +unsaved +pending	Tab	other help(help) +unsaved +pending	
 other settings(later) +unsaved +pending	Up	other settings(first) +unsaved +pending	
