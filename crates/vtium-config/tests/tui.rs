@@ -2208,6 +2208,48 @@ fn no_frame_writes_over_the_cells_under_a_picture() {
     assert!(written(&bare).iter().any(|c| *c != ' '));
 }
 
+/// A picture that replaces another stays on the screen: the loop clears
+/// the screen when the old picture leaves, before the new one is shown,
+/// and never between a picture's show and its delete. ED 2 erases the
+/// pictures on the screen, so a clear written with the next frame would
+/// take the new picture with it.
+///
+/// References:
+/// - ADR-1206 D5, "ratatui draws what changed": after a picture is
+///   deleted the loop clears the screen, so the next frame draws whole.
+#[test]
+fn a_picture_that_replaces_another_is_not_erased_by_the_clear() {
+    let mut c = outside().keys(&[BACKTAB, DOWN, DOWN]);
+    c.graphics = true;
+    drive(&mut c, inputs()).expect("the loop");
+    let at = |pat: &[u8]| -> Vec<usize> {
+        c.written
+            .windows(pat.len())
+            .enumerate()
+            .filter(|(_, w)| *w == pat)
+            .map(|(i, _)| i)
+            .collect()
+    };
+    let (shows, deletes, clears) = (at(b"a=T"), at(b"a=d"), at(b"\x1b[2J"));
+    // positive control: a picture replaces another, so the screen is
+    // cleared after a delete with a picture shown after it
+    assert!(
+        deletes
+            .iter()
+            .any(|d| shows.iter().any(|s| s > d) && clears.iter().any(|e| e > d)),
+        "shows {shows:?}, deletes {deletes:?}, clears {clears:?}"
+    );
+    for show in &shows {
+        let gone = deletes.iter().find(|d| *d > show).copied();
+        assert!(
+            !clears
+                .iter()
+                .any(|e| e > show && gone.is_none_or(|d| *e < d)),
+            "a clear erased the picture shown at byte {show}: shows {shows:?}, deletes {deletes:?}, clears {clears:?}"
+        );
+    }
+}
+
 /// A picture that fails while the live trial counts down leaves the
 /// countdown on the message line.
 #[test]

@@ -206,7 +206,7 @@ pub fn drive_with(
                         // the picture's cells come back as the text under
                         // them, so the next frame draws whole
                         if bytes == crate::kitty::delete(crate::kitty::IMAGE_ID) {
-                            painter.forget()?;
+                            port.write(&painter.forget()?)?;
                         }
                     }
                     Effect::Wait(d) => port.arm(d),
@@ -256,7 +256,7 @@ pub fn drive_with(
                         };
                         // the privileged step wrote to the terminal, so
                         // the next frame draws whole
-                        painter.forget()?;
+                        port.write(&painter.forget()?)?;
                         queue.extend(app.event(Event::Resize(size_of(port))));
                         queue.extend(app.event(Event::Installed(result)));
                     }

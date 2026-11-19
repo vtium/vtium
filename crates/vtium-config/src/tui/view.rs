@@ -703,11 +703,14 @@ impl Painter {
         Ok(self.terminal.backend_mut().take())
     }
 
-    /// Clears the screen and forgets what it showed, so the next frame
-    /// draws whole: after another program wrote to the terminal, or after
-    /// a picture left it.
-    pub fn forget(&mut self) -> std::io::Result<()> {
-        self.terminal.clear()
+    /// Forgets what the screen showed, so the next frame draws whole, and
+    /// returns the bytes that clear the screen: after another program
+    /// wrote to the terminal, or after a picture left it. The loop writes
+    /// them at once, before anything else it writes, because a clear that
+    /// waited for the next frame would erase a picture shown meanwhile.
+    pub fn forget(&mut self) -> std::io::Result<Vec<u8>> {
+        self.terminal.clear()?;
+        Ok(self.terminal.backend_mut().take())
     }
 }
 
