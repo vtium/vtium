@@ -156,12 +156,9 @@ impl App {
     /// commands that make the same changes, and `select` is the item to
     /// select once the draft is checked.
     pub(crate) fn make(&mut self, changes: Vec<Change>, select: Option<Item>) -> Vec<Effect> {
-        let Some(draft) = &self.shared.draft else {
-            return self.say(words::NO_DESK);
-        };
-        let text = match super::edit::apply_all(&draft.text, &changes) {
+        let text = match self.shared.apply(&changes) {
             Ok(text) => text,
-            Err(fail) => return self.say(fail.text()),
+            Err(why) => return self.say(&why),
         };
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
         self.shared.message = Some(commands.join("\n"));

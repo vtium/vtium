@@ -15,7 +15,8 @@
 //! as plain data: boxes, lines and notes. [`State`] is where the highlight
 //! is, which canvas row is at the window's top, and the path in the
 //! editor. [`super::flowdraw`] draws the layout, [`super::paths`] holds the
-//! path model, and the keys are in `flowkeys`.
+//! path model, and the keys are in the Flow tab's module,
+//! [`super::tabs::flow`].
 
 use super::flow::{Device, Flow, Kind};
 use super::input::Key;

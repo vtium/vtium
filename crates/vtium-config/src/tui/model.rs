@@ -8,7 +8,7 @@
 //! The views are Flow, Looks, Fonts, Settings and Help (ADR-1201 D3), and
 //! the TUI opens on the one its caller names. The Flow view draws the
 //! configuration as paths of parts (ADR-1403 D7, [`super::flowview`]), and
-//! its keys are in `flowkeys`.
+//! its keys are in the Flow tab's module, [`super::tabs::flow`].
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -435,6 +435,16 @@ impl Shared {
     pub fn value(&self, key: &keys::Key) -> (String, bool) {
         let (v, set) = crate::commands::value_text(key, self.conf_text());
         (v, !set)
+    }
+
+    /// The draft's text with `changes` made on it, in order, or the line
+    /// that says why they cannot be made: there is no draft, or one of
+    /// the changes does not apply.
+    pub fn apply(&self, changes: &[DraftChange]) -> Result<String, String> {
+        let Some(draft) = &self.draft else {
+            return Err(super::words::NO_DESK.to_owned());
+        };
+        super::edit::apply_all(&draft.text, changes).map_err(|fail| fail.text().to_owned())
     }
 
     /// The frits an install writes and removes with the draft, frits
@@ -1056,7 +1066,9 @@ impl App {
     /// A key that the open view acts on itself.
     fn view_key(&mut self, key: Key) -> Vec<Effect> {
         if self.nav.view == View::Flow {
-            return self.flow_key(key);
+            let keys = super::view::key_rows(self).len();
+            let commands = self.flow.update(&self.shared, self.size, keys, key);
+            return self.perform(commands);
         }
         // the action keys do nothing while a Settings section is open
         // over the list of sections, as in every layer (ADR-1403 D7)
@@ -1133,6 +1145,12 @@ impl App {
                 Command::Change(Change::Pending(pending)) => self.shared.pending = pending,
                 Command::Change(Change::SaveTried) => effects.extend(self.save_tried()),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
+                Command::Change(Change::Quiet) => self.shared.message = None,
+                Command::Change(Change::Make { changes, select }) => {
+                    effects.extend(self.make(changes, select));
+                }
+                Command::Change(Change::Save) => effects.extend(self.save()),
+                Command::Change(Change::Action(key)) => effects.extend(self.action(key)),
                 Command::Request(request) => requests.push(request),
             }
         }
@@ -1141,6 +1159,12 @@ impl App {
             match request {
                 Request::Go(view) => effects.extend(self.set_view(view)),
                 Request::Ask { question, then } => self.ask(question, then),
+                // the Fonts tab highlights the font before it opens, in
+                // that order, so its first frame shows the font
+                Request::ShowFont(name) => {
+                    self.fonts.highlight(&self.shared, &name);
+                    effects.extend(self.set_view(View::Fonts));
+                }
             }
         }
         effects
@@ -1168,21 +1192,6 @@ impl App {
             }
             _ => Vec::new(),
         }
-    }
-
-    /// A key in the Flow view (ADR-1403 D7) while the file view or
-    /// Restore's list is open over it.
-    pub(crate) fn flow_open_key(&mut self, key: Key) -> Vec<Effect> {
-        if self.flow.pager().is_some() {
-            let keys = super::view::key_rows(self).len();
-            self.flow.pager_key(&self.shared, self.size, keys, key);
-            return Vec::new();
-        }
-        if self.flow.restore().is_some() {
-            let commands = self.flow.restore_key(&self.shared, key);
-            return self.perform(commands);
-        }
-        Vec::new()
     }
 
     /// A mouse event, which only the Flow view asks for: a click on a
@@ -1219,7 +1228,11 @@ impl App {
             return self.set_view(view);
         }
         if super::flowdraw::shown(self) {
-            return self.flow_click(mouse.col, mouse.row);
+            let keys = super::view::key_rows(self).len();
+            let commands = self
+                .flow
+                .click(&self.shared, self.size, keys, mouse.col, mouse.row);
+            return self.perform(commands);
         }
         Vec::new()
     }

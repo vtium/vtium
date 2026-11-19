@@ -18,6 +18,8 @@ pub mod help;
 pub mod looks;
 pub mod settings;
 
+use super::edit::Change as DraftChange;
+use super::flow::Item;
 use super::input::Key;
 use super::model::{Effect, Pending, TYPED_MAX, Then, View};
 
@@ -50,6 +52,20 @@ pub enum Change {
     SaveTried,
     /// Tries this font on the live console.
     Try(String),
+    /// Clears the message line.
+    Quiet,
+    /// Makes `changes` on the draft, in order, and hands the result to the
+    /// desk to check, then selects `select` in the Flow view once the desk
+    /// answers. The tab checks first that the changes can be made, with
+    /// [`super::model::Shared::apply`].
+    Make {
+        changes: Vec<DraftChange>,
+        select: Option<Item>,
+    },
+    /// Writes the unsaved changes into the draft: Save.
+    Save,
+    /// One of the action keys `i`, `d`, `v`, `r`, `o` and `n`.
+    Action(char),
 }
 
 /// A request to the navigation module.
@@ -59,6 +75,8 @@ pub enum Request {
     Go(View),
     /// Asks this question, which does `then` on a yes.
     Ask { question: String, then: Then },
+    /// Shows the font set `name` in the Fonts tab, highlighted.
+    ShowFont(String),
 }
 
 /// A character or Backspace typed into `text`, the value being edited. A
