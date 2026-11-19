@@ -359,27 +359,70 @@ const MOUNTINFO: &str = "\
 37 22 8:18 / /media/my\\040disk rw shared:9 - ext4 /dev/sdb2 rw
 ";
 
-/// A sysfs folder for the fixtures: sda, a fixed disk with partitions
-/// sda1 and sda2, and sdb, a removable disk with partitions sdb1 and
-/// sdb2, each reached from `dev/block/MAJ:MIN` by a link, as the kernel
-/// lays sysfs out.
+/// A sysfs folder for the fixtures, laid out as the kernel lays sysfs out,
+/// each device reached from `dev/block/MAJ:MIN` by a link:
+///
+/// - sda (8:0), a fixed SATA disk with partitions sda1 and sda2;
+/// - sdb (8:16), a removable disk with partitions sdb1 and sdb2;
+/// - sdc (8:32), a USB disk that reports itself fixed, with sdc1;
+/// - dm-0 (253:0), an encrypted volume on sdb1, and dm-1 (253:1) on sdc1;
+/// - md0 (9:0), a RAID array of sda1 and sda2, and dm-2 (253:2) on md0.
 fn sysfs(dir: &Path) -> PathBuf {
     let sys = dir.join("sys");
-    for (disk, removable, parts) in [
-        ("sda", "0", [(1, "8:1"), (2, "8:2")]),
-        ("sdb", "1", [(1, "8:17"), (2, "8:18")]),
+    mkdir(&sys.join("dev/block"), 0o755);
+    let link = |dev: &str, to: &Path| {
+        symlink(to, sys.join("dev/block").join(dev)).expect("the device link");
+    };
+    let mut parts = std::collections::HashMap::new();
+    for (bus, disk, dev, removable, partitions) in [
+        (
+            "ata1/host0",
+            "sda",
+            "8:0",
+            "0",
+            &[(1, "8:1"), (2, "8:2")][..],
+        ),
+        (
+            "usb1/1-1/host1",
+            "sdb",
+            "8:16",
+            "1",
+            &[(1, "8:17"), (2, "8:18")][..],
+        ),
+        ("usb2/2-1/host2", "sdc", "8:32", "0", &[(1, "8:33")][..]),
     ] {
-        let d = sys.join("devices/pci0000:00/usb1/block").join(disk);
+        let d = sys
+            .join("devices/pci0000:00")
+            .join(bus)
+            .join("block")
+            .join(disk);
         mkdir(&d, 0o755);
         fs::write(d.join("removable"), format!("{removable}\n")).expect("removable");
-        for (n, dev) in parts {
+        link(dev, &d);
+        for &(n, dev) in partitions {
             let p = d.join(format!("{disk}{n}"));
             mkdir(&p, 0o755);
             fs::write(p.join("partition"), format!("{n}\n")).expect("partition");
-            mkdir(&sys.join("dev/block"), 0o755);
-            symlink(&p, sys.join("dev/block").join(dev)).expect("the device link");
+            link(dev, &p);
+            parts.insert(format!("{disk}{n}"), p);
         }
     }
+    let virt = sys.join("devices/virtual/block");
+    let stacked = |name: &str, dev: &str, below: &[&Path]| {
+        let d = virt.join(name);
+        mkdir(&d.join("slaves"), 0o755);
+        fs::write(d.join("removable"), "0\n").expect("removable");
+        for b in below {
+            let n = b.file_name().expect("a device's name");
+            symlink(b, d.join("slaves").join(n)).expect("the slave link");
+        }
+        link(dev, &d);
+        d
+    };
+    stacked("dm-0", "253:0", &[&parts["sdb1"]]);
+    stacked("dm-1", "253:1", &[&parts["sdc1"]]);
+    let md0 = stacked("md0", "9:0", &[&parts["sda1"], &parts["sda2"]]);
+    stacked("dm-2", "253:2", &[&md0]);
     sys
 }
 
@@ -436,14 +479,14 @@ fn the_mount_check_refuses_network_fuse_automounted_and_removable_filesystems() 
         judge((8, 17), "/media/stick/a.bdf"),
         Err(Unsteady::Removable {
             point: "/media/stick".into(),
-            source: "/dev/sdb1".into()
+            disk: "/dev/sdb".into()
         })
     );
     assert_eq!(
         judge((8, 18), "/media/my disk/a.bdf"),
         Err(Unsteady::Removable {
             point: "/media/my disk".into(),
-            source: "/dev/sdb2".into()
+            disk: "/dev/sdb".into()
         })
     );
 }
@@ -828,4 +871,125 @@ fn a_disk_whose_removable_flag_vtium_cannot_read_fails() {
     );
     assert_eq!(mounts.judge(&place((8, 2), "/usr/a.ttf")), Ok(()));
     assert_eq!(mounts.judge(&place((0, 25), "/run/a.ttf")), Ok(()));
+}
+
+// A filesystem on a stacked device is judged by every device beneath it:
+// an encrypted volume on a removable stick fails, and so does one on a USB
+// disk that reports itself fixed. A volume on a RAID array of fixed disks
+// passes.
+#[test]
+fn a_stacked_device_is_judged_by_the_disks_beneath_it() {
+    let dir = fixture("mounts-stacked");
+    let table = "\
+22 1 8:2 / / rw - ext4 /dev/sda2 rw
+40 22 253:0 / /media/luks rw - ext4 /dev/mapper/luks rw
+41 22 253:1 / /media/usb rw - ext4 /dev/mapper/usb rw
+42 22 253:2 / /srv rw - ext4 /dev/mapper/raid rw
+43 22 8:33 / /media/plain rw - ext4 /dev/sdc1 rw
+";
+    let mounts = Mounts::parse(table, &sysfs(&dir));
+    assert_eq!(
+        mounts.judge(&place((253, 0), "/media/luks/a.ttf")),
+        Err(Unsteady::Removable {
+            point: "/media/luks".into(),
+            disk: "/dev/sdb".into()
+        })
+    );
+    assert_eq!(
+        mounts.judge(&place((253, 1), "/media/usb/a.ttf")),
+        Err(Unsteady::UsbDisk {
+            point: "/media/usb".into(),
+            disk: "/dev/sdc".into()
+        })
+    );
+    assert_eq!(
+        mounts.judge(&place((8, 33), "/media/plain/a.ttf")),
+        Err(Unsteady::UsbDisk {
+            point: "/media/plain".into(),
+            disk: "/dev/sdc".into()
+        })
+    );
+    assert_eq!(mounts.judge(&place((253, 2), "/srv/a.ttf")), Ok(()));
+}
+
+// A loop device is judged by the filesystem that holds its backing file,
+// and a loop device whose backing file sits on the loop device itself is
+// refused once the stack grows too deep.
+#[test]
+fn a_loop_device_is_judged_by_where_its_backing_file_sits() {
+    let dir = fixture("mounts-loop");
+    let sys = sysfs(&dir);
+    let image = dir.join("disk.img");
+    write(&image, b"image", 0o644);
+    let loop0 = sys.join("devices/virtual/block/loop0");
+    mkdir(&loop0.join("loop"), 0o755);
+    mkdir(&loop0.join("slaves"), 0o755);
+    fs::write(loop0.join("removable"), "0\n").expect("removable");
+    let mut backing = image.as_os_str().as_encoded_bytes().to_vec();
+    backing.push(b'\n');
+    fs::write(loop0.join("loop/backing_file"), backing).expect("backing_file");
+    symlink(&loop0, sys.join("dev/block/7:0")).expect("the device link");
+
+    // the real mount table, with the image's own mount rewritten
+    let real = system();
+    let id = real
+        .find(&Place::at(&image).expect("where the image sits"))
+        .expect("the image's mount")
+        .id;
+    let table = |rest: &str| -> String {
+        let real = fs::read_to_string("/proc/self/mountinfo").expect("the mount table");
+        let mut out: String = real
+            .lines()
+            .map(|l| {
+                if l.split(' ').next() == Some(&id.to_string()) {
+                    let (head, _) = l.split_once(" - ").expect("a mount line");
+                    let mut f: Vec<&str> = head.split(' ').collect();
+                    let dev = rest.split(' ').next().expect("a device");
+                    f[2] = dev;
+                    format!("{} - {}\n", f.join(" "), &rest[dev.len() + 1..])
+                } else {
+                    format!("{l}\n")
+                }
+            })
+            .collect();
+        out.push_str("900 1 7:0 / /mnt/iso ro - iso9660 /dev/loop0 ro\n");
+        out
+    };
+    let iso = place((7, 0), "/mnt/iso/a.ttf");
+    let on = |rest| Mounts::parse(&table(rest), &sys).judge(&iso);
+    assert_eq!(on("0:99 tmpfs tmpfs rw"), Ok(()));
+    assert_eq!(
+        on("0:99 nfs4 server:/x rw"),
+        Err(Unsteady::Backing {
+            point: "/mnt/iso".into(),
+            file: image.clone(),
+            why: Box::new(Unsteady::Network {
+                point: real
+                    .list()
+                    .iter()
+                    .find(|m| m.id == id)
+                    .expect("it")
+                    .point
+                    .clone(),
+                fstype: "nfs4".into()
+            })
+        })
+    );
+    let removable = on("8:17 ext4 /dev/sdb1 rw").expect_err("an image on a removable disk");
+    assert!(
+        matches!(&removable, Unsteady::Backing { why, .. } if matches!(**why, Unsteady::Removable { .. })),
+        "{removable:?}"
+    );
+    // the image sits on the loop device it backs
+    let mut deepest = on("7:0 ext4 /dev/loop0 rw").expect_err("a loop that never ends");
+    let mut steps = 0;
+    while let Unsteady::Backing { why, .. } = deepest {
+        deepest = *why;
+        steps += 1;
+    }
+    assert!(
+        matches!(deepest, Unsteady::UnknownDisk { .. }),
+        "{deepest:?}"
+    );
+    assert!(steps > 1, "{steps}");
 }
