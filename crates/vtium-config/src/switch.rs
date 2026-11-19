@@ -9,9 +9,10 @@
 //! nothing more to a terminal that does not name vtium, since another
 //! terminal may act on OSC 50, as xterm looks for an X font of that name
 //! (ADR-1201 D4). To vtium it writes
-//! `OSC 50 ; NAME ST` and the query `OSC 50 ; ? ST` to `/dev/tty`, and
-//! reads the reply in raw mode for at most [`WAIT`], putting the
-//! terminal's mode back after. SIGTERM, SIGHUP, SIGINT and SIGQUIT are
+//! `OSC 50 ; NAME ST`, the query `OSC 50 ; ? ST` and DA1 to `/dev/tty`, and
+//! reads in raw mode until DA1's reply, or for at most [`WAIT`] from a
+//! terminal that does not answer DA1, putting the terminal's mode back
+//! after. SIGTERM, SIGHUP, SIGINT and SIGQUIT are
 //! held while the terminal is raw, so one that comes then acts once the
 //! mode is back; input left unread, such as a reply that came late, is
 //! dropped first, so it never reaches the shell's prompt. It prints
@@ -44,22 +45,8 @@ const READ_MAX: usize = 4096;
 pub enum Answer {
     /// The font in use, as the reply names it.
     Named(String),
-    /// No reply within the wait.
+    /// No reply before DA1's, or none within the wait.
     Silent,
-}
-
-/// The name the first OSC 50 reply in `bytes` gives, `OSC 50 ; NAME`
-/// ended by ST or BEL, once it is whole.
-pub fn reply_name(bytes: &[u8]) -> Option<&[u8]> {
-    const OPEN: &[u8] = b"\x1b]50;";
-    let at = bytes.windows(OPEN.len()).position(|w| w == OPEN)?;
-    let rest = bytes.get(at.checked_add(OPEN.len())?..)?;
-    let end = rest.iter().position(|&b| b == 0x07 || b == 0x1b)?;
-    let name = rest.get(..end)?;
-    match rest.get(end..)? {
-        [0x07, ..] | [0x1b, b'\\', ..] => Some(name),
-        _ => None,
-    }
 }
 
 /// Asks the terminal behind `tty`, already raw, what it is, with XTVERSION
@@ -110,24 +97,18 @@ pub fn ask(
 }
 
 /// Asks the terminal behind `tty`, already raw, for `name`, and reads the
-/// reply to the query until `deadline`.
+/// reply to the query until DA1's reply or `deadline`.
 pub fn switch(tty: &mut (impl Read + Write), name: &str, deadline: Instant) -> io::Result<Answer> {
-    tty.write_all(format!("\x1b]50;{name}\x1b\\\x1b]50;?\x1b\\").as_bytes())?;
-    tty.flush()?;
-    let mut got = Vec::new();
-    let mut buf = [0u8; 256];
-    while now() < deadline && got.len() < READ_MAX {
-        let n = match tty.read(&mut buf) {
-            Ok(n) => n,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-        };
-        got.extend_from_slice(buf.get(..n).unwrap_or_default());
-        if let Some(name) = reply_name(&got) {
-            return Ok(Answer::Named(String::from_utf8_lossy(name).into_owned()));
-        }
-    }
-    Ok(Answer::Silent)
+    use crate::tui::input::Reply;
+    let request = format!("\x1b]50;{name}\x1b\\\x1b]50;?\x1b\\");
+    let replies = ask(tty, request.as_bytes(), deadline)?;
+    Ok(replies
+        .into_iter()
+        .find_map(|r| match r {
+            Reply::Font(name) => Some(Answer::Named(name)),
+            _ => None,
+        })
+        .unwrap_or(Answer::Silent))
 }
 
 #[expect(
@@ -447,19 +428,8 @@ mod tests {
         assert_eq!(category_file(&dir, "absent"), None);
     }
 
-    #[test]
-    fn the_reply_is_found_whole_after_other_bytes() {
-        assert_eq!(reply_name(b"\x1b]50;tiny\x1b\\"), Some(&b"tiny"[..]));
-        assert_eq!(reply_name(b"typed\x1b]50;tiny\x07rest"), Some(&b"tiny"[..]));
-        assert_eq!(reply_name(b"\x1b]50;\x07"), Some(&b""[..]));
-        assert_eq!(reply_name(b"\x1b]50;tiny"), None, "not ended");
-        assert_eq!(reply_name(b"\x1b]50;tiny\x1b"), None, "ST cut short");
-        assert_eq!(reply_name(b"\x1b]51;tiny\x07"), None);
-        assert_eq!(reply_name(b""), None);
-    }
-
-    /// A terminal that answers the query with `name` once it has read the
-    /// request and the query.
+    /// A terminal that answers the query with `name`, and DA1, once it has
+    /// read the request, the query and DA1.
     struct Answering {
         name: &'static [u8],
         written: Vec<u8>,
@@ -477,7 +447,7 @@ mod tests {
 
     impl Read for Answering {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-            let reply = [b"\x1b]50;", self.name, b"\x07"].concat();
+            let reply = [b"\x1b]50;", self.name, b"\x07\x1b[?62;4c"].concat();
             let n = reply.len().min(buf.len());
             buf.get_mut(..n)
                 .unwrap()
@@ -497,7 +467,7 @@ mod tests {
             switch(&mut t, "tiny", deadline).unwrap(),
             Answer::Named("tiny".into())
         );
-        assert_eq!(t.written, b"\x1b]50;tiny\x1b\\\x1b]50;?\x1b\\");
+        assert_eq!(t.written, b"\x1b]50;tiny\x1b\\\x1b]50;?\x1b\\\x1b[c");
     }
 
     #[test]
