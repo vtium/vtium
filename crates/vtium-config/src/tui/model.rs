@@ -766,7 +766,8 @@ impl App {
             View::Settings => self.settings.show_from(row),
             View::Fonts => self.fonts.show_from(row),
             View::New => self.fonts.form_show_from(row),
-            View::Looks | View::Flow | View::Help => {}
+            View::Looks => self.looks.show_from(row),
+            View::Flow | View::Help => {}
         }
     }
 
@@ -777,7 +778,8 @@ impl App {
             View::Settings => self.settings.offset(),
             View::Fonts => self.fonts.offset(),
             View::New => self.fonts.form_offset(),
-            View::Looks | View::Flow | View::Help => 0,
+            View::Looks => self.looks.offset(),
+            View::Flow | View::Help => 0,
         }
     }
 

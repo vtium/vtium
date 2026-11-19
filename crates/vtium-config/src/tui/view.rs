@@ -5,17 +5,18 @@
 //! status line. The Flow view then draws its document of paths and parts,
 //! or the file view or Restore's list over it ([`super::flowdraw`]). The
 //! other views draw a rule, their body, a message line, a rule and their
-//! keys; a body longer than the room scrolls so the highlighted row shows.
+//! keys; a list longer than the room scrolls so the highlighted row shows.
 //! Below 80 by 25 cells no view is drawn: one screen says the size the TUI
 //! needs, the commands that work at any size, and the keys that leave and
 //! that undo a font preview, so the user can always get out. Where each
 //! thing stands comes from [`super::layout`], which update reads too.
 //!
 //! ratatui's widgets draw the tab bar, the status line, the rules, the
-//! message line, the key line, the Help page and the screen below the
-//! minimum. The bodies of the other tabs, and the Flow view under its tab
-//! bar, are still drawn on a [`Canvas`] and copied into their part of the
-//! buffer.
+//! message line, the key line, the Help page, the other tabs' lists and
+//! the screen below the minimum. Text that can hold any character, such as
+//! a font's name or its specimen, is written by the console's width rule
+//! ([`fill`]). The Flow view under its tab bar is still drawn on a
+//! [`Canvas`] and copied into its part of the buffer.
 //!
 //! References:
 //! - ADR-1201 D3 and ADR-1403 D7: the views, the minimum size and the
@@ -408,9 +409,9 @@ pub fn rows(buf: &ratatui_core::buffer::Buffer) -> Vec<Row> {
 
 /// Draws `app`'s screen into `buf`, its colors read as `colors` says.
 /// ratatui draws the tab bar, the status line, the rules, the message
-/// line, the key line and the Help page. The other tabs' bodies, and the
-/// Flow view below its tab bar, are still drawn on a canvas and copied
-/// into their part of the buffer.
+/// line, the key line, the Help page and the other tabs' lists. The Flow
+/// view below its tab bar is still drawn on a canvas and copied into its
+/// part of the buffer.
 fn view(app: &App, colors: Colors, buf: &mut Buffer) {
     let area = buf.area;
     let (cols, rows) = (app.size.cols, app.size.rows);
@@ -461,18 +462,9 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
         Paragraph::new(page)
             .scroll((u16::try_from(first).unwrap_or(u16::MAX), 0))
             .render(band(area, 3, room), buf);
-    } else if matches!(app.nav.view, View::Settings | View::Fonts | View::New) {
+    } else {
         list_body(app, colors, buf, body_area);
         preview_text(app, colors, buf, body_area);
-    } else {
-        let drawn = body_rows(app);
-        let first = usize::from(body_area.y.saturating_sub(area.y));
-        fill(
-            buf,
-            body_area,
-            drawn.get(first..).unwrap_or_default(),
-            colors,
-        );
     }
     let foot_lines: Vec<Line> = message
         .iter()
@@ -572,30 +564,6 @@ fn measured_apart(row: &Row) -> bool {
             symbol.cell_width() != super::backend::console_width(symbol).max(1)
         })
     })
-}
-
-/// The body of a tab that is not yet drawn through ratatui, on a canvas
-/// of the whole screen: its list from row 3 down, the sentences under the
-/// list where they fit, and in a vtium console the preview's text where a
-/// picture would go.
-fn body_rows(app: &App) -> Vec<Row> {
-    let mut canvas = Canvas::new(app.size.cols, app.size.rows);
-    let Body { list, keep, tail } = body(app);
-    let (list_room, show_tail) = list_window(app, list.len(), tail.len());
-    let first = keep.saturating_add(1).saturating_sub(list_room);
-    let mut y = 3usize;
-    for row in list.into_iter().skip(first).take(list_room) {
-        canvas.row(y, &row);
-        y = y.saturating_add(1);
-    }
-    if show_tail {
-        for row in tail {
-            canvas.row(y, &row);
-            y = y.saturating_add(1);
-        }
-    }
-    super::console::draw(&mut canvas, app);
-    canvas.into_rows()
 }
 
 /// The screen as plain text, one line a row, for tests and goldens; a raw
@@ -769,6 +737,22 @@ mod tests {
                 (5, "c".to_owned())
             ]
         );
+    }
+
+    #[test]
+    fn a_wide_character_takes_two_cells_and_never_crosses_the_edge() {
+        // 日 takes two cells by the console's width rule, so the second
+        // one would end past the fifth cell and is left out
+        let rows = vec![vec![span("a日b日", Style::PLAIN)]];
+        let mut buf = Buffer::empty(Rect::new(0, 0, 5, 1));
+        let area = buf.area;
+        fill(&mut buf, area, &rows, Colors::Named);
+        let at = |x: u16| buf[(x, 0)].symbol().to_owned();
+        assert_eq!(
+            (0..5).map(at).collect::<Vec<_>>(),
+            ["a", "日", " ", "b", " "]
+        );
+        assert_eq!(super::rows(&buf), [vec![span("a日b ", Style::PLAIN)]]);
     }
 
     #[test]

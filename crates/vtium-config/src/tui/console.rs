@@ -22,7 +22,6 @@
 //! in each console's session (ADR-1401 D5). The draft is written only
 //! when `vtium check-config` passes it ([`super::desk::Op::WriteChecked`]).
 
-use super::canvas::Canvas;
 use super::color::Style;
 use super::desk::Op;
 use super::edit::Change;
@@ -71,25 +70,6 @@ pub fn lines(app: &App) -> Vec<Vec<(&'static str, Style)>> {
         View::Fonts => fonts_lines(&app.shared.inputs.locale),
         View::Looks => super::shot::sample_rows(),
         _ => Vec::new(),
-    }
-}
-
-/// Draws the preview text on `canvas` in the picture area, where a
-/// picture would go, as many lines as the area holds, each cut at the
-/// screen's edge.
-pub fn draw(canvas: &mut Canvas, app: &App) {
-    if !app.shared.text_preview() {
-        return;
-    }
-    let (row, col) = super::layout::picture_at(app);
-    let (_, rows) = super::layout::picture_area(app);
-    let top = row.saturating_sub(1);
-    let left = col.saturating_sub(1);
-    for (i, line) in lines(app).into_iter().take(rows).enumerate() {
-        let mut x = left;
-        for (text, style) in line {
-            x = canvas.put_cells(x, top.saturating_add(i), text, style);
-        }
     }
 }
 
