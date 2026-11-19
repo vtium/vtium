@@ -13,7 +13,15 @@
 //! The number of cases is a constant, so a run of `cargo test` takes the
 //! same few seconds every time. proptest writes the seed of each failing
 //! case to `walk.proptest-regressions` beside this file, which is
-//! committed, so a case found once runs first in every later run.
+//! committed, and runs those seeds first in every later run. A seed
+//! replays its case only while the two tables and [`ALPHABET`] stay as
+//! they are, because proptest draws each key again from the keys the
+//! reference offers. So the seed's line also records the shrunk sequence
+//! of keys, and [`the_sequences_proptest_found_replay_as_the_tables_say`]
+//! presses each recorded sequence as it is written. That test fails when a
+//! line no longer reads as a seed, or when the tables no longer decide a
+//! key of its sequence, where proptest would skip the line with a warning
+//! or replay some other case.
 //!
 //! References:
 //! - ADR-1206 D5: a property test checks the navigation against a reading
@@ -259,6 +267,72 @@ prop_state_machine! {
     })]
     #[test]
     fn random_keys_move_as_the_tables_say(sequential 1..40 => Walk);
+}
+
+/// The term and the keys that a line of `walk.proptest-regressions`
+/// records after its seed: `# shrinks to (RefState { term: Vtium, … },
+/// ["4", "o", "Esc"], None)`.
+fn recorded(comment: &str) -> Option<(Term, Vec<String>)> {
+    let term = comment.split_once("term: ")?.1.split([',', ' ']).next()?;
+    let term = Term::ALL.into_iter().find(|t| format!("{t:?}") == term)?;
+    let list = comment.split_once("}, [")?.1.split_once(']')?.0;
+    let keys = list
+        .split(", ")
+        .filter(|k| !k.is_empty())
+        .map(|k| k.trim_matches('"').to_owned())
+        .collect();
+    Some((term, keys))
+}
+
+/// Each sequence of keys that `walk.proptest-regressions` records,
+/// pressed as it is written and compared with the reference after each
+/// key. A seed alone replays its case only while the tables and the
+/// alphabet stay as they are, so this test keeps each case found once.
+/// It fails on a line that does not read as a seed and its sequence, and
+/// on a key that the tables no longer decide.
+#[test]
+fn the_sequences_proptest_found_replay_as_the_tables_say() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/scenarios/walk.proptest-regressions");
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let mut failures = Vec::new();
+    let mut replayed = 0usize;
+    for (n, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (seed, comment) = line.split_once('#').unwrap_or((line, ""));
+        let seed = seed.trim().strip_prefix("cc ").unwrap_or(seed.trim());
+        if <proptest::test_runner::PersistedSeed as std::str::FromStr>::from_str(&format!(
+            "cc {seed}"
+        ))
+        .is_err()
+        {
+            failures.push(format!(
+                "line {}: proptest cannot read the seed {seed:?}",
+                n + 1
+            ));
+            continue;
+        }
+        let Some((term, keys)) = recorded(comment) else {
+            failures.push(format!(
+                "line {}: no sequence of keys after the seed",
+                n + 1
+            ));
+            continue;
+        };
+        let keys: Vec<&str> = keys.iter().map(String::as_str).collect();
+        if let Err(e) = replay(term, &keys) {
+            failures.push(format!("line {}: {e}", n + 1));
+        }
+        replayed += 1;
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+    assert!(
+        replayed >= 3,
+        "the file records {replayed} sequences, and it holds at least 3"
+    );
 }
 
 /// The new-frit form opens on its first field each time `n` opens it,
