@@ -83,6 +83,13 @@ roxmltree = "=0.21.1"
 # shapes' names, from the crate the console draws the pointer with.
 vtium-render.workspace = true
 
+# The TUI's layout, buffer of cells, styled text and Terminal, and its
+# lists, tabs and paragraphs. Only their `std` feature, and no backend
+# crate: vtium-config's own Backend turns ratatui's cells into the bytes
+# its loop writes. The two crates are released together and move together.
+ratatui-core = { version = "=0.1.2", default-features = false, features = ["std"] }
+ratatui-widgets = { version = "=0.3.2", default-features = false, features = ["std"] }
+
 # The user database's lookup of the name doas hands apply in DOAS_USER
 # (getpwnam), safe; the version calloop already builds, with its `user`
 # feature, in this binary only.
@@ -124,3 +131,9 @@ vtium-testscript = { path = "../../tools/testscript" }
 # release binary does not change.
 proptest = { version = "=1.12.0", default-features = false, features = ["std", "bit-set"] }
 proptest-state-machine = "=0.9.0"
+
+# The TUI's screens as text snapshots of ratatui's TestBackend, one per
+# node of the interface tree, provisional until the maintainer accepts the
+# layout. insta is Apache-2.0; a dev-dependency, so the release binary does
+# not change.
+insta = "=1.49.0"
