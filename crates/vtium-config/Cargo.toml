@@ -115,7 +115,12 @@ vtium-testscript = { path = "../../tools/testscript" }
 # The property test of the TUI's navigation in tests/scenarios/: random
 # key sequences checked against a reading of the key table and the
 # interface tree, and shrunk to the shortest that fails. proptest is MIT
-# or Apache-2.0, with its default features off, so it builds no regex
-# strategies, no fork and no timeout.
+# or Apache-2.0. vtium-config asks for it with its default features off,
+# but proptest-state-machine 0.9.0 asks for its default features and for
+# `fork` and `timeout`, and cargo builds a crate with every feature that
+# its dependents ask for. So proptest builds with `std`, `fork`, `timeout`
+# and `bit-set`, its regex strategies and its runner that forks each case
+# into a process of its own included. Both are dev-dependencies, so the
+# release binary does not change.
 proptest = { version = "=1.12.0", default-features = false, features = ["std", "bit-set"] }
 proptest-state-machine = "=0.9.0"

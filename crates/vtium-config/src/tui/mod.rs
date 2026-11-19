@@ -7,7 +7,9 @@
 //! and `t` tries a font on the live console through OSC 50 ([`shot`]). It
 //! installs what the user keeps through `apply`.
 //!
-//! [`model`] is the state machine, [`view`] its screen, [`flow`] the flow
+//! [`model`] is the state machine, [`nav`] where the person is in it,
+//! [`tabs`] the Help, Settings, Fonts and Looks tabs, each with its state
+//! and its update, [`view`] its screen, [`flow`] the flow
 //! read from the draft and the devices present, [`paths`] that flow as
 //! paths, [`parts`] the parts a path is made from, [`flowview`] how the
 //! Flow view lays the paths and parts out, [`flowdraw`] how it draws them

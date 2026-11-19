@@ -31,12 +31,12 @@
 //! - [`digit_tab`] gives the tab a digit goes to, where the TUI has that
 //!   tab.
 //!
-//! Today the model's fields still hold what is open: the question, the
-//! trial, the Flow view's layer and typing, the Settings view's section,
-//! list and typing, and the new-frit form. So [`node`] reads them. When the
-//! model splits into one state per tab, the navigation state holds the
-//! open tab and each tab's stack of levels itself, and [`node`] reads that
-//! state instead; [`route`] and its callers stay as they are.
+//! [`Nav`] holds the open tab, the question over everything, the live
+//! trial and the key line's page. What is open inside a tab is the tab's
+//! own state, so [`node`] asks the Help, Settings, Fonts and Looks tabs
+//! for their node. The Flow view's layers, its typing, the file view and
+//! Restore's list are still fields of the model, which [`node`] reads
+//! until the Flow view moves into a tab module of its own.
 //!
 //! References:
 //! - ADR-1206 D3: one navigation module owns where the person is, reads

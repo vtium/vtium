@@ -382,7 +382,7 @@ pub struct Shared {
     /// leave question started ends well.
     pub quit_after_install: Option<u8>,
     /// The changes made since the draft was last read or saved, which
-    /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
+    /// [`Shared::draft`]'s text holds and the store does not yet (ADR-1403 D7,
     /// "Changes wait for Save").
     pub unsaved: usize,
 }
