@@ -707,6 +707,8 @@ The maintainer accepted these rules on 2026-11-04 as this record drafted them (`
 
 > Note 2026-11-19: ADR-1205 D10, proposed on this date and not yet accepted, would add `palette` to the keys a look takes. Under this decision's rule the look's value then wins over the top level's, so a look can pick its own color scheme while vtium.conf's `palette` stays the default for the looks that pick none. The value names a built-in palette, `custom`, or an active palette file. The `palette-*` keys that `custom` reads stay at the top level. This note changes nothing until the maintainer accepts ADR-1205 D10.
 
+> Note 2026-11-19, later the same day: the maintainer accepted ADR-1205 D10, so the change the note above describes holds.
+
 The other way is to let every key be set in a head's section. It would give each head its own palette or keyboard layout, but many keys belong to the process, the seat or an input device rather than a head, and each would need a rule for what a head's value means. A key can move into the head's list later, one row at a time, when someone needs it.
 
 ### D6: no migration

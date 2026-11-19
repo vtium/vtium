@@ -263,6 +263,9 @@ considered:
     said: "these leans are fine [the floor as a setting of tint] … I wanted to make sure brightness floor is an optiona[l]"
     via: steering session chat, 2026-11-19; the steering session showed that D21's floor defaults to 0, which changes nothing
     covers: [the floor's shape]
+  - operator: aaronsb
+    said: "1 accept both [ADR-1205 D10 and ADR-1304 D21, as written]"
+    via: steering session chat, 2026-11-19, after the steering session quoted both sections in full
 status: accepted
 date: 2026-11-03
 deciders:
@@ -1289,7 +1292,7 @@ Either way, a plain read through `texelFetch` returns one pixel in linear light.
 
 ### D21: a brightness floor for the tint
 
-> Proposed 2026-11-19: this section is a proposal and waits for the maintainer's reading. Nothing in it is decided until the maintainer accepts it. The Summary's probe *the floor's shape* asks its open choice, with this record's lean.
+> Accepted 2026-11-19: the maintainer read this section and accepted it on this date, with the floor as a setting of `tint` that is off by default (`considered`). The notes of this date elsewhere in this record that call D21 proposed tell its history; D21 now decides what it says, and ADR-1205 D10, which D2's note names, is accepted too.
 
 **Decided by the maintainer (2026-11-19):** vtium plans a brightness floor, so that a dark color stays visible under a single-color tint. The maintainer added that "it may have other creative uses in the future" (`basis`).
 

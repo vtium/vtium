@@ -133,6 +133,9 @@ considered:
   - operator: aaronsb
     said: "I like kiln … something like that [as the name of the original scheme in Monokai's spirit]"
     via: steering session chat, 2026-11-19, after the steering session suggested Night Market, Kiln and Lanternfish
+  - operator: aaronsb
+    said: "1 accept both [ADR-1205 D10 and ADR-1304 D21, as written]"
+    via: steering session chat, 2026-11-19, after the steering session quoted both sections in full
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -340,7 +343,7 @@ Each record below carries a dated note at the passage this record changes. No re
 
 ### D10: palettes are a resource kind of their own
 
-> Proposed 2026-11-19: this section is a proposal and waits for the maintainer's reading. Nothing in it is decided until the maintainer accepts it, and D1 to D9 stand as accepted. The Summary's probes ask its open choices, each with this record's lean.
+> Accepted 2026-11-19: the maintainer read this section and accepted it on this date, with every probe's lean and Kiln in place of Monokai (`considered`). The notes of this date elsewhere in this record and in ADR-1201, ADR-1304 and ADR-1403 that call D10 proposed tell its history; D10 now decides what it says.
 
 **The maintainer's decisions (2026-11-19):** a palette and a filter are different kinds of resource. In the maintainer's words, "I think filters and color schemes, while different, are different resources". Anyone can write a palette of their own, and vtium ships common color schemes, "like monokai tokyo etc (typical color schemes for konsole or ghostty etc)" (`basis`).
 

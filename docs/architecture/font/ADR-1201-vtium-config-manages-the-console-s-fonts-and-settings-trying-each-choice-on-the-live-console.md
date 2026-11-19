@@ -412,6 +412,8 @@ An example of the Fonts view's content before it went into the Looks tab, narrow
 
 > Note 2026-11-19: ADR-1205 D10, proposed on this date and not yet accepted, would add palettes to the Looks tab. A palette, called a color scheme on screen, sets the terminal's 16 colors and its default foreground and background. ADR-1205 D10 proposes that the Looks tab lists the built-in palettes and the palette files, shows each file's trust mark, activates or deactivates each, and previews a palette as its colors beside a line of text, as the tab does for pointer themes. Each look then picks one palette. Whether the Looks tab or a tab of its own manages palettes is one of ADR-1205's probes, and this note changes nothing until the maintainer answers it.
 
+> Note 2026-11-19, later the same day: the maintainer accepted ADR-1205 D10, so the change the note above describes holds.
+
 ### D4: pictures of the console, the live trial, and giving the console back
 
 > Edited 2026-11-05: the maintainer decided that the TUI previews a change as a picture of the console with the change applied and leaves the live console alone, and that the live console changes only on a key, for a trial that reverts by itself (`considered`, 2026-11-05). A font that left the grid too small or unreadable could strand a user while the highlight switched the live console. The heading read "D4: live preview, and giving the console back". The record's title still says "trying each choice on the live console"; the default is now the picture, and the live console is tried only on the trial key.
