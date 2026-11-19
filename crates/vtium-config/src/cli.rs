@@ -378,6 +378,9 @@ impl Cli<'_> {
             Command::RemoveFrit => {
                 crate::commands::remove_frit(rest, &o.paths(), self.out, self.err)
             }
+            Command::Activate | Command::Deactivate | Command::Active => {
+                crate::batch::command(command, rest, &o.paths(), self.out, self.err)
+            }
             c if c.flow() => {
                 crate::flowcli::run(c.name(), rest, &o.paths(), &o.devices(), self.out, self.err)
             }

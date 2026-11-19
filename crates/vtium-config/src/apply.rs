@@ -2,8 +2,9 @@
 //! the privileged step that checks a draft and installs it.
 //!
 //! A draft is a directory the user owns, under `$XDG_STATE_HOME/vtium/drafts`:
-//! the whole edited `vtium.conf`, each frit to write under
-//! `fonts/`, and `MANIFEST`, one line a file, tab-separated: `write` or
+//! the whole edited `vtium.conf`, each frit to write under `fonts/`, the
+//! whole edited `batch.conf`, the list of the active resources
+//! ([`crate::batch`]), and `MANIFEST`, one line a file, tab-separated: `write` or
 //! `remove`, the file's name in the draft, and the SHA-256 of the installed
 //! file it replaces as it was when the draft was made, or `new`. A last
 //! line, `accept` and `no-complete-route`, records that the person
@@ -12,7 +13,8 @@
 //!
 //! `apply`, run as root through `sudo vtium-config apply DIR`, takes no
 //! option that names a path or a program ([`crate::cli::root_refusal`]),
-//! so it writes only `/etc/vtium/vtium.conf` and the frits in the frits'
+//! so it writes only `/etc/vtium/vtium.conf`, the batch file vtium reads,
+//! and the frits in the frits'
 //! directory the installed vtium.conf names in `font-frits`, else the one
 //! the build names, read as the console reads it
 //! ([`crate::switch::frits_dir`]), and checks them with the console the
@@ -24,11 +26,14 @@
 //! 2. refuses the draft, writing nothing, when a file it replaces has
 //!    changed since the draft was made, naming the file;
 //! 3. checks every file before it writes any: each frit with the helper's
-//!    frit reader, strictly, and the edited vtium.conf, both its parts in
+//!    frit reader, strictly; the batch file with vtium's own reader, every
+//!    line, and each resource it activates against the trust rule, as the
+//!    user `apply` runs as; and the edited vtium.conf, both its parts in
 //!    one run, with the console's own `vtium check-config`, so the verdict
 //!    before writing is the verdict at the next start (ADR-1403 D3);
-//! 4. writes the frits, then vtium.conf, so vtium.conf never names a frit
-//!    that is not yet there, and removes frits last; each file goes in
+//! 4. writes the frits, then the batch file, then vtium.conf, so
+//!    vtium.conf never names a frit or a resource that is not yet there,
+//!    and removes frits last; each file goes in
 //!    through
 //!    [`vtium_settings::install_file`], in one rename, mode 0644, the old
 //!    one kept as `NAME.bak`;
@@ -131,10 +136,14 @@ fn hash(bytes: &[u8]) -> String {
     sha256_hex(&Sha256::digest(bytes))
 }
 
-/// Whether `name` is a name a draft may hold: `vtium.conf`, or
-/// `fonts/NAME.vtfrit` for a frit's name.
+/// The draft's name for the batch file.
+const BATCH: &str = "batch.conf";
+
+/// Whether `name` is a name a draft may hold: `vtium.conf`, `batch.conf`,
+/// or `fonts/NAME.vtfrit` for a frit's name.
 fn known(name: &str) -> bool {
     name == "vtium.conf"
+        || name == BATCH
         || name
             .strip_prefix("fonts/")
             .and_then(|n| n.strip_suffix(".vtfrit"))
@@ -144,6 +153,9 @@ fn known(name: &str) -> bool {
 /// The installed path the draft's file `name` replaces, or why a frit
 /// has none: there is no frits' directory.
 fn target(targets: &Targets, name: &str) -> Result<PathBuf, String> {
+    if name == BATCH {
+        return Ok(crate::batch::batch_file(targets));
+    }
     match name.strip_prefix("fonts/") {
         Some(frit) => targets
             .frits
@@ -157,6 +169,9 @@ fn target(targets: &Targets, name: &str) -> Result<PathBuf, String> {
 /// The draft's name for the installed file `path`, when it is one a draft
 /// holds.
 fn name_for(targets: &Targets, path: &Path) -> Option<String> {
+    if path == crate::batch::batch_file(targets) {
+        return Some(BATCH.to_owned());
+    }
     if path.parent() == Some(targets.configdir.as_path()) {
         let name = path.file_name()?.to_str()?;
         return (name == "vtium.conf").then(|| name.to_owned());
@@ -711,6 +726,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
     let manifest = String::from_utf8(manifest).map_err(|_| format!("{MANIFEST}: not UTF-8"))?;
     let entries = entries(&manifest)?;
     let mut frits = Vec::new();
+    let mut batch = None;
     let mut conf = None;
     let mut removals = Vec::new();
     let accept_no_route = entries.contains(&Entry::AcceptNoRoute);
@@ -760,6 +776,16 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
                 })?;
                 bytes
             }
+            None if name == BATCH => {
+                let bytes = read_at(
+                    &draft,
+                    name,
+                    u64::try_from(vtium_settings::batch::BATCH_MAX).unwrap_or(0),
+                    &owners,
+                )?;
+                check_batch(&bytes, &path)?;
+                bytes
+            }
             None => read_at(&draft, name, CONF_MAX, &owners)?,
         };
         let staged = Staged {
@@ -768,6 +794,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         };
         match name.as_str() {
             "vtium.conf" => conf = Some(staged),
+            BATCH => batch = Some(staged),
             _ => frits.push(staged),
         }
     }
@@ -846,9 +873,10 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             return Err(format!("{} is not removed: {by} uses it", path.display()));
         }
     }
-    // step 4: frits, vtium.conf, then removals
+    // step 4: frits, the batch file, vtium.conf, then removals
     let order: Vec<Staged> = frits
         .into_iter()
+        .chain(batch)
         .chain(conf)
         .chain(removals.into_iter().map(|target| Staged {
             target,
@@ -883,6 +911,36 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
         }
     }
     Ok(!failed)
+}
+
+/// Checks the batch file `bytes` that a draft installs at `path` before
+/// it is written: vtium's reader takes every line, and each resource it
+/// lists that the system does not hold now passes the trust rule as the
+/// user `apply` runs as, root through sudo. The system holds what the
+/// installed batch file lists, or the list of a fresh install when none
+/// is installed. A resource that stays active is not judged again here,
+/// since vtium judges every file when it opens it.
+///
+/// References:
+/// - ADR-1205 D4: the trust rule, and vtium-config writing the batch file through its install.
+fn check_batch(bytes: &[u8], path: &Path) -> Result<(), String> {
+    let read = vtium_settings::batch::Batch::parse(bytes, path);
+    if let Some(finding) = read.findings.first() {
+        return Err(finding.to_string());
+    }
+    let installed = match std::fs::read(path) {
+        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => None,
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    let base = crate::batch::base(installed.as_deref(), &crate::batch::fresh());
+    let euid = rustix::process::geteuid().as_raw();
+    for vtium_settings::batch::Entry::Path(resource) in read.batch.entries() {
+        if !base.holds(resource) {
+            crate::batch::trusted(resource, euid)?;
+        }
+    }
+    Ok(())
 }
 
 /// A directory of this process's own for the check's copies: under
