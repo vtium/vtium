@@ -249,8 +249,9 @@ const NERD_ICONS: [Cover; 4] = [
 const POWERLINE: Cover = (0xe0b0, 0xe0b3);
 /// Box drawing.
 const BOX_DRAWING: Cover = (0x2500, 0x257f);
-/// The first emoji of the Emoticons block, which a color emoji font maps.
-const EMOJI: u32 = 0x1f600;
+/// The emoji blocks from Miscellaneous Symbols and Pictographs to Symbols
+/// and Pictographs Extended-A, one of which a color emoji font maps.
+const EMOJI: Cover = (0x1f300, 0x1faff);
 
 /// How many of `ranges`' codepoints `mapped` holds, and how many the
 /// ranges hold.
@@ -293,7 +294,7 @@ fn groups_of(mapped: &[u32], family: &str, color: bool) -> Vec<Group> {
     if arrows == four {
         out.push(Group::Powerline);
     }
-    if color && mapped.binary_search(&EMOJI).is_ok() {
+    if color && share_of(mapped, &[EMOJI]).0 > 0 {
         out.push(Group::ColorEmoji);
     }
     let (boxes, all) = share_of(mapped, &[BOX_DRAWING]);
@@ -589,10 +590,14 @@ fn opentype_face(bytes: &[u8], index: usize, font: swash::FontRef<'_>) -> Face {
     let style = text(&[StringId::TypographicSubFamily, StringId::SubFamily]);
     let version = text(&[StringId::Version]);
     let mut mapped = Vec::new();
+    let mut glyphs = Vec::new();
     font.charmap().enumerate(|c, g| {
         let control = c < 0x20 || (0x7f..0xa0).contains(&c);
         if g != 0 && !control && char::from_u32(c).is_some() {
             mapped.push(c);
+            if glyphs.len() < OUTLINE_PROBES {
+                glyphs.push(g);
+            }
         }
     });
     let charmap = font.charmap();
@@ -607,13 +612,37 @@ fn opentype_face(bytes: &[u8], index: usize, font: swash::FontRef<'_>) -> Face {
         family: &family,
         style: &style,
         version: Some(&version),
-        outline: tag(b"glyf") || tag(b"CFF ") || tag(b"CFF2"),
+        outline: tag(b"CFF ") || tag(b"CFF2") || glyf_outlines(bytes, index, &glyphs),
         monospaced: font.metrics(&[]).is_monospace || even,
         color: tag(b"COLR") || tag(b"CBDT") || tag(b"sbix"),
         strikes: strikes(bytes, index),
         mapped,
     }
     .face()
+}
+
+/// How many of a face's mapped glyphs [`glyf_outlines`] looks at.
+const OUTLINE_PROBES: usize = 64;
+
+/// Whether the face at `index` of an OpenType file draws `glyphs`, some
+/// of its mapped glyphs, from outlines in its `glyf` table. An OpenType
+/// bitmap font, such as Terminus's `.otb` files, carries a `glyf` table
+/// whose glyphs are all empty, so the table alone does not make an
+/// outline font: at least one of these glyphs must hold an outline.
+fn glyf_outlines(bytes: &[u8], index: usize, glyphs: &[u16]) -> bool {
+    use skrifa::raw::{FileRef, TableProvider, types::GlyphId};
+    let Ok(file) = FileRef::new(bytes) else {
+        return false;
+    };
+    let Some(Ok(font)) = file.fonts().nth(index) else {
+        return false;
+    };
+    let (Ok(glyf), Ok(loca)) = (font.glyf(), font.loca(None)) else {
+        return false;
+    };
+    glyphs
+        .iter()
+        .any(|&g| matches!(loca.get_glyf(GlyphId::from(g), &glyf), Ok(Some(_))))
 }
 
 /// The bitmap strikes of the face at `index` of an OpenType file: each
@@ -855,6 +884,21 @@ mod tests {
         assert!(face.scripts.is_empty(), "{:?}", face.scripts);
         assert_eq!(face.codepoints, 6 + 128 + 4);
         assert!(face.coverage.contains(&(0x2500, 0x257f)));
+    }
+
+    /// A font whose glyphs are all empty and whose pictures are bitmap
+    /// strikes, as an OpenType bitmap font or a color emoji font is, draws
+    /// only at its strikes.
+    #[test]
+    fn a_font_of_bitmap_strikes_alone_is_no_outline_font() {
+        let d = describe(&ttf::test_emoji().build(), "emoji.ttf").unwrap();
+        let face = &d.faces[0];
+        assert!(!face.outline);
+        assert_eq!(
+            face.strikes.iter().map(|s| s.height).collect::<Vec<_>>(),
+            [40]
+        );
+        assert_eq!(face.groups, [Group::ColorEmoji]);
     }
 
     #[test]

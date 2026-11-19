@@ -332,12 +332,21 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         command: Command::Fonts,
-        forms: &[form(
-            "fonts",
-            "list the font sets and built-in fonts, and the font files each is missing",
-        )],
-        detail: "Lists every font set (frit) and built-in font, one per line: its name, whether vtium can read it, and the font files it needs that are not on this machine. It changes nothing and needs no root.",
-        example: "vtium-config fonts",
+        forms: &[
+            form(
+                "fonts",
+                "list the font sets and built-in fonts, and the font files each is missing",
+            ),
+            form("fonts --files", "list the font files found on this machine"),
+            form(
+                "fonts --install-system FILE [--replace]",
+                "install a font file of yours as a system font",
+            ),
+        ],
+        detail: "fonts lists every font set (frit) and built-in font, one per line: its name, whether vtium can read it, and the font files it needs that are not on this machine. It changes nothing and needs no root. \
+                 fonts --files lists every font file that vtium-config finds in the system's font folders, in vtium's own, in kbd's console-font folders, in the folders that font-paths names, and in your own ~/.local/share/fonts and ~/.fonts. Each line is tab-separated: the file, the kind of folder, its state in your current draft as active prints it, whether it passes the trust rule, its family and style, the sizes it supplies, monospaced or proportional, the scripts it covers, its groups (Nerd Fonts, Powerline, color emoji or box drawing), and a note when a package installed the same font again. The font helper reads each file in its sandbox. A font in your own folder is not usable, because vtium draws only from fonts that root owns. Install it as a system font first. \
+                 fonts --install-system FILE copies FILE into /usr/local/share/fonts, owned by root with mode 0644, through sudo vtium-config apply DIR. The font helper first checks that FILE is a font. When that folder already holds the same file, nothing changes. When it holds a different file of the same name, the command shows both files and replaces the installed one only after you answer y, or with --replace. At a terminal the command shows the exact command and asks before it runs it. Away from a terminal it prints the draft and the command, and runs nothing. After the copy, apply checks the font against the trust rule. Installing a font does not activate it: run activate afterwards.",
+        example: "vtium-config fonts --install-system ~/.local/share/fonts/MyMono.ttf",
     },
     Topic {
         command: Command::Check,
