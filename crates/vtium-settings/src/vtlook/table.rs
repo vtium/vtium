@@ -4,7 +4,7 @@
 //! The reader has checked every value against its parameter's kind and
 //! range, so building the table from the filters' formulas can fail only
 //! for want of memory. A `cube` filter takes its table from a `.cube` file,
-//! which vtium reads here, through the [`Gate`]: the batch must hold the
+//! which vtium reads here, through the [`crate::cullet::Gate`]: the batch must hold the
 //! file and it must pass the trust rule, or it counts as missing, a fault
 //! of the reading stage. A file that does not read as a `.cube` table is
 //! a fault of the checking stage, with the file's line. Each fault names
@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use vtium_render::filter::{Given, Layer, Map, Table};
 
-use super::cube::{Gate, Unread, load};
+use super::cube::{Cubes, Unread, load};
 use super::read::{Filter, Value, Vtlook};
 use super::report::{Failure, Part, Report, Stage};
 use crate::bounds::ERRORS_MAX;
@@ -30,18 +30,18 @@ use crate::bounds::ERRORS_MAX;
 /// The color table of `look`'s color filters, applied in the order of
 /// their sections, reading each `cube` filter's file in `gate.dir`
 /// through `gate`, or the report of why vtium cannot build it.
-pub fn table_with(look: &Vtlook, gate: &Gate) -> Result<Table, Failure> {
+pub fn table_with(look: &Vtlook, gate: &Cubes) -> Result<Table, Failure> {
     build(look, Some(gate))
 }
 
 /// The color table of `look`'s color filters, for a vtlook that names no
-/// `.cube` file. With no [`Gate`], vtium reads no file, so a `cube` filter
+/// `.cube` file. With no [`Cubes`], vtium reads no file, so a `cube` filter
 /// counts as missing and the vtlook fails at its reading stage.
 pub fn table(look: &Vtlook) -> Result<Table, Failure> {
     build(look, None)
 }
 
-fn build(look: &Vtlook, gate: Option<&Gate>) -> Result<Table, Failure> {
+fn build(look: &Vtlook, gate: Option<&Cubes>) -> Result<Table, Failure> {
     let of = look.color.len();
     let mut maps = Vec::new();
     let mut reports = Vec::new();
@@ -85,7 +85,7 @@ fn cube_map(
     look: &Vtlook,
     name: &str,
     part: Part,
-    gate: Option<&Gate>,
+    gate: Option<&Cubes>,
 ) -> Result<Map, (Vec<Report>, usize)> {
     let dir = gate.map_or(std::path::Path::new(super::LOOKS), |g| g.dir);
     let path = dir.join(name);
@@ -98,7 +98,7 @@ fn cube_map(
         message,
     };
     let read = match gate {
-        Some(gate) => load(&path, gate),
+        Some(cubes) => load(&path, cubes.gate),
         None => Err(Unread::Missing(
             "vtium treats the file as missing, because it reads a .cube file only after checking the file against the batch and the trust rule, and this table was built without either.".to_owned(),
         )),
@@ -286,11 +286,14 @@ mod tests {
         /// The table of `text` with `batch`, or the failure as the log and
         /// `vtium check-config` show each report.
         fn table(&self, text: &str, batch: &crate::batch::Batch) -> Result<Table, Vec<String>> {
-            let gate = Gate {
+            let active = crate::cullet::Gate::new(
+                self.rule.clone(),
+                Some(self.mounts.clone()),
+                batch.clone(),
+            );
+            let gate = Cubes {
                 dir: &self.dir,
-                batch,
-                rule: &self.rule,
-                mounts: &self.mounts,
+                gate: &active,
             };
             table_with(&look(text), &gate).map_err(|f| {
                 let mut said: Vec<String> = f
@@ -425,11 +428,14 @@ mod tests {
                 ),
             ])
         );
-        let gate = Gate {
+        let active = crate::cullet::Gate::new(
+            f.rule.clone(),
+            Some(f.mounts.clone()),
+            f.batch(&["panel.cube"]),
+        );
+        let gate = Cubes {
             dir: &f.dir,
-            batch: &f.batch(&["panel.cube"]),
-            rule: &f.rule,
-            mounts: &f.mounts,
+            gate: &active,
         };
         let Err(failure) = table_with(&look(text), &gate) else {
             panic!("built");
@@ -449,11 +455,14 @@ mod tests {
         let f = Fixture::new("cube-many");
         let text = format!("LUT_1D_SIZE 2\n{}", "x,y\n".repeat(100));
         f.write("many.cube", text.as_bytes(), 0o644);
-        let gate = Gate {
+        let active = crate::cullet::Gate::new(
+            f.rule.clone(),
+            Some(f.mounts.clone()),
+            f.batch(&["many.cube"]),
+        );
+        let gate = Cubes {
             dir: &f.dir,
-            batch: &f.batch(&["many.cube"]),
-            rule: &f.rule,
-            mounts: &f.mounts,
+            gate: &active,
         };
         let look = look("version = 1\n[color cube]\nfile = many.cube\n");
         let Err(failure) = table_with(&look, &gate) else {

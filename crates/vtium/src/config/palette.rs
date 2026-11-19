@@ -30,9 +30,9 @@ use std::sync::{Mutex, OnceLock};
 
 use vtium_settings::Trust;
 use vtium_settings::batch::{self, Batch};
-use vtium_settings::cullet::Rule;
+use vtium_settings::cullet::{Gate, Rule};
 use vtium_settings::mounts::Mounts;
-use vtium_settings::palette::{self, CUSTOM, Gate};
+use vtium_settings::palette::{self, CUSTOM};
 use vtium_term::{Palette, Rgb};
 
 use super::Config;
@@ -105,10 +105,6 @@ impl Schemes {
 /// The palette files the console has read since it started.
 static SCHEMES: Mutex<Schemes> = Mutex::new(Schemes { read: Vec::new() });
 
-/// The file vtium reads the console font's name from, besides the kernel's
-/// command line.
-const VCONSOLE: &str = "/etc/vconsole.conf";
-
 /// The batch at `file`, read under `trust` as vtium reads it at start, with
 /// what vtium found reading it. When the file is missing or vtium cannot
 /// use it, the batch is the list of a fresh install: the font files the
@@ -120,16 +116,12 @@ const VCONSOLE: &str = "/etc/vconsole.conf";
 /// - ADR-1205 D4, its notes of 2026-11-18 and 2026-11-19: the batch file, and the list of a fresh install in its place.
 /// - ADR-1205 D10: the package's palettes are active on a fresh install.
 fn batch_at(file: &Path, trust: &Trust, package_palettes: &Path) -> batch::Read {
-    let conf = std::fs::read_to_string(VCONSOLE).unwrap_or_default();
-    let cmdline = std::fs::read_to_string(crate::kernel::CMDLINE).unwrap_or_default();
-    let console_font = batch::vconsole(&conf, &cmdline).font;
-    let fresh = Batch::fresh_install(
-        Path::new(batch::PACKAGE_FONTS),
-        package_palettes,
-        console_font.as_deref(),
-        &batch::CONSOLE_FONT_FOLDERS.map(Path::new),
-    );
-    Batch::read(file, trust, fresh)
+    let places = batch::Places {
+        file: file.to_path_buf(),
+        palettes: package_palettes.to_path_buf(),
+        ..batch::Places::system()
+    };
+    Batch::system(&places, trust)
 }
 
 /// The gate a palette file passes for a vtium that reads under `trust`:
@@ -153,11 +145,11 @@ fn system_gate(trust: &Trust) -> Gate {
             _ => log::warn!(target: "batch", "{finding}"),
         }
     }
-    Gate {
-        rule: Rule::new(trust.clone()),
-        mounts: Mounts::system().unwrap_or_default(),
-        batch: read.batch,
-    }
+    Gate::new(
+        Rule::new(trust.clone()),
+        Some(Mounts::system().unwrap_or_default()),
+        read.batch,
+    )
 }
 
 /// The console's gate, made the first time a palette file is asked for.
@@ -260,11 +252,11 @@ mod tests {
             active.push(batch::Entry::Path(path));
         }
         let me = std::fs::metadata(&**dir).map_or(0, |m| m.uid());
-        Gate {
-            rule: Rule::new(Trust::owner(me)).below(dir),
-            mounts: Mounts::system().unwrap_or_default(),
-            batch: Batch::new(active),
-        }
+        Gate::new(
+            Rule::new(Trust::owner(me)).below(dir),
+            Some(Mounts::system().unwrap_or_default()),
+            Batch::new(active),
+        )
     }
 
     // The top level and the command line take a built-in palette's name
@@ -402,11 +394,11 @@ mod tests {
             "{:?}",
             read.findings
         );
-        let gate = Gate {
-            rule: Rule::new(Trust::owner(me)).below(&dir),
-            mounts: Mounts::system().unwrap_or_default(),
-            batch: read.batch,
-        };
+        let gate = Gate::new(
+            Rule::new(Trust::owner(me)).below(&dir),
+            Some(Mounts::system().unwrap_or_default()),
+            read.batch,
+        );
         let folders = [etc.as_path(), share.as_path()];
         let mut logged = Vec::new();
         let mut schemes = Schemes::default();

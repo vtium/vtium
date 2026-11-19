@@ -22,10 +22,17 @@
 //! can show.
 //!
 //! A pointer theme's folder holds symbolic links, such as Adwaita's
-//! `xterm`, which names `text`. [`open_in_theme`] passes a link while the
-//! link resolves to a file inside the same theme folder, and refuses a
-//! link that leaves it. The theme folder itself, and every folder above
-//! it, passes the plain rule.
+//! `xterm`, which names `text`. Inside a theme folder, vtium passes a link
+//! while the link resolves to a file inside the same theme folder, and
+//! refuses a link that leaves it. The theme folder itself, and every folder
+//! above it, passes the plain rule.
+//!
+//! Every kind of resource passes the same [`Gate`]: the trust rule on the
+//! file vtium opened, and the batch, which lists the resources that are
+//! active ([`crate::batch`]). The batch lists what a person activates: a
+//! file, or a pointer theme's folder. The rule on a theme's links is the
+//! only difference between kinds. Every resource is read through the
+//! gate, and a test of the workspace fails when code opens one past it.
 //!
 //! When vtium runs unprivileged, as the tests and a run by hand do, its
 //! own effective user counts as root: [`Rule::running_as`] takes the same
@@ -46,6 +53,7 @@ use rustix::fs::{AtFlags, FileType, Mode, OFlags};
 use rustix::io::Errno;
 
 use crate::Trust;
+use crate::batch::{BATCH_FILE, Batch};
 use crate::error::Untrusted;
 use crate::mounts::{Mounts, Place, Unsteady};
 
@@ -124,6 +132,9 @@ pub enum Check {
         at: PathBuf,
         kind: std::io::ErrorKind,
     },
+    /// The batch does not list the file, or the pointer theme's folder,
+    /// so it is not active.
+    Inactive,
 }
 
 impl fmt::Display for Check {
@@ -159,6 +170,7 @@ impl fmt::Display for Check {
             Check::Unreadable { at, kind } => {
                 write!(f, "vtium cannot read {}: {kind}.", at.display())
             }
+            Check::Inactive => write!(f, "it is not active: {BATCH_FILE} does not list it."),
         }
     }
 }
@@ -399,6 +411,129 @@ impl Walk<'_> {
     }
 }
 
+/// What every resource passes before vtium reads it, whatever its kind:
+/// a font, a color scheme, a color map, a shader, an SVG pointer file or a
+/// pointer theme. The batch must list the resource, and the file vtium
+/// opens must pass the trust rule on its descriptor. The batch lists a
+/// file by its path and a pointer theme by its folder, and vtium checks
+/// the batch before it opens anything, so a file the batch does not list
+/// is never opened.
+///
+/// References:
+/// - ADR-1205 D4: one gate for every kind of resource: the batch and the trust rule on the opened file.
+/// - ADR-1205 D6: a pointer theme is activated by its folder.
+#[derive(Clone, Debug)]
+pub struct Gate {
+    /// Whose files pass the rule's owner check.
+    pub rule: Rule,
+    /// The mount table the rule judges a filesystem by. `None` reads the
+    /// system's table at each open, so a filesystem mounted since counts as
+    /// it is now; a table vtium cannot read is empty, and refuses every
+    /// file, which is the safe way to fail.
+    pub mounts: Option<Mounts>,
+    /// The batch, which lists the active resources.
+    pub batch: Batch,
+}
+
+impl Gate {
+    /// The gate of `rule` and `batch`, judging filesystems by `mounts`.
+    pub fn new(rule: Rule, mounts: Option<Mounts>, batch: Batch) -> Gate {
+        Gate {
+            rule,
+            mounts,
+            batch,
+        }
+    }
+
+    /// Whether the batch lists `path`. A search through a folder of
+    /// resources takes only the files the batch lists as candidates.
+    pub fn holds(&self, path: &Path) -> bool {
+        self.batch.holds(path)
+    }
+
+    /// Runs `f` with the gate's mount table, or the system's.
+    fn with_mounts<T>(&self, f: impl FnOnce(&Mounts) -> T) -> T {
+        match &self.mounts {
+            Some(mounts) => f(mounts),
+            None => f(&Mounts::system().unwrap_or_default()),
+        }
+    }
+
+    /// Why vtium refuses `path`, which the batch does not list: nothing
+    /// exists there, or it is not active. vtium only looks at the path,
+    /// and opens nothing.
+    fn unlisted(path: &Path) -> Refused {
+        let check = if names(path).is_none() {
+            Check::NotPlain
+        } else if path.symlink_metadata().is_err() {
+            Check::Missing
+        } else {
+            Check::Inactive
+        };
+        Refused {
+            path: path.to_path_buf(),
+            check,
+        }
+    }
+
+    /// Opens the resource file at `path`, which the batch must list, under
+    /// the trust rule. A file that fails counts as missing, and the
+    /// refusal names the check it failed: [`Check::Missing`] when nothing
+    /// exists at the path.
+    pub fn open(&self, path: &Path) -> Result<Opened, Refused> {
+        if !self.batch.holds(path) {
+            return Err(Gate::unlisted(path));
+        }
+        self.with_mounts(|mounts| open(path, &self.rule, mounts))
+    }
+
+    /// Opens the file at `path` inside the pointer theme folder `theme`,
+    /// which the batch must list, under the trust rule with the theme's
+    /// links followed while they stay inside `theme`.
+    pub fn open_in_theme(&self, theme: &Path, path: &Path) -> Result<Opened, Refused> {
+        if !self.batch.holds(theme) {
+            return Err(Gate::unlisted(theme));
+        }
+        self.with_mounts(|mounts| open_in_theme(theme, path, &self.rule, mounts))
+    }
+
+    /// Checks the pointer theme folder `theme` alone: the batch lists it,
+    /// and it and every folder above it pass the plain rule on a filesystem
+    /// that stays mounted. When the folder fails, every file in it fails
+    /// the same way, so vtium reports the folder once instead of each file.
+    pub fn theme(&self, theme: &Path) -> Result<(), Refused> {
+        if !self.batch.holds(theme) {
+            return Err(Gate::unlisted(theme));
+        }
+        self.with_mounts(|mounts| folder(theme, &self.rule, mounts))
+    }
+}
+
+/// Checks the folder at `path` under the rule: it and every folder above it
+/// pass the owner and mode check, none of them is a symbolic link, and
+/// `mounts` judges that its filesystem stays mounted.
+fn folder(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<(), Refused> {
+    let mut walk = Walk {
+        rule,
+        mounts,
+        asked: path,
+        crossed: Vec::new(),
+    };
+    let Some(names) = names(path) else {
+        return Err(walk.refuse(Check::NotPlain));
+    };
+    walk.start()?;
+    for name in &names {
+        walk.folder(name)?;
+    }
+    let here = walk.here()?;
+    let place = Place::of(&here.fd, &here.path)
+        .map_err(|e| walk.unreadable(path, Errno::from_io_error(&e).unwrap_or(Errno::IO)))?;
+    walk.mounts
+        .judge(&place)
+        .map_err(|why| walk.refuse(Check::Unsteady(why)))
+}
+
 /// Opens the resource file at `path` under the rule, and checks it on
 /// the descriptor it returns: the file and every folder above it pass the
 /// owner and mode check, none of them is a symbolic link, and `mounts`
@@ -407,6 +542,11 @@ impl Walk<'_> {
 /// a look without following links has found a regular file, since
 /// opening a FIFO or a device acts on it. A refused file counts as
 /// missing.
+///
+/// Read a resource through [`Gate::open`], never through this: the gate
+/// checks the batch first. A test of the workspace, `gate_guard`, fails
+/// when any other code calls this, apart from vtium-config's check of a
+/// file a person is about to activate, which reads nothing from the file.
 pub fn open(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<Opened, Refused> {
     let mut walk = Walk {
         rule,
@@ -429,7 +569,8 @@ pub fn open(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<Opened, Refused
 /// past it, fails with [`Check::LeavesTheme`], and the file counts as
 /// missing. `path` names the file by the theme's own path, such as
 /// `/usr/share/icons/Adwaita/cursors/xterm`; a path outside `theme`
-/// fails as [`Check::NotPlain`].
+/// fails as [`Check::NotPlain`]. Read a theme's file through
+/// [`Gate::open_in_theme`], never through this, as [`open`] says.
 pub fn open_in_theme(
     theme: &Path,
     path: &Path,

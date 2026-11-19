@@ -31,8 +31,8 @@
 //! error makes the whole file count as missing.
 //!
 //! A palette file is a resource, so vtium reads it only through a
-//! [`Gate`]. The file must pass the trust rule that [`cullet::open`]
-//! checks: root owns it and every folder above it, nobody else can write
+//! [`Gate`], the gate every resource passes. The file must pass the trust
+//! rule: root owns it and every folder above it, nobody else can write
 //! them, none of them is a symbolic link, and its filesystem stays
 //! mounted. The batch must also list the file, which makes it active. The
 //! package's palettes are active from the first start, because the list
@@ -50,11 +50,10 @@ use std::path::{Path, PathBuf};
 
 use vtium_term::{PALETTE_NAMES, Palette, Rgb, Special};
 
-use crate::batch::{BATCH_FILE, Batch};
+use crate::batch::BATCH_FILE;
 use crate::bounds::{ERRORS_MAX, PALETTE_FILE_MAX};
-use crate::cullet::{self, Check, Rule};
+use crate::cullet::{Check, Gate};
 use crate::error::Quoted;
-use crate::mounts::Mounts;
 use crate::split::BOM;
 
 /// The administrator's palette folder: set at build time with
@@ -444,36 +443,24 @@ fn color(key: &'static str, value: &str) -> Result<Rgb, Reason> {
     })
 }
 
-/// What a palette file passes before vtium reads it: the trust rule under
-/// `rule`, with `mounts` judging whether the file's filesystem stays
-/// mounted, and the batch, which lists the active resources.
-#[derive(Clone, Debug)]
-pub struct Gate {
-    pub rule: Rule,
-    pub mounts: Mounts,
-    pub batch: Batch,
-}
-
 /// Opens the palette file at `path` through `gate` and reads at most
 /// [`PALETTE_FILE_MAX`] bytes of it. `Ok(None)` when nothing exists at
 /// the path. A file that fails the trust rule is refused with the check
-/// it failed, and a file the batch does not list is refused as inactive.
-/// The checks run on the descriptor the bytes are read from, so nobody can
-/// swap the file between the check and the read. This is the one place a
-/// palette file is opened.
+/// it failed, and a file the batch does not list is refused as inactive
+/// without being opened. The checks run on the descriptor the bytes are
+/// read from, so nobody can swap the file between the check and the read.
+/// This is the one place a palette file is opened.
 ///
 /// References:
 /// - ADR-1205 D4: the trust rule and the batch that a resource passes before it draws.
 fn open(path: &Path, gate: &Gate) -> Result<Option<Vec<u8>>, Reason> {
     use std::io::Read as _;
-    let opened = match cullet::open(path, &gate.rule, &gate.mounts) {
+    let opened = match gate.open(path) {
         Ok(opened) => opened,
         Err(refused) if refused.check == Check::Missing => return Ok(None),
+        Err(refused) if refused.check == Check::Inactive => return Err(Reason::Inactive),
         Err(refused) => return Err(Reason::Refused(refused.check)),
     };
-    if !gate.batch.holds(path) {
-        return Err(Reason::Inactive);
-    }
     let limit = u64::try_from(PALETTE_FILE_MAX).unwrap_or(u64::MAX);
     let mut bytes = Vec::new();
     opened

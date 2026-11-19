@@ -245,11 +245,9 @@ pub(crate) fn choose(head: &str, config: &Config) -> Chosen {
 #[cfg(feature = "filters")]
 fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
     let gate = cube_gate();
-    let cubes = vtlook::Gate {
+    let cubes = vtlook::Cubes {
         dir: std::path::Path::new(vtlook::LOOKS),
-        batch: &gate.batch,
-        rule: &gate.rule,
-        mounts: &gate.mounts,
+        gate,
     };
     read_in(
         head,
@@ -260,28 +258,19 @@ fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
     )
 }
 
-/// What a vtlook's `.cube` file passes before vtium reads it: the batch,
-/// the trust rule of the account vtium runs as, and this machine's mount
-/// table.
-#[cfg(feature = "filters")]
-struct CubeGate {
-    batch: vtium_settings::batch::Batch,
-    rule: vtium_settings::cullet::Rule,
-    mounts: vtium_settings::mounts::Mounts,
-}
-
-/// The console's [`CubeGate`], made the first time a vtlook is read: the
-/// batch file read as the start reads it, with the list of a fresh install
-/// in its place when the file is missing or vtium cannot use it, and the
-/// mount table. A mount table vtium cannot read is empty, so every `.cube`
-/// file fails the trust rule and counts as missing. The palette reader
-/// logs what vtium finds reading the batch file, so this logs nothing.
+/// The console's gate for a vtlook's `.cube` file, made the first time a
+/// vtlook is read: the batch file read as the start reads it, with the
+/// list of a fresh install in its place when the file is missing or vtium
+/// cannot use it, and the mount table. A mount table vtium cannot read is
+/// empty, so every `.cube` file fails the trust rule and counts as missing.
+/// The palette reader logs what vtium finds reading the batch file, so this
+/// logs nothing.
 ///
 /// References:
 /// - ADR-1205 D4: a `.cube` file counts as missing unless the batch lists it and it passes the trust rule.
 #[cfg(feature = "filters")]
-fn cube_gate() -> &'static CubeGate {
-    static GATE: std::sync::OnceLock<CubeGate> = std::sync::OnceLock::new();
+fn cube_gate() -> &'static vtium_settings::cullet::Gate {
+    static GATE: std::sync::OnceLock<vtium_settings::cullet::Gate> = std::sync::OnceLock::new();
     GATE.get_or_init(|| {
         let trust = crate::font::trust();
         let read = Config::batch_at(
@@ -289,11 +278,11 @@ fn cube_gate() -> &'static CubeGate {
             &trust,
             std::path::Path::new(vtium_settings::palette::PACKAGE_PALETTES),
         );
-        CubeGate {
-            batch: read.batch,
-            rule: vtium_settings::cullet::Rule::new(trust),
-            mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
-        }
+        vtium_settings::cullet::Gate::new(
+            vtium_settings::cullet::Rule::new(trust),
+            Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+            read.batch,
+        )
     })
 }
 
@@ -313,7 +302,7 @@ fn read_in(
     name: &str,
     folders: &[&std::path::Path],
     trust: &vtium_settings::Trust,
-    cubes: &vtlook::Gate,
+    cubes: &vtlook::Cubes,
 ) -> (Chosen, Option<String>) {
     let look = match vtlook::find(name, folders, trust) {
         Ok(look) => look,
@@ -668,9 +657,7 @@ mod tests {
     #[cfg(feature = "filters")]
     struct Cubes {
         dir: std::path::PathBuf,
-        batch: vtium_settings::batch::Batch,
-        rule: vtium_settings::cullet::Rule,
-        mounts: vtium_settings::mounts::Mounts,
+        active: vtium_settings::cullet::Gate,
     }
 
     #[cfg(feature = "filters")]
@@ -681,19 +668,18 @@ mod tests {
             let me = std::fs::metadata(dir).map_or(0, |m| m.uid());
             Cubes {
                 dir: dir.to_path_buf(),
-                batch: Batch::new(active.iter().map(|n| Entry::Path(dir.join(n))).collect()),
-                rule: vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me))
-                    .below(dir),
-                mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
+                active: vtium_settings::cullet::Gate::new(
+                    vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me)).below(dir),
+                    Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+                    Batch::new(active.iter().map(|n| Entry::Path(dir.join(n))).collect()),
+                ),
             }
         }
 
-        fn gate(&self) -> vtlook::Gate<'_> {
-            vtlook::Gate {
+        fn gate(&self) -> vtlook::Cubes<'_> {
+            vtlook::Cubes {
                 dir: &self.dir,
-                batch: &self.batch,
-                rule: &self.rule,
-                mounts: &self.mounts,
+                gate: &self.active,
             }
         }
     }

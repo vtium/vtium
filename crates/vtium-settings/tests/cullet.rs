@@ -20,14 +20,33 @@ use std::path::{Path, PathBuf};
 use vtium_settings::Trust;
 use vtium_settings::Untrusted;
 use vtium_settings::batch::{
-    BATCH_MAX, Batch, CONSOLE_FONT_FOLDERS, Entry, FRESH_FONTS, Finding, LineFault, Unread,
-    vconsole,
+    BATCH_MAX, Batch, CONSOLE_FONT_FOLDERS, Entry, FRESH_FONTS, Finding, LineFault,
+    PACKAGE_POINTERS, Unread, vconsole,
 };
-use vtium_settings::cullet::{Check, Opened, Refused, Rule, open, open_in_theme};
+use vtium_settings::cullet::{Check, Gate, Opened, Refused, Rule};
 use vtium_settings::mounts::{Mounts, Place, Unsteady};
 
 /// A fresh fixture folder of its own for one test, mode 0755, by its
 /// canonical path.
+/// Opens `path` through a gate whose batch lists it, so the trust rule
+/// alone decides.
+fn open(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<Opened, Refused> {
+    let batch = Batch::new(vec![Entry::Path(path.to_path_buf())]);
+    Gate::new(rule.clone(), Some(mounts.clone()), batch).open(path)
+}
+
+/// Opens `path` inside the pointer theme `theme` through a gate whose batch
+/// lists the theme's folder.
+fn open_in_theme(
+    theme: &Path,
+    path: &Path,
+    rule: &Rule,
+    mounts: &Mounts,
+) -> Result<Opened, Refused> {
+    let batch = Batch::new(vec![Entry::Path(theme.to_path_buf())]);
+    Gate::new(rule.clone(), Some(mounts.clone()), batch).open_in_theme(theme, path)
+}
+
 fn fixture(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join("vtium-settings-cullet")
@@ -766,8 +785,11 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
             &share,
             &["ter-v16n.psf.gz", "ter-v32n.psf.gz", "ter-v16b.psf.gz"][..],
         ),
-        (&lib, &["ter-v16n.psfu"][..]),
-        (&old, &["ter-v16n"][..]),
+        (
+            &lib,
+            &["ter-v16n.psfu", "ter-v16n.psf.zst", "ter-v16n.fnt.xz"][..],
+        ),
+        (&old, &["ter-v16n", "ter-v16n.cp.bz2"][..]),
         (&stick, &["ter-v16n.psf.gz"][..]),
     ] {
         mkdir(folder, 0o755);
@@ -795,14 +817,19 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
     )));
     assert!(!batch.holds(Path::new("/home/me/consolefonts/ter-v16n.psf.gz")));
     assert!(!batch.holds(Path::new("/usr/share/vtium/fonts/other.ttf")));
-    // the console font resolves to the files found, then come the
-    // palettes, sorted by name
+    // the console font resolves to the files found, with every suffix and
+    // compression kbd's setfont tries, then come the package's pointer
+    // file and the palettes, sorted by name
     assert_eq!(
         &batch.entries()[FRESH_FONTS.len()..],
         [
             Entry::Path(share.join("ter-v16n.psf.gz")),
             Entry::Path(lib.join("ter-v16n.psfu")),
+            Entry::Path(lib.join("ter-v16n.psf.zst")),
+            Entry::Path(lib.join("ter-v16n.fnt.xz")),
             Entry::Path(old.join("ter-v16n")),
+            Entry::Path(old.join("ter-v16n.cp.bz2")),
+            Entry::Path(PACKAGE_POINTERS.into()),
             Entry::Path(palettes.join("Dracula")),
             Entry::Path(palettes.join("Kiln"))
         ]
@@ -813,7 +840,7 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
             Batch::fresh_install(fonts, &dir.join("none"), Some(odd), &kbd)
                 .entries()
                 .len(),
-            FRESH_FONTS.len(),
+            FRESH_FONTS.len() + 1,
             "{odd}"
         );
     }
@@ -826,13 +853,31 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
         &kbd,
     );
     assert!(by_path.holds(Path::new("/usr/share/kbd/consolefonts/x.psf")));
-    assert_eq!(by_path.entries().len(), FRESH_FONTS.len() + 1);
+    assert_eq!(by_path.entries().len(), FRESH_FONTS.len() + 2);
     assert_eq!(
         Batch::fresh_install(fonts, &dir.join("none"), None, &kbd)
             .entries()
             .len(),
-        FRESH_FONTS.len()
+        FRESH_FONTS.len() + 1
     );
+    // a console font named by a path without a suffix holds the path and
+    // each file the font helper finds by adding kbd's suffixes to it
+    let bare = lib.join("ter-v16n");
+    let by_bare = Batch::fresh_install(
+        fonts,
+        &dir.join("none"),
+        Some(bare.to_str().expect("UTF-8")),
+        &kbd,
+    );
+    for held in [
+        "ter-v16n",
+        "ter-v16n.psfu",
+        "ter-v16n.psf.zst",
+        "ter-v16n.fnt.xz",
+    ] {
+        assert!(by_bare.holds(&lib.join(held)), "{held}");
+    }
+    assert!(!by_bare.holds(&share.join("ter-v16n.psf.gz")));
 }
 
 /// The words of a Makefile variable's value, with `$(foreach h,...,...)`

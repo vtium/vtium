@@ -540,11 +540,11 @@ fn outcome_with(
         Path::new(vtium_settings::palette::PACKAGE_PALETTES),
     );
     let (batch_counted, batch_notes) = batch_findings(&batch.findings);
-    let gate = vtium_settings::palette::Gate {
-        rule: vtium_settings::cullet::Rule::new(host.frit_trust.clone()),
-        mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
-        batch: batch.batch,
-    };
+    let gate = vtium_settings::cullet::Gate::new(
+        vtium_settings::cullet::Rule::new(host.frit_trust.clone()),
+        Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+        batch.batch,
+    );
     let settings = Settings {
         squeeze,
         sources,
@@ -615,7 +615,8 @@ fn outcome_with(
         .zip(loaded.config.origin(&keys::POINTER_THEME))
         .filter(|(_, origin)| !(heads.refused && matches!(origin, Origin::File { .. })))
         .map(|(value, origin)| (value, origin.to_string()));
-    let pointers = pointer_findings(top_pointer, &gate.rule, &gate.mounts);
+    let mounts = gate.mounts.clone().unwrap_or_default();
+    let pointers = pointer_findings(top_pointer, &gate.rule, &mounts);
     let folders = vtium_settings::palette::FOLDERS.map(Path::new);
     let (schemes, scheme_notes) =
         palette_findings(top_palette, path, &heads.palettes, &folders, &gate);
@@ -787,7 +788,7 @@ pub struct Settings<'a> {
     pub sources: Option<FontSources<'a>>,
     /// The trust rule, the mount table and the batch that a font file a
     /// font set names by its path passes; `None` checks no font file.
-    pub gate: Option<&'a vtium_settings::palette::Gate>,
+    pub gate: Option<&'a vtium_settings::cullet::Gate>,
 }
 
 /// How the check asks the glyph helper of a font set for the lines of its
@@ -1079,15 +1080,13 @@ fn vtlook_findings(
     looks: &[(String, String, usize)],
     folders: &[&Path],
     trust: &Trust,
-    gate: &vtium_settings::palette::Gate,
+    gate: &vtium_settings::cullet::Gate,
 ) -> Vec<String> {
     use vtium_settings::vtlook::{self, DEFAULT, SUFFIX};
     // a `.cube` file sits in the administrator's folder, the first one
-    let cubes = vtlook::Gate {
+    let cubes = vtlook::Cubes {
         dir: folders.first().copied().unwrap_or(Path::new(vtlook::LOOKS)),
-        batch: &gate.batch,
-        rule: &gate.rule,
-        mounts: &gate.mounts,
+        gate,
     };
     let mut names: Vec<&str> = top.iter().map(|(name, _)| *name).collect();
     for (_, name, _) in looks {
@@ -1165,7 +1164,7 @@ fn vtlook_findings(
     looks: &[(String, String, usize)],
     _folders: &[&Path],
     _trust: &Trust,
-    _gate: &vtium_settings::palette::Gate,
+    _gate: &vtium_settings::cullet::Gate,
 ) -> Vec<String> {
     let none = |heads: &str, name: &str| {
         format!(
@@ -1310,7 +1309,7 @@ fn palette_findings(
     conf: &Path,
     looks: &[(String, String, usize)],
     folders: &[&Path],
-    gate: &vtium_settings::palette::Gate,
+    gate: &vtium_settings::cullet::Gate,
 ) -> (Vec<String>, Vec<String>) {
     use vtium_settings::palette;
     let mut names: Vec<&str> = top.iter().map(|(name, _)| *name).collect();
@@ -1453,17 +1452,17 @@ fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
             continue;
         }
         let at = format!("{}:{}", file.display(), n.saturating_add(1));
-        match vtium_settings::cullet::open(font, &gate.rule, &gate.mounts) {
+        match gate.open(font) {
             Err(r) if r.check == vtium_settings::cullet::Check::Missing => {}
+            Err(r) if r.check == vtium_settings::cullet::Check::Inactive => out.push(format!(
+                "{at}: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+                font.display(),
+                b = vtium_settings::batch::BATCH_FILE
+            )),
             Err(r) => out.push(format!(
                 "{at}: vtium treats the font {} as missing, because {} vtium draws its characters from the next font in the set.",
                 font.display(),
                 r.check
-            )),
-            Ok(_) if !gate.batch.holds(font) => out.push(format!(
-                "{at}: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
-                font.display(),
-                b = vtium_settings::batch::BATCH_FILE
             )),
             Ok(_) => {}
         }
@@ -2086,7 +2085,7 @@ mod tests {
         let shut = write("shut");
         let open = write("open");
         let gate = palette_gate(&dir);
-        let gate = vtium_settings::palette::Gate {
+        let gate = vtium_settings::cullet::Gate {
             batch: vtium_settings::batch::Batch::new(vec![vtium_settings::batch::Entry::Path(
                 open.clone(),
             )]),
@@ -2222,15 +2221,15 @@ mod tests {
             ),
         );
         let _ = std::fs::set_permissions(&frit, std::fs::Permissions::from_mode(0o644));
-        let gate = vtium_settings::palette::Gate {
-            rule: vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir),
-            mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
-            batch: vtium_settings::batch::Batch::new(
+        let gate = vtium_settings::cullet::Gate::new(
+            vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir),
+            Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+            vtium_settings::batch::Batch::new(
                 [&good, &open]
                     .map(|p| vtium_settings::batch::Entry::Path(p.clone()))
                     .to_vec(),
             ),
-        };
+        );
         let settings = Settings {
             trust: Trust::owner(me).below(&dir),
             gate: Some(&gate),
@@ -2257,7 +2256,7 @@ mod tests {
     /// The gate a palette file in the scratch folder `dir` passes: its
     /// owner's files under `dir`, this machine's mount table, and a batch
     /// that lists each file in `dir` now.
-    fn palette_gate(dir: &Path) -> vtium_settings::palette::Gate {
+    fn palette_gate(dir: &Path) -> vtium_settings::cullet::Gate {
         use std::os::unix::fs::MetadataExt;
         let me = std::fs::metadata(dir).map_or(0, |m| m.uid());
         let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -2267,16 +2266,16 @@ mod tests {
             .map(|e| e.path())
             .collect();
         files.sort();
-        vtium_settings::palette::Gate {
-            rule: vtium_settings::cullet::Rule::new(Trust::owner(me)).below(dir),
-            mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
-            batch: vtium_settings::batch::Batch::new(
+        vtium_settings::cullet::Gate::new(
+            vtium_settings::cullet::Rule::new(Trust::owner(me)).below(dir),
+            Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+            vtium_settings::batch::Batch::new(
                 files
                     .into_iter()
                     .map(vtium_settings::batch::Entry::Path)
                     .collect(),
             ),
-        }
+        )
     }
 
     // A color scheme that sets many keys vtium ignores gives one note for

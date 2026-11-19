@@ -22,7 +22,7 @@
 //! [`template`] gives the built-in vtlook's text, which vtium-config writes
 //! out to start a new vtlook. A `cube` filter takes its table from a
 //! `.cube` file in [`LOOKS`], which [`read_cube`] reads once the file has
-//! passed the [`Gate`]: the batch must hold it, and it must pass the trust
+//! passed the [`crate::cullet::Gate`]: the batch must hold it, and it must pass the trust
 //! rule.
 //!
 //! References:
@@ -48,7 +48,7 @@ mod template;
 #[cfg(feature = "filters")]
 pub use crate::bounds::CUBE_FILE_MAX;
 #[cfg(feature = "filters")]
-pub use cube::{Fault, Faults, Gate, read_cube};
+pub use cube::{Cubes, Fault, Faults, read_cube};
 #[cfg(feature = "filters")]
 pub use read::{Filter, Value, Vtlook, find, read, read_text, read_text_with};
 #[cfg(feature = "filters")]

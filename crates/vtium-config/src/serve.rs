@@ -251,11 +251,11 @@ pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
 use crate::sources::{
-    Active, Consoles, FONT_DIRS, Gate, Host, Input, KBD_DIRS, SourceError, resolve_hashed,
+    Consoles, FONT_DIRS, Gate, Host, Input, KBD_DIRS, SourceError, resolve_hashed,
 };
 use vtium_render::{POINTER_SIDE_MAX, POINTER_SVG_BYTES_MAX, XCURSOR_FILE_MAX};
 use vtium_settings::batch::{Batch, Entry};
-use vtium_settings::cullet::Rule;
+use vtium_settings::cullet::{self, Rule};
 use vtium_term::{ClusterWidth, PointerShape};
 
 /// The command that makes the binary the helper.
@@ -862,11 +862,11 @@ impl ActiveAsk {
                 self.owner
             ));
         }
-        Ok(Gate::Active(Active {
-            batch: Batch::new(self.paths.iter().cloned().map(Entry::Path).collect()),
-            rule: Rule::running_as(self.owner),
-            mounts: None,
-        }))
+        Ok(Gate::Active(cullet::Gate::new(
+            Rule::running_as(self.owner),
+            None,
+            Batch::new(self.paths.iter().cloned().map(Entry::Path).collect()),
+        )))
     }
 }
 
@@ -8720,11 +8720,11 @@ mod tests {
             }
             let table =
                 vtium_settings::mounts::Mounts::system().is_ok_and(|m| !m.list().is_empty());
-            let gate = Gate::Active(Active {
-                batch: Batch::new(vec![Entry::Path(font.clone())]),
-                rule: Rule::running_as(me()),
-                mounts: None,
-            });
+            let gate = Gate::Active(cullet::Gate::new(
+                Rule::running_as(me()),
+                None,
+                Batch::new(vec![Entry::Path(font.clone())]),
+            ));
             let opened = crate::sources::resolve(
                 &crate::frit::Frit::parse(
                     format!("source=outline:{}\n", font.display()).as_bytes(),

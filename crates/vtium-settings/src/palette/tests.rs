@@ -11,6 +11,9 @@
 use std::os::unix::fs::PermissionsExt;
 
 use super::*;
+use crate::batch::Batch;
+use crate::cullet::Rule;
+use crate::mounts::Mounts;
 use crate::scratch::Scratch;
 
 fn legacy() -> Palette {
@@ -328,11 +331,7 @@ impl Folders {
 
     /// The gate with `batch` as the batch, on this machine's mount table.
     fn gate(&self, batch: Batch) -> Gate {
-        Gate {
-            rule: self.rule.clone(),
-            mounts: Mounts::system().unwrap(),
-            batch,
-        }
+        Gate::new(self.rule.clone(), Some(Mounts::system().unwrap()), batch)
     }
 
     /// The batch that lists every file in both folders.
@@ -645,7 +644,10 @@ fn a_palette_through_a_symbolic_link_is_refused() {
     );
     let linked = f.admin.join("linked");
     std::os::unix::fs::symlink(&f.package, &linked).unwrap();
-    let failure = read("kiln", &[&linked], &f.gate(f.every_file())).unwrap_err();
+    // the batch lists the path through the link, so the trust rule alone
+    // refuses it
+    let listed = Batch::new(vec![crate::batch::Entry::Path(linked.join("kiln.palette"))]);
+    let failure = read("kiln", &[&linked], &f.gate(listed)).unwrap_err();
     assert_eq!(
         failure.faults[0].reason,
         Reason::Refused(Check::Link { at: linked })
