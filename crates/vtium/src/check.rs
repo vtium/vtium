@@ -1121,7 +1121,7 @@ const TOP_SCHEME_HEADS: &str = "the heads whose look names no color scheme of it
 /// What the heads draw in place of a color scheme the top level names
 /// that fails, and of one a look names.
 const TOP_INSTEAD: &str = "draw the color scheme legacy instead";
-const LOOK_INSTEAD: &str = "draw the color scheme that vtium.conf's top level names instead";
+const LOOK_INSTEAD: &str = "draw the color scheme that vtium.conf's top level names instead, or legacy when that one fails too";
 
 /// What check-config says of the palette files, the color schemes, that a
 /// start would read: `top`, the one vtium.conf's top level or the command
@@ -1174,20 +1174,35 @@ fn palette_findings(
             top.chain(looks).collect::<Vec<_>>()
         };
         match palette::read(name, folders, trust) {
-            Ok(Some(scheme)) => notes.extend(scheme.ignored.iter().map(|i| {
-                let follows = matches!(i.key.as_str(), "config-file" | "theme");
-                let why = if follows {
-                    "vtium never follows it, so a color scheme sets colors and nothing else"
-                } else {
-                    "it is not a color vtium reads"
+            Ok(Some(scheme)) => {
+                notes.extend(scheme.ignored.iter().map(|i| {
+                    let follows = matches!(i.key.as_str(), "config-file" | "theme");
+                    let why = if follows {
+                        "vtium never follows it, so a color scheme sets colors and nothing else"
+                    } else {
+                        "it is not a color vtium reads"
+                    };
+                    format!(
+                        "{}:{}: The color scheme {name} sets {}, which vtium ignores: {why}.",
+                        scheme.file.display(),
+                        i.line,
+                        i.quoted()
+                    )
+                }));
+                // the reader lists the first keys it ignores and counts the
+                // rest, so one note stands for all of those
+                let keys = match scheme.more_ignored {
+                    0 => None,
+                    1 => Some("1 more key".to_owned()),
+                    n => Some(format!("{n} more keys")),
                 };
-                format!(
-                    "{}:{}: The color scheme {name} sets {}, which vtium ignores: {why}.",
-                    scheme.file.display(),
-                    i.line,
-                    i.quoted()
-                )
-            })),
+                notes.extend(keys.map(|keys| {
+                    format!(
+                        "{}: The color scheme {name} sets {keys} that vtium ignores.",
+                        scheme.file.display()
+                    )
+                }));
+            }
             Ok(None) => {
                 let folders: Vec<String> =
                     folders.iter().map(|f| f.display().to_string()).collect();
@@ -1755,6 +1770,42 @@ mod tests {
         }
     }
 
+    // A color scheme that sets many keys vtium ignores gives one note for
+    // each of the first ERRORS_MAX keys and one note that counts the rest.
+    #[test]
+    fn check_config_counts_the_ignored_keys_past_the_bound() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = Scratch::new("check-palette-keys");
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let path = dir.join("many.palette");
+        let text: String = (0..vtium_settings::ERRORS_MAX + 7)
+            .map(|i| format!("k{i} = 1\n"))
+            .collect();
+        std::fs::write(&path, text).unwrap_or_default();
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+        let me = std::fs::metadata(&*dir).map_or(0, |m| m.uid());
+        let trust = Trust::owner(me).below(&dir);
+        let (counted, notes) = palette_findings(
+            Some(("many", "/etc/vtium/vtium.conf:1".to_owned())),
+            Path::new("/etc/vtium/vtium.conf"),
+            &[],
+            &[&*dir],
+            &trust,
+        );
+        assert_eq!(counted, Vec::<String>::new());
+        assert_eq!(notes.len(), vtium_settings::ERRORS_MAX + 1);
+        assert_eq!(
+            notes.last().map(String::as_str),
+            Some(
+                format!(
+                    "{}: The color scheme many sets 7 more keys that vtium ignores.",
+                    path.display()
+                )
+                .as_str()
+            )
+        );
+    }
+
     // check-config reads each color scheme vtium.conf names, at the top
     // level and in a look, as the start reads it: a scheme with errors
     // lists each error with its file and line and then each place that
@@ -1808,9 +1859,9 @@ mod tests {
                     "{b}:3: The color \"notacolor\" of foreground is not one vtium can read. A color is #rrggbb, rrggbb or an X11 color name such as DarkSlateGray."
                 ),
                 "/etc/vtium/vtium.conf:1: The color scheme broken has errors, so the heads whose look names no color scheme of its own draw the color scheme legacy instead.".to_owned(),
-                "/etc/vtium/vtium.conf:4: The color scheme broken has errors, so the heads that use look warm draw the color scheme that vtium.conf's top level names instead.".to_owned(),
+                "/etc/vtium/vtium.conf:4: The color scheme broken has errors, so the heads that use look warm draw the color scheme that vtium.conf's top level names instead, or legacy when that one fails too.".to_owned(),
                 format!(
-                    "/etc/vtium/vtium.conf:6: The color scheme absent does not exist. No built-in color scheme has that name, and there is no file absent.palette in {}. So the heads that use look cool draw the color scheme that vtium.conf's top level names instead.",
+                    "/etc/vtium/vtium.conf:6: The color scheme absent does not exist. No built-in color scheme has that name, and there is no file absent.palette in {}. So the heads that use look cool draw the color scheme that vtium.conf's top level names instead, or legacy when that one fails too.",
                     dir.display()
                 ),
                 format!(

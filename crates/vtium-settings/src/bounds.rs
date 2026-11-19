@@ -134,7 +134,7 @@ const PALETTE_FILE: Bound = Bound {
     name: "PALETTE_FILE_MAX",
     value: 16 * 1024,
     what: "Bytes of a palette file, a color scheme",
-    past: "The file counts as missing, and the heads that name it draw the palette vtium.conf's top level names",
+    past: "The file counts as missing, and vtium draws the color scheme below it: the top level's in place of a look's, and legacy in place of the top level's",
     cite: "ADR-1205 D10; a file that sets all 256 colors and every other key it may set is under 7 KiB",
 };
 
@@ -219,7 +219,10 @@ pub const VTLOOK_SECTIONS_MAX: usize = VTLOOK_SECTIONS.value as usize;
 /// - ADR-1205 D4: the batch file, and the list of a fresh install that vtium uses in its place.
 pub const BATCH_MAX: usize = BATCH.value as usize;
 
-/// Bytes of a palette file (ADR-1205 D10).
+/// Bytes of a palette file, a color scheme.
+///
+/// References:
+/// - ADR-1205 D10: the 16 KiB bound on a palette file.
 pub const PALETTE_FILE_MAX: usize = PALETTE_FILE.value as usize;
 
 #[cfg(test)]

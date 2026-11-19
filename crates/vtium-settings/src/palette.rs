@@ -15,7 +15,8 @@
 //! The file is Ghostty's theme format as it is, so a scheme written for
 //! Ghostty imports unchanged: `key = value` lines, comments that start
 //! with `#`, and blank lines. [`parse`] reads `palette` (`N=COLOR`, N from
-//! 0 to 255), `foreground`, `background`, `cursor-color`,
+//! 0 to 255, in decimal or after Ghostty's prefixes `0b`, `0o` and `0x`),
+//! `foreground`, `background`, `cursor-color`,
 //! `selection-background` and `selection-foreground`. A `COLOR` is
 //! `#rrggbb`, `rrggbb` or an X11 color name, read as OSC 4 reads one. In
 //! the last three keys, `cell-foreground` and `cell-background` leave the
@@ -34,6 +35,7 @@
 //! - ADR-1205 D4: a palette file is a resource under the trust rule.
 //! - ADR-1304 D4: the name rule a palette's name shares with a vtlook's.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -105,8 +107,11 @@ pub struct Scheme {
     pub name: String,
     pub file: PathBuf,
     pub palette: Palette,
-    /// Each key vtium ignores, once, in the file's order.
+    /// Each key vtium ignores, once, in the file's order: the first
+    /// [`ERRORS_MAX`] of them.
     pub ignored: Vec<Ignored>,
+    /// The count of the other keys vtium ignores, past [`ERRORS_MAX`].
+    pub more_ignored: usize,
 }
 
 /// Why a palette file counts as missing.
@@ -146,7 +151,7 @@ impl fmt::Display for Reason {
             ),
             Reason::BadEntry(value) => write!(
                 f,
-                "The palette line {value} does not read N=COLOR. N is the number of a color from 0 to 255."
+                "The palette line {value} does not read N=COLOR. N is the number of a color from 0 to 255, in decimal, or in binary, octal or hexadecimal after 0b, 0o or 0x."
             ),
             Reason::PastLastColor(index) => write!(
                 f,
@@ -156,6 +161,10 @@ impl fmt::Display for Reason {
             Reason::TooLarge => write!(
                 f,
                 "The file is larger than {PALETTE_FILE_MAX} bytes, the most a color scheme may hold."
+            ),
+            Reason::Shadows(CUSTOM) => write!(
+                f,
+                "The file takes the name {CUSTOM}, which stands for the colors of vtium.conf's palette-* keys, so vtium never reads it. Give the file another name."
             ),
             Reason::Shadows(name) => write!(
                 f,
@@ -234,11 +243,13 @@ impl Failure {
 }
 
 /// A palette file's colors and the keys it ignores, or its errors.
-pub type Parsed = Result<(Palette, Vec<Ignored>), (Vec<Fault>, usize)>;
+pub type Parsed = Result<(Palette, Vec<Ignored>, usize), (Vec<Fault>, usize)>;
 
 /// Reads a palette file's bytes. The colors the file leaves unset keep
-/// `legacy`'s values. `Err` holds the first [`ERRORS_MAX`] errors in the
-/// file's order and the count of the rest.
+/// `legacy`'s values. `Ok` holds the palette, the first [`ERRORS_MAX`]
+/// keys the file sets that vtium ignores, each once, and the count of the
+/// other keys it ignores. `Err` holds the first [`ERRORS_MAX`] errors in
+/// the file's order and the count of the rest.
 pub fn parse(bytes: &[u8]) -> Parsed {
     if bytes.len() > PALETTE_FILE_MAX {
         let fault = Fault {
@@ -266,6 +277,10 @@ pub fn parse(bytes: &[u8]) -> Parsed {
     };
     let mut palette = Palette::default();
     let mut ignored: Vec<Ignored> = Vec::new();
+    // every key ignored so far, listed or counted, so a key set again is
+    // neither listed nor counted twice
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut more_ignored = 0_usize;
     let mut faults = Vec::new();
     let mut more = 0_usize;
     for (at, line) in text.split('\n').enumerate() {
@@ -276,11 +291,16 @@ pub fn parse(bytes: &[u8]) -> Parsed {
         }
         let result = match key_value(line) {
             Some((key, value)) => setting(&mut palette, key, value).map(|known| {
-                if !known && ignored.iter().all(|i| i.key != key) {
+                if known || !seen.insert(key) {
+                    return;
+                }
+                if ignored.len() < ERRORS_MAX {
                     ignored.push(Ignored {
                         key: key.to_owned(),
                         line: n,
                     });
+                } else {
+                    more_ignored = more_ignored.saturating_add(1);
                 }
             }),
             None => Err(Reason::NotKeyValue),
@@ -297,7 +317,7 @@ pub fn parse(bytes: &[u8]) -> Parsed {
         }
     }
     if faults.is_empty() {
-        Ok((palette, ignored))
+        Ok((palette, ignored, more_ignored))
     } else {
         Err((faults, more))
     }
@@ -359,11 +379,17 @@ fn setting(palette: &mut Palette, key: &str, value: &str) -> Result<bool, Reason
             let bad = || Reason::BadEntry(Quoted::new(value));
             let (index, rest) = value.split_once('=').ok_or_else(bad)?;
             let index = index.trim();
-            if index.is_empty() || !index.bytes().all(|b| b.is_ascii_digit()) {
+            // decimal, or another base after Ghostty's prefix for it
+            let (radix, digits) = match (index.get(..2), index.get(2..)) {
+                (Some("0b"), Some(digits)) => (2, digits),
+                (Some("0o"), Some(digits)) => (8, digits),
+                (Some("0x"), Some(digits)) => (16, digits),
+                _ => (10, index),
+            };
+            if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
                 return Err(bad());
             }
-            let index = index
-                .parse::<u8>()
+            let index = u8::from_str_radix(digits, radix)
                 .map_err(|_| Reason::PastLastColor(Quoted::new(index)))?;
             palette.set_color(index, color(key, rest.trim())?);
         }
@@ -442,11 +468,12 @@ pub fn read(name: &str, folders: &[&Path], trust: &Trust) -> Result<Option<Schem
             Err(rejected) => return Err(Failure::one(name, &file, refused(&rejected))),
         };
         return match parse(&bytes) {
-            Ok((palette, ignored)) => Ok(Some(Scheme {
+            Ok((palette, ignored, more_ignored)) => Ok(Some(Scheme {
                 name: name.to_owned(),
                 file,
                 palette,
                 ignored,
+                more_ignored,
             })),
             Err((faults, more)) => Err(Failure {
                 name: name.to_owned(),

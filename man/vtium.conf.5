@@ -297,7 +297,7 @@ The color scheme: the 16 basic colors, the default text and background colors, a
 .IP
 The value names a built-in palette, \fBcustom\fR, which takes the colors from the \fBpalette\-*\fR keys, or a file \fBNAME.palette\fR in \fB/etc/vtium/palettes\fR or \fB/usr/share/vtium/palettes\fR. A look's own \fBpalette\fR wins.
 .IP
-A palette file uses Ghostty's theme format. When the file is missing or has an error, the heads that name it draw the palette this top-level key names, and vtium logs one line. See Color schemes <https://vtium.github.io/vtium/palettes/>.
+A palette file uses Ghostty's theme format. When a palette file is missing or has an error, vtium logs one line and draws the color scheme below it: the top level's in place of a look's, and \fBlegacy\fR in place of the top level's. See Color schemes <https://vtium.github.io/vtium/palettes/>.
 .IP
 It takes a name: one of \fBlegacy\fR, \fBcustom\fR, \fBnord\fR, \fBsolarized\fR, \fBsolarized\-black\fR, \fBsolarized\-white\fR, \fBsoft\-black\fR, \fBbase16\-dark\fR, \fBbase16\-light\fR, \fBvga\fR, or a file's name: 1 to 64 of the characters A-Z a-z 0-9 . _ + \-. Default: \fBlegacy\fR.
 .IP

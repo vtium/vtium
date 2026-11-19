@@ -49,8 +49,10 @@
 //! console's command line take, with its type, default, bound and
 //! description, which the console reads its configuration by and
 //! vtium-config shows (ADR-1201 D1). [`palette`] reads palette files, the
-//! color schemes a look can name beside the built-in palettes (ADR-1205
-//! D10).
+//! color schemes a look can name beside the built-in palettes.
+//!
+//! References:
+//! - ADR-1205 D10: palette files, the color schemes beside the built-in palettes.
 //!
 //! ```
 //! use vtium_settings::{Class, Identity, Place, parse};

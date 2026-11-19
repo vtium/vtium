@@ -59,8 +59,18 @@ use vtium_term::Palette;
 /// the look's that fails or that no folder holds. `term` takes the
 /// head's palette as the one it is configured with.
 pub(crate) fn palette(config: &Config, term: &mut Term) -> Palette {
+    palette_with(config, term, &mut Config::palette_file)
+}
+
+/// [`palette`], with `file` giving a palette file's palette, or `None`
+/// for one that fails or that no folder holds.
+pub(crate) fn palette_with(
+    config: &Config,
+    term: &mut Term,
+    file: &mut dyn FnMut(&str) -> Option<Palette>,
+) -> Palette {
     let top = term.terminal.palette().clone();
-    let palette = config.palette_or(|| top);
+    let palette = config.palette_with(|| top, file);
     term.terminal.set_palette(palette.clone());
     palette
 }
@@ -359,6 +369,37 @@ mod tests {
         assert_eq!(
             opened.map(|c| c.term.terminal.palette().clone()),
             Some(named("nord"))
+        );
+    }
+
+    // A look whose palette file no folder holds draws the top level's
+    // palette, not legacy: the head, its first console and each console it
+    // opens later. config/palette.rs tests a file that fails.
+    // covers: color.palette.named
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_look_s_failing_palette_file_draws_the_top_level_s_palette() {
+        let text = "palette = solarized\nversion = 1\n[look odd]\npalette = no-such-scheme-zz\n[head a]\nlook = odd\n";
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let clock: crate::term::Clock = std::rc::Rc::new(std::time::Instant::now);
+        let caps = crate::head::session::Caps { head: 4, total: 8 };
+        let heads = crate::head::session::heads(&rules, &top, ((100, 100), 1 << 20), caps, &clock);
+        let solarized = Palette::named("solarized").unwrap_or_default();
+        assert_eq!(heads.len(), 1);
+        let Some(head) = heads.first() else { return };
+        assert_eq!(head.palette, solarized);
+        assert_eq!(head.console.term.terminal.palette(), &solarized);
+        let later = crate::head::terminal(&top, (0, 0), 0, std::rc::Rc::clone(&clock));
+        assert_eq!(
+            head.fresh_console(9, later).term.terminal.palette(),
+            &solarized
         );
     }
 
