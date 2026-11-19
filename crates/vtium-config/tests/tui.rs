@@ -3364,9 +3364,10 @@ mod flow_view {
             press(&mut a, Key::BackTab);
             assert_eq!(a.nav.view, View::Help);
             let page = words(
-                &vtium_config::tui::layout::help_rows(&a)
+                &a.help
+                    .page(&a.shared, a.size)
                     .iter()
-                    .map(view::text)
+                    .map(ToString::to_string)
                     .collect::<Vec<_>>()
                     .join(" "),
             );
@@ -3407,8 +3408,8 @@ mod flow_view {
         // the screen's first row of the page, the row under the tab bar's
         // rule, is the page's row `at`
         let top = |a: &App, at: usize| {
-            let rows = vtium_config::tui::layout::help_rows(a);
-            let want = rows.get(at).map(view::text).unwrap_or_default();
+            let rows = a.help.page(&a.shared, a.size);
+            let want = rows.get(at).map(ToString::to_string).unwrap_or_default();
             let got = text(a).lines().nth(3).unwrap_or_default().to_owned();
             assert_eq!(got.trim_end(), want.trim_end(), "row {at}");
         };

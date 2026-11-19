@@ -10,8 +10,8 @@
 //! - ADR-1206 D4, "Layout is a pure function": update calls layout
 //!   functions and never a view.
 
-use super::canvas::{Row, Span, span, wrap};
-use super::color::{Style, palette};
+use super::canvas::{Row, span, wrap};
+use super::color::Style;
 use super::listbox::{self, Item, Marks};
 use super::model::{App, DpiFrom, FontState, SIZES, Size, View};
 use super::tabs::fonts::NEW_FIELDS;
@@ -232,13 +232,9 @@ pub fn body(app: &App) -> Body {
                 tail: tail(words::NEW_HINT, cols),
             }
         }
-        View::Help => Body {
-            keep: app.help.top(),
-            list: help_rows(app),
-            tail: Vec::new(),
-        },
-        // the Flow view draws on the canvas itself
-        View::Flow => Body {
+        // the Help view draws its page itself, and the Flow view draws on
+        // the canvas itself
+        View::Help | View::Flow => Body {
             list: Vec::new(),
             keep: 0,
             tail: Vec::new(),
@@ -370,157 +366,6 @@ fn settings_body(app: &App) -> Body {
         keep,
         tail: tail_of(hint),
     }
-}
-
-/// The widest a key column of the Help page grows; keys wider than this
-/// push their meaning onto the rows below.
-const HELP_KEYS_MAX: usize = 16;
-
-/// One node's section of the Help page, from the contract: what the node
-/// is, in bold, then each key that acts there and what it does, the
-/// meaning wrapped under its own column.
-fn help_section(node: &super::contract::Node, cols: usize) -> Vec<Row> {
-    let mut rows = Vec::new();
-    if node.help.is_empty() {
-        return rows;
-    }
-    let bold = Style {
-        bold: true,
-        ..Style::PLAIN
-    };
-    for line in wrap(node.what, cols.saturating_sub(2), usize::MAX) {
-        rows.push(vec![span(format!(" {line}"), bold)]);
-    }
-    let keys_width = node
-        .help
-        .iter()
-        .map(|(keys, _)| keys.chars().count())
-        .filter(|w| *w <= HELP_KEYS_MAX)
-        .max()
-        .unwrap_or(0);
-    let indent = keys_width.saturating_add(5);
-    for (keys, does) in node.help {
-        let lines = wrap(does, cols.saturating_sub(indent).max(1), usize::MAX);
-        let mut lines = lines.into_iter();
-        if keys.chars().count() > keys_width {
-            rows.push(plain(format!("   {keys}")));
-        } else {
-            let first = lines.next().unwrap_or_default();
-            rows.push(vec![
-                span(
-                    format!("   {keys:<keys_width$}  "),
-                    Style::text(palette::GREY),
-                ),
-                span(first, Style::PLAIN),
-            ]);
-        }
-        for line in lines {
-            rows.push(plain(format!("{:indent$}{line}", "")));
-        }
-    }
-    rows.push(plain(""));
-    rows
-}
-
-/// The Help view's rows: on the Help page, what each view does and its
-/// keys, the route card, and the commands, from the catalog the command
-/// line's help draws on; on the About page, what `vtium-config --help
-/// about` prints, from the same source.
-pub fn help_rows(app: &App) -> Vec<Row> {
-    let cols = app.size.cols;
-    let bold = Style {
-        bold: true,
-        ..Style::PLAIN
-    };
-    let mut rows = Vec::new();
-    if app.help.about() {
-        let mut out = Vec::new();
-        crate::banner::about(&mut out);
-        for line in String::from_utf8_lossy(&out).lines() {
-            if line.contains('\x1b') {
-                // the banner, styled by its own module; it was drawn for
-                // this terminal's width, and a line wider is left out
-                if super::canvas::width(line) <= cols {
-                    rows.push(vec![Span {
-                        text: line.to_owned(),
-                        style: Style::PLAIN,
-                        raw: true,
-                    }]);
-                }
-            } else {
-                rows.extend(prose(line, cols));
-            }
-        }
-        return rows;
-    }
-    for node in super::contract::NODES {
-        if node.supported {
-            rows.extend(help_section(node, cols));
-            continue;
-        }
-        // a view whose node is still planned keeps its hand-written words
-        let Some((_, name, does, keys)) = words::HELP_PLANNED.iter().find(|p| p.0 == node.id)
-        else {
-            continue;
-        };
-        // the Fonts view's keys in a vtium console, where `s` saves
-        let (does, keys) = if *name == words::FONTS && app.shared.text_preview() {
-            (words::HELP_FONTS_LIVE, words::KEYS_FONTS_LIVE)
-        } else {
-            (*does, *keys)
-        };
-        let mut first = true;
-        for line in wrap(
-            &format!("{name} {does}"),
-            cols.saturating_sub(2),
-            usize::MAX,
-        ) {
-            if first {
-                let rest = line.strip_prefix(name).unwrap_or(&line).to_owned();
-                rows.push(vec![
-                    span(format!(" {name}"), bold),
-                    span(rest, Style::PLAIN),
-                ]);
-                first = false;
-            } else {
-                rows.push(plain(format!(" {line}")));
-            }
-        }
-        for line in wrap(keys, cols.saturating_sub(6), usize::MAX) {
-            rows.push(vec![span(
-                format!("     {line}"),
-                Style::text(palette::GREY),
-            )]);
-        }
-        rows.push(plain(""));
-    }
-    rows.push(plain(""));
-    rows.extend(prose(words::HELP_COMMANDS, cols));
-    let usage = crate::help::usage();
-    let commands = usage
-        .split_once("Commands:\n")
-        .map(|(_, rest)| rest.split("\n\n").next().unwrap_or_default())
-        .unwrap_or_default();
-    // a command's line wider than the screen gives its synopsis a row of
-    // its own and goes on under it
-    let width = cols.saturating_sub(1);
-    for line in commands.lines() {
-        if line.chars().count() <= width {
-            rows.push(plain(format!(" {line}")));
-            continue;
-        }
-        let (synopsis, does) = line
-            .trim_start()
-            .split_once("  ")
-            .map_or((line.trim(), ""), |(a, b)| (a, b.trim()));
-        rows.push(plain(format!("   {synopsis}")));
-        for l in wrap(does, cols.saturating_sub(8), usize::MAX) {
-            if !l.is_empty() {
-                rows.push(plain(format!("       {l}")));
-            }
-        }
-    }
-    rows
 }
 
 /// Where a picture goes, row and column from 1: in the Looks view beside
@@ -764,6 +609,6 @@ pub fn list_window(app: &App, list: usize, tail: usize) -> (usize, bool) {
 /// screen shows at once. The page's top row goes as far as the row that
 /// puts the page's last row at the bottom of the screen.
 pub fn help_window(app: &App) -> (usize, usize) {
-    let len = help_rows(app).len();
+    let len = app.help.page(&app.shared, app.size).len();
     (len, list_window(app, len, 0).0)
 }

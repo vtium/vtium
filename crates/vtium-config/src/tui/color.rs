@@ -334,6 +334,74 @@ pub enum Colors {
     Named,
 }
 
+/// One character of text that styles itself with SGR, and the style its
+/// SGR sequences set.
+pub type SgrCell = (char, ratatui_core::style::Style);
+
+/// The characters of `text`, each in the style its SGR sequences set, with
+/// the sequences left out: the About page's banner, which its own module
+/// styles in 24-bit or 256 colors.
+pub fn sgr_cells(text: &str) -> Vec<SgrCell> {
+    use ratatui_core::style::{Color as C, Modifier as M, Style as S};
+    let mut out = Vec::new();
+    let mut style = S::new();
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            out.push((c, style));
+            continue;
+        }
+        if chars.peek() != Some(&'[') {
+            continue;
+        }
+        chars.next();
+        let mut params = String::new();
+        let mut last = ' ';
+        for c in chars.by_ref() {
+            if ('@'..='~').contains(&c) {
+                last = c;
+                break;
+            }
+            params.push(c);
+        }
+        if last != 'm' {
+            continue;
+        }
+        let ps: Vec<u8> = params.split(';').map(|p| p.parse().unwrap_or(0)).collect();
+        let mut ps = ps.into_iter();
+        while let Some(p) = ps.next() {
+            // the color after 38 or 48: 5 and an index, or 2 and its red,
+            // green and blue
+            let extended = |ps: &mut std::vec::IntoIter<u8>| match ps.next() {
+                Some(5) => C::Indexed(ps.next().unwrap_or(0)),
+                Some(2) => C::Rgb(
+                    ps.next().unwrap_or(0),
+                    ps.next().unwrap_or(0),
+                    ps.next().unwrap_or(0),
+                ),
+                _ => C::Reset,
+            };
+            style = match p {
+                0 => S::new(),
+                1 => style.add_modifier(M::BOLD),
+                3 => style.add_modifier(M::ITALIC),
+                4 => style.add_modifier(M::UNDERLINED),
+                7 => style.add_modifier(M::REVERSED),
+                30..=37 => style.fg(C::Indexed(p.saturating_sub(30))),
+                90..=97 => style.fg(C::Indexed(p.saturating_sub(82))),
+                40..=47 => style.bg(C::Indexed(p.saturating_sub(40))),
+                100..=107 => style.bg(C::Indexed(p.saturating_sub(92))),
+                38 => style.fg(extended(&mut ps)),
+                48 => style.bg(extended(&mut ps)),
+                39 => style.fg(C::Reset),
+                49 => style.bg(C::Reset),
+                _ => style,
+            };
+        }
+    }
+    out
+}
+
 /// The colors of the flow's sections (D7).
 pub mod palette {
     use super::Color;
@@ -509,6 +577,25 @@ mod tests {
             ..s
         };
         assert_eq!(sent(named, true), "\x1b[90;44m");
+    }
+
+    #[test]
+    fn a_raw_span_s_colors_reach_ratatui_s_cells() {
+        use ratatui_core::style::Color as C;
+        let cells = sgr_cells("\x1b[38;2;1;2;3mA\x1b[48;5;200mB\x1b[0mC\x1b[95mD");
+        let got: Vec<(char, C, C)> = cells
+            .iter()
+            .map(|(c, s)| (*c, s.fg.unwrap_or(C::Reset), s.bg.unwrap_or(C::Reset)))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ('A', C::Rgb(1, 2, 3), C::Reset),
+                ('B', C::Rgb(1, 2, 3), C::Indexed(200)),
+                ('C', C::Reset, C::Reset),
+                ('D', C::Indexed(13), C::Reset)
+            ]
+        );
     }
 
     #[test]

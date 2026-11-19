@@ -161,6 +161,15 @@ impl Canvas {
     }
 }
 
+/// `text` with each control character shown as `?`, so a name read from a
+/// file never carries a control onto the screen, and ratatui, which
+/// cannot measure a control, never meets one.
+pub fn printable(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { '?' } else { c })
+        .collect()
+}
+
 /// `text` in at most `n` characters, cut at its end with `…`.
 pub fn fit(text: &str, n: usize) -> String {
     let len = text.chars().count();

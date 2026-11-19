@@ -1,19 +1,34 @@
-//! The TUI's screen (ADR-1201 D3, ADR-1403 D7): the state drawn on a
-//! [`Canvas`], then into ratatui's buffer, whose Backend writes ECMA-48's
-//! cursor position, erase and SGR sequences only.
+//! The TUI's screen: the model drawn into ratatui's buffer, whose Backend
+//! writes ECMA-48's cursor position, erase and SGR sequences only.
 //!
 //! Every view has the tab bar, with the views and the actions, and the
 //! status line. The Flow view then draws its document of paths and parts,
 //! or the file view or Restore's list over it ([`super::flowdraw`]). The
-//! other views
-//! draw a rule, their body, a message line, a rule and their keys; a body
-//! longer than the room scrolls so the highlighted row shows. Below 80 by
-//! 25 cells no view is drawn: one screen says the size the TUI needs, the
-//! commands that work at any size, and the keys that leave and that undo a
-//! font preview, so the user can always get out. Where each thing stands
-//! comes from [`super::layout`], which update reads too.
+//! other views draw a rule, their body, a message line, a rule and their
+//! keys; a body longer than the room scrolls so the highlighted row shows.
+//! Below 80 by 25 cells no view is drawn: one screen says the size the TUI
+//! needs, the commands that work at any size, and the keys that leave and
+//! that undo a font preview, so the user can always get out. Where each
+//! thing stands comes from [`super::layout`], which update reads too.
+//!
+//! ratatui's widgets draw the tab bar, the status line, the rules, the
+//! message line, the key line, the Help page and the screen below the
+//! minimum. The bodies of the other tabs, and the Flow view under its tab
+//! bar, are still drawn on a [`Canvas`] and copied into their part of the
+//! buffer.
+//!
+//! References:
+//! - ADR-1201 D3 and ADR-1403 D7: the views, the minimum size and the
+//!   screen below it.
+//! - ADR-1206 D1: ratatui's core and widgets draw the TUI.
 
-use super::canvas::{Canvas, Row, span, wrap};
+use ratatui_core::buffer::Buffer;
+use ratatui_core::layout::Rect;
+use ratatui_core::text::{Line, Span};
+use ratatui_core::widgets::Widget as _;
+use ratatui_widgets::paragraph::Paragraph;
+
+use super::canvas::{Canvas, Row, printable, span, wrap};
 use super::color::{Colors, Style, palette};
 use super::layout::{
     Body, FLOW_TOP, MESSAGE_ROWS, Tab, body, item_rows, key_line, key_rows, list_window,
@@ -34,8 +49,31 @@ fn sides(left: &str, right: &str, cols: usize) -> String {
     format!("{left}{}{right}", " ".repeat(gap))
 }
 
-/// Draws the tab bar on row 0.
-fn tab_bar(canvas: &mut Canvas, app: &App) {
+/// A span of `text` in `style`, its colors read as `colors` says. A
+/// control character shows as `?`.
+fn styled(text: impl AsRef<str>, style: Style, colors: Colors) -> Span<'static> {
+    Span::styled(printable(text.as_ref()), style.in_cells(colors))
+}
+
+/// A line of plain `text`.
+fn plain(text: impl AsRef<str>) -> Line<'static> {
+    Line::from(styled(text, Style::PLAIN, Colors::Sent))
+}
+
+/// The `height` rows of `area` from its row `y`, as far as its bottom.
+fn band(area: Rect, y: usize, height: usize) -> Rect {
+    let y = u16::try_from(y).unwrap_or(u16::MAX).min(area.height);
+    let height = u16::try_from(height)
+        .unwrap_or(u16::MAX)
+        .min(area.height.saturating_sub(y));
+    Rect::new(area.x, area.y.saturating_add(y), area.width, height)
+}
+
+/// The tab bar, row 0: the views on the left, the current one in reverse
+/// video, and the actions against the right edge.
+fn tab_bar(app: &App, colors: Colors) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut at = 0usize;
     for (tab, x, text) in tab_places(app) {
         let current = match tab {
             Tab::View(v) => app.nav.view.tab() == v,
@@ -46,14 +84,19 @@ fn tab_bar(canvas: &mut Canvas, app: &App) {
             (Tab::View(_), false) => Style::PLAIN,
             (Tab::Action(_), false) => Style::text(palette::BASE),
         };
-        canvas.put(x, 0, &text, style);
+        if x > at {
+            spans.push(Span::raw(" ".repeat(x.saturating_sub(at))));
+        }
+        at = x.saturating_add(text.chars().count());
+        spans.push(styled(text, style, colors));
     }
+    Line::from(spans)
 }
 
 /// The status line, row 1: how the draft stands and, in the Flow view, the
 /// tags; at the right, how a change is previewed and whether `t` tries
 /// a font live.
-fn status(canvas: &mut Canvas, app: &App) {
+fn status(app: &App) -> String {
     let flow = &app.shared.inputs.flow;
     // the left side with `waiting`, the words for the font sets waiting
     // to be installed
@@ -125,16 +168,11 @@ fn status(canvas: &mut Canvas, app: &App) {
     };
     let room = room(&live);
     let left = super::canvas::fit(&left, room);
-    canvas.put(
-        0,
-        1,
-        &sides(&left, &format!("{live} "), app.size.cols),
-        Style::PLAIN,
-    );
+    sides(&left, &format!("{live} "), app.size.cols)
 }
 
-/// The screen below the minimum size.
-fn small(canvas: &mut Canvas, app: &App) {
+/// The screen below the minimum size, a line a row.
+fn small(app: &App) -> Vec<String> {
     let cols = app.size.cols;
     let mut lines: Vec<String> = Vec::new();
     // the live trial's countdown, and its keys, first
@@ -198,9 +236,7 @@ fn small(canvas: &mut Canvas, app: &App) {
         lines.truncate(room);
         lines.extend(keys);
     }
-    for (y, line) in lines.iter().enumerate() {
-        canvas.put(0, y, line, Style::PLAIN);
-    }
+    lines
 }
 
 /// The Flow view's screens that take the paths' place: the file view
@@ -369,39 +405,88 @@ pub fn rows(buf: &ratatui_core::buffer::Buffer) -> Vec<Row> {
 }
 
 /// Draws `app`'s screen into `buf`, its colors read as `colors` says.
-fn view(app: &App, colors: Colors, buf: &mut ratatui_core::buffer::Buffer) {
-    fill(buf, &canvas(app), colors);
-}
-
-/// The screen for `app` drawn on a canvas: exactly `app.rows` rows, none
-/// wider than `app.cols`.
-fn canvas(app: &App) -> Vec<Row> {
+/// ratatui draws the tab bar, the status line, the rules, the message
+/// line, the key line and the Help page. The other tabs' bodies, and the
+/// Flow view below its tab bar, are still drawn on a canvas and copied
+/// into their part of the buffer.
+fn view(app: &App, colors: Colors, buf: &mut Buffer) {
+    let area = buf.area;
     let (cols, rows) = (app.size.cols, app.size.rows);
-    let mut canvas = Canvas::new(cols, rows);
     if too_small(app.size) {
-        small(&mut canvas, app);
-        return canvas.into_rows();
+        let lines: Vec<Line> = small(app).into_iter().map(plain).collect();
+        Paragraph::new(lines).render(area, buf);
+        return;
     }
-    tab_bar(&mut canvas, app);
+    Paragraph::new(tab_bar(app, colors)).render(band(area, 0, 1), buf);
     if super::flowlayout::shown(app) {
+        let mut canvas = Canvas::new(cols, rows);
         super::flowdraw::screen(&mut canvas, app);
-        return canvas.into_rows();
+        let drawn = canvas.into_rows();
+        fill(
+            buf,
+            band(area, 1, rows),
+            drawn.get(1..).unwrap_or_default(),
+            colors,
+        );
+        return;
     }
-    status(&mut canvas, app);
+    Paragraph::new(plain(status(app))).render(band(area, 1, 1), buf);
     if app.nav.view == View::Flow {
+        let mut canvas = Canvas::new(cols, rows);
         flow_screen(&mut canvas, app);
-        return canvas.into_rows();
+        let drawn = canvas.into_rows();
+        fill(
+            buf,
+            band(area, 2, rows),
+            drawn.get(2..).unwrap_or_default(),
+            colors,
+        );
+        return;
     }
-    canvas.put(0, 2, &"-".repeat(cols), Style::PLAIN);
+    let rule = || plain("-".repeat(cols));
+    Paragraph::new(rule()).render(band(area, 2, 1), buf);
     let message = message_rows(app);
     let keys = key_rows(app);
+    let foot = rows
+        .saturating_sub(1)
+        .saturating_sub(message.len())
+        .saturating_sub(keys.len());
+    let body_area = band(area, 3, foot.saturating_sub(3));
+    if app.nav.view == View::Help {
+        let page = app.help.page(&app.shared, app.size);
+        let (room, _) = list_window(app, page.len(), 0);
+        let first = app.help.top().min(page.len().saturating_sub(room));
+        Paragraph::new(page)
+            .scroll((u16::try_from(first).unwrap_or(u16::MAX), 0))
+            .render(band(area, 3, room), buf);
+    } else {
+        let drawn = body_rows(app);
+        let first = usize::from(body_area.y.saturating_sub(area.y));
+        fill(
+            buf,
+            body_area,
+            drawn.get(first..).unwrap_or_default(),
+            colors,
+        );
+    }
+    let foot_lines: Vec<Line> = message
+        .iter()
+        .map(|l| plain(format!(" {l}")))
+        .chain(std::iter::once(rule()))
+        .chain(keys.iter().map(|l| plain(format!(" {l}"))))
+        .collect();
+    Paragraph::new(foot_lines).render(band(area, foot, rows), buf);
+}
+
+/// The body of a tab that is not yet drawn through ratatui, on a canvas
+/// of the whole screen: its list from row 3 down, the sentences under the
+/// list where they fit, and in a vtium console the preview's text where a
+/// picture would go.
+fn body_rows(app: &App) -> Vec<Row> {
+    let mut canvas = Canvas::new(app.size.cols, app.size.rows);
     let Body { list, keep, tail } = body(app);
     let (list_room, show_tail) = list_window(app, list.len(), tail.len());
-    let first = if app.nav.view == View::Help {
-        keep.min(list.len().saturating_sub(list_room))
-    } else {
-        keep.saturating_add(1).saturating_sub(list_room)
-    };
+    let first = keep.saturating_add(1).saturating_sub(list_room);
     let mut y = 3usize;
     for row in list.into_iter().skip(first).take(list_room) {
         canvas.row(y, &row);
@@ -413,25 +498,7 @@ fn canvas(app: &App) -> Vec<Row> {
             y = y.saturating_add(1);
         }
     }
-    // in a vtium console, the preview's text where a picture would go
     super::console::draw(&mut canvas, app);
-    let foot = rows
-        .saturating_sub(1)
-        .saturating_sub(message.len())
-        .saturating_sub(keys.len());
-    for (i, line) in message.iter().enumerate() {
-        canvas.put(0, foot.saturating_add(i), &format!(" {line}"), Style::PLAIN);
-    }
-    let rule = foot.saturating_add(message.len());
-    canvas.put(0, rule, &"-".repeat(cols), Style::PLAIN);
-    for (i, line) in keys.iter().enumerate() {
-        canvas.put(
-            0,
-            rule.saturating_add(1).saturating_add(i),
-            &format!(" {line}"),
-            Style::PLAIN,
-        );
-    }
     canvas.into_rows()
 }
 
@@ -474,86 +541,19 @@ fn strip(text: &str) -> String {
     out
 }
 
-/// One cell of a raw span: a character and the style its SGR set.
-type RawCell = (char, ratatui_core::style::Style);
-
-/// The characters of a raw span, each in the style its SGR sequences set:
-/// the About page's banner, which its own module styles in 24-bit or 256
-/// colors.
-fn raw_cells(text: &str) -> Vec<RawCell> {
-    use ratatui_core::style::{Color as C, Modifier as M, Style as S};
-    let mut out = Vec::new();
-    let mut style = S::new();
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c != '\x1b' {
-            out.push((c, style));
-            continue;
-        }
-        if chars.peek() != Some(&'[') {
-            continue;
-        }
-        chars.next();
-        let mut params = String::new();
-        let mut last = ' ';
-        for c in chars.by_ref() {
-            if ('@'..='~').contains(&c) {
-                last = c;
-                break;
-            }
-            params.push(c);
-        }
-        if last != 'm' {
-            continue;
-        }
-        let ps: Vec<u8> = params.split(';').map(|p| p.parse().unwrap_or(0)).collect();
-        let mut ps = ps.into_iter();
-        while let Some(p) = ps.next() {
-            // the color after 38 or 48: 5 and an index, or 2 and its red,
-            // green and blue
-            let extended = |ps: &mut std::vec::IntoIter<u8>| match ps.next() {
-                Some(5) => C::Indexed(ps.next().unwrap_or(0)),
-                Some(2) => C::Rgb(
-                    ps.next().unwrap_or(0),
-                    ps.next().unwrap_or(0),
-                    ps.next().unwrap_or(0),
-                ),
-                _ => C::Reset,
-            };
-            style = match p {
-                0 => S::new(),
-                1 => style.add_modifier(M::BOLD),
-                3 => style.add_modifier(M::ITALIC),
-                4 => style.add_modifier(M::UNDERLINED),
-                7 => style.add_modifier(M::REVERSED),
-                30..=37 => style.fg(C::Indexed(p.saturating_sub(30))),
-                90..=97 => style.fg(C::Indexed(p.saturating_sub(82))),
-                40..=47 => style.bg(C::Indexed(p.saturating_sub(40))),
-                100..=107 => style.bg(C::Indexed(p.saturating_sub(92))),
-                38 => style.fg(extended(&mut ps)),
-                48 => style.bg(extended(&mut ps)),
-                39 => style.fg(C::Reset),
-                49 => style.bg(C::Reset),
-                _ => style,
-            };
-        }
-    }
-    out
-}
-
-/// Writes `rows` into `buf` from its top left, their colors read as
-/// `colors` says, each character in as many cells as the console's width
-/// rule gives it, as the terminal lays it out. A character the console and
-/// Unicode's tables measure differently keeps the console's width in the
-/// buffer, so ratatui's diff steps over the same cells the terminal's
-/// cursor does.
-pub fn fill(buf: &mut ratatui_core::buffer::Buffer, rows: &[Row], colors: Colors) {
+/// Writes `rows` into `area` of `buf` from its top left, their colors read
+/// as `colors` says, each character in as many cells as the console's
+/// width rule gives it, as the terminal lays it out. A character the
+/// console and Unicode's tables measure differently keeps the console's
+/// width in the buffer, so ratatui's diff steps over the same cells the
+/// terminal's cursor does.
+pub fn fill(buf: &mut Buffer, area: Rect, rows: &[Row], colors: Colors) {
     use ratatui_core::buffer::{CellDiffOption, CellWidth};
-    let area = buf.area;
+    let area = area.intersection(buf.area);
     for (y, row) in (area.top()..area.bottom()).zip(rows) {
-        let cells = row.iter().flat_map(|s| -> Vec<RawCell> {
+        let cells = row.iter().flat_map(|s| -> Vec<super::color::SgrCell> {
             if s.raw {
-                raw_cells(&s.text)
+                super::color::sgr_cells(&s.text)
             } else {
                 let style = s.style.in_cells(colors);
                 s.text.chars().map(|c| (c, style)).collect()
@@ -648,7 +648,8 @@ mod tests {
         // tables, and 日 takes two by both
         let rows = vec![vec![span("a\u{17a4}b日c", Style::PLAIN)]];
         let mut next = Buffer::empty(Rect::new(0, 0, 8, 1));
-        fill(&mut next, &rows, Colors::Sent);
+        let area = next.area;
+        fill(&mut next, area, &rows, Colors::Sent);
         let at = |b: &Buffer, x: u16| b[(x, 0)].symbol().to_owned();
         assert_eq!(
             (0..6).map(|x| at(&next, x)).collect::<Vec<_>>(),
@@ -690,26 +691,8 @@ mod tests {
             ],
         ];
         let mut buf = Buffer::empty(Rect::new(0, 0, 6, 2));
-        fill(&mut buf, &rows, Colors::Named);
+        let area = buf.area;
+        fill(&mut buf, area, &rows, Colors::Named);
         assert_eq!(super::rows(&buf), rows);
-    }
-
-    #[test]
-    fn a_raw_span_s_colors_reach_ratatui_s_cells() {
-        use ratatui_core::style::Color as C;
-        let cells = raw_cells("\x1b[38;2;1;2;3mA\x1b[48;5;200mB\x1b[0mC\x1b[95mD");
-        let got: Vec<(char, C, C)> = cells
-            .iter()
-            .map(|(c, s)| (*c, s.fg.unwrap_or(C::Reset), s.bg.unwrap_or(C::Reset)))
-            .collect();
-        assert_eq!(
-            got,
-            [
-                ('A', C::Rgb(1, 2, 3), C::Reset),
-                ('B', C::Rgb(1, 2, 3), C::Indexed(200)),
-                ('C', C::Reset, C::Reset),
-                ('D', C::Indexed(13), C::Reset)
-            ]
-        );
     }
 }
