@@ -144,19 +144,28 @@ impl Fonts {
         self.form.at < NEW_FIELDS
     }
 
-    /// Highlights the font named `name`, where the list has it.
-    pub fn highlight(&mut self, shared: &Shared, name: &str) {
+    /// Highlights the font named `name`, where the list has it, and
+    /// returns the change that shows the highlighted font in the previews.
+    pub fn highlight(&mut self, shared: &Shared, name: &str) -> Command {
         if let Some(at) = shared.inputs.fonts.iter().position(|f| f.name == name) {
             self.list.at = at;
         }
+        self.previewed()
     }
 
-    /// Keeps the highlight on the list once fonts have left it.
-    pub fn fit(&mut self, shared: &Shared) {
+    /// Keeps the highlight on the list once fonts have left it, and
+    /// returns the change that shows the highlighted font in the previews.
+    pub fn fit(&mut self, shared: &Shared) -> Command {
         self.list.at = self
             .list
             .at
             .min(shared.inputs.fonts.len().saturating_sub(1));
+        self.previewed()
+    }
+
+    /// The change that shows the highlighted font in the previews.
+    fn previewed(&self) -> Command {
+        Command::Change(Change::Preview(self.list.at))
     }
 
     /// A character or Backspace typed into the form's highlighted field.
@@ -197,19 +206,25 @@ impl Fonts {
             }
             _ => {}
         }
+        let before = self.list.at;
         self.list.at = step(self.list.at, shared.inputs.fonts.len(), key);
+        let mut out = Vec::new();
+        if self.list.at != before {
+            out.push(self.previewed());
+        }
         match self.font(shared) {
             Some(font)
                 if key == Key::Enter
                     && !matches!(font.state, FontState::Refused(_))
                     && !shared.refused.contains(&font.name) =>
             {
-                vec![Command::Change(Change::Top {
+                out.push(Command::Change(Change::Top {
                     key: "font-name",
                     value: Some(font.name.clone()),
-                })]
+                }));
+                out
             }
-            _ => Vec::new(),
+            _ => out,
         }
     }
 

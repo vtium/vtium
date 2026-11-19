@@ -54,6 +54,10 @@ pub enum Change {
     Try(String),
     /// Clears the message line.
     Quiet,
+    /// Shows the font at this place in the list of fonts in the previews:
+    /// the Fonts tab's highlight, which every tab's preview reads from the
+    /// shared part.
+    Preview(usize),
     /// Makes `changes` on the draft, in order, and hands the result to the
     /// desk to check, then selects `select` in the Flow view once the desk
     /// answers. The tab checks first that the changes can be made, with

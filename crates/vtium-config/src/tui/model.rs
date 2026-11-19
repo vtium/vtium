@@ -359,6 +359,12 @@ pub struct Shared {
     pub in_flight: Option<String>,
     /// Fonts the console refused, each marked in the list.
     pub refused: BTreeSet<String>,
+    /// The font the console's previews show, counted from 0 in the list
+    /// of fonts: the font the Fonts tab highlights. The Fonts tab sets it
+    /// through [`super::tabs::Change::Preview`] whenever its highlight
+    /// moves, and every tab that shows a preview reads it here, so no tab
+    /// reads another tab's highlight.
+    pub preview_font: usize,
     /// Mouse reporting is on.
     pub mouse: bool,
     pub pending: Pending,
@@ -431,6 +437,11 @@ impl Shared {
     /// file.
     pub fn changed(&self, key: &str) -> bool {
         self.draft.is_some() && self.drafted(key) != self.configured(key)
+    }
+
+    /// The font the previews show, as [`Shared::preview_font`] counts it.
+    pub fn preview_font(&self) -> Option<&Font> {
+        self.inputs.fonts.get(self.preview_font)
     }
 
     /// Whether the draft leaves `allow-font-ops` on, its default.
@@ -610,6 +621,7 @@ impl App {
                 shown_font: None,
                 in_flight: None,
                 refused: BTreeSet::new(),
+                preview_font: font_at,
                 mouse: false,
                 pending: Pending::default(),
                 message: None,
@@ -707,9 +719,9 @@ impl App {
         self.set_view(view)
     }
 
-    /// The highlighted font.
+    /// The font the previews show, which the Fonts tab highlights.
     pub fn font(&self) -> Option<&Font> {
-        self.shared.inputs.fonts.get(self.fonts.at())
+        self.shared.preview_font()
     }
 
     /// The installed vtium.conf's value of `key`.
@@ -795,6 +807,13 @@ impl App {
         if super::nav::node(self) != node {
             self.nav.key_page = 0;
         }
+        // the Fonts tab tells the shared part each move of its highlight,
+        // so the previews show the font it highlights after every event
+        debug_assert_eq!(
+            self.shared.preview_font,
+            self.fonts.at(),
+            "the previews show the font the Fonts tab highlights"
+        );
         out
     }
 
@@ -963,7 +982,8 @@ impl App {
             (true, Some(font)) => {
                 self.shared.start_font = Some(font.clone());
                 self.shared.shown_font = Some(font.clone());
-                self.fonts.highlight(&self.shared, &font);
+                let moved = self.fonts.highlight(&self.shared, &font);
+                self.perform(vec![moved]);
                 Live::On
             }
             (true, None) => Live::OpsOff,
@@ -1191,6 +1211,7 @@ impl App {
                 Command::Change(Change::SaveTried) => effects.extend(self.save_tried()),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
                 Command::Change(Change::Quiet) => self.shared.message = None,
+                Command::Change(Change::Preview(at)) => self.shared.preview_font = at,
                 Command::Change(Change::Make { changes, select }) => {
                     effects.extend(self.make(changes, select));
                 }
@@ -1207,7 +1228,8 @@ impl App {
                 // the Fonts tab highlights the font before it opens, in
                 // that order, so its first frame shows the font
                 Request::ShowFont(name) => {
-                    self.fonts.highlight(&self.shared, &name);
+                    let moved = self.fonts.highlight(&self.shared, &name);
+                    effects.extend(self.perform(vec![moved]));
                     effects.extend(self.set_view(View::Fonts));
                 }
             }
@@ -1231,9 +1253,11 @@ impl App {
                 let Some(start) = self.shared.start_font.clone() else {
                     return Vec::new();
                 };
-                self.fonts.highlight(&self.shared, &start);
+                let moved = self.fonts.highlight(&self.shared, &start);
+                let mut out = self.perform(vec![moved]);
                 self.shared.want = Some(start);
-                self.follow()
+                out.extend(self.follow());
+                out
             }
             _ => Vec::new(),
         }
@@ -1328,7 +1352,8 @@ impl App {
         for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
-        self.fonts.fit(&self.shared);
+        let moved = self.fonts.fit(&self.shared);
+        self.perform(vec![moved]);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one

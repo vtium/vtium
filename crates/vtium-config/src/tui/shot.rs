@@ -187,21 +187,28 @@ pub struct Caption {
 }
 
 /// The parts of the model that a view's preview reads: the open view, the
-/// shared part and the terminal's size, the font the Fonts tab highlights
-/// and whether that tab shows the font's detailed specimen, and the size
-/// the Looks tab highlights. Update and the layout both read the preview
+/// shared part and the terminal's size, whether the Fonts tab shows the
+/// font's detailed specimen, and the size the Looks tab highlights. The
+/// font the preview shows comes from the shared part, which the Fonts tab
+/// keeps on its highlight. Update and the layout both read the preview
 /// through this, and neither changes it.
 #[derive(Clone, Copy, Debug)]
 pub struct Preview<'a> {
     pub view: View,
     pub shared: &'a Shared,
     pub size: Size,
-    pub font: Option<&'a Font>,
+    /// The Fonts view shows the detailed specimen of the font.
     pub detail: bool,
+    /// The size the Looks view highlights, in points, 0 for automatic.
     pub points: u32,
 }
 
-impl Preview<'_> {
+impl<'a> Preview<'a> {
+    /// The font the preview shows.
+    pub fn font(&self) -> Option<&'a Font> {
+        self.shared.preview_font()
+    }
+
     /// The change the view previews now, if any: the highlighted font in
     /// the Fonts view at the draft's size; the highlighted size of the
     /// highlighted font in the Looks view, automatic having none; and on a
@@ -221,7 +228,7 @@ impl Preview<'_> {
         };
         match self.view {
             View::Fonts => {
-                let font = self.font?.name.clone();
+                let font = self.font()?.name.clone();
                 readable(&font).then(|| Wanted {
                     font,
                     points: draft_points(self.shared),
@@ -230,7 +237,7 @@ impl Preview<'_> {
                 })
             }
             View::Looks => {
-                let font = self.font?.name.clone();
+                let font = self.font()?.name.clone();
                 (readable(&font) && self.points > 0).then_some(Wanted {
                     font,
                     points: self.points,
@@ -342,7 +349,6 @@ impl App {
             view: self.nav.view,
             shared: &self.shared,
             size: self.size,
-            font: self.font(),
             detail: self.fonts.detail(),
             points: self.looks.points(),
         }
