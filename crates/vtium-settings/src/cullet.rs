@@ -218,12 +218,9 @@ const FOLDER: OFlags = OFlags::PATH
     .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
 
-/// The names of a plain absolute path, or `None` for a relative path or
-/// one that holds `..`.
-fn names(path: &Path) -> Option<Vec<OsString>> {
-    if !path.is_absolute() {
-        return None;
-    }
+/// The steps of `path`, one for each name and `None` for each `..`. The
+/// root and each `.` are no step.
+fn steps(path: &Path) -> Vec<Option<OsString>> {
     path.components()
         .filter_map(|c| match c {
             Component::Normal(n) => Some(Some(n.to_owned())),
@@ -231,6 +228,15 @@ fn names(path: &Path) -> Option<Vec<OsString>> {
             _ => None,
         })
         .collect()
+}
+
+/// The names of a plain absolute path, or `None` for a relative path or
+/// one that holds `..`.
+fn names(path: &Path) -> Option<Vec<OsString>> {
+    if !path.is_absolute() {
+        return None;
+    }
+    steps(path).into_iter().collect()
 }
 
 impl Walk<'_> {
@@ -439,13 +445,14 @@ pub fn open_in_theme(
     // the theme folder is the bottom of the stack from here on: `..` may
     // not pop it, and an absolute target goes back to it
     let depth = walk.crossed.len();
-    let mut todo: std::collections::VecDeque<Option<OsString>> =
-        inside.iter().cloned().map(Some).collect();
+    // the steps left to take, the next one last, so that a link's target
+    // goes on top of the steps that follow the link
+    let mut todo: Vec<Option<OsString>> = inside.iter().rev().cloned().map(Some).collect();
     let mut links = 0_usize;
     // the link whose target is being walked, which `..` past the theme
     // folder names; `names` refuses `..` in the path itself
     let mut last_link = PathBuf::new();
-    while let Some(next) = todo.pop_front() {
+    while let Some(next) = todo.pop() {
         let Some(name) = next else {
             if walk.crossed.len() <= depth {
                 return Err(walk.refuse(Check::LeavesTheme {
@@ -479,18 +486,9 @@ pub fn open_in_theme(
                     walk.crossed.truncate(depth);
                     t.into_iter().skip(root.len()).map(Some).collect()
                 } else {
-                    target
-                        .components()
-                        .filter_map(|c| match c {
-                            Component::Normal(n) => Some(Some(n.to_owned())),
-                            Component::ParentDir => Some(None),
-                            _ => None,
-                        })
-                        .collect()
+                    steps(&target)
                 };
-                for step in steps.into_iter().rev() {
-                    todo.push_front(step);
-                }
+                todo.extend(steps.into_iter().rev());
                 last_link = at;
             }
             FileType::Directory if !todo.is_empty() => walk.enter(&name)?,
