@@ -640,6 +640,21 @@ pub struct Screen {
     /// References:
     /// - ADR-1304 D2: the look's color filters merged into one table.
     pub color_filters: Option<&'static [(&'static str, &'static [Given])]>,
+    /// A vtlook file's bytes, read by vtium-settings's vtlook reader and
+    /// built into the color table every pixel is looked up in, as a head
+    /// with that vtlook draws. A screen sets this or `color_filters`,
+    /// never both.
+    ///
+    /// References:
+    /// - ADR-1304 D2: the look's color filters merged into one table.
+    pub vtlook: Option<&'static [u8]>,
+    /// A palette file's bytes, read by vtium-settings's palette reader and
+    /// given to the terminal before the bytes, as a head gives a look's
+    /// palette to each console it opens. `None` draws `legacy`.
+    ///
+    /// References:
+    /// - ADR-1205 D10: palette files and their format.
+    pub palette: Option<&'static [u8]>,
 }
 
 impl Screen {
@@ -688,6 +703,8 @@ impl Screen {
             },
             ligatures: false,
             color_filters: None,
+            vtlook: None,
+            palette: None,
         }
     }
 }
@@ -1144,6 +1161,11 @@ pub(crate) fn picture_cell(screen: &Screen, cell: Cell) -> (u32, u32) {
 /// pictures, made in cells of `made`, before the first frame.
 fn terminal(screen: &Screen, made: (u32, u32)) -> Result<Terminal, String> {
     let mut term = Terminal::new(screen.cols, screen.rows, 0);
+    if let Some(bytes) = screen.palette {
+        let (palette, _, _) = vtium_settings::palette::parse(bytes)
+            .map_err(|(faults, _)| format!("the screen's palette file: {faults:?}"))?;
+        term.set_palette(palette);
+    }
     // as a host sets it at start: the screen's method, and what RIS
     // returns to
     term.set_default_width_method(screen.width_method);
@@ -1286,6 +1308,17 @@ pub(crate) fn renderer<F: Face>(
 /// The color table of `screen`'s color filters, `None` for a screen with
 /// none.
 pub(crate) fn color_table(screen: &Screen) -> Result<Option<Table>, String> {
+    if let Some(bytes) = screen.vtlook {
+        if screen.color_filters.is_some() {
+            return Err("a screen with both a vtlook file and color filters".to_owned());
+        }
+        let file = std::path::Path::new("screen.vtlook");
+        let look = vtium_settings::vtlook::read_text("screen", file, bytes)
+            .map_err(|f| format!("the screen's vtlook file: {f:?}"))?;
+        return vtium_settings::vtlook::table(&look)
+            .map(Some)
+            .map_err(|f| format!("the screen's vtlook file: {f:?}"));
+    }
     let Some(steps) = screen.color_filters else {
         return Ok(None);
     };
