@@ -24,6 +24,7 @@
 //! - ADR-1205 D8: deactivating a resource warns and names the looks that use it.
 //! - ADR-1403 D8: a draft keeps its font set changes beside it in the same way.
 
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -53,10 +54,14 @@ impl Change {
 }
 
 /// A draft's changes to the active resources, in the order they were made,
-/// at most one for each path.
+/// at most one for each path. An index by path finds a path's change
+/// without a scan of the list, so reading a large `NAME.batch` does not
+/// take time in the square of its length.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Changes {
     list: Vec<(PathBuf, Change)>,
+    /// Each path's place in `list`.
+    index: BTreeMap<PathBuf, usize>,
 }
 
 impl Changes {
@@ -110,19 +115,36 @@ impl Changes {
 
     /// The change for `path`, if the draft makes one.
     pub fn get(&self, path: &Path) -> Option<Change> {
-        self.list
-            .iter()
-            .find_map(|(p, c)| (p == path).then_some(*c))
+        let at = *self.index.get(path)?;
+        self.list.get(at).map(|(_, c)| *c)
     }
 
     /// Makes `change` the draft's change for `path`, or with `None` takes
     /// the draft's change for it back.
     pub fn set(&mut self, path: PathBuf, change: Option<Change>) {
-        match (self.list.iter_mut().find(|(p, _)| *p == path), change) {
+        let at = self.index.get(&path).copied();
+        match (at.and_then(|at| self.list.get_mut(at)), change) {
             (Some(slot), Some(change)) => slot.1 = change,
-            (None, Some(change)) => self.list.push((path, change)),
-            (_, None) => self.list.retain(|(p, _)| *p != path),
+            (None, Some(change)) => {
+                self.index.insert(path.clone(), self.list.len());
+                self.list.push((path, change));
+            }
+            (Some(_), None) => {
+                self.list.retain(|(p, _)| *p != path);
+                self.reindex();
+            }
+            (None, None) => {}
         }
+    }
+
+    /// Builds the index again after changes left `list`.
+    fn reindex(&mut self) {
+        self.index = self
+            .list
+            .iter()
+            .enumerate()
+            .map(|(at, (p, _))| (p.clone(), at))
+            .collect();
     }
 
     /// Each change, in order.
@@ -138,6 +160,7 @@ impl Changes {
             Change::Activate => !base.holds(path),
             Change::Deactivate => base.holds(path),
         });
+        self.reindex();
     }
 }
 
@@ -885,7 +908,17 @@ mod tests {
             text.ends_with("deactivate /a/x.ttf\ndeactivate /a/y.ttf\n"),
             "{text}"
         );
-        assert_eq!(Changes::parse(&text, Path::new("d.batch")), Ok(changes));
+        assert_eq!(
+            Changes::parse(&text, Path::new("d.batch")),
+            Ok(changes.clone())
+        );
+        // taking a change back keeps the others found by their paths
+        changes.set("/a/x.ttf".into(), None);
+        assert_eq!(changes.get(Path::new("/a/x.ttf")), None);
+        assert_eq!(changes.get(Path::new("/a/y.ttf")), Some(Change::Deactivate));
+        changes.set("/a/z.ttf".into(), Some(Change::Activate));
+        assert_eq!(changes.get(Path::new("/a/z.ttf")), Some(Change::Activate));
+        assert_eq!(changes.len(), 2);
         for bad in [
             "activate x.ttf",
             "activate /a/../b",
@@ -895,6 +928,24 @@ mod tests {
             let fail = Changes::parse(bad, Path::new("d.batch")).unwrap_err();
             assert!(fail.text().starts_with("d.batch line 1: "), "{bad}");
         }
+    }
+
+    /// A large `NAME.batch` reads quickly: the changes are found by path,
+    /// not by a scan of the list on each line. The bound on the wait only
+    /// keeps a slow read from hanging the test.
+    #[test]
+    fn a_large_changes_file_reads_without_a_scan_for_each_line() {
+        let text: String = (0..26_000)
+            .map(|n| format!("activate /fonts/font-{n:05}.ttf\n"))
+            .collect();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(Changes::parse(&text, Path::new("d.batch")).map(|c| c.len()));
+        });
+        let read = receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("26,000 changes read in under 5 s");
+        assert_eq!(read, Ok(26_000));
     }
 
     #[test]
