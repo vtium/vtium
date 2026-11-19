@@ -11,7 +11,7 @@ use tui_common::*;
 /// the line beside it still counts the real display's grid.
 #[test]
 fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
-    let mut c = outside().keys(&[BACKTAB, DOWN]);
+    let mut c = outside().keys(&[TO_LOOKS, DOWN]);
     c.graphics = true;
     let mut wide = inputs();
     wide.display = Some((7680, 2160));
@@ -52,7 +52,7 @@ fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
 
 #[test]
 fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
-    let mut c = outside().keys(&[BACKTAB, DOWN, DOWN, b"\t", b"q"]);
+    let mut c = outside().keys(&[TO_LOOKS, DOWN, DOWN, TO_FONTS, b"q"]);
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
     // 6 pt and 7 pt at 96 dpi, unifont highlighted in the font view, in
@@ -99,7 +99,7 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
 /// cell, its grid and how much of the specimen the font draws itself.
 #[test]
 fn without_pictures_a_size_shows_its_cell_grid_and_coverage() {
-    let mut c = outside().keys(&[BACKTAB, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN]);
+    let mut c = outside().keys(&[TO_LOOKS, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN]);
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -122,7 +122,7 @@ fn without_pictures_a_size_shows_its_cell_grid_and_coverage() {
 /// caption says that a size takes effect when vtium starts again.
 #[test]
 fn a_vtium_console_prints_the_looks_sample_at_its_current_size() {
-    let mut c = console().keys(&[BACKTAB, DOWN, DOWN]);
+    let mut c = console().keys(&[TO_LOOKS, DOWN, DOWN]);
     c.graphics = true;
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
@@ -148,7 +148,7 @@ fn a_vtium_console_prints_the_looks_sample_at_its_current_size() {
 
 #[test]
 fn automatic_has_no_picture() {
-    let mut c = outside().keys(&[BACKTAB, DOWN, UP]);
+    let mut c = outside().keys(&[TO_LOOKS, DOWN, UP]);
     c.graphics = true;
     run(&mut c);
     let heights: Vec<u32> = c.pictures.iter().map(|(_, h, _)| *h).collect();
@@ -164,14 +164,14 @@ fn automatic_has_no_picture() {
 fn at_80x25_the_size_list_scrolls_and_its_sentence_shows_whole_or_not_at_all() {
     use vtium_config::tui::words;
     let joined = |screen: &str| screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
-    let top = reach(80, 25, &[BACKTAB]);
+    let top = reach(80, 25, &[TO_LOOKS]);
     assert!(joined(&top).contains(words::CONSOLE_SIZE_CAPTION), "{top}");
     assert!(
         !top.contains("32 pt"),
         "the list is longer than its room: {top}"
     );
     // the last size scrolls into sight, and the sentence stays whole
-    let bottom = reach(80, 25, &[BACKTAB, b"\x1b[4~"]);
+    let bottom = reach(80, 25, &[TO_LOOKS, b"\x1b[4~"]);
     assert!(bottom.contains("> 32 pt"), "{bottom}");
     let first = words::CONSOLE_SIZE_CAPTION.split(". ").next().unwrap_or("");
     assert_eq!(

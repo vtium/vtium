@@ -344,9 +344,9 @@ const TAKES: &[&str] = &[
 ];
 const UP: &[u8] = b"\x1b[A";
 
-/// A click on the Fonts tab, as mode 1006 reports it: row 1, column 16,
-/// counted from 1.
-const FONTS_TAB: &[u8] = b"\x1b[<0;16;1M\x1b[<0;16;1m";
+/// A click on the Fonts tab, the first name of the tab bar, as mode 1006
+/// reports it: row 1, column 3, counted from 1.
+const FONTS_TAB: &[u8] = b"\x1b[<0;3;1M\x1b[<0;3;1m";
 
 /// Clicks the Fonts tab of the Flow view, which the TUI opens on, and
 /// waits for the Fonts view's keys.
@@ -690,9 +690,9 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     );
     to_fonts(&mut c);
     c.until("decided", |s| s.screen.contains("t: try live"));
-    // a size, so the draft differs from the system's vtium.conf whatever it
-    // holds
-    c.key(b"\x1b[Z");
+    // a size on the Looks tab, so the draft differs from the system's
+    // vtium.conf whatever it holds
+    c.key(b"3");
     c.key(b"\x1b[B");
     c.key(b"\r");
     c.key(b"i");

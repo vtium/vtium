@@ -9,7 +9,7 @@ pub const HELP: &str = "Help";
 /// What the Help view says of each view whose node of the interface tree
 /// is still planned: the node's id, the view's name, what it does and its
 /// keys. The Help view writes every other view's keys from the contract.
-pub const HELP_PLANNED: [(&str, &str, &str, &str); 2] = [
+pub const HELP_PLANNED: [(&str, &str, &str, &str); 3] = [
     (
         "looks",
         LOOKS,
@@ -21,6 +21,12 @@ pub const HELP_PLANNED: [(&str, &str, &str, &str); 2] = [
         FONTS,
         "lists the font sets (frits) and the built-in fonts, with any font files each is missing. It shows each as an image of the console, or with s as a preview of every character it can display. On a vtium console, t tries a font live. Press n to make a new font set.",
         KEYS_FONTS,
+    ),
+    (
+        "effects",
+        EFFECTS,
+        "will list the color maps and shaders that a look can use. It lists none yet.",
+        KEYS_EFFECTS,
     ),
 ];
 

@@ -437,8 +437,17 @@ pub const DOWN: &[u8] = b"\x1b[B";
 
 pub const UP: &[u8] = b"\x1b[A";
 
-/// Shift-Tab: from the Fonts view, the Looks view, which holds the sizes.
+/// Shift-Tab: the tab before, in the tab bar's order.
 pub const BACKTAB: &[u8] = b"\x1b[Z";
+
+/// The digits that go straight to a tab with nothing open: `1` the Fonts
+/// tab, `2` the Effects tab, `3` the Looks tab, which holds the sizes, `5`
+/// the Settings tab and `6` the Help tab.
+pub const TO_FONTS: &[u8] = b"1";
+pub const TO_EFFECTS: &[u8] = b"2";
+pub const TO_LOOKS: &[u8] = b"3";
+pub const TO_SETTINGS: &[u8] = b"5";
+pub const TO_HELP: &[u8] = b"6";
 
 pub fn font(name: &str, state: FontState) -> Font {
     Font {

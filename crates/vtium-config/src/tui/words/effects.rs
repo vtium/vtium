@@ -8,3 +8,6 @@ pub const EFFECTS: &str = "Effects";
 /// listed there.
 pub const EFFECTS_COMING: &str =
     "The Effects tab, with the filters and shaders a look can use, is coming.";
+
+/// The Effects tab's keys while it lists nothing.
+pub const KEYS_EFFECTS: &str = "Tab next view  s save  i install  q quit";

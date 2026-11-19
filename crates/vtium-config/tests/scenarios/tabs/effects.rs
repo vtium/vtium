@@ -1,5 +1,5 @@
-//! The Effects tab's part of the scenario walk. The tab is not in the tab
-//! bar yet, so the walk never reaches it.
+//! The Effects tab's part of the scenario walk. The tab shows one line
+//! that says it is coming, so the walk reaches only the tab itself.
 
 use vtium_config::tui::model::View;
 

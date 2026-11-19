@@ -1,7 +1,8 @@
-//! The Effects tab, which today says only that it is coming. The tab is
-//! wired into update, the layout and the view like every other tab, but it
-//! is not in the tab bar yet, so no key reaches it. The work that builds
-//! the tab lists the filters, color maps and shaders here.
+//! The Effects tab, the second tab of the bar, which today says only that
+//! it is coming. Tab, Shift-Tab, the digit 2 and a click on its name reach
+//! it like any other tab, and Save and Install act there as in the other
+//! tabs. The work that builds the tab lists the color maps and shaders
+//! here.
 //!
 //! References:
 //! - ADR-1205 D1: the six tabs and their order, the Effects tab among
@@ -35,6 +36,11 @@ impl Tab for Effects {
             keep: 0,
             tail: Vec::new(),
         }
+    }
+
+    /// The keys that act on the tab while it lists nothing.
+    fn planned_keys(&self, _shared: &Shared) -> &'static str {
+        words::KEYS_EFFECTS
     }
 
     fn update(&mut self, _shared: &Shared, _room: Room, _key: Key) -> Vec<Command> {

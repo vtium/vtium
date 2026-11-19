@@ -9,10 +9,10 @@
 //! Each tab answers the shared files through the [`Tab`] trait: its name,
 //! its node of the interface tree, its body, its preview, its key line
 //! and its keys. Update, the layout, the navigation module and the view
-//! ask the open tab through `App::tab`, which is the one place that
-//! names each tab's state. So a change to a tab edits the tab's module,
-//! and a new tab adds its state to the model and one line to `App::tab`
-//! and `App::tab_mut`.
+//! ask a tab through `App::tab_of`, which is the one place that names each
+//! tab's state. So a change to a tab edits the tab's module, and a new tab
+//! adds its state to the model and one line to `App::tab_of` and
+//! `App::tab_mut`.
 //!
 //! References:
 //! - ADR-1206 D2: the model's four parts, and the three kinds of command a

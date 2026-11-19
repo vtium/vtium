@@ -252,17 +252,22 @@ pub enum View {
     /// `new`'s guided flow: a frit made from fonts, installed like any
     /// change (ADR-1201 D9). It belongs to the Fonts view.
     New,
-    /// The Effects tab, which says only that it is coming. It is not in
-    /// [`View::TABS`] yet, so no key and no click reaches it.
+    /// The Effects tab, which says only that it is coming.
     Effects,
 }
 
 impl View {
-    /// The views Tab steps through, in order.
-    pub const TABS: [View; 5] = [
-        View::Flow,
-        View::Looks,
+    /// The tabs in the tab bar's order, which Tab steps through and the
+    /// digits 1 to 6 name. vtium-config opens on Flow, the fourth.
+    ///
+    /// References:
+    /// - ADR-1205 D1: the six tabs and their order.
+    /// - ADR-1403 D10, "The number keys": the digits follow this order.
+    pub const TABS: [View; 6] = [
         View::Fonts,
+        View::Effects,
+        View::Looks,
+        View::Flow,
         View::Settings,
         View::Help,
     ];

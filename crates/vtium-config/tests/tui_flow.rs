@@ -53,7 +53,7 @@ mod flow_view {
     #[test]
     fn tab_and_shift_tab_step_the_views_from_every_box_of_the_flow() {
         for boxes in 0..6 {
-            for (key, next) in [(TAB, View::Looks), (BACKTAB, View::Help)] {
+            for (key, next) in [(TAB, View::Settings), (BACKTAB, View::Looks)] {
                 let mut a = app(80, 25);
                 for _ in 0..boxes {
                     type_in(&mut a, RIGHT);
@@ -219,7 +219,7 @@ mod flow_view {
         press(&mut a, Key::Enter);
         screens.push(view::draw(&a));
         press(&mut a, Key::Escape);
-        for _ in 0..4 {
+        for _ in 1..View::TABS.len() {
             press(&mut a, Key::BackTab);
             screens.push(view::draw(&a));
         }
