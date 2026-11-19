@@ -176,7 +176,18 @@ impl Reader {
 
     /// Reads the size line `n`, `keyword` with the value `rest`.
     fn size_line(&mut self, n: usize, keyword: &'static str, rest: &str, line: &str) {
-        if let Some((_, other, _)) = self.size {
+        // a size line that failed still names its size, so the file holds
+        // both sizes whether or not the first one read
+        let other = if keyword == "LUT_3D_SIZE" {
+            "LUT_1D_SIZE"
+        } else {
+            "LUT_3D_SIZE"
+        };
+        let seen_other = KEYWORDS
+            .iter()
+            .position(|k| *k == other)
+            .and_then(|i| self.seen.get(i).copied().flatten());
+        if seen_other.is_some() {
             self.fault(
                 Some(n),
                 format!("found {keyword} after {other}, needs one of the two"),
@@ -567,6 +578,26 @@ mod tests {
             [
                 "found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two",
                 "1: found lut_1d_size, needs TITLE, LUT_3D_SIZE, LUT_1D_SIZE, DOMAIN_MIN or DOMAIN_MAX",
+            ]
+        );
+    }
+
+    // A size line that fails still counts as a size line, so a second
+    // size line after it gives the fault for a file with both sizes.
+    #[test]
+    fn a_second_size_after_one_that_fails_is_reported() {
+        assert_eq!(
+            faults("LUT_3D_SIZE 129\nLUT_1D_SIZE 2\n0 0 0\n1 1 1\n"),
+            [
+                "1: found LUT_3D_SIZE 129, needs 2 to 65",
+                "2: found LUT_1D_SIZE after LUT_3D_SIZE, needs one of the two",
+            ]
+        );
+        assert_eq!(
+            faults("LUT_1D_SIZE 0\nLUT_3D_SIZE 2\n"),
+            [
+                "1: found LUT_1D_SIZE 0, needs 2 to 4096",
+                "2: found LUT_3D_SIZE after LUT_1D_SIZE, needs one of the two",
             ]
         );
     }
