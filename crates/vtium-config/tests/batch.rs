@@ -552,3 +552,20 @@ fn vtium_config_reads_the_batch_file_as_vtium_reads_it() {
     std::fs::create_dir(&file).expect("a folder in its place");
     compare("a folder");
 }
+
+/// A line of root's batch file that vtium ignores stays as root wrote it,
+/// and does not stop an install that changes another line: vtium-config
+/// adds no such line itself.
+#[test]
+fn a_line_vtium_ignores_in_root_s_batch_file_does_not_block_an_install() {
+    let f = fixture("bad-line");
+    let by_hand = "# root's own list\nfonts/x.ttf\n";
+    std::fs::write(f.path("etc/batch.conf"), by_hand).expect("a batch file");
+    f.desk();
+    f.ok(&["activate", &f.arg("res/mine.ttf")]);
+    f.ok(&["install"]);
+    assert_eq!(
+        f.batch().expect("the batch file"),
+        format!("{by_hand}{}\n", f.arg("res/mine.ttf"))
+    );
+}
