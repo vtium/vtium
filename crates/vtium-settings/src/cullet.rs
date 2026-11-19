@@ -240,6 +240,10 @@ fn names(path: &Path) -> Option<Vec<OsString>> {
 }
 
 impl Walk<'_> {
+    /// The refusal of the file asked for, for the failed `check`. The walk
+    /// refuses from some 25 places, so the copy of the asked path stays in
+    /// this one function instead of being inlined into each of them.
+    #[inline(never)]
     fn refuse(&self, check: Check) -> Refused {
         Refused {
             path: self.asked.to_path_buf(),
