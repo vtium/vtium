@@ -2973,9 +2973,7 @@ mod tests {
     // key takes, so the screen says what the value can be.
     #[test]
     fn the_name_refusal_names_each_word_of_a_name_key() {
-        let said: Vec<&str> = NOT_A_NAME
-            .split(|c: char| matches!(c, ' ' | '(' | ')' | ','))
-            .collect();
+        let said: Vec<&str> = NOT_A_NAME.split([' ', '(', ')', ',']).collect();
         for key in KEYS.iter() {
             if let Kind::Name(words) = key.kind {
                 assert_eq!(key.name, PALETTE.name, "a second key of the name kind");
