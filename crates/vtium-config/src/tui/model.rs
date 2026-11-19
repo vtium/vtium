@@ -32,9 +32,14 @@ pub const WAIT: Duration = crate::switch::WAIT;
 /// terminal checks and does not keep.
 pub const QUERY_ID: u32 = 31;
 
-/// The requests the TUI writes at start (D4): XTVERSION, the OSC 50 query
-/// and kitty's graphics query, in that order. [`Queue::send`] adds DA1,
-/// the fourth.
+/// The requests the TUI writes at start: XTVERSION, the OSC 50 query and
+/// kitty's graphics query, in that order. [`Queue::send`] adds DA1, the
+/// fourth. The answers tell the TUI whether the terminal is a vtium
+/// console and which font it draws.
+///
+/// References:
+/// - ADR-1201 D4, "Finding out what the terminal is": the four requests
+///   at start and what their answers decide.
 fn start_batch() -> Batch {
     Batch::new(Asker::Start)
         .ask(Query::Version)
@@ -401,8 +406,12 @@ pub struct Shared {
     /// leave question started ends well.
     pub quit_after_install: Option<u8>,
     /// The changes made since the draft was last read or saved, which
-    /// [`Shared::draft`]'s text holds and the store does not yet (ADR-1403 D7,
-    /// "Changes wait for Save").
+    /// [`Shared::draft`]'s text holds and the store does not hold until
+    /// Save writes them.
+    ///
+    /// References:
+    /// - ADR-1403 D7, "Changes wait for Save": the changes stay unsaved
+    ///   until Save.
     pub unsaved: usize,
 }
 
