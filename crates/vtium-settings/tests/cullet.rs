@@ -1030,3 +1030,40 @@ fn a_filesystem_with_an_anonymous_device_is_judged_by_its_source() {
         })
     );
 }
+
+// The kernel passes any byte but space, tab, newline and backslash through
+// the mount table as it is, and any user can make a FUSE mount on a folder
+// whose name is not UTF-8. Such a line keeps its mount point as bytes, and
+// the lines around it still read.
+#[test]
+fn a_mount_point_that_is_not_utf8_does_not_spoil_the_table() {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = fixture("mounts-bytes");
+    let info = dir.join("mountinfo");
+    let mut table = b"22 1 8:2 / / rw - ext4 /dev/sda2 rw\n".to_vec();
+    table.extend(b"40 22 0:70 / /home/me/\xff rw - fuse.sshfs me@host:/ rw\n");
+    table.extend(b"41 22 0:71 / /mnt/nfs rw - nfs4 server:/x rw\n");
+    fs::write(&info, &table).expect("the table");
+    let mounts = Mounts::read(&info, Path::new("/nonexistent-sys")).expect("the table reads");
+    let odd = PathBuf::from(std::ffi::OsStr::from_bytes(b"/home/me/\xff"));
+    assert_eq!(
+        mounts.list().iter().map(|m| m.id).collect::<Vec<_>>(),
+        [22, 40, 41]
+    );
+    assert_eq!(mounts.list()[1].point, odd);
+    assert_eq!(
+        mounts.judge(&Place {
+            mount_id: Some(40),
+            dev: (0, 70),
+            path: odd.join("a.ttf"),
+        }),
+        Err(Unsteady::Fuse {
+            point: odd.clone(),
+            fstype: "fuse.sshfs".into()
+        })
+    );
+    assert!(matches!(
+        mounts.judge(&place((0, 71), "/mnt/nfs/a.ttf")),
+        Err(Unsteady::Network { .. })
+    ));
+}

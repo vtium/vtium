@@ -28,7 +28,7 @@
 //! - ADR-1205 D4: a resource is activated only from a filesystem that is mounted at boot and stays mounted, and the note of 2026-11-19 states how vtium tells one.
 
 use std::fmt;
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
 /// The kernel's mount table of the reading process's mount namespace.
@@ -252,9 +252,10 @@ fn device_of(path: &Path) -> Option<(u32, u32)> {
 }
 
 /// Undoes the mount table's octal escapes, `\040` for a space, `\011` for
-/// a tab, `\012` for a newline and `\134` for a backslash.
-fn unescape(field: &str) -> String {
-    let bytes = field.as_bytes();
+/// a tab, `\012` for a newline and `\134` for a backslash. The kernel
+/// passes every other byte through as it is, so the result is bytes, which
+/// need not be UTF-8.
+fn unescape(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0_usize;
     while let Some(&b) = bytes.get(i) {
@@ -279,22 +280,35 @@ fn unescape(field: &str) -> String {
             }
         }
     }
-    String::from_utf8_lossy(&out).into_owned()
+    out
+}
+
+/// A field of the mount table as text, for the fields vtium compares with
+/// names it knows. A byte that is not UTF-8 becomes U+FFFD.
+fn text(field: &[u8]) -> String {
+    String::from_utf8_lossy(&unescape(field)).into_owned()
+}
+
+/// A number field of the mount table.
+fn number<T: std::str::FromStr>(field: &[u8]) -> Option<T> {
+    std::str::from_utf8(field).ok()?.parse().ok()
 }
 
 /// Reads one line of the mount table: `None` for a line of another shape.
-fn line(text: &str) -> Option<Mount> {
-    let (head, tail) = text.split_once(" - ")?;
-    let mut head = head.split(' ');
-    let id = head.next()?.parse().ok()?;
-    let parent = head.next()?.parse().ok()?;
-    let (major, minor) = head.next()?.split_once(':')?;
-    let dev = (major.parse().ok()?, minor.parse().ok()?);
+/// The mount point stays bytes, since a folder's name need not be UTF-8.
+fn line(bytes: &[u8]) -> Option<Mount> {
+    let split = bytes.windows(3).position(|w| w == b" - ")?;
+    let (head, tail) = (bytes.get(..split)?, bytes.get(split.checked_add(3)?..)?);
+    let mut head = head.split(|&b| b == b' ');
+    let id = number(head.next()?)?;
+    let parent = number(head.next()?)?;
+    let mut dev = head.next()?.splitn(2, |&b| b == b':');
+    let dev = (number(dev.next()?)?, number(dev.next()?)?);
     let _root = head.next()?;
-    let point = PathBuf::from(unescape(head.next()?));
-    let mut tail = tail.split(' ');
-    let fstype = unescape(tail.next()?);
-    let source = unescape(tail.next()?);
+    let point = PathBuf::from(std::ffi::OsString::from_vec(unescape(head.next()?)));
+    let mut tail = tail.split(|&b| b == b' ');
+    let fstype = text(tail.next()?);
+    let source = text(tail.next()?);
     Some(Mount {
         id,
         parent,
@@ -306,11 +320,15 @@ fn line(text: &str) -> Option<Mount> {
 }
 
 impl Mounts {
-    /// Reads the mount table's text, skipping any line of another shape,
+    /// Reads the mount table's bytes, skipping any line of another shape,
     /// with `sys` as the folder sysfs is mounted on.
-    pub fn parse(mountinfo: &str, sys: &Path) -> Mounts {
+    pub fn parse(mountinfo: impl AsRef<[u8]>, sys: &Path) -> Mounts {
         Mounts {
-            list: mountinfo.lines().filter_map(line).collect(),
+            list: mountinfo
+                .as_ref()
+                .split(|&b| b == b'\n')
+                .filter_map(line)
+                .collect(),
             sys: sys.to_path_buf(),
             source: None,
         }
@@ -320,10 +338,10 @@ impl Mounts {
     /// folder sysfs is mounted on. [`Mounts::judge`] reads the file again
     /// when it cannot find a file's mount.
     pub fn read(mountinfo: &Path, sys: &Path) -> std::io::Result<Mounts> {
-        let text = std::fs::read_to_string(mountinfo)?;
+        let bytes = std::fs::read(mountinfo)?;
         Ok(Mounts {
             source: Some(mountinfo.to_path_buf()),
-            ..Mounts::parse(&text, sys)
+            ..Mounts::parse(bytes, sys)
         })
     }
 
