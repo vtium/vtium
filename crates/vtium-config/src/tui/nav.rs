@@ -134,7 +134,7 @@ pub fn node(app: &App) -> &'static str {
     if app.nav.trial.is_some() {
         return "any.trial";
     }
-    if super::view::too_small(app) {
+    if super::layout::too_small(app.size) {
         return "any.too-small";
     }
     match app.nav.view {

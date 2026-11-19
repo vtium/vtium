@@ -557,7 +557,7 @@ fn status(canvas: &mut Canvas, app: &App, layout: &Layout, crumb: Option<&str>) 
 
 /// The key line on the last row.
 fn key_line(canvas: &mut Canvas, app: &App) {
-    let rows = super::view::key_rows(app);
+    let rows = super::layout::key_rows(app);
     let top = app.size.rows.saturating_sub(rows.len());
     for (i, row) in rows.iter().enumerate() {
         canvas.put(1, top.saturating_add(i), row, Style::text(Color::Grey));
@@ -570,7 +570,7 @@ fn message(canvas: &mut Canvas, app: &App) {
     let y = app
         .size
         .rows
-        .saturating_sub(super::view::key_rows(app).len())
+        .saturating_sub(super::layout::key_rows(app).len())
         .saturating_sub(lines.len());
     for (i, line) in lines.iter().enumerate() {
         canvas.put(1, y.saturating_add(i), line, Style::PLAIN);
@@ -620,7 +620,7 @@ pub fn screen(canvas: &mut Canvas, app: &App) {
 /// The window on the document, between the policy line and the message
 /// and key lines, with a label where a wire leaves it.
 fn overview(canvas: &mut Canvas, app: &App, state: &flowview::State, layout: &Layout) {
-    let (wtop, wh) = window(&app.shared, app.size, super::view::key_rows(app).len());
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let doc = window_of(
         layout,
         app.size.cols,
@@ -979,7 +979,7 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         )
     };
     canvas.put(1, 3, &heading, bold(Color::BrightWhite));
-    let (wtop, wh) = window(&app.shared, app.size, super::view::key_rows(app).len());
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let lines = card_lines(&path, editor);
     let note = wrap(
@@ -1240,7 +1240,7 @@ fn choices_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &
         Obj::New(Slot::Display(s)) | Obj::New(Slot::Input(s)) => Some(s.clone()),
         _ => None,
     };
-    let (wtop, wh) = window(&app.shared, app.size, super::view::key_rows(app).len());
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let top = y0.saturating_add(2).saturating_add(about.len());
     let room = bottom.saturating_sub(top).max(1);
@@ -1338,7 +1338,7 @@ fn list_layer(
     for (k, l) in about.iter().enumerate() {
         canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
     }
-    let (wtop, wh) = window(&app.shared, app.size, super::view::key_rows(app).len());
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let top = 5usize.saturating_add(about.len());
     let room = bottom.saturating_sub(top).max(1);
@@ -1404,7 +1404,7 @@ fn others_layer(canvas: &mut Canvas, app: &App) {
         canvas.put(3, 4usize.saturating_add(k), l, Style::text(Color::Grey));
     }
     let vx = (app.size.cols / 2).min(42);
-    let (wtop, wh) = window(&app.shared, app.size, super::view::key_rows(app).len());
+    let (wtop, wh) = window(&app.shared, app.size, super::layout::key_rows(app).len());
     let bottom = wtop.saturating_add(wh);
     let mut y = 5usize.saturating_add(about.len()).saturating_add(1);
     for d in flowview::folded(flow) {

@@ -107,7 +107,7 @@ impl Seen<'_> {
     /// - ADR-1403 D7, "The same keys in every view": the key line is one
     ///   row, and `.` shows its next page.
     fn next_page(&self) -> Result<(), String> {
-        let line = |sim: &Sim| vtium_config::tui::view::key_line(&sim.app).to_owned();
+        let line = |sim: &Sim| vtium_config::tui::layout::key_line(&sim.app).to_owned();
         let before = line(self.before);
         let Some((at, pages)) = page_of(&before) else {
             return self.nothing();
@@ -1365,7 +1365,7 @@ impl Checks {
             return Ok(());
         }
         let (want, _) = node_labels(&node_id);
-        let line = vtium_config::tui::view::key_line(&s.after.app);
+        let line = vtium_config::tui::layout::key_line(&s.after.app);
         let mut got = labels_of(line, &want).map_err(|e| format!("{node_id}: {e}"))?;
         got.sort_unstable();
         got.dedup();
@@ -1425,13 +1425,14 @@ impl Checks {
                 self.supported("key-line.view.flow") && self.supported("key-line.layer.file-view");
             if app.nav.view != View::Flow || app.nav.confirm.is_some() || flow_lines {
                 let shown = screen.join("\n");
-                let line = vtium_config::tui::view::key_line(app);
-                let small = vtium_config::tui::view::too_small(app) && app.nav.confirm.is_none();
+                let line = vtium_config::tui::layout::key_line(app);
+                let small =
+                    vtium_config::tui::layout::too_small(app.size) && app.nav.confirm.is_none();
                 if let Some(key) = line.split("  ").find(|k| !shown.contains(k)) {
                     return Err(format!("the key line leaves out {key:?}"));
                 }
                 // the key line is one row, once the key-line rows say so
-                let rows = vtium_config::tui::view::key_rows(app).len();
+                let rows = vtium_config::tui::layout::key_rows(app).len();
                 if !small && self.supported("key-line.any") && rows != 1 {
                     return Err(format!("the key line takes {rows} rows"));
                 }

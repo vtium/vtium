@@ -735,7 +735,7 @@ impl App {
     /// Lays the Flow tab out again on the shared part and the terminal's
     /// size, as after every event.
     pub(crate) fn flow_settle(&mut self) {
-        let keys = super::view::key_rows(self).len();
+        let keys = super::layout::key_rows(self).len();
         self.flow.settle(&self.shared, self.size, keys);
     }
 
@@ -1066,7 +1066,7 @@ impl App {
     /// A key that the open view acts on itself.
     fn view_key(&mut self, key: Key) -> Vec<Effect> {
         if self.nav.view == View::Flow {
-            let keys = super::view::key_rows(self).len();
+            let keys = super::layout::key_rows(self).len();
             let commands = self.flow.update(&self.shared, self.size, keys, key);
             return self.perform(commands);
         }
@@ -1112,7 +1112,7 @@ impl App {
                 self.perform(commands)
             }
             View::Help => {
-                let (rows, room) = super::view::help_window(self);
+                let (rows, room) = super::layout::help_window(self);
                 let commands = self
                     .help
                     .update(key, super::tabs::help::Page { rows, room });
@@ -1211,7 +1211,7 @@ impl App {
         if self.nav.view != View::Flow
             || self.shared.leaving.is_some()
             || self.shared.installing
-            || super::view::too_small(self)
+            || super::layout::too_small(self.size)
         {
             return Vec::new();
         }
@@ -1221,14 +1221,14 @@ impl App {
             Button::Press(0) => {}
             _ => return Vec::new(),
         }
-        if let Some(view) = super::view::tab_at(self, mouse.col, mouse.row) {
+        if let Some(view) = super::layout::tab_at(self, mouse.col, mouse.row) {
             if view == View::Flow || super::nav::something_open(self) {
                 return Vec::new();
             }
             return self.set_view(view);
         }
         if super::flowdraw::shown(self) {
-            let keys = super::view::key_rows(self).len();
+            let keys = super::layout::key_rows(self).len();
             let commands = self
                 .flow
                 .click(&self.shared, self.size, keys, mouse.col, mouse.row);

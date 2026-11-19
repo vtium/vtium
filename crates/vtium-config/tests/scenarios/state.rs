@@ -10,9 +10,9 @@
 //! by a name after a colon.
 
 use vtium_config::tui::flowview::{Obj, Slot};
+use vtium_config::tui::layout::too_small;
 use vtium_config::tui::model::{App, FontState, Then, View};
 use vtium_config::tui::nav;
-use vtium_config::tui::view::too_small;
 use vtium_settings::keys::Kind;
 
 use super::sim::Sim;
@@ -149,7 +149,7 @@ pub fn of(sim: &Sim) -> Abs {
     }
     // below the minimum size no view shows, and only a question asked
     // there or the live trial's countdown changes what the keys do
-    if too_small(app) {
+    if too_small(app.size) {
         abs.view = "";
     }
     let (kind, narrow) = open(app, abs.at);

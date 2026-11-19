@@ -3302,7 +3302,7 @@ mod flow_view {
             press(&mut a, Key::BackTab);
             assert_eq!(a.nav.view, View::Help);
             let page = words(
-                &view::help_rows(&a)
+                &vtium_config::tui::layout::help_rows(&a)
                     .iter()
                     .map(view::text)
                     .collect::<Vec<_>>()
@@ -3340,12 +3340,12 @@ mod flow_view {
     fn the_help_page_scrolls_by_its_window_and_up_moves_it_at_once_from_the_bottom() {
         let mut a = app(80, 25);
         press(&mut a, Key::BackTab);
-        let (len, room) = view::help_window(&a);
+        let (len, room) = vtium_config::tui::layout::help_window(&a);
         assert!(len > room.saturating_mul(2), "{len} rows, {room} shown");
         // the screen's first row of the page, the row under the tab bar's
         // rule, is the page's row `at`
         let top = |a: &App, at: usize| {
-            let rows = view::help_rows(a);
+            let rows = vtium_config::tui::layout::help_rows(a);
             let want = rows.get(at).map(view::text).unwrap_or_default();
             let got = text(a).lines().nth(3).unwrap_or_default().to_owned();
             assert_eq!(got.trim_end(), want.trim_end(), "row {at}");

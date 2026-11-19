@@ -36,6 +36,7 @@ pub mod flowdraw;
 mod flowedit;
 pub mod flowview;
 pub mod input;
+pub mod layout;
 pub mod listbox;
 pub mod model;
 pub mod nav;

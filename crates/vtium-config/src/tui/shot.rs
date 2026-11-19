@@ -191,7 +191,7 @@ impl App {
     /// look's card in the Flow view, the look with the value under the
     /// cursor of its frit, size or cell.
     pub fn wanted(&self) -> Option<Wanted> {
-        if super::view::too_small(self) {
+        if super::layout::too_small(self.size) {
             return None;
         }
         let readable = |name: &str| {
@@ -237,7 +237,7 @@ impl App {
     /// The line that describes the preview: beside a picture, what the
     /// picture shows; with no pictures, the summary of the change.
     pub fn preview_line(&self) -> Option<String> {
-        if self.text_preview() && !super::view::too_small(self) {
+        if self.text_preview() && !super::layout::too_small(self.size) {
             return match self.nav.view {
                 View::Fonts => Some(words::console_font_caption(
                     self.shared.shown_font.as_deref(),
@@ -303,7 +303,7 @@ impl App {
     /// The most pixels the picture takes: the picture area, in the
     /// terminal's cells.
     fn picture_max(&self) -> (u32, u32) {
-        let (cols, rows) = super::view::picture_area(self);
+        let (cols, rows) = super::layout::picture_area(self);
         let (cw, ch) = self.size.cell_px.unwrap_or(super::model::ASSUMED_CELL);
         (
             u32::try_from(cols)
@@ -520,7 +520,7 @@ impl App {
         }
         match result {
             Ok(p) => {
-                let (row, col) = super::view::picture_at(self);
+                let (row, col) = super::layout::picture_at(self);
                 let mut bytes = format!("\x1b[{row};{col}H").into_bytes();
                 bytes.extend(crate::kitty::show(
                     crate::kitty::IMAGE_ID,

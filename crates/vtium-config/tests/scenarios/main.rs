@@ -126,7 +126,7 @@ fn card_lines(map: &Map, checks: &mut Checks) {
 /// map records none of these transitions.
 fn from_a_second_page(map: &Map, checks: &mut Checks) {
     for (abs, (sim, path, start)) in &map.reps {
-        let line = vtium_config::tui::view::key_line(&sim.app);
+        let line = vtium_config::tui::layout::key_line(&sim.app);
         if !line
             .rsplit("  ")
             .next()

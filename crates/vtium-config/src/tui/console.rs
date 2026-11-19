@@ -81,8 +81,8 @@ pub fn draw(canvas: &mut Canvas, app: &App) {
     if !app.text_preview() {
         return;
     }
-    let (row, col) = super::view::picture_at(app);
-    let (_, rows) = super::view::picture_area(app);
+    let (row, col) = super::layout::picture_at(app);
+    let (_, rows) = super::layout::picture_area(app);
     let top = row.saturating_sub(1);
     let left = col.saturating_sub(1);
     for (i, line) in lines(app).into_iter().take(rows).enumerate() {
