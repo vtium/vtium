@@ -158,3 +158,50 @@ fn a_1_bit_display_cuts_after_the_filters() {
     assert!(tinted.pixels().iter().all(|&p| p == 0 || p == 0x00ff_ffff));
     assert!(tinted.pixels().contains(&0x00ff_ffff));
 }
+
+// A display that turns keeps its look's colors: the renderer a turn makes
+// holds the table the renderer before it held, so the frame it draws is
+// the frame with the table, and not the plain one.
+#[test]
+fn a_turned_renderer_keeps_its_color_table() {
+    let s = screen();
+    let t = amber();
+    let mut r = Renderer::new(unifont(), W, H, Config::default());
+    r.set_color_table(Some(&t)).unwrap();
+    let mut r = r.turned(vtium_render::Orientation::Normal);
+    assert!(r.colors());
+    let mut c = Canvas::new(W, H, 0x00ab_cdef);
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &state(&s));
+    assert_eq!(c, drawn(&s, Config::default(), Some(&t)));
+}
+
+// On the GPU path the renderer hands its table to the pipeline's color
+// slot at its next frame, a turned renderer too, and a renderer with no
+// table empties the slot.
+#[cfg(feature = "gpu")]
+#[test]
+fn the_gpu_path_takes_the_renderer_s_table_into_its_color_slot() {
+    use vtium_render::gpu::{Call, Color, Config as GpuConfig, Gl, Pipeline, Size, StandIn};
+    let s = screen();
+    let t = amber();
+    let mut gl = StandIn::new();
+    let size = Size::new(W, H);
+    let mut pipeline = Pipeline::new(&mut gl, size, GpuConfig::default()).unwrap();
+    let target = gl.import_buffer(&size).unwrap();
+    let mut r = Renderer::new(unifont(), W, H, Config::default());
+    r.set_color_table(Some(&t)).unwrap();
+    let mut r = r.turned(vtium_render::Orientation::Normal);
+    let frame = s.frame(Age::NEVER);
+    r.draw_gpu(&mut gl, &mut pipeline, &frame, &target, 0, &state(&s), &[])
+        .unwrap();
+    assert_eq!(pipeline.color(), Color::Table);
+    // the next frame uploads nothing again
+    gl.clear_calls();
+    r.draw_gpu(&mut gl, &mut pipeline, &frame, &target, 1, &state(&s), &[])
+        .unwrap();
+    assert!(!gl.calls().contains(&Call::CreateVolume(33)));
+    r.set_color_table(None).unwrap();
+    r.draw_gpu(&mut gl, &mut pipeline, &frame, &target, 1, &state(&s), &[])
+        .unwrap();
+    assert_eq!(pipeline.color(), Color::None);
+}

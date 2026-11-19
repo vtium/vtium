@@ -1076,6 +1076,12 @@ impl<F: Face> Renderer<F> {
             gpu: turned.gpu.keeping_identity(self.gpu),
             ..turned
         };
+        // the look's colors do not turn with the display
+        #[cfg(feature = "filters")]
+        let turned = Renderer {
+            color: self.color,
+            ..turned
+        };
         turned
     }
 
@@ -1116,10 +1122,12 @@ impl<F: Face> Renderer<F> {
     /// Sets the head's color table, the look's color filters merged, or
     /// `None` for a look with no color filter. Every pixel the CPU path
     /// writes afterwards, the pointer's and those that
-    /// [`Renderer::colored`] writes included, is looked up in it. A change
-    /// of table changes every pixel, so the next frame draws whole, as
-    /// does the first frame into each other buffer. The only failure is a
-    /// want of memory for the lookup, which leaves the table as it was.
+    /// [`Renderer::colored`] writes included, is looked up in it, and on
+    /// the GPU path present's color step samples it. A change of table
+    /// changes every pixel, so the next frame draws whole, as does the
+    /// first frame into each other buffer. A turned renderer keeps the
+    /// table. The only failure is a want of memory for the lookup or the
+    /// GPU path's copy, which leaves the table as it was.
     ///
     /// References:
     /// - ADR-1304 D2: a change of the look's color filters makes the CPU path draw its frame whole.
@@ -1128,7 +1136,11 @@ impl<F: Face> Renderer<F> {
         &mut self,
         table: Option<&crate::filter::Table>,
     ) -> Result<(), std::collections::TryReserveError> {
-        self.color = table.map(crate::filter::Lookup::new).transpose()?;
+        let lookup = table.map(crate::filter::Lookup::new).transpose()?;
+        #[cfg(feature = "gpu")]
+        self.gpu
+            .set_table(table.map(crate::filter::Table::try_clone).transpose()?);
+        self.color = lookup;
         self.forget_history();
         Ok(())
     }

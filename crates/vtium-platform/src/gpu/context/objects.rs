@@ -163,14 +163,113 @@ impl Context {
         Ok(())
     }
 
-    /// Frees `texture`, one this context made and keeps.
+    /// A 3D texture of RGBA16F, `side` texels along each axis, filled from
+    /// `texels`: `side`³ texels of four half floats, each little-endian,
+    /// the first axis's index the fastest. It is sampled linearly unless a
+    /// draw asks otherwise, and clamped at its edges on all three axes.
+    /// Refused, reaching no GL, for a side of 0 or past the 256 that every
+    /// OpenGL ES 3.0 context takes, or `texels` of any other length. A
+    /// volume takes no later upload, and [`Context::free_texture`] frees
+    /// it.
+    ///
+    /// References:
+    /// - ADR-1304 D2: the head's color table is an RGBA16F 3D texture, which OpenGL ES 3.0 filters linearly.
+    pub fn create_volume(&mut self, side: u32, texels: &[u8]) -> Result<u32, Error> {
+        if !(1..=256).contains(&side) {
+            return Err(misuse(format!(
+                "a 3D texture {side} a side passes the 256 every context takes"
+            )));
+        }
+        let need = u64::from(side).pow(3).saturating_mul(8);
+        if u64::try_from(texels.len()).ok() != Some(need) {
+            return Err(misuse(format!(
+                "a 3D texture {side} a side takes {need} bytes, not {}",
+                texels.len()
+            )));
+        }
+        // GL reads each half float in the machine's own byte order
+        let native: std::borrow::Cow<'_, [u8]> = if cfg!(target_endian = "little") {
+            std::borrow::Cow::Borrowed(texels)
+        } else {
+            std::borrow::Cow::Owned(
+                texels
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .flat_map(|&[lo, hi]| [hi, lo])
+                    .collect(),
+            )
+        };
+        let n = int(side)?;
+        self.current()?;
+        // SAFETY: GL calls on the current context. With no buffer bound for
+        // unpacking, an alignment of 1, no row length or image height and
+        // nothing skipped, all set here, glTexSubImage3D reads
+        // side³ × 4 half floats of RGBA, which is `need` bytes, the length
+        // of `native`, checked above.
+        #[expect(
+            unsafe_code,
+            reason = "glTexStorage3D and glTexSubImage3D from a slice checked above"
+        )]
+        unsafe {
+            let texture = self
+                .gl
+                .create_texture()
+                .map_err(|e| Error::new(ErrorKind::Gl(0), e))?;
+            self.gl.bind_texture(glow::TEXTURE_3D, Some(texture));
+            self.gl
+                .tex_storage_3d(glow::TEXTURE_3D, 1, glow::RGBA16F, n, n, n);
+            for (param, value) in [
+                (glow::TEXTURE_MIN_FILTER, glow::LINEAR),
+                (glow::TEXTURE_MAG_FILTER, glow::LINEAR),
+                (glow::TEXTURE_WRAP_S, glow::CLAMP_TO_EDGE),
+                (glow::TEXTURE_WRAP_T, glow::CLAMP_TO_EDGE),
+                (glow::TEXTURE_WRAP_R, glow::CLAMP_TO_EDGE),
+            ] {
+                self.gl
+                    .tex_parameter_i32(glow::TEXTURE_3D, param, self::param(value));
+            }
+            self.gl.bind_buffer(glow::PIXEL_UNPACK_BUFFER, None);
+            for (param, value) in [
+                (glow::UNPACK_ALIGNMENT, 1),
+                (glow::UNPACK_ROW_LENGTH, 0),
+                (glow::UNPACK_IMAGE_HEIGHT, 0),
+                (glow::UNPACK_SKIP_PIXELS, 0),
+                (glow::UNPACK_SKIP_ROWS, 0),
+                (glow::UNPACK_SKIP_IMAGES, 0),
+            ] {
+                self.gl.pixel_store_i32(param, value);
+            }
+            self.gl.tex_sub_image_3d(
+                glow::TEXTURE_3D,
+                0,
+                0,
+                0,
+                0,
+                n,
+                n,
+                n,
+                glow::RGBA,
+                glow::HALF_FLOAT,
+                glow::PixelUnpackData::Slice(Some(&native)),
+            );
+            // recorded whether or not GL gave it storage, as a 2D texture
+            // is: a refusal reaches the caller at the batch's check
+            let name = texture.0.get();
+            self.volumes.insert(name, side);
+            Ok(name)
+        }
+    }
+
+    /// Frees `texture`, a 2D or 3D texture this context made and keeps.
     pub fn free_texture(&mut self, texture: u32) -> Result<(), Error> {
-        if !self.textures.contains_key(&texture) {
+        if !self.textures.contains_key(&texture) && !self.volumes.contains_key(&texture) {
             return Err(misuse(format!("texture {texture} is not this context's")));
         }
         let gl_texture = glow::NativeTexture(name(texture)?);
         self.current()?;
         self.textures.remove(&texture);
+        self.volumes.remove(&texture);
         // SAFETY: a GL call on the current context with no pointer.
         #[expect(unsafe_code, reason = "glDeleteTextures")]
         unsafe {

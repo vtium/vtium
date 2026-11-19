@@ -87,6 +87,15 @@ impl Table {
     pub const fn side() -> usize {
         SIDE
     }
+
+    /// A copy of the table, for a second holder such as the GPU path. The
+    /// only failure is a want of memory.
+    pub fn try_clone(&self) -> Result<Table, TryReserveError> {
+        let mut nodes = Vec::new();
+        nodes.try_reserve_exact(self.nodes.len())?;
+        nodes.extend_from_slice(&self.nodes);
+        Ok(Table { nodes })
+    }
 }
 
 /// The CPU path's lookup in a color table: the nodes widened to 32-bit

@@ -69,6 +69,10 @@ pub enum Format {
     /// Four 8-bit channels a pixel, red, green, blue and alpha in that
     /// order in memory: a picture, and the upright frame.
     Rgba8,
+    /// Four half-precision floats a texel, red, green, blue and alpha in
+    /// that order in memory, each little-endian: the head's color table,
+    /// a 3D texture that [`Gl::create_volume`] makes.
+    Rgba16f,
 }
 
 impl Format {
@@ -77,9 +81,16 @@ impl Format {
         match self {
             Format::R8 => 1,
             Format::Rgba8 => 4,
+            Format::Rgba16f => 8,
         }
     }
 }
+
+/// The largest side of a 3D texture that every OpenGL ES 3.0 context
+/// takes: the least `GL_MAX_3D_TEXTURE_SIZE` the specification allows.
+/// The color table, 33 a side, is well within it, so the renderer never
+/// asks a context for its own figure.
+pub const VOLUME_SIDE_MAX: u32 = 256;
 
 /// The GPU's limits, which a context reports once when it is made.
 ///
@@ -181,6 +192,9 @@ pub struct Fence(pub(super) Handle);
 pub enum InputKind {
     /// A sampler: a texture and how it is filtered.
     Texture,
+    /// A `sampler3D`: a 3D texture that [`Gl::create_volume`] made, and how
+    /// it is filtered.
+    Volume,
     Float,
     Vec2,
     Vec4,
@@ -231,6 +245,8 @@ pub enum Filter {
 #[derive(Clone, Copy, Debug)]
 pub enum Value<'a> {
     Texture(&'a Texture, Filter),
+    /// A 3D texture that [`Gl::create_volume`] made.
+    Volume(&'a Texture, Filter),
     Float(f32),
     Vec2([f32; 2]),
     Vec4([f32; 4]),
@@ -243,6 +259,7 @@ impl Value<'_> {
     pub fn kind(&self) -> InputKind {
         match self {
             Value::Texture(..) => InputKind::Texture,
+            Value::Volume(..) => InputKind::Volume,
             Value::Float(_) => InputKind::Float,
             Value::Vec2(_) => InputKind::Vec2,
             Value::Vec4(_) => InputKind::Vec4,
@@ -384,6 +401,17 @@ pub trait Gl {
         pixels: &[u8],
         stride: usize,
     ) -> Result<(), Error>;
+
+    /// Makes a 3D texture of [`Format::Rgba16f`], `side` texels along each
+    /// axis, and fills it from `texels`: `side`³ texels of 8 bytes, the
+    /// first axis's index the fastest, then the second's, then the
+    /// third's. A draw samples it through an input of kind
+    /// [`InputKind::Volume`], clamped at its edges. Its side is at most
+    /// [`VOLUME_SIDE_MAX`], and `texels` holds exactly its texels. A
+    /// volume takes no later upload, so [`Gl::fill_texture`] refuses it;
+    /// [`Gl::free_texture`] frees it. A call that fails leaves nothing
+    /// made.
+    fn create_volume(&mut self, side: u32, texels: &[u8]) -> Result<Texture, Error>;
 
     /// Frees `texture`.
     fn free_texture(&mut self, texture: Texture) -> Result<(), Error>;

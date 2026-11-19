@@ -66,6 +66,9 @@ pub struct Location(pub(super) u32);
 pub enum Uniform {
     /// A texture, by name, and its filter.
     Texture(u32, Filter),
+    /// A 3D texture that [`Context::create_volume`] made, by name, and its
+    /// filter.
+    Volume(u32, Filter),
     Float(f32),
     Vec2([f32; 2]),
     Vec4([f32; 4]),
@@ -149,13 +152,22 @@ impl Context {
         let textures = draw
             .uniforms
             .iter()
-            .filter(|(_, u)| matches!(u, Uniform::Texture(..)))
+            .filter(|(_, u)| matches!(u, Uniform::Texture(..) | Uniform::Volume(..)))
             .count();
         if u32::try_from(textures).map_or(true, |n| n > self.limits.texture_units) {
             return Err(misuse(format!(
                 "a draw of {textures} textures passes the GPU's {} units",
                 self.limits.texture_units
             )));
+        }
+        for (_, u) in draw.uniforms {
+            if let Uniform::Volume(texture, _) = u
+                && !self.volumes.contains_key(texture)
+            {
+                return Err(misuse(format!(
+                    "texture {texture} is no 3D texture of this context's"
+                )));
+            }
         }
         let program = glow::NativeProgram(name(draw.program)?);
         let scissor = draw.scissor.map(ints).transpose()?;
@@ -203,6 +215,25 @@ impl Context {
                         gl.active_texture(glow::TEXTURE0.saturating_add(unit));
                         gl.bind_texture(glow::TEXTURE_2D, Some(texture));
                         gl.bind_sampler(unit, Some(sampler));
+                        gl.uniform_1_i32(at, int(unit)?);
+                        unit = unit.saturating_add(1);
+                    }
+                    Uniform::Volume(texture, filter) => {
+                        // The context's sampler objects clamp only two
+                        // axes, so a volume samples through its own
+                        // parameters, which clamp all three, with the
+                        // draw's filter set on it here.
+                        let texture = glow::NativeTexture(name(texture)?);
+                        let filter = match filter {
+                            Filter::Nearest => glow::NEAREST,
+                            Filter::Linear => glow::LINEAR,
+                        };
+                        gl.active_texture(glow::TEXTURE0.saturating_add(unit));
+                        gl.bind_texture(glow::TEXTURE_3D, Some(texture));
+                        gl.bind_sampler(unit, None);
+                        for p in [glow::TEXTURE_MIN_FILTER, glow::TEXTURE_MAG_FILTER] {
+                            gl.tex_parameter_i32(glow::TEXTURE_3D, p, super::param(filter));
+                        }
                         gl.uniform_1_i32(at, int(unit)?);
                         unit = unit.saturating_add(1);
                     }
