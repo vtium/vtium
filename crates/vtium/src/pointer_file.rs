@@ -827,6 +827,18 @@ impl Store {
         self.lock().wake = Some(wake);
     }
 
+    /// Forgets the pointer file's pictures and the heights asked of it,
+    /// so the displays draw vtium's own pictures until a loader publishes
+    /// new ones. The wake-up into the console's loop stays.
+    pub fn forget(&self) {
+        let mut s = self.lock();
+        s.pictures = None;
+        s.svg = false;
+        s.asked.clear();
+        s.waiting.clear();
+        s.forget.clear();
+    }
+
     /// Makes the store take heights as an SVG file's loader does, for a
     /// test that has no loader.
     #[cfg(test)]
