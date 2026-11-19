@@ -333,12 +333,14 @@ impl Mounts {
     /// Reads the mount table's bytes, skipping any line of another shape,
     /// with `sys` as the folder sysfs is mounted on.
     pub fn parse(mountinfo: impl AsRef<[u8]>, sys: &Path) -> Mounts {
+        let mut list = Vec::new();
+        for bytes in mountinfo.as_ref().split(|&b| b == b'\n') {
+            if let Some(mount) = line(bytes) {
+                list.push(mount);
+            }
+        }
         Mounts {
-            list: mountinfo
-                .as_ref()
-                .split(|&b| b == b'\n')
-                .filter_map(line)
-                .collect(),
+            list,
             sys: sys.to_path_buf(),
             source: None,
         }
