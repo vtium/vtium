@@ -482,3 +482,68 @@ fn every_session_end_gives_its_heads_consoles_the_palette_the_batch_allows() {
         "head a, whose session end found the batch as it was"
     );
 }
+
+// A `.cube` file that a head's vtlook names follows its place in the batch
+// from login to login, as every resource does: the head draws its vtlook
+// with the file's color map from the login after root activates the file,
+// and draws the built-in vtlook from the login after root deactivates it.
+//
+// References:
+// - ADR-1205 D4, its note of 2026-11-19: every resource passes one gate, and an activation or a deactivation takes effect at the next login.
+#[cfg(feature = "filters")]
+#[test]
+fn a_cube_file_follows_its_place_in_the_batch_from_login_to_login() {
+    let dir = Scratch::new("batch-cube");
+    std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let cube = dir.join("warm.cube");
+    write(
+        &cube,
+        "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 0.95 0\n1 0.95 0\n0 0 0.85\n1 0 0.85\n0 0.95 0.85\n1 0.95 0.85\n",
+    );
+    write(
+        &dir.join("film.vtlook"),
+        "version = 1\n[color cube]\nfile = warm.cube\n",
+    );
+    let file = dir.join("batch.conf");
+    write(&file, "# nothing is active\n");
+    let me = rustix::process::geteuid().as_raw();
+    crate::head::look::read_from(Some((dir.to_path_buf(), Trust::owner(me).below(&dir))));
+    let heads = "version = 1\n[head a]\n[rules]\ndisplay connector:mem/A -> a\n";
+    let t = Instant::now();
+    let fonts = font::Sources {
+        trust: Trust::owner(me).below(&dir),
+        ..no_fonts()
+    };
+    let (_lp, mut app) = seat_with(&["--vtlook=film"], Some(heads), fonts);
+    app.add_video(
+        PathBuf::from("/dev/mem0"),
+        Box::new(Still::new(&[(1, "A")])),
+    );
+    app.set_batch_places(
+        Places {
+            file: file.clone(),
+            vconsole_conf: PathBuf::from("/dev/null"),
+            cmdline: PathBuf::from("/dev/null"),
+            ..Places::system()
+        },
+        Rule::new(Trust::owner(me)).below(&dir),
+    );
+    shown_at(&mut app, t);
+    let id = app.heads.first().unwrap().console.id;
+    let mapped = |app: &super::App| {
+        let head = app.heads.first().unwrap();
+        let views: Vec<bool> = head.views.values().map(|v| v.colors().is_some()).collect();
+        assert_eq!(views.len(), 1);
+        (head.vtlook.table.is_some(), views.first().copied().unwrap())
+    };
+    assert_eq!(mapped(&app), (false, false), "an inactive .cube file");
+    // root activates the file, and the next login draws its color map
+    write(&file, &format!("{}\n", cube.display()));
+    app.return_font(0, id);
+    assert_eq!(mapped(&app), (true, true), "the file the batch gains");
+    // root deactivates it, and the next login draws without it
+    write(&file, "# nothing is active\n");
+    app.return_font(0, id);
+    assert_eq!(mapped(&app), (false, false), "the file the batch drops");
+    crate::head::look::read_from(None);
+}

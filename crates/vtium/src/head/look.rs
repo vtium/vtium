@@ -279,6 +279,14 @@ pub(crate) fn choose(head: &str, config: &Config) -> Chosen {
 #[cfg(feature = "filters")]
 fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
     let gate = crate::font::gate();
+    #[cfg(test)]
+    if let Some((dir, trust)) = TEST_FOLDER.with_borrow(Clone::clone) {
+        let cubes = vtlook::Cubes {
+            dir: &dir,
+            gate: &gate,
+        };
+        return read_in(head, name, &[dir.as_path()], &trust, &cubes);
+    }
     let cubes = vtlook::Cubes {
         dir: std::path::Path::new(vtlook::LOOKS),
         gate: &gate,
@@ -290,6 +298,23 @@ fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
         &crate::font::trust(),
         &cubes,
     )
+}
+
+#[cfg(all(test, feature = "filters"))]
+thread_local! {
+    /// The folder that holds a test's vtlooks and `.cube` files, with the
+    /// trust rule its vtlooks pass, in place of this machine's folders, on
+    /// the test's thread.
+    static TEST_FOLDER: std::cell::RefCell<Option<(std::path::PathBuf, vtium_settings::Trust)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Makes this thread read its vtlooks and `.cube` files from `folder`, a
+/// test's folder with the trust rule its vtlooks pass, or from this
+/// machine's folders again with `None`.
+#[cfg(all(test, feature = "filters"))]
+pub(crate) fn read_from(folder: Option<(std::path::PathBuf, vtium_settings::Trust)>) {
+    TEST_FOLDER.set(folder);
 }
 
 /// What a build without frame filters does with the vtlook `name`: it

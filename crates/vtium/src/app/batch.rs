@@ -55,8 +55,8 @@ impl App {
     /// again. When the pointer file's place in the batch changed, the
     /// pointer file loads again through the new gate. Then head `ended`,
     /// whose session ended, catches up with the batch in force, whether or
-    /// not this call found it changed. Returns whether head `ended` must
-    /// resolve its font again.
+    /// not this call found it changed: its palette, its vtlook and its font.
+    /// Returns whether head `ended` must resolve its font again.
     ///
     /// References:
     /// - ADR-1205 D4, its note of 2026-11-19: the batch is read again at each new login, where vtium reads the font settings again.
@@ -109,11 +109,15 @@ impl App {
     /// found the batch changed: every console of the head takes the palette
     /// the batch allows. A head whose next login is the first since another
     /// head's session end found the change thus catches up at its own.
-    /// Returns whether the batch changed since the head last caught up, in
-    /// which case the caller resolves the head's font again.
+    /// When the batch changed since the head last caught up, the head
+    /// chooses its vtlook again through the gate in force, so a `.cube`
+    /// file root activated or deactivated takes effect at this login, and
+    /// each display of the head takes the new color table. Returns whether
+    /// the batch changed since the head last caught up, in which case the
+    /// caller resolves the head's font again.
     ///
     /// References:
-    /// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
+    /// - ADR-1205 D4, its note of 2026-11-19: every resource passes one gate, and an activation or a deactivation takes effect at the next login.
     fn catch_up(&mut self, h: usize) -> bool {
         let top = self.config.palette();
         let config = self.head_config(h);
@@ -124,6 +128,14 @@ impl App {
         head.repalette(&config, top);
         let behind = head.batch != changes;
         head.batch = changes;
+        #[cfg(feature = "filters")]
+        if behind {
+            let chosen = crate::head::look::choose(head.name(), &config);
+            if chosen != head.vtlook {
+                head.vtlook = chosen;
+                self.give_colors_again(h);
+            }
+        }
         behind
     }
 
