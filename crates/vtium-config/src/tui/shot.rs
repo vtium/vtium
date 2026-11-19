@@ -16,7 +16,7 @@ use std::time::Duration;
 use vtium_font::Cell;
 
 use super::input::Key;
-use super::model::{App, Effect, FontState, Live, View};
+use super::model::{App, Effect, Font, FontState, Live, Shared, Size, View};
 use super::words;
 use crate::specimen::Shot;
 
@@ -184,7 +184,22 @@ pub struct Caption {
     pub grid: (usize, usize),
 }
 
-impl App {
+/// The parts of the model that a view's preview reads: the open view, the
+/// shared part and the terminal's size, the font the Fonts tab highlights
+/// and whether that tab shows the font's detailed specimen, and the size
+/// the Looks tab highlights. Update and the layout both read the preview
+/// through this, and neither changes it.
+#[derive(Clone, Copy, Debug)]
+pub struct Preview<'a> {
+    pub view: View,
+    pub shared: &'a Shared,
+    pub size: Size,
+    pub font: Option<&'a Font>,
+    pub detail: bool,
+    pub points: u32,
+}
+
+impl Preview<'_> {
     /// The change the view previews now, if any: the highlighted font in
     /// the Fonts view at the draft's size; the highlighted size of the
     /// highlighted font in the Looks view, automatic having none; and on a
@@ -202,21 +217,21 @@ impl App {
                 .find(|f| f.name == name)
                 .is_some_and(|f| !matches!(f.state, FontState::Refused(_)))
         };
-        match self.nav.view {
+        match self.view {
             View::Fonts => {
-                let font = self.font()?.name.clone();
+                let font = self.font?.name.clone();
                 readable(&font).then(|| Wanted {
                     font,
-                    points: self.draft_points(),
+                    points: draft_points(self.shared),
                     cell: None,
-                    detail: self.fonts.detail(),
+                    detail: self.detail,
                 })
             }
             View::Looks => {
-                let font = self.font()?.name.clone();
-                (readable(&font) && self.size() > 0).then(|| Wanted {
+                let font = self.font?.name.clone();
+                (readable(&font) && self.points > 0).then_some(Wanted {
                     font,
-                    points: self.size(),
+                    points: self.points,
                     cell: None,
                     detail: false,
                 })
@@ -225,20 +240,11 @@ impl App {
         }
     }
 
-    /// The pixel height `wanted` asks the font for: its cell's height where
-    /// it states a cell, else its size at the density.
-    pub fn height_of(&self, wanted: &Wanted) -> u32 {
-        match wanted.cell {
-            Some(c) => c.height,
-            None => crate::specimen::pixel_height(wanted.points, self.shared.inputs.dpi.0),
-        }
-    }
-
     /// The line that describes the preview: beside a picture, what the
     /// picture shows; with no pictures, the summary of the change.
     pub fn preview_line(&self) -> Option<String> {
-        if self.text_preview() && !super::layout::too_small(self.size) {
-            return match self.nav.view {
+        if self.shared.text_preview() && !super::layout::too_small(self.size) {
+            return match self.view {
                 View::Fonts => Some(words::console_font_caption(
                     self.shared.shown_font.as_deref(),
                 )),
@@ -248,8 +254,8 @@ impl App {
         }
         let wanted = self.wanted()?;
         if self.shared.graphics && wanted.detail {
-            let height = self.height_of(&wanted);
-            let (display, assumed) = self.display();
+            let height = height_of(self.shared, &wanted);
+            let (display, assumed) = display(self.shared);
             let summary = self
                 .shared
                 .specimen
@@ -267,7 +273,7 @@ impl App {
         if self.shared.graphics {
             return self.shared.shot.as_ref().map(words::caption);
         }
-        let height = self.height_of(&wanted);
+        let height = height_of(self.shared, &wanted);
         let summary = self
             .shared
             .summary
@@ -282,39 +288,67 @@ impl App {
             None => words::NO_PICTURES.to_owned(),
         })
     }
+}
 
-    /// The draft's `font-size`, else the size `preview` draws an automatic
-    /// size at.
-    fn draft_points(&self) -> u32 {
-        self.drafted("font-size")
-            .and_then(|s| s.parse::<u32>().ok())
-            .filter(|s| *s > 0)
-            .unwrap_or(crate::preview::POINTS)
+/// The pixel height `wanted` asks the font for: its cell's height where it
+/// states a cell, else its size at the density `shared` holds.
+pub fn height_of(shared: &Shared, wanted: &Wanted) -> u32 {
+    match wanted.cell {
+        Some(c) => c.height,
+        None => crate::specimen::pixel_height(wanted.points, shared.inputs.dpi.0),
     }
+}
 
-    /// The display the picture shows, and whether it is assumed.
-    fn display(&self) -> ((u32, u32), bool) {
-        match self.shared.inputs.display {
-            Some(d) => (d, false),
-            None => (ASSUMED_DISPLAY, true),
+/// The draft's `font-size`, else the size `preview` draws an automatic
+/// size at.
+fn draft_points(shared: &Shared) -> u32 {
+    shared
+        .drafted("font-size")
+        .and_then(|s| s.parse::<u32>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(crate::preview::POINTS)
+}
+
+/// The display the picture shows, and whether it is assumed.
+fn display(shared: &Shared) -> ((u32, u32), bool) {
+    match shared.inputs.display {
+        Some(d) => (d, false),
+        None => (ASSUMED_DISPLAY, true),
+    }
+}
+
+/// The most pixels the picture takes: `area`, the picture area in the
+/// terminal's cells, at the cell's size in pixels that `size` holds.
+fn picture_max((cols, rows): (usize, usize), size: Size) -> (u32, u32) {
+    let (cw, ch) = size.cell_px.unwrap_or(super::model::ASSUMED_CELL);
+    (
+        u32::try_from(cols)
+            .unwrap_or(0)
+            .saturating_mul(cw)
+            .min(crate::specimen::PICTURE_MAX.0),
+        u32::try_from(rows)
+            .unwrap_or(0)
+            .saturating_mul(ch)
+            .min(crate::specimen::PICTURE_MAX.1),
+    )
+}
+
+impl App {
+    /// The parts of the model that the open view's preview reads.
+    pub fn preview(&self) -> Preview<'_> {
+        Preview {
+            view: self.nav.view,
+            shared: &self.shared,
+            size: self.size,
+            font: self.font(),
+            detail: self.fonts.detail(),
+            points: self.looks.points(),
         }
     }
 
-    /// The most pixels the picture takes: the picture area, in the
-    /// terminal's cells.
-    fn picture_max(&self) -> (u32, u32) {
-        let (cols, rows) = super::layout::picture_area(self);
-        let (cw, ch) = self.size.cell_px.unwrap_or(super::model::ASSUMED_CELL);
-        (
-            u32::try_from(cols)
-                .unwrap_or(0)
-                .saturating_mul(cw)
-                .min(crate::specimen::PICTURE_MAX.0),
-            u32::try_from(rows)
-                .unwrap_or(0)
-                .saturating_mul(ch)
-                .min(crate::specimen::PICTURE_MAX.1),
-        )
+    /// The most pixels the picture takes in the open view.
+    fn picture_room(&self) -> (u32, u32) {
+        picture_max(super::layout::picture_area(self), self.size)
     }
 
     /// Asks for the preview of what the view shows now, where it is not
@@ -330,12 +364,12 @@ impl App {
         }
         // in a vtium console the console draws the preview as text, so the
         // helper draws nothing
-        if self.text_preview() {
+        if self.shared.text_preview() {
             self.shared.asked = None;
             self.shared.shot = None;
             return self.drop_picture();
         }
-        let asked = self.wanted().map(|wanted| Asked {
+        let asked = self.preview().wanted().map(|wanted| Asked {
             wanted,
             grid: (self.size.cols, self.size.rows),
             cell_px: self.size.cell_px,
@@ -349,7 +383,7 @@ impl App {
             self.shared.shot = None;
             return self.drop_picture();
         };
-        let height = self.height_of(&asked.wanted);
+        let height = height_of(&self.shared, &asked.wanted);
         let Wanted {
             font,
             points,
@@ -360,7 +394,7 @@ impl App {
             self.shared.drawing = true;
             return vec![Effect::Summary { font, height }];
         }
-        let max = self.picture_max();
+        let max = self.picture_room();
         if max.0 == 0 || max.1 == 0 {
             self.shared.shot = None;
             return self.drop_picture();
@@ -368,7 +402,7 @@ impl App {
         self.shared.drawing = true;
         if detail {
             self.shared.shot = None;
-            let display = self.display().0;
+            let display = display(&self.shared).0;
             return vec![Effect::Specimen {
                 font,
                 height,
@@ -397,9 +431,9 @@ impl App {
         let wanted = asked.wanted;
         // a cell for a change no longer highlighted: the next is asked for
         if wanted.font != font
-            || self.height_of(&wanted) != height
+            || height_of(&self.shared, &wanted) != height
             || wanted.cell.is_some()
-            || self.wanted().as_ref() != Some(&wanted)
+            || self.preview().wanted().as_ref() != Some(&wanted)
             || self.shared.leaving.is_some()
         {
             self.shared.drawing = false;
@@ -425,7 +459,7 @@ impl App {
         height: u32,
         (cell, face_height): (Cell, u32),
     ) -> Vec<Effect> {
-        let (display, assumed) = self.display();
+        let (display, assumed) = display(&self.shared);
         let across =
             |px: u32, side: u32| usize::try_from(px.checked_div(side).unwrap_or(0)).unwrap_or(0);
         let grid = (
@@ -465,7 +499,7 @@ impl App {
             screen,
             palette,
             color: self.shared.inputs.color,
-            max: self.picture_max(),
+            max: self.picture_room(),
         })]
     }
 
@@ -511,7 +545,7 @@ impl App {
             .shared
             .asked
             .as_ref()
-            .is_some_and(|a| self.wanted().as_ref() == Some(&a.wanted));
+            .is_some_and(|a| self.preview().wanted().as_ref() == Some(&a.wanted));
         if !matches!(self.nav.view, View::Looks | View::Fonts | View::Flow)
             || self.shared.leaving.is_some()
             || !current

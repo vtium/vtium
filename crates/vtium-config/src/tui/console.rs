@@ -27,7 +27,7 @@ use super::color::Style;
 use super::desk::Op;
 use super::edit::Change;
 use super::flow::{Flow, Look};
-use super::model::{App, Effect, Live, View};
+use super::model::{App, Effect, Live, Shared, View};
 use super::words;
 
 /// Where the font the console shows is saved.
@@ -78,7 +78,7 @@ pub fn lines(app: &App) -> Vec<Vec<(&'static str, Style)>> {
 /// picture would go, as many lines as the area holds, each cut at the
 /// screen's edge.
 pub fn draw(canvas: &mut Canvas, app: &App) {
-    if !app.text_preview() {
+    if !app.shared.text_preview() {
         return;
     }
     let (row, col) = super::layout::picture_at(app);
@@ -93,19 +93,19 @@ pub fn draw(canvas: &mut Canvas, app: &App) {
     }
 }
 
-impl App {
+impl Shared {
     /// Whether the Fonts and Looks views preview as text the console
     /// draws: in a vtium console the TUI can switch, so `t` shows a font
     /// on the console itself. Anywhere else they preview as pictures, or
     /// as a written description where the terminal shows no pictures.
     pub fn text_preview(&self) -> bool {
-        self.shared.live == Live::On
+        self.live == Live::On
     }
 
     /// The console's head in `flow`, by `VTIUM_HEAD`, and the look it
     /// draws with where that look names a font of its own.
     fn head_look<'f>(&self, flow: &'f Flow) -> Option<(&'f str, &'f Look)> {
-        let name = self.shared.inputs.head.as_deref()?;
+        let name = self.inputs.head.as_deref()?;
         let h = flow.heads.iter().position(|h| h.name == name)?;
         let look = flow.look_of(h).and_then(|l| flow.looks.get(l))?;
         (!look.frit.is_empty()).then_some((flow.heads.get(h)?.name.as_str(), look))
@@ -116,7 +116,7 @@ impl App {
     /// `font-name`; `None` for vtium's default font.
     pub fn head_font(&self) -> Option<String> {
         let text = self.conf_text()?;
-        let flow = crate::flowmodel::build(text, &self.shared.present, None);
+        let flow = crate::flowmodel::build(text, &self.present, None);
         match self.head_look(&flow) {
             Some((_, look)) => Some(look.frit.clone()),
             None => vtium_settings::setting(text, "font-name"),
@@ -133,7 +133,7 @@ impl App {
         text: &str,
         font: &str,
     ) -> Result<(Vec<Change>, Place), String> {
-        let flow = crate::flowmodel::build(text, &self.shared.present, None);
+        let flow = crate::flowmodel::build(text, &self.present, None);
         if let Some((head, look)) = self.head_look(&flow) {
             let mut doc = super::paths::read(&flow);
             for path in &mut doc.paths {
@@ -161,7 +161,7 @@ impl App {
             };
             return Ok((changes, place));
         }
-        if self.shared.inputs.head.is_none() && flow.looks.iter().any(|l| !l.frit.is_empty()) {
+        if self.inputs.head.is_none() && flow.looks.iter().any(|l| !l.frit.is_empty()) {
             return Err(words::tried_no_head(font));
         }
         let changes = if vtium_settings::setting(text, "font-name").as_deref() == Some(font) {
@@ -174,7 +174,9 @@ impl App {
         };
         Ok((changes, Place::Top))
     }
+}
 
+impl App {
     /// `s` in the Fonts view of a vtium console: writes the font the
     /// console shows into the draft, where the console's head takes its
     /// font from, with the changes not yet saved, once `vtium
@@ -191,7 +193,7 @@ impl App {
         };
         let name = draft.name.clone();
         let text = draft.text.clone();
-        let (changes, place) = match self.tried_changes(&text, &font) {
+        let (changes, place) = match self.shared.tried_changes(&text, &font) {
             Ok(planned) => planned,
             Err(why) => {
                 self.shared.message = Some(why);

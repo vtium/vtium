@@ -156,6 +156,7 @@ pub fn body(app: &App) -> Body {
                 list,
                 keep,
                 tail: app
+                    .preview()
                     .preview_line()
                     .map(|line| tail(&line, cols))
                     .unwrap_or_default(),
@@ -184,8 +185,9 @@ pub fn body(app: &App) -> Body {
                 })
                 .collect();
             let (list, keep) = list(&items, app.looks.at(), 10, cols);
-            let sentence = if app.text_preview() || !app.shared.graphics {
-                app.preview_line()
+            let sentence = if app.shared.text_preview() || !app.shared.graphics {
+                app.preview()
+                    .preview_line()
                     .unwrap_or_else(|| words::NO_PICTURES.to_owned())
             } else if app.size() == 0 {
                 words::AUTOMATIC_PICTURE.to_owned()
@@ -196,7 +198,7 @@ pub fn body(app: &App) -> Body {
                     DpiFrom::Edid => words::DPI_FROM_EDID,
                     DpiFrom::Assumed => words::DPI_ASSUMED,
                 };
-                match app.preview_line() {
+                match app.preview().preview_line() {
                     Some(line) => format!("{} {line}", words::density(dpi, from)),
                     None => words::density(dpi, from),
                 }
@@ -462,7 +464,7 @@ pub fn help_rows(app: &App) -> Vec<Row> {
             continue;
         };
         // the Fonts view's keys in a vtium console, where `s` saves
-        let (does, keys) = if *name == words::FONTS && app.text_preview() {
+        let (does, keys) = if *name == words::FONTS && app.shared.text_preview() {
             (words::HELP_FONTS_LIVE, words::KEYS_FONTS_LIVE)
         } else {
             (*does, *keys)
@@ -644,7 +646,7 @@ pub const MESSAGE_ROWS: usize = 3;
 fn planned_keys(app: &App) -> &'static str {
     match app.nav.view {
         View::Looks => words::KEYS_LOOKS,
-        View::Fonts if app.text_preview() => words::KEYS_FONTS_LIVE,
+        View::Fonts if app.shared.text_preview() => words::KEYS_FONTS_LIVE,
         View::Fonts => words::KEYS_FONTS,
         View::New => words::KEYS_NEW,
         View::Flow | View::Settings | View::Help => "",

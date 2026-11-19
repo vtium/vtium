@@ -83,7 +83,7 @@ fn status(canvas: &mut Canvas, app: &App) {
     };
     // the right side, in its long or its short words
     // a vtium console draws the preview as text, pictures or not
-    let pictures = app.shared.graphics && !app.text_preview();
+    let pictures = app.shared.graphics && !app.shared.text_preview();
     let live_with = |short: bool| match (&app.shared.live, pictures) {
         (Live::Asking, _) => words::PREVIEW_ASKING.to_owned(),
         (live, graphics) => format!(
@@ -212,7 +212,7 @@ fn flow_screen(canvas: &mut Canvas, app: &App) {
         .shared
         .message
         .clone()
-        .or_else(|| app.preview_line())
+        .or_else(|| app.preview().preview_line())
         .map(|m| wrap(&m, cols.saturating_sub(2), MESSAGE_ROWS))
         .unwrap_or_default();
     let bottom = rows

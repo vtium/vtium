@@ -1288,7 +1288,7 @@ impl App {
         // the font the installed file gives the console's head, from its
         // look where the look names one
         if self.shared.live == Live::On
-            && let Some(name) = self.head_font()
+            && let Some(name) = self.shared.head_font()
         {
             self.shared.start_font = Some(name);
         }
