@@ -936,3 +936,119 @@ fn without_fence_syncs_a_frame_ends_with_glfinish_and_its_name() {
     gl.free_frame(fb, texture).unwrap();
     gl.check().unwrap();
 }
+
+// A 3D texture of RGBA16F is made whole from its half floats, sampled
+// linearly between its texels and clamped at its edges on all three axes,
+// whatever sampler an earlier draw bound to the unit. A side or a length
+// that does not fit is refused before GL, and a volume takes no upload.
+#[test]
+fn a_volume_samples_its_half_floats_linearly_and_clamps_at_its_edges() {
+    const VOLUME: &str = "#version 300 es
+precision highp float;
+uniform highp sampler3D table;
+uniform vec4 at;
+in vec2 src_at;
+out vec4 color;
+void main() {
+    color = texture(table, at.xyz);
+}
+";
+    let mut gl = software();
+    assert_eq!(
+        gl.create_volume(0, &[]).unwrap_err().kind,
+        ErrorKind::Misuse
+    );
+    assert_eq!(
+        gl.create_volume(257, &[]).unwrap_err().kind,
+        ErrorKind::Misuse
+    );
+    assert_eq!(
+        gl.create_volume(2, &[0; 63]).unwrap_err().kind,
+        ErrorKind::Misuse
+    );
+    // two texels a side: red 0 at x = 0 and red 1 at x = 1, every other
+    // channel 0 but alpha 1, so red follows x alone
+    let half = |v: f32| -> [u8; 2] { if v == 1.0 { 0x3c00u16 } else { 0 }.to_le_bytes() };
+    let mut texels = Vec::new();
+    for _z in 0..2 {
+        for _y in 0..2 {
+            for x in 0..2 {
+                for c in [x as f32, 0.0, 0.0, 1.0] {
+                    texels.extend(half(c));
+                }
+            }
+        }
+    }
+    let volume = gl.create_volume(2, &texels).unwrap();
+    assert_eq!(
+        gl.fill_texture(volume, rect(0, 0, 1, 1), &[0; 8], 8)
+            .unwrap_err()
+            .kind,
+        ErrorKind::Misuse
+    );
+    let program = gl.compile(VERT, VOLUME).unwrap();
+    let (frame_tex, fb) = gl.create_frame(1, 1).unwrap();
+    let red_at = |gl: &mut Context, x: f32| {
+        let at = |gl: &mut Context, n: &str| gl.uniform_location(program, n).unwrap();
+        let uniforms = [
+            (at(gl, "target_size"), Uniform::Vec2([1.0, 1.0])),
+            (at(gl, "table"), Uniform::Volume(volume, Filter::Linear)),
+            (at(gl, "at"), Uniform::Vec4([x, 0.5, 0.5, 0.0])),
+        ];
+        gl.draw(&DrawCall {
+            framebuffer: fb,
+            size: (1, 1),
+            program,
+            uniforms: &uniforms,
+            instances: &[quad([0, 0, 1, 1], [0, 0, 1, 1])],
+            blend: Blend::Replace,
+            scissor: None,
+        })
+        .unwrap();
+        let mut out = [0u8; 4];
+        gl.read(fb, rect(0, 0, 1, 1), &mut out).unwrap();
+        out[0]
+    };
+    // halfway between the texel centers, at 0.5, red blends to half; at
+    // and past the edges it holds each texel's own value
+    assert_eq!(red_at(&mut gl, 0.5), 128);
+    assert_eq!(red_at(&mut gl, 0.25), 0);
+    assert_eq!(red_at(&mut gl, 0.75), 255);
+    assert_eq!(red_at(&mut gl, 1.2), 255);
+    // a 2D texture drawn on unit 0 with the context's sampler first leaves
+    // the volume sampled through its own clamped parameters
+    let flat = gl.create_texture(TextureFormat::Rgba8, 1, 1).unwrap();
+    let copy_program = gl.compile(VERT, COPY).unwrap();
+    copy(
+        &mut gl,
+        copy_program,
+        fb,
+        (1, 1),
+        flat,
+        false,
+        &[quad([0, 0, 1, 1], [0, 0, 1, 1])],
+        Blend::Replace,
+        None,
+    );
+    assert_eq!(red_at(&mut gl, -0.2), 0);
+    // a draw that names a 2D texture as a volume is refused before GL
+    let at = gl.uniform_location(program, "table").unwrap();
+    let refused = gl.draw(&DrawCall {
+        framebuffer: fb,
+        size: (1, 1),
+        program,
+        uniforms: &[(at, Uniform::Volume(flat, Filter::Linear))],
+        instances: &[quad([0, 0, 1, 1], [0, 0, 1, 1])],
+        blend: Blend::Replace,
+        scissor: None,
+    });
+    assert_eq!(refused.unwrap_err().kind, ErrorKind::Misuse);
+    gl.check().unwrap();
+    gl.free_texture(volume).unwrap();
+    assert_eq!(gl.free_texture(volume).unwrap_err().kind, ErrorKind::Misuse);
+    gl.free_texture(flat).unwrap();
+    gl.free_frame(fb, frame_tex).unwrap();
+    gl.free_program(program).unwrap();
+    gl.free_program(copy_program).unwrap();
+    gl.check().unwrap();
+}

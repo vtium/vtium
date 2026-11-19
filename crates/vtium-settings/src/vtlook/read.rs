@@ -858,11 +858,12 @@ mod tests {
                 ),
             ]
         );
-        // vtium's own list is empty, so every filter is unknown to it
+        // vtium's own list holds the color filters and no spatial filter,
+        // so gamma reads, sepia is unknown and scanlines has no list at all
         let own = read_text(
             "old",
             Path::new(f),
-            b"version = 1\n[color gamma]\n[spatial scanlines]\n",
+            b"version = 1\n[color gamma]\n[color sepia]\n[spatial scanlines]\n",
         );
         let said: Vec<String> = own
             .err()
@@ -874,7 +875,7 @@ mod tests {
         assert_eq!(
             said,
             [
-                "color filter 1 of 1, gamma: checking: found gamma, but this build of vtium has no color filters",
+                "color filter 2 of 2, sepia: checking: found sepia, needs gamma, contrast, tint or color-blind",
                 "spatial filter 1 of 1, scanlines: checking: found scanlines, but this build of vtium has no spatial filters",
             ]
         );

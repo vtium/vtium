@@ -5,7 +5,7 @@
 use vtium_render::Rect;
 use vtium_render::gpu::{
     Batch, Blend, Call, Draw, ErrorKind, Filter, Format, Gl, Input, InputKind, Limits, Op, Quad,
-    Size, Source, StandIn, Value,
+    Size, Source, StandIn, VOLUME_SIDE_MAX, Value,
 };
 
 const VERT: &str = "#version 300 es\nuniform vec2 target_size;\nvoid main() {}\n";
@@ -241,6 +241,115 @@ fn a_draw_gives_each_input_once_with_a_value_of_its_kind() {
     );
 }
 
+// A 3D texture of RGBA16F is made whole from exactly its texels, within
+// the side every OpenGL ES 3.0 context takes. It takes no later upload,
+// and a draw samples it only through a `sampler3D`, as a 2D texture only
+// through a 2D sampler.
+#[test]
+fn a_volume_holds_exactly_its_texels_and_samples_only_as_a_volume() {
+    let mut gl = StandIn::new();
+    for side in [0, VOLUME_SIDE_MAX + 1] {
+        assert_eq!(
+            gl.create_volume(side, &[]).unwrap_err().kind,
+            ErrorKind::Limit,
+            "{side}"
+        );
+    }
+    // 2 a side is 8 texels of 8 bytes
+    for len in [63, 65] {
+        assert_eq!(
+            gl.create_volume(2, &vec![0; len]).unwrap_err().kind,
+            ErrorKind::Misuse,
+            "{len}"
+        );
+    }
+    assert_eq!(gl.live(), (0, 0, 0));
+    let texels: Vec<u8> = (0..64).collect();
+    let volume = gl.create_volume(2, &texels).unwrap();
+    assert_eq!(gl.calls().last(), Some(&Call::CreateVolume(2)));
+    assert_eq!(
+        gl.create_volume(VOLUME_SIDE_MAX, &[]).unwrap_err().kind,
+        ErrorKind::Misuse
+    );
+    assert_eq!(
+        gl.fill_texture(&volume, rect(0, 0, 1, 1), &[0; 8], 8)
+            .unwrap_err()
+            .kind,
+        ErrorKind::Misuse
+    );
+    const SAMPLER_3D: &str = "#version 300 es\nprecision highp float;\nuniform highp sampler3D table;\nout vec4 color;\nvoid main() {}\n";
+    let inputs = [Input {
+        name: "table",
+        kind: InputKind::Volume,
+    }];
+    let as_3d = Source {
+        vertex: &[VERT],
+        fragment: &[SAMPLER_3D],
+        inputs: &inputs,
+    };
+    // a volume input is a sampler3D, not a sampler2D
+    let as_2d = Source {
+        fragment: &[FRAG],
+        inputs: &[Input {
+            name: "picture",
+            kind: InputKind::Volume,
+        }],
+        ..as_3d
+    };
+    assert_eq!(gl.compile(&as_2d).unwrap_err().kind, ErrorKind::Misuse);
+    let program = gl.compile(&as_3d).unwrap();
+    let flat = gl.compile(&source(&INPUTS)).unwrap();
+    let picture = gl.create_texture(Format::Rgba8, Size::new(4, 4)).unwrap();
+    let target = gl.create_frame(Size::new(16, 16)).unwrap();
+    let quads = [Quad::default()];
+    let draw = |gl: &mut StandIn, program, inputs: &[(&'static str, Value<'_>)]| {
+        gl.draw(&Draw {
+            target: &target,
+            program,
+            inputs,
+            quads: &quads,
+            blend: Blend::Replace,
+            scissor: None,
+        })
+    };
+    draw(
+        &mut gl,
+        &program,
+        &[("table", Value::Volume(&volume, Filter::Linear))],
+    )
+    .unwrap();
+    assert_eq!(
+        draw(
+            &mut gl,
+            &program,
+            &[("table", Value::Volume(&picture, Filter::Linear))]
+        )
+        .unwrap_err()
+        .kind,
+        ErrorKind::Misuse
+    );
+    let size = ("target_size", Value::Vec2([16.0, 16.0]));
+    assert_eq!(
+        draw(
+            &mut gl,
+            &flat,
+            &[size, ("picture", Value::Texture(&volume, Filter::Linear))]
+        )
+        .unwrap_err()
+        .kind,
+        ErrorKind::Misuse
+    );
+    // the stand-in keeps the texels it was given, and frees the volume
+    let name = gl.seen().first().map(|s| s.textures[0].1).unwrap();
+    let (format, side, held) = gl.texture_pixels(name).unwrap();
+    assert_eq!(
+        (format, side, held),
+        (Format::Rgba16f, Size::new(2, 2), &texels[..])
+    );
+    gl.free_texture(volume).unwrap();
+    assert_eq!(gl.texture_pixels(name), None);
+}
+
 #[test]
 fn a_read_lies_inside_its_target_and_fills_its_bytes() {
     let mut gl = StandIn::new();
@@ -443,6 +552,7 @@ fn the_stand_in_fails_the_next_call_of_a_kind_as_a_driver_would() {
     let size = Size::new(4, 4);
     let cases = [
         (Op::CreateTexture, ErrorKind::OutOfMemory),
+        (Op::CreateVolume, ErrorKind::OutOfMemory),
         (Op::CreateFrame, ErrorKind::OutOfMemory),
         (Op::CreateBuffer, ErrorKind::OutOfMemory),
         (Op::ImportBuffer, ErrorKind::Import),
@@ -453,6 +563,7 @@ fn the_stand_in_fails_the_next_call_of_a_kind_as_a_driver_would() {
         gl.fail_next(op, kind);
         let call = |gl: &mut StandIn| match op {
             Op::CreateTexture => gl.create_texture(Format::R8, size).map(|_| ()),
+            Op::CreateVolume => gl.create_volume(2, &[0; 64]).map(|_| ()),
             Op::CreateFrame => gl.create_frame(size).map(|_| ()),
             Op::CreateBuffer => gl.create_buffer(size).map(|_| ()),
             Op::ImportBuffer => gl.import_buffer(&size).map(|_| ()),

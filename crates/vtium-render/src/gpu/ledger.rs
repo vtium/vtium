@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::gl::{
     ContextId, Draw, DrawTarget, Error, ErrorKind, Fence, Filter, Format, Handle, Input, InputKind,
-    Limits, Program, Size, Source, Texture, Value,
+    Limits, Program, Size, Source, Texture, VOLUME_SIDE_MAX, Value,
 };
 use crate::target::Rect;
 
@@ -30,7 +30,10 @@ pub struct TextureInfo {
     /// The implementation's name for it.
     pub name: u32,
     pub format: Format,
+    /// Its first two sides; a volume's third side is its first.
     pub size: Size,
+    /// Whether it is a 3D texture, which [`Ledger::create_volume`] made.
+    pub volume: bool,
 }
 
 /// A live target, as the ledger knows it.
@@ -55,6 +58,7 @@ struct ProgramInfo {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Resolved {
     Texture(u32, Filter),
+    Volume(u32, Filter),
     Float(f32),
     Vec2([f32; 2]),
     Vec4([f32; 4]),
@@ -197,8 +201,9 @@ impl Ledger {
             .ok_or_else(|| Error::new(ErrorKind::Handle, "the texture was freed"))
     }
 
-    /// Checks a texture of `format` and `size`, and on success runs `make`,
-    /// which makes it and gives its name.
+    /// Checks a 2D texture of `format` and `size`, and on success runs
+    /// `make`, which makes it and gives its name. [`Format::Rgba16f`] is
+    /// refused: only a 3D texture holds it.
     pub fn create_texture(
         &mut self,
         format: Format,
@@ -206,6 +211,11 @@ impl Ledger {
         make: impl FnOnce() -> Result<u32, Error>,
     ) -> Result<Texture, Error> {
         self.alive()?;
+        if format == Format::Rgba16f {
+            return Err(misuse(
+                "an RGBA16F texture is a 3D texture, which create_volume makes",
+            ));
+        }
         if !self.limits.fits_texture(size) {
             return Err(Error::new(
                 ErrorKind::Limit,
@@ -217,8 +227,54 @@ impl Ledger {
         }
         let name = make()?;
         let h = self.handle();
-        self.textures
-            .insert(h.serial, TextureInfo { name, format, size });
+        self.textures.insert(
+            h.serial,
+            TextureInfo {
+                name,
+                format,
+                size,
+                volume: false,
+            },
+        );
+        Ok(Texture(h))
+    }
+
+    /// Checks a 3D texture of [`Format::Rgba16f`], `side` texels along each
+    /// axis, filled from `len` bytes, and on success runs `make`, which
+    /// makes and fills it and gives its name. The side runs from 1 to
+    /// [`VOLUME_SIDE_MAX`], and `len` is exactly its texels' bytes.
+    pub fn create_volume(
+        &mut self,
+        side: u32,
+        len: usize,
+        make: impl FnOnce() -> Result<u32, Error>,
+    ) -> Result<Texture, Error> {
+        self.alive()?;
+        if !(1..=VOLUME_SIDE_MAX).contains(&side) {
+            return Err(Error::new(
+                ErrorKind::Limit,
+                format!("a 3D texture {side} a side passes the largest, {VOLUME_SIDE_MAX}"),
+            ));
+        }
+        let need = u64::from(side)
+            .pow(3)
+            .saturating_mul(Format::Rgba16f.bytes() as u64);
+        if u64::try_from(len).ok() != Some(need) {
+            return Err(misuse(format!(
+                "a 3D texture {side} a side takes {need} bytes, not {len}"
+            )));
+        }
+        let name = make()?;
+        let h = self.handle();
+        self.textures.insert(
+            h.serial,
+            TextureInfo {
+                name,
+                format: Format::Rgba16f,
+                size: Size::new(side, side),
+                volume: true,
+            },
+        );
         Ok(Texture(h))
     }
 
@@ -233,6 +289,9 @@ impl Ledger {
         fill: impl FnOnce(TextureInfo) -> Result<T, Error>,
     ) -> Result<T, Error> {
         let info = self.texture_info(texture)?;
+        if info.volume {
+            return Err(misuse("a 3D texture takes no upload after it is made"));
+        }
         if !info.size.holds(rect) {
             return Err(misuse(format!(
                 "an upload to {rect:?} passes the {}x{} texture",
@@ -304,6 +363,7 @@ impl Ledger {
                 name: texture,
                 format: Format::Rgba8,
                 size,
+                volume: false,
             },
         );
         let h = self.handle();
@@ -518,10 +578,20 @@ impl Ledger {
         Ok(match *value {
             Value::Texture(t, filter) => {
                 let info = self.texture_info(t)?;
+                if info.volume {
+                    return Err(misuse("a 2D sampler is given a 3D texture"));
+                }
                 if target.texture == Some(t.0.serial) {
                     return Err(misuse("a draw reads the texture it draws into"));
                 }
                 Resolved::Texture(info.name, filter)
+            }
+            Value::Volume(t, filter) => {
+                let info = self.texture_info(t)?;
+                if !info.volume {
+                    return Err(misuse("a 3D sampler is given a 2D texture"));
+                }
+                Resolved::Volume(info.name, filter)
             }
             Value::Float(v) => Resolved::Float(v),
             Value::Vec2(v) => Resolved::Vec2(v),
@@ -551,6 +621,7 @@ impl Ledger {
 fn glsl_types(kind: InputKind) -> &'static [&'static str] {
     match kind {
         InputKind::Texture => &["sampler2D", "isampler2D", "usampler2D"],
+        InputKind::Volume => &["sampler3D"],
         InputKind::Float => &["float"],
         InputKind::Vec2 => &["vec2"],
         InputKind::Vec4 => &["vec4"],

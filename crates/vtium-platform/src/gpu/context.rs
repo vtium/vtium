@@ -193,6 +193,10 @@ pub struct Context {
     image_target: Option<ImageTargetRenderbuffer>,
     reset_status: Option<ResetStatus>,
     textures: BTreeMap<u32, TextureInfo>,
+    /// The 3D textures the context made and keeps, by name, each the side
+    /// it was made: the color table's ([`Context::create_volume`]). A
+    /// volume takes no upload after it is made, so it keeps no format.
+    volumes: BTreeMap<u32, u32>,
     /// Each buffer's renderbuffer, imported or made, by its framebuffer.
     buffers: BTreeMap<u32, Buffer>,
     /// Whether a frame's end makes an EGL fence sync, or waits in place
@@ -389,6 +393,7 @@ impl Context {
             image_target,
             reset_status,
             textures: BTreeMap::new(),
+            volumes: BTreeMap::new(),
             buffers: BTreeMap::new(),
             fence_sync,
             fences: BTreeMap::new(),

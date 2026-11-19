@@ -4529,7 +4529,7 @@ mod tests {
                     "{old}:2: reading: found [color sepia] before version = 1, needs version = 1 first"
                 ),
                 format!(
-                    "{old}:2: color filter 1 of 1, sepia: checking: found sepia, but this build of vtium has no color filters"
+                    "{old}:2: color filter 1 of 1, sepia: checking: found sepia, needs gamma, contrast, tint or color-blind"
                 ),
                 "/etc/vtium/vtium.conf:3: The vtlook old has errors, so the heads that use look a draw the built-in vtlook instead.".to_owned(),
                 "/etc/vtium/vtium.conf:5: The vtlook old has errors, so the heads that use look b draw the built-in vtlook instead.".to_owned(),

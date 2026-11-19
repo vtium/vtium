@@ -226,6 +226,24 @@ fn a_depth_the_device_refuses_is_tried_down_to_16_bits() {
     assert_eq!(v.dev().var.borrow().bits_per_pixel, 16);
 }
 
+// The display reports the bits a pixel of its framebuffer holds as vtium
+// set the device up, which a vtlook's min-depth and max-depth judge: 16
+// where the device takes no deeper true color, 24 or 32 where it does, and
+// 1 for a monochrome visual. Asleep, it reports none.
+#[test]
+fn the_display_reports_the_bits_a_pixel_of_its_framebuffer_holds() {
+    for (depths, bits) in [(vec![8, 16], 16), (vec![24], 24), (vec![32], 32)] {
+        let mut fb = FakeFb::new(depths[0]);
+        fb.depths = depths;
+        let v = awake(fb);
+        assert_eq!(v.buffer_bits(DISPLAY), Some(bits));
+    }
+    let mut v = mono(FB_VISUAL_MONO10, 0);
+    assert_eq!(v.buffer_bits(DISPLAY), Some(1));
+    v.sleep();
+    assert_eq!(v.buffer_bits(DISPLAY), None, "asleep");
+}
+
 #[test]
 fn a_device_without_true_color_is_refused() {
     let mut fb = FakeFb::new(32);

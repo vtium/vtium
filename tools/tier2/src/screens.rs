@@ -11,6 +11,7 @@
 //! drawn from the test font set of outline fonts that [`crate::fonts`]
 //! fetches (ADR-1503 D9).
 
+use vtium_render::filter::{Fixed, Given};
 use vtium_render::{Depth, Mark, Orientation};
 use vtium_term::WidthMethod;
 
@@ -1661,6 +1662,54 @@ const POINTER_FILE_EW_DESC: &str = "The ew-resize shape from vtium's pointer fil
 const POINTER_FILE_NS_DESC: &str = "The ns-resize shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white double arrow pointing up and down, 9 pixels wide and 16 tall, outlined in black, its centre on pixel 48,16, its upper head over the dark first row and its lower head over the light second row. It is the picture of pointer-ns-resize within a pixel at each edge of the outline.";
 const POINTER_FILE_ADWAITA_DESC: &str = "The default shape from a cursor theme: Adwaita 51.0's default cursor file, which tier 2 fetches by its pinned URL and SHA-256. The font helper's Xcursor code reads the file at nominal size 24, as pointer-size=24 asks, the picture is checked as the console checks the helper's answer, and the renderer draws it at its own size, never scaled. See pointer-default for the screen. Correct: Adwaita's arrow, 24×24 pixels, black with a white outline, pointing up and left, with a soft grey shadow below and to the right of it. Its hotspot, the picture's pixel 3,1, lies on pixel 48,16, so the arrow's white tip starts just below that pixel, over the light second row. The half-transparent shadow blends over the text and the rows it covers.";
 const POINTER_FILE_TURNED_DESC: &str = "The default shape from vtium's pointer file, as pointer-file-default draws it, on a display turned right, 48×96 pixels. The text reads from top to bottom, with the first row along the right edge. Correct: the arrow of pointer-file-default turned a quarter turn clockwise with the screen, white with a black outline, its tip on display pixel 31,48, where the grid's pixel 48,16 lands. The arrow's body lies below and to the left of its tip, over the light middle column.";
+
+/// The screen the color filters' cases draw, 40 by 6 cells in unifont: a
+/// line of text, the sixteen ANSI background colors, a line of colored
+/// words, a gradient from green to red over a mid blue, a gray ramp from
+/// black to white, and a prompt, with the pointer over the colored words.
+const COLORS: &[u8] = concat!(
+    "vtlook color filters\r\n",
+    "\x1b[40m  \x1b[41m  \x1b[42m  \x1b[43m  \x1b[44m  \x1b[45m  \x1b[46m  \x1b[47m  \x1b[100m  \x1b[101m  \x1b[102m  \x1b[103m  \x1b[104m  \x1b[105m  \x1b[106m  \x1b[107m  \x1b[0m\r\n",
+    "\x1b[31mred \x1b[32mgreen \x1b[33myellow \x1b[34mblue \x1b[35mmagenta \x1b[36mcyan \x1b[1;37mwhite\x1b[0m\r\n",
+    "\x1b[48;2;0;255;128m \x1b[48;2;7;248;128m \x1b[48;2;13;242;128m \x1b[48;2;20;235;128m \x1b[48;2;26;229;128m \x1b[48;2;33;222;128m \x1b[48;2;39;216;128m \x1b[48;2;46;209;128m \x1b[48;2;52;203;128m \x1b[48;2;59;196;128m \x1b[48;2;65;190;128m \x1b[48;2;72;183;128m \x1b[48;2;78;177;128m \x1b[48;2;85;170;128m \x1b[48;2;92;163;128m \x1b[48;2;98;157;128m \x1b[48;2;105;150;128m \x1b[48;2;111;144;128m \x1b[48;2;118;137;128m \x1b[48;2;124;131;128m \x1b[48;2;131;124;128m \x1b[48;2;137;118;128m \x1b[48;2;144;111;128m \x1b[48;2;150;105;128m \x1b[48;2;157;98;128m \x1b[48;2;163;92;128m \x1b[48;2;170;85;128m \x1b[48;2;177;78;128m \x1b[48;2;183;72;128m \x1b[48;2;190;65;128m \x1b[48;2;196;59;128m \x1b[48;2;203;52;128m \x1b[48;2;209;46;128m \x1b[48;2;216;39;128m \x1b[48;2;222;33;128m \x1b[48;2;229;26;128m \x1b[48;2;235;20;128m \x1b[48;2;242;13;128m \x1b[48;2;248;7;128m \x1b[48;2;255;0;128m \x1b[0m\r\n",
+    "\x1b[48;2;0;0;0m \x1b[48;2;7;7;7m \x1b[48;2;13;13;13m \x1b[48;2;20;20;20m \x1b[48;2;26;26;26m \x1b[48;2;33;33;33m \x1b[48;2;39;39;39m \x1b[48;2;46;46;46m \x1b[48;2;52;52;52m \x1b[48;2;59;59;59m \x1b[48;2;65;65;65m \x1b[48;2;72;72;72m \x1b[48;2;78;78;78m \x1b[48;2;85;85;85m \x1b[48;2;92;92;92m \x1b[48;2;98;98;98m \x1b[48;2;105;105;105m \x1b[48;2;111;111;111m \x1b[48;2;118;118;118m \x1b[48;2;124;124;124m \x1b[48;2;131;131;131m \x1b[48;2;137;137;137m \x1b[48;2;144;144;144m \x1b[48;2;150;150;150m \x1b[48;2;157;157;157m \x1b[48;2;163;163;163m \x1b[48;2;170;170;170m \x1b[48;2;177;177;177m \x1b[48;2;183;183;183m \x1b[48;2;190;190;190m \x1b[48;2;196;196;196m \x1b[48;2;203;203;203m \x1b[48;2;209;209;209m \x1b[48;2;216;216;216m \x1b[48;2;222;222;222m \x1b[48;2;229;229;229m \x1b[48;2;235;235;235m \x1b[48;2;242;242;242m \x1b[48;2;248;248;248m \x1b[48;2;255;255;255m \x1b[0m\r\n",
+    "pi@desk:~$ ",
+)
+.as_bytes();
+
+/// Where the color filters' cases draw the pointer: over the colored
+/// words of the third row.
+const COLORS_TIP: (u32, u32) = (52, 40);
+
+/// The amber look of docs/looks.md: tint toward 255,176,0 at full
+/// amount, then a contrast of 1.15.
+const AMBER: &[(&str, &[Given])] = &[
+    (
+        "tint",
+        &[Given::Color([255, 176, 0]), Given::Number(Fixed::of(1, 0))],
+    ),
+    (
+        "contrast",
+        &[
+            Given::Number(Fixed::of(1, 1500)),
+            Given::Number(Fixed::of(0, 0)),
+        ],
+    ),
+];
+
+/// Deuteranopia simulated at full amount.
+const DEUTERANOPIA: &[(&str, &[Given])] = &[(
+    "color-blind",
+    &[
+        Given::Choice("deuteranopia"),
+        Given::Choice("simulate"),
+        Given::Number(Fixed::of(1, 0)),
+    ],
+)];
+
+const LOOK_AMBER_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): tint toward amber, 255,176,0, at full amount, then a contrast of 1.15, merged into one color table that every pixel is looked up in. The screen is 40 by 6 cells: a title, the sixteen ANSI background colors, colored words, a gradient from green at the left to red at the right over a mid blue, a gray ramp from black to white and a prompt, with vtium's pointer over the word green. Correct: every pixel is a shade of amber or black, with no other hue anywhere: the text, each color block, both gradients and the pointer, whose outline stays black. Each shade follows its color's lightness, so the gray ramp runs evenly from black to a bright amber, the blue block and the word blue are nearly black, yellow and white are the brightest, and the green-to-red gradient darkens from left to right because green is lighter than red.";
+
+const LOOK_DEUTERANOPIA_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): color-blind simulating deuteranopia at full amount, through Machado, Oliveira and Fernandes's matrix in linear light. The screen is look-amber's, with vtium's pointer over the word green. Correct: red and green no longer stand apart. Red, green and yellow, as blocks and as words, become olive and golden yellows, blue stays a strong blue, magenta becomes a mid blue and cyan a pale blue gray. The gradient runs from a pale khaki at the left through a blue gray to a gray olive at the right. Every gray of the gray ramp, the white text, the black background and the white pointer with its black outline stay as they are.";
 
 /// Every case, in the order the report lists them: the screens below,
 /// then the ink screens, then the right-to-left screens.
@@ -3394,6 +3443,20 @@ const BASE: &[Case] = &[
             8,
         )
     }),
+    Case {
+        screen: Screen {
+            arrow: Some(COLORS_TIP),
+            color_filters: Some(AMBER),
+            ..Screen::new("look-amber", LOOK_AMBER_DESC, COLORS, 40, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            arrow: Some(COLORS_TIP),
+            color_filters: Some(DEUTERANOPIA),
+            ..Screen::new("look-deuteranopia", LOOK_DEUTERANOPIA_DESC, COLORS, 40, 6)
+        },
+    },
 ];
 
 /// The `bitmap-outline` screens: ASCII from the built-in GNU Unifont, a

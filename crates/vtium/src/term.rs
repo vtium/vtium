@@ -594,8 +594,49 @@ impl Overlay {
         if self.notice.is_none() && self.mark.is_none() {
             return Vec::new();
         }
-        let own = renderer.font();
-        let depth = renderer.depth();
+        self.draw_in(
+            renderer.font(),
+            renderer.depth(),
+            grid,
+            orientation,
+            size,
+            target,
+        )
+    }
+
+    /// Draws the overlay into `target` as [`Overlay::draw_into`] does,
+    /// through the renderer's color slot, so that a vtlook's color filters
+    /// reach the notices and the mark as they reach the frame.
+    ///
+    /// References:
+    /// - ADR-1304 D2: every pixel of the display passes through the color slot.
+    #[cfg(feature = "filters")]
+    pub fn draw_colored<F: Face>(
+        &self,
+        renderer: &mut Renderer<F>,
+        grid: (usize, usize),
+        orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
+        if self.notice.is_none() && self.mark.is_none() {
+            return Vec::new();
+        }
+        let (font, depth, mut colored) = renderer.colored_with_font(target);
+        self.draw_in(font, depth, grid, orientation, size, &mut colored)
+    }
+
+    /// Draws the overlay into `target` with vtium's built-in font in the
+    /// cell of `own`, the renderer's font, under `own`'s sprite policy.
+    fn draw_in<F: Face>(
+        &self,
+        own: &Font<F>,
+        depth: Depth,
+        grid: (usize, usize),
+        orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
         match crate::font::own_face(own.face().cell()) {
             Some(face) => {
                 let font = Font::new(face).with_policy(own.policy());
@@ -789,6 +830,15 @@ impl Job {
                     .collect();
                 let (most_cols, most_rows) = drawing.renderer.grid_size();
                 let grid = (grid.0.min(most_cols), grid.1.min(most_rows));
+                #[cfg(feature = "filters")]
+                let overlaid = self.overlay.draw_colored(
+                    &mut drawing.renderer,
+                    grid,
+                    self.orientation,
+                    size,
+                    &mut target,
+                );
+                #[cfg(not(feature = "filters"))]
                 let overlaid = self.overlay.draw_into(
                     &drawing.renderer,
                     grid,
@@ -1012,6 +1062,17 @@ pub struct View {
     pub overlay: Overlay,
     /// The overlay the last frame took, `None` when unknown.
     overlay_sent: Option<Overlay>,
+    /// The color table of the head's vtlook that this display draws with,
+    /// `None` for the built-in vtlook ([`View::set_colors`]).
+    #[cfg(feature = "filters")]
+    colors: Option<Arc<vtium_render::filter::Table>>,
+    /// The drawing's renderer holds `colors` already.
+    #[cfg(feature = "filters")]
+    colors_held: bool,
+    /// The line that says which requirement of the head's vtlook this
+    /// display does not meet, `None` while it meets them all.
+    #[cfg(feature = "filters")]
+    unmet: Option<String>,
 }
 
 impl View {
@@ -1059,6 +1120,12 @@ impl View {
             sent: None,
             overlay: Overlay::default(),
             overlay_sent: None,
+            #[cfg(feature = "filters")]
+            colors: None,
+            #[cfg(feature = "filters")]
+            colors_held: true,
+            #[cfg(feature = "filters")]
+            unmet: None,
         };
         view.install(renderer);
         view
@@ -1077,6 +1144,10 @@ impl View {
         self.arrived.clear();
         self.overlaid.clear();
         self.overlay_sent = None;
+        #[cfg(feature = "filters")]
+        {
+            self.colors_held = self.colors.is_none();
+        }
         self.drop_kept();
     }
 
@@ -1181,6 +1252,61 @@ impl View {
     /// The font's sprite policy and missing glyph.
     pub fn font_policy(&self) -> (SpritePolicy, Missing) {
         self.policy
+    }
+
+    /// Draws with `colors`, the color table of the head's vtlook as this
+    /// display takes it, or with none for the built-in vtlook. The
+    /// renderer takes it at the next draw, while a frame is composing
+    /// too, and each renderer a zoom, turn or font change makes takes it
+    /// as well. The table the view draws with already changes nothing, so
+    /// a check that gives the same answer again draws no frame whole.
+    ///
+    /// References:
+    /// - ADR-1304 D2: every display of the head draws through the head's table.
+    #[cfg(feature = "filters")]
+    pub fn set_colors(&mut self, colors: Option<Arc<vtium_render::filter::Table>>) {
+        let same = match (&self.colors, &colors) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
+        if !same {
+            self.colors = colors;
+            self.colors_held = false;
+        }
+    }
+
+    /// Records `unmet`, the line that says which requirement of the head's
+    /// vtlook the display does not meet, or `None` when it meets them all.
+    /// Returns the line before when `unmet` differs from it, so that vtium
+    /// logs each new answer once, and not again at each check that gives
+    /// the same answer.
+    #[cfg(feature = "filters")]
+    pub fn set_unmet(&mut self, unmet: Option<String>) -> Option<Option<String>> {
+        (self.unmet != unmet).then(|| std::mem::replace(&mut self.unmet, unmet))
+    }
+
+    /// The color table this display draws with, for the tests.
+    #[cfg(all(test, feature = "filters"))]
+    pub(crate) fn colors(&self) -> Option<&Arc<vtium_render::filter::Table>> {
+        self.colors.as_ref()
+    }
+
+    /// Hands the drawing's renderer the display's color table when it
+    /// does not hold it yet. A renderer that cannot take it for want of
+    /// memory keeps the table it had, and vtium logs why.
+    #[cfg(feature = "filters")]
+    fn hand_colors(&mut self) {
+        if self.colors_held {
+            return;
+        }
+        let Some(drawing) = self.drawing.as_mut() else {
+            return;
+        };
+        self.colors_held = true;
+        if let Err(e) = drawing.renderer.set_color_table(self.colors.as_deref()) {
+            log::warn!(target: "look", "display {} keeps its colors: cannot hold the vtlook's color table: {e}", self.id.0);
+        }
     }
 
     /// Whether a frame of this view is composing.
@@ -1373,6 +1499,8 @@ impl View {
             return Prepared::Nothing;
         }
         let tip = state.pointer;
+        #[cfg(feature = "filters")]
+        self.hand_colors();
         if let Some(drawing) = self.drawing.as_mut() {
             let shape = term.terminal.pointer_shape();
             self.pointer.follow(
@@ -1676,6 +1804,95 @@ mod tests {
 
     const ID: DisplayId = DisplayId(1);
     const SIZE: (u32, u32) = (36, 34);
+
+    // A display's view hands the head's color table to its renderer at
+    // the next draw, and to each renderer a rebuild makes after it; the
+    // built-in vtlook takes the table away again.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_view_hands_its_color_table_to_each_renderer() {
+        let colors = |view: &View| view.drawing.as_ref().map(|d| d.renderer.colors());
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        let table = Arc::new(vtium_render::filter::Table::build(&[]).unwrap());
+        view.set_colors(Some(table));
+        assert_eq!(colors(&view), Some(false), "nothing drawn yet");
+        term.terminal.input(b"A");
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(true));
+        let face: DisplayFace = Box::new(Unifont::new(16));
+        view.rebuild(Font::new(face), 16, RenderConfig::default());
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(true), "the rebuilt renderer");
+        view.set_colors(None);
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(colors(&view), Some(false));
+    }
+
+    // A check of the display against the vtlook that gives the same answer
+    // again hands the renderer nothing, so the display draws no frame
+    // whole, and says nothing new to log.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn the_same_answer_again_changes_nothing() {
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        let table = Arc::new(vtium_render::filter::Table::build(&[]).unwrap());
+        view.set_colors(Some(Arc::clone(&table)));
+        term.terminal.input(b"A");
+        draw(&mut term, &mut view, &mut video, None);
+        assert!(view.colors_held, "the renderer holds the table");
+        view.set_colors(Some(table));
+        assert!(view.colors_held, "the same table again");
+        let line = Some("vtlook amber: display A draws the built-in vtlook".to_owned());
+        assert_eq!(view.set_unmet(line.clone()), Some(None), "a new answer");
+        assert_eq!(view.set_unmet(line.clone()), None, "the same answer");
+        assert_eq!(view.set_unmet(None), Some(line), "met again");
+    }
+
+    // A notice drawn through the color slot is the notice drawn without
+    // one, each pixel looked up in the vtlook's table, so the look's
+    // colors reach the box and its text as they reach the frame.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_notice_draws_through_the_vtlook_s_color_table() {
+        use vtium_render::filter::{Fixed, Given, Lookup, Map, Table, color};
+        let tint = Map::new(
+            color("tint").unwrap(),
+            &[Given::Color([255, 176, 0]), Given::Number(Fixed::of(1, 0))],
+        )
+        .unwrap();
+        let table = Table::build(&[tint]).unwrap();
+        let overlay = Overlay::new(None, &["a notice"], None, OverlayColors::default());
+        let face = || -> DisplayFace { Box::new(Unifont::new(16)) };
+        let (w, h) = (320, 96);
+        let plain_renderer = Renderer::new(Font::new(face()), w, h, RenderConfig::default());
+        let mut plain = Canvas::new(w, h, 0);
+        let drawn = overlay.draw(&plain_renderer, (40, 6), Orientation::Normal, &mut plain);
+        let mut renderer = Renderer::new(Font::new(face()), w, h, RenderConfig::default());
+        renderer.set_color_table(Some(&table)).unwrap();
+        let mut colored = Canvas::new(w, h, 0);
+        let rects = overlay.draw_colored(
+            &mut renderer,
+            (40, 6),
+            Orientation::Normal,
+            (w, h),
+            &mut colored,
+        );
+        assert_eq!(rects, drawn);
+        let mut lookup = Lookup::new(&table).unwrap();
+        let mut moved = 0;
+        for r in &rects {
+            for y in r.y..r.y + r.height {
+                for x in r.x..r.x + r.width {
+                    let (p, c) = (plain.pixel(x, y).unwrap(), colored.pixel(x, y).unwrap());
+                    assert_eq!(c, lookup.map(p), "{x},{y}: {p:06x}");
+                    moved += usize::from(c != p);
+                }
+            }
+        }
+        assert!(moved > 0, "the tint moved no pixel of the notice");
+    }
 
     // ADR-1002, section 7: the frame a head's render thread draws from the
     // snapshot carries the labels of link hints and vtium's note on the

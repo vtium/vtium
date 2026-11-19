@@ -307,6 +307,18 @@ impl<F: Framebuffer> Fbdev<F> {
         matches!(s.packing, Packing::Mono { .. }).then_some(2)
     }
 
+    /// The bits a pixel of the framebuffer holds, as vtium set the device
+    /// up: 1 for a monochrome visual, else 16, 24 or 32 of true color.
+    /// `None` while the device is asleep, since another program may set
+    /// another depth before vtium takes the framebuffer back.
+    pub fn buffer_bits(&self, id: DisplayId) -> Option<u8> {
+        let s = self.screen.as_ref().filter(|_| id == DISPLAY)?;
+        match s.packing {
+            Packing::Mono { .. } => Some(1),
+            Packing::TrueColor(l) => u8::try_from(l.bytes.saturating_mul(8)).ok(),
+        }
+    }
+
     /// Whether the last swap's stand-in flip event is pending.
     pub fn is_flipping(&self, id: DisplayId) -> bool {
         id == DISPLAY && self.vblank

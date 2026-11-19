@@ -29,7 +29,7 @@ pub(crate) mod turn;
 pub use compose::{ArrowAt, Work};
 pub use gl::{
     Batch, Blend, ContextId, Draw, DrawTarget, Error, ErrorKind, Fence, Filter, Format, Gl, Input,
-    InputKind, Limits, Program, Quad, Size, Source, Texture, Value,
+    InputKind, Limits, Program, Quad, Size, Source, Texture, VOLUME_SIDE_MAX, Value,
 };
 pub use ledger::{Checked, Ledger, Resolved, TargetInfo, TextureInfo};
 #[cfg(feature = "images")]

@@ -29,6 +29,8 @@ use crate::target::Rect;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Call {
     CreateTexture(Format, Size),
+    /// A 3D texture of RGBA16F made and filled, with its side.
+    CreateVolume(u32),
     FillTexture(Rect),
     FreeTexture,
     CreateFrame(Size),
@@ -58,6 +60,7 @@ pub enum Call {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
     CreateTexture,
+    CreateVolume,
     CreateFrame,
     ImportBuffer,
     CreateBuffer,
@@ -96,8 +99,8 @@ pub struct Seen {
     /// Each `ivec4` input the draw set, by its name in the shader, with
     /// its value.
     pub ivec4: Vec<(&'static str, [i32; 4])>,
-    /// Each texture input the draw set, by its name in the shader, with
-    /// the texture's name.
+    /// Each texture input the draw set, 3D textures included, by its name
+    /// in the shader, with the texture's name.
     pub textures: Vec<(&'static str, u32)>,
 }
 
@@ -352,6 +355,20 @@ impl Gl for StandIn {
         Ok(t)
     }
 
+    fn create_volume(&mut self, side: u32, texels: &[u8]) -> Result<Texture, Error> {
+        let name = self.make(Op::CreateVolume);
+        let named = name.as_ref().ok().copied();
+        let t = self.ledger.create_volume(side, texels.len(), || name)?;
+        if let Some(name) = named {
+            self.texels.insert(
+                name,
+                (Format::Rgba16f, Size::new(side, side), texels.to_vec()),
+            );
+        }
+        self.calls.push(Call::CreateVolume(side));
+        Ok(t)
+    }
+
     fn fill_texture(
         &mut self,
         texture: &Texture,
@@ -483,7 +500,7 @@ impl Gl for StandIn {
                 .inputs
                 .iter()
                 .filter_map(|(n, v)| match v {
-                    Resolved::Texture(t, _) => Some((*n, *t)),
+                    Resolved::Texture(t, _) | Resolved::Volume(t, _) => Some((*n, *t)),
                     _ => None,
                 })
                 .collect(),
