@@ -43,9 +43,13 @@ pub const BATCH_FILE: &str = match option_env!("VTIUM_BATCH") {
     None => "/etc/vtium/batch.conf",
 };
 
-/// The folder where the package installs its font files, whatever the
-/// install prefix is.
-pub const PACKAGE_FONTS: &str = "/usr/share/vtium/fonts";
+/// The folder where the package installs its font files: set at build
+/// time with `VTIUM_PACKAGE_FONTS`, so a console installed under another
+/// prefix, such as `/usr/local`, activates the fonts where they really are.
+pub const PACKAGE_FONTS: &str = match option_env!("VTIUM_PACKAGE_FONTS") {
+    Some(dir) => dir,
+    None => "/usr/share/vtium/fonts",
+};
 
 /// The font files the package installs in [`PACKAGE_FONTS`] and a fresh
 /// install activates: Terminus in each size and weight vtium ships, GNU
@@ -389,6 +393,30 @@ fn console_fonts(name: &str, folders: &[&Path], out: &mut Vec<Entry>) {
             let path = folder.join(format!("{name}{suffix}"));
             if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
                 out.push(Entry::Path(path));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PACKAGE_FONTS;
+
+    /// The package's font folder is `/usr/share/vtium/fonts` unless the
+    /// build names another with `VTIUM_PACKAGE_FONTS`, as `make install`
+    /// does for its prefix. Run once without the setting and once with it,
+    /// such as `VTIUM_PACKAGE_FONTS=/usr/local/share/vtium/fonts`, the test
+    /// checks both the default and that the build reads the setting.
+    #[test]
+    fn the_package_font_folder_is_a_build_setting() {
+        match option_env!("VTIUM_PACKAGE_FONTS") {
+            None => assert_eq!(PACKAGE_FONTS, "/usr/share/vtium/fonts"),
+            Some(dir) => {
+                assert_eq!(PACKAGE_FONTS, dir);
+                assert!(
+                    dir.starts_with('/'),
+                    "VTIUM_PACKAGE_FONTS is {dir}, not absolute"
+                );
             }
         }
     }
