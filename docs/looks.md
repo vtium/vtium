@@ -6,7 +6,7 @@ vtium has four color filters, which change the color of each pixel: `gamma`, `co
 
 ## Where a vtlook lives
 
-A vtlook is a file named `NAME.vtlook` in `/etc/vtium/looks`. The name has 1 to 64 of the characters `A-Z a-z 0-9 . _ + -`. vtium reads the file only when root owns it, and when neither its group nor other users can write it or a folder above it. vtium applies the same rule to vtium.conf.
+A vtlook is a file named `NAME.vtlook`. vtium looks for it first in `/etc/vtium/looks`, which holds your own vtlooks, and then in `/usr/share/vtium/looks`, which holds the [presets](#preset-vtlooks) that come with vtium. The name has 1 to 64 of the characters `A-Z a-z 0-9 . _ + -`. vtium reads the file only when root owns it, and when neither its group nor other users can write it or a folder above it. vtium applies the same rule to vtium.conf.
 
 You choose a vtlook in vtium.conf. A `[look NAME]` section names its vtlook with `vtlook = NAME`. The top-level `vtlook` key sets the vtlook of every look that names none. With neither, a head draws the built-in vtlook, `default`.
 
@@ -45,7 +45,7 @@ A color filter changes each pixel's color using that color alone. vtium merges a
 |---|---|---|
 | `gamma` | `gamma`, 0.5 to 2, default 1 | Raises each channel to the power 1 / gamma. Above 1 it lightens the middle tones, and below 1 it darkens them. |
 | `contrast` | `contrast`, 0 to 2, default 1; `brightness`, -0.5 to 0.5, default 0 | Multiplies each channel's distance from middle gray by `contrast`, then adds `brightness`. |
-| `tint` | `color`, `r,g,b`, default 255,176,0; `amount`, 0 to 1, default 1 | Moves each pixel toward its gray times `color`. At an amount of 1 the screen shows only shades of the color, like a single-color phosphor. |
+| `tint` | `color`, `r,g,b`, default 255,176,0; `amount`, 0 to 1, default 1; `floor`, 0 to 1, default 0 | Moves each pixel toward its gray times `color`. At an amount of 1 the screen shows only shades of the color, like a single-color phosphor. `floor` lifts every gray above black to at least the floor before the color applies, so dark colors stay visible. |
 | `color-blind` | `kind`, `protanopia`, `deuteranopia` or `tritanopia`, default `deuteranopia`; `mode`, `simulate` or `correct`, default `correct`; `amount`, 0 to 1, default 1 | `simulate` shows the screen as a viewer with that color vision deficiency sees it. `correct` moves the differences such a viewer cannot see into colors they can. `amount` mixes the result with the original. |
 
 This vtlook gives the screen the look of an amber monitor with a little more contrast:
@@ -63,6 +63,19 @@ contrast = 1.15
 brightness = 0.0
 ```
 
+Under a tint, each color shows only how light it is. Blue is the darkest of the three primaries, so blue text on a black background can be hard to see. The tint's `floor` lifts every color above black, while black stays black and white keeps the full color. Each gray rises to `floor + gray × (1 − floor)`, so the colors keep their order. With a floor of 0.3, the default palette's blue goes from about 27,19,0 to about 95,66,0 under amber:
+
+```vtlook
+# /etc/vtium/looks/amber-lifted.vtlook: an amber phosphor with dark colors lifted.
+version = 1
+
+[color tint]
+color = 255,176,0
+floor = 0.3
+```
+
+The floor lifts every color except exact black. Under a palette whose background is a dark gray, the background rises along with the dark text, so leave the floor at 0 there.
+
 This one corrects the screen for a viewer with protanopia, and darkens the middle tones a little:
 
 ```vtlook
@@ -78,6 +91,21 @@ gamma = 0.9
 ```
 
 The table holds 33 steps in each of red, green and blue, and vtium blends between them. A filter that bends hard near black, such as a gamma of 2, can be off by a few levels in the darkest tones.
+
+## Preset vtlooks
+
+vtium comes with six vtlooks in `/usr/share/vtium/looks`. You can name one in a look section as it is, or copy one and change it:
+
+| Preset | What it does |
+|---|---|
+| `amber` | Shows the screen in shades of amber, 255,176,0, with a contrast of 1.15, like an amber monochrome monitor. |
+| `green` | Shows the screen in shades of green, 51,255,102, like a green phosphor monitor. |
+| `white` | Shows the screen in shades of a slightly cool white, 230,235,255, like a paper-white monochrome monitor. |
+| `protanopia` | Corrects the colors for a viewer with protanopia, who sees little red light. |
+| `deuteranopia` | Corrects the colors for a viewer with deuteranopia, who sees little green light. |
+| `tritanopia` | Corrects the colors for a viewer with tritanopia, who sees little blue light. |
+
+Each phosphor preset leaves its `floor` at 0. To change a preset, copy it to `/etc/vtium/looks` under the same name and edit the copy. vtium then reads your copy instead of the preset, even when the copy has an error. Remove the copy and vtium reads the preset again.
 
 ## Display requirements
 
@@ -140,6 +168,7 @@ gpu = any           # any; yes for the GPU path only; no for the CPU path only
 # Turns the screen toward one color, as a single-color phosphor.
 # color = 255,176,0 # color, r,g,b: the phosphor's color
 # amount = 1.0      # number, 0 to 1: how far toward it
+# floor = 0.0       # number, 0 to 1: how far dark colors rise above black
 
 # [color color-blind]
 # Simulates a color vision deficiency, or corrects for it.
