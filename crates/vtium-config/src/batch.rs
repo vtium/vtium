@@ -731,12 +731,15 @@ impl<'a> Resources<'a> {
     /// memory. `Err` says, file first, why it is refused: a file that fails
     /// the trust rule, and a deactivation of a resource that is not
     /// active. A change that brings the resource back to what the system
-    /// holds takes the draft's change back.
+    /// holds takes the draft's change back. Only a resource the system
+    /// does not hold passes the trust rule here, as `apply` judges only
+    /// those, so a pending deactivation can always be taken back.
     pub fn set(&mut self, path: &Path, change: Change) -> Result<Done, String> {
         let active = matches!(self.state(path), State::Active | State::Activates);
         match change {
             Change::Activate if active => return Ok(Done::AlreadyActive),
-            Change::Activate => trusted(path, self.euid)?,
+            Change::Activate if !self.base.holds(path) => trusted(path, self.euid)?,
+            Change::Activate => {}
             Change::Deactivate if !active => {
                 return Err(format!(
                     "{} is not active, so there is nothing to deactivate.",

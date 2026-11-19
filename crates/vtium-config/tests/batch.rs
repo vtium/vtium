@@ -605,3 +605,18 @@ fn diff_and_the_state_line_show_a_draft_s_changes_to_the_active_resources() {
         "{first}"
     );
 }
+
+/// Activating a resource the system already holds takes a pending
+/// deactivation back without judging the file again, as `apply` judges
+/// only the paths the system does not hold.
+#[test]
+fn activating_takes_a_pending_deactivation_back_without_the_trust_rule() {
+    let f = fixture("take-back");
+    let gone = f.arg("res/gone.ttf");
+    std::fs::write(f.path("etc/batch.conf"), format!("{gone}\n")).expect("a batch file");
+    f.desk();
+    f.ok(&["deactivate", &gone]);
+    assert!(f.changes("desk").exists());
+    f.ok(&["activate", &gone]);
+    assert!(!f.changes("desk").exists(), "the draft makes no change");
+}
