@@ -304,7 +304,7 @@ struct Folders {
     _dir: Scratch,
     admin: PathBuf,
     package: PathBuf,
-    trust: Trust,
+    rule: Rule,
 }
 
 impl Folders {
@@ -317,13 +317,37 @@ impl Folders {
             std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
         let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&*dir).unwrap());
-        let trust = Trust::owner(uid).below(&dir);
+        let rule = Rule::new(crate::Trust::owner(uid)).below(&dir);
         Folders {
             _dir: dir,
             admin,
             package,
-            trust,
+            rule,
         }
+    }
+
+    /// The gate with `batch` as the batch, on this machine's mount table.
+    fn gate(&self, batch: Batch) -> Gate {
+        Gate {
+            rule: self.rule.clone(),
+            mounts: Mounts::system().unwrap(),
+            batch,
+        }
+    }
+
+    /// The batch that lists every file in both folders.
+    fn every_file(&self) -> Batch {
+        let mut paths: Vec<PathBuf> = [&self.admin, &self.package]
+            .iter()
+            .flat_map(|d| std::fs::read_dir(d).unwrap())
+            .map(|e| e.unwrap().path())
+            .collect();
+        paths.sort();
+        Batch::new(paths.into_iter().map(crate::batch::Entry::Path).collect())
+    }
+
+    fn read_in(&self, name: &str, batch: Batch) -> Result<Option<Scheme>, Failure> {
+        read(name, &[&self.admin, &self.package], &self.gate(batch))
     }
 
     fn write(&self, folder: &Path, name: &str, text: &[u8]) -> PathBuf {
@@ -333,8 +357,9 @@ impl Folders {
         path
     }
 
+    /// The scheme `name` read with every file in both folders active.
     fn read(&self, name: &str) -> Result<Option<Scheme>, Failure> {
-        read(name, &[&self.admin, &self.package], &self.trust)
+        self.read_in(name, self.every_file())
     }
 }
 
@@ -397,8 +422,8 @@ fn a_file_named_like_a_built_in_palette_is_never_read() {
     );
 }
 
-// The ownership walk refuses a file others can write, and a file larger
-// than the bound is refused before it is read whole.
+// The trust rule refuses a file others can write, and a file larger than
+// the bound is refused before it is read whole.
 #[test]
 fn the_walk_refuses_a_writable_file_and_a_large_one() {
     let f = Folders::new("palette-walk");
@@ -406,7 +431,7 @@ fn the_walk_refuses_a_writable_file_and_a_large_one() {
     std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o666)).unwrap();
     assert!(matches!(
         f.read("open").unwrap_err().faults[0].reason,
-        Reason::Untrusted(Untrusted::Writable { .. })
+        Reason::Refused(Check::Untrusted(crate::Untrusted::Writable { .. }))
     ));
     f.write(
         &f.admin,
@@ -545,4 +570,84 @@ fn a_look_s_palette_takes_a_built_in_or_a_file_s_name() {
         Some("catppuccin-mocha")
     );
     assert_eq!(palette("../catppuccin-mocha"), None);
+}
+
+// A palette file draws only while the batch lists it. A file the batch
+// does not list is not active, counts as missing, and says how to
+// activate it. The administrator's inactive file still hides the
+// package's file of that name, as a broken one does.
+// covers: color.palette.named
+#[test]
+fn a_palette_outside_the_batch_is_refused() {
+    let f = Folders::new("palette-batch");
+    let shipped = f.write(&f.package, "kiln", b"foreground = #000001\n");
+    let listed = Batch::new(vec![crate::batch::Entry::Path(shipped.clone())]);
+    let scheme = f.read_in("kiln", listed.clone()).unwrap().unwrap();
+    assert_eq!(scheme.file, shipped);
+    let failure = f.read_in("kiln", Batch::default()).unwrap_err();
+    assert_eq!(failure.file, shipped);
+    assert_eq!(failure.faults[0].reason, Reason::Inactive);
+    let mine = f.write(&f.admin, "kiln", b"foreground = #000002\n");
+    let failure = f.read_in("kiln", listed).unwrap_err();
+    assert_eq!(
+        (failure.file, &failure.faults[0].reason),
+        (mine, &Reason::Inactive)
+    );
+    assert_eq!(
+        Reason::Inactive.to_string(),
+        format!(
+            "The color scheme is not active, so vtium treats the file as missing. A color scheme is active while {BATCH_FILE} lists the file's path. To activate it, add the path to {BATCH_FILE} as root, on a line of its own."
+        )
+    );
+}
+
+// With no batch file, the batch is the list of a fresh install, which
+// holds every palette the package ships, so a shipped palette draws from
+// the first start.
+// covers: color.palette.named
+#[test]
+fn a_shipped_palette_is_active_with_no_batch_file() {
+    let f = Folders::new("palette-fresh");
+    let shipped = f.write(&f.package, "kiln", b"foreground = #000001\n");
+    let fresh = Batch::fresh_install(Path::new("/nonexistent/fonts"), &f.package, None, &[]);
+    let read = Batch::read(&f.admin.join("batch.conf"), &crate::Trust::ROOT, fresh);
+    assert!(matches!(
+        read.findings[..],
+        [crate::batch::Finding::Missing { .. }]
+    ));
+    let scheme = f.read_in("kiln", read.batch).unwrap().unwrap();
+    assert_eq!(
+        (scheme.file, scheme.palette.fg()),
+        (shipped, Rgb::new(0, 0, 1))
+    );
+}
+
+// A palette file reached through a symbolic link fails the trust rule,
+// as a link as the file and as a folder above it, and the refusal names
+// the link.
+#[test]
+fn a_palette_through_a_symbolic_link_is_refused() {
+    let f = Folders::new("palette-link");
+    let real = f.write(&f.package, "kiln", b"foreground = #000001\n");
+    let link = f.admin.join("dusk.palette");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    let failure = f.read("dusk").unwrap_err();
+    assert_eq!(
+        failure.faults[0].reason,
+        Reason::Refused(Check::Link { at: link.clone() })
+    );
+    assert_eq!(
+        failure.faults[0].reason.to_string(),
+        format!(
+            "vtium treats the file as missing, because {} is a symbolic link, and vtium uses no resource reached through one.",
+            link.display()
+        )
+    );
+    let linked = f.admin.join("linked");
+    std::os::unix::fs::symlink(&f.package, &linked).unwrap();
+    let failure = read("kiln", &[&linked], &f.gate(f.every_file())).unwrap_err();
+    assert_eq!(
+        failure.faults[0].reason,
+        Reason::Refused(Check::Link { at: linked })
+    );
 }

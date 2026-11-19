@@ -203,7 +203,7 @@ vtium checks each display when the display joins the head and again at each mode
 
 ## The built-in vtlook
 
-The built-in vtlook is named `default`. A head that names no vtlook draws it, and so does `vtlook = default`. The built-in vtlook changes no pixel, and no file can take its name. vtium never reads a file named `default.vtlook`, and `vtium check-config` reports one it finds in `/etc/vtium/looks` as an error.
+The built-in vtlook is named `default`. A head that names no vtlook draws it, and so does `vtlook = default`. The built-in vtlook changes no pixel, and no file can take its name. vtium never reads a file named `default.vtlook`, and `vtium check-config` reports one it finds in either folder as an error.
 
 vtium carries the built-in vtlook's text as a template. To start a vtlook of your own, copy the template under another name and set its requirements:
 

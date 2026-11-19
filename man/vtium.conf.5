@@ -1022,9 +1022,9 @@ Set it in the top level, or on vtium's command line with \fB\-\-hwaccel\fR and \
 \fBvtlook\fR
 The vtlook, a file of frame filters that change the picture before the display shows it, such as a CRT effect.
 .IP
-The value names a file \fBNAME.vtlook\fR in \fB/etc/vtium/looks\fR. A look's own \fBvtlook\fR wins over this one. Unset or \fBdefault\fR is the built-in vtlook, which changes no pixel.
+The value names \fBNAME.vtlook\fR in \fB/etc/vtium/looks\fR or a preset such as \fBamber\fR. A look's own \fBvtlook\fR wins over this one. Unset or \fBdefault\fR is the built-in vtlook, which changes no pixel.
 .IP
-When the vtlook has an error, the head draws the built-in vtlook, and vtium logs where the vtlook failed. A build without frame filters accepts this key, logs one line, and draws the built-in vtlook.
+vtium looks for the file in \fB/etc/vtium/looks\fR and then in \fB/usr/share/vtium/looks\fR, where the package installs its presets, so a file in \fB/etc/vtium/looks\fR takes the place of a preset of the same name. When the vtlook has an error, the head draws the built-in vtlook, and vtium logs where the vtlook failed. A build without frame filters accepts this key, logs one line, and draws the built-in vtlook.
 .IP
 It takes text: at most 4095 bytes, with no control character. Default: unset.
 .IP

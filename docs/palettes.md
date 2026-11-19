@@ -17,7 +17,16 @@ Every other color scheme is a palette file, `NAME.palette`, in one of two folder
 
 When both folders hold a file of the same name, vtium reads the one in `/etc/vtium/palettes`. A name has 1 to 64 of the characters `A-Z a-z 0-9 . _ + -`, so `Catppuccin Mocha` ships as `catppuccin-mocha`. A file may not take the name of a built-in palette or `custom`. vtium never reads such a file, and `vtium check-config` reports it.
 
-vtium reads a palette file only when root owns it, and when neither its group nor other users can write it or a folder above it. vtium applies the same rule to vtium.conf. A palette file holds at most 16 KiB, and a file that sets all 256 colors takes under 7 KiB. Every palette file that passes this rule can be used. See [the trust rule issue](https://github.com/vtium/vtium/issues/438) for the work that lets root choose which files are active.
+vtium uses a color scheme only when its file passes the trust rule and the color scheme is active. The trust rule asks four things of the file:
+
+- Root owns the file and every folder above it.
+- Neither its group nor other users can write the file or a folder above it.
+- Neither the file nor a folder above it is a symbolic link.
+- The file sits on a filesystem that stays mounted, not on a removable disk, a network share or a FUSE filesystem.
+
+A color scheme is active while `/etc/vtium/batch.conf` lists its file's path, one path on each line. When that file does not exist, vtium uses the list of a fresh install, which holds every color scheme vtium installs. So the installed color schemes work from the first start, and your own work once you add them to the list. A file that fails the rule, or that the list leaves out, counts as missing, and `vtium check-config` says why. See [the trust rule issue](https://github.com/vtium/vtium/issues/438) for the work on the trust rule.
+
+A palette file holds at most 16 KiB, and a file that sets all 256 colors takes under 7 KiB.
 
 ## Choose a color scheme
 
@@ -90,4 +99,4 @@ vtium installs these color schemes in `/usr/share/vtium/palettes`. Each comes fr
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` | [gruvbox-community/gruvbox](https://github.com/gruvbox-community/gruvbox) | MIT |
 | Kiln | `kiln` | vtium's own: a warm near-black background, saturated accents and a light warm foreground | vtium's license |
 
-Nord and Solarized are built-in palettes, so they need no file. To use a color scheme vtium does not install, copy its Ghostty theme file to `/etc/vtium/palettes/NAME.palette`.
+Nord and Solarized are built-in palettes, so they need no file. To use a color scheme vtium does not install, copy its Ghostty theme file to `/etc/vtium/palettes/NAME.palette` as root, and add that path to `/etc/vtium/batch.conf`.
