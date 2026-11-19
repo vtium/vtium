@@ -33,7 +33,7 @@ use vtium_font::set::{SetFace, builtin, builtin_name, layer};
 use vtium_font::spacing::{Band, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
-use vtium_settings::Trust;
+use vtium_settings::{Trust, batch};
 
 use crate::config::keys::{
     FONT_ENGINE, FONT_FRITS, FONT_NAME, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX,
@@ -847,30 +847,36 @@ pub fn read_text(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// The font vconsole names, as systemd-vconsole-setup reads it: `FONT=` in
-/// `conf`, with the kernel command line's `vconsole.font=` over it; the
-/// last assignment of each wins.
-pub fn vconsole_font(conf: &str, cmdline: &str) -> Option<String> {
-    let unquote = |v: &str| {
-        let v = v.trim();
-        ['"', '\'']
-            .iter()
-            .find_map(|&q| v.strip_prefix(q).and_then(|v| v.strip_suffix(q)))
-            .unwrap_or(v)
-            .to_owned()
-    };
-    let mut font = None;
-    for line in conf.lines().map(str::trim) {
-        if let Some(("FONT", value)) = line.split_once('=').map(|(k, v)| (k.trim(), v)) {
-            font = Some(unquote(value));
-        }
-    }
-    for word in cmdline.split_whitespace() {
-        if let Some(v) = word.strip_prefix("vconsole.font=") {
-            font = Some(v.to_owned());
-        }
-    }
-    font.filter(|f| !f.is_empty())
+/// The batch the console's font helper draws from: the file at
+/// `batch_file`, which is [`batch::BATCH_FILE`], `/etc/vtium/batch.conf`,
+/// but in a test, read under `trust`, the check vtium.conf passes. When the file is
+/// missing, or vtium cannot use it, the batch is the list of a fresh
+/// install: the font files the package ships, the palettes it ships, and
+/// the console font that vconsole.conf names, read from `vconsole_conf`
+/// with the kernel command line `cmdline` over it. The built-in fonts are
+/// always active besides. The findings say what vtium found reading the
+/// file, for `vtium check-config`.
+///
+/// References:
+/// - ADR-1205 D4: the batch, its file, the fresh-install list, and what
+///   vtium does with a batch file it cannot use.
+/// - ADR-1205 D10: the palettes the package ships are active from the
+///   first start.
+pub fn active_batch(
+    batch_file: &Path,
+    vconsole_conf: &Path,
+    cmdline: &Path,
+    trust: &Trust,
+) -> batch::Read {
+    let named = batch::vconsole(&read_text(vconsole_conf), &read_text(cmdline));
+    let folders: Vec<&Path> = batch::CONSOLE_FONT_FOLDERS.iter().map(Path::new).collect();
+    let fresh = batch::Batch::fresh_install(
+        Path::new(batch::PACKAGE_FONTS),
+        Path::new(vtium_settings::palette::PACKAGE_PALETTES),
+        named.font.as_deref(),
+        &folders,
+    );
+    batch::Batch::read(batch_file, trust, fresh)
 }
 
 /// The font the configuration asks for (ADR-1200 D9): `font-name`, set in
@@ -893,7 +899,7 @@ pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wan
                 _ => Came::Config,
             },
         }),
-        _ => Some(vconsole_font(vconsole_conf, cmdline).map_or_else(
+        _ => Some(batch::vconsole(vconsole_conf, cmdline).font.map_or_else(
             || Wanted {
                 name: DEFAULT_SET.to_owned(),
                 came: Came::Default,
@@ -2612,22 +2618,73 @@ mod tests {
         assert_eq!(unifont.smallest("C"), 16);
     }
 
+    /// Each font file the shipped font set or layer `rel`, under
+    /// vtium-config's `frits` folder, names by its path.
+    fn shipped_paths(rel: &str) -> Vec<PathBuf> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../vtium-config/frits")
+            .join(rel);
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .filter_map(|l| {
+                l.strip_prefix("source=")
+                    .or_else(|| l.strip_prefix("strike="))
+            })
+            .filter_map(|v| v.split_once(':').map(|(_, p)| PathBuf::from(p)))
+            .collect()
+    }
+
+    // ADR-1205 D4 and its note of 2026-11-18: with no batch file, the
+    // batch is the list of a fresh install. It holds every font file the
+    // default set terminus and its fallback layer name, and the console
+    // font vconsole.conf names, so the default set draws with no setup. A
+    // batch file that root wrote replaces the list.
     #[test]
-    fn vconsole_names_the_font_with_the_kernel_over_it() {
-        assert_eq!(vconsole_font("", ""), None);
+    fn with_no_batch_file_the_default_set_and_the_console_font_are_active() {
+        let d = Scratch::new("fresh-batch");
+        let vconsole = d.join("vconsole.conf");
+        std::fs::write(
+            &vconsole,
+            "FONT=/usr/share/kbd/consolefonts/ter-v16n.psf.gz\n",
+        )
+        .unwrap();
+        let file = d.join("batch.conf");
+        let read = active_batch(&file, &vconsole, &d.join("cmdline"), &trust());
         assert_eq!(
-            vconsole_font("KEYMAP=us\nFONT=ter-v16n\n", "").as_deref(),
-            Some("ter-v16n")
+            read.findings,
+            [batch::Finding::Missing { path: file.clone() }]
         );
-        assert_eq!(
-            vconsole_font("FONT=\"lat2-16\"\n# FONT=x\nFONT = 'eurlatgr'\n", "").as_deref(),
-            Some("eurlatgr")
+        let default_set = shipped_paths("console/terminus.vtfrit");
+        let fallback = shipped_paths("layers/unifont.vtlayer");
+        assert_eq!((default_set.len(), fallback.len()), (18, 1));
+        for path in default_set.iter().chain(&fallback) {
+            assert!(read.batch.holds(path), "{} is not active", path.display());
+        }
+        assert!(
+            read.batch
+                .holds(Path::new("/usr/share/kbd/consolefonts/ter-v16n.psf.gz"))
         );
-        assert_eq!(
-            vconsole_font("FONT=ter-v16n\n", "quiet vconsole.font=ter-v32n rw").as_deref(),
-            Some("ter-v32n")
+        assert!(
+            !read
+                .batch
+                .holds(Path::new("/usr/share/fonts/TTF/DejaVuSansMono.ttf"))
         );
-        assert_eq!(vconsole_font("FONT=\n", ""), None);
+        // a batch file replaces the fresh list
+        std::fs::write(&file, "/usr/share/fonts/TTF/DejaVuSansMono.ttf\n").unwrap();
+        let me = rustix::process::geteuid().as_raw();
+        let read = active_batch(
+            &file,
+            &vconsole,
+            &d.join("cmdline"),
+            &Trust::running_as(me).below(&d),
+        );
+        assert_eq!(read.findings, []);
+        assert!(
+            read.batch
+                .holds(Path::new("/usr/share/fonts/TTF/DejaVuSansMono.ttf"))
+        );
+        assert!(!read.batch.holds(&default_set[0]));
     }
 
     #[test]
