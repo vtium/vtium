@@ -140,13 +140,18 @@ mod tests {
         );
     }
 
-    // At a floor of 0.3 under amber, the legacy palette's blue and red rise
-    // to the colors ADR-1304 D21 gives, in the same order, the light gray
-    // moves a little, white keeps the full amber and black stays black. The
-    // table's bytes at this setting are pinned too, as D2 asks of each
-    // filter at one setting that is not its default.
+    // At a floor of 0.3 under amber, the legacy palette's dark blue and red
+    // rise to readable shades of amber, 95,66,0 and 120,83,0, and blue stays
+    // the darker of the two. The light gray moves a little, white keeps the
+    // full amber and black stays black. The test also pins the digest of the
+    // whole table at this setting, so any change to the floor's arithmetic
+    // shows up even where none of the five colors moves.
+    //
+    // References:
+    // - ADR-1304 D21: the five colors and their values at a floor of 0.3.
+    // - ADR-1304 D2: each filter's table pinned by digest at one setting that is not its default.
     #[test]
-    fn a_floor_of_0_3_lifts_the_dark_colors_d21_names() {
+    fn a_floor_of_0_3_lifts_dark_colors_and_keeps_black_and_white() {
         let t = table(&[Given::Color([255, 176, 0]), n(1, 0), n(0, 3000)]);
         let mut l = Lookup::new(&t).unwrap_or_else(|e| panic!("{e}"));
         let mut rgb = |px: u32| {
