@@ -186,6 +186,41 @@ pub struct Caption {
     pub grid: (usize, usize),
 }
 
+/// The cells a picture on the screen covers: its first row and column,
+/// counted from 0, and how many columns and rows it takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Covered {
+    pub row: usize,
+    pub col: usize,
+    pub cols: usize,
+    pub rows: usize,
+}
+
+impl Covered {
+    /// The cells a picture of `pixels` covers from the cell `place`, by
+    /// the cell's size in pixels that `size` holds, and at most the
+    /// picture's area `area`, in columns and rows. Where the terminal
+    /// reports no size in pixels, the cell is the one the TUI assumes, as
+    /// the picture was sized by.
+    pub fn at(
+        (row, col): (usize, usize),
+        (area_cols, area_rows): (usize, usize),
+        (width, height): (u32, u32),
+        size: Size,
+    ) -> Covered {
+        let (cw, ch) = size.cell_px.unwrap_or(super::model::ASSUMED_CELL);
+        let cells = |pixels: u32, cell: u32| {
+            usize::try_from(pixels.div_ceil(cell.max(1))).unwrap_or(usize::MAX)
+        };
+        Covered {
+            row,
+            col,
+            cols: cells(width, cw).min(area_cols),
+            rows: cells(height, ch).min(area_rows),
+        }
+    }
+}
+
 /// The parts of the model that a view's preview reads: the open view, the
 /// shared part and the terminal's size, whether the Fonts tab shows the
 /// font's detailed specimen, and the size the Looks tab highlights. The
@@ -544,7 +579,7 @@ impl App {
 
     /// Deletes the picture on the screen, if any.
     pub(crate) fn drop_picture(&mut self) -> Vec<Effect> {
-        if std::mem::take(&mut self.shared.picture) {
+        if self.shared.picture.take().is_some() {
             vec![Effect::Write(crate::kitty::delete(crate::kitty::IMAGE_ID))]
         } else {
             Vec::new()
@@ -582,7 +617,12 @@ impl App {
                     p.height,
                     &p.rgba,
                 ));
-                self.shared.picture = true;
+                self.shared.picture = Some(Covered::at(
+                    (row.saturating_sub(1), col.saturating_sub(1)),
+                    super::layout::picture_area(self),
+                    (p.width, p.height),
+                    self.size,
+                ));
                 out.push(Effect::Write(bytes));
             }
             Err(why) => {

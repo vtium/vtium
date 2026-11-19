@@ -362,7 +362,7 @@ pub const SELECTED: &str = "▸";
 pub fn screen_at(app: &App, size: Size) -> Vec<Row> {
     let mut frame = app.clone();
     frame.size = size;
-    frame.shared.picture = false;
+    frame.shared.picture = None;
     frame.shared.shot = None;
     // the copy's lists keep their highlight in view at the copy's size
     frame.lists_settle();
@@ -653,9 +653,29 @@ pub fn fill(buf: &mut Buffer, area: Rect, rows: &[Row], colors: Colors) {
 }
 
 /// Draws `app`'s screen into ratatui's frame, in the colors the terminal
-/// is sent.
+/// is sent. The cells under the picture on the screen, if one shows, are
+/// marked to skip, so the frame writes nothing over the picture: a
+/// terminal that draws a picture on the text's cells loses the part of the
+/// picture that text is written over.
+///
+/// References:
+/// - ADR-1206 D5, "ratatui draws what changed": the cells under a kitty
+///   graphics picture are marked to skip.
 pub fn render(app: &App, frame: &mut ratatui_core::terminal::Frame) {
-    view(app, Colors::Sent, frame.buffer_mut());
+    let buf = frame.buffer_mut();
+    view(app, Colors::Sent, buf);
+    if let Some(covered) = app.shared.picture {
+        let rect = Rect::new(
+            u16::try_from(covered.col).unwrap_or(u16::MAX),
+            u16::try_from(covered.row).unwrap_or(u16::MAX),
+            u16::try_from(covered.cols).unwrap_or(u16::MAX),
+            u16::try_from(covered.rows).unwrap_or(u16::MAX),
+        )
+        .intersection(buf.area);
+        for position in rect.positions() {
+            buf[position].set_diff_option(ratatui_core::buffer::CellDiffOption::Skip);
+        }
+    }
 }
 
 /// The terminal as ratatui last drew it, so that each frame writes only

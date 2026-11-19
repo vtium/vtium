@@ -372,8 +372,8 @@ pub struct Shared {
     pub message: Option<String>,
     /// The TUI is leaving with this status once the font is back.
     pub leaving: Option<u8>,
-    /// A specimen picture is on the screen.
-    pub picture: bool,
+    /// The cells the picture on the screen covers, while one shows.
+    pub picture: Option<super::shot::Covered>,
     /// The last summary of a size: the font, the height and what it gave.
     pub summary: Option<(String, u32, Result<crate::specimen::Summary, String>)>,
     /// The sources each frit lacks, as the helper found them.
@@ -626,7 +626,7 @@ impl App {
                 pending: Pending::default(),
                 message: None,
                 leaving: None,
-                picture: false,
+                picture: None,
                 summary: None,
                 sources: std::collections::BTreeMap::new(),
                 replies: Queue::default(),

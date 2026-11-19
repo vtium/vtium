@@ -2112,6 +2112,102 @@ fn a_picture_that_comes_after_the_highlight_moved_is_not_shown() {
     );
 }
 
+/// The cells under a picture on the screen are never written: the model
+/// keeps the cells the picture covers, and each frame leaves them alone,
+/// so the text under the picture never draws over it. The same frame
+/// without the picture writes text into some of those cells.
+///
+/// References:
+/// - ADR-1206 D5, "ratatui draws what changed": the cells under a kitty
+///   graphics picture are marked to skip.
+#[test]
+fn no_frame_writes_over_the_cells_under_a_picture() {
+    use vtium_config::specimen::Picture;
+    use vtium_config::tui::input::{Input, Key, Reply};
+    use vtium_config::tui::model::{App, Effect, Event};
+    use vtium_config::tui::shot::Covered;
+    let (mut app, _) = App::new(inputs(), 80, 25);
+    for r in [
+        Reply::Version("vtium(test)".into()),
+        Reply::Graphics(true),
+        Reply::Attributes,
+    ] {
+        app.event(Event::Input(Input::Reply(r)));
+    }
+    // the Looks view at 6 pt, whose picture goes beside the sizes
+    app.event(Event::Input(Input::Key(Key::BackTab)));
+    app.event(Event::Input(Input::Key(Key::Down)));
+    let cell = Ok((
+        Cell {
+            width: 4,
+            height: 8,
+        },
+        8,
+    ));
+    app.event(Event::Celled {
+        font: "unifont".into(),
+        height: 8,
+        cell,
+    });
+    // a picture wider and taller than its area covers the area, which
+    // reaches the sentence under the sizes
+    let came = app.event(Event::Pictured(Ok(Picture {
+        width: 480,
+        height: 320,
+        rgba: vec![0; 480 * 320 * 4],
+    })));
+    assert!(
+        came.iter()
+            .any(|e| matches!(e, Effect::Write(b) if b.windows(3).any(|w| w == b"a=T"))),
+        "{came:?}"
+    );
+    // the picture goes at row 6 and column 26, from 1, in the Looks view
+    // at 80 by 25, and its area reaches the right edge and the row above
+    // the message line at its longest
+    let covered = Covered {
+        row: 5,
+        col: 25,
+        cols: 55,
+        rows: 15,
+    };
+    assert_eq!(app.shared.picture, Some(covered));
+    // what a frame writes into each cell, on a console that showed
+    // nothing
+    let written = |app: &App| {
+        let mut t = Terminal::new(80, 25, 0);
+        let mut rest: &[u8] = &vtium_config::tui::view::draw(app);
+        while !rest.is_empty() {
+            let taken = t.input(rest);
+            rest = &rest[taken..];
+        }
+        let s = t.screen();
+        let mut cells = Vec::new();
+        for r in covered.row..covered.row + covered.rows {
+            let line = s.line(r).expect("a row");
+            let row: Vec<char> = line
+                .cells()
+                .iter()
+                .map(|&c| match line.glyph(c) {
+                    Glyph::Char(ch) => ch,
+                    Glyph::Cluster(_) => '*',
+                    Glyph::Empty => ' ',
+                })
+                .collect();
+            cells.extend(row.into_iter().skip(covered.col).take(covered.cols));
+        }
+        cells
+    };
+    assert!(
+        written(&app).iter().all(|c| *c == ' '),
+        "a frame wrote over the picture"
+    );
+    // positive control: without the picture, the frame writes the
+    // sentence under the sizes into those cells
+    let mut bare = app.clone();
+    bare.shared.picture = None;
+    assert!(written(&bare).iter().any(|c| *c != ' '));
+}
+
 /// A picture that fails while the live trial counts down leaves the
 /// countdown on the message line.
 #[test]
