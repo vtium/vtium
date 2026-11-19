@@ -10,7 +10,9 @@
 //! console's rule. Whenever the next cell ratatui hands it is not where
 //! that cursor stands, the Backend writes a cursor position first. So a
 //! character the two rules measure differently can misdraw its own cell,
-//! but it never shifts the rest of the row.
+//! but it never shifts the rest of the row. A character that the console
+//! measures too wide for the columns left in its row is written as a
+//! blank, so it never wraps onto the next row or scrolls the screen.
 //!
 //! References:
 //! - ADR-1206 D1: no ratatui backend crate; vtium-config's own Backend over
@@ -182,11 +184,17 @@ impl Backend for Vt {
             }
             // a name read from a file never carries a control onto the
             // screen
-            let shown: String = cell
+            let mut shown: String = cell
                 .symbol()
                 .chars()
                 .map(|c| if c.is_control() { '?' } else { c })
                 .collect();
+            // a character that does not fit before the right edge by the
+            // console's rule would wrap onto the next row, or scroll the
+            // screen on the last row, so it shows as a blank
+            if x.saturating_add(console_width(&shown)) > self.cols {
+                shown = " ".to_owned();
+            }
             self.out.extend_from_slice(shown.as_bytes());
             let after = x.saturating_add(console_width(&shown));
             cursor = (after < self.cols).then_some((after, y));
@@ -324,6 +332,30 @@ mod tests {
         assert_eq!(
             row,
             "a\u{17a4} bc",
+            "{:?}",
+            String::from_utf8_lossy(&drawn[0])
+        );
+    }
+
+    #[test]
+    fn a_character_too_wide_for_the_last_column_is_written_as_a_blank() {
+        // a regional indicator takes one cell by Unicode's tables as
+        // ratatui reads them and two by the console's rule, so in the last
+        // column it would wrap onto the next row, and on the last row
+        // scroll the screen
+        assert_eq!(console_width("\u{1f1eb}"), 2);
+        let drawn = frames(
+            10,
+            3,
+            &[&|b: &mut Buffer| {
+                b.set_string(0, 0, "top row  \u{1f1eb}", Style::new());
+                b.set_string(0, 1, "middle", Style::new());
+                b.set_string(0, 2, "bottom-ro\u{1f1eb}", Style::new());
+            }],
+        );
+        assert_eq!(
+            shown(&drawn[0], 10, 3),
+            ["top row", "middle", "bottom-ro"],
             "{:?}",
             String::from_utf8_lossy(&drawn[0])
         );
