@@ -89,10 +89,11 @@ pub const CONSOLE_FONT_FOLDERS: [&str; 4] = [
     "/usr/share/consolefonts",
 ];
 
-/// The suffixes kbd's console fonts carry, longest first, which a file
+/// The endings vtium tries after a console font's name: none, and then
+/// the suffixes kbd's console fonts carry, longest first, which a file
 /// name loses to give the name vconsole.conf's `FONT=` uses.
-const CONSOLE_FONT_SUFFIXES: [&str; 10] = [
-    ".psfu.gz", ".psf.gz", ".psfu", ".psf", ".cp.gz", ".fnt.gz", ".cp", ".fnt", ".gz", ".bz2",
+const CONSOLE_FONT_SUFFIXES: [&str; 11] = [
+    "", ".psfu.gz", ".psf.gz", ".psfu", ".psf", ".cp.gz", ".fnt.gz", ".cp", ".fnt", ".gz", ".bz2",
 ];
 
 /// One problem with a line of the batch file. vtium ignores the line.
@@ -380,8 +381,8 @@ fn console_fonts<'a>(name: &'a str, folders: &'a [&Path]) -> impl Iterator<Item 
         .iter()
         .filter(move |_| plain_name)
         .flat_map(move |folder| {
-            std::iter::once(String::new())
-                .chain(CONSOLE_FONT_SUFFIXES.iter().map(|s| (*s).to_owned()))
+            CONSOLE_FONT_SUFFIXES
+                .iter()
                 .map(move |suffix| folder.join(format!("{name}{suffix}")))
         })
         .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
