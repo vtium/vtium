@@ -382,25 +382,35 @@ impl Mounts {
     /// folder has the file's device number. Of two mounts on one point,
     /// the later one sits on top and wins.
     pub fn find(&self, place: &Place) -> Option<&Mount> {
-        let above = |m: &&Mount| place.path.starts_with(&m.point);
         if let Some(id) = place.mount_id {
-            return self.list.iter().filter(|m| m.id == id).find(above);
+            return self
+                .list
+                .iter()
+                .find(|m| m.id == id && place.path.starts_with(&m.point));
         }
-        let deepest = |m: &&Mount| m.point.components().count();
-        let by_dev = self
-            .list
-            .iter()
-            .filter(|m| m.dev == place.dev)
-            .filter(above)
-            .max_by_key(deepest);
-        if by_dev.is_some() {
-            return by_dev;
+        self.deepest_above(place, true).or_else(|| {
+            self.deepest_above(place, false)
+                .filter(|m| device_of(&m.point) == Some(place.dev))
+        })
+    }
+
+    /// The line with the longest mount point above the path of `place`,
+    /// counting only lines with the file's device number when `same_dev`
+    /// holds. Of two lines whose points are equally long, the later one
+    /// wins. One loop serves both of `find`'s searches, which keeps the
+    /// console's copy of this code small.
+    fn deepest_above(&self, place: &Place, same_dev: bool) -> Option<&Mount> {
+        let mut best: Option<(&Mount, usize)> = None;
+        for m in &self.list {
+            if (same_dev && m.dev != place.dev) || !place.path.starts_with(&m.point) {
+                continue;
+            }
+            let depth = m.point.components().count();
+            if best.is_none_or(|(_, deepest)| depth >= deepest) {
+                best = Some((m, depth));
+            }
         }
-        self.list
-            .iter()
-            .filter(above)
-            .max_by_key(deepest)
-            .filter(|m| device_of(&m.point) == Some(place.dev))
+        best.map(|(m, _)| m)
     }
 
     /// Whether the filesystem holding the file at `place` stays mounted:
@@ -689,4 +699,27 @@ enum Found {
     /// vtium cannot read the device's folder in sysfs, or the stack is
     /// deeper than [`STACK_MAX`].
     Unread,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Of two mounts on one point, the later line of the table sits on top,
+    // so the file is on that mount.
+    #[test]
+    fn the_later_of_two_mounts_on_one_point_wins() {
+        let table = "\
+22 1 8:2 / / rw - ext4 /dev/sda2 rw
+40 22 8:17 / /mnt rw - ext4 /dev/sdb1 rw
+41 22 8:17 / /mnt rw - ext4 /dev/sdb1 rw
+";
+        let mounts = Mounts::parse(table, Path::new("/nonexistent-sys"));
+        let place = Place {
+            mount_id: None,
+            dev: (8, 17),
+            path: "/mnt/a.ttf".into(),
+        };
+        assert_eq!(mounts.find(&place).map(|m| m.id), Some(41));
+    }
 }
