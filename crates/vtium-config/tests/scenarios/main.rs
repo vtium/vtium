@@ -6,9 +6,11 @@
 
 mod checks;
 mod explore;
+mod reference;
 mod sim;
 mod state;
 mod tables;
+mod walk;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -281,6 +283,39 @@ fn every_named_key_acts(acted_once: &BTreeSet<(String, String, &'static str)>) -
     out
 }
 
+/// Where the key took the TUI, against where the reading of the tables in
+/// `reference.rs` says it goes, for the keys whose effect the tables
+/// decide whatever a tab holds. A failure names the scenario, the shortest
+/// keys from the start that take the transition.
+fn as_the_tables_say(step: &explore::Step) -> Option<String> {
+    if step.from.kind == StateKind::Left {
+        return None;
+    }
+    let want = reference::expect(&step.from.node(), step.key)?;
+    let to = if step.to.kind == StateKind::Left {
+        String::new()
+    } else {
+        step.to.node()
+    };
+    let mut agrees = reference::agrees(&want, &to, step.did.exit);
+    // a key that leaves the TUI where it was leaves the tab under it too
+    // below the minimum size no tab shows, so there is none to compare
+    let shown = !step.from.view.is_empty() && !step.to.view.is_empty();
+    if agrees.is_ok()
+        && shown
+        && want == reference::Expect::At(step.from.node())
+        && step.to.view != step.from.view
+    {
+        agrees = Err(format!(
+            "the tables keep the TUI at {to}, and the tab under it went from {} to {}",
+            step.from.view, step.to.view
+        ));
+    }
+    agrees
+        .err()
+        .map(|e| format!("{}: from {}: {e}", step.scenario(), step.from.node()))
+}
+
 /// The 0-switch run: every key in every state of every kind of terminal,
 /// each terminal on a thread of its own, with every check after every
 /// key, the map compared with the committed one, and the tables met.
@@ -293,12 +328,15 @@ fn every_key_in_every_state_keeps_the_rules() {
             .map(|term| {
                 scope.spawn(move || {
                     let mut checks = Checks::new();
+                    let mut moved = Vec::new();
                     let map = explore::explore(term, |step, before, after| {
                         checks.see(step, before, after);
+                        moved.extend(as_the_tables_say(step));
                     });
                     card_lines(&map, &mut checks);
                     from_a_second_page(&map, &mut checks);
                     let acts = named_keys_that_act(&map);
+                    checks.found.failures.extend(moved);
                     (term, map, checks, acts)
                 })
             })

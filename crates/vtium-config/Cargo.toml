@@ -112,3 +112,10 @@ vtium-testfont = { path = "../../tools/testfont" }
 # The stand-in programs the tests write and copy, put in place so that
 # the kernel never refuses to run one as busy.
 vtium-testscript = { path = "../../tools/testscript" }
+# The property test of the TUI's navigation in tests/scenarios/: random
+# key sequences checked against a reading of the key table and the
+# interface tree, and shrunk to the shortest that fails. proptest is MIT
+# or Apache-2.0, with its default features off, so it builds no regex
+# strategies, no fork and no timeout.
+proptest = { version = "=1.12.0", default-features = false, features = ["std", "bit-set"] }
+proptest-state-machine = "=0.9.0"
