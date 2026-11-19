@@ -33,10 +33,7 @@
 //!
 //! [`Nav`] holds the open tab, the question over everything, the live
 //! trial and the key line's page. What is open inside a tab is the tab's
-//! own state, so [`node`] asks the Help, Settings, Fonts and Looks tabs
-//! for their node. The Flow view's layers, its typing, the file view and
-//! Restore's list are still fields of the model, which [`node`] reads
-//! until the Flow view moves into a tab module of its own.
+//! own state, so [`node`] asks the open tab for its node.
 //!
 //! References:
 //! - ADR-1206 D3: one navigation module owns where the person is, reads
@@ -49,7 +46,6 @@
 //!   tab while nothing is open.
 
 use super::contract;
-use super::flowview::{Obj, Slot};
 use super::input::Key;
 use super::model::{App, Confirm, Then, View};
 
@@ -141,28 +137,8 @@ pub fn node(app: &App) -> &'static str {
     if super::view::too_small(app) {
         return "any.too-small";
     }
-    let flow = app.flow.state();
     match app.nav.view {
-        View::Flow if flow.typing.is_some() && flow.picker.is_some() => "flow.maker.picker.typing",
-        View::Flow if flow.typing.is_some() => match flow.layer {
-            Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal)) => "flow.card.typing",
-            _ => "flow.detail.typing",
-        },
-        View::Flow if app.flow.pager().is_some() => "flow.file",
-        View::Flow if app.flow.restore().is_some() => "flow.restore",
-        View::Flow if flow.picker.is_some() => "flow.maker.picker",
-        View::Flow => match &flow.layer {
-            None => "flow",
-            Some(Obj::Doc(_, Slot::Terminal)) => "flow.card",
-            Some(Obj::New(Slot::Terminal)) => "flow.new-card",
-            Some(Obj::Pal(Slot::Template(_)) | Obj::New(Slot::Empty(_))) => "flow.maker",
-            Some(Obj::Others) => "flow.others",
-            Some(Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_)) => "flow.info",
-            // a part's detail: its first line is the label, and the
-            // lines below it are the choices
-            Some(_) if flow.line == 0 => "flow.detail",
-            Some(_) => "flow.detail.choices",
-        },
+        View::Flow => app.flow.node(),
         View::Settings => app.settings.node(),
         View::New => app.fonts.form_node(),
         View::Looks => app.looks.node(),

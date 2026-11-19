@@ -10,7 +10,7 @@
 
 use super::super::desk::Kept;
 use super::super::flow::{Flow as Wiring, Item};
-use super::super::flowview;
+use super::super::flowview::{self, Obj, Slot};
 use super::super::model::Pager;
 
 /// Where the Flow tab stands.
@@ -60,6 +60,43 @@ impl Flow {
     /// when the list is open.
     pub fn restore(&self) -> Option<&(Vec<Kept>, usize)> {
         self.restore.as_ref()
+    }
+
+    /// The node of the interface tree the tab is at: a value being typed,
+    /// the file view, Restore's list, a filter's picker, a layer open over
+    /// the document, or the document itself.
+    pub fn node(&self) -> &'static str {
+        let flow = &self.state;
+        if flow.typing.is_some() && flow.picker.is_some() {
+            return "flow.maker.picker.typing";
+        }
+        if flow.typing.is_some() {
+            return match flow.layer {
+                Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal)) => "flow.card.typing",
+                _ => "flow.detail.typing",
+            };
+        }
+        if self.pager.is_some() {
+            return "flow.file";
+        }
+        if self.restore.is_some() {
+            return "flow.restore";
+        }
+        if flow.picker.is_some() {
+            return "flow.maker.picker";
+        }
+        match &flow.layer {
+            None => "flow",
+            Some(Obj::Doc(_, Slot::Terminal)) => "flow.card",
+            Some(Obj::New(Slot::Terminal)) => "flow.new-card",
+            Some(Obj::Pal(Slot::Template(_)) | Obj::New(Slot::Empty(_))) => "flow.maker",
+            Some(Obj::Others) => "flow.others",
+            Some(Obj::Doc(..) | Obj::Roam(_) | Obj::Nothing(_)) => "flow.info",
+            // a part's detail: its first line is the label, and the
+            // lines below it are the choices
+            Some(_) if flow.line == 0 => "flow.detail",
+            Some(_) => "flow.detail.choices",
+        }
     }
 }
 
