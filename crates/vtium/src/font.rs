@@ -856,28 +856,27 @@ struct Held {
     palettes: PathBuf,
 }
 
-/// The console's gate for this login: the batch, the trust rule and the
-/// mount table that every resource the console reads passes. The console
-/// reads the batch when it starts and again at each new login
-/// ([`load_batch`]), and every reader takes the gate from here: the font
-/// helpers, the color schemes, the color maps and the pointer files.
-static HELD: std::sync::RwLock<Option<Held>> = std::sync::RwLock::new(None);
+thread_local! {
+    /// The console's gate for this login: the batch, the trust rule and
+    /// the mount table that every resource the console reads passes. The
+    /// console reads the batch when it starts and again at each new login
+    /// ([`load_batch`]), and every reader takes the gate from here: the
+    /// font helpers, the color schemes, the color maps and the pointer
+    /// files. The console reads its resources on its main loop's thread, so
+    /// the gate is that thread's; each test, which runs on a thread of its
+    /// own, holds a gate of its own.
+    static HELD: std::cell::RefCell<Option<Held>> = const { std::cell::RefCell::new(None) };
+}
 
 /// What [`HELD`] holds, read the first time from this machine's places,
 /// as a start reads them.
 fn held<T>(f: impl Fn(&Held) -> T) -> T {
-    let read = || {
-        HELD.read()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .map(&f)
-    };
-    if let Some(t) = read() {
+    if let Some(t) = HELD.with_borrow(|h| h.as_ref().map(&f)) {
         return t;
     }
-    load_batch(&batch::Places::system(), &trust(), Rule::new(trust()));
-    read().unwrap_or_else(|| {
-        // `load_batch` always leaves something held; this stands in only
+    let _ = start_batch(&batch::Places::system(), &trust(), Rule::new(trust()));
+    HELD.with_borrow(|h| h.as_ref().map(&f)).unwrap_or_else(|| {
+        // `start_batch` always leaves something held; this stands in only
         // to keep the function free of a panic
         f(&Held {
             gate: std::sync::Arc::new(cullet::Gate::new(
@@ -888,6 +887,21 @@ fn held<T>(f: impl Fn(&Held) -> T) -> T {
             palettes: PathBuf::from(vtium_settings::palette::PACKAGE_PALETTES),
         })
     })
+}
+
+/// Reads the batch the way a start does, at `places` under `trust` with
+/// `rule` for each resource, unless the console already holds one; what
+/// vtium found reading the batch file, for the caller to log, or `None`
+/// when the console already held a batch.
+pub fn start_batch(
+    places: &batch::Places,
+    trust: &Trust,
+    rule: Rule,
+) -> Option<Vec<batch::Finding>> {
+    if HELD.with_borrow(Option::is_some) {
+        return None;
+    }
+    load_batch(places, trust, rule)
 }
 
 /// The console's gate for this login. The first call before any
@@ -908,42 +922,48 @@ pub fn package_palettes() -> PathBuf {
 
 /// Reads the batch at `places` under `trust`, the check vtium.conf passes,
 /// and makes it the console's, with `rule`, the trust rule each resource
-/// passes, and this machine's mount table read again.
-/// Returns whether the batch differs from the one the console held, which
-/// is true at the first read. vtium logs what it found reading the batch
-/// file only when the batch changes, so a login that changes nothing logs
-/// nothing: a missing file as information, since a machine upgraded from
-/// an earlier vtium has none, and a file vtium cannot use, or a line it
-/// ignores, as a warning.
+/// passes, and this machine's mount table read again. When the batch
+/// differs from the one the console held, which it does at the first read,
+/// the result is what vtium found reading the batch file, for the caller
+/// to log; `None` when nothing changed, so a login that changes nothing
+/// logs nothing.
 ///
 /// References:
 /// - ADR-1205 D4, its note of 2026-11-19: the console reads the batch again at each new login, so an activation takes effect at the next login.
-pub fn load_batch(places: &batch::Places, trust: &Trust, rule: Rule) -> bool {
+pub fn load_batch(
+    places: &batch::Places,
+    trust: &Trust,
+    rule: Rule,
+) -> Option<Vec<batch::Finding>> {
     let read = batch::Batch::system(places, trust);
-    let mut held = HELD
-        .write()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if held
-        .as_ref()
-        .is_some_and(|h| h.gate.batch == read.batch && h.palettes == places.palettes)
-    {
-        return false;
+    let same = HELD.with_borrow(|held| {
+        held.as_ref()
+            .is_some_and(|h| h.gate.batch == read.batch && h.palettes == places.palettes)
+    });
+    if same {
+        return None;
     }
-    for finding in &read.findings {
-        match finding {
-            batch::Finding::Missing { .. } => log::info!(target: "batch", "{finding}"),
-            _ => log::warn!(target: "batch", "{finding}"),
-        }
-    }
-    *held = Some(Held {
+    HELD.set(Some(Held {
         gate: std::sync::Arc::new(cullet::Gate::new(
             rule,
             Some(Mounts::system().unwrap_or_default()),
             read.batch,
         )),
         palettes: places.palettes.clone(),
-    });
-    true
+    }));
+    Some(read.findings)
+}
+
+/// Logs what vtium found reading the batch file: a missing file as
+/// information, since a machine upgraded from an earlier vtium has none,
+/// and a file vtium cannot use, or a line it ignores, as a warning.
+pub fn log_batch_findings(findings: &[batch::Finding]) {
+    for finding in findings {
+        match finding {
+            batch::Finding::Missing { .. } => log::info!(target: "batch", "{finding}"),
+            _ => log::warn!(target: "batch", "{finding}"),
+        }
+    }
 }
 
 /// The font the configuration asks for (ADR-1200 D9): `font-name`, set in

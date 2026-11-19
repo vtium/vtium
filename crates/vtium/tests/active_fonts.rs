@@ -127,7 +127,13 @@ fn the_list_of_a_fresh_install_draws_the_default_set() {
         })
         .map(|l| format!("{l}\n"))
         .collect();
-    let fresh = Batch::fresh_install(&fonts, &d.join("no-palettes"), None, &[]);
+    let fresh = Batch::fresh_install(
+        &fonts,
+        &d.join("no-palettes"),
+        None,
+        &[],
+        Path::new(vtium_settings::batch::PACKAGE_POINTERS),
+    );
     assert_eq!(sources(&d, "terminus", &text, &fresh), "");
     // a batch that lists another font leaves every source of the set out
     let other = Batch::new(vec![Entry::Path(PathBuf::from("/usr/share/fonts/x.ttf"))]);

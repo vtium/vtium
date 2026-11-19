@@ -608,7 +608,13 @@ fn a_palette_outside_the_batch_is_refused() {
 fn a_shipped_palette_is_active_with_no_batch_file() {
     let f = Folders::new("palette-fresh");
     let shipped = f.write(&f.package, "kiln", b"foreground = #000001\n");
-    let fresh = Batch::fresh_install(Path::new("/nonexistent/fonts"), &f.package, None, &[]);
+    let fresh = Batch::fresh_install(
+        Path::new("/nonexistent/fonts"),
+        &f.package,
+        None,
+        &[],
+        Path::new(crate::batch::PACKAGE_POINTERS),
+    );
     let read = Batch::read(&f.admin.join("batch.conf"), &crate::Trust::ROOT, fresh);
     assert!(matches!(
         read.findings[..],

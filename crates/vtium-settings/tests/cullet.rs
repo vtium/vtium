@@ -799,7 +799,13 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
     }
     mkdir(&share.join("ter-v16n.cp"), 0o755);
     let kbd: [&Path; 3] = [&share, &lib, &old];
-    let batch = Batch::fresh_install(fonts, &palettes, Some("ter-v16n"), &kbd);
+    let batch = Batch::fresh_install(
+        fonts,
+        &palettes,
+        Some("ter-v16n"),
+        &kbd,
+        Path::new(PACKAGE_POINTERS),
+    );
     for f in FRESH_FONTS {
         assert!(batch.holds(&fonts.join(f)), "{f}");
     }
@@ -837,9 +843,15 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
     // a name that is not one plain file name names no file
     for odd in ["../consolefonts/ter-v16n", "STICK/ter-v16n", ".."] {
         assert_eq!(
-            Batch::fresh_install(fonts, &dir.join("none"), Some(odd), &kbd)
-                .entries()
-                .len(),
+            Batch::fresh_install(
+                fonts,
+                &dir.join("none"),
+                Some(odd),
+                &kbd,
+                Path::new(PACKAGE_POINTERS)
+            )
+            .entries()
+            .len(),
             FRESH_FONTS.len() + 1,
             "{odd}"
         );
@@ -851,13 +863,20 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
         &dir.join("none"),
         Some("/usr/share/kbd/consolefonts/x.psf"),
         &kbd,
+        Path::new(PACKAGE_POINTERS),
     );
     assert!(by_path.holds(Path::new("/usr/share/kbd/consolefonts/x.psf")));
     assert_eq!(by_path.entries().len(), FRESH_FONTS.len() + 2);
     assert_eq!(
-        Batch::fresh_install(fonts, &dir.join("none"), None, &kbd)
-            .entries()
-            .len(),
+        Batch::fresh_install(
+            fonts,
+            &dir.join("none"),
+            None,
+            &kbd,
+            Path::new(PACKAGE_POINTERS)
+        )
+        .entries()
+        .len(),
         FRESH_FONTS.len() + 1
     );
     // a console font named by a path without a suffix holds the path and
@@ -868,6 +887,7 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
         &dir.join("none"),
         Some(bare.to_str().expect("UTF-8")),
         &kbd,
+        Path::new(PACKAGE_POINTERS),
     );
     for held in [
         "ter-v16n",

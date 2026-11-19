@@ -310,8 +310,9 @@ impl Batch {
     /// The list of a fresh install: the font files the package ships in
     /// `fonts` ([`FRESH_FONTS`]), the console font `console_font` that
     /// vconsole.conf's `FONT=` names, every file in `palettes`, the folder
-    /// of the palettes the package ships, and the package's pointer file,
-    /// [`PACKAGE_POINTERS`]. The built-in font is always active besides.
+    /// of the palettes the package ships, and the package's pointer file
+    /// `pointers`, normally [`PACKAGE_POINTERS`]. The built-in font is
+    /// always active besides.
     ///
     /// vconsole.conf names the console font by an absolute path or by
     /// kbd's name, such as `ter-v16n`. vtium looks for a font by kbd's
@@ -326,6 +327,7 @@ impl Batch {
         palettes: &Path,
         console_font: Option<&str>,
         console_font_folders: &[&Path],
+        pointers: &Path,
     ) -> Batch {
         let mut entries: Vec<Entry> = FRESH_FONTS
             .iter()
@@ -334,7 +336,7 @@ impl Batch {
         if let Some(font) = console_font.filter(|f| !f.is_empty()) {
             console_fonts(font, console_font_folders, &mut entries);
         }
-        entries.push(Entry::Path(PathBuf::from(PACKAGE_POINTERS)));
+        entries.push(Entry::Path(pointers.to_path_buf()));
         // a plain loop, where an iterator chain over read_dir costs the
         // console a kilobyte of Flatten code
         let mut shipped: Vec<PathBuf> = Vec::new();
@@ -434,8 +436,9 @@ fn suffixed(stem: &Path, listed: bool, out: &mut Vec<Entry>) {
 
 /// Where vtium reads what builds the batch: the batch file, vconsole.conf
 /// and the kernel command line that name the console font, the folders
-/// kbd keeps console fonts in, and the folder of the package's fonts and
-/// palettes. [`Places::system`] gives this machine's.
+/// kbd keeps console fonts in, the folder of the package's fonts and
+/// palettes, and the package's pointer file. [`Places::system`] gives this
+/// machine's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Places {
     pub file: PathBuf,
@@ -443,13 +446,14 @@ pub struct Places {
     pub cmdline: PathBuf,
     pub fonts: PathBuf,
     pub palettes: PathBuf,
+    pub pointers: PathBuf,
     pub console_font_folders: Vec<PathBuf>,
 }
 
 impl Places {
     /// This machine's: [`BATCH_FILE`], `/etc/vconsole.conf`,
-    /// `/proc/cmdline`, [`PACKAGE_FONTS`], the package's palettes and
-    /// [`CONSOLE_FONT_FOLDERS`].
+    /// `/proc/cmdline`, [`PACKAGE_FONTS`], the package's palettes,
+    /// [`PACKAGE_POINTERS`] and [`CONSOLE_FONT_FOLDERS`].
     pub fn system() -> Places {
         Places {
             file: PathBuf::from(BATCH_FILE),
@@ -457,6 +461,7 @@ impl Places {
             cmdline: PathBuf::from("/proc/cmdline"),
             fonts: PathBuf::from(PACKAGE_FONTS),
             palettes: PathBuf::from(crate::palette::PACKAGE_PALETTES),
+            pointers: PathBuf::from(PACKAGE_POINTERS),
             console_font_folders: CONSOLE_FONT_FOLDERS.iter().map(PathBuf::from).collect(),
         }
     }
@@ -491,6 +496,7 @@ impl Batch {
             &places.palettes,
             named.font.as_deref(),
             &folders,
+            &places.pointers,
         )
     }
 

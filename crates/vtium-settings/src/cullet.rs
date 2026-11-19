@@ -509,6 +509,29 @@ impl Gate {
     }
 }
 
+/// Checks the resource file at `path` under `rule`, judging its filesystem
+/// by `mounts`, before a person activates it, so the batch need not list
+/// it yet. vtium-config asks this before it adds the file to the batch.
+/// The file is opened and closed, and nothing is read from it, so this
+/// gives no way to read a resource past the gate.
+///
+/// References:
+/// - ADR-1205 D4: vtium-config checks a resource under the trust rule before it activates it.
+pub fn check(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<(), Refused> {
+    open(path, rule, mounts).map(drop)
+}
+
+/// [`check`] for the file at `path` inside the pointer theme folder
+/// `theme`, with the theme's links followed while they stay inside it.
+pub fn check_in_theme(
+    theme: &Path,
+    path: &Path,
+    rule: &Rule,
+    mounts: &Mounts,
+) -> Result<(), Refused> {
+    open_in_theme(theme, path, rule, mounts).map(drop)
+}
+
 /// Checks the folder at `path` under the rule: it and every folder above it
 /// pass the owner and mode check, none of them is a symbolic link, and
 /// `mounts` judges that its filesystem stays mounted.
@@ -543,11 +566,11 @@ fn folder(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<(), Refused> {
 /// opening a FIFO or a device acts on it. A refused file counts as
 /// missing.
 ///
-/// Read a resource through [`Gate::open`], never through this: the gate
-/// checks the batch first. A test of the workspace, `gate_guard`, fails
-/// when any other code calls this, apart from vtium-config's check of a
-/// file a person is about to activate, which reads nothing from the file.
-pub fn open(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<Opened, Refused> {
+/// Every read goes through [`Gate::open`], which checks the batch first,
+/// so this is private to the module. A test of the workspace,
+/// `gate_guard`, fails when it becomes public or when code outside this
+/// module calls it.
+fn open(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<Opened, Refused> {
     let mut walk = Walk {
         rule,
         mounts,
@@ -569,9 +592,9 @@ pub fn open(path: &Path, rule: &Rule, mounts: &Mounts) -> Result<Opened, Refused
 /// past it, fails with [`Check::LeavesTheme`], and the file counts as
 /// missing. `path` names the file by the theme's own path, such as
 /// `/usr/share/icons/Adwaita/cursors/xterm`; a path outside `theme`
-/// fails as [`Check::NotPlain`]. Read a theme's file through
-/// [`Gate::open_in_theme`], never through this, as [`open`] says.
-pub fn open_in_theme(
+/// fails as [`Check::NotPlain`]. A theme's file is read through
+/// [`Gate::open_in_theme`], and this is private, as [`open`] is.
+fn open_in_theme(
     theme: &Path,
     path: &Path,
     rule: &Rule,

@@ -520,6 +520,16 @@ impl App {
         inherited: Vec<(OsString, OsString)>,
     ) -> App {
         let now = clock();
+        // The batch the start reads, which lists the active resources, and
+        // what vtium found reading its file, logged once.
+        let trust = font::trust();
+        if let Some(found) = font::start_batch(
+            &vtium_settings::batch::Places::system(),
+            &trust,
+            vtium_settings::cullet::Rule::new(trust.clone()),
+        ) {
+            font::log_batch_findings(&found);
+        }
         let cap = vtium_term::sb_size_cap(
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
@@ -4636,9 +4646,11 @@ impl App {
     /// - ADR-1205 D4, its note of 2026-11-19: the batch is read again at each new login, where vtium reads the font settings again.
     fn reread_batch(&mut self, ended: Option<(usize, u64)>) {
         let (places, rule) = &self.batch_places;
-        if !font::load_batch(places, &self.font_sources.trust, rule.clone()) {
+        let Some(findings) = font::load_batch(places, &self.font_sources.trust, rule.clone())
+        else {
             return;
-        }
+        };
+        font::log_batch_findings(&findings);
         let me = rustix::process::geteuid().as_raw();
         let gate = font::gate();
         if let Ok(launcher) = &mut self.launcher {
