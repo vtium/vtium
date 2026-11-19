@@ -194,56 +194,62 @@ pub enum Unsteady {
 }
 
 impl fmt::Display for Unsteady {
-    /// What follows "because" in a refusal.
+    /// What follows "because" in a refusal. Every reason but `Unknown`
+    /// opens with the mount point, which one `write!` prints for all of
+    /// them.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let point = match self {
+            Unsteady::Unknown { path } => {
+                return write!(
+                    f,
+                    "vtium cannot find the filesystem that holds {} in the mount table",
+                    path.display()
+                );
+            }
+            Unsteady::Network { point, .. }
+            | Unsteady::Fuse { point, .. }
+            | Unsteady::Automount { point }
+            | Unsteady::BelowAutomount { point, .. }
+            | Unsteady::Removable { point, .. }
+            | Unsteady::UsbDisk { point, .. }
+            | Unsteady::Backing { point, .. }
+            | Unsteady::UnknownDisk { point, .. } => point,
+        };
+        write!(f, "it sits on {}", point.display())?;
         match self {
-            Unsteady::Network { point, fstype } => write!(
+            Unsteady::Network { fstype, .. } => write!(
                 f,
-                "it sits on {}, a network filesystem ({fstype}), which can change or go away while vtium runs",
-                point.display()
+                ", a network filesystem ({fstype}), which can change or go away while vtium runs"
             ),
-            Unsteady::Fuse { point, fstype } => write!(
+            Unsteady::Fuse { fstype, .. } => write!(
                 f,
-                "it sits on {}, a FUSE filesystem ({fstype}), which a program serves and can change while vtium runs",
-                point.display()
+                ", a FUSE filesystem ({fstype}), which a program serves and can change while vtium runs"
             ),
-            Unsteady::Automount { point } => write!(
+            Unsteady::Automount { .. } => {
+                f.write_str(", an automount point, which the system mounts only on demand")
+            }
+            Unsteady::BelowAutomount { automount, .. } => write!(
                 f,
-                "it sits on {}, an automount point, which the system mounts only on demand",
-                point.display()
-            ),
-            Unsteady::BelowAutomount { point, automount } => write!(
-                f,
-                "it sits on {}, which is mounted below the automount point {}, so the system mounts it only on demand",
-                point.display(),
+                ", which is mounted below the automount point {}, so the system mounts it only on demand",
                 automount.display()
             ),
-            Unsteady::Removable { point, disk } => write!(
+            Unsteady::Removable { disk, .. } => {
+                write!(f, ", which is on the removable disk {disk}")
+            }
+            Unsteady::UsbDisk { disk, .. } => write!(
                 f,
-                "it sits on {}, which is on the removable disk {disk}",
-                point.display()
+                ", which is on {disk}, a disk on a USB bus that can be unplugged"
             ),
-            Unsteady::UsbDisk { point, disk } => write!(
+            Unsteady::Backing { file, why, .. } => write!(
                 f,
-                "it sits on {}, which is on {disk}, a disk on a USB bus that can be unplugged",
-                point.display()
-            ),
-            Unsteady::Backing { point, file, why } => write!(
-                f,
-                "it sits on {}, a loop device that reads the file {}, and that file fails the same check: {why}",
-                point.display(),
+                ", a loop device that reads the file {}, and that file fails the same check: {why}",
                 file.display()
             ),
-            Unsteady::UnknownDisk { point, source } => write!(
+            Unsteady::UnknownDisk { source, .. } => write!(
                 f,
-                "it sits on {}, and vtium cannot read from sysfs whether {source} is on a removable disk",
-                point.display()
+                ", and vtium cannot read from sysfs whether {source} is on a removable disk"
             ),
-            Unsteady::Unknown { path } => write!(
-                f,
-                "vtium cannot find the filesystem that holds {} in the mount table",
-                path.display()
-            ),
+            Unsteady::Unknown { .. } => Ok(()),
         }
     }
 }
@@ -327,12 +333,14 @@ impl Mounts {
     /// Reads the mount table's bytes, skipping any line of another shape,
     /// with `sys` as the folder sysfs is mounted on.
     pub fn parse(mountinfo: impl AsRef<[u8]>, sys: &Path) -> Mounts {
+        let mut list = Vec::new();
+        for bytes in mountinfo.as_ref().split(|&b| b == b'\n') {
+            if let Some(mount) = line(bytes) {
+                list.push(mount);
+            }
+        }
         Mounts {
-            list: mountinfo
-                .as_ref()
-                .split(|&b| b == b'\n')
-                .filter_map(line)
-                .collect(),
+            list,
             sys: sys.to_path_buf(),
             source: None,
         }
@@ -374,25 +382,35 @@ impl Mounts {
     /// folder has the file's device number. Of two mounts on one point,
     /// the later one sits on top and wins.
     pub fn find(&self, place: &Place) -> Option<&Mount> {
-        let above = |m: &&Mount| place.path.starts_with(&m.point);
         if let Some(id) = place.mount_id {
-            return self.list.iter().filter(|m| m.id == id).find(above);
+            return self
+                .list
+                .iter()
+                .find(|m| m.id == id && place.path.starts_with(&m.point));
         }
-        let deepest = |m: &&Mount| m.point.components().count();
-        let by_dev = self
-            .list
-            .iter()
-            .filter(|m| m.dev == place.dev)
-            .filter(above)
-            .max_by_key(deepest);
-        if by_dev.is_some() {
-            return by_dev;
+        self.deepest_above(place, true).or_else(|| {
+            self.deepest_above(place, false)
+                .filter(|m| device_of(&m.point) == Some(place.dev))
+        })
+    }
+
+    /// The line with the longest mount point above the path of `place`,
+    /// counting only lines with the file's device number when `same_dev`
+    /// holds. Of two lines whose points are equally long, the later one
+    /// wins. One loop serves both of `find`'s searches, which keeps the
+    /// console's copy of this code small.
+    fn deepest_above(&self, place: &Place, same_dev: bool) -> Option<&Mount> {
+        let mut best: Option<(&Mount, usize)> = None;
+        for m in &self.list {
+            if (same_dev && m.dev != place.dev) || !place.path.starts_with(&m.point) {
+                continue;
+            }
+            let depth = m.point.components().count();
+            if best.is_none_or(|(_, deepest)| depth >= deepest) {
+                best = Some((m, depth));
+            }
         }
-        self.list
-            .iter()
-            .filter(above)
-            .max_by_key(deepest)
-            .filter(|m| device_of(&m.point) == Some(place.dev))
+        best.map(|(m, _)| m)
     }
 
     /// Whether the filesystem holding the file at `place` stays mounted:
@@ -568,24 +586,13 @@ impl Mounts {
             return Err(Found::Unread);
         }
         let below = depth.saturating_add(1);
-        let dir = if dir.join("partition").exists() {
-            dir.parent().ok_or(Found::Unread)?
-        } else {
-            dir
-        };
+        let dir = disk_of(dir).ok_or(Found::Unread)?;
         match std::fs::read(dir.join("loop/backing_file")) {
             Ok(bytes) => return self.backing(&bytes, below),
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(Found::Unread),
             Err(_) => {}
         }
-        let slaves = match std::fs::read_dir(dir.join("slaves")) {
-            Ok(entries) => entries
-                .map(|e| e.and_then(|e| std::fs::canonicalize(e.path())))
-                .collect::<std::io::Result<Vec<PathBuf>>>()
-                .map_err(|_| Found::Unread)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(_) => return Err(Found::Unread),
-        };
+        let slaves = slaves(dir).ok_or(Found::Unread)?;
         if !slaves.is_empty() {
             return slaves.iter().try_for_each(|s| self.device_at(s, below));
         }
@@ -636,22 +643,11 @@ fn disks(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Option<()> {
     if depth > STACK_MAX {
         return None;
     }
-    let dir = if dir.join("partition").exists() {
-        dir.parent()?
-    } else {
-        dir
-    };
+    let dir = disk_of(dir)?;
     if dir.join("loop").exists() {
         return None;
     }
-    let slaves = match std::fs::read_dir(dir.join("slaves")) {
-        Ok(entries) => entries
-            .map(|e| e.and_then(|e| std::fs::canonicalize(e.path())))
-            .collect::<std::io::Result<Vec<PathBuf>>>()
-            .ok()?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(_) => return None,
-    };
+    let slaves = slaves(dir)?;
     if slaves.is_empty() {
         out.push(dir.to_path_buf());
         return Some(());
@@ -659,6 +655,37 @@ fn disks(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Option<()> {
     slaves
         .iter()
         .try_for_each(|s| disks(s, depth.saturating_add(1), out))
+}
+
+/// The sysfs folder that stands for the device folder `dir` in the walk
+/// down a device stack: the disk's folder for a partition, which sysfs
+/// places inside its disk's folder, and `dir` itself for any other device.
+/// `None` when a partition's folder has no parent.
+fn disk_of(dir: &Path) -> Option<&Path> {
+    if dir.join("partition").exists() {
+        dir.parent()
+    } else {
+        Some(dir)
+    }
+}
+
+/// The sysfs folders of the devices beneath the device folder `dir`, which
+/// sysfs lists as links in its `slaves` folder, with each link resolved.
+/// The list is empty for a device with no `slaves` folder, such as a disk,
+/// and `None` when vtium cannot read the folder or resolve a link. The walk
+/// up from a filesystem and the walk that lists the root's disks share
+/// this one reader, so the console carries one copy of it.
+fn slaves(dir: &Path) -> Option<Vec<PathBuf>> {
+    let list = match std::fs::read_dir(dir.join("slaves")) {
+        Ok(list) => list,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let mut out = Vec::new();
+    for entry in list {
+        out.push(std::fs::canonicalize(entry.ok()?.path()).ok()?);
+    }
+    Some(out)
 }
 
 /// What the walk down a block device's stack found.
@@ -672,4 +699,27 @@ enum Found {
     /// vtium cannot read the device's folder in sysfs, or the stack is
     /// deeper than [`STACK_MAX`].
     Unread,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Of two mounts on one point, the later line of the table sits on top,
+    // so the file is on that mount.
+    #[test]
+    fn the_later_of_two_mounts_on_one_point_wins() {
+        let table = "\
+22 1 8:2 / / rw - ext4 /dev/sda2 rw
+40 22 8:17 / /mnt rw - ext4 /dev/sdb1 rw
+41 22 8:17 / /mnt rw - ext4 /dev/sdb1 rw
+";
+        let mounts = Mounts::parse(table, Path::new("/nonexistent-sys"));
+        let place = Place {
+            mount_id: None,
+            dev: (8, 17),
+            path: "/mnt/a.ttf".into(),
+        };
+        assert_eq!(mounts.find(&place).map(|m| m.id), Some(41));
+    }
 }

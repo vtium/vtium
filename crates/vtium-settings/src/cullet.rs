@@ -218,22 +218,38 @@ const FOLDER: OFlags = OFlags::PATH
     .union(OFlags::NOFOLLOW)
     .union(OFlags::CLOEXEC);
 
+/// The steps of `path`, one for each name and `None` for each `..`. The
+/// root and each `.` are no step.
+fn steps(path: &Path) -> Vec<Option<OsString>> {
+    let mut out = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::Normal(n) => out.push(Some(n.to_owned())),
+            Component::ParentDir => out.push(None),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// The names of a plain absolute path, or `None` for a relative path or
 /// one that holds `..`.
 fn names(path: &Path) -> Option<Vec<OsString>> {
     if !path.is_absolute() {
         return None;
     }
-    path.components()
-        .filter_map(|c| match c {
-            Component::Normal(n) => Some(Some(n.to_owned())),
-            Component::ParentDir => Some(None),
-            _ => None,
-        })
-        .collect()
+    let mut out = Vec::new();
+    for step in steps(path) {
+        out.push(step?);
+    }
+    Some(out)
 }
 
 impl Walk<'_> {
+    /// The refusal of the file asked for, for the failed `check`. The walk
+    /// refuses from some 25 places, so the copy of the asked path stays in
+    /// this one function instead of being inlined into each of them.
+    #[inline(never)]
     fn refuse(&self, check: Check) -> Refused {
         Refused {
             path: self.asked.to_path_buf(),
@@ -439,13 +455,17 @@ pub fn open_in_theme(
     // the theme folder is the bottom of the stack from here on: `..` may
     // not pop it, and an absolute target goes back to it
     let depth = walk.crossed.len();
-    let mut todo: std::collections::VecDeque<Option<OsString>> =
-        inside.iter().cloned().map(Some).collect();
+    // the steps left to take, the next one last, so that a link's target
+    // goes on top of the steps that follow the link
+    let mut todo: Vec<Option<OsString>> = Vec::with_capacity(inside.len());
+    for name in inside.iter().rev() {
+        todo.push(Some(name.clone()));
+    }
     let mut links = 0_usize;
     // the link whose target is being walked, which `..` past the theme
     // folder names; `names` refuses `..` in the path itself
     let mut last_link = PathBuf::new();
-    while let Some(next) = todo.pop_front() {
+    while let Some(next) = todo.pop() {
         let Some(name) = next else {
             if walk.crossed.len() <= depth {
                 return Err(walk.refuse(Check::LeavesTheme {
@@ -477,20 +497,15 @@ pub fn open_in_theme(
                         return Err(walk.refuse(leaves()));
                     };
                     walk.crossed.truncate(depth);
-                    t.into_iter().skip(root.len()).map(Some).collect()
+                    let mut below = Vec::with_capacity(t.len());
+                    for name in t.into_iter().skip(root.len()) {
+                        below.push(Some(name));
+                    }
+                    below
                 } else {
-                    target
-                        .components()
-                        .filter_map(|c| match c {
-                            Component::Normal(n) => Some(Some(n.to_owned())),
-                            Component::ParentDir => Some(None),
-                            _ => None,
-                        })
-                        .collect()
+                    steps(&target)
                 };
-                for step in steps.into_iter().rev() {
-                    todo.push_front(step);
-                }
+                todo.extend(steps.into_iter().rev());
                 last_link = at;
             }
             FileType::Directory if !todo.is_empty() => walk.enter(&name)?,

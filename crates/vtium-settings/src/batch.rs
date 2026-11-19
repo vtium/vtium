@@ -89,10 +89,11 @@ pub const CONSOLE_FONT_FOLDERS: [&str; 4] = [
     "/usr/share/consolefonts",
 ];
 
-/// The suffixes kbd's console fonts carry, longest first, which a file
+/// The endings vtium tries after a console font's name: none, and then
+/// the suffixes kbd's console fonts carry, longest first, which a file
 /// name loses to give the name vconsole.conf's `FONT=` uses.
-const CONSOLE_FONT_SUFFIXES: [&str; 10] = [
-    ".psfu.gz", ".psf.gz", ".psfu", ".psf", ".cp.gz", ".fnt.gz", ".cp", ".fnt", ".gz", ".bz2",
+const CONSOLE_FONT_SUFFIXES: [&str; 11] = [
+    "", ".psfu.gz", ".psf.gz", ".psfu", ".psf", ".cp.gz", ".fnt.gz", ".cp", ".fnt", ".gz", ".bz2",
 ];
 
 /// One problem with a line of the batch file. vtium ignores the line.
@@ -315,16 +316,20 @@ impl Batch {
             if let Ok(path) = plain(font) {
                 entries.push(Entry::Path(path));
             } else {
-                entries.extend(console_fonts(font, console_font_folders).map(Entry::Path));
+                console_fonts(font, console_font_folders, &mut entries);
             }
         }
-        let mut shipped: Vec<PathBuf> = std::fs::read_dir(palettes)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-            .map(|e| e.path())
-            .collect();
+        // a plain loop, where an iterator chain over read_dir costs the
+        // console a kilobyte of Flatten code
+        let mut shipped: Vec<PathBuf> = Vec::new();
+        if let Ok(list) = std::fs::read_dir(palettes) {
+            for entry in list {
+                let Ok(entry) = entry else { continue };
+                if entry.file_type().is_ok_and(|t| t.is_file()) {
+                    shipped.push(entry.path());
+                }
+            }
+        }
         shipped.sort();
         entries.extend(shipped.into_iter().map(Entry::Path));
         Batch { entries }
@@ -370,19 +375,21 @@ impl Batch {
     }
 }
 
-/// The regular files in `folders` that are kbd's console font `name`: the
-/// file named `name`, and each file named `name` with one of kbd's
-/// suffixes. A name that is not one plain file name, such as one holding
-/// `/` or `..`, names no file.
-fn console_fonts<'a>(name: &'a str, folders: &'a [&Path]) -> impl Iterator<Item = PathBuf> + 'a {
-    let plain_name = !name.contains('/') && name != "." && name != "..";
-    folders
-        .iter()
-        .filter(move |_| plain_name)
-        .flat_map(move |folder| {
-            std::iter::once(String::new())
-                .chain(CONSOLE_FONT_SUFFIXES.iter().map(|s| (*s).to_owned()))
-                .map(move |suffix| folder.join(format!("{name}{suffix}")))
-        })
-        .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
+/// Adds to `out` the regular files in `folders` that are kbd's console font
+/// `name`: the file named `name`, and each file named `name` with one of
+/// kbd's suffixes. A name that is not one plain file name, such as one
+/// holding `/` or `..`, names no file. Plain loops keep this small in the
+/// console, where an iterator chain compiles to several times the code.
+fn console_fonts(name: &str, folders: &[&Path], out: &mut Vec<Entry>) {
+    if name.contains('/') || name == "." || name == ".." {
+        return;
+    }
+    for folder in folders {
+        for suffix in CONSOLE_FONT_SUFFIXES {
+            let path = folder.join(format!("{name}{suffix}"));
+            if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
+                out.push(Entry::Path(path));
+            }
+        }
+    }
 }
