@@ -287,7 +287,7 @@ impl Seen<'_> {
         app.flow_view
             .typing
             .clone()
-            .or_else(|| app.editing.clone())
+            .or_else(|| app.settings.editing().map(str::to_owned))
             .or_else(|| match app.nav.view {
                 View::New => app.new_frit.fields.get(app.new_frit.at).cloned(),
                 _ => None,
@@ -627,7 +627,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         "enter.typing.settings",
         (
             |s| {
-                if s.after.app.editing.is_none() && !s.exited() {
+                if s.after.app.settings.editing().is_none() && !s.exited() {
                     Ok(())
                 } else {
                     Err("the value is still typed".into())
@@ -992,8 +992,8 @@ fn settings_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
             |s| {
                 s.goes_to("settings.section")?;
                 let (want, got) = (
-                    s.before.app.settings.sections.at,
-                    s.after.app.settings.open.map(|(at, list)| (at, list.at)),
+                    s.before.app.settings.section_at(),
+                    s.after.app.settings.open().map(|(at, list)| (at, list.at)),
                 );
                 if got == Some((want, 0)) {
                     Ok(())
@@ -1024,10 +1024,10 @@ fn settings_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
                 s.goes_to("settings.section.list")?;
                 let app = &s.after.app;
                 let key = app.settings.key().ok_or("no key is highlighted")?;
-                let words = vtium_config::tui::settings::fixed_values(key)
+                let words = vtium_config::tui::tabs::settings::fixed_values(key)
                     .ok_or("the key has no fixed values")?;
                 let now = app.value(key).0;
-                let at = app.settings.values.map(|l| l.at);
+                let at = app.settings.values().map(|l| l.at);
                 match words.iter().position(|w| *w == now) {
                     Some(i) if at != Some(i) => Err(format!(
                         "the list highlights {at:?}, and the key's value {now} is item {i}"
@@ -1043,13 +1043,13 @@ fn settings_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
         (
             |s| {
                 s.goes_to("settings")?;
-                let open = s.before.app.settings.open.map(|(at, _)| at);
-                if open == Some(s.after.app.settings.sections.at) {
+                let open = s.before.app.settings.open().map(|(at, _)| at);
+                if open == Some(s.after.app.settings.section_at()) {
                     Ok(())
                 } else {
                     Err(format!(
                         "Esc from section {open:?} highlights section {}",
-                        s.after.app.settings.sections.at
+                        s.after.app.settings.section_at()
                     ))
                 }
             },
@@ -1059,7 +1059,7 @@ fn settings_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
     // Up and Down move the highlight by one key and stay in the section
     fn moved(s: &Seen<'_>, by: isize) -> Result<(), String> {
         s.goes_to("settings.section")?;
-        let at = |sim: &Sim| sim.app.settings.open.map(|(_, list)| list.at);
+        let at = |sim: &Sim| sim.app.settings.open().map(|(_, list)| list.at);
         let (a, b) = (at(s.before), at(s.after));
         let len = s
             .before
@@ -1122,7 +1122,7 @@ fn goes_to_tab(s: &Seen<'_>) -> Result<(), String> {
     }
     if s.after.app.flow_view.at != s.before.app.flow_view.at
         || s.after.app.font_at != s.before.app.font_at
-        || s.after.app.settings.sections.at != s.before.app.settings.sections.at
+        || s.after.app.settings.section_at() != s.before.app.settings.section_at()
     {
         return Err("a tab lost the item it had highlighted".into());
     }

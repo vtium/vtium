@@ -681,9 +681,9 @@ fn a_value_list_opens_on_the_value_now_and_esc_keeps_the_section() {
         Some("cluster-width")
     );
     press(&mut sim, &["Enter"]);
-    assert_eq!(sim.app.settings.values.map(|l| l.at), Some(0));
+    assert_eq!(sim.app.settings.values().map(|l| l.at), Some(0));
     press(&mut sim, &["Down", "Enter"]);
-    assert_eq!(sim.app.settings.values, None);
+    assert_eq!(sim.app.settings.values(), None);
     let draft = sim
         .app
         .shared
@@ -693,14 +693,14 @@ fn a_value_list_opens_on_the_value_now_and_esc_keeps_the_section() {
         .unwrap_or_default();
     assert!(draft.contains("\ncluster-width=single\n"), "{draft}");
     press(&mut sim, &["Enter"]);
-    assert_eq!(sim.app.settings.values.map(|l| l.at), Some(1));
+    assert_eq!(sim.app.settings.values().map(|l| l.at), Some(1));
     press(&mut sim, &["Esc", "Esc"]);
-    assert_eq!(sim.app.settings.open, None);
+    assert_eq!(sim.app.settings.open(), None);
     press(&mut sim, &["Down", "Down", "Enter"]);
-    assert_eq!(sim.app.settings.open.map(|(at, _)| at), Some(2));
+    assert_eq!(sim.app.settings.open().map(|(at, _)| at), Some(2));
     press(&mut sim, &["Esc"]);
-    assert_eq!(sim.app.settings.open, None);
-    assert_eq!(sim.app.settings.sections.at, 2);
+    assert_eq!(sim.app.settings.open(), None);
+    assert_eq!(sim.app.settings.section_at(), 2);
 }
 
 /// The leave question's `y` installs a draft that wires no complete route

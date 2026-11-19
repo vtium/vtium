@@ -904,7 +904,7 @@ fn a_failed_install_keeps_the_draft_and_says_why() {
 /// key `name`: the first section, Down to the key's section, Enter to open
 /// it, and Down to the key. Esc closes the section again.
 fn to_setting(name: &str) -> Vec<&'static [u8]> {
-    use vtium_config::tui::settings::sections;
+    use vtium_config::tui::tabs::settings::sections;
     let (section, key) = sections()
         .iter()
         .enumerate()
@@ -946,7 +946,7 @@ fn a_settings_section_and_a_list_of_values_at_80x25_and_100x30() {
 /// wherever the list opens.
 fn pick_value(name: &str, word: &str) -> Vec<&'static [u8]> {
     let key = vtium_settings::keys::find(name).expect("a key");
-    let at = vtium_config::tui::settings::fixed_values(key)
+    let at = vtium_config::tui::tabs::settings::fixed_values(key)
         .and_then(|words| words.iter().position(|w| *w == word))
         .unwrap_or_else(|| panic!("{name} does not take {word}"));
     let mut keys: Vec<&'static [u8]> = vec![b"\r", b"\x1b[H"];
@@ -1005,7 +1005,7 @@ fn the_settings_view_lists_vtiums_own_keys_with_their_built_in_defaults() {
         ("key-focus-next", "<Ctrl><Logo>Up"),
         ("key-focus-previous", "<Ctrl><Logo>Down"),
     ];
-    let listed: Vec<&vtium_settings::keys::Key> = vtium_config::tui::settings::sections()
+    let listed: Vec<&vtium_settings::keys::Key> = vtium_config::tui::tabs::settings::sections()
         .iter()
         .flat_map(|s| s.keys())
         .collect();

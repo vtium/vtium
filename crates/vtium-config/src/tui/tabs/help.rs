@@ -46,7 +46,7 @@ impl Help {
     /// A key the navigation module hands to the tab. The top row of the
     /// page moves by a line, or by the rows the screen shows, and stops
     /// where the page's last row is at the bottom of the screen.
-    pub fn key(&mut self, key: Key, page: Page) -> Vec<Command> {
+    pub fn update(&mut self, key: Key, page: Page) -> Vec<Command> {
         match key {
             Key::Left | Key::Right => {
                 self.about = !self.about;

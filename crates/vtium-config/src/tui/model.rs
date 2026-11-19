@@ -14,7 +14,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use vtium_settings::keys::{self, Kind};
+use vtium_settings::keys;
 use vtium_settings::{setting, switch as conf_switch};
 
 use super::desk::{Done, Kept, Op, Opened};
@@ -437,6 +437,47 @@ pub struct Size {
     pub cell_px: Option<(u32, u32)>,
 }
 
+impl Shared {
+    /// The installed vtium.conf's value of `key`.
+    pub fn configured(&self, key: &str) -> Option<String> {
+        self.inputs.conf.as_deref().and_then(|c| setting(c, key))
+    }
+
+    /// The configuration the views show: the draft, else the installed
+    /// vtium.conf the TUI read at start.
+    pub fn conf_text(&self) -> Option<&str> {
+        self.draft
+            .as_ref()
+            .map(|d| d.text.as_str())
+            .or(self.inputs.conf.as_deref())
+    }
+
+    /// The draft's value of `key`, else the installed file's.
+    pub fn drafted(&self, key: &str) -> Option<String> {
+        self.conf_text().and_then(|c| setting(c, key))
+    }
+
+    /// Whether the draft gives `key` another value than the installed
+    /// file.
+    pub fn changed(&self, key: &str) -> bool {
+        self.draft.is_some() && self.drafted(key) != self.configured(key)
+    }
+
+    /// Whether the draft leaves `allow-font-ops` on, its default.
+    pub fn font_ops(&self) -> bool {
+        self.conf_text()
+            .and_then(|c| conf_switch(c, "allow-font-ops"))
+            .unwrap_or(true)
+    }
+
+    /// The value the draft gives `key`, as the settings view shows it,
+    /// and whether it is the key's default.
+    pub fn value(&self, key: &keys::Key) -> (String, bool) {
+        let (v, set) = crate::commands::value_text(key, self.conf_text());
+        (v, !set)
+    }
+}
+
 /// The TUI's state.
 #[derive(Clone, Debug)]
 pub struct App {
@@ -454,16 +495,12 @@ pub struct App {
     pub detail: bool,
     pub font_at: usize,
     pub size_at: usize,
-    /// Where the Settings view stands: the section highlighted or open,
-    /// the key highlighted in it, and the key's values open as a list.
-    pub settings: super::settings::Settings,
+    /// The Settings tab's state.
+    pub settings: super::tabs::settings::Settings,
     /// The Flow view's selected item.
     pub flow_at: Item,
     /// The Help tab's state.
     pub help: super::tabs::help::Help,
-    /// The value being typed for the highlighted setting, while it is
-    /// edited.
-    pub editing: Option<String>,
     pub new_frit: NewFrit,
     /// The read-only pager over the draft, when it is open.
     pub pager: Option<Pager>,
@@ -574,10 +611,9 @@ impl App {
             detail: true,
             font_at,
             size_at: 0,
-            settings: super::settings::Settings::default(),
+            settings: super::tabs::settings::Settings::default(),
             flow_at,
             help: super::tabs::help::Help::default(),
-            editing: None,
             new_frit: NewFrit::default(),
             pager: None,
             restore: None,
@@ -620,7 +656,7 @@ impl App {
     /// what the view shows: a specimen, a font switch.
     pub(crate) fn set_view(&mut self, view: View) -> Vec<Effect> {
         self.nav.view = view;
-        self.editing = None;
+        self.settings.left();
         self.say_live_off();
         self.mouse_for_view()
     }
@@ -663,46 +699,33 @@ impl App {
 
     /// The installed vtium.conf's value of `key`.
     pub fn configured(&self, key: &str) -> Option<String> {
-        self.shared
-            .inputs
-            .conf
-            .as_deref()
-            .and_then(|c| setting(c, key))
+        self.shared.configured(key)
     }
 
-    /// The configuration the views show: the draft, else the installed
-    /// vtium.conf the TUI read at start.
+    /// The configuration the views show, as [`Shared::conf_text`] says.
     pub fn conf_text(&self) -> Option<&str> {
-        self.shared
-            .draft
-            .as_ref()
-            .map(|d| d.text.as_str())
-            .or(self.shared.inputs.conf.as_deref())
+        self.shared.conf_text()
     }
 
     /// The draft's value of `key`, else the installed file's.
     pub fn drafted(&self, key: &str) -> Option<String> {
-        self.conf_text().and_then(|c| setting(c, key))
+        self.shared.drafted(key)
     }
 
     /// Whether the draft gives `key` another value than the installed
     /// file.
     pub fn changed(&self, key: &str) -> bool {
-        self.shared.draft.is_some() && self.drafted(key) != self.configured(key)
+        self.shared.changed(key)
     }
 
     /// Whether the draft leaves `allow-font-ops` on, its default.
     pub fn font_ops(&self) -> bool {
-        self.conf_text()
-            .and_then(|c| conf_switch(c, "allow-font-ops"))
-            .unwrap_or(true)
+        self.shared.font_ops()
     }
 
-    /// The value the draft gives `key`, as the settings view shows it,
-    /// and whether it is the key's default.
+    /// The value the draft gives `key`, as [`Shared::value`] says.
     pub fn value(&self, key: &keys::Key) -> (String, bool) {
-        let (v, set) = crate::commands::value_text(key, self.conf_text());
-        (v, !set)
+        self.shared.value(key)
     }
 
     /// Takes `event`, and returns what the loop does.
@@ -1005,7 +1028,7 @@ impl App {
     fn typing(&self) -> bool {
         match self.nav.view {
             View::New => self.new_frit.at < NEW_FIELDS,
-            View::Settings => self.editing.is_some(),
+            View::Settings => self.settings.editing().is_some(),
             _ => false,
         }
     }
@@ -1041,7 +1064,7 @@ impl App {
         }
         // the action keys do nothing while a Settings section is open
         // over the list of sections, as in every layer (ADR-1403 D7)
-        let layer = self.nav.view == View::Settings && self.settings.open.is_some();
+        let layer = self.nav.view == View::Settings && self.settings.open().is_some();
         match key {
             // Install acts where the tab bar shows it: not in Help, whose
             // tab bar shows no action, nor in the new-frit form, which is
@@ -1078,10 +1101,15 @@ impl App {
                 }
                 Vec::new()
             }
-            View::Settings => self.settings_key(key),
+            View::Settings => {
+                let commands = self.settings.update(&self.shared, key);
+                self.perform(commands)
+            }
             View::Help => {
                 let (rows, room) = super::view::help_window(self);
-                let commands = self.help.key(key, super::tabs::help::Page { rows, room });
+                let commands = self
+                    .help
+                    .update(key, super::tabs::help::Page { rows, room });
                 self.perform(commands)
             }
             View::New if key == Key::Escape => self.set_view(View::Fonts),
@@ -1092,17 +1120,20 @@ impl App {
         }
     }
 
-    /// Performs the commands a tab's update returned, and returns the
-    /// effects for the loop.
+    /// Performs the commands a tab's update returned: each change to the
+    /// shared part, in order, and returns the effects for the loop.
     ///
     /// References:
     /// - ADR-1206 D2: update performs a tab's commands in one place.
     fn perform(&mut self, commands: Vec<super::tabs::Command>) -> Vec<Effect> {
-        use super::tabs::Command;
+        use super::tabs::{Change, Command};
         let mut effects = Vec::new();
         for command in commands {
             match command {
                 Command::Effect(effect) => effects.push(effect),
+                Command::Change(Change::Top { key, value }) => {
+                    effects.extend(self.top(key, value.as_deref()));
+                }
             }
         }
         effects
@@ -1280,118 +1311,13 @@ impl App {
 
     /// A character or Backspace typed into the field being edited.
     fn type_key(&mut self, key: Key) -> Vec<Effect> {
-        let text = match self.nav.view {
-            View::New => self.new_frit.fields.get_mut(self.new_frit.at),
-            _ => self.editing.as_mut(),
-        };
-        if let Some(text) = text {
-            match key {
-                Key::Char(c) if !c.is_control() && text.len() < TYPED_MAX => text.push(c),
-                Key::Backspace => {
-                    text.pop();
+        match self.nav.view {
+            View::New => {
+                if let Some(text) = self.new_frit.fields.get_mut(self.new_frit.at) {
+                    super::tabs::type_into(text, key);
                 }
-                _ => {}
             }
-        }
-        Vec::new()
-    }
-
-    /// A key in the Settings view. On the list of sections, Enter opens
-    /// the highlighted section. In a section, Enter on a switch or a key
-    /// of a fixed set of words opens its values as the shared list, with
-    /// the value it has now highlighted, and Enter on any other key starts
-    /// typing its value. Esc goes back to the sections, with the same
-    /// section highlighted. In the list of values, Enter writes the
-    /// highlighted value into the draft and Esc closes the list. While a
-    /// value is typed, Enter writes it and Esc drops it, and the moving
-    /// keys do nothing. An empty typed value goes back to the default,
-    /// except for a key binding, where it binds no key and the word
-    /// `default` returns the key to its default.
-    ///
-    /// References:
-    /// - ADR-1201 D3, the Settings bullet: sections, then their keys.
-    /// - ADR-1403 D7, "One list for every set of items": the values list.
-    /// - ADR-1005 D10: the empty value of a key binding.
-    fn settings_key(&mut self, key: Key) -> Vec<Effect> {
-        use super::listbox::{Act, ListBox};
-        use super::settings::{fixed_values, sections};
-        if self.editing.is_some() && !matches!(key, Key::Enter | Key::Escape) {
-            return Vec::new();
-        }
-        if let Some(typed) = self.editing.take() {
-            let Some(k) = self.settings.key().filter(|_| key == Key::Enter) else {
-                return Vec::new();
-            };
-            let typed = typed.trim().to_owned();
-            let value = if k.kind == Kind::KeyBinding {
-                // the word `default`, or its default's own combinations,
-                // leave a key binding at its default
-                let default = crate::commands::value_text(k, None).0;
-                (typed != super::words::BINDING_DEFAULT && typed != default).then_some(typed)
-            } else {
-                Some(typed).filter(|t| !t.is_empty())
-            };
-            return self.top(k.name, value.as_deref());
-        }
-        if let Some(mut list) = self.settings.values {
-            let words = self
-                .settings
-                .key()
-                .and_then(fixed_values)
-                .unwrap_or_default();
-            return match list.key(key, words.len()) {
-                Act::Moved => {
-                    self.settings.values = Some(list);
-                    Vec::new()
-                }
-                Act::Closed => {
-                    self.settings.values = None;
-                    Vec::new()
-                }
-                Act::Picked(i) => {
-                    self.settings.values = None;
-                    match (self.settings.key(), words.get(i)) {
-                        (Some(k), Some(w)) => self.top(k.name, Some(w)),
-                        _ => Vec::new(),
-                    }
-                }
-                Act::Ignored => Vec::new(),
-            };
-        }
-        if let Some((at, mut list)) = self.settings.open {
-            let keys = self
-                .settings
-                .section()
-                .map(|s| s.keys())
-                .unwrap_or_default();
-            match list.key(key, keys.len()) {
-                Act::Moved => self.settings.open = Some((at, list)),
-                Act::Closed => self.settings.open = None,
-                Act::Picked(i) => {
-                    let Some(k) = keys.get(i).copied() else {
-                        return Vec::new();
-                    };
-                    let (now, default) = self.value(k);
-                    match fixed_values(k) {
-                        Some(words) => {
-                            let at = words.iter().position(|w| *w == now).unwrap_or(0);
-                            self.settings.values = Some(ListBox::at(at));
-                        }
-                        // a key binding's editor starts from its
-                        // combinations, its default's included, so Enter
-                        // alone never empties it
-                        None => {
-                            let start = default && k.kind != Kind::KeyBinding;
-                            self.editing = Some(if start { String::new() } else { now });
-                        }
-                    }
-                }
-                Act::Ignored => {}
-            }
-            return Vec::new();
-        }
-        if let Act::Picked(i) = self.settings.sections.key(key, sections().len()) {
-            self.settings.open = Some((i, ListBox::default()));
+            _ => self.settings.type_key(key),
         }
         Vec::new()
     }

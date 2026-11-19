@@ -267,19 +267,19 @@ fn body(app: &App) -> Body {
 /// - ADR-1403 D7, "One list for every set of items": the list's look.
 fn settings_body(app: &App) -> Body {
     let cols = app.size.cols;
-    let sections = super::settings::sections();
+    let sections = super::tabs::settings::sections();
     let bold = Style {
         bold: true,
         ..Style::PLAIN
     };
-    let Some((at, keys_list)) = app.settings.open else {
+    let Some((at, keys_list)) = app.settings.open() else {
         let items: Vec<Item> = sections
             .iter()
             .map(|s| Item::new(s.title, words::settings_count(s.keys().len())))
             .collect();
-        let (list, keep) = listbox::rows(&items, app.settings.sections.at, Marks::None, cols);
+        let (list, keep) = listbox::rows(&items, app.settings.section_at(), Marks::None, cols);
         let about = sections
-            .get(app.settings.sections.at)
+            .get(app.settings.section_at())
             .map_or("", |s| s.about);
         let mut tail = tail(words::SECTIONS_HINT, cols);
         tail.extend(
@@ -309,10 +309,10 @@ fn settings_body(app: &App) -> Body {
         rows
     };
     // a key's allowed values, open over the section
-    if let (Some(values), Some(k)) = (app.settings.values, key) {
+    if let (Some(values), Some(k)) = (app.settings.values(), key) {
         let now = app.value(k).0;
         let default = crate::commands::value_text(k, None).0;
-        let items: Vec<Item> = super::settings::fixed_values(k)
+        let items: Vec<Item> = super::tabs::settings::fixed_values(k)
             .unwrap_or_default()
             .into_iter()
             .map(|w| Item {
@@ -342,8 +342,8 @@ fn settings_body(app: &App) -> Body {
     for (group, group_keys) in &section.groups {
         for (n, k) in group_keys.iter().enumerate() {
             let typed = app
-                .editing
-                .as_ref()
+                .settings
+                .editing()
                 .filter(|_| key.is_some_and(|h| h.name == k.name));
             let value = match typed {
                 Some(t) => format!("{t}_"),
@@ -371,7 +371,7 @@ fn settings_body(app: &App) -> Body {
     let (rows, keep) = listbox::rows(&items, keys_list.at, Marks::None, cols);
     let keep = keep.saturating_add(list.len());
     list.extend(rows);
-    let hint = match (&app.editing, key) {
+    let hint = match (app.settings.editing(), key) {
         (Some(_), Some(k)) if k.kind == KeyKind::KeyBinding => words::EDITING_BINDING,
         (Some(_), _) => words::EDITING,
         (None, _) => words::SETTINGS_HINT,
