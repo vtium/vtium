@@ -431,6 +431,17 @@ impl Shared {
         self.inputs.conf.as_deref().and_then(|c| setting(c, key))
     }
 
+    /// Measures text by the console's `cluster-width` rule until the guard
+    /// drops. Update and the view both measure inside this guard, so the
+    /// rows update counts for a list, a page or a click are the rows the
+    /// view draws.
+    pub fn measure(&self) -> super::canvas::MeasureBy {
+        super::canvas::measure_by(match self.configured("cluster-width").as_deref() {
+            Some("single") => vtium_term::ClusterWidth::Single,
+            _ => vtium_term::ClusterWidth::Double,
+        })
+    }
+
     /// The configuration the views show: the draft, else the installed
     /// vtium.conf the TUI read at start.
     pub fn conf_text(&self) -> Option<&str> {
@@ -661,6 +672,7 @@ impl App {
         };
         // the Flow view's highlight on its first box from the first frame,
         // and what reading the color file found on the message line
+        let _rule = app.shared.measure();
         app.flow_settle();
         app.shared.message = app
             .shared
@@ -816,6 +828,7 @@ impl App {
 
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
+        let _rule = self.shared.measure();
         let node = super::nav::node(self);
         let mut out = self.handle(event);
         out.extend(self.ask_picture());
