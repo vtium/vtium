@@ -457,7 +457,7 @@ fn a_batch_file_that_vtium_refuses_counts_as_missing() {
     }
     assert!(
         active.out.contains(
-            "ROOT/etc/batch.conf: vtium ignores this list of active fonts and effects and uses the list of a fresh install, because"
+            "ROOT/etc/batch.conf: vtium ignores this list of active fonts, color schemes, effects and pointer themes and uses the list of a fresh install, because"
         ),
         "{}",
         active.out

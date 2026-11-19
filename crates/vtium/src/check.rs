@@ -403,7 +403,8 @@ pub struct Host {
     /// The root under which systemd's unit links say which VTs vtium is
     /// enabled on: `/`, or a scratch directory in a test.
     pub systemd_root: PathBuf,
-    /// The batch file, the list of active fonts and effects:
+    /// The batch file, the list of active fonts, color schemes, effects and
+    /// pointer themes:
     /// [`vtium_settings::batch::BATCH_FILE`], or a scratch file in a test.
     pub batch: PathBuf,
 }
@@ -1253,8 +1254,8 @@ fn pointer_findings(
     }
 }
 
-/// What check-config says of the batch file, the list of active fonts and
-/// effects: the first list counts against the file, and the second is
+/// What check-config says of the batch file, the list of active fonts,
+/// color schemes, effects and pointer themes: the first list counts against the file, and the second is
 /// notes. A missing file is a note that says what vtium uses in its place
 /// and how to create the file. A file vtium cannot use, because it fails
 /// the owner and mode check, is too large or cannot be read, counts, and
@@ -1267,10 +1268,7 @@ fn batch_findings(findings: &[vtium_settings::batch::Finding]) -> (Vec<String>, 
     let (mut counted, mut notes) = (Vec::new(), Vec::new());
     for finding in findings {
         match finding {
-            Finding::Missing { path } => notes.push(format!(
-                "{}: The list of active fonts and color schemes does not exist, so vtium uses the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, and the color schemes vtium ships. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line.",
-                path.display()
-            )),
+            Finding::Missing { .. } => notes.push(finding.to_string()),
             Finding::Line { path, line, fault } => {
                 let fault = fault.to_string();
                 let mut chars = fault.chars();
@@ -2012,7 +2010,7 @@ mod tests {
     }
 
     // check-config says what it finds of the batch file, the list of active
-    // fonts and effects: a missing file is a note that says what vtium
+    // fonts, color schemes, effects and pointer themes: a missing file is a note that says what vtium
     // uses instead and how to create the file, while a file others can
     // write, and a line vtium ignores, count against the configuration.
     //
@@ -2043,7 +2041,7 @@ mod tests {
         assert_eq!(
             out.stdout.first().map(String::as_str),
             Some(format!(
-                "{b}: The list of active fonts and color schemes does not exist, so vtium uses the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, and the color schemes vtium ships. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line."
+                "{b}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line."
             ).as_str()),
             "{:#?}",
             out.stdout
@@ -2071,7 +2069,7 @@ mod tests {
         let out = outcome_on(&["--no-devices", f.as_str()], &host);
         assert_eq!(out.status, 1, "{:#?}", out.stderr);
         let refused = format!(
-            "{b}: vtium ignores this list of active fonts and effects and uses the list of a fresh install, because "
+            "{b}: vtium ignores this list of active fonts, color schemes, effects and pointer themes and uses the list of a fresh install, because "
         );
         assert!(
             out.stderr.iter().any(|l| l.starts_with(&refused)),
