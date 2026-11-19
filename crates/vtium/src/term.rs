@@ -1903,6 +1903,51 @@ mod tests {
         assert!(moved > 0, "the tint moved no pixel of the notice");
     }
 
+    // A frame that a view composes with a notice over it, on a display
+    // whose vtlook holds a color filter, is the same frame composed with
+    // no filter, each pixel looked up in the table: the notice that
+    // `Job::compose` draws beside the renderer's frame passes the color
+    // slot as the cells do.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_composed_notice_passes_the_vtlook_s_color_table() {
+        use vtium_render::filter::{Fixed, Given, Lookup, Map, Table, color};
+        let tint = Map::new(
+            color("tint").unwrap(),
+            &[Given::Color([255, 176, 0]), Given::Number(Fixed::of(1, 0))],
+        )
+        .unwrap();
+        let table = Arc::new(Table::build(&[tint]).unwrap());
+        let pixels = |video: &Flip| -> Vec<u32> {
+            video
+                .pixels(0)
+                .chunks_exact(4)
+                .map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]]))
+                .collect()
+        };
+        let frame = |colors: Option<Arc<Table>>, notice: bool| {
+            let (mut term, mut view) = view();
+            let mut video = Flip::new();
+            term.terminal.input(b"AB");
+            view.set_colors(colors);
+            if notice {
+                view.overlay = Overlay::new(None, &["a notice"], None, OverlayColors::default());
+            }
+            draw(&mut term, &mut view, &mut video, None);
+            pixels(&video)
+        };
+        let bare = frame(None, false);
+        let plain = frame(None, true);
+        let colored = frame(Some(Arc::clone(&table)), true);
+        let mut lookup = Lookup::new(&table).unwrap();
+        let mut moved = 0;
+        for (i, ((&p, &c), &b)) in plain.iter().zip(&colored).zip(&bare).enumerate() {
+            assert_eq!(c, lookup.map(p), "pixel {i}: {p:08x}");
+            moved += usize::from(p != b && c != p);
+        }
+        assert!(moved > 0, "the tint moved no pixel of the notice");
+    }
+
     // ADR-1002, section 7: the frame a head's render thread draws from the
     // snapshot carries the labels of link hints and vtium's note on the
     // overlay row.
