@@ -499,16 +499,29 @@ fn the_mount_check_refuses_network_fuse_automounted_and_removable_filesystems() 
     );
 }
 
+// The root filesystem on a removable disk passes, and so does every other
+// filesystem on that disk, directly or beneath an encrypted volume. A
+// filesystem on another removable or USB disk still fails.
 #[test]
 fn the_root_filesystem_on_a_removable_disk_passes() {
     let dir = fixture("mounts-root");
-    let table = "22 1 8:17 / / rw - ext4 /dev/sdb1 rw\n23 22 8:18 / /home rw - ext4 /dev/sdb2 rw\n";
+    let table = "\
+22 1 8:17 / / rw - ext4 /dev/sdb1 rw
+23 22 8:18 / /home rw - ext4 /dev/sdb2 rw
+24 22 253:0 / /secret rw - ext4 /dev/mapper/secret rw
+25 22 8:33 / /media/usb rw - ext4 /dev/sdc1 rw
+";
     let mounts = Mounts::parse(table, &sysfs(&dir));
     assert_eq!(mounts.judge(&place((8, 17), "/usr/share/a")), Ok(()));
-    assert!(matches!(
-        mounts.judge(&place((8, 18), "/home/a")),
-        Err(Unsteady::Removable { .. })
-    ));
+    assert_eq!(mounts.judge(&place((8, 18), "/home/a")), Ok(()));
+    assert_eq!(mounts.judge(&place((253, 0), "/secret/a")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((8, 33), "/media/usb/a")),
+        Err(Unsteady::UsbDisk {
+            point: "/media/usb".into(),
+            disk: "/dev/sdc".into()
+        })
+    );
 }
 
 // btrfs reports a subvolume's own device number, which the mount table
@@ -1124,5 +1137,118 @@ fn the_console_font_folders_are_kbds() {
             "/lib/kbd/consolefonts",
             "/usr/share/consolefonts",
         ]
+    );
+}
+
+/// A sysfs folder for a system that boots from a USB stick: sda (8:0), a
+/// USB stick that reports itself fixed, with partitions sda1 to sda3;
+/// sdb (8:16), a second USB disk, with sdb1; dm-0 (253:0), an encrypted
+/// volume on sda2; and md0 (9:0), an array of sda3 and sdb1.
+fn boot_stick(dir: &Path) -> PathBuf {
+    let sys = dir.join("sys");
+    mkdir(&sys.join("dev/block"), 0o755);
+    let link = |dev: &str, to: &Path| {
+        symlink(to, sys.join("dev/block").join(dev)).expect("the device link");
+    };
+    let mut parts = std::collections::BTreeMap::new();
+    for (bus, disk, dev, partitions) in [
+        (
+            "usb1/1-1/host0",
+            "sda",
+            "8:0",
+            &[(1, "8:1"), (2, "8:2"), (3, "8:3")][..],
+        ),
+        ("usb2/2-1/host1", "sdb", "8:16", &[(1, "8:17")][..]),
+    ] {
+        let d = sys
+            .join("devices/pci0000:00")
+            .join(bus)
+            .join("block")
+            .join(disk);
+        mkdir(&d, 0o755);
+        fs::write(d.join("removable"), "0\n").expect("removable");
+        link(dev, &d);
+        for &(n, dev) in partitions {
+            let p = d.join(format!("{disk}{n}"));
+            mkdir(&p, 0o755);
+            fs::write(p.join("partition"), format!("{n}\n")).expect("partition");
+            link(dev, &p);
+            parts.insert(format!("{disk}{n}"), p);
+        }
+    }
+    let dm0 = sys.join("devices/virtual/block/dm-0");
+    mkdir(&dm0.join("slaves"), 0o755);
+    fs::write(dm0.join("removable"), "0\n").expect("removable");
+    symlink(&parts["sda2"], dm0.join("slaves/sda2")).expect("the slave link");
+    link("253:0", &dm0);
+    let md0 = sys.join("devices/virtual/block/md0");
+    mkdir(&md0.join("slaves"), 0o755);
+    fs::write(md0.join("removable"), "0\n").expect("removable");
+    for name in ["sda3", "sdb1"] {
+        symlink(&parts[name], md0.join("slaves").join(name)).expect("the slave link");
+    }
+    link("9:0", &md0);
+    sys
+}
+
+// The maintainer decided on 2026-11-19 that a disk on the USB bus counts as
+// removable, unless it is the disk that holds the root filesystem. So the
+// other partitions of a USB boot stick pass, directly or beneath an
+// encrypted root, while a second USB disk still fails.
+#[test]
+fn the_disk_that_holds_the_root_filesystem_is_exempt_from_the_removable_rules() {
+    let dir = fixture("mounts-boot-stick");
+    let sys = boot_stick(&dir);
+    let usb_sdb = |point: &str| {
+        Err(Unsteady::UsbDisk {
+            point: point.into(),
+            disk: "/dev/sdb".into(),
+        })
+    };
+
+    let plain = "\
+22 1 8:2 / / rw - ext4 /dev/sda2 rw
+23 22 8:3 / /home rw - ext4 /dev/sda3 rw
+24 22 8:17 / /media/other rw - ext4 /dev/sdb1 rw
+25 22 9:0 / /srv rw - ext4 /dev/md0 rw
+";
+    let mounts = Mounts::parse(plain, &sys);
+    assert_eq!(mounts.judge(&place((8, 2), "/usr/a.ttf")), Ok(()));
+    assert_eq!(mounts.judge(&place((8, 3), "/home/a.ttf")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((8, 17), "/media/other/a.ttf")),
+        usb_sdb("/media/other")
+    );
+    // an array that also spans the second USB disk is not exempt
+    assert!(matches!(
+        mounts.judge(&place((9, 0), "/srv/a.ttf")),
+        Err(Unsteady::UsbDisk { .. })
+    ));
+
+    let encrypted = "\
+22 1 253:0 / / rw - ext4 /dev/mapper/root rw
+23 22 8:1 / /boot rw - vfat /dev/sda1 rw
+24 22 8:17 / /media/other rw - ext4 /dev/sdb1 rw
+";
+    let mounts = Mounts::parse(encrypted, &sys);
+    assert_eq!(mounts.judge(&place((8, 1), "/boot/a.ttf")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((8, 17), "/media/other/a.ttf")),
+        usb_sdb("/media/other")
+    );
+
+    // when vtium cannot find the root's disk, only / itself stays exempt
+    let unknown = "\
+22 1 8:99 / / rw - ext4 /dev/sdz2 rw
+23 22 8:3 / /home rw - ext4 /dev/sda3 rw
+";
+    let mounts = Mounts::parse(unknown, &sys);
+    assert_eq!(mounts.judge(&place((8, 99), "/usr/a.ttf")), Ok(()));
+    assert_eq!(
+        mounts.judge(&place((8, 3), "/home/a.ttf")),
+        Err(Unsteady::UsbDisk {
+            point: "/home".into(),
+            disk: "/dev/sda".into()
+        })
     );
 }
