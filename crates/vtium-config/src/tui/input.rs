@@ -6,6 +6,13 @@
 //! A sequence split across reads waits in the decoder for its end, so a
 //! reply cut by a read comes out whole once the rest arrives.
 //!
+//! An ESC inside a string or a control sequence cancels that sequence,
+//! unless it begins ST (`ESC \`), which ends a control string in ECMA-48.
+//! Decoding starts again at that ESC, as a VT's parser does. So a reply
+//! always comes out whole even when the Esc key or a broken sequence comes
+//! before it. In `ESC ESC`, the first ESC is the Esc key and the second
+//! begins whatever follows.
+//!
 //! An ESC that is the last byte of a read can be the Esc key or the first
 //! byte of a reply. The TUI's decoder ([`Decoder::keys`]) decides by
 //! whether the TUI awaits a reply. With no query outstanding, the ESC is
@@ -14,13 +21,21 @@
 //! keeps the ESC until the next byte arrives, which it always does,
 //! because DA1's reply is still due. If that byte continues a reply or a
 //! key's sequence (`[`, `]`, `_` or `P`), the ESC begins it, and any other
-//! byte makes the ESC the Esc key. So a real Esc waits only while replies
-//! are in flight. The decoder that only reads replies, as `set` does,
-//! always keeps a lone ESC for the next read.
+//! byte makes the ESC the Esc key. The guess can still turn out wrong:
+//! the person may press Esc and then `]`. Every reply begins with ESC, so
+//! the reply that is still due cancels the sequence the guess began. The
+//! decoder then knows the ESC was the Esc key, and decodes the bytes after
+//! it as keys. Once no reply is due, a sequence the guess began and that
+//! has not ended is taken as keys too. So a real Esc waits only while
+//! replies are in flight. The decoder that only reads replies, as `set`
+//! does, always keeps a lone ESC for the next read.
 //!
 //! References:
 //! - ADR-1206 D2, "Esc stays the key that goes back": a lone ESC waits
 //!   for its next byte only while a batch of queries is outstanding.
+//! - ADR-1206 D2, the note of 2026-11-19: an ESC that does not begin ST
+//!   cancels the sequence in progress, and a wrong guess about a lone ESC
+//!   ends as the Esc key.
 
 /// A key the TUI acts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +120,11 @@ pub struct Decoder {
     /// The ESC at the front of `held` ended an earlier read while a reply
     /// was awaited, so the byte after it decides what it is.
     lone: bool,
+    /// The sequence at the front of `held` begins with an ESC that ended
+    /// an earlier read and that the decoder took as the start of a reply.
+    /// If another ESC cancels the sequence, or no reply is due before it
+    /// ends, that ESC was the Esc key.
+    guessed: bool,
 }
 
 /// What the bytes at the front hold.
@@ -113,6 +133,9 @@ enum Front {
     Took(usize, Option<Input>),
     /// The bytes end before the sequence does.
     Short,
+    /// An ESC this far in, which does not begin ST, cancels the sequence:
+    /// the bytes before it are dropped, and decoding starts again at it.
+    Cancelled(usize),
 }
 
 impl Decoder {
@@ -147,7 +170,10 @@ impl Decoder {
                 match self.held.get(1) {
                     None if awaiting => return None,
                     // the ESC begins a reply, or a key's sequence
-                    Some(b'[' | b']' | b'_' | b'P') => self.lone = false,
+                    Some(b'[' | b']' | b'_' | b'P') => {
+                        self.lone = false;
+                        self.guessed = true;
+                    }
                     // the queries are settled, or the byte after the ESC
                     // begins nothing: the ESC was the Esc key
                     _ => {
@@ -161,13 +187,24 @@ impl Decoder {
                 return None;
             }
             match front(&self.held) {
+                // a reply's ESC cancelled the sequence that the guess began,
+                // or no reply is due to end it: the guess was wrong
+                Front::Cancelled(_) if self.guessed => return Some(self.escape_key()),
+                Front::Short if self.guessed && !awaiting => return Some(self.escape_key()),
+                Front::Cancelled(n) => {
+                    self.held.drain(..n.clamp(1, self.held.len()));
+                }
                 Front::Took(n, input) => {
+                    self.guessed = false;
                     self.held.drain(..n.clamp(1, self.held.len()));
                     if input.is_some() {
                         return input;
                     }
                 }
-                Front::Short if self.held.len() > STRING_MAX => self.held.clear(),
+                Front::Short if self.held.len() > STRING_MAX => {
+                    self.guessed = false;
+                    self.held.clear();
+                }
                 Front::Short if self.escape && self.held == [0x1b] => {
                     if awaiting {
                         self.lone = true;
@@ -180,14 +217,34 @@ impl Decoder {
             }
         }
     }
+
+    /// The ESC at the front was the Esc key after all: the decoder drops
+    /// it, and decodes the bytes after it afresh.
+    fn escape_key(&mut self) -> Input {
+        self.guessed = false;
+        self.held.drain(..1);
+        Input::Key(Key::Escape)
+    }
 }
 
-/// Where the string that starts at `body` ends: its length and the end's
-/// length, ST (`ESC \`) or, for OSC, BEL.
-fn string_end(body: &[u8], bel: bool) -> Option<(usize, usize)> {
+/// How the string that starts at `body` ends.
+enum StringEnd {
+    /// At ST (`ESC \`) or, for OSC, BEL: the string's length and the end's.
+    At(usize, usize),
+    /// At an ESC, this far in, that does not begin ST.
+    Cancelled(usize),
+}
+
+/// Where the string that starts at `body` ends, or `None` while it has not
+/// ended, an ESC at the very end included, since it may begin ST.
+fn string_end(body: &[u8], bel: bool) -> Option<StringEnd> {
     body.iter().enumerate().find_map(|(i, &b)| match b {
-        0x07 if bel => Some((i, 1)),
-        0x1b if body.get(i.saturating_add(1)) == Some(&b'\\') => Some((i, 2)),
+        0x07 if bel => Some(StringEnd::At(i, 1)),
+        0x1b => match body.get(i.saturating_add(1)) {
+            None => None,
+            Some(b'\\') => Some(StringEnd::At(i, 2)),
+            Some(_) => Some(StringEnd::Cancelled(i)),
+        },
         _ => None,
     })
 }
@@ -237,14 +294,20 @@ fn escape(rest: &[u8]) -> Front {
     };
     let took = |body_len: usize, input| Front::Took(body_len.saturating_add(2), input);
     match kind {
+        // the first ESC is the Esc key, and the second begins what follows
+        0x1b => Front::Took(1, Some(Input::Key(Key::Escape))),
         b'[' => csi(body),
         b'O' => match body.first() {
             None => Front::Short,
+            // Alt and O, then whatever the ESC begins
+            Some(0x1b) => Front::Cancelled(2),
             Some(&b) => took(1, arrow(b).map(Input::Key)),
         },
         b'P' | b']' | b'_' => {
-            let Some((end, end_len)) = string_end(body, kind == b']') else {
-                return Front::Short;
+            let (end, end_len) = match string_end(body, kind == b']') {
+                None => return Front::Short,
+                Some(StringEnd::Cancelled(i)) => return Front::Cancelled(i.saturating_add(2)),
+                Some(StringEnd::At(end, end_len)) => (end, end_len),
             };
             let content = body.get(..end).unwrap_or_default();
             let input = match kind {
@@ -281,9 +344,12 @@ fn arrow(b: u8) -> Option<Key> {
 }
 
 /// A control sequence after `ESC [`: parameters, intermediates, then a
-/// final byte from `@` to `~`.
+/// final byte from `@` to `~`. An ESC before the final byte cancels it.
 fn csi(body: &[u8]) -> Front {
-    let Some(end) = body.iter().position(|&b| (0x40..=0x7e).contains(&b)) else {
+    let Some(end) = body
+        .iter()
+        .position(|&b| b == 0x1b || (0x40..=0x7e).contains(&b))
+    else {
         return if body.len() > STRING_MAX {
             Front::Took(body.len().saturating_add(2), None)
         } else {
@@ -292,6 +358,9 @@ fn csi(body: &[u8]) -> Front {
     };
     let params = body.get(..end).unwrap_or_default();
     let last = body.get(end).copied().unwrap_or(0);
+    if last == 0x1b {
+        return Front::Cancelled(end.saturating_add(2));
+    }
     if let Some(sgr) = params.strip_prefix(b"<")
         && matches!(last, b'M' | b'm')
     {
@@ -483,6 +552,118 @@ mod tests {
         let mut replies = Decoder::default();
         replies.push(b"\x1b");
         assert_eq!(replies.next(false), None);
+    }
+
+    /// Everything the decoder holds whole, with `awaiting` fixed.
+    fn drain(d: &mut Decoder, awaiting: bool) -> Vec<Input> {
+        std::iter::from_fn(|| d.next(awaiting)).collect()
+    }
+
+    const ESC: Input = Input::Key(Key::Escape);
+    const DA1: Input = Input::Reply(Reply::Attributes);
+
+    fn font(name: &str) -> Input {
+        Input::Reply(Reply::Font(name.into()))
+    }
+
+    #[test]
+    fn in_esc_esc_the_first_is_the_escape_key_and_the_second_begins_a_reply() {
+        // the Esc key and a whole batch's replies in one read
+        let mut d = Decoder::keys();
+        d.push(b"\x1b\x1b]50;tiny5\x1b\\\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [ESC, font("tiny5"), DA1]);
+        // the Esc key between a batch's replies, in one read
+        d.push(b"\x1b]50;tiny5\x1b\\\x1b\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [font("tiny5"), ESC, DA1]);
+        // the decoder that reads replies only keeps every reply too
+        let mut replies = Decoder::default();
+        assert_eq!(
+            replies.feed(b"\x1b\x1bP>|vtium(0.1.0)\x1b\\\x1b\x1b[?62;4c"),
+            [
+                ESC,
+                Input::Reply(Reply::Version("vtium(0.1.0)".into())),
+                ESC,
+                DA1
+            ]
+        );
+    }
+
+    #[test]
+    fn a_lone_esc_then_a_reply_in_the_next_read_is_the_escape_key() {
+        let replies: [(&[u8], Input); 3] = [
+            (b"\x1b[?62;4c", DA1),
+            (
+                b"\x1bP>|vtium(0.1.0)\x1b\\",
+                Input::Reply(Reply::Version("vtium(0.1.0)".into())),
+            ),
+            (b"\x1b_Gi=31;OK\x1b\\", Input::Reply(Reply::Graphics(true))),
+        ];
+        for (reply, heard) in replies {
+            let mut d = Decoder::keys();
+            d.push(b"\x1b");
+            assert_eq!(drain(&mut d, true), []);
+            d.push(reply);
+            assert_eq!(drain(&mut d, true), [ESC, heard], "{reply:?}");
+        }
+    }
+
+    /// The Esc key, then a key whose byte could continue a reply, each in
+    /// a read of its own, then a reply. The reply's ESC shows that the
+    /// first ESC began no reply, so it is the Esc key, and the byte after
+    /// it is a key of its own.
+    #[test]
+    fn a_reply_after_the_esc_key_and_a_bracket_shows_the_esc_was_the_key() {
+        for typed in *b"[]_P" {
+            for (reply, heard) in [
+                (&b"\x1b[?62;4c"[..], vec![DA1]),
+                (b"\x1b]50;tiny5\x1b\\\x1b[?62;4c", vec![font("tiny5"), DA1]),
+                (
+                    b"\x1bP>|vtium(0.1.0)\x1b\\\x1b[?62;4c",
+                    vec![Input::Reply(Reply::Version("vtium(0.1.0)".into())), DA1],
+                ),
+                (
+                    b"\x1b_Gi=31;OK\x1b\\\x1b[?62;4c",
+                    vec![Input::Reply(Reply::Graphics(true)), DA1],
+                ),
+            ] {
+                let mut d = Decoder::keys();
+                d.push(b"\x1b");
+                assert_eq!(drain(&mut d, true), []);
+                d.push(&[typed]);
+                assert_eq!(drain(&mut d, true), [], "{}", char::from(typed));
+                d.push(reply);
+                let mut want = vec![ESC, Input::Key(Key::Char(char::from(typed)))];
+                want.extend(heard);
+                assert_eq!(drain(&mut d, true), want, "{}", char::from(typed));
+            }
+        }
+    }
+
+    /// The Esc key and a bracket, and then the queries are settled with no
+    /// reply after them: no reply is due, so the ESC was the Esc key.
+    #[test]
+    fn an_esc_and_a_bracket_are_keys_once_no_reply_is_due() {
+        let mut d = Decoder::keys();
+        d.push(b"\x1b");
+        assert_eq!(drain(&mut d, true), []);
+        d.push(b"]");
+        assert_eq!(drain(&mut d, true), []);
+        assert_eq!(drain(&mut d, false), [ESC, Input::Key(Key::Char(']'))]);
+    }
+
+    /// An ESC that does not begin ST cancels the string or control
+    /// sequence in progress, and decoding starts again at that ESC.
+    #[test]
+    fn an_esc_inside_a_sequence_cancels_it() {
+        assert_eq!(keys(b"\x1b]50;tin\x1b[?62;4c"), [DA1]);
+        assert_eq!(keys(b"\x1bP>|vt\x1b]50;tiny5\x07"), [font("tiny5")]);
+        assert_eq!(keys(b"\x1b_Gi=31\x1b[A"), [Input::Key(Key::Up)]);
+        assert_eq!(keys(b"\x1b[1;\x1b[?62;4c"), [DA1]);
+        assert_eq!(keys(b"\x1bO\x1b[B"), [Input::Key(Key::Down)]);
+        // ST still ends a string, and a read may cut it
+        let mut d = Decoder::default();
+        assert_eq!(d.feed(b"\x1b]50;tiny5\x1b"), []);
+        assert_eq!(d.feed(b"\\"), [font("tiny5")]);
     }
 
     #[test]
