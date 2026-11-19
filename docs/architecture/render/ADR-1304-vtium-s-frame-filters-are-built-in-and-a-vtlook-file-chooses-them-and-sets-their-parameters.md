@@ -1106,7 +1106,7 @@ The maintainer frames the check as one more guard against a failing display. The
 vtlook film: display DP-1 (3840x2160) draws the built-in vtlook: measuring: measured 41 fps at 3840x2160, needs 60 (refresh)
 ```
 
-**Decided by the maintainer (2026-11-18):** the run of 8 frames is timed with `glFinish` around each frame on every driver, and never with GL timer queries. llvmpipe offers timer queries, but its query reported 8.7 ms for a frame that `glFinish` timed at 57.5 ms. A look that misses its floor would pass there (`basis`). On the two GPUs measured, the two methods agreed within 0.25 ms. The run's `glFinish` stalls the pipeline only for its 8 frames, which come once for each change. A test on the stand-in GL offers timer queries whose times disagree with its clock, and the measured rate follows the clock.
+**Decided by the maintainer (2026-11-18):** the run of 8 frames is timed with `glFinish` around each frame on every driver, and never with GL timer queries. llvmpipe offers timer queries, but its query reported 8.7 ms for a frame that `glFinish` timed at 57.5 ms. A look that misses its floor would pass there (`basis`). On the two GPUs measured, the two methods agreed within 0.25 ms.
 
 > Edited 2026-11-18: the maintainer decided that the run is timed with `glFinish` on every driver (`considered`), and the spatial chain now runs in passes (D3). The paragraph read "a run of 8 frames, a row of vtium-render's bounds table, of the display's whole present with the look's pieces, off-screen at the display's own size, over the frame the head shows. It times each frame on the GPU, through GL timer queries where the driver has `EXT_disjoint_timer_query`, and otherwise through `glFinish` around each frame."
 
@@ -1117,6 +1117,12 @@ vtlook film: display DP-1 (3840x2160) draws the built-in vtlook: measuring: meas
 **Proposed, the rest.** A display put on `default` by the floor stays there until vtium next reads its configuration, the head's look changes, or the display's mode changes, never retried on a timer, as for every failure (D6). The CPU path's color layer is not measured: its cost is one table lookup a pixel, bounded and measured once in this record (D2), and on a head drawn on the CPU path `min-fps` counts as met.
 
 **Determinism.** This is the one place where the machine's speed decides what vtium draws: the same look draws on one machine and falls to `default` on a slower one. It decides only whether a display's filters run, never the terminal's state, which docs/architecture.md's "Time enters in named places only" lists among the places time enters. Tests drive it through the stand-in GL with timings they give, never real ones. `vtium check-config`, where it reaches a GPU, and vtium-config's preview report the measured rate before a look is installed, and the log line says plainly that a display missed its floor and by how much.
+
+**Consequence.** The run's `glFinish` stalls the pipeline only for its 8 frames, which come once for each change.
+
+**Verification.** A test on the stand-in GL offers timer queries whose times disagree with its clock, and the measured rate follows the clock.
+
+> Edited 2026-11-19: the code review of wave 3 found this test and the sentence on the stall, now under Consequence, as the last two sentences of the maintainer's decision of 2026-11-18, above. The agent that recorded the decision added both, and the maintainer decided neither, so they moved here.
 
 ### D17: where a shader's pixel lies, and what color it holds
 
@@ -1136,11 +1142,15 @@ A shader that needs linear light, such as a bloom that adds light, converts with
 
 ### D18: the smooth read, and a read cap that starts at 25
 
-**Decided by the maintainer (2026-11-16):** a shader may read the frame with linear filtering, as Ghostty's shaders do, so curved CRT screens, bloom and color fringes look as their authors drew them. A smooth read counts as 4 plain reads. The cap of 25 reads is a starting value to revisit once real shaders have run on vtium: in the maintainer's words, "we can be flexible on the 25 read cap. we can't define what hasn't been experienced yet." The guard that stays is the frame-rate floor, measured on the real display (D16). A filter that reads other pixels runs as a pass of its own, as Ghostty runs its shaders (D3).
+**Decided by the maintainer (2026-11-16):** a shader may read the frame with linear filtering, as Ghostty's shaders do, so curved CRT screens, bloom and color fringes look as their authors drew them. A smooth read counts as 4 plain reads. The cap of 25 reads is a starting value to revisit once real shaders have run on vtium: in the maintainer's words, "we can be flexible on the 25 read cap. we can't define what hasn't been experienced yet." The guard that stays is the frame-rate floor, measured on the real display (D16). Running each filter as a pass of its own, as Ghostty does, waits until a shader worth having needs it; today a chain shares one pass, so chained filters multiply their reads (D3).
 
 > Note 2026-11-18: the maintainer decided on this date that a smooth read counts as 1 read, in place of the 4 above, and that the cap of 25 reads holds each pass (`considered`). The count bullet below and D3's caps set both out.
 
 > Edited 2026-11-18: the maintainer decided on this date that a filter that reads other pixels runs as a pass of its own (D3, `considered`). The paragraph's last sentence read "Running each filter as a pass of its own, as Ghostty does, waits until a shader worth having needs it; today a chain shares one pass, so chained filters multiply their reads (D3)."
+
+**Decided by the maintainer (2026-11-18):** a spatial filter that reads pixels other than its own runs as a pass of its own, as Ghostty runs its shaders (D3).
+
+> Edited 2026-11-19: the code review of wave 3 found that the paragraph decided on 2026-11-16 carried this decision of 2026-11-18 as its last sentence, which dated it two days early. That paragraph ends again as it did on 2026-11-16, and this decision has the paragraph above. From 2026-11-18 to this edit, the paragraph of 2026-11-16 ended "A filter that reads other pixels runs as a pass of its own, as Ghostty runs its shaders (D3)."
 
 **Decided by the maintainer (2026-11-18):** `SPATIAL_SMOOTH` uses the GPU's own linear filtering: vtium samples the piece's input texture with GL_LINEAR instead of blending four plain reads in the shader. The shader's blend costs about twice the GPU's filter: bloom takes 11.2 ms with it and 4.5 ms with the GPU's filter on the Radeon 610M at 1920×1080 (`basis`). This trades away pixels that match on every driver. OpenGL ES leaves the precision of a texture's linear filtering to the GPU, so a smooth read's pixels may differ between drivers by more than ADR-1303's tolerance. Tier 2 runs on llvmpipe alone, so its goldens stay stable, and the maintainer judges a real GPU's smooth reads by eye. The cap on reads stays the maintainer's to set.
 

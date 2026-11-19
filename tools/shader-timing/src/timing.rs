@@ -12,9 +12,10 @@
 //! only part of a heavy frame.
 //!
 //! References:
-//! - ADR-1304 D16: the measurement times each frame through timer queries
-//!   where the driver has them, and otherwise through `glFinish` around each
-//!   frame, and takes the median frame.
+//! - ADR-1304 D16: vtium times its run of 8 frames on the CPU's clock with
+//!   `glFinish` around each frame on every driver, as this harness judges
+//!   the rate, and takes the median frame. It keeps timer queries only for
+//!   the watch while a look runs.
 
 use std::time::Instant;
 
