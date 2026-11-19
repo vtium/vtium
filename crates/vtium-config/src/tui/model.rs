@@ -722,6 +722,13 @@ impl App {
         self.shared.value(key)
     }
 
+    /// Lays the Flow tab out again on the shared part and the terminal's
+    /// size, as after every event.
+    pub(crate) fn flow_settle(&mut self) {
+        let keys = super::view::key_rows(self).len();
+        self.flow.settle(&self.shared, self.size, keys);
+    }
+
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
         let node = super::nav::node(self);

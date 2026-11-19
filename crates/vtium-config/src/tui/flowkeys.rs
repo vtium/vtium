@@ -23,28 +23,6 @@ use super::paths::{self, Adding, Doc, Path, Picked, Piece};
 use super::words;
 
 impl App {
-    /// The Flow view's state, laid out again after every event: the highlight
-    /// back on its object, the window where it keeps that object at the
-    /// same height, and a layer closed when its object is gone.
-    pub(crate) fn flow_settle(&mut self) {
-        // the parts, enumerated again and merged by their matches, so a
-        // device that comes or goes after any event shows at once
-        let flow = &self.shared.inputs.flow;
-        let now = parts::enumerate(flow, &paths::read(flow));
-        parts::merge(&mut self.flow.state.parts, flow, now);
-        let layout = flowdraw::layout_of(self);
-        self.flow_with(|s| {
-            if let Some(o @ Obj::Doc(..)) = &s.layer
-                && layout.find(o).is_none()
-            {
-                s.layer = None;
-                s.typing = None;
-            }
-        });
-        let (_, height) = flowdraw::window(self);
-        self.flow_with(|s| s.settle(&layout, height));
-    }
-
     /// A key in the Flow view.
     pub(crate) fn flow_key(&mut self, key: Key) -> Vec<Effect> {
         let state = self.flow.state.clone();
@@ -97,8 +75,9 @@ impl App {
 
     /// A key on the document.
     fn overview_key(&mut self, state: &State, key: Key) -> Vec<Effect> {
-        let layout = flowdraw::layout_of(self);
-        let (_, height) = flowdraw::window(self);
+        let layout = flowdraw::layout_of(&self.flow.state, &self.shared, self.size.cols);
+        let (_, height) =
+            flowdraw::window(&self.shared, self.size, super::view::key_rows(self).len());
         let at = state.at.clone();
         if !matches!(key, Key::Char(' ' | 'a' | 'e' | 'p' | 't' | 's')) {
             self.shared.message = None;
@@ -242,7 +221,7 @@ impl App {
             _ => return 0,
         };
         // the label is the detail's first line, then the choices
-        flowdraw::choices_for(self, obj)
+        flowdraw::choices_for(&self.shared, obj)
             .iter()
             .position(|(_, _, v)| *v == now)
             .map_or(0, |at| at.saturating_add(1))
@@ -252,7 +231,7 @@ impl App {
     /// an editor piece out, and says why anything else cannot be picked.
     fn space(&mut self, state: &State, at: Option<Obj>) -> Vec<Effect> {
         let flow = &self.shared.inputs.flow;
-        let doc = flowdraw::shown_doc(self, paths::read(flow));
+        let doc = flowdraw::shown_doc(&self.flow.state, paths::read(flow));
         let Some(obj) = at else {
             return Vec::new();
         };
@@ -311,7 +290,7 @@ impl App {
     /// Picks `piece` into the editor, or takes it out, and says what that
     /// did, whether the input will roam, and what the path needs next.
     fn pick(&mut self, piece: Piece) -> Vec<Effect> {
-        let doc = flowdraw::shown_doc(self, paths::read(&self.shared.inputs.flow));
+        let doc = flowdraw::shown_doc(&self.flow.state, paths::read(&self.shared.inputs.flow));
         let flow = &self.shared.inputs.flow;
         let state = &mut self.flow.state;
         let was_font = state.new.font.clone();
@@ -380,7 +359,7 @@ impl App {
     /// back unchanged changes nothing.
     fn add(&mut self, state: &State) -> Vec<Effect> {
         let flow = &self.shared.inputs.flow;
-        let doc = flowdraw::shown_doc(self, paths::read(flow));
+        let doc = flowdraw::shown_doc(&self.flow.state, paths::read(flow));
         let mut new = state.new.clone();
         if new.name.is_none() && !new.active && !new.none {
             new.name = Some(paths::new_name(flow, &doc));
@@ -435,7 +414,8 @@ impl App {
     fn clear(&mut self, state: &State) -> Vec<Effect> {
         let out = match &state.revising {
             Some(_) => {
-                let doc = flowdraw::shown_doc(self, paths::read(&self.shared.inputs.flow));
+                let doc =
+                    flowdraw::shown_doc(&self.flow.state, paths::read(&self.shared.inputs.flow));
                 let changes = paths::plan(&self.shared.inputs.flow, &doc);
                 let out = self.make(changes, None);
                 if out.is_empty() {
@@ -504,7 +484,7 @@ impl App {
     /// label starts typing it, and Enter on a choice picks it into the
     /// editor, or puts it in the editor piece's place; Esc goes back.
     fn choice_key(&mut self, state: &State, obj: &Obj, key: Key) -> Vec<Effect> {
-        let list = flowdraw::choices_for(self, obj);
+        let list = flowdraw::choices_for(&self.shared, obj);
         let Some((kind, sel)) = flowdraw::label_target(obj) else {
             self.flow_with(|s| s.layer = None);
             return Vec::new();
@@ -635,14 +615,14 @@ impl App {
     /// The choice a terminal card's line `line` starts on: the one the
     /// path holds now.
     fn card_pick(&self, obj: &Obj, line: usize) -> usize {
-        let Some(path) = flowdraw::card_path(self, obj) else {
+        let Some(path) = flowdraw::card_path(&self.flow.state, &self.shared, obj) else {
             return 0;
         };
         let lines = flowdraw::card_lines(&path, matches!(obj, Obj::New(_)));
         let Some(l) = lines.get(line) else {
             return 0;
         };
-        flowdraw::card_chosen(self, &path, l).unwrap_or(0)
+        flowdraw::card_chosen(&self.shared, &path, l).unwrap_or(0)
     }
 
     /// A key on a terminal's card, an added path's or the editor's: Up and
@@ -651,7 +631,7 @@ impl App {
     /// login's Other…, a command, and Esc goes back. `e` on an added path's
     /// card revises the path.
     fn terminal_card_key(&mut self, state: &State, obj: &Obj, key: Key) -> Vec<Effect> {
-        let Some(path) = flowdraw::card_path(self, obj) else {
+        let Some(path) = flowdraw::card_path(&self.flow.state, &self.shared, obj) else {
             self.flow_with(|s| s.layer = None);
             return Vec::new();
         };
@@ -663,7 +643,7 @@ impl App {
         if let Some(typed) = state.typing.clone() {
             return self.card_type_key(obj, &path, &line, typed, key);
         }
-        let choices = flowdraw::card_choices(self, &line);
+        let choices = flowdraw::card_choices(&self.shared, &line);
         match key {
             Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
                 let at = step(state.line, lines.len(), key);
@@ -683,7 +663,7 @@ impl App {
                 self.flow_with(|s| s.pick = s.pick.saturating_add(1).min(last));
                 Vec::new()
             }
-            Key::Enter if flowdraw::card_types(self, &line, state.pick) => {
+            Key::Enter if flowdraw::card_types(&self.shared, &line, state.pick) => {
                 let now = flowdraw::card_value(&path, &line);
                 self.flow_with(|s| s.typing = Some(now));
                 Vec::new()
@@ -833,7 +813,7 @@ impl App {
         if let Some(typed) = state.typing.clone() {
             return self.typed_key(stage, from_new, typed, key);
         }
-        let fonts = flowdraw::font_names(self);
+        let fonts = flowdraw::font_names(&self.shared);
         let length = match &state.picker {
             Some(p) => parts::picker(&self.shared.inputs.flow, p.stage, p.key).len(),
             None => parts::makes(stage, &fonts).len(),
@@ -968,7 +948,7 @@ impl App {
     /// terminal card opens, where its name, font set and size are set.
     fn new_terminal(&mut self, from_new: bool) -> Vec<Effect> {
         let flow = &self.shared.inputs.flow;
-        let doc = flowdraw::shown_doc(self, paths::read(flow));
+        let doc = flowdraw::shown_doc(&self.flow.state, paths::read(flow));
         let made: Vec<String> = self
             .flow
             .state
@@ -1041,12 +1021,13 @@ impl App {
         if state.layer.is_some() || state.typing.is_some() {
             return Vec::new();
         }
-        let (top, height) = flowdraw::window(self);
+        let (top, height) =
+            flowdraw::window(&self.shared, self.size, super::view::key_rows(self).len());
         if row < top || row >= top.saturating_add(height) {
             return Vec::new();
         }
         let y = state.top.saturating_add(row.saturating_sub(top));
-        let layout = flowdraw::layout_of(self);
+        let layout = flowdraw::layout_of(&self.flow.state, &self.shared, self.size.cols);
         let hit = layout
             .boxes
             .iter()
@@ -1246,7 +1227,7 @@ mod tests {
             .position(|l| *l == login)
             .expect("the Login line");
         keys(&mut app, &vec![Key::Down; at]);
-        let words: Vec<String> = flowdraw::card_choices(&app, &login)
+        let words: Vec<String> = flowdraw::card_choices(&app.shared, &login)
             .into_iter()
             .map(|(w, _)| w)
             .collect();
@@ -1332,8 +1313,12 @@ mod tests {
     /// The draft text that Enter on the choice `pick` of `line` sends to
     /// check-config, from the card `card_of` opened.
     fn card_writes(app: &mut App, line: &flowdraw::CardLine, pick: usize) -> String {
-        let path = flowdraw::card_path(app, &state(app).layer.clone().expect("a card"))
-            .expect("the card's path");
+        let path = flowdraw::card_path(
+            app.flow.state(),
+            &app.shared,
+            &state(app).layer.clone().expect("a card"),
+        )
+        .expect("the card's path");
         let at = flowdraw::card_lines(&path, false)
             .iter()
             .position(|l| l == line)
@@ -1359,7 +1344,7 @@ mod tests {
         let line = flowdraw::CardLine::Setting("switch-on-enter");
         let off = "version = 1\npolicy = open\n[head desk]\nvt = 3\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
         let mut app = card_of(off, "desk");
-        let words: Vec<String> = flowdraw::card_choices(&app, &line)
+        let words: Vec<String> = flowdraw::card_choices(&app.shared, &line)
             .into_iter()
             .map(|(w, _)| w)
             .collect();
@@ -1368,7 +1353,7 @@ mod tests {
             .path("desk")
             .cloned()
             .expect("desk");
-        assert_eq!(flowdraw::card_chosen(&app, &path, &line), Some(0));
+        assert_eq!(flowdraw::card_chosen(&app.shared, &path, &line), Some(0));
         assert_eq!(
             card_writes(&mut app, &line, 1),
             "version = 1\npolicy = open\n[head desk]\nswitch-on-enter = yes\nvt = 3\n[rules]\ndisplay * -> desk\ninput * -> desk\n"
@@ -1379,7 +1364,7 @@ mod tests {
             .path("desk")
             .cloned()
             .expect("desk");
-        assert_eq!(flowdraw::card_chosen(&app, &path, &line), Some(1));
+        assert_eq!(flowdraw::card_chosen(&app.shared, &path, &line), Some(1));
         assert_eq!(card_writes(&mut app, &line, 0), off);
         // toggling on, off, on and off leaves the draft as it was, with no
         // line left behind, commented out or not (the maintainer,
@@ -1403,7 +1388,7 @@ mod tests {
                 .path("desk")
                 .cloned()
                 .expect("desk");
-            flowdraw::card_about(&app, &path, &line, false).expect("a hint")
+            flowdraw::card_about(&app.shared, &path, &line, false).expect("a hint")
         };
         let rules = "[rules]\ndisplay * -> desk\ninput * -> desk\n";
         let cases = [
@@ -1444,7 +1429,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            flowdraw::card_about(&app, &new, &line, true).as_deref(),
+            flowdraw::card_about(&app.shared, &new, &line, true).as_deref(),
             Some(format!("{} {}", words::SWITCH_ABOUT, words::SWITCH_EVERY_VT_NEW).as_str())
         );
         // the control each hint names is the one on screen

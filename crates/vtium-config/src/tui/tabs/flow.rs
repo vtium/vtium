@@ -11,7 +11,8 @@
 use super::super::desk::Kept;
 use super::super::flow::{Flow as Wiring, Item};
 use super::super::flowview::{self, Obj, Slot};
-use super::super::model::Pager;
+use super::super::model::{Pager, Shared, Size};
+use super::super::{flowdraw, parts, paths};
 
 /// Where the Flow tab stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -60,6 +61,28 @@ impl Flow {
     /// when the list is open.
     pub fn restore(&self) -> Option<&(Vec<Kept>, usize)> {
         self.restore.as_ref()
+    }
+
+    /// Lays the tab out again after every event: the parts enumerated
+    /// again from the flow, a layer closed when its object is gone, the
+    /// highlight back on its object, and the window where it keeps that
+    /// object at the same height. `keys` is how many rows the key line
+    /// takes in a terminal of `size`.
+    pub fn settle(&mut self, shared: &Shared, size: Size, keys: usize) {
+        // the parts, enumerated again and merged by their matches, so a
+        // device that comes or goes after any event shows at once
+        let flow = &shared.inputs.flow;
+        let now = parts::enumerate(flow, &paths::read(flow));
+        parts::merge(&mut self.state.parts, flow, now);
+        let layout = flowdraw::layout_of(&self.state, shared, size.cols);
+        if let Some(o @ Obj::Doc(..)) = &self.state.layer
+            && layout.find(o).is_none()
+        {
+            self.state.layer = None;
+            self.state.typing = None;
+        }
+        let (_, height) = flowdraw::window(shared, size, keys);
+        self.state.settle(&layout, height);
     }
 
     /// The node of the interface tree the tab is at: a value being typed,

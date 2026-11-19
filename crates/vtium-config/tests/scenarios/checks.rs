@@ -226,7 +226,7 @@ impl Seen<'_> {
     fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
         let fv = sim.app.flow.state();
         let obj = fv.layer.clone()?;
-        let path = flowdraw::card_path(&sim.app, &obj)?;
+        let path = flowdraw::card_path(sim.app.flow.state(), &sim.app.shared, &obj)?;
         let line = flowdraw::card_lines(&path, matches!(obj, Obj::New(_)))
             .get(fv.line)
             .cloned()?;
@@ -245,7 +245,7 @@ impl Seen<'_> {
         if self.exited() {
             return Err("Enter left the TUI".into());
         }
-        if flowdraw::card_types(&self.before.app, &line, pick) {
+        if flowdraw::card_types(&self.before.app.shared, &line, pick) {
             return if self.after.app.flow.state().typing.is_some() {
                 Ok(())
             } else {
@@ -272,7 +272,7 @@ impl Seen<'_> {
         // the card the change leaves open shows the line at the choice set
         let held = Self::card(self.after).and_then(|(_, path, after_line)| {
             (after_line == line)
-                .then(|| flowdraw::card_chosen(&self.after.app, &path, &line))
+                .then(|| flowdraw::card_chosen(&self.after.app.shared, &path, &line))
                 .flatten()
         });
         if held == Some(pick) {
@@ -695,7 +695,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                     return Err("Right left the card, changed a line or changed the draft".into());
                 }
                 let last = Seen::card(s.before)
-                    .map(|(_, _, line)| flowdraw::card_choices(&s.before.app, &line).len())
+                    .map(|(_, _, line)| flowdraw::card_choices(&s.before.app.shared, &line).len())
                     .unwrap_or(0)
                     .saturating_sub(1);
                 if b.pick == a.pick.saturating_add(1).min(last) {
@@ -824,7 +824,7 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
     fn lines(s: &Seen<'_>) -> Result<(usize, usize, usize), String> {
         let fv = s.before.app.flow.state();
         let obj = fv.layer.as_ref().ok_or("no detail was open")?;
-        let len = flowdraw::choices_for(&s.before.app, obj).len();
+        let len = flowdraw::choices_for(&s.before.app.shared, obj).len();
         Ok((fv.line, s.after.app.flow.state().line, len))
     }
     m.insert("up.layer.flow-detail", (|s| s.nothing(), None));
@@ -947,7 +947,7 @@ fn detail_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
             |s| {
                 let fv = s.before.app.flow.state();
                 let obj = fv.layer.clone().ok_or("no detail was open")?;
-                let list = flowdraw::choices_for(&s.before.app, &obj);
+                let list = flowdraw::choices_for(&s.before.app.shared, &obj);
                 let Some(sel) = list
                     .get(fv.line.saturating_sub(1))
                     .and_then(|c| c.2.clone())
@@ -1234,7 +1234,7 @@ impl Checks {
             .layer
             .as_ref()
             .and_then(|obj| {
-                let path = flowdraw::card_path(&sim.app, obj)?;
+                let path = flowdraw::card_path(sim.app.flow.state(), &sim.app.shared, obj)?;
                 Some(flowdraw::card_lines(&path, matches!(obj, Obj::New(_))).len())
             })
             .unwrap_or(0)
