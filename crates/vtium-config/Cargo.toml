@@ -27,8 +27,9 @@ vtium-font = { workspace = true, features = ["psf", "deflate"] }
 # the TUI's event loop, which holds its signals (ADR-1201 D7).
 vtium-platform.workspace = true
 # vtium.conf's line editor and the head file's one writer and parser
-# (ADR-1201 D5, D6), the crate the console already links.
-vtium-settings.workspace = true
+# (ADR-1201 D5, D6), the crate the console already links; with its vtlook
+# reader, which the Effects tab lists vtlooks with (ADR-1205 D3).
+vtium-settings = { workspace = true, features = ["filters"] }
 # The console's named palettes, in whose colors the TUI draws its pictures
 # of the console (ADR-1201 D4), and the terminal's width rule, by which the
 # helper gives each glyph its cells (ADR-1200 D21); the crate the console

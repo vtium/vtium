@@ -352,7 +352,8 @@ fn nothing_changed_means_nothing_to_install() {
 #[test]
 fn each_view_at_80x25_and_100x30() {
     use model::View::Fonts;
-    let scripts: [(&str, model::View, &[&[u8]]); 5] = [
+    let scripts: [(&str, model::View, &[&[u8]]); 6] = [
+        ("effects", Fonts, &[TO_EFFECTS]),
         ("looks", Fonts, &[TO_LOOKS]),
         ("fonts", Fonts, &[]),
         ("settings", Fonts, &[b"\t"]),
@@ -400,7 +401,7 @@ fn tab_and_shift_tab_step_the_views_from_every_column_of_the_flow_through_the_lo
 fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
     use model::View::{Effects, Flow, Fonts, Help, Looks, Settings};
     let own = |view| match view {
-        Effects => words::KEYS_EFFECTS,
+        Effects => keys_of("effects"),
         Looks => words::KEYS_LOOKS,
         Fonts => words::KEYS_FONTS_LIVE,
         Settings => keys_of("settings"),
@@ -1382,7 +1383,7 @@ fn at_80x25_no_key_or_sentence_is_cut() {
     type Case<'a> = (&'a [&'a [u8]], &'a str, &'a [&'a str]);
     let views: [Case; 7] = [
         (&[], words::KEYS_FONTS_LIVE, &[]),
-        (&[TO_EFFECTS], words::KEYS_EFFECTS, &[words::EFFECTS_COMING]),
+        (&[TO_EFFECTS], keys_of("effects"), &[words::EFFECTS_HINT]),
         (
             &[TO_LOOKS],
             words::KEYS_LOOKS,

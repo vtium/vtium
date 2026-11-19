@@ -213,7 +213,7 @@ fn a_typed_value_a_switch_and_a_choice_go_into_the_draft() {
         d.draft,
         // a new key goes after the last line of the top level, never into a
         // section (ADR-1403 D8)
-        "# mine\nfont-name=unifont\nversion = 1\nfont-hinting=light\nfont-line-spacing=10\nno-allow-font-ops\ndisplay-dpi=qi\n[look proof]\nfont-name = proof\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n"
+        "# mine\nfont-name=unifont\nversion = 1\nfont-hinting=light\nfont-line-spacing=10\nno-allow-font-ops\ndisplay-dpi=qi\n[look proof]\nfont-name = proof\nvtlook = sepia\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n"
     );
 }
 

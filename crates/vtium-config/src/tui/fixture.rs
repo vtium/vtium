@@ -10,6 +10,8 @@ use std::path::PathBuf;
 
 use super::flow::{Base, Device, Draft, Flow, Head, Kind, Look, Rule, RuleState};
 use super::model::{DpiFrom, Font, FontState, Inputs, View};
+use super::resources::{Effects, From, Resource, Vtlook};
+use crate::batch::State;
 
 fn rule(kind: Kind, line: usize, selector: &str, target: &str, state: RuleState) -> Rule {
     Rule {
@@ -156,7 +158,7 @@ pub fn flow() -> Flow {
 /// The sections of the fixture's vtium.conf: a look that draws the frit
 /// proof, the head desk drawing it, and the head panel drawing the default
 /// look (ADR-1403 D4).
-pub const SECTIONS: &str = "version = 1\n[look proof]\nfont-name = proof\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n";
+pub const SECTIONS: &str = "version = 1\n[look proof]\nfont-name = proof\nvtlook = sepia\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n";
 
 /// What the TUI opens on: the fonts of a machine with three frits, one that
 /// does not read, its vtium.conf, and [`flow`] in the Flow view, with no
@@ -202,6 +204,113 @@ pub fn inputs() -> Inputs {
         .into_iter()
         .map(|(n, b)| (n.to_owned(), b.to_vec()))
         .collect(),
+        effects: effects(),
+    }
+}
+
+/// What the fixture's Effects tab lists: No filter; the presets amber and
+/// green; the administrator's sepia, which names the color map sepia.cube,
+/// and green, which does not read and hides the preset; the color maps
+/// sepia.cube, active, warm.cube, not active, loose.cube, which fails the
+/// trust rule, and mine.cube in the person's own folder; and no shader.
+pub fn effects() -> Effects {
+    let vtlook =
+        |name: &str, from, hidden, read: Result<Vec<String>, String>, files: &[&str]| Vtlook {
+            name: name.to_owned(),
+            file: match from {
+                From::BuiltIn => None,
+                From::Preset => Some(PathBuf::from(format!(
+                    "/usr/share/vtium/looks/{name}.vtlook"
+                ))),
+                From::Administrator => {
+                    Some(PathBuf::from(format!("/etc/vtium/looks/{name}.vtlook")))
+                }
+            },
+            from,
+            hidden,
+            read,
+            files: files.iter().map(PathBuf::from).collect(),
+        };
+    let tint = |color: &str| Ok(vec![format!("tint: color {color}, amount 1, floor 0")]);
+    let map = |name: &str, state, trust: Result<(), String>, own| Resource {
+        path: PathBuf::from(if own {
+            format!("/home/user/.config/vtium/looks/{name}")
+        } else {
+            format!("/etc/vtium/looks/{name}")
+        }),
+        kind: "color map",
+        state,
+        trust,
+        own,
+    };
+    Effects {
+        vtlooks: vec![
+            vtlook("default", From::BuiltIn, false, Ok(Vec::new()), &[]),
+            vtlook("amber", From::Preset, false, tint("255,176,0"), &[]),
+            vtlook("green", From::Preset, true, tint("51,255,102"), &[]),
+            vtlook(
+                "green",
+                From::Administrator,
+                false,
+                Err("Line 2: there is no color filter named glow.".to_owned()),
+                &[],
+            ),
+            vtlook(
+                "sepia",
+                From::Administrator,
+                false,
+                Ok(vec!["cube: file sepia.cube".to_owned()]),
+                &["/etc/vtium/looks/sepia.cube"],
+            ),
+        ],
+        maps: vec![
+            map("sepia.cube", State::Active, Ok(()), false),
+            map("warm.cube", State::Inactive, Ok(()), false),
+            map(
+                "loose.cube",
+                State::Inactive,
+                Err("/etc/vtium/looks/loose.cube: the file belongs to user 1000, and only root may own it.".to_owned()),
+                false,
+            ),
+            map("mine.cube", State::Inactive, Ok(()), true),
+        ],
+        shaders: Vec::new(),
+    }
+}
+
+/// What a stand-in desk answers [`super::desk::Op::Resource`] with, on
+/// `states`, the resources that are active or that the draft changes: the
+/// draft's change as the real desk keeps it, an activation of a resource
+/// the draft deactivates taking the deactivation back.
+pub fn resource_op(
+    states: &mut Vec<(PathBuf, State)>,
+    path: &std::path::Path,
+    change: crate::batch::Change,
+) -> super::desk::Done {
+    use crate::batch::Change;
+    let now = states
+        .iter()
+        .find(|(p, _)| p == path)
+        .map_or(State::Inactive, |(_, s)| *s);
+    let after = match (change, now) {
+        (Change::Activate, State::Deactivates) => Some(State::Active),
+        (Change::Activate, State::Inactive) => Some(State::Activates),
+        (Change::Deactivate, State::Active) => Some(State::Deactivates),
+        (Change::Deactivate, State::Activates) => None,
+        (_, same) => Some(same),
+    };
+    states.retain(|(p, _)| p != path);
+    if let Some(after) = after.filter(|s| *s != State::Inactive) {
+        states.push((path.to_path_buf(), after));
+    }
+    let changes = states
+        .iter()
+        .filter(|(_, s)| matches!(s, State::Activates | State::Deactivates))
+        .count();
+    super::desk::Done::Resources {
+        states: states.clone(),
+        said: super::words::changed(change, "color map"),
+        changes,
     }
 }
 

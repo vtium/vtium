@@ -1415,9 +1415,10 @@ impl Checks {
                 ));
             }
             // a question that throws the draft away counts the changes it
-            // also throws away
+            // also throws away; the deactivate question changes the draft's
+            // active resources and keeps its unsaved changes
             if let Some(c) = &app.nav.confirm
-                && matches!(c.then, Then::Desk(_))
+                && matches!(&c.then, Then::Desk(op) if !matches!(op, vtium_config::tui::desk::Op::Resource { .. }))
                 && app.shared.unsaved > 0
                 && !c.question.contains("not saved")
             {

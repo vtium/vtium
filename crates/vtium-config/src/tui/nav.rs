@@ -127,6 +127,7 @@ pub fn node(app: &App) -> &'static str {
         return match confirm.then {
             Then::Quit(_) => "any.question.quit",
             Then::Leave(_) => "any.question.leave",
+            Then::Desk(super::desk::Op::Resource { .. }) => "any.question.deactivate",
             _ => "any.question.confirm",
         };
     }
