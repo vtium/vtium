@@ -127,12 +127,14 @@ fn solid(cell: vtium_font::Cell, chars: &[char]) -> std::sync::Arc<vtium_font::s
 }
 
 // The console's glyph store keeps no record of the font each glyph came
-// from, so a login whose batch no longer holds a font that was active
-// drops every frit's stored glyphs, and the font helper draws the screen
-// again from the fonts still active. A login whose batch only gains a
-// font, or did not change, keeps the store.
+// from, so a login whose batch changed drops every frit's stored glyphs,
+// and the font helper draws the screen again from the fonts now active.
+// A font the batch gains may draw characters that another font drew or
+// that no font had, and a font it loses may have drawn any of them. The
+// frit's own cell is asked for again too, because a newly active first
+// source can set it. A login that finds the batch unchanged keeps both.
 #[test]
-fn a_login_whose_batch_drops_a_font_drops_the_stored_glyphs() {
+fn a_login_whose_batch_changed_drops_the_stored_glyphs() {
     let dir = Scratch::new("batch-glyphs");
     std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").unwrap();
@@ -186,17 +188,56 @@ fn a_login_whose_batch_drops_a_font_drops_the_stored_glyphs() {
     let holds =
         |app: &super::App| crate::deferred::lock(&app.frits.get("t").unwrap().generated).holds(at);
     assert!(holds(&app));
+    // an own cell the helper gave under the first batch
+    let planted = Ok(crate::helper::OwnCell::Bitmap(vtium_font::Cell {
+        width: 9,
+        height: 18,
+    }));
+    let plant = |app: &mut super::App| {
+        let frit = app.frits.get_mut("t").unwrap();
+        assert!(!frit.own.is_empty(), "the frit's own cell was asked for");
+        for answer in frit.own.values_mut() {
+            *answer = planted.clone();
+        }
+    };
+    let kept = |app: &super::App| {
+        let frit = app.frits.get("t").unwrap();
+        frit.own.values().any(|answer| *answer == planted)
+    };
+    plant(&mut app);
     // the first login finds the batch as it was
     app.return_font(0, id);
     assert!(holds(&app), "an unchanged batch keeps the glyphs");
-    // root activates a second font, and the next login keeps the glyphs
+    assert!(kept(&app), "an unchanged batch keeps the own cell");
+    // root activates a second font, and the next login drops the glyphs
     write(&file, &format!("{font}\n{more}\n"));
     app.return_font(0, id);
     assert!(
-        holds(&app),
-        "a batch that only gains a font keeps the glyphs"
+        !holds(&app),
+        "a font the batch gains draws the characters it has"
+    );
+    assert!(!kept(&app), "the own cell is asked for again");
+    assert_eq!(
+        app.frits.get("t").unwrap().asked,
+        [at],
+        "the screen's glyphs are asked for again"
     );
     // root deactivates the first font, and the next login drops them
+    let fresh = |app: &super::App| {
+        let frit = app.frits.get("t").unwrap();
+        let mut store = crate::deferred::lock(&frit.generated);
+        let fresh = store
+            .fresh(
+                (at, vtium_font::Variant::default()),
+                solid(at.cell, &['A']),
+                &[(0x41, 1)],
+                1,
+            )
+            .unwrap();
+        assert!(store.add(fresh).is_some());
+    };
+    fresh(&app);
+    assert!(holds(&app));
     write(&file, &format!("{more}\n"));
     app.return_font(0, id);
     assert!(

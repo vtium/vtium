@@ -217,10 +217,16 @@ pub struct Head {
     /// [`Config::for_head`] lays over the configuration wherever the
     /// console reads a key a section may set.
     pub(crate) settings: Vec<vtium_settings::Setting>,
-    /// The vtlook the head draws with, chosen once when vtium makes the
-    /// head from the head file ([`crate::head::session::heads`]). A head
-    /// made otherwise draws the built-in vtlook.
+    /// The vtlook the head draws with, chosen when vtium makes the head
+    /// from the head file ([`crate::head::session::heads`]), and again at
+    /// the head's first session end after the batch changed. A head made
+    /// otherwise draws the built-in vtlook.
     pub(crate) vtlook: look::Chosen,
+    /// How many times the console had found the batch changed when the
+    /// head last caught up with it, at the head's making or at a session
+    /// end. A head behind the console's count resolves its font and
+    /// chooses its vtlook again at its next session end.
+    pub(crate) batch: u64,
     /// The head's configured palette: the one its look's `palette` names,
     /// else the top level's. Each console of the head starts with it, and
     /// OSC 104 to 119, RIS and DECSTR return its colors to it.
@@ -553,6 +559,7 @@ impl Head {
             tracking: MouseTracking::Off,
             font_name,
             vtlook: look::Chosen::default(),
+            batch: 0,
             palette,
             settings,
             font_size: 0,

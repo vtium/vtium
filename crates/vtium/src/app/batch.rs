@@ -15,7 +15,8 @@ use crate::font;
 impl App {
     /// Reads the batch from `places` in place of this machine's, now and
     /// at each new login, with `rule` the trust rule each resource passes:
-    /// a test's batch file, fresh-install list and fixture folder.
+    /// a test's batch file, fresh-install list and fixture folder. The
+    /// heads count as made under that batch.
     #[cfg(test)]
     pub(crate) fn set_batch_places(
         &mut self,
@@ -24,6 +25,10 @@ impl App {
     ) {
         self.batch_places = (places, rule);
         self.reread_batch(None);
+        // the heads stand as if made under this batch, as at a start
+        for head in &mut self.heads {
+            head.batch = self.batch_changes;
+        }
     }
 
     /// The console's gate for this login, which holds the batch that the
@@ -47,20 +52,17 @@ impl App {
     /// When the batch changed, the console's launcher takes the new active
     /// fonts before any glyph is asked for again, every color scheme is read
     /// again at its next use, and every stored glyph is dropped and drawn
-    /// again when the new batch no longer lists a resource the old one
-    /// listed, because a glyph may come from a font that is no longer
-    /// active. When the pointer file's place in the batch changed, the
+    /// again. When the pointer file's place in the batch changed, the
     /// pointer file loads again through the new gate. Then head `ended`,
     /// whose session ended, catches up with the batch in force, whether or
-    /// not this call found it changed.
+    /// not this call found it changed. Returns whether head `ended` must
+    /// resolve its font again.
     ///
     /// References:
     /// - ADR-1205 D4, its note of 2026-11-19: the batch is read again at each new login, where vtium reads the font settings again.
-    pub(super) fn reread_batch(&mut self, ended: Option<usize>) {
+    pub(super) fn reread_batch(&mut self, ended: Option<usize>) -> bool {
         self.batch_changed();
-        if let Some(h) = ended {
-            self.catch_up(h);
-        }
+        ended.is_some_and(|h| self.catch_up(h))
     }
 
     /// Reads the batch again, and when it changed brings the console's
@@ -90,14 +92,15 @@ impl App {
                 self.reload_pointer_file();
             }
         }
-        if before
-            .batch
-            .entries()
-            .iter()
-            .any(|e| !gate.batch.entries().contains(e))
-        {
-            self.drop_glyphs();
+        self.batch_changes = self.batch_changes.saturating_add(1);
+        // A font the batch gains may draw characters that another font
+        // drew or that no font had, and a font it loses may have drawn any
+        // of them, so every change drops the glyphs, and every frit's own
+        // cell is asked for again at its head's next login.
+        for frit in self.frits.values_mut() {
+            frit.own.clear();
         }
+        self.drop_glyphs();
         crate::config::Config::forget_palettes();
     }
 
@@ -106,15 +109,22 @@ impl App {
     /// found the batch changed: every console of the head takes the palette
     /// the batch allows. A head whose next login is the first since another
     /// head's session end found the change thus catches up at its own.
+    /// Returns whether the batch changed since the head last caught up, in
+    /// which case the caller resolves the head's font again.
     ///
     /// References:
     /// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
-    fn catch_up(&mut self, h: usize) {
+    fn catch_up(&mut self, h: usize) -> bool {
         let top = self.config.palette();
         let config = self.head_config(h);
-        if let Some(head) = self.heads.get_mut(h) {
-            head.repalette(&config, top);
-        }
+        let changes = self.batch_changes;
+        let Some(head) = self.heads.get_mut(h) else {
+            return false;
+        };
+        head.repalette(&config, top);
+        let behind = head.batch != changes;
+        head.batch = changes;
+        behind
     }
 
     /// Drops every glyph the font helpers drew, of every frit, and asks
