@@ -697,6 +697,42 @@ fn contained(path: &Path, data_dirs: &[PathBuf], sub: &str) -> Result<PathBuf, S
     }
 }
 
+/// Why a `font:` source found no font of `family`, whose kbd console fonts
+/// were looked for in `kbd`. Through an active gate the search took the
+/// active fonts alone, so it looks again among every font in the same
+/// folders. A font of the family there that the batch does not list is
+/// refused, and the refusal names its file, so the person learns which
+/// file to activate. That second search reads only the fonts' names, in
+/// the helper's sandbox, and draws nothing from them.
+///
+/// References:
+/// - ADR-1205 D4: a font the batch does not hold counts as missing, and
+///   vtium names the file and the check it failed.
+fn family_missing(family: &str, host: &Host<'_>, kbd: &str) -> SourceError {
+    if host.gate.active() {
+        let inactive = find_family(family, &host.kbd_dirs)
+            .ok()
+            .flatten()
+            .or_else(|| find_outline_family(family, &host.font_dirs).ok().flatten());
+        if let Some(path) = inactive {
+            return SourceError::Refused {
+                path,
+                because: NOT_ACTIVE.to_owned(),
+            };
+        }
+    }
+    let fonts: Vec<String> = host
+        .font_dirs
+        .iter()
+        .map(|d| d.display().to_string())
+        .collect();
+    SourceError::Missing(format!(
+        "no font of family {family}: no kbd console font of that name in {kbd}, \
+         and no outline font of that family in {}",
+        fonts.join(", ")
+    ))
+}
+
 /// Reads `source` for the parser.
 pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
     read_source(source, host, false).map(|(input, _)| input)
@@ -804,29 +840,15 @@ fn read_source(
                     (gate.read(&path, limit)?, source.unimap.clone())
                 }
                 None => {
-                    let path = find_outline_family_capped(
-                    family,
-                    &host.font_dirs,
-                    FAMILY_FILES_MAX,
-                    gate,
-                )?
-                .ok_or_else(|| {
-                    let fonts: Vec<String> = host
-                        .font_dirs
-                        .iter()
-                        .map(|d| d.display().to_string())
-                        .collect();
-                    // through an active gate, a font the batch does not
-                    // list is never a candidate, so the message says the
-                    // search looked at the active fonts alone
-                    let active = if gate.active() { "active " } else { "" };
-                    SourceError::Missing(format!(
-                        "no {active}font of family {family}: no {active}kbd console font of that name in {}, \
-                         and no {active}outline font of that family in {}",
-                        dirs(),
-                        fonts.join(", ")
-                    ))
-                })?;
+                    let found = find_outline_family_capped(
+                        family,
+                        &host.font_dirs,
+                        FAMILY_FILES_MAX,
+                        gate,
+                    )?;
+                    let Some(path) = found else {
+                        return Err(family_missing(family, host, &dirs()));
+                    };
                     if source.cp_size.is_some() {
                         return Err(SourceError::Failed(format!(
                             "cp-size= is for a CPI font, and {} is an outline font",
@@ -1902,13 +1924,16 @@ mod tests {
         h.font_dirs = vec![t.0.join("home/me/.local/share/fonts")];
         // an open gate finds it
         assert!(resolve(&family(), &h).is_ok());
-        // an active gate whose batch does not list it finds no font
+        // an active gate whose batch does not list it names the file, which
+        // is not active
         let gate = active(&t, &[]);
         h.gate = &gate;
-        let e = resolve(&family(), &h).unwrap_err();
-        assert!(
-            matches!(&e, SourceError::Missing(w) if w.starts_with("no active font of family Fam:")),
-            "{e:?}"
+        assert_eq!(
+            resolve(&family(), &h).unwrap_err(),
+            SourceError::Refused {
+                path: font.clone(),
+                because: NOT_ACTIVE.to_owned()
+            }
         );
         // listed, under the rule of a console that runs as root, the
         // user's folder fails the owner check
@@ -1922,6 +1947,32 @@ mod tests {
         assert!(
             matches!(&e, SourceError::Refused { path, because }
                 if path == &font && because.contains("belongs to")),
+            "{e:?}"
+        );
+    }
+
+    // ADR-1205 D4: a family search through an active gate takes only the
+    // fonts the batch lists, so an active font of the family draws even
+    // when a font that is not active comes first in the search's order;
+    // a family the machine lacks is missing, as through an open gate
+    #[test]
+    fn a_family_search_takes_the_active_font_of_the_family() {
+        let t = Tree::new("gate-family");
+        // the first file differs from the listed one by its style's name
+        t.file("a/Fam-Regular.ttf", &outline_font("Fam", "Book"));
+        let listed = t.file("b/Fam-Regular.ttf", &outline_font("Fam", "Regular"));
+        let consoles = Graphics;
+        let gate = active(&t, &[&listed]);
+        let mut h = host_through(&t, &consoles, &gate);
+        h.font_dirs = vec![t.0.join("a"), t.0.join("b")];
+        let family = |name: &str| source("font:x", Origin::Font(name.into()), None);
+        let Input::Outline(read) = resolve(&family("Fam"), &h).unwrap() else {
+            panic!("not an outline font");
+        };
+        assert_eq!(&read.font[..], &fs::read(&listed).unwrap()[..]);
+        let e = resolve(&family("Gone"), &h).unwrap_err();
+        assert!(
+            matches!(&e, SourceError::Missing(w) if w.starts_with("no font of family Gone:")),
             "{e:?}"
         );
     }
