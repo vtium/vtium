@@ -4407,3 +4407,92 @@ mod draft_flow {
         }
     }
 }
+
+/// The window of a tab's list: update keeps the highlighted item in view
+/// after every event, and the view draws ratatui's List from a copy.
+///
+/// References:
+/// - ADR-1206 D4, "A list's selection lives in the tab's state".
+mod list_window {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Event, Size, View};
+    use vtium_config::tui::view;
+
+    fn press(app: &mut App, key: Key) {
+        app.event(Event::Input(Input::Key(key)));
+    }
+
+    /// The Settings tab at `cols` × `rows`, with its second section open:
+    /// Colors, whose keys are longer than the window at 80 × 25.
+    fn colors(cols: usize, rows: usize) -> App {
+        let mut i = super::inputs();
+        i.view = View::Settings;
+        let mut app = App::new(i, cols, rows).0;
+        press(&mut app, Key::Down);
+        press(&mut app, Key::Enter);
+        app
+    }
+
+    /// The text of the highlighted row on the screen, which the list
+    /// draws in reverse video, and the row it stands on.
+    fn highlighted(app: &App) -> Option<(usize, String)> {
+        view::screen(app).iter().enumerate().find_map(|(y, row)| {
+            row.iter()
+                .find(|s| s.style.reverse && y > 2)
+                .map(|s| (y, s.text.trim().to_owned()))
+        })
+    }
+
+    #[test]
+    fn the_highlighted_key_s_last_row_stays_at_the_window_s_bottom_and_a_resize_fits_the_window() {
+        let mut app = colors(80, 25);
+        assert_eq!(app.settings.offset(), 0);
+        press(&mut app, Key::End);
+        let end = app.settings.offset();
+        assert!(end > 0, "the section is longer than the window");
+        // the highlighted key is the window's last row, above the blank
+        // row that starts the sentences under the list
+        let (row, _) = highlighted(&app).expect("a highlighted key");
+        let blank_below = |app: &App, row: usize| {
+            view::screen(app)
+                .get(row + 1)
+                .is_some_and(|r| r.iter().all(|s| s.text.trim().is_empty()))
+        };
+        assert!(
+            blank_below(&app, row),
+            "{}",
+            view::as_text(&view::screen(&app))
+        );
+        press(&mut app, Key::Up);
+        assert_eq!(app.settings.offset(), end - 1);
+        assert_eq!(highlighted(&app).map(|(y, _)| y), Some(row));
+        // a terminal 5 rows taller shows 5 more rows of the list, so the
+        // window starts 5 rows higher
+        let size = Size {
+            rows: 30,
+            ..app.size
+        };
+        app.event(Event::Resize(size));
+        assert_eq!(app.settings.offset(), end - 1 - 5);
+        assert_eq!(highlighted(&app).map(|(y, _)| y), Some(row + 5));
+    }
+
+    #[test]
+    fn a_frame_leaves_the_model_as_it_was() {
+        let mut app = colors(80, 25);
+        press(&mut app, Key::End);
+        let (_, key) = highlighted(&app).expect("a highlighted key");
+        // a long message arrives after update settled the window, so the
+        // window no longer fits the rows left for the list, and ratatui's
+        // List moves the window on the copy the view draws from
+        app.shared.message = Some("word ".repeat(60));
+        let (tab, before) = (app.settings.clone(), format!("{app:?}"));
+        // the model is lent mutably, as a frame that took it so would need
+        let model: &mut App = &mut app;
+        let mut painter = view::Painter::new().expect("a painter");
+        painter.frame(model).expect("a frame");
+        assert_eq!(app.settings, tab);
+        assert!(format!("{app:?}") == before, "the frame changed the model");
+        assert_eq!(highlighted(&app).map(|(_, k)| k), Some(key));
+    }
+}

@@ -118,6 +118,28 @@ impl Settings {
         self.editing.as_deref()
     }
 
+    /// The first row the window of the list on screen shows: the values'
+    /// list where it is open, else the open section's keys, else the
+    /// sections.
+    pub fn offset(&self) -> usize {
+        match (self.values, self.open) {
+            (Some(values), _) => values.offset,
+            (None, Some((_, keys))) => keys.offset,
+            (None, None) => self.sections.offset,
+        }
+    }
+
+    /// Keeps the list on screen in view from its row `row`, which the
+    /// layout gives after every event: once the highlight moves, the size
+    /// changes, or the message line grows or shrinks.
+    pub fn show_from(&mut self, row: usize) {
+        match (&mut self.values, &mut self.open) {
+            (Some(values), _) => values.offset = row,
+            (None, Some((_, keys))) => keys.offset = row,
+            (None, None) => self.sections.offset = row,
+        }
+    }
+
     /// The node of the interface tree the tab is at: the list of
     /// sections, a section, a key's values, or a value being typed.
     pub fn node(&self) -> &'static str {

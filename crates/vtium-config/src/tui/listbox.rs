@@ -68,16 +68,26 @@ pub enum Act {
 /// The items PgUp and PgDn move by.
 pub const PAGE: usize = 10;
 
-/// A list's state: the highlighted item.
+/// A list's state: the highlighted item, and the first of the list's rows
+/// that its window on the screen shows. Update keeps the offset, and the
+/// view draws ratatui's List from a copy of it, so drawing never changes
+/// the model.
+///
+/// References:
+/// - ADR-1206 D4, "A list's selection lives in the tab's state": the tab
+///   keeps the selection and the offset, and the view draws from a copy.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ListBox {
     pub at: usize,
+    /// The list's first row in its window, counted in rows, since an item
+    /// can take several.
+    pub offset: usize,
 }
 
 impl ListBox {
     /// A list with the item `at` highlighted.
     pub const fn at(at: usize) -> ListBox {
-        ListBox { at }
+        ListBox { at, offset: 0 }
     }
 
     /// Reads `key` in a list of `len` items.

@@ -605,6 +605,17 @@ pub fn list_window(app: &App, list: usize, tail: usize) -> (usize, bool) {
     (list_room, show_tail)
 }
 
+/// The first row of the open view's list that the window shows: the row
+/// that puts the last row of the highlighted item at the window's
+/// bottom, or the list's first row while the highlight fits above that.
+/// An item can take several rows, so the window can start partway
+/// through an item.
+pub fn list_offset(app: &App) -> usize {
+    let Body { list, keep, tail } = body(app);
+    let (room, _) = list_window(app, list.len(), tail.len());
+    keep.saturating_add(1).saturating_sub(room)
+}
+
 /// The Help view's page: how many rows it has, and how many of them the
 /// screen shows at once. The page's top row goes as far as the row that
 /// puts the page's last row at the bottom of the screen.

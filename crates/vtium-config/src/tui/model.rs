@@ -642,6 +642,7 @@ impl App {
             .message
             .take()
             .or_else(|| app.shared.inputs.colors_note.clone());
+        app.lists_settle();
         let mut first = vec![
             Effect::Write(app.shared.replies.send(start_batch())),
             Effect::Wait(WAIT),
@@ -749,12 +750,40 @@ impl App {
         self.flow.settle(&self.shared, self.size, keys);
     }
 
+    /// Keeps the highlighted item of the open tab's list in view, from
+    /// the row its layout gives, as after every event. The window's rows
+    /// change with the highlight, the terminal's size, the message line
+    /// and the sentences under the list, so update settles the window
+    /// after every event, not only after a key or a resize.
+    ///
+    /// References:
+    /// - ADR-1206 D4, "A list's selection lives in the tab's state": update
+    ///   keeps the selection in view through the tab's layout, and each
+    ///   tab has a hook that fits the offset to the rows it has.
+    pub fn lists_settle(&mut self) {
+        let row = super::layout::list_offset(self);
+        match self.nav.view {
+            View::Settings => self.settings.show_from(row),
+            View::Fonts | View::New | View::Looks | View::Flow | View::Help => {}
+        }
+    }
+
+    /// The first row of the open tab's list that its window shows, as
+    /// update last settled it.
+    pub fn list_offset(&self) -> usize {
+        match self.nav.view {
+            View::Settings => self.settings.offset(),
+            View::Fonts | View::New | View::Looks | View::Flow | View::Help => 0,
+        }
+    }
+
     /// Takes `event`, and returns what the loop does.
     pub fn event(&mut self, event: Event) -> Vec<Effect> {
         let node = super::nav::node(self);
         let mut out = self.handle(event);
         out.extend(self.ask_picture());
         self.flow_settle();
+        self.lists_settle();
         // a key line shows its first page in each node the TUI moves to,
         // where the keys a person uses most are
         if super::nav::node(self) != node {

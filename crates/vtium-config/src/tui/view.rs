@@ -362,6 +362,8 @@ pub fn screen_at(app: &App, size: Size) -> Vec<Row> {
     frame.size = size;
     frame.shared.picture = false;
     frame.shared.shot = None;
+    // the copy's lists keep their highlight in view at the copy's size
+    frame.lists_settle();
     screen(&frame)
 }
 
@@ -459,6 +461,8 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
         Paragraph::new(page)
             .scroll((u16::try_from(first).unwrap_or(u16::MAX), 0))
             .render(band(area, 3, room), buf);
+    } else if app.nav.view == View::Settings {
+        list_body(app, colors, buf, body_area);
     } else {
         let drawn = body_rows(app);
         let first = usize::from(body_area.y.saturating_sub(area.y));
@@ -476,6 +480,74 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
         .chain(keys.iter().map(|l| plain(format!(" {l}"))))
         .collect();
     Paragraph::new(foot_lines).render(band(area, foot, rows), buf);
+}
+
+/// A tab's body: its list, drawn by ratatui's List from a copy of the
+/// tab's list state, and the sentences under the list where they fit.
+///
+/// Each row of the list is an item of the List, so the window can start
+/// partway through an item that takes several rows, as the layout's
+/// offset says. Each row is drawn in the styles its spans carry, so the
+/// highlight covers what the layout marks and no more. ratatui lays a
+/// row's text out by Unicode's widths, so a row holding a character the
+/// console measures differently is written again by the console's rule.
+/// The sentences, which can hold a font's specimen, are written by the
+/// console's rule too.
+///
+/// References:
+/// - ADR-1206 D4, "A list's selection lives in the tab's state": the view
+///   draws from a copy, so drawing never changes the model.
+/// - ADR-1206 D1, "The console's width rule decides where the cursor
+///   goes".
+fn list_body(app: &App, colors: Colors, buf: &mut Buffer, area: Rect) {
+    use ratatui_core::widgets::StatefulWidget;
+    use ratatui_widgets::list::{List, ListItem, ListState};
+    let Body { list, keep, tail } = body(app);
+    let (room, show_tail) = list_window(app, list.len(), tail.len());
+    let list_area = band(area, 0, room);
+    let items: Vec<ListItem> = list
+        .iter()
+        .map(|row| {
+            let spans: Vec<Span> = row
+                .iter()
+                .map(|s| styled(&s.text, s.style, colors))
+                .collect();
+            ListItem::new(Line::from(spans))
+        })
+        .collect();
+    let mut state = ListState::default()
+        .with_offset(app.list_offset())
+        .with_selected(Some(keep));
+    StatefulWidget::render(List::new(items), list_area, buf, &mut state);
+    let first = state.offset();
+    let shown = list.len().saturating_sub(first).min(room);
+    for (i, row) in list.iter().enumerate().skip(first).take(shown) {
+        if measured_apart(row) {
+            let line = band(list_area, i.saturating_sub(first), 1);
+            buf.set_style(line, ratatui_core::style::Style::reset());
+            for x in line.left()..line.right() {
+                buf[(x, line.y)].reset();
+            }
+            fill(buf, line, std::slice::from_ref(row), colors);
+        }
+    }
+    if show_tail {
+        fill(buf, band(area, shown, tail.len()), &tail, colors);
+    }
+}
+
+/// Whether `row` holds a character that the console's width rule and
+/// Unicode's tables measure differently, or that ratatui would join to
+/// the character before it.
+fn measured_apart(row: &Row) -> bool {
+    use ratatui_core::buffer::CellWidth as _;
+    row.iter().any(|s| {
+        s.text.chars().any(|c| {
+            let mut symbol = [0u8; 4];
+            let symbol: &str = c.encode_utf8(&mut symbol);
+            symbol.cell_width() != super::backend::console_width(symbol).max(1)
+        })
+    })
 }
 
 /// The body of a tab that is not yet drawn through ratatui, on a canvas
