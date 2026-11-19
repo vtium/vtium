@@ -30,6 +30,14 @@
 //! replies are in flight. The decoder that only reads replies, as `set`
 //! does, always keeps a lone ESC for the next read.
 //!
+//! A vtium console sends Alt and a key as ESC and the key, so Alt+Shift+P,
+//! Alt+] and Alt+Shift+_ begin a DCS, an OSC and an APC. With no reply
+//! due, nothing ends such a string, so the TUI's decoder takes the string
+//! that has not ended as Alt and a key, which it drops, and decodes the
+//! bytes after it as keys. Ctrl-C and Esc then still act. A reply that
+//! arrives after the deadline at start cleared the queue, cut by a read
+//! inside its string, decodes as keys too.
+//!
 //! References:
 //! - ADR-1206 D2, "Esc stays the key that goes back": a lone ESC waits
 //!   for its next byte only while a batch of queries is outstanding.
@@ -191,6 +199,16 @@ impl Decoder {
                 // or no reply is due to end it: the guess was wrong
                 Front::Cancelled(_) if self.guessed => return Some(self.escape_key()),
                 Front::Short if self.guessed && !awaiting => return Some(self.escape_key()),
+                // with no reply due, nothing will end a string that has not
+                // ended: Alt and `P`, `]` or `_` began it, which the decoder
+                // drops as it drops any Alt chord, and what follows is keys
+                Front::Short
+                    if self.escape
+                        && !awaiting
+                        && matches!(self.held.as_slice(), [0x1b, b'P' | b']' | b'_', ..]) =>
+                {
+                    self.held.drain(..2);
+                }
                 Front::Cancelled(n) => {
                     self.held.drain(..n.clamp(1, self.held.len()));
                 }
@@ -737,6 +755,40 @@ mod tests {
                 DA1
             ]
         );
+    }
+
+    /// A vtium console sends Alt and a key as ESC and the key, so Alt+Shift+P,
+    /// Alt+] and Alt+Shift+_ begin a DCS, an OSC and an APC. With no reply
+    /// due, no reply can end such a string: it is Alt and a key, which the
+    /// decoder drops as it drops `ESC x`, and the bytes after it are keys.
+    #[test]
+    fn with_no_reply_due_an_unfinished_string_is_alt_and_a_key() {
+        const INTERRUPT: Input = Input::Key(Key::Interrupt);
+        for alt in [&b"\x1bP"[..], b"\x1b]", b"\x1b_"] {
+            let mut d = Decoder::keys();
+            d.push(alt);
+            assert_eq!(drain(&mut d, false), [], "{alt:?}");
+            d.push(b"q");
+            assert_eq!(drain(&mut d, false), [Input::Key(Key::Char('q'))]);
+            d.push(b"\x03");
+            assert_eq!(drain(&mut d, false), [INTERRUPT]);
+            d.push(b"\x1b");
+            assert_eq!(drain(&mut d, false), [ESC]);
+            // the key and the bytes after it in one read
+            let mut d = Decoder::keys();
+            d.push(&[alt, b"q\x03\x1b"].concat());
+            assert_eq!(
+                drain(&mut d, false),
+                [Input::Key(Key::Char('q')), INTERRUPT, ESC],
+                "{alt:?}"
+            );
+        }
+        // while a reply is due, the string waits for the rest of the reply
+        let mut d = Decoder::keys();
+        d.push(b"\x1b]50;tin");
+        assert_eq!(drain(&mut d, true), []);
+        d.push(b"y5\x1b\\");
+        assert_eq!(drain(&mut d, true), [font("tiny5")]);
     }
 
     #[test]
