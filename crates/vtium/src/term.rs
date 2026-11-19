@@ -1002,8 +1002,8 @@ pub struct View {
     /// window is open on this display ([`View::flipped`], ADR-1401 D2).
     flipped_keys: Option<u64>,
     /// The term's answered keys ([`Term::answered`]) when this view's last
-    /// frame was taken, or `None` after a switch to another console's term
-    /// until the next frame is taken. A frame taken while the term has
+    /// frame was taken, or `None` before the view's first frame and after a
+    /// switch to another console's term, until the next frame is taken. A frame taken while the term has
     /// answered more keys carries the echo of the first of them.
     answered: Option<u64>,
     /// When the oldest key was sent whose echo a frame carried that the
@@ -1100,7 +1100,10 @@ impl View {
             since: Age::NEVER,
             wait: Wait::default(),
             flipped_keys: Some(0),
-            answered: Some(0),
+            // A display that joins while vtium runs starts from the keys
+            // the term has already answered, so its first frame times no
+            // key sent before it joined.
+            answered: None,
             echo_owed: None,
             pending: false,
             kept: None,
@@ -3593,6 +3596,38 @@ mod tests {
         draw_at(&mut term, &mut first, &mut one, (20, 20));
         draw_at(&mut term, &mut second, &mut two, (20, 20));
         assert_eq!(echo_ms(&term).0, 2, "each echo once on each display");
+    }
+
+    // A display plugged in while vtium runs starts from the keys the term
+    // has already answered, so its first frame times no echo. A key sent
+    // long before the display joined would otherwise give a figure as long
+    // as the time since that key.
+    #[test]
+    fn a_display_added_late_times_no_echo_from_an_old_key() {
+        let hand = Hand::new();
+        let (mut term, mut first) = view_at(&hand);
+        let mut one = Flip::new();
+        turn(&mut term, &mut first, &mut one, &[b"A"]);
+        hand.at(10);
+        term.key_sent();
+        hand.at(12);
+        turn(&mut term, &mut first, &mut one, &[b"b"]);
+        assert_eq!(echo_ms(&term), (1, Some(2)), "the echo at 12");
+        hand.at(5000);
+        let (_, mut second) = view();
+        let mut two = Flip::new();
+        let clock = Rc::clone(&term.clock);
+        second.draw(&mut term, &mut two, &DrawState::default(), &*clock);
+        assert_eq!(two.sent, 1, "the new display's first frame went out");
+        assert_eq!(echo_ms(&term), (1, Some(2)), "the first frame is no echo");
+        // The new display times the next key's echo at its own present.
+        hand.at(5010);
+        term.key_sent();
+        hand.at(5012);
+        assert_eq!(term.parse(b"c", &mut |_| {}), 1);
+        hand.at(5015);
+        second.draw(&mut term, &mut two, &DrawState::default(), &*clock);
+        assert_eq!(echo_ms(&term), (2, Some(5)), "from the key at 5010");
     }
 
     // ADR-1401 D2: with one buffer, or on a display that says so, as a
