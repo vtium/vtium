@@ -1,0 +1,45 @@
+# Sunny, vtium's own color scheme.
+#
+# Sunny puts black text on a plain white background, in the spirit of the
+# white consoles of 1990s Unix workstations. Its colors are deep and
+# saturated so that each one reads as text on white. The cursor is a
+# vermilion block, and selected text sits on a pale blue band.
+#
+# License: MIT, the license of vtium itself. vtium installs the license's
+# text with its other license notices, as LICENSE in vtium's license folder,
+# which is /usr/share/licenses/vtium on most systems.
+#
+# The file is in Ghostty's theme format. Every normal color from 1 to 6,
+# every bright color from 9 to 14, color 8 and the foreground have a contrast
+# ratio of at least 4.5:1 against the background, the WCAG level for body
+# text. Yellow is a dark ochre for that reason, since a bright yellow cannot
+# be read on white.
+#
+# Colors 7 and 15, white and bright white, are light on purpose. Programs
+# paint status bars and highlights with color 7, so it is a light gray that
+# shows as a band on the white page. Color 15 is pure white, for text on a
+# colored background. Text in either color does not show on the background,
+# as black text does not show on a dark scheme's black.
+
+palette = 0=#000000
+palette = 1=#b3141b
+palette = 2=#176f18
+palette = 3=#7d5a00
+palette = 4=#1c44b8
+palette = 5=#9c1f9c
+palette = 6=#07697a
+palette = 7=#c4c4c4
+palette = 8=#6e6e6e
+palette = 9=#d42f2f
+palette = 10=#23861d
+palette = 11=#9b6e00
+palette = 12=#3366e0
+palette = 13=#bb33bb
+palette = 14=#007f90
+palette = 15=#ffffff
+
+background = #ffffff
+foreground = #000000
+cursor-color = #d1460e
+selection-background = #b4d5fe
+selection-foreground = #000000
