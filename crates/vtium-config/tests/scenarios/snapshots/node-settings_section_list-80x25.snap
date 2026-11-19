@@ -20,10 +20,10 @@ description: "settings.section.list at 80×25, keys: Tab Down Enter Enter"
 
  Press Enter to pick the highlighted value, or Esc to close the list and leave
  the setting as it is.
- The sixteen basic colors, and the default text and background colors. The
- value is the name of a palette, or `custom`, which takes the colors from the
- `palette-*` keys. Colors 16 to 255 are xterm's in every palette.
-
+ The color scheme: the 16 basic colors, the default text and background colors,
+ and the cursor and selection colors. The value names a built-in palette,
+ `custom`, which takes the colors from the `palette-*` keys, or a file
+ `NAME.palette` in `/etc/vtium/palettes` or `/usr/share/vtium/palettes`. A …
 
 --------------------------------------------------------------------------------
  ↑↓ move  Enter pick  Esc back  q quit  . more 1/3
