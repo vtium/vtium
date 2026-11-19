@@ -112,16 +112,23 @@ const fn emph(style: Style) -> Style {
     }
 }
 
-/// The document of paths as a grid of cells, each a character and its
-/// style. The document is a picture: a line's character depends on the
-/// lines that meet at its cell, and a box's fill covers cells that hold
-/// no text. So it is drawn cell by cell, and its rows go to the screen
-/// through [`view::fill`].
+/// The document of paths as a grid of the console's cells, each holding
+/// the character the console shows there and its style. The document is a
+/// picture: a line's character depends on the lines that meet at its
+/// cell, and a box's fill covers cells that hold no text. So it is drawn
+/// cell by cell, and its rows go to the screen through [`view::fill`].
+///
+/// A cell holds a whole character as the console shows it, a base
+/// character with the marks that join it, so a title with an accent or a
+/// vowel sign takes the cells the console gives it. A character two cells
+/// wide is held in its first cell, and the cell it covers holds an empty
+/// string. So a box's right border stays in its column whatever its title
+/// holds.
 #[derive(Clone, Debug)]
 struct Grid {
     cols: usize,
     rows: usize,
-    cells: Vec<Vec<(char, Style)>>,
+    cells: Vec<Vec<(String, Style)>>,
 }
 
 impl Grid {
@@ -129,24 +136,52 @@ impl Grid {
         Grid {
             cols,
             rows,
-            cells: vec![vec![(' ', Style::PLAIN); cols]; rows],
+            cells: vec![vec![(" ".to_owned(), Style::PLAIN); cols]; rows],
         }
     }
 
-    /// Writes `text` from column `x` of row `y` in `style`, one character
-    /// a cell, as far as the grid's edge.
+    /// Writes `text` from cell `x` of row `y` in `style`, each character
+    /// the console shows in the cells the console gives it, as far as the
+    /// grid's edge. A wide character that would cross the edge is left
+    /// out. A wide character that the text covers only half of becomes a
+    /// blank, as the console erases it.
     fn put(&mut self, x: usize, y: usize, text: &str, style: Style) {
         let Some(row) = self.cells.get_mut(y) else {
             return;
         };
-        for (cell, c) in row.iter_mut().skip(x).zip(printable(text).chars()) {
-            *cell = (c, style);
+        let text = printable(text);
+        let mut x = x;
+        for cluster in super::canvas::clusters(&text) {
+            let (symbol, width) = super::canvas::shown(&cluster);
+            let end = x.saturating_add(usize::from(width));
+            if end > row.len() {
+                break;
+            }
+            split(row, x);
+            split(row, end.saturating_sub(1));
+            for (k, cell) in row.iter_mut().enumerate().take(end).skip(x) {
+                let text = if k == x {
+                    symbol.clone()
+                } else {
+                    String::new()
+                };
+                *cell = (text, style);
+            }
+            x = end;
         }
     }
 
-    /// The character at a cell, for the lines that join at it.
+    /// The first character of the cell, for the tests of the lines that
+    /// join at it; `None` for the cell a wide character covers.
+    #[cfg(test)]
     fn at(&self, x: usize, y: usize) -> Option<char> {
-        self.cells.get(y)?.get(x).map(|(c, _)| *c)
+        self.cells.get(y)?.get(x)?.0.chars().next()
+    }
+
+    /// The whole character the cell shows: its base and its marks, or an
+    /// empty string for the cell a wide character covers.
+    fn symbol(&self, x: usize, y: usize) -> Option<&str> {
+        self.cells.get(y)?.get(x).map(|(c, _)| c.as_str())
     }
 
     /// The style a cell is drawn in.
@@ -154,7 +189,8 @@ impl Grid {
         self.cells.get(y)?.get(x).map(|(_, s)| *s)
     }
 
-    /// The grid as rows of text, each run of one style a span.
+    /// The grid as rows of text, each run of one style a span. A cell that
+    /// a wide character covers adds nothing.
     fn into_rows(self) -> Vec<Row> {
         self.cells
             .into_iter()
@@ -162,13 +198,29 @@ impl Grid {
                 let mut row: Row = Vec::new();
                 for (c, style) in cells {
                     match row.last_mut() {
-                        Some(s) if s.style == style => s.text.push(c),
-                        _ => row.push(span(c.to_string(), style)),
+                        Some(s) if s.style == style => s.text.push_str(&c),
+                        _ => row.push(span(c, style)),
                     }
                 }
                 row
             })
             .collect()
+    }
+}
+
+/// Makes cell `x` of `row` a cell of its own before something is written
+/// there: the other half of a wide character that `x` is part of becomes a
+/// blank in the wide character's style.
+fn split(row: &mut [(String, Style)], x: usize) {
+    if row.get(x).is_some_and(|(c, _)| c.is_empty())
+        && let Some(lead) = x.checked_sub(1).and_then(|k| row.get_mut(k))
+    {
+        lead.0 = " ".to_owned();
+    }
+    if let Some(cover) = row.get_mut(x.saturating_add(1))
+        && cover.0.is_empty()
+    {
+        cover.0 = " ".to_owned();
     }
 }
 
@@ -691,10 +743,11 @@ fn window_cells(
     for i in 0..height {
         let y = top.saturating_add(i);
         for x in 0..doc.cols {
-            if let (Some(c), Some(s)) = (doc.at(x, y), doc.style_at(x, y))
-                && (c != ' ' || s.back.is_some())
+            if let (Some(c), Some(s)) = (doc.symbol(x, y), doc.style_at(x, y))
+                && !c.is_empty()
+                && (c != " " || s.back.is_some())
             {
-                shown.put(x, i, &c.to_string(), s);
+                shown.put(x, i, c, s);
             }
         }
     }
@@ -1904,6 +1957,52 @@ mod tests {
         assert_eq!(shown, format!("{wide}…  "));
         let rule: String = row[40..].iter().collect();
         assert!(rule.starts_with(words::FLOW_NO_RULE), "{rule}");
+    }
+
+    /// The character the console shows at screen cell `cell` of `row`, by
+    /// the console's clusters and widths.
+    fn shown_at(row: &Row, cell: usize) -> String {
+        let text: String = row.iter().map(|s| s.text.as_str()).collect();
+        let mut used = 0usize;
+        for c in super::super::canvas::clusters(&text) {
+            let (symbol, width) = super::super::canvas::shown(&c);
+            used += usize::from(width);
+            if used > cell {
+                return symbol;
+            }
+        }
+        String::new()
+    }
+
+    #[test]
+    fn a_title_with_marks_or_wide_characters_leaves_the_box_s_border_in_place() {
+        let f = flow();
+        for title in [
+            "e\u{301}e\u{301}e\u{301}",
+            "键盘键盘",
+            "க\u{BCA}a",
+            "\u{301}x",
+        ] {
+            let mut l = lay(&f, &Path::default(), 100);
+            let at = l
+                .boxes
+                .iter()
+                .position(|b| b.obj == Obj::Doc("desk".into(), Slot::Terminal))
+                .expect("desk");
+            l.boxes[at].title = title.to_owned();
+            let b = l.boxes[at].clone();
+            let rows = document(&l, 100, None, &Palette::console()).into_rows();
+            let row = &rows[b.title_row()];
+            for (cell, want) in [(b.x, "│"), (b.right() - 1, "│")] {
+                assert_eq!(shown_at(row, cell), want, "{title:?} at {cell}: {row:?}");
+            }
+            let text: String = row.iter().map(|s| s.text.as_str()).collect();
+            assert_eq!(
+                super::super::canvas::cells(&text),
+                100,
+                "{title:?}: {text:?}"
+            );
+        }
     }
 
     #[test]
