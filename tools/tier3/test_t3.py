@@ -3637,13 +3637,17 @@ class DevicesTest(unittest.TestCase):
         # that its notice go with every copy, and Unifont, whose license, the
         # SIL Open Font License, asks that its text go with the font. The
         # font helper builds in tiny-skia, whose BSD-3-Clause license asks
-        # that its text go with the binary.
+        # that its text go with the binary. The license text of each color
+        # scheme's family goes in its palettes folder (ADR-1205 D10).
         r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D"],
                            cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
         lines = [l for l in r.stdout.splitlines() if "/D/usr/share/licenses" in l]
         notices = sorted(os.listdir(os.path.join(t3_common.ROOT, "tools", "cullet-mono", "notices")))
         self.assertEqual(lines, ["install -Dm644 -t /D/usr/share/licenses/vtium/cullet-mono "
                                  + " ".join(f"tools/cullet-mono/notices/{n}" for n in notices),
+                                 "install -Dm644 -t /D/usr/share/licenses/vtium/palettes "
+                                 + " ".join(f"crates/vtium/install/palettes/licenses/{n}-LICENSE"
+                                            for n in ("catppuccin", "dracula", "gruvbox", "tokyo-night")),
                                  "install -Dm644 -t /D/usr/share/licenses/vtium LICENSE COPYING "
                                  "crates/vtium-font/data/OFL-1.1.txt "
                                  "crates/vtium-term/gen-color-names/src/rgb-license.txt "

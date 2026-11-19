@@ -3783,6 +3783,15 @@ FONT_FILE_NAMES = ([f"ter-u{h}{w}.bdf.gz" for h in (12, 14, 16, 18, 20, 22, 24, 
                    + ["unifont_all-17.0.03.hex", "CulletMono-Regular.ttf", "CulletMono-Bold.ttf"])
 CULLET_MONO_NOTICES = sorted(os.listdir(os.path.join(ROOT, "tools", "cullet-mono", "notices")))
 
+# The color schemes every build installs in /usr/share/vtium/palettes, with
+# the license text of each scheme's family in the package's license
+# directory, and the preset vtlooks it installs in /usr/share/vtium/looks.
+PALETTES = ["catppuccin-frappe", "catppuccin-latte", "catppuccin-macchiato", "catppuccin-mocha", "dracula",
+            "gruvbox-dark", "gruvbox-light", "kiln", "tokyo-night", "tokyo-night-day", "tokyo-night-moon",
+            "tokyo-night-storm"]
+PALETTE_LICENSES = ["catppuccin-LICENSE", "dracula-LICENSE", "gruvbox-LICENSE", "tokyo-night-LICENSE"]
+LOOKS = ["amber", "deuteranopia", "green", "protanopia", "tritanopia", "white"]
+
 
 class Package(Case):
     """make install, which a package's build runs, and units.sh, which makes
@@ -3823,7 +3832,10 @@ class Package(Case):
         "usr/share/man/man8/vtium.8",
         "usr/share/vtium/pointers.svg",
     ] + [f"usr/share/vtium/fonts/{n}" for n in FONT_FILE_NAMES]
-      + [f"usr/share/licenses/vtium/cullet-mono/{n}" for n in CULLET_MONO_NOTICES])
+      + [f"usr/share/licenses/vtium/cullet-mono/{n}" for n in CULLET_MONO_NOTICES]
+      + [f"usr/share/vtium/palettes/{n}.palette" for n in PALETTES]
+      + [f"usr/share/licenses/vtium/palettes/{n}" for n in PALETTE_LICENSES]
+      + [f"usr/share/vtium/looks/{n}.vtlook" for n in LOOKS])
 
     # What the ordinary-machine build, FEATURES='images logind gpu', stages
     # beside STAGED: the image helper, its account file and the picture
@@ -3855,7 +3867,9 @@ class Package(Case):
         "usr/share/man/man1/vtium-gallery.1": "man/vtium-gallery.1",
         "usr/share/man/man5/vtium.conf.5": "man/vtium.conf.5",
         "usr/share/man/man8/vtium.8": "man/vtium.8",
-    }
+    } | {f"usr/share/vtium/palettes/{n}.palette": f"crates/vtium/install/palettes/{n}.palette" for n in PALETTES} \
+      | {f"usr/share/licenses/vtium/palettes/{n}": f"crates/vtium/install/palettes/licenses/{n}" for n in PALETTE_LICENSES} \
+      | {f"usr/share/vtium/looks/{n}.vtlook": f"crates/vtium/install/looks/{n}.vtlook" for n in LOOKS}
 
     # A stand-in cargo that records the helper paths each build bakes in,
     # and the build settings for hwaccel and display-buffers when it is
@@ -4242,6 +4256,7 @@ class Package(Case):
                          ["usr/share/licenses/vtium-git/COPYING", "usr/share/licenses/vtium-git/LICENSE",
                           "usr/share/licenses/vtium-git/OFL-1.1.txt"]
                          + [f"usr/share/licenses/vtium-git/cullet-mono/{n}" for n in CULLET_MONO_NOTICES]
+                         + [f"usr/share/licenses/vtium-git/palettes/{n}" for n in PALETTE_LICENSES]
                          + ["usr/share/licenses/vtium-git/rgb-license.txt",
                             "usr/share/licenses/vtium-git/tiny-skia-LICENSE"])
         self.assertFalse([f for f in self.staged() if f.startswith("usr/share/licenses/vtium/")], self.staged())
