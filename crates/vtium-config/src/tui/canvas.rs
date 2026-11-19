@@ -107,9 +107,11 @@ pub fn rule() -> vtium_term::ClusterWidth {
 /// Measures text by `rule` on this thread until the returned guard drops,
 /// and then by the rule before it. A console under `cluster-width =
 /// single` gives a syllable with a spacing vowel sign one cell where
-/// `double` gives it two. The view draws each frame inside one guard set
-/// from the installed vtium.conf, so ratatui's buffer, the rows the view
-/// lays out and the Backend's cursor all count the console's cells.
+/// `double` gives it two. Update handles each event, and the view draws
+/// each frame, inside a guard set to the rule the console started with
+/// (`Shared::measure`). So the rows update counts, ratatui's buffer, the
+/// rows the view lays out and the Backend's cursor all count the console's
+/// cells.
 pub fn measure_by(rule: vtium_term::ClusterWidth) -> MeasureBy {
     MeasureBy {
         before: RULE.with(|r| r.replace(rule)),
