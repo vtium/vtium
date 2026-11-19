@@ -26,7 +26,7 @@ use proptest::test_runner::FileFailurePersistence;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 
 use super::explore::ALPHABET;
-use super::reference::{self, Expect};
+use super::reference::{self, Expect, FORM_FIELDS};
 use super::sim::{Sim, Term};
 use super::state;
 
@@ -46,6 +46,10 @@ pub struct RefState {
     under: Vec<String>,
     /// The TUI has left, with this status.
     left: Option<u8>,
+    /// The field of the new-frit form being typed, counted from 0. The
+    /// form opens on its first field, Enter on a field goes to the next,
+    /// and Enter on the last field goes to the form's add row.
+    field: usize,
 }
 
 impl RefState {
@@ -58,6 +62,13 @@ impl RefState {
         }
         if self.node == "any.too-small" && key == "Grow" {
             next.node = next.under.pop()?;
+            return Some(next);
+        }
+        if self.node == "looks.new-frit.typing" && key == "Enter" {
+            next.field = self.field.saturating_add(1);
+            if next.field == FORM_FIELDS {
+                "looks.new-frit".clone_into(&mut next.node);
+            }
             return Some(next);
         }
         match reference::expect(&self.node, key)? {
@@ -78,7 +89,25 @@ impl RefState {
             Expect::LeavesQuestion => next.node = next.under.pop()?,
             Expect::LeavesTrial => return None,
         }
+        // the form opens on its first field each time, so a key that
+        // leaves it for a tab starts it again from there
+        if !next.node.starts_with("looks.new-frit") && !next.node.starts_with("any.") {
+            next.field = 0;
+        }
         Some(next)
+    }
+
+    /// The reference at its start in `term`: the fixture of
+    /// `src/tui/fixture.rs` opens on the Fonts tab.
+    fn start(term: Term) -> RefState {
+        RefState {
+            term,
+            node: "fonts".to_owned(),
+            tab: "fonts".to_owned(),
+            under: Vec::new(),
+            left: None,
+            field: 0,
+        }
     }
 }
 
@@ -91,19 +120,13 @@ impl ReferenceStateMachine for Reference {
     /// The TUI as the scenarios start it, in each kind of terminal: the
     /// fixture of `src/tui/fixture.rs` opens on the Fonts tab.
     fn init_state() -> BoxedStrategy<RefState> {
-        select(Term::ALL.to_vec())
-            .prop_map(|term| RefState {
-                term,
-                node: "fonts".to_owned(),
-                tab: "fonts".to_owned(),
-                under: Vec::new(),
-                left: None,
-            })
-            .boxed()
+        select(Term::ALL.to_vec()).prop_map(RefState::start).boxed()
     }
 
     /// The keys the tables decide here, the keys that leave the TUI
     /// pressed a twelfth as often as the rest, so most sequences run long.
+    /// In a field of the new-frit form, Enter comes as often as every other
+    /// key together, so that sequences reach the form's add row.
     fn transitions(state: &RefState) -> BoxedStrategy<&'static str> {
         let (mut end, mut go) = (Vec::new(), Vec::new());
         for (name, _) in ALPHABET {
@@ -113,11 +136,15 @@ impl ReferenceStateMachine for Reference {
                 None => {}
             }
         }
-        match (go.is_empty(), end.is_empty()) {
+        let keys = match (go.is_empty(), end.is_empty()) {
             (false, false) => prop_oneof![12 => select(go), 1 => select(end)].boxed(),
             (false, true) => select(go).boxed(),
             _ => select(end).boxed(),
+        };
+        if state.node == "looks.new-frit.typing" {
+            return prop_oneof![1 => keys, 1 => Just("Enter")].boxed();
         }
+        keys
     }
 
     fn preconditions(state: &RefState, key: &&'static str) -> bool {
@@ -127,6 +154,42 @@ impl ReferenceStateMachine for Reference {
     fn apply(state: RefState, key: &&'static str) -> RefState {
         state.step(key).unwrap_or(state)
     }
+}
+
+/// Whether the TUI after a key agrees with the reference: the exit, the
+/// node, and the tab the tab bar highlights.
+fn compare(sim: &Sim, want: &RefState) -> Result<(), String> {
+    if let Some(status) = want.left {
+        return if sim.exited == Some(status) {
+            Ok(())
+        } else {
+            Err(format!(
+                "the tables say the TUI left with {status}, and it is at {}",
+                state::of(sim).node()
+            ))
+        };
+    }
+    if sim.exited.is_some() {
+        return Err("the TUI left, and the tables say it stays".to_owned());
+    }
+    let node = state::of(sim).node();
+    if node != want.node {
+        return Err(format!(
+            "the TUI is in {node}, and the tables say {}",
+            want.node
+        ));
+    }
+    if node == "any.too-small" {
+        return Ok(());
+    }
+    let lit = highlighted(sim);
+    if lit != want.tab {
+        return Err(format!(
+            "the tab bar highlights {lit:?}, and the tables say {}",
+            want.tab
+        ));
+    }
+    Ok(())
 }
 
 /// The tab the tab bar highlights, by its id: the reversed text on row 0.
@@ -142,6 +205,28 @@ fn highlighted(sim: &Sim) -> String {
                 .to_lowercase()
         })
         .unwrap_or_default()
+}
+
+/// Presses `keys`, by the alphabet's names, in a TUI started in `term`,
+/// and compares it with the reference after each key. It fails where the
+/// tables do not decide a key, so a sequence that no longer means what it
+/// meant fails instead of testing something else.
+pub fn replay(term: Term, keys: &[&str]) -> Result<(), String> {
+    let mut want = RefState::start(term);
+    let mut sim = Sim::start(term, 80, 25);
+    for (i, key) in keys.iter().enumerate() {
+        let done = keys.get(..=i).unwrap_or_default().join(" ");
+        want = want.step(key).ok_or_else(|| {
+            format!(
+                "{}: {done}: the tables do not decide {key} in {}",
+                term.name(),
+                want.node
+            )
+        })?;
+        sim.press(super::press_of(key));
+        compare(&sim, &want).map_err(|e| format!("{}: {done}: {e}", term.name()))?;
+    }
+    Ok(())
 }
 
 pub struct Walk;
@@ -160,27 +245,8 @@ impl StateMachineTest for Walk {
     }
 
     fn check_invariants(sim: &Sim, want: &RefState) {
-        if let Some(status) = want.left {
-            assert_eq!(sim.exited, Some(status), "the tables say the TUI left");
-            return;
-        }
-        assert_eq!(
-            sim.exited, None,
-            "the TUI left, and the tables say it stays"
-        );
-        let node = state::of(sim).node();
-        assert_eq!(
-            node, want.node,
-            "the TUI is in {node}, and the tables say {}",
-            want.node
-        );
-        if node != "any.too-small" {
-            let lit = highlighted(sim);
-            assert_eq!(
-                lit, want.tab,
-                "the tab bar highlights {lit:?}, and the tables say {}",
-                want.tab
-            );
+        if let Err(e) = compare(sim, want) {
+            panic!("{e}");
         }
     }
 }
@@ -193,4 +259,20 @@ prop_state_machine! {
     })]
     #[test]
     fn random_keys_move_as_the_tables_say(sequential 1..40 => Walk);
+}
+
+/// The new-frit form opens on its first field each time `n` opens it,
+/// after Esc left it on its add row or on a field in the middle. The
+/// reference counts the six fields, so it knows on which Enter the form
+/// reaches its add row.
+#[test]
+fn the_new_frit_form_opens_on_its_first_field_after_esc() {
+    let fields = ["Enter"; FORM_FIELDS];
+    let from_the_add_row = [&["n"][..], &fields, &["Esc", "n"], &fields, &["Esc"]].concat();
+    let from_a_field = [&["n", "Enter", "Enter", "Esc", "n"][..], &fields, &["Esc"]].concat();
+    for term in Term::ALL {
+        for keys in [&from_the_add_row, &from_a_field] {
+            replay(term, keys).unwrap_or_else(|e| panic!("{e}"));
+        }
+    }
 }

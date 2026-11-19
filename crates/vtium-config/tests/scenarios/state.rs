@@ -244,21 +244,26 @@ const NARROW: &[(&str, &str)] = &[
 ];
 
 /// What the highlight is on, where the keys act on it differently: the
-/// kind of font in the Fonts view, the kind of setting in Settings, the
-/// kind of box in Flow, the page in Help, the add row of the new-frit form.
+/// kind of font in the Fonts view and the row its new-frit form is on, the
+/// kind of setting in Settings, the kind of box in Flow, the page in Help.
 fn focus(app: &App) -> String {
     match app.nav.view {
         View::Fonts => {
-            let Some(font) = app.font() else {
-                return "none".into();
+            let kind = match app.font() {
+                None => "none",
+                Some(font) if app.shared.pending.removals.contains(&font.name) => "marked",
+                Some(font) => match font.state {
+                    FontState::Reads => "frit",
+                    FontState::BuiltIn => "builtin",
+                    FontState::Refused(_) => "refused",
+                },
             };
-            if app.shared.pending.removals.contains(&font.name) {
-                return "marked".into();
-            }
-            match font.state {
-                FontState::Reads => "frit".into(),
-                FontState::BuiltIn => "builtin".into(),
-                FontState::Refused(_) => "refused".into(),
+            // the row the new-frit form is on decides where `n` opens it,
+            // so a form left on another row than the first is a state of
+            // its own
+            match app.fonts.form().at {
+                0 => kind.into(),
+                row => format!("{kind}, form on row {row}"),
             }
         }
         View::Help => if app.help.about() { "about" } else { "help" }.into(),

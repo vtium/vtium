@@ -359,12 +359,16 @@ impl Fonts {
     }
 
     /// A key the navigation module hands to the new-frit form. Esc goes
-    /// back to the list. On a field, Enter moves to the next and every
-    /// other key does nothing. On the last row, Up and Down move back onto
-    /// the fields, and Enter adds the frit to the save, once the frit
-    /// reader takes it, and goes back to the list.
+    /// back to the list, and the form keeps what its fields hold. The form
+    /// goes back to its first field, so `n` opens it there again. On a
+    /// field, Enter moves to the next and every other key does nothing. On
+    /// the last row, Up and Down move back onto the fields, and Enter adds
+    /// the frit to the save, once the frit reader takes it, and goes back
+    /// to the list.
     pub fn form_update(&mut self, shared: &Shared, key: Key) -> Vec<Command> {
         if key == Key::Escape {
+            self.form.at = 0;
+            self.form_offset = 0;
             return vec![Command::Request(Request::Go(View::Fonts))];
         }
         let rows = NEW_FIELDS.saturating_add(1);
