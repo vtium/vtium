@@ -377,7 +377,7 @@ fn sysfs(dir: &Path) -> PathBuf {
     let link = |dev: &str, to: &Path| {
         symlink(to, sys.join("dev/block").join(dev)).expect("the device link");
     };
-    let mut parts = std::collections::HashMap::new();
+    let mut parts = std::collections::BTreeMap::new();
     for (bus, disk, dev, removable, partitions) in [
         (
             "ata1/host0",
@@ -1006,7 +1006,7 @@ fn a_loop_device_is_judged_by_where_its_backing_file_sits() {
         out
     };
     let iso = place((7, 0), "/mnt/iso/a.ttf");
-    let on = |rest| Mounts::parse(&table(rest), &sys).judge(&iso);
+    let on = |rest| Mounts::parse(table(rest), &sys).judge(&iso);
     assert_eq!(on("0:99 tmpfs tmpfs rw"), Ok(()));
     assert_eq!(
         on("0:99 nfs4 server:/x rw"),
