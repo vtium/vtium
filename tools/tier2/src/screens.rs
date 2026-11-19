@@ -1747,6 +1747,9 @@ const WHITE: &[(&str, &[Given])] = &[(
     ],
 )];
 
+/// A cube filter reading tier 2's sepia table, a 3D table of 9 a side.
+const SEPIA: &[(&str, &[Given])] = &[("cube", &[])];
+
 const LOOK_AMBER_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): tint toward amber, 255,176,0, at full amount, then a contrast of 1.15, merged into one color table that every pixel is looked up in. The screen is 40 by 6 cells: a title, the sixteen ANSI background colors, colored words, a gradient from green at the left to red at the right over a mid blue, a gray ramp from black to white and a prompt, with vtium's pointer over the word green. Correct: every pixel is a shade of amber or black, with no other hue anywhere: the text, each color block, both gradients and the pointer, whose outline stays black. Each shade follows its color's lightness, so the gray ramp runs evenly from black to a bright amber, the blue block and the word blue are nearly black, yellow and white are the brightest, and the green-to-red gradient darkens from left to right because green is lighter than red.";
 
 const LOOK_DEUTERANOPIA_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): color-blind simulating deuteranopia at full amount, through Machado, Oliveira and Fernandes's matrix in linear light. The screen is look-amber's, with vtium's pointer over the word green. Correct: red and green no longer stand apart. Red, green and yellow, as blocks and as words, become olive and golden yellows, blue stays a strong blue, magenta becomes a mid blue and cyan a pale blue gray. The gradient runs from a pale khaki at the left through a blue gray to a gray olive at the right. Every gray of the gray ramp, the white text, the black background and the white pointer with its black outline stay as they are.";
@@ -1754,6 +1757,8 @@ const LOOK_DEUTERANOPIA_DESC: &str = "A vtlook's color filters on the CPU path (
 const LOOK_AMBER_FLOOR_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2, D21): look-amber's tint and contrast, with the tint's brightness floor at 0.15. The screen is look-amber's, with vtium's pointer over the word green. Correct: as look-amber, every pixel is a shade of amber or black, with no other hue, and the shades keep look-amber's order. Every color above black is lighter than in look-amber, most of all the dark ones: the blue block and the word blue are a dim but plainly visible amber where look-amber shows them nearly black, and the darkest steps of the gray ramp lift off black. The black background, the black outline of the pointer and the first step of the gray ramp stay black, and white and yellow stay about as bright as in look-amber.";
 
 const LOOK_GREEN_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): the green preset, a tint toward 51,255,102 at full amount, as a green phosphor monitor. The screen is look-amber's, with vtium's pointer over the word green. Correct: every pixel is a shade of one green or black, with no other hue anywhere. Each shade follows its color's lightness as in look-amber, so the gray ramp runs evenly from black to a bright green, the blue block and the word blue are nearly black, yellow and white are the brightest, and the green-to-red gradient darkens from left to right.";
+
+const LOOK_CUBE_SEPIA_DESC: &str = "A vtlook's cube filter on the CPU path (ADR-1304 D2, D9): tools/tier2/cubes/sepia.cube, a 3D table of 9 a side holding the classic sepia matrix, read by the console's .cube reader and sampled into the 33-a-side color table. The screen is look-amber's, with vtium's pointer over the word green. Correct: every pixel is a warm brown, a cream or black, with no blue, green or purple hue anywhere. Each color becomes the sepia of its own mix: white becomes a pale cream, 255,255,239, and black stays black. Red and green, as blocks and as words, become mid browns and tans, yellow a pale cream, blue a dark brown close to black, magenta a mid brown and cyan a light tan. The gray ramp runs from black through browns to a pale cream at its light end, where it reaches full brightness before its last step. The green-to-red gradient runs from a lighter tan at the left to a darker brown at the right, and the pointer keeps its black outline around a cream fill.";
 
 const LOOK_WHITE_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): the white preset, a tint toward 230,235,255 at full amount, as a paper-white monochrome monitor. The screen is look-amber's, with vtium's pointer over the word green. Correct: every pixel is a gray with a faint cool cast, or black, with no other hue anywhere. Each gray follows its color's lightness as in look-amber, so the gray ramp runs evenly from black to a slightly blue white, the blue block and the word blue are nearly black, yellow and white are the brightest, and the green-to-red gradient darkens from left to right.";
 
@@ -3522,6 +3527,14 @@ const BASE: &[Case] = &[
             arrow: Some(COLORS_TIP),
             color_filters: Some(WHITE),
             ..Screen::new("look-white", LOOK_WHITE_DESC, COLORS, 40, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            arrow: Some(COLORS_TIP),
+            color_filters: Some(SEPIA),
+            cube: Some(include_str!("../cubes/sepia.cube")),
+            ..Screen::new("look-cube-sepia", LOOK_CUBE_SEPIA_DESC, COLORS, 40, 6)
         },
     },
 ];

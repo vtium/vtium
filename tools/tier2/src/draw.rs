@@ -640,6 +640,12 @@ pub struct Screen {
     /// References:
     /// - ADR-1304 D2: the look's color filters merged into one table.
     pub color_filters: Option<&'static [(&'static str, &'static [Given])]>,
+    /// The text of the `.cube` file that a `cube` step of `color_filters`
+    /// reads, read by the console's own `.cube` reader.
+    ///
+    /// References:
+    /// - ADR-1304 D9: the `cube` filter, a color table from a file.
+    pub cube: Option<&'static str>,
 }
 
 impl Screen {
@@ -688,6 +694,7 @@ impl Screen {
             },
             ligatures: false,
             color_filters: None,
+            cube: None,
         }
     }
 }
@@ -1291,6 +1298,13 @@ pub(crate) fn color_table(screen: &Screen) -> Result<Option<Table>, String> {
     };
     let mut maps = Vec::new();
     for &(name, values) in steps {
+        if name == "cube" {
+            let text = screen.cube.ok_or("a cube step with no .cube text")?;
+            let cube = vtium_settings::vtlook::read_cube(text.as_bytes())
+                .map_err(|f| format!("the .cube text: {:?}", f.faults))?;
+            maps.push(Map::cube(std::sync::Arc::new(cube)));
+            continue;
+        }
         let declaration =
             vtium_render::filter::color(name).ok_or(format!("no color filter {name}"))?;
         maps.push(Map::new(declaration, values).ok_or(format!("{name}: values {values:?}"))?);
