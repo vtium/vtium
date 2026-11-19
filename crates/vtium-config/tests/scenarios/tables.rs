@@ -40,6 +40,9 @@ pub struct KeyRow {
     /// The row is about any letter typed, as `any letter` says.
     pub letters: bool,
     pub key_line: bool,
+    /// The row names only keys the walk does not press today, from
+    /// [`UNWALKED`], so no transition can match it.
+    pub unwalked: bool,
     pub status: String,
     /// The short name a key line shows for the key, or `-` where the key
     /// line leaves the key out.
@@ -62,6 +65,17 @@ fn mouse_names(part: &str) -> Vec<&str> {
     }
 }
 
+/// Keys the key table names in planned rows that the TUI does not read
+/// yet, and that the walk's alphabet therefore leaves out: the digits that
+/// go straight to a tab. Pressing them today would only add states that
+/// change nothing, so the walk skips their rows until the TUI reads them
+/// and the digits join the alphabet.
+///
+/// References:
+/// - ADR-1403 D10, "The number keys": the digits 1 to 6 go to a tab while
+///   nothing is open.
+const UNWALKED: &[&str] = &["1", "2", "3", "4", "5", "6"];
+
 /// The alphabet's name for the table's name of a key.
 fn key_name(key: &str) -> Option<&'static str> {
     super::explore::ALPHABET
@@ -80,7 +94,8 @@ pub fn keys() -> Vec<KeyRow> {
             let letters = key == "any letter";
             // rows about what the screen shows, not about a key
             let key_line = matches!(key.as_str(), "key line" | "Help and key line");
-            let keys = if other || letters || key_line {
+            let unwalked = key.split(", ").all(|k| UNWALKED.contains(&k));
+            let keys = if other || letters || key_line || unwalked {
                 Vec::new()
             } else {
                 key.split(", ")
@@ -102,6 +117,7 @@ pub fn keys() -> Vec<KeyRow> {
                 other,
                 letters,
                 key_line,
+                unwalked,
                 status: col("status"),
                 label: col("label"),
                 first_page: col("page") == "1",

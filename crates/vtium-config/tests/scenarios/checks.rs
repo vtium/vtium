@@ -1466,7 +1466,7 @@ impl Checks {
                         .contains(&((*n).to_owned(), row.id.clone()))
                 })
                 .collect();
-            if !row.key_line && !missed.is_empty() {
+            if !row.key_line && !row.unwalked && !missed.is_empty() {
                 self.found.failures.push(format!(
                     "the key table's row {} matched no transition in {}",
                     row.id,
