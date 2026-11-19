@@ -491,7 +491,8 @@ fn no_module_of_the_tui_crosses_the_lines_of_who_may_call_whom() {
         })
     };
     assert!(names("tui/model.rs", &["tui", "tabs", "flow", "Flow"]));
-    assert!(names("tui/layout.rs", &["tui", "tabs", "settings"]));
+    assert!(names("tui/layout.rs", &["tui", "model", "App"]));
+    assert!(names("tui/tabs/looks.rs", &["tui", "shot", "Preview"]));
     assert!(names("tui/port.rs", &["tui", "view"]));
     assert!(names(
         "tui/tabs/flow.rs",

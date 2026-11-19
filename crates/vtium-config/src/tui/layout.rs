@@ -1,23 +1,22 @@
-//! Where things stand on the TUI's screen, as pure functions of the model
-//! that update and the view both call: whether the grid is too small, the
-//! places of the tab bar, the key line's rows, each view's body and the
-//! window it scrolls in, the Help page, and where a picture goes. Each
-//! function reads the model and the terminal's size and changes nothing.
-//! Update reads these facts here, so it never calls the view to learn
-//! them, and the view draws what these functions place.
+//! Where the shell of the TUI's screen puts things, as pure functions of
+//! the model that update and the view both call: whether the grid is too
+//! small, the places of the tab bar, the key line's rows, the message
+//! line, the window a tab's body scrolls in, the Help page's window, and
+//! where a picture goes. Each tab lays its own body out, from its state,
+//! the shared part and the size; [`body`] hands the open tab's body on.
+//! Each function reads the model and the terminal's size and changes
+//! nothing. Update reads these facts here, so it never calls the view to
+//! learn them, and the view draws what these functions place.
 //!
 //! References:
 //! - ADR-1206 D4, "Layout is a pure function": update calls layout
-//!   functions and never a view.
+//!   functions and never a view, and each tab's layout belongs to the
+//!   tab.
 
-use super::canvas::{Row, span, wrap};
-use super::color::Style;
-use super::listbox::{self, Item, Marks};
-use super::model::{App, DpiFrom, FontState, SIZES, Size, View};
-use super::tabs::fonts::NEW_FIELDS;
+use super::canvas::wrap;
+use super::listbox::{Body, LIST_MIN, prose};
+use super::model::{App, Size, View};
 use super::words;
-use crate::specimen::Sources;
-use vtium_settings::keys::Kind as KeyKind;
 
 /// The smallest grid a view is drawn in (ADR-1201 D3, ADR-1403 D7): below
 /// it, the one screen that says so.
@@ -29,342 +28,17 @@ pub fn too_small(size: Size) -> bool {
     size.cols < MIN_COLS || size.rows < MIN_ROWS
 }
 
-fn plain(text: impl Into<String>) -> Row {
-    vec![span(text, Style::PLAIN)]
-}
-
-fn marked(text: impl Into<String>) -> Row {
-    vec![span(text, Style::PLAIN.reversed())]
-}
-
-/// A view's body: its list, the row of the list to keep in sight, and the
-/// sentences under it, which show whole or not at all.
-pub struct Body {
-    pub list: Vec<Row>,
-    pub keep: usize,
-    pub tail: Vec<Row>,
-}
-
-/// The fewest list rows a body keeps before it drops its sentences.
-const LIST_MIN: usize = 5;
-
-/// The most rows a setting's description takes under the list.
-const WHAT_ROWS: usize = 4;
-
-/// A list of `items`, each a name in a column of `width` and its note, the
-/// note wrapped by words under its column where it is longer than the
-/// line, and starting on the row below a name longer than the column,
-/// with the item `at` highlighted; and the list's last row of that
-/// item, to keep in sight.
-fn list(items: &[(String, String)], at: usize, width: usize, cols: usize) -> (Vec<Row>, usize) {
-    let column = width.saturating_add(4);
-    let room = cols.saturating_sub(column).saturating_sub(1).max(8);
-    let mut rows = Vec::new();
-    let mut keep = 0;
-    for (i, (name, note)) in items.iter().enumerate() {
-        let mark = if i == at { '>' } else { ' ' };
-        // a name longer than its column has its note on the rows below
-        let long = name.chars().count() > width;
-        let parts = std::iter::repeat_n(String::new(), usize::from(long)).chain(
-            wrap(note, room, usize::MAX)
-                .into_iter()
-                .filter(|p| !(long && p.is_empty())),
-        );
-        for (n, part) in parts.enumerate() {
-            let line = if n == 0 {
-                format!(" {mark} {name:<width$} {part}")
-            } else {
-                format!("{:column$}{part}", "")
-            };
-            rows.push(if i == at { marked(line) } else { plain(line) });
-            if i == at {
-                keep = rows.len().saturating_sub(1);
-            }
-        }
-    }
-    (rows, keep)
-}
-
-/// `text` as rows of the body, wrapped by words to the screen's width.
-fn prose(text: &str, cols: usize) -> Vec<Row> {
-    wrap(text, cols.saturating_sub(2), usize::MAX)
-        .into_iter()
-        .map(|l| plain(format!(" {l}")))
-        .collect()
-}
-
-/// `text` as a body's sentences, with a blank row above them.
-fn tail(text: &str, cols: usize) -> Vec<Row> {
-    std::iter::once(plain(""))
-        .chain(prose(text, cols))
-        .collect()
-}
-
-/// The body of `app`'s view.
+/// The body of `app`'s view, which the open tab lays out from its own
+/// state, the shared part and the terminal's size.
 pub fn body(app: &App) -> Body {
-    let cols = app.size.cols;
     match app.nav.view {
-        View::Fonts => {
-            let width = app
-                .shared
-                .inputs
-                .fonts
-                .iter()
-                .map(|f| f.name.chars().count())
-                .max()
-                .unwrap_or(0)
-                .clamp(8, 24);
-            let configured = app.configured("font-name");
-            let items: Vec<(String, String)> = app
-                .shared
-                .inputs
-                .fonts
-                .iter()
-                .map(|f| {
-                    let mut note = match (&f.state, app.shared.sources.get(&f.name)) {
-                        (FontState::Reads, Some(Sources::LeftOut(left))) if !left.is_empty() => {
-                            format!("{}, {}", words::READS, words::sources_missing(left.len()))
-                        }
-                        (FontState::Reads, Some(Sources::DrawsNothing(_))) => {
-                            words::DRAWS_NOTHING.to_owned()
-                        }
-                        (FontState::Reads, Some(Sources::Unknown(_))) => {
-                            format!("{}, {}", words::READS, words::SOURCES_UNKNOWN)
-                        }
-                        (FontState::Reads, _) => words::READS.to_owned(),
-                        (FontState::BuiltIn, _) => words::BUILT_IN.to_owned(),
-                        (FontState::Refused(why), _) => words::does_not_read(why),
-                    };
-                    if app.shared.refused.contains(&f.name) {
-                        note = words::KEPT.to_owned();
-                    }
-                    if app.shared.pending.removals.contains(&f.name) {
-                        note = format!("{note}, {}", words::TO_REMOVE);
-                    }
-                    if app.changed("font-name")
-                        && app.drafted("font-name").as_deref() == Some(&f.name)
-                    {
-                        note = format!("{note}, {}", words::TO_SAVE);
-                    } else if configured.as_deref() == Some(&f.name) {
-                        note = format!("{note}, {}", words::SAVED);
-                    }
-                    (f.name.clone(), note)
-                })
-                .collect();
-            let (list, keep) = list(&items, app.fonts.at(), width, cols);
-            Body {
-                list,
-                keep,
-                tail: app
-                    .preview()
-                    .preview_line()
-                    .map(|line| tail(&line, cols))
-                    .unwrap_or_default(),
-            }
-        }
-        View::Looks => {
-            let configured = app
-                .configured("font-size")
-                .and_then(|s| s.parse::<u32>().ok());
-            let items: Vec<(String, String)> = std::iter::once(0)
-                .chain(SIZES)
-                .map(|size| {
-                    let name = match size {
-                        0 => words::AUTOMATIC.to_owned(),
-                        n => words::points(n),
-                    };
-                    let drafted = app.drafted("font-size").and_then(|s| s.parse::<u32>().ok());
-                    let note = if app.changed("font-size") && drafted.unwrap_or(0) == size {
-                        words::TO_SAVE
-                    } else if configured.unwrap_or(0) == size {
-                        words::SAVED
-                    } else {
-                        ""
-                    };
-                    (name, note.to_owned())
-                })
-                .collect();
-            let (list, keep) = list(&items, app.looks.at(), 10, cols);
-            let sentence = if app.shared.text_preview() || !app.shared.graphics {
-                app.preview()
-                    .preview_line()
-                    .unwrap_or_else(|| words::NO_PICTURES.to_owned())
-            } else if app.size() == 0 {
-                words::AUTOMATIC_PICTURE.to_owned()
-            } else {
-                let (dpi, from) = app.shared.inputs.dpi;
-                let from = match from {
-                    DpiFrom::Conf => words::DPI_FROM_CONF,
-                    DpiFrom::Edid => words::DPI_FROM_EDID,
-                    DpiFrom::Assumed => words::DPI_ASSUMED,
-                };
-                match app.preview().preview_line() {
-                    Some(line) => format!("{} {line}", words::density(dpi, from)),
-                    None => words::density(dpi, from),
-                }
-            };
-            let mut list_rows = prose(words::LOOKS_SIZES, cols);
-            list_rows.push(plain(""));
-            let keep = keep.saturating_add(list_rows.len());
-            list_rows.extend(list);
-            Body {
-                list: list_rows,
-                keep,
-                tail: tail(&sentence, cols),
-            }
-        }
-        View::Settings => settings_body(app),
-        View::New => {
-            let mut items: Vec<(String, String)> = words::NEW_FIELD_NAMES
-                .iter()
-                .zip(&app.fonts.form().fields)
-                .enumerate()
-                .map(|(i, (name, text))| {
-                    let cursor = if i == app.fonts.form().at { "_" } else { "" };
-                    ((*name).to_owned(), format!("{text}{cursor}"))
-                })
-                .collect();
-            items.push((words::NEW_ADD.to_owned(), String::new()));
-            let (list, keep) = list(&items, app.fonts.form().at.min(NEW_FIELDS), 8, cols);
-            Body {
-                list,
-                keep,
-                tail: tail(words::NEW_HINT, cols),
-            }
-        }
+        View::Fonts => app.fonts.body(&app.shared, app.size),
+        View::New => app.fonts.form_body(app.size),
+        View::Looks => app.looks.body(&app.shared, app.size),
+        View::Settings => app.settings.body(&app.shared, app.size),
         // the Help view draws its page itself, and the Flow view draws on
         // the canvas itself
-        View::Help | View::Flow => Body {
-            list: Vec::new(),
-            keep: 0,
-            tail: Vec::new(),
-        },
-    }
-}
-
-/// The Settings view's body, in the shared list: the sections, with the
-/// highlighted section's description under them; or the open section's
-/// keys in their titled groups, each with its value, and the highlighted
-/// key's description under them; or the highlighted key's allowed values.
-///
-/// References:
-/// - ADR-1201 D3, the Settings bullet: sections, then groups of keys.
-/// - ADR-1403 D7, "One list for every set of items": the list's look.
-fn settings_body(app: &App) -> Body {
-    let cols = app.size.cols;
-    let sections = super::tabs::settings::sections();
-    let bold = Style {
-        bold: true,
-        ..Style::PLAIN
-    };
-    let Some((at, keys_list)) = app.settings.open() else {
-        let items: Vec<Item> = sections
-            .iter()
-            .map(|s| Item::new(s.title, words::settings_count(s.keys().len())))
-            .collect();
-        let (list, keep) = listbox::rows(&items, app.settings.section_at(), Marks::None, cols);
-        let about = sections
-            .get(app.settings.section_at())
-            .map_or("", |s| s.about);
-        let mut tail = tail(words::SECTIONS_HINT, cols);
-        tail.extend(
-            wrap(about, cols.saturating_sub(2), WHAT_ROWS)
-                .into_iter()
-                .map(|l| plain(format!(" {l}"))),
-        );
-        return Body { list, keep, tail };
-    };
-    let Some(section) = sections.get(at) else {
-        return Body {
-            list: Vec::new(),
-            keep: 0,
-            tail: Vec::new(),
-        };
-    };
-    let keys = section.keys();
-    let key = keys.get(keys_list.at).copied();
-    let what = key.map_or(String::new(), |k| k.what_line());
-    let tail_of = |hint: &str| {
-        let mut rows = tail(hint, cols);
-        rows.extend(
-            wrap(&what, cols.saturating_sub(2), WHAT_ROWS)
-                .into_iter()
-                .map(|l| plain(format!(" {l}"))),
-        );
-        rows
-    };
-    // a key's allowed values, open over the section
-    if let (Some(values), Some(k)) = (app.settings.values(), key) {
-        let now = app.value(k).0;
-        let default = crate::commands::value_text(k, None).0;
-        let items: Vec<Item> = super::tabs::settings::fixed_values(k)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|w| Item {
-                on: w == now,
-                ..Item::new(
-                    w,
-                    if w == default {
-                        words::VALUE_DEFAULT
-                    } else {
-                        ""
-                    },
-                )
-            })
-            .collect();
-        let title = words::settings_title(&[section.title, k.name]);
-        let mut list = vec![vec![span(format!(" {title}"), bold)], plain("")];
-        let (rows, keep) = listbox::rows(&items, values.at, Marks::Choice, cols);
-        let keep = keep.saturating_add(list.len());
-        list.extend(rows);
-        return Body {
-            list,
-            keep,
-            tail: tail_of(words::VALUES_HINT),
-        };
-    }
-    let mut items = Vec::new();
-    for (group, group_keys) in &section.groups {
-        for (n, k) in group_keys.iter().enumerate() {
-            let typed = app
-                .settings
-                .editing()
-                .filter(|_| key.is_some_and(|h| h.name == k.name));
-            let value = match typed {
-                Some(t) => format!("{t}_"),
-                None => match app.value(k) {
-                    (v, true) => words::default_value(v),
-                    (v, false) if v.is_empty() && k.kind == KeyKind::KeyBinding => {
-                        words::NO_KEY.to_owned()
-                    }
-                    (v, false) => v,
-                },
-            };
-            let value = if app.changed(k.name) {
-                format!("{value}, {}", words::TO_SAVE)
-            } else {
-                value
-            };
-            items.push(Item {
-                heading: (n == 0).then(|| (*group).to_owned()),
-                ..Item::new(k.name, value)
-            });
-        }
-    }
-    let title = words::settings_title(&[section.title]);
-    let mut list = vec![vec![span(format!(" {title}"), bold)], plain("")];
-    let (rows, keep) = listbox::rows(&items, keys_list.at, Marks::None, cols);
-    let keep = keep.saturating_add(list.len());
-    list.extend(rows);
-    let hint = match (app.settings.editing(), key) {
-        (Some(_), Some(k)) if k.kind == KeyKind::KeyBinding => words::EDITING_BINDING,
-        (Some(_), _) => words::EDITING,
-        (None, _) => words::SETTINGS_HINT,
-    };
-    Body {
-        list,
-        keep,
-        tail: tail_of(hint),
+        View::Help | View::Flow => Body::default(),
     }
 }
 

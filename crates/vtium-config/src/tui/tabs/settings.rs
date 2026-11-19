@@ -20,10 +20,16 @@
 
 use vtium_settings::keys::{self, Key, Kind, Scope};
 
+use super::super::canvas::span;
+use super::super::color::Style;
 use super::super::input::Key as Pressed;
-use super::super::listbox::{Act, ListBox};
-use super::super::model::Shared;
+use super::super::listbox::{self, Act, Body, Item, ListBox, Marks, plain, prose_rows, tail};
+use super::super::model::{Shared, Size};
+use super::super::words;
 use super::{Change, Command};
+
+/// The most rows a setting's description takes under the list.
+const WHAT_ROWS: usize = 4;
 
 /// A section of the view: its title, what it covers, and its groups, each
 /// a title and its keys.
@@ -176,6 +182,119 @@ impl Settings {
     pub fn key(&self) -> Option<&'static Key> {
         let (_, list) = self.open?;
         self.section()?.keys().get(list.at).copied()
+    }
+
+    /// The tab's body on a screen of `size`, in the shared list: the
+    /// sections, with the highlighted section's description under them;
+    /// or the open section's keys in their titled groups, each with its
+    /// value, and the highlighted key's description under them; or the
+    /// highlighted key's allowed values.
+    ///
+    /// References:
+    /// - ADR-1201 D3, the Settings bullet: sections, then groups of keys.
+    /// - ADR-1403 D7, "One list for every set of items": the list's look.
+    pub fn body(&self, shared: &Shared, size: Size) -> Body {
+        let cols = size.cols;
+        let sections = sections();
+        let bold = Style {
+            bold: true,
+            ..Style::PLAIN
+        };
+        let Some((at, keys_list)) = self.open else {
+            let items: Vec<Item> = sections
+                .iter()
+                .map(|s| Item::new(s.title, words::settings_count(s.keys().len())))
+                .collect();
+            let (list, keep) = listbox::rows(&items, self.sections.at, Marks::None, cols);
+            let about = sections.get(self.sections.at).map_or("", |s| s.about);
+            let mut tail = tail(words::SECTIONS_HINT, cols);
+            tail.extend(prose_rows(about, cols, WHAT_ROWS));
+            return Body { list, keep, tail };
+        };
+        let Some(section) = sections.get(at) else {
+            return Body::default();
+        };
+        let keys = section.keys();
+        let key = keys.get(keys_list.at).copied();
+        let what = key.map_or(String::new(), |k| k.what_line());
+        let tail_of = |hint: &str| {
+            let mut rows = tail(hint, cols);
+            rows.extend(prose_rows(&what, cols, WHAT_ROWS));
+            rows
+        };
+        // a key's allowed values, open over the section
+        if let (Some(values), Some(k)) = (self.values, key) {
+            let now = shared.value(k).0;
+            let default = crate::commands::value_text(k, None).0;
+            let items: Vec<Item> = fixed_values(k)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|w| Item {
+                    on: w == now,
+                    ..Item::new(
+                        w,
+                        if w == default {
+                            words::VALUE_DEFAULT
+                        } else {
+                            ""
+                        },
+                    )
+                })
+                .collect();
+            let title = words::settings_title(&[section.title, k.name]);
+            let mut list = vec![vec![span(format!(" {title}"), bold)], plain("")];
+            let (rows, keep) = listbox::rows(&items, values.at, Marks::Choice, cols);
+            let keep = keep.saturating_add(list.len());
+            list.extend(rows);
+            return Body {
+                list,
+                keep,
+                tail: tail_of(words::VALUES_HINT),
+            };
+        }
+        let mut items = Vec::new();
+        for (group, group_keys) in &section.groups {
+            for (n, k) in group_keys.iter().enumerate() {
+                let typed = self
+                    .editing
+                    .as_deref()
+                    .filter(|_| key.is_some_and(|h| h.name == k.name));
+                let value = match typed {
+                    Some(t) => format!("{t}_"),
+                    None => match shared.value(k) {
+                        (v, true) => words::default_value(v),
+                        (v, false) if v.is_empty() && k.kind == Kind::KeyBinding => {
+                            words::NO_KEY.to_owned()
+                        }
+                        (v, false) => v,
+                    },
+                };
+                let value = if shared.changed(k.name) {
+                    format!("{value}, {}", words::TO_SAVE)
+                } else {
+                    value
+                };
+                items.push(Item {
+                    heading: (n == 0).then(|| (*group).to_owned()),
+                    ..Item::new(k.name, value)
+                });
+            }
+        }
+        let title = words::settings_title(&[section.title]);
+        let mut list = vec![vec![span(format!(" {title}"), bold)], plain("")];
+        let (rows, keep) = listbox::rows(&items, keys_list.at, Marks::None, cols);
+        let keep = keep.saturating_add(list.len());
+        list.extend(rows);
+        let hint = match (self.editing.as_deref(), key) {
+            (Some(_), Some(k)) if k.kind == Kind::KeyBinding => words::EDITING_BINDING,
+            (Some(_), _) => words::EDITING,
+            (None, _) => words::SETTINGS_HINT,
+        };
+        Body {
+            list,
+            keep,
+            tail: tail_of(hint),
+        }
     }
 
     /// A key the navigation module hands to the tab. On the list of

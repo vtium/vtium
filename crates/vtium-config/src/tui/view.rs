@@ -32,9 +32,10 @@ use ratatui_widgets::paragraph::Paragraph;
 use super::canvas::{Canvas, Row, printable, span, wrap};
 use super::color::{Colors, Style, palette};
 use super::layout::{
-    Body, FLOW_TOP, MESSAGE_ROWS, Tab, body, item_rows, key_line, key_rows, list_window,
-    message_rows, tab_places, too_small,
+    FLOW_TOP, MESSAGE_ROWS, Tab, body, item_rows, key_line, key_rows, list_window, message_rows,
+    tab_places, too_small,
 };
+use super::listbox::Body;
 use super::model::{App, Live, Size, Then, View};
 use super::words;
 

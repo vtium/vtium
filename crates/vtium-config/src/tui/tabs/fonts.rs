@@ -12,10 +12,12 @@
 //! - ADR-1206 D2: a tab's state and its update live in the tab's module.
 
 use super::super::input::Key;
-use super::super::listbox::{ListBox, step};
-use super::super::model::{Font, FontState, Shared, View};
+use super::super::listbox::{Body, ListBox, columns, step, tail};
+use super::super::model::{Font, FontState, Shared, Size, View};
+use super::super::shot::Preview;
 use super::super::words;
 use super::{Change, Command, Request};
+use crate::specimen::Sources;
 
 /// The new-frit form's fields, in order: its name, three sources, its
 /// cell and its size; the row after them adds the frit to the save.
@@ -178,6 +180,88 @@ impl Fonts {
     /// The highlighted font.
     fn font<'s>(&self, shared: &'s Shared) -> Option<&'s Font> {
         shared.inputs.fonts.get(self.list.at)
+    }
+
+    /// The list's body on a screen of `size`: each font with what the
+    /// console reads of it, whether the save removes it and whether it is
+    /// the console's font, saved or to save; and under the list, the line
+    /// that describes the preview of the highlighted font.
+    pub fn body(&self, shared: &Shared, size: Size) -> Body {
+        let width = shared
+            .inputs
+            .fonts
+            .iter()
+            .map(|f| f.name.chars().count())
+            .max()
+            .unwrap_or(0)
+            .clamp(8, 24);
+        let configured = shared.configured("font-name");
+        let items: Vec<(String, String)> = shared
+            .inputs
+            .fonts
+            .iter()
+            .map(|f| {
+                let mut note = match (&f.state, shared.sources.get(&f.name)) {
+                    (FontState::Reads, Some(Sources::LeftOut(left))) if !left.is_empty() => {
+                        format!("{}, {}", words::READS, words::sources_missing(left.len()))
+                    }
+                    (FontState::Reads, Some(Sources::DrawsNothing(_))) => {
+                        words::DRAWS_NOTHING.to_owned()
+                    }
+                    (FontState::Reads, Some(Sources::Unknown(_))) => {
+                        format!("{}, {}", words::READS, words::SOURCES_UNKNOWN)
+                    }
+                    (FontState::Reads, _) => words::READS.to_owned(),
+                    (FontState::BuiltIn, _) => words::BUILT_IN.to_owned(),
+                    (FontState::Refused(why), _) => words::does_not_read(why),
+                };
+                if shared.refused.contains(&f.name) {
+                    note = words::KEPT.to_owned();
+                }
+                if shared.pending.removals.contains(&f.name) {
+                    note = format!("{note}, {}", words::TO_REMOVE);
+                }
+                if shared.changed("font-name")
+                    && shared.drafted("font-name").as_deref() == Some(&f.name)
+                {
+                    note = format!("{note}, {}", words::TO_SAVE);
+                } else if configured.as_deref() == Some(&f.name) {
+                    note = format!("{note}, {}", words::SAVED);
+                }
+                (f.name.clone(), note)
+            })
+            .collect();
+        let (list, keep) = columns(&items, self.list.at, width, size.cols);
+        Body {
+            list,
+            keep,
+            tail: Preview::fonts(shared, size, self.detail)
+                .preview_line()
+                .map(|line| tail(&line, size.cols))
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The new-frit form's body on a screen of `size`: each field with its
+    /// text, the highlighted one with the cursor after it, then the row
+    /// that adds the frit, and under them what a frit is made of.
+    pub fn form_body(&self, size: Size) -> Body {
+        let mut items: Vec<(String, String)> = words::NEW_FIELD_NAMES
+            .iter()
+            .zip(&self.form.fields)
+            .enumerate()
+            .map(|(i, (name, text))| {
+                let cursor = if i == self.form.at { "_" } else { "" };
+                ((*name).to_owned(), format!("{text}{cursor}"))
+            })
+            .collect();
+        items.push((words::NEW_ADD.to_owned(), String::new()));
+        let (list, keep) = columns(&items, self.form.at.min(NEW_FIELDS), 8, size.cols);
+        Body {
+            list,
+            keep,
+            tail: tail(words::NEW_HINT, size.cols),
+        }
     }
 
     /// A key the navigation module hands to the list. `r` marks the

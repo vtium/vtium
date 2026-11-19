@@ -199,6 +199,90 @@ pub fn rows(items: &[Item], at: usize, marks: Marks, cols: usize) -> (Vec<Row>, 
     (out, keep)
 }
 
+/// A tab's body: its list, the row of the list to keep in sight, and the
+/// sentences under it, which show whole or not at all. Each tab lays its
+/// body out from its own state, the shared part and the terminal's size.
+#[derive(Debug, Default)]
+pub struct Body {
+    pub list: Vec<Row>,
+    pub keep: usize,
+    pub tail: Vec<Row>,
+}
+
+/// The fewest list rows a body keeps before it drops its sentences.
+pub const LIST_MIN: usize = 5;
+
+/// `text` as one row in the plain style.
+pub fn plain(text: impl Into<String>) -> Row {
+    vec![span(text, Style::PLAIN)]
+}
+
+/// `text` as one row in the highlight's style.
+fn marked(text: impl Into<String>) -> Row {
+    vec![span(text, Style::PLAIN.reversed())]
+}
+
+/// A list of `items`, each a name in a column of `width` and its note, the
+/// note wrapped by words under its column where it is longer than the
+/// line, and starting on the row below a name longer than the column,
+/// with the item `at` highlighted; and the list's last row of that
+/// item, to keep in sight. The Fonts tab, its new-frit form and the Looks
+/// tab show their items so.
+pub fn columns(
+    items: &[(String, String)],
+    at: usize,
+    width: usize,
+    cols: usize,
+) -> (Vec<Row>, usize) {
+    let column = width.saturating_add(4);
+    let room = cols.saturating_sub(column).saturating_sub(1).max(8);
+    let mut rows = Vec::new();
+    let mut keep = 0;
+    for (i, (name, note)) in items.iter().enumerate() {
+        let mark = if i == at { '>' } else { ' ' };
+        // a name longer than its column has its note on the rows below
+        let long = name.chars().count() > width;
+        let parts = std::iter::repeat_n(String::new(), usize::from(long)).chain(
+            wrap(note, room, usize::MAX)
+                .into_iter()
+                .filter(|p| !(long && p.is_empty())),
+        );
+        for (n, part) in parts.enumerate() {
+            let line = if n == 0 {
+                format!(" {mark} {name:<width$} {part}")
+            } else {
+                format!("{:column$}{part}", "")
+            };
+            rows.push(if i == at { marked(line) } else { plain(line) });
+            if i == at {
+                keep = rows.len().saturating_sub(1);
+            }
+        }
+    }
+    (rows, keep)
+}
+
+/// `text` as rows of a body, wrapped by words to at most `max` rows of a
+/// screen `cols` wide, each after a space.
+pub fn prose_rows(text: &str, cols: usize, max: usize) -> Vec<Row> {
+    wrap(text, cols.saturating_sub(2), max)
+        .into_iter()
+        .map(|l| plain(format!(" {l}")))
+        .collect()
+}
+
+/// `text` as rows of a body, wrapped by words to the screen's width.
+pub fn prose(text: &str, cols: usize) -> Vec<Row> {
+    prose_rows(text, cols, usize::MAX)
+}
+
+/// `text` as a body's sentences, with a blank row above them.
+pub fn tail(text: &str, cols: usize) -> Vec<Row> {
+    std::iter::once(plain(""))
+        .chain(prose(text, cols))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

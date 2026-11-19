@@ -204,6 +204,30 @@ pub struct Preview<'a> {
 }
 
 impl<'a> Preview<'a> {
+    /// The Fonts view's preview: the font the previews show, at the
+    /// draft's size, as its detailed specimen where `detail` says so.
+    pub fn fonts(shared: &'a Shared, size: Size, detail: bool) -> Preview<'a> {
+        Preview {
+            view: View::Fonts,
+            shared,
+            size,
+            detail,
+            points: 0,
+        }
+    }
+
+    /// The Looks view's preview: the font the previews show, at `points`,
+    /// 0 for automatic.
+    pub fn looks(shared: &'a Shared, size: Size, points: u32) -> Preview<'a> {
+        Preview {
+            view: View::Looks,
+            shared,
+            size,
+            detail: false,
+            points,
+        }
+    }
+
     /// The font the preview shows.
     pub fn font(&self) -> Option<&'a Font> {
         self.shared.preview_font()

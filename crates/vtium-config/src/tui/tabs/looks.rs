@@ -6,8 +6,10 @@
 //! - ADR-1206 D2: a tab's state and its update live in the tab's module.
 
 use super::super::input::Key;
-use super::super::listbox::{ListBox, step};
-use super::super::model::SIZES;
+use super::super::listbox::{Body, ListBox, columns, plain, prose, step, tail};
+use super::super::model::{DpiFrom, SIZES, Shared, Size};
+use super::super::shot::Preview;
+use super::super::words;
 use super::{Change, Command};
 
 /// Where the Looks tab stands: the highlighted size, counted from 0 for
@@ -39,6 +41,66 @@ impl Looks {
         match self.list.at {
             0 => 0,
             i => SIZES.get(i.saturating_sub(1)).copied().unwrap_or(0),
+        }
+    }
+
+    /// The tab's body on a screen of `size`: the sentence above the sizes,
+    /// the sizes, automatic first, each marked where it is saved or to
+    /// save; and under them, the line that describes the preview of the
+    /// highlighted size, in the font the previews show.
+    pub fn body(&self, shared: &Shared, size: Size) -> Body {
+        let cols = size.cols;
+        let configured = shared
+            .configured("font-size")
+            .and_then(|s| s.parse::<u32>().ok());
+        let items: Vec<(String, String)> = std::iter::once(0)
+            .chain(SIZES)
+            .map(|points| {
+                let name = match points {
+                    0 => words::AUTOMATIC.to_owned(),
+                    n => words::points(n),
+                };
+                let drafted = shared
+                    .drafted("font-size")
+                    .and_then(|s| s.parse::<u32>().ok());
+                let note = if shared.changed("font-size") && drafted.unwrap_or(0) == points {
+                    words::TO_SAVE
+                } else if configured.unwrap_or(0) == points {
+                    words::SAVED
+                } else {
+                    ""
+                };
+                (name, note.to_owned())
+            })
+            .collect();
+        let (list, keep) = columns(&items, self.list.at, 10, cols);
+        let preview = Preview::looks(shared, size, self.points());
+        let sentence = if shared.text_preview() || !shared.graphics {
+            preview
+                .preview_line()
+                .unwrap_or_else(|| words::NO_PICTURES.to_owned())
+        } else if self.points() == 0 {
+            words::AUTOMATIC_PICTURE.to_owned()
+        } else {
+            let (dpi, from) = shared.inputs.dpi;
+            let from = match from {
+                DpiFrom::Conf => words::DPI_FROM_CONF,
+                DpiFrom::Edid => words::DPI_FROM_EDID,
+                DpiFrom::Assumed => words::DPI_ASSUMED,
+            };
+            match preview.preview_line() {
+                Some(line) => format!("{} {line}", words::density(dpi, from)),
+                None => words::density(dpi, from),
+            }
+        };
+        let mut list_rows = prose(words::LOOKS_SIZES, cols);
+        list_rows.push(plain(""));
+        let keep = keep.saturating_add(list_rows.len());
+        list_rows.extend(list);
+        Body {
+            list: list_rows,
+            keep,
+            tail: tail(&sentence, cols),
         }
     }
 
