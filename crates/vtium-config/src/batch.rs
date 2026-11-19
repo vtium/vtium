@@ -495,6 +495,158 @@ pub fn command(
     }
 }
 
+/// Where a resource stands in a draft, as `active` and the tabs show it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State {
+    /// The built-in font, which is always active.
+    Always,
+    /// The system holds it, and the draft leaves it so.
+    Active,
+    /// The system lacks it, and the draft leaves it so.
+    Inactive,
+    /// The draft activates it, and its install makes it active.
+    Activates,
+    /// The draft deactivates it, and its install makes it inactive.
+    Deactivates,
+}
+
+impl State {
+    /// The words `active` prints for the state.
+    pub const fn words(self) -> &'static str {
+        match self {
+            State::Always => "always active",
+            State::Active => "active",
+            State::Inactive => "not active",
+            State::Activates => "activates on install",
+            State::Deactivates => "deactivates on install",
+        }
+    }
+}
+
+/// What [`Resources::set`] did with one resource.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Done {
+    /// The draft now makes the change. For a deactivation, each sentence
+    /// warns of a look that uses the resource ([`users`]).
+    Changed { warnings: Vec<String> },
+    /// The resource was already active, so nothing changed.
+    AlreadyActive,
+}
+
+/// The current draft's view of the active resources: what the system
+/// holds, the draft's changes, and what the commands and the tabs need to
+/// judge a new change. [`Resources::set`] changes it in memory, and
+/// [`Resources::save`] keeps it beside the draft, so several changes are
+/// kept together or not at all.
+pub struct Resources<'a> {
+    session: &'a Session<'a>,
+    pub name: String,
+    /// The draft's vtium.conf, which [`users`] reads for the warnings.
+    pub text: String,
+    /// The batch file is installed: `false` when vtium uses the list of a
+    /// fresh install.
+    pub installed: bool,
+    base: Batch,
+    changes: Changes,
+    /// The user whose files the trust rule accepts for this install.
+    euid: u32,
+}
+
+impl<'a> Resources<'a> {
+    /// The current draft's active resources.
+    pub fn open(session: &'a Session<'a>) -> Result<Resources<'a>, Fail> {
+        let (name, text) = session.current()?;
+        let installed = session.installed_batch()?;
+        let base = base(installed.as_deref(), &fresh());
+        let changes = session.store.batch_changes(&name)?;
+        let euid = rule_user(&session.paths.targets(), &session.paths.sudo);
+        Ok(Resources {
+            session,
+            name,
+            text,
+            installed: installed.is_some(),
+            base,
+            changes,
+            euid,
+        })
+    }
+
+    /// Where the resource at `path` stands in the draft.
+    pub fn state(&self, path: &Path) -> State {
+        match (self.base.holds(path), self.changes.get(path)) {
+            (true, Some(Change::Deactivate)) => State::Deactivates,
+            (true, _) => State::Active,
+            (false, Some(Change::Activate)) => State::Activates,
+            (false, _) => State::Inactive,
+        }
+    }
+
+    /// Every resource that is active or that the draft activates or
+    /// deactivates, with its state, the batch file's first and then the
+    /// draft's activations, each in order. The built-in font is not
+    /// listed, since it has no path.
+    pub fn list(&self) -> Vec<(PathBuf, State)> {
+        let held = self
+            .base
+            .entries()
+            .iter()
+            .map(|Entry::Path(p)| (p.clone(), self.state(p)));
+        let added = self
+            .changes
+            .iter()
+            .filter(|(p, c)| *c == Change::Activate && !self.base.holds(p))
+            .map(|(p, _)| (p.to_path_buf(), State::Activates));
+        held.chain(added).collect()
+    }
+
+    /// Activates or deactivates the resource at `path` in the draft, in
+    /// memory. `Err` says, file first, why it is refused: a file that fails
+    /// the trust rule, and a deactivation of a resource that is not
+    /// active. A change that brings the resource back to what the system
+    /// holds takes the draft's change back.
+    pub fn set(&mut self, path: &Path, change: Change) -> Result<Done, String> {
+        let active = matches!(self.state(path), State::Active | State::Activates);
+        match change {
+            Change::Activate if active => return Ok(Done::AlreadyActive),
+            Change::Activate => trusted(path, self.euid)?,
+            Change::Deactivate if !active => {
+                return Err(format!(
+                    "{} is not active, so there is nothing to deactivate.",
+                    path.display()
+                ));
+            }
+            Change::Deactivate => {}
+        }
+        let warnings = match change {
+            Change::Activate => Vec::new(),
+            Change::Deactivate => {
+                let palettes: Vec<&Path> = vtium_settings::palette::FOLDERS
+                    .iter()
+                    .map(Path::new)
+                    .collect();
+                let places = Places {
+                    frits: self.session.paths.frits.as_ref().ok().map(PathBuf::as_path),
+                    palettes: &palettes,
+                };
+                users(path, &self.text, &places)
+            }
+        };
+        let wanted = change == Change::Activate;
+        self.changes.set(
+            path.to_path_buf(),
+            (self.base.holds(path) != wanted).then_some(change),
+        );
+        Ok(Done::Changed { warnings })
+    }
+
+    /// Keeps the draft's changes beside it, in `NAME.batch`.
+    pub fn save(&self) -> Result<(), Fail> {
+        self.session
+            .store
+            .set_batch_changes(&self.name, &self.changes)
+    }
+}
+
 /// `activate` or `deactivate`: records `change` for each path in the
 /// current draft, or refuses them all and keeps nothing.
 fn change(
@@ -505,22 +657,7 @@ fn change(
 ) -> Result<(), Fail> {
     let command = change.word();
     let asked = asked(command, words)?;
-    let (name, text) = session.current()?;
-    let fresh = fresh();
-    let installed = session.installed_batch()?;
-    let base = base(installed.as_deref(), &fresh);
-    let mut changes = session.store.batch_changes(&name)?;
-    let targets = session.paths.targets();
-    let euid = rule_user(&targets, &session.paths.sudo);
-    let places_frits = session.paths.frits.as_ref().ok();
-    let palettes: Vec<&Path> = vtium_settings::palette::FOLDERS
-        .iter()
-        .map(Path::new)
-        .collect();
-    let places = Places {
-        frits: places_frits.map(PathBuf::as_path),
-        palettes: &palettes,
-    };
+    let mut resources = Resources::open(session)?;
     let mut said = Vec::new();
     let mut refused = Vec::new();
     for word in &asked.paths {
@@ -543,43 +680,17 @@ fn change(
                 "{word} is not the path of a resource. Give its absolute path without .., such as /usr/share/fonts/TTF/Hack-Regular.ttf."
             )));
         };
-        let what = kind(&path);
-        let shown = path.display();
-        let now = match changes.get(&path) {
-            Some(c) => c == Change::Activate,
-            None => base.holds(&path),
-        };
-        match change {
-            Change::Activate if now => {
-                said.push(format!("already active\t{what}\t{shown}"));
-                continue;
+        let line = format!("{}	{}", kind(&path), path.display());
+        match resources.set(&path, change) {
+            Ok(Done::AlreadyActive) => said.push(format!("already active	{line}")),
+            Ok(Done::Changed { warnings }) => {
+                said.push(format!("{command}	{line}"));
+                said.extend(warnings);
             }
-            Change::Deactivate if !now => {
-                refused.push(format!(
-                    "{shown} is not active, so there is nothing to deactivate."
-                ));
-                continue;
-            }
-            Change::Activate => {
-                if let Err(why) = trusted(&path, euid) {
-                    refused.push(why);
-                    continue;
-                }
-            }
-            Change::Deactivate => {}
+            Err(why) => refused.push(why),
         }
-        said.push(format!("{command}\t{what}\t{shown}"));
-        if change == Change::Deactivate {
-            said.extend(users(&path, &text, &places));
-        }
-        // a change that brings the path back to what the system holds is
-        // no change
-        let wanted = change == Change::Activate;
-        changes.set(
-            path.clone(),
-            (base.holds(&path) != wanted).then_some(change),
-        );
     }
+    let name = &resources.name;
     if !refused.is_empty() {
         return Err(Fail::Check(format!(
             "{}\nNothing was changed: draft {name} keeps the active resources it had.",
@@ -592,11 +703,11 @@ fn change(
     if asked.dry_run {
         return Ok(());
     }
-    session.store.set_batch_changes(&name, &changes)?;
+    resources.save()?;
     if asked.install {
         session.install(
-            &name,
-            &text,
+            name,
+            &resources.text,
             Unrouted::Refuse,
             &mut run_child,
             None,
@@ -608,35 +719,23 @@ fn change(
 
 /// `active`: the built-in font, then each resource the batch file lists
 /// and each the draft activates, one line each, tab-separated: its kind,
-/// its path, and whether it is active or the draft's install activates
-/// or deactivates it.
+/// its path, and its [`State`].
 fn list(session: &Session<'_>, words: &[String], out: &mut dyn Write) -> Result<(), Fail> {
     if !words.is_empty() {
         return Err(Fail::Usage("active takes no argument".to_owned()));
     }
-    let (name, _) = session.current()?;
-    let installed = session.installed_batch()?;
-    let base = base(installed.as_deref(), &fresh());
-    let changes = session.store.batch_changes(&name)?;
-    let _ = writeln!(out, "font\tbuilt-in\talways active");
-    for Entry::Path(path) in base.entries() {
-        let state = match changes.get(path) {
-            Some(Change::Deactivate) => "deactivates on install",
-            _ => "active",
-        };
-        let _ = writeln!(out, "{}\t{}\t{state}", kind(path), path.display());
+    let resources = Resources::open(session)?;
+    let _ = writeln!(out, "font\tbuilt-in\t{}", State::Always.words());
+    for (path, state) in resources.list() {
+        let _ = writeln!(
+            out,
+            "{}\t{}\t{}",
+            kind(&path),
+            path.display(),
+            state.words()
+        );
     }
-    for (path, change) in changes.iter() {
-        if change == Change::Activate && !base.holds(path) {
-            let _ = writeln!(
-                out,
-                "{}\t{}\tactivates on install",
-                kind(path),
-                path.display()
-            );
-        }
-    }
-    if installed.is_none() {
+    if !resources.installed {
         let _ = writeln!(
             out,
             "{} does not exist, so vtium uses the resources of a fresh install.",
