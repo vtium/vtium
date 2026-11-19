@@ -594,8 +594,49 @@ impl Overlay {
         if self.notice.is_none() && self.mark.is_none() {
             return Vec::new();
         }
-        let own = renderer.font();
-        let depth = renderer.depth();
+        self.draw_in(
+            renderer.font(),
+            renderer.depth(),
+            grid,
+            orientation,
+            size,
+            target,
+        )
+    }
+
+    /// Draws the overlay into `target` as [`Overlay::draw_into`] does,
+    /// through the renderer's color slot, so that a vtlook's color filters
+    /// reach the notices and the mark as they reach the frame.
+    ///
+    /// References:
+    /// - ADR-1304 D2: every pixel of the display passes through the color slot.
+    #[cfg(feature = "filters")]
+    pub fn draw_colored<F: Face>(
+        &self,
+        renderer: &mut Renderer<F>,
+        grid: (usize, usize),
+        orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
+        if self.notice.is_none() && self.mark.is_none() {
+            return Vec::new();
+        }
+        let (font, depth, mut colored) = renderer.colored_with_font(target);
+        self.draw_in(font, depth, grid, orientation, size, &mut colored)
+    }
+
+    /// Draws the overlay into `target` with vtium's built-in font in the
+    /// cell of `own`, the renderer's font, under `own`'s sprite policy.
+    fn draw_in<F: Face>(
+        &self,
+        own: &Font<F>,
+        depth: Depth,
+        grid: (usize, usize),
+        orientation: Orientation,
+        size: (u32, u32),
+        target: &mut impl Target,
+    ) -> Vec<DisplayRect> {
         match crate::font::own_face(own.face().cell()) {
             Some(face) => {
                 let font = Font::new(face).with_policy(own.policy());
@@ -789,6 +830,15 @@ impl Job {
                     .collect();
                 let (most_cols, most_rows) = drawing.renderer.grid_size();
                 let grid = (grid.0.min(most_cols), grid.1.min(most_rows));
+                #[cfg(feature = "filters")]
+                let overlaid = self.overlay.draw_colored(
+                    &mut drawing.renderer,
+                    grid,
+                    self.orientation,
+                    size,
+                    &mut target,
+                );
+                #[cfg(not(feature = "filters"))]
                 let overlaid = self.overlay.draw_into(
                     &drawing.renderer,
                     grid,
@@ -1676,6 +1726,50 @@ mod tests {
 
     const ID: DisplayId = DisplayId(1);
     const SIZE: (u32, u32) = (36, 34);
+
+    // A notice drawn through the color slot is the notice drawn without
+    // one, each pixel looked up in the vtlook's table, so the look's
+    // colors reach the box and its text as they reach the frame.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_notice_draws_through_the_vtlook_s_color_table() {
+        use vtium_render::filter::{Fixed, Given, Lookup, Map, Table, color};
+        let tint = Map::new(
+            color("tint").unwrap(),
+            &[Given::Color([255, 176, 0]), Given::Number(Fixed::of(1, 0))],
+        )
+        .unwrap();
+        let table = Table::build(&[tint]).unwrap();
+        let overlay = Overlay::new(None, &["a notice"], None, OverlayColors::default());
+        let face = || -> DisplayFace { Box::new(Unifont::new(16)) };
+        let (w, h) = (320, 96);
+        let plain_renderer = Renderer::new(Font::new(face()), w, h, RenderConfig::default());
+        let mut plain = Canvas::new(w, h, 0);
+        let drawn = overlay.draw(&plain_renderer, (40, 6), Orientation::Normal, &mut plain);
+        let mut renderer = Renderer::new(Font::new(face()), w, h, RenderConfig::default());
+        renderer.set_color_table(Some(&table)).unwrap();
+        let mut colored = Canvas::new(w, h, 0);
+        let rects = overlay.draw_colored(
+            &mut renderer,
+            (40, 6),
+            Orientation::Normal,
+            (w, h),
+            &mut colored,
+        );
+        assert_eq!(rects, drawn);
+        let mut lookup = Lookup::new(&table).unwrap();
+        let mut moved = 0;
+        for r in &rects {
+            for y in r.y..r.y + r.height {
+                for x in r.x..r.x + r.width {
+                    let (p, c) = (plain.pixel(x, y).unwrap(), colored.pixel(x, y).unwrap());
+                    assert_eq!(c, lookup.map(p), "{x},{y}: {p:06x}");
+                    moved += usize::from(c != p);
+                }
+            }
+        }
+        assert!(moved > 0, "the tint moved no pixel of the notice");
+    }
 
     // ADR-1002, section 7: the frame a head's render thread draws from the
     // snapshot carries the labels of link hints and vtium's note on the

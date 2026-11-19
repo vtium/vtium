@@ -1161,6 +1161,19 @@ impl<F: Face> Renderer<F> {
         crate::filter::Colored::new(target, self.color.as_mut(), &mut self.color_line)
     }
 
+    /// [`Renderer::colored`] beside the renderer's font and depth, which
+    /// vtium's notices are drawn with while they write through the color
+    /// slot.
+    #[cfg(feature = "filters")]
+    pub fn colored_with_font<'a, T: Target + ?Sized>(
+        &'a mut self,
+        target: &'a mut T,
+    ) -> (&'a Font<F>, Depth, impl Target + 'a) {
+        let colored =
+            crate::filter::Colored::new(target, self.color.as_mut(), &mut self.color_line);
+        (&self.font, self.config.depth, colored)
+    }
+
     /// Something other than the renderer drew over the display area `area`
     /// in the buffers it drew before, as vtium's overlay, a notice box,
     /// does. The next frame draws again every cell `area` touches and the
