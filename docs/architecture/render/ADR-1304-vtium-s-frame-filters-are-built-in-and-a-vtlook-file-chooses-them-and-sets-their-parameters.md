@@ -259,6 +259,10 @@ considered:
     via: the maintainer's answers to the steering session's questions, 2026-11-18, relayed by the team lead; the wording is the team lead's
     paraphrase: true
     covers: [Ghostty's decode]
+  - operator: aaronsb
+    said: "these leans are fine [the floor as a setting of tint] … I wanted to make sure brightness floor is an optiona[l]"
+    via: steering session chat, 2026-11-19; the steering session showed that D21's floor defaults to 0, which changes nothing
+    covers: [the floor's shape]
 status: accepted
 date: 2026-11-03
 deciders:

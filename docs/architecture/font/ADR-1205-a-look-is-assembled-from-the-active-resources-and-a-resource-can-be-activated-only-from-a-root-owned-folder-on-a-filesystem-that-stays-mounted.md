@@ -122,6 +122,10 @@ considered:
     said: "Pointer themes are activated in the Looks tab. The Looks tab lists every installed pointer theme, marks the inactive ones, and offers Activate and Deactivate there, with the same trust marks as the Fonts and Effects tabs."
     via: the maintainer's answers to the steering session's questions, 2026-11-18
     paraphrase: true
+  - operator: aaronsb
+    said: "these leans are fine [read Ghostty's theme format as it is; the shipped schemes active from the first start; palettes managed in the Looks tab; Monokai left out for now; a palette file may set colors 16 to 255]"
+    via: steering session chat, 2026-11-19, after reading the leans in a table
+    covers: [the file format, the palette folders, where palettes are managed, Monokai]
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
