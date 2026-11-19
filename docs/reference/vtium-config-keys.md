@@ -100,7 +100,7 @@ flowchart LR
     any --> any_trial
     any --> any_too_small
     classDef planned stroke-dasharray: 5 5
-    class flow_card_list,looks,looks_look,looks_look_list,looks_look_typing,looks_font_set,looks_palette,looks_pointer,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,fonts_filter,fonts_font,any_question_system_font,any_question_window_ops planned
+    class flow_card_list,looks_palette,looks_pointer,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,fonts_filter,fonts_font,any_question_system_font,any_question_window_ops planned
 ```
 
 Each section below names a screen by its place in the tree, says how you open and leave it, and lists its keys. The column "Shown as" gives the word the key line shows beside the key, and a dash marks a key that the key line leaves out.
@@ -551,8 +551,6 @@ Restore's list of the installed history, newest first.
 
 The Looks tab: the looks, the font sets, the color schemes and the installed pointer themes, as four groups of one list, with a preview of the highlighted look, font set or color scheme.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the Looks tab is a list of sizes whose Enter writes the top-level font-size.
-
 **Open it:** Tab from effects, Shift-Tab from flow; 3 from any tab with nothing open.
 
 **Leave it:** Tab to flow, Shift-Tab to effects; a digit to another tab.
@@ -571,13 +569,13 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | save | Saves the changes that are not saved into the draft. |
 | i | install | Saves, then asks whether to install the draft. |
-| r | remove | On a look, asks whether to delete it. On a font set, marks it for removal at the next install, or takes the mark back. Among the color schemes and the pointer themes, does nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| n | new font set | Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set. Among the color schemes and the pointer themes, does nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| t | try live | Tries the highlighted look or font set on this console for 10 seconds. Among the color schemes and the pointer themes, does nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | open | On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. Among the color schemes and the pointer themes, does nothing, because a color scheme's preview is its 16 colors beside text in its foreground on its background. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| r | remove | On a look, asks whether to delete it. On a font set, marks it for removal at the next install, or takes the mark back. Among the color schemes and the pointer themes, does nothing. |
+| n | new | Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set. Among the color schemes and the pointer themes, does nothing. |
+| t | try live | Tries the highlighted look or font set on this console for 10 seconds. Among the color schemes and the pointer themes, does nothing. |
+| Enter | open | On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail. |
+| p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. Among the color schemes and the pointer themes, does nothing, because a color scheme's preview is its 16 colors beside text in its foreground on its background. |
 | w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| o | - | Does nothing here. |
 | Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
@@ -591,8 +589,6 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 ## `looks.look`
 
 A look's card: its name, font set, size, color scheme, vtlook and pointer theme, and below them what the look still misses, by role.
-
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no card for a look.
 
 **Open it:** Enter on a look, or n among the looks, which opens the card with its name being typed.
 
@@ -608,23 +604,21 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
-| Up | move | Moves to the line above. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Down | move | Moves to the line below. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Left | change | Steps the highlighted line to its choice before. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Right | change | Steps the highlighted line to its next choice. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | On the look's name, lets you type a new name. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | On the look's font set, shows the font sets to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | On the look's size, shows the sizes that the look's fonts supply as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | On the look's color scheme, shows the color schemes as a list: first the one vtium.conf sets, which leaves the look's own unset, then the built-in schemes, then the active scheme files. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | On the look's vtlook, shows the vtlooks as a list in the Effects tab's order: No filter first, then the presets, then the administrator's vtlooks. A vtlook that does not read, such as one that names a color map that is not active, shows why, and the look can still pick it. A new look starts on No filter. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Up | move | Moves to the line above. |
+| Down | move | Moves to the line below. |
+| Left | change | Steps the highlighted line to its choice before. |
+| Right | change | Steps the highlighted line to its next choice. |
+| Enter | choose | On the look's name, lets you type a new name. |
+| Enter | choose | On the look's font set, shows the font sets to choose from as a list. |
+| Enter | choose | On the look's size, shows the sizes that the look's fonts supply as a list. |
+| Enter | choose | On the look's color scheme, shows the color schemes as a list: first the one vtium.conf sets, which leaves the look's own unset, then the built-in schemes, then the active scheme files. |
+| Enter | choose | On the look's vtlook, shows the vtlooks as a list in the Effects tab's order: No filter first, then the presets, then the administrator's vtlooks. A vtlook that does not read, such as one that names a color map that is not active, shows why, and the look can still pick it. A new look starts on No filter. |
 | Enter | choose | On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| t | try live | Tries this look on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| t | try live | Tries this look on this console for 10 seconds. |
 
 ## `looks.look.list`
 
 The shared list of the choices for a line of the look's card: font sets, the sizes the fonts supply, color schemes, vtlooks or active pointer themes.
-
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no such list.
 
 **Open it:** Enter on a line of the look's card other than its name.
 
@@ -651,8 +645,6 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 
 The look's name being typed.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no card for a look.
-
 **Open it:** Enter on the name of the look's card; n among the looks.
 
 **Leave it:** Enter keeps it and Esc drops it, both to looks.look.
@@ -671,8 +663,6 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 ## `looks.font-set`
 
 A font set's detail, read-only: its fonts by role, what it still misses by role, and the looks that use it.
-
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no detail for a font set.
 
 **Open it:** Enter on a font set.
 
@@ -741,7 +731,7 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 
 The form for a new font set: a field for each role, from the text font to the fallback, then the font set's name (the views table's new-frit).
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Fonts tab, o writes the top-level allow-font-ops in a vtium console with allow-font-ops off, and i installs from the last row.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Looks tab, with fields for a name, three fonts, a cell and a size in place of the roles, o writes the top-level allow-font-ops in a vtium console with allow-font-ops off, and i installs from the last row.
 
 **Open it:** N among the font sets.
 
@@ -770,7 +760,7 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 
 A field of the form being typed.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Fonts tab, and Up and Down move to another field while a value is typed.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Looks tab, with fields for a name, three fonts, a cell and a size in place of the roles, and Up and Down move to another field while a value is typed.
 
 **Open it:** The form opens on its first field; Enter on a field goes to the next field.
 
@@ -792,7 +782,7 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 
 The shared list of the active fonts that can fill a role.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the form has three source fields that take typed text, and no list.
+This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the form has three fields for fonts, which take typed text, and no list.
 
 **Open it:** Enter on a role's field of the form.
 
