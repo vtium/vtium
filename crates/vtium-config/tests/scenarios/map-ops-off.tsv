@@ -165,7 +165,6 @@ ops-off effects	Shift-Tab	ops-off fonts(builtin)
 ops-off effects	Shrink	ops-off any.too-small	
 ops-off effects	Tab	ops-off looks	
 ops-off effects	i	ops-off effects	prepare
-ops-off effects	o	ops-off effects +unsaved	check
 ops-off effects	q	ops-off left	exit 0
 ops-off effects +pending	1	ops-off fonts(marked) +pending	
 ops-off effects +pending	3	ops-off looks +pending	
@@ -177,7 +176,6 @@ ops-off effects +pending	Shift-Tab	ops-off fonts(marked) +pending
 ops-off effects +pending	Shrink	ops-off any.too-small +pending	
 ops-off effects +pending	Tab	ops-off looks +pending	
 ops-off effects +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off effects +pending	o	ops-off effects +unsaved +pending	check
 ops-off effects +pending	q	ops-off any.question.leave +pending	
 ops-off effects +unsaved	1	ops-off fonts(builtin) +unsaved	
 ops-off effects +unsaved	3	ops-off looks +unsaved	
@@ -189,7 +187,6 @@ ops-off effects +unsaved	Shift-Tab	ops-off fonts(builtin) +unsaved
 ops-off effects +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off effects +unsaved	Tab	ops-off looks +unsaved	
 ops-off effects +unsaved	i	ops-off effects	save, prepare
-ops-off effects +unsaved	o	ops-off effects +unsaved	check
 ops-off effects +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off effects +unsaved	s	ops-off effects	save
 ops-off effects +unsaved +pending	1	ops-off fonts(marked) +unsaved +pending	
@@ -202,7 +199,6 @@ ops-off effects +unsaved +pending	Shift-Tab	ops-off fonts(marked) +unsaved +pend
 ops-off effects +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off effects +unsaved +pending	Tab	ops-off looks +unsaved +pending	
 ops-off effects +unsaved +pending	i	ops-off effects +pending	save, prepare
-ops-off effects +unsaved +pending	o	ops-off effects +unsaved +pending	check
 ops-off effects +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off effects +unsaved +pending	s	ops-off effects +pending	save
 ops-off flow(doc display)	1	ops-off fonts(builtin)	mouse off

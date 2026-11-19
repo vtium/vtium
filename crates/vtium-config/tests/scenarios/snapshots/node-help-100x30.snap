@@ -5,6 +5,19 @@ description: "help at 100×30, keys: Shift-Tab"
  Fonts  Effects  Looks  Flow  Settings  Help
  draft mine · no changes · no problems                                   text preview · t: try live
 ----------------------------------------------------------------------------------------------------
+ Fonts lists the font sets (frits) and the built-in fonts, with any font files each is missing.
+ Below the list, the console draws every character of the preview in the font it uses now. Press t
+ to try the highlighted font on the console, k to keep it, and s to save it in the draft. Press n
+ to make a new font set.
+     Enter choose  t try live  s save  n new  r remove  i install  q quit
+
+ Effects will list the color maps and shaders that a look can use. It lists none yet.
+     Tab next view  s save  i install  q quit
+
+ Looks lists the console's font sizes, automatic first, with a preview of each. Later it will
+ manage the looks, each a font set and a size.
+     Enter choose  Tab next view  i install  q quit without installing
+
  The Flow view: CONFIGURATION, NEW PATH and PARTS
    ↑          Moves to the box above.
    ↓          Moves to the box below.
@@ -16,19 +29,6 @@ description: "help at 100×30, keys: Shift-Tab"
    PgDn       Scrolls down by a window.
    Space      Picks the highlighted part into NEW PATH, or takes it out.
    Enter      Opens the highlighted box: a part's detail, a path's card, a template's part maker, or
-              the list of other inputs.
-   1          Goes straight to the Fonts tab.
-   2          Goes straight to the Effects tab.
-   3          Goes straight to the Looks tab.
-   5          Goes straight to the Settings tab.
-   6          Goes straight to the Help tab.
-   s          Saves the changes that are not saved into the draft.
-   i          Saves, then asks whether to install the draft.
-   r          Asks whether to throw away the draft's changes and copy the installed file back.
-   n          Asks whether to start a new configuration.
-   v          Shows the draft's vtium.conf as text.
-   o          Lists the files installed before, newest first, to copy one into the draft.
-   .          Shows the key line's next page, and the first page again after the last. Does nothing
 
 ----------------------------------------------------------------------------------------------------
  ↑↓ scroll  ←→ Help, About  q quit  . more 1/4
