@@ -17,7 +17,8 @@ use std::path::{Path, PathBuf};
 use vtium_settings::Trust;
 use vtium_settings::Untrusted;
 use vtium_settings::batch::{
-    BATCH_MAX, Batch, Entry, FRESH_FONTS, Finding, LineFault, Unread, vconsole,
+    BATCH_MAX, Batch, CONSOLE_FONT_FOLDERS, Entry, FRESH_FONTS, Finding, LineFault, Unread,
+    vconsole,
 };
 use vtium_settings::cullet::{Check, Opened, Refused, Rule, open, open_in_theme};
 use vtium_settings::mounts::{Mounts, Place, Unsteady};
@@ -739,37 +740,79 @@ fn the_fresh_install_list_holds_the_shipped_fonts_the_console_font_and_the_shipp
     }
     mkdir(&palettes.join("folder"), 0o755);
     let fonts = Path::new("/usr/share/vtium/fonts");
-    let batch = Batch::fresh_install(fonts, &palettes, Some("ter-v16n"));
+    // kbd's folders, and a folder of the same name elsewhere
+    let share = dir.join("usr/share/kbd/consolefonts");
+    let lib = dir.join("usr/lib/kbd/consolefonts");
+    let old = dir.join("lib/kbd/consolefonts");
+    let stick = dir.join("run/media/me/STICK/consolefonts");
+    for (folder, files) in [
+        (
+            &share,
+            &["ter-v16n.psf.gz", "ter-v32n.psf.gz", "ter-v16b.psf.gz"][..],
+        ),
+        (&lib, &["ter-v16n.psfu"][..]),
+        (&old, &["ter-v16n"][..]),
+        (&stick, &["ter-v16n.psf.gz"][..]),
+    ] {
+        mkdir(folder, 0o755);
+        for f in files {
+            write(&folder.join(f), b"PSF", 0o644);
+        }
+    }
+    mkdir(&share.join("ter-v16n.cp"), 0o755);
+    let kbd: [&Path; 3] = [&share, &lib, &old];
+    let batch = Batch::fresh_install(fonts, &palettes, Some("ter-v16n"), &kbd);
     for f in FRESH_FONTS {
         assert!(batch.holds(&fonts.join(f)), "{f}");
     }
     assert!(batch.holds(&palettes.join("Kiln")));
     assert!(batch.holds(&palettes.join("Dracula")));
     assert!(!batch.holds(&palettes.join("folder")));
-    assert!(batch.holds(Path::new("/usr/share/kbd/consolefonts/ter-v16n.psf.gz")));
-    assert!(batch.holds(Path::new("/usr/lib/kbd/consolefonts/ter-v16n.psfu")));
-    assert!(!batch.holds(Path::new("/usr/share/kbd/consolefonts/ter-v32n.psf.gz")));
+    assert!(batch.holds(&share.join("ter-v16n.psf.gz")));
+    assert!(batch.holds(&lib.join("ter-v16n.psfu")));
+    assert!(!batch.holds(&share.join("ter-v32n.psf.gz")));
+    assert!(!batch.holds(&share.join("ter-v16n.cp")));
+    assert!(!batch.holds(&stick.join("ter-v16n.psf.gz")));
     assert!(!batch.holds(Path::new("/home/me/ter-v16n.psf.gz")));
+    assert!(!batch.holds(Path::new(
+        "/run/media/me/STICK/consolefonts/ter-v16n.psf.gz"
+    )));
+    assert!(!batch.holds(Path::new("/home/me/consolefonts/ter-v16n.psf.gz")));
     assert!(!batch.holds(Path::new("/usr/share/vtium/fonts/other.ttf")));
-    // the palettes are listed after the fonts, sorted by name
+    // the console font resolves to the files found, then come the
+    // palettes, sorted by name
     assert_eq!(
-        &batch.entries()[FRESH_FONTS.len() + 1..],
+        &batch.entries()[FRESH_FONTS.len()..],
         [
+            Entry::Path(share.join("ter-v16n.psf.gz")),
+            Entry::Path(lib.join("ter-v16n.psfu")),
+            Entry::Path(old.join("ter-v16n")),
             Entry::Path(palettes.join("Dracula")),
             Entry::Path(palettes.join("Kiln"))
         ]
     );
+    // a name that is not one plain file name names no file
+    for odd in ["../consolefonts/ter-v16n", "STICK/ter-v16n", ".."] {
+        assert_eq!(
+            Batch::fresh_install(fonts, &dir.join("none"), Some(odd), &kbd)
+                .entries()
+                .len(),
+            FRESH_FONTS.len(),
+            "{odd}"
+        );
+    }
 
     // a console font named by its path, no console font, no palettes
     let by_path = Batch::fresh_install(
         fonts,
         &dir.join("none"),
         Some("/usr/share/kbd/consolefonts/x.psf"),
+        &kbd,
     );
     assert!(by_path.holds(Path::new("/usr/share/kbd/consolefonts/x.psf")));
     assert_eq!(by_path.entries().len(), FRESH_FONTS.len() + 1);
     assert_eq!(
-        Batch::fresh_install(fonts, &dir.join("none"), None)
+        Batch::fresh_install(fonts, &dir.join("none"), None, &kbd)
             .entries()
             .len(),
         FRESH_FONTS.len()
@@ -1066,4 +1109,17 @@ fn a_mount_point_that_is_not_utf8_does_not_spoil_the_table() {
         mounts.judge(&place((0, 71), "/mnt/nfs/a.ttf")),
         Err(Unsteady::Network { .. })
     ));
+}
+
+#[test]
+fn the_console_font_folders_are_kbds() {
+    assert_eq!(
+        CONSOLE_FONT_FOLDERS,
+        [
+            "/usr/share/kbd/consolefonts",
+            "/usr/lib/kbd/consolefonts",
+            "/lib/kbd/consolefonts",
+            "/usr/share/consolefonts",
+        ]
+    );
 }

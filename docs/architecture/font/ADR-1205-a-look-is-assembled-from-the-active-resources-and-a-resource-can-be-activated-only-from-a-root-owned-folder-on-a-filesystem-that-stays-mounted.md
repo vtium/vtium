@@ -273,6 +273,8 @@ The program that reads a resource checks the rule on the file it opened, so the 
 
 > Note 2026-11-18: the maintainer decided what vtium does when the batch file is missing (`considered`, 2026-11-18). A machine upgraded from an earlier vtium has no `/etc/vtium/batch.conf`. vtium then treats the batch as the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, and the console font that vconsole.conf's `FONT=` names. So the default set `terminus` still draws after the upgrade. `vtium check-config` says that the file is missing and how to create it.
 
+> Note 2026-11-19: the work that builds the batch decides where vtium finds the console font of a fresh install. vconsole.conf's `FONT=` names the font by an absolute path or by kbd's name, such as `ter-v16n`. vtium looks for a font named by kbd's name only in kbd's font folders: `/usr/share/kbd/consolefonts`, `/usr/lib/kbd/consolefonts`, `/lib/kbd/consolefonts` and `/usr/share/consolefonts`. The list of a fresh install holds each file there whose name is the font's name with or without one of kbd's suffixes, such as `.psf.gz`. A file of that name in any other folder is not active.
+
 **This rule sits beside ADR-1401 D10.** D10 keeps its scope: vtium.conf and the frits, which route input and choose login commands. This rule covers the resources a look draws from.
 
 ### D5: how a font reaches the machine
