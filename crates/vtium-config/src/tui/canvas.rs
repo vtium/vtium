@@ -342,7 +342,9 @@ fn pieces(word: &str, width: usize) -> Vec<String> {
 /// broken between words, at most `most` of them, the last cut with `…`
 /// where text was left out; at least one line. A character two cells wide
 /// counts twice, and a mark that joins the character before it counts
-/// nothing.
+/// nothing. Each control character becomes `?`, as [`printable`] shows
+/// it, so a tab or an escape sequence in a message from a command takes
+/// the one cell it shows in.
 pub fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
     let width = width.max(1);
     let mut lines: Vec<String> = Vec::new();
@@ -350,7 +352,7 @@ pub fn wrap(text: &str, width: usize, most: usize) -> Vec<String> {
     let mut used = 0usize;
     // a word longer than the line, such as a path, breaks where the line
     // ends
-    for word in text.split(' ').flat_map(|w| pieces(w, width)) {
+    for word in printable(text).split(' ').flat_map(|w| pieces(w, width)) {
         let w = cells(&word);
         if used > 0 && used.saturating_add(1).saturating_add(w) > width {
             lines.push(std::mem::take(&mut line));
@@ -458,6 +460,15 @@ mod tests {
         assert_eq!(wrap("键盘 键盘 键盘", 9, 1), ["键盘 键…"]);
         assert_eq!(mid("键盘ab键盘cd键盘", 9), "键盘…键盘");
         assert_eq!(pick(4, &["键盘键", "键盘"]), "键盘");
+    }
+
+    #[test]
+    fn wrap_measures_a_control_character_as_the_question_mark_it_shows_as() {
+        // a tab or an escape would move the cursor of a terminal the text
+        // is measured on; the TUI shows each control as `?`, one cell
+        let lines = wrap("é\tabcdefghij klmnop", 6, 9);
+        assert_eq!(lines, ["é?abcd", "efghij", "klmnop"]);
+        assert_eq!(wrap("é\x1b[5Cab", 9, 9), ["é?[5Cab"]);
     }
 
     #[test]
