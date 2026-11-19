@@ -407,6 +407,7 @@ pub fn screen_at(app: &App, size: Size) -> Vec<Row> {
 /// drawn with [`Colors::Named`], so a style keeps the named color that the
 /// pictures of the console draw, where the terminal is sent a 24-bit one.
 pub fn screen(app: &App) -> Vec<Row> {
+    let _rule = super::canvas::measure_by(cluster_width(app));
     let area = ratatui_core::layout::Rect::new(
         0,
         0,
@@ -416,6 +417,16 @@ pub fn screen(app: &App) -> Vec<Row> {
     let mut buf = ratatui_core::buffer::Buffer::empty(area);
     view(app, Colors::Named, &mut buf);
     rows(&buf)
+}
+
+/// The console's `cluster-width` rule, from the installed vtium.conf: what
+/// a syllable with a spacing vowel sign or a virama conjunct takes on the
+/// screen.
+fn cluster_width(app: &App) -> vtium_term::ClusterWidth {
+    match app.shared.configured("cluster-width").as_deref() {
+        Some("single") => vtium_term::ClusterWidth::Single,
+        _ => vtium_term::ClusterWidth::Double,
+    }
 }
 
 /// The rows of `buf`, each run of cells in one style a span. A cell that
@@ -742,6 +753,7 @@ impl Painter {
         let backend = self.terminal.backend_mut();
         backend.set_size(cols, rows);
         backend.set_color(app.shared.inputs.color);
+        let _rule = super::canvas::measure_by(cluster_width(app));
         self.terminal.draw(|frame| render(app, frame))?;
         Ok(self.terminal.backend_mut().take())
     }
@@ -776,7 +788,18 @@ mod tests {
     /// The rows a vtium console shows after `bytes`, on a screen of
     /// `cols` by `rows`, the second cell of a wide character as a blank.
     fn console(bytes: &[u8], cols: u16, rows: u16) -> Vec<String> {
+        console_by(bytes, cols, rows, vtium_term::ClusterWidth::Double)
+    }
+
+    /// [`console`] on a console whose `cluster-width` is `rule`.
+    fn console_by(
+        bytes: &[u8],
+        cols: u16,
+        rows: u16,
+        rule: vtium_term::ClusterWidth,
+    ) -> Vec<String> {
         let mut t = vtium_term::Terminal::new(usize::from(cols), usize::from(rows), 0);
+        t.set_cluster_width(rule);
         t.input(bytes);
         let s = t.screen();
         (0..s.rows())
@@ -858,6 +881,44 @@ mod tests {
             shown.iter().any(|row| row == " say a\u{17a4}b"),
             "{shown:#?}"
         );
+    }
+
+    #[test]
+    fn under_cluster_width_single_a_frame_after_a_vowel_sign_lands_where_the_console_shows_it() {
+        // a vowel sign after a space joins the space: two cells under
+        // `double`, one under `single`, which the installed vtium.conf
+        // sets. The second frame writes only the changed `Y`, at the cell
+        // where the console shows it.
+        let mut inputs = super::super::fixture::inputs();
+        inputs.conf = Some("cluster-width = single\n".to_owned());
+        let (mut app, _) = App::new(inputs, 80, 25);
+        let mut painter = Painter::new().ok();
+        let mut frame = |app: &App| {
+            painter
+                .as_mut()
+                .and_then(|p| p.frame(app).ok())
+                .unwrap_or_default()
+        };
+        app.shared.message = Some("ab \u{BCA}.xyz".to_owned());
+        let mut bytes = frame(&app);
+        app.shared.message = Some("ab \u{BCA}.xYz".to_owned());
+        bytes.extend(frame(&app));
+        let shown = console_by(&bytes, 80, 25, vtium_term::ClusterWidth::Single);
+        assert!(
+            shown.iter().any(|row| row == " ab \u{BCA}.xYz"),
+            "{shown:#?}"
+        );
+        // the screen the tests read lays the row out by the same rule
+        let rows: Vec<String> = screen(&app)
+            .iter()
+            .map(|r| r.iter().map(|s| s.text.as_str()).collect::<String>())
+            .collect();
+        let row = rows
+            .iter()
+            .find(|r| r.contains('Y'))
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(super::super::canvas::cells(row.trim_end()), 9, "{row:?}");
     }
 
     #[test]

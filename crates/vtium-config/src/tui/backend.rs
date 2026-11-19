@@ -75,14 +75,14 @@ impl Vt {
     }
 }
 
-/// How many cells the console gives `symbol`: vtium-term's width rule for
-/// the cluster, so the Backend knows where the terminal's cursor stops.
+/// How many cells the console gives `symbol`: the cells of each cluster
+/// vtium-term cuts it into, under the `cluster-width` rule this thread
+/// measures by ([`canvas::rule`](super::canvas::rule)), so the Backend
+/// knows where the terminal's cursor stops.
 pub fn console_width(symbol: &str) -> u16 {
-    let chars: Vec<char> = symbol.chars().collect();
-    if chars.is_empty() {
-        return 0;
-    }
-    u16::from(vtium_term::cluster_width(&chars))
+    vtium_term::clusters(symbol, super::canvas::rule())
+        .map(|(_, width)| u16::from(width))
+        .fold(0, u16::saturating_add)
 }
 
 /// SGR's parameter for `color` as the text's color (`base` 30) or the

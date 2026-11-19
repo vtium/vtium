@@ -91,6 +91,44 @@ pub struct Cluster<'a> {
     pub width: u16,
 }
 
+thread_local! {
+    /// The `cluster-width` rule this thread measures text by.
+    static RULE: std::cell::Cell<vtium_term::ClusterWidth> =
+        const { std::cell::Cell::new(vtium_term::ClusterWidth::Double) };
+}
+
+/// The console's `cluster-width` rule that [`clusters`] and the Backend
+/// measure text by on this thread: `double`, the console's default,
+/// unless a [`MeasureBy`] is alive.
+pub fn rule() -> vtium_term::ClusterWidth {
+    RULE.with(std::cell::Cell::get)
+}
+
+/// Measures text by `rule` on this thread until the returned guard drops,
+/// and then by the rule before it. A console under `cluster-width =
+/// single` gives a syllable with a spacing vowel sign one cell where
+/// `double` gives it two. The view draws each frame inside one guard set
+/// from the installed vtium.conf, so ratatui's buffer, the rows the view
+/// lays out and the Backend's cursor all count the console's cells.
+pub fn measure_by(rule: vtium_term::ClusterWidth) -> MeasureBy {
+    MeasureBy {
+        before: RULE.with(|r| r.replace(rule)),
+    }
+}
+
+/// The guard [`measure_by`] returns.
+#[derive(Debug)]
+#[must_use = "the rule holds only while the guard lives"]
+pub struct MeasureBy {
+    before: vtium_term::ClusterWidth,
+}
+
+impl Drop for MeasureBy {
+    fn drop(&mut self) {
+        RULE.with(|r| r.set(self.before));
+    }
+}
+
 /// The characters `text` shows as on the console, each a base character
 /// with the marks that join it, in order. Every character of `text` is in
 /// one cluster, so the clusters' texts joined give `text` back.
@@ -102,7 +140,8 @@ pub struct Cluster<'a> {
 /// clusters of Unicode's own tables, which ratatui reads. vtium-config
 /// asks vtium-term, the console's own terminal, which cuts the text into
 /// clusters and measures each one exactly as its screen does when the
-/// text is printed. Plain ASCII text joins nothing, so it skips that step.
+/// text is printed, under the [`rule`] this thread measures by. Plain
+/// ASCII text joins nothing, so it skips that step.
 ///
 /// References:
 /// - ADR-1206 D1, "The console's width rule decides where the cursor
@@ -117,7 +156,7 @@ pub fn clusters(text: &str) -> Vec<Cluster<'_>> {
             })
             .collect();
     }
-    vtium_term::clusters(text, vtium_term::ClusterWidth::Double)
+    vtium_term::clusters(text, rule())
         .map(|(text, width)| Cluster {
             text,
             chars: text.chars().count(),
