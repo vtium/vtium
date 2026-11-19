@@ -60,14 +60,22 @@ The first line runs through sudo from your own shell on purpose. Your shell turn
 
 vtium renders only the fonts that are active. A font is active when `/etc/vtium/batch.conf` lists its file. The file holds one absolute path on each line, and a line that starts with `#` is a comment. Only root can change the file, so only root decides which fonts the console renders. The same file lists the other resources that a look uses, such as color schemes.
 
-A fresh install activates the fonts that vtium ships in `/usr/share/vtium/fonts`: Terminus, GNU Unifont and Cullet Mono. It also activates the console font that `FONT=` names in `/etc/vconsole.conf`, and the color schemes in `/usr/share/vtium/palettes`. vtium uses this list while `batch.conf` does not exist, so the default font set `terminus` works with no setup. The built-in fonts are always active.
+A fresh install activates the fonts that vtium ships in `/usr/share/vtium/fonts`: Terminus, GNU Unifont and Cullet Mono. It also activates the console font that `FONT=` names in `/etc/vconsole.conf`, the color schemes in `/usr/share/vtium/palettes`, and vtium's pointer file, `/usr/share/vtium/pointers.svg`. vtium uses this list while `batch.conf` does not exist, so the default font set `terminus` works with no setup. The built-in fonts are always active.
 
-To activate another font, add the path of each of its files to `batch.conf`. Once the file exists, vtium uses only the paths it lists. So when you create the file, list the fonts and color schemes that vtium ships too:
+To activate another font, add the path of each of its files to `batch.conf`. Once the file exists, vtium uses only the paths it lists. So when you create the file, list the fonts, color schemes and pointer file that vtium ships too:
 
 ```
-$ ls -d /usr/share/vtium/fonts/* /usr/share/vtium/palettes/* | sudo tee /etc/vtium/batch.conf
+$ ls -d /usr/share/vtium/fonts/* /usr/share/vtium/palettes/* /usr/share/vtium/pointers.svg | sudo tee /etc/vtium/batch.conf
 $ echo /usr/local/share/fonts/monoid-nerd-font-mono/MonoidNerdFontMono-Regular.ttf | sudo tee -a /etc/vtium/batch.conf
 ```
+
+When `/etc/vconsole.conf` names a console font, list that font's file as well, because your new file replaces the list that held it. For `FONT=ter-v16n`, kbd keeps the file in its `consolefonts` folder, which is `/usr/share/kbd/consolefonts` on many distributions:
+
+```
+$ ls /usr/share/kbd/consolefonts/ter-v16n.* | sudo tee -a /etc/vtium/batch.conf
+```
+
+vtium reads `batch.conf` when it starts and again each time a session ends. A font you activate or deactivate therefore takes effect at the next login, and vtium needs no restart.
 
 A listed font file must also pass four checks:
 
@@ -202,7 +210,7 @@ To install a missing font, use one of these two ways:
 - Search your distribution's packages for the font's name, and install the package that provides it. Many distributions package common fonts, such as JetBrains Mono, Noto Color Emoji and the Nerd Fonts builds.
 - Download the font from its page, and copy its files into `/usr/local/share/fonts`. The font helper looks for fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. See [An outline font](#an-outline-font) for details.
 
-Then list the font's files in `/etc/vtium/batch.conf`, as [Active fonts](#active-fonts) describes. vtium uses the font from its next start. You don't need to change the frit. Run `vtium config fonts` again to check that the font is found.
+Then list the font's files in `/etc/vtium/batch.conf`, as [Active fonts](#active-fonts) describes. vtium uses the font from the next login. You don't need to change the frit. Run `vtium config fonts` again to check that the font is found.
 
 [crates/vtium-config/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md#what-a-source-needs) describes each of the four lines in full.
 
