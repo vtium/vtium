@@ -568,24 +568,13 @@ impl Mounts {
             return Err(Found::Unread);
         }
         let below = depth.saturating_add(1);
-        let dir = if dir.join("partition").exists() {
-            dir.parent().ok_or(Found::Unread)?
-        } else {
-            dir
-        };
+        let dir = disk_of(dir).ok_or(Found::Unread)?;
         match std::fs::read(dir.join("loop/backing_file")) {
             Ok(bytes) => return self.backing(&bytes, below),
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(Found::Unread),
             Err(_) => {}
         }
-        let slaves = match std::fs::read_dir(dir.join("slaves")) {
-            Ok(entries) => entries
-                .map(|e| e.and_then(|e| std::fs::canonicalize(e.path())))
-                .collect::<std::io::Result<Vec<PathBuf>>>()
-                .map_err(|_| Found::Unread)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(_) => return Err(Found::Unread),
-        };
+        let slaves = slaves(dir).ok_or(Found::Unread)?;
         if !slaves.is_empty() {
             return slaves.iter().try_for_each(|s| self.device_at(s, below));
         }
@@ -636,22 +625,11 @@ fn disks(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Option<()> {
     if depth > STACK_MAX {
         return None;
     }
-    let dir = if dir.join("partition").exists() {
-        dir.parent()?
-    } else {
-        dir
-    };
+    let dir = disk_of(dir)?;
     if dir.join("loop").exists() {
         return None;
     }
-    let slaves = match std::fs::read_dir(dir.join("slaves")) {
-        Ok(entries) => entries
-            .map(|e| e.and_then(|e| std::fs::canonicalize(e.path())))
-            .collect::<std::io::Result<Vec<PathBuf>>>()
-            .ok()?,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-        Err(_) => return None,
-    };
+    let slaves = slaves(dir)?;
     if slaves.is_empty() {
         out.push(dir.to_path_buf());
         return Some(());
@@ -659,6 +637,35 @@ fn disks(dir: &Path, depth: usize, out: &mut Vec<PathBuf>) -> Option<()> {
     slaves
         .iter()
         .try_for_each(|s| disks(s, depth.saturating_add(1), out))
+}
+
+/// The sysfs folder that stands for the device folder `dir` in the walk
+/// down a device stack: the disk's folder for a partition, which sysfs
+/// places inside its disk's folder, and `dir` itself for any other device.
+/// `None` when a partition's folder has no parent.
+fn disk_of(dir: &Path) -> Option<&Path> {
+    if dir.join("partition").exists() {
+        dir.parent()
+    } else {
+        Some(dir)
+    }
+}
+
+/// The sysfs folders of the devices beneath the device folder `dir`, which
+/// sysfs lists as links in its `slaves` folder, with each link resolved.
+/// The list is empty for a device with no `slaves` folder, such as a disk,
+/// and `None` when vtium cannot read the folder or resolve a link. The walk
+/// up from a filesystem and the walk that lists the root's disks share
+/// this one reader, so the console carries one copy of it.
+fn slaves(dir: &Path) -> Option<Vec<PathBuf>> {
+    match std::fs::read_dir(dir.join("slaves")) {
+        Ok(entries) => entries
+            .map(|e| e.and_then(|e| std::fs::canonicalize(e.path())))
+            .collect::<std::io::Result<Vec<PathBuf>>>()
+            .ok(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Some(Vec::new()),
+        Err(_) => None,
+    }
 }
 
 /// What the walk down a block device's stack found.
