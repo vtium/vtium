@@ -139,6 +139,9 @@ considered:
   - operator: aaronsb
     said: "2a yes, 2b yes. I think this pattern is kind of similar to trusting paths"
     via: the steering session's chat, 2026-11-19, answering whether a pointer theme is activated by its folder (2a) and whether /usr/share/vtium/pointers.svg joins the fresh-install list (2b)
+  - operator: aaronsb
+    said: "I think we keep one convention"
+    via: the steering session's chat, 2026-11-19, after the maintainer said pointers not following the same trust conventions would be 'a rake in the yard to step on', answering the proposal of one gate for every resource kind
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -267,6 +270,8 @@ A path that the person writes by hand is always allowed, in the batch or in a fr
 **Pointer themes.** A pointer theme (ADR-1309) is a resource too, and a desktop cursor theme's folder holds symbolic links, such as Adwaita's `xterm` to `text`. A pointer theme's links pass the rule while every link stays inside the same root-owned theme folder. A link that leaves the theme's folder fails the rule, and the file it names counts as missing. The theme's folder and its files pass every other check.
 
 > Note 2026-11-19: the maintainer decided two things about pointer themes and the batch (`considered`). A pointer theme is activated by its folder: the batch lists the theme's folder, such as `/usr/share/icons/Adwaita`, and every file inside the folder counts as active while the folder is listed, the same way the trust rule judges a theme as one folder. vtium's own pictures, `/usr/share/vtium/pointers.svg`, join the list of a fresh install, so vtium's own pointer pictures stay active on every machine.
+
+> Note 2026-11-19: the maintainer decided that every kind of resource follows one convention (`considered`). Fonts, color schemes, color maps, shaders and pointer themes pass through the same gate: the trust rule on the file vtium opened, and the batch listing the resource. The batch lists what a person activates, a file, or a pointer theme's folder. The rule that a theme's links stay inside its folder is part of that gate, and it is the only difference between the kinds.
 
 The program that reads a resource checks the rule on the file it opened, so the file cannot be swapped between the check and the read. When vtium runs unprivileged, as the tests and a run by hand do, it accepts its own effective user as the owner, as ADR-1401 D10 does for vtium.conf. These two points are this record's agent's calls. How vtium tells a filesystem that stays mounted from one that does not is left to the work that builds the rule, which reads the system's mount table.
 
