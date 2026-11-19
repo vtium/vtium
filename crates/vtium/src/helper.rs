@@ -373,8 +373,8 @@ impl Launcher {
 
     /// The helper `config` names, `font-helper`, opened, with the font
     /// folders `font-paths` lists in place of the build's, and told the
-    /// active fonts: the batch, under the account vtium runs as
-    /// ([`crate::font::active_batch`]).
+    /// active fonts: the batch of the console's gate
+    /// ([`crate::font::gate`]), under the account vtium runs as.
     ///
     /// References:
     /// - ADR-1200 D25: `font-paths` names the font folders.
@@ -382,15 +382,8 @@ impl Launcher {
     pub fn configured(config: &Config) -> Result<Launcher, String> {
         let mut command = Command::system(&program(config))?;
         command.args.extend(font_dirs(config));
-        let fonts = crate::font::Sources::default();
-        let read = crate::font::active_batch(
-            Path::new(vtium_settings::batch::BATCH_FILE),
-            &fonts.vconsole_conf,
-            &fonts.kernel_cmdline,
-            &fonts.trust,
-        );
         let me = rustix::process::geteuid().as_raw();
-        Launcher::open(command).map(|l| l.with_active(me, &read.batch))
+        Launcher::open(command).map(|l| l.with_active(me, &crate::font::gate().batch))
     }
 
     /// This launcher, telling each helper it starts that the fonts `batch`
@@ -405,6 +398,12 @@ impl Launcher {
     pub fn with_active(mut self, owner: u32, batch: &Batch) -> Launcher {
         self.active = Some(active_request(owner, batch).into());
         self
+    }
+
+    /// The request naming the active fonts that each helper this launcher
+    /// starts is sent first; `None` when it sends none.
+    pub fn active(&self) -> Option<&[u8]> {
+        self.active.as_deref()
     }
 
     /// This launcher, starting each helper with the console's `locale`
@@ -1398,6 +1397,21 @@ impl Helper {
             pointers_only: false,
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
+        }
+    }
+
+    /// Tells the helper the active fonts of `launcher`, the console's
+    /// launcher once the batch changed at a new login: the request goes to
+    /// the running helper at once, and to each helper started after this
+    /// one ends, so every frit the helper reads from now on draws from the
+    /// new batch.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: an activation takes effect at the next login, with no restart.
+    pub fn activate(&mut self, launcher: &Launcher) {
+        self.launcher.active.clone_from(&launcher.active);
+        if let (Some(running), Some(active)) = (&self.running, &self.launcher.active) {
+            let _ = running.requests.send(active.to_vec());
         }
     }
 
@@ -3072,6 +3086,53 @@ mod tests {
             std::fs::read(s.dir.join("answer.ask")).unwrap(),
             [active, ask].concat()
         );
+    }
+
+    // A new login that finds the batch changed tells a running helper the
+    // new active fonts at once, after what it was already sent, and keeps
+    // the request for a helper started after this one ends.
+    //
+    // References:
+    // - ADR-1205 D4, its note of 2026-11-19: an activation takes effect at the next login, with no restart.
+    #[test]
+    fn a_running_helper_is_told_the_active_fonts_of_a_new_login() {
+        let first = Batch::new(vec![Entry::Path(PathBuf::from("/first.bdf"))]);
+        let second = Batch::new(vec![Entry::Path(PathBuf::from("/second.bdf"))]);
+        let (before, after) = (active_request(1000, &first), active_request(1000, &second));
+        let ask = encode(
+            &frit("source=builtin:unscii-8\n"),
+            None,
+            (
+                ASK,
+                CELL,
+                Band::NONE,
+                (Variant::default(), None),
+                ClusterWidth::Double,
+            ),
+            (&[0x41], &[]),
+            &[],
+        );
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &styled(CELL, Style::default(), &['A']));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let script = format!(
+            "head -c {} >\"$1.ask\"; cat \"$1\"; cat >/dev/null",
+            before.len() + ask.len() + after.len()
+        );
+        let mut s = StandIn::new("active-again", &script, &fixture);
+        s.helper.launcher = s.helper.launcher.clone().with_active(1000, &first);
+        let now = t0();
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        let next = s.helper.launcher.clone().with_active(1000, &second);
+        s.helper.activate(&next);
+        // the stand-in answers once it has read the three requests; a
+        // request never sent leaves it waiting, and the reader quiet
+        s.until(now, |h| !h.busy());
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(
+            std::fs::read(s.dir.join("answer.ask")).unwrap(),
+            [before, ask, after.clone()].concat()
+        );
+        assert_eq!(s.helper.launcher.active(), Some(after.as_slice()));
     }
 
     // ADR-1205 D4: the active fonts' paths stop before they pass the

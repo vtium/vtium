@@ -75,6 +75,33 @@ pub(crate) fn palette_with(
     palette
 }
 
+impl super::Head {
+    /// The head's palette, read again from `config`, the head's
+    /// configuration, with `top`, the top level's palette, in place of a
+    /// palette file of the look's that fails or that no folder holds. The
+    /// console `id`, whose next session is about to start, takes it as the
+    /// palette it is configured with, and so does each console the head
+    /// opens from now on. vtium calls this when a new login finds the batch
+    /// changed.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: an activation takes effect at the next login.
+    /// - ADR-1205 D10: the look's palette is the head's configured palette.
+    pub(crate) fn repalette(&mut self, config: &Config, top: Palette, id: u64) {
+        self.palette = config.palette_or(|| top);
+        let palette = self.palette.clone();
+        if let Some(console) = self.console_mut(id) {
+            console.term.terminal.set_palette(palette);
+        }
+    }
+
+    /// The head's configured palette: the one its look's `palette` names,
+    /// else the top level's.
+    pub fn palette(&self) -> &Palette {
+        &self.palette
+    }
+}
+
 /// The vtlook a head draws with.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Chosen {
@@ -244,10 +271,10 @@ pub(crate) fn choose(head: &str, config: &Config) -> Chosen {
 /// - ADR-1205 D4: the batch and the trust rule a `.cube` file passes.
 #[cfg(feature = "filters")]
 fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
-    let gate = cube_gate();
+    let gate = crate::font::gate();
     let cubes = vtlook::Cubes {
         dir: std::path::Path::new(vtlook::LOOKS),
-        gate,
+        gate: &gate,
     };
     read_in(
         head,
@@ -256,34 +283,6 @@ fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
         &crate::font::trust(),
         &cubes,
     )
-}
-
-/// The console's gate for a vtlook's `.cube` file, made the first time a
-/// vtlook is read: the batch file read as the start reads it, with the
-/// list of a fresh install in its place when the file is missing or vtium
-/// cannot use it, and the mount table. A mount table vtium cannot read is
-/// empty, so every `.cube` file fails the trust rule and counts as missing.
-/// The palette reader logs what vtium finds reading the batch file, so this
-/// logs nothing.
-///
-/// References:
-/// - ADR-1205 D4: a `.cube` file counts as missing unless the batch lists it and it passes the trust rule.
-#[cfg(feature = "filters")]
-fn cube_gate() -> &'static vtium_settings::cullet::Gate {
-    static GATE: std::sync::OnceLock<vtium_settings::cullet::Gate> = std::sync::OnceLock::new();
-    GATE.get_or_init(|| {
-        let trust = crate::font::trust();
-        let read = Config::batch_at(
-            std::path::Path::new(vtium_settings::batch::BATCH_FILE),
-            &trust,
-            std::path::Path::new(vtium_settings::palette::PACKAGE_PALETTES),
-        );
-        vtium_settings::cullet::Gate::new(
-            vtium_settings::cullet::Rule::new(trust),
-            Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
-            read.batch,
-        )
-    })
 }
 
 /// What a build without frame filters does with the vtlook `name`: it

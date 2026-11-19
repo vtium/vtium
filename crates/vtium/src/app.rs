@@ -135,6 +135,8 @@ use crate::video::Video;
 use crate::wait::Wait;
 
 #[cfg(test)]
+mod batch_login;
+#[cfg(test)]
 mod colorterm;
 #[cfg(test)]
 mod cursor_blink;
@@ -424,6 +426,10 @@ pub struct App {
     /// Whether the pointer file `pointer-theme` names has started loading
     /// ([`App::pointer_turn`]).
     pointer_file_started: bool,
+    /// Where the console reads its batch, which lists the active
+    /// resources, and the trust rule each resource passes: this
+    /// machine's, or a test's.
+    batch_places: (vtium_settings::batch::Places, vtium_settings::cullet::Rule),
     /// The pointer file while it loads, with the font helper that draws
     /// its pictures.
     pointer_file: Option<(crate::pointer_file::Loader, Helper)>,
@@ -624,6 +630,10 @@ impl App {
             launcher: helper::Launcher::configured(&config)
                 .map(|l| l.with_locale(&locale(&inherited))),
             pointer_file_started: false,
+            batch_places: (
+                vtium_settings::batch::Places::system(),
+                vtium_settings::cullet::Rule::new(font::trust()),
+            ),
             pointer_file: None,
             pointer_store: crate::pointer_file::Store::default(),
             frits: BTreeMap::new(),
@@ -841,6 +851,31 @@ impl App {
     /// `source`, in place of the render node of its card: a test's GPU.
     pub fn set_gpu_source(&mut self, source: crate::painter::GpuSource) {
         self.gpu_source = Some(source);
+    }
+
+    /// Reads the batch from `places` in place of this machine's, now and
+    /// at each new login, with `rule` the trust rule each resource passes:
+    /// a test's batch file, fresh-install list and fixture folder.
+    pub fn set_batch_places(
+        &mut self,
+        places: vtium_settings::batch::Places,
+        rule: vtium_settings::cullet::Rule,
+    ) {
+        self.batch_places = (places, rule);
+        self.reread_batch(None);
+    }
+
+    /// The console's gate for this login, which holds the batch that the
+    /// font helpers, the color schemes, the color maps and the pointer
+    /// files draw from.
+    pub fn gate(&self) -> std::sync::Arc<vtium_settings::cullet::Gate> {
+        font::gate()
+    }
+
+    /// The request naming the active fonts that the console sends first to
+    /// each font helper it starts; `None` when the helper cannot start.
+    pub fn active_fonts_request(&self) -> Option<Vec<u8>> {
+        self.launcher.as_ref().ok()?.active().map(<[u8]>::to_vec)
     }
 
     /// How the configuration is read again at a session's end, for its
@@ -2155,12 +2190,9 @@ impl App {
                 .and_then(|n| u32::try_from(n).ok());
             if let Some(path) = self.config.text(&crate::config::keys::POINTER_THEME) {
                 let path = PathBuf::from(path);
-                if let Some(loader) = crate::pointer_file::Loader::start(
-                    &path,
-                    size,
-                    font::trust(),
-                    &self.pointer_store,
-                ) {
+                if let Some(loader) =
+                    crate::pointer_file::Loader::start(&path, size, &self.pointer_store)
+                {
                     match self
                         .launcher
                         .clone()
@@ -4483,6 +4515,7 @@ impl App {
     /// leaves the font and the size as they were, with one line saying
     /// why.
     fn return_font(&mut self, h: usize, id: u64) {
+        self.reread_batch(Some((h, id)));
         let Some(due) = self.heads.get(h).map(|head| head.returns(id)) else {
             return;
         };
@@ -4586,6 +4619,47 @@ impl App {
                     head.name(),
                     head.chosen().name(head.font_size, &self.locale)
                 );
+            }
+        }
+    }
+
+    /// Reads the batch again before a new login, as vtium reads the font
+    /// keys again there, so a resource that root activated or deactivated
+    /// since the last login takes effect at this one, with no restart.
+    /// When the batch changed, the console's launcher and each running font
+    /// helper are told the new active fonts, every color scheme is read
+    /// again at its next use, and head `h`'s palette is read again for its
+    /// console `id`, whose next session starts with it. The other heads keep
+    /// their palette until their own next login.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: the batch is read again at each new login, where vtium reads the font settings again.
+    fn reread_batch(&mut self, ended: Option<(usize, u64)>) {
+        let (places, rule) = &self.batch_places;
+        if !font::load_batch(places, &self.font_sources.trust, rule.clone()) {
+            return;
+        }
+        let me = rustix::process::geteuid().as_raw();
+        let gate = font::gate();
+        if let Ok(launcher) = &mut self.launcher {
+            *launcher = launcher.clone().with_active(me, &gate.batch);
+        }
+        if let Ok(launcher) = &self.launcher {
+            for frit in self.frits.values_mut() {
+                if let Some(helper) = frit.helper.as_mut() {
+                    helper.activate(launcher);
+                }
+            }
+            if let Some((_, helper)) = self.pointer_file.as_mut() {
+                helper.activate(launcher);
+            }
+        }
+        crate::config::Config::forget_palettes();
+        if let Some((h, id)) = ended {
+            let top = self.config.palette();
+            let config = self.head_config(h);
+            if let Some(head) = self.heads.get_mut(h) {
+                head.repalette(&config, top, id);
             }
         }
     }

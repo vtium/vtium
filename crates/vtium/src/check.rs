@@ -534,11 +534,11 @@ fn outcome_with(
         vts,
     };
     // the batch a start reads, and the gate each resource file passes
-    let batch = Config::batch_at(
-        &host.batch,
-        &host.frit_trust,
-        Path::new(vtium_settings::palette::PACKAGE_PALETTES),
-    );
+    let places = vtium_settings::batch::Places {
+        file: host.batch.clone(),
+        ..vtium_settings::batch::Places::system()
+    };
+    let batch = vtium_settings::batch::Batch::system(&places, &host.frit_trust);
     let (batch_counted, batch_notes) = batch_findings(&batch.findings);
     let gate = vtium_settings::cullet::Gate::new(
         vtium_settings::cullet::Rule::new(host.frit_trust.clone()),
@@ -615,8 +615,7 @@ fn outcome_with(
         .zip(loaded.config.origin(&keys::POINTER_THEME))
         .filter(|(_, origin)| !(heads.refused && matches!(origin, Origin::File { .. })))
         .map(|(value, origin)| (value, origin.to_string()));
-    let mounts = gate.mounts.clone().unwrap_or_default();
-    let pointers = pointer_findings(top_pointer, &gate.rule, &mounts);
+    let pointers = pointer_findings(top_pointer, &gate);
     let folders = vtium_settings::palette::FOLDERS.map(Path::new);
     let (schemes, scheme_notes) =
         palette_findings(top_palette, path, &heads.palettes, &folders, &gate);
@@ -1180,24 +1179,26 @@ fn vtlook_findings(
 }
 
 /// What check-config says of the pointer file that `pointer-theme` names,
-/// `top`, with where it is named: each line counts, since vtium draws its
-/// own pictures in place of what it cannot read. A path that names neither
-/// an SVG file nor a cursor theme's folder is reported where it is named.
-/// An SVG file that fails the trust rule names the check it failed. In a
-/// cursor theme, each file that a shape's names lead to and that fails the
-/// rule is named once with the check it failed, such as a symbolic link
-/// that leads out of the theme's folder.
+/// `top`, with where it is named, read through `gate` as the console reads
+/// it: each line counts, since vtium draws its own pictures in place of
+/// what it cannot read. A path that names neither an SVG file nor a cursor
+/// theme's folder is reported where it is named. An SVG file that fails
+/// the gate names the check it failed. A cursor theme's folder that fails
+/// the gate is one line, since every file in it fails the same way. In a
+/// theme that passes, check-config reads each shape's names in turn, as
+/// the console does, and stops at the first file that passes. Each file
+/// before it that fails is named once, with the check it failed, such as a
+/// symbolic link that leads out of the theme's folder.
 ///
 /// References:
-/// - ADR-1205 D4: a pointer theme is a resource, its links pass while they stay inside the theme's folder, and check-config names the file and the check it failed.
+/// - ADR-1205 D4: a pointer theme is a resource activated by its folder, its links pass while they stay inside the theme's folder, and check-config names the file and the check it failed.
 /// - ADR-1309 D2, D3: what the path names, and which files of a cursor theme serve each shape.
 fn pointer_findings(
     top: Option<(&str, String)>,
-    rule: &vtium_settings::cullet::Rule,
-    mounts: &vtium_settings::mounts::Mounts,
+    gate: &vtium_settings::cullet::Gate,
 ) -> Vec<String> {
-    use crate::pointer_file::{Located, locate, theme_names};
-    use vtium_settings::cullet::{self, Check};
+    use crate::pointer_file::{Located, locate, theme_names, theme_refused_line};
+    use vtium_settings::cullet::Check;
     let Some((value, at)) = top else {
         return Vec::new();
     };
@@ -1207,7 +1208,7 @@ fn pointer_findings(
             "{at}: {}",
             crate::pointer_file::unusable_line(path)
         )],
-        Located::Svg(_) => match cullet::open(path, rule, mounts) {
+        Located::Svg(_) => match gate.open(path) {
             Err(r) if r.check != Check::Missing => vec![format!(
                 "{}: vtium treats this pointer file as missing, because {} So vtium draws its own pointer pictures.",
                 path.display(),
@@ -1216,24 +1217,28 @@ fn pointer_findings(
             _ => Vec::new(),
         },
         Located::Theme(_) => {
+            if let Err(r) = gate.theme(path) {
+                return vec![theme_refused_line(path, &r.check)];
+            }
             let mut out: Vec<String> = Vec::new();
             let mut seen: Vec<PathBuf> = Vec::new();
             for shape in vtium_term::PointerShape::ALL {
                 for name in theme_names(shape) {
                     let file = path.join("cursors").join(name);
-                    if file.symlink_metadata().is_err() || seen.contains(&file) {
-                        continue;
-                    }
-                    seen.push(file.clone());
-                    if let Err(r) = cullet::open_in_theme(path, &file, rule, mounts)
-                        && r.check != Check::Missing
-                    {
-                        out.push(format!(
-                            "{}: vtium treats this file of the pointer theme {} as missing, because {} vtium tries the shape's next file, or draws its own picture of the shape.",
-                            file.display(),
-                            path.display(),
-                            r.check
-                        ));
+                    match gate.open_in_theme(path, &file) {
+                        Ok(_) => break,
+                        Err(r) if r.check == Check::Missing => {}
+                        Err(r) => {
+                            if !seen.contains(&file) {
+                                out.push(format!(
+                                    "{}: vtium treats this file of the pointer theme {} as missing, because {} vtium tries the shape's next file, or draws its own picture of the shape.",
+                                    file.display(),
+                                    path.display(),
+                                    r.check
+                                ));
+                                seen.push(file);
+                            }
+                        }
                     }
                 }
             }
@@ -2123,18 +2128,34 @@ mod tests {
     // check it failed: an SVG file reached through a symbolic link, and a
     // cursor theme's file whose link leads out of the theme's folder. A
     // link inside the theme passes, and a path that names neither is
-    // reported where vtium.conf names it.
+    // reported where vtium.conf names it. A theme folder the batch does not
+    // list is one line, not one for each of its files. A shape whose first
+    // file passes reads no further, as the console reads no further, so a
+    // broken file after it is not named.
     //
     // References:
-    // - ADR-1205 D4: pointer themes, their links, and check-config naming the file and the check it failed.
+    // - ADR-1205 D4: pointer themes are activated by their folder, their links, and check-config naming the file and the check it failed.
     #[test]
-    fn check_config_names_each_pointer_file_the_trust_rule_refuses() {
+    fn check_config_names_each_pointer_file_the_gate_refuses() {
         use std::os::unix::fs::PermissionsExt;
         let dir = Scratch::new("check-pointers");
         let me = rustix::process::geteuid().as_raw();
         let rule = vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir);
         let mounts = vtium_settings::mounts::Mounts::system().unwrap_or_default();
         let (theme, outside) = (dir.join("theme"), dir.join("outside"));
+        let (svg, linked) = (dir.join("pointers.svg"), dir.join("linked.svg"));
+        let listed = vtium_settings::batch::Batch::new(
+            [&svg, &linked, &theme, &outside]
+                .into_iter()
+                .map(|p| vtium_settings::batch::Entry::Path(p.clone()))
+                .collect(),
+        );
+        let gate = vtium_settings::cullet::Gate::new(rule.clone(), Some(mounts.clone()), listed);
+        let unlisted = vtium_settings::cullet::Gate::new(
+            rule,
+            Some(mounts),
+            vtium_settings::batch::Batch::default(),
+        );
         for d in [&*dir, &theme, &theme.join("cursors"), &outside] {
             let _ = std::fs::create_dir_all(d);
             let _ = std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755));
@@ -2143,19 +2164,22 @@ mod tests {
             let _ = std::fs::write(path, "x");
             let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644));
         };
-        let svg = dir.join("pointers.svg");
         write(&svg);
-        let linked = dir.join("linked.svg");
         let _ = std::os::unix::fs::symlink(&svg, &linked);
         let cursors = theme.join("cursors");
         write(&cursors.join("xterm"));
         let _ = std::os::unix::fs::symlink("xterm", cursors.join("text"));
         write(&outside.join("left_ptr"));
         let _ = std::os::unix::fs::symlink("../../outside/left_ptr", cursors.join("default"));
+        // the pointer shape's first file passes, so its broken second file
+        // is never opened
+        write(&cursors.join("pointer"));
+        let _ = std::os::unix::fs::symlink("../../outside/left_ptr", cursors.join("hand2"));
         let at = || "/etc/vtium/vtium.conf:2".to_owned();
-        let said = |value: &Path| {
-            pointer_findings(Some((value.to_str().unwrap_or(""), at())), &rule, &mounts)
+        let said_through = |value: &Path, gate: &vtium_settings::cullet::Gate| {
+            pointer_findings(Some((value.to_str().unwrap_or(""), at())), gate)
         };
+        let said = |value: &Path| said_through(value, &gate);
         assert_eq!(said(&svg), Vec::<String>::new());
         assert_eq!(
             said(&linked),
@@ -2180,7 +2204,15 @@ mod tests {
                 outside.display()
             )]
         );
-        assert_eq!(pointer_findings(None, &rule, &mounts), Vec::<String>::new());
+        assert_eq!(
+            said_through(&theme, &unlisted),
+            [format!(
+                "{t}: vtium treats this pointer theme as missing, because it is not active: {b} does not list it. So vtium draws its own pointer pictures.",
+                t = theme.display(),
+                b = vtium_settings::batch::BATCH_FILE
+            )]
+        );
+        assert_eq!(pointer_findings(None, &gate), Vec::<String>::new());
     }
 
     // check-config names each font file a font set names by its path that
