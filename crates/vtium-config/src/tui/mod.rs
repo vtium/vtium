@@ -311,6 +311,27 @@ pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) 
     })
 }
 
+/// The TUI's filterer: draws a picture of the console through an effect,
+/// as the console's CPU path draws a frame. The vtlook is read under the
+/// trust rule of the user `euid`, whose files an install trusts, and its
+/// `.cube` files from the administrator's looks folder through the gate
+/// every resource passes.
+///
+/// References:
+/// - ADR-1205 D4: the gate, the batch and the trust rule.
+/// - ADR-1205 D8: the preview leaves the live console alone.
+pub fn filterer(euid: u32) -> port::Filterer {
+    std::sync::Arc::new(move |picture, filtered| {
+        crate::specimen::through(
+            picture,
+            filtered,
+            Path::new(vtium_settings::vtlook::LOOKS),
+            &vtium_settings::Trust::running_as(euid),
+            vtium_settings::cullet::Rule::running_as(euid),
+        )
+    })
+}
+
 /// The TUI's detailer: a font's detailed specimen in `locale`, drawn by
 /// `helper` from the frit in `frits` or the built-in font of that name,
 /// as `preview` draws it (ADR-1201 D4, D9).
@@ -417,6 +438,7 @@ pub fn run(
     let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
+        filterer: filterer(crate::batch::rule_user(&paths.targets(), &paths.sudo)),
         measurer: measurer(inputs.frits.clone(), paths.helper.clone()),
         detailer: detailer(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(

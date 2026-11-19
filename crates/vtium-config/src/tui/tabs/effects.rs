@@ -9,12 +9,20 @@
 //! opens the list of groups, and Enter on an item opens its detail, which
 //! changes nothing.
 //!
+//! Under the list, the tab previews the highlighted item: the sample
+//! screen of the Looks tab, in the draft's font and size, drawn through
+//! the vtlook or color map, with a line that says what the picture shows.
+//! Where vtium cannot use the item, such as a color map that is not active
+//! or a shader, the picture shows the console without it and the line
+//! says why.
+//!
 //! References:
 //! - ADR-1205 D1: the Effects tab, and the controls it shares with the
 //!   Fonts tab.
 //! - ADR-1205 D3: the folders the tab finds color maps and shaders in.
-//! - ADR-1205 D8: the detail of an effect, and the warning before one a
-//!   look uses is deactivated.
+//! - ADR-1205 D8: the detail of an effect, the warning before one a look
+//!   uses is deactivated, and the preview of an effect as a picture of the
+//!   console, which leaves the live console alone.
 //! - ADR-1304 D4, its note of 2026-11-19: No filter first, then the
 //!   presets, then the administrator's vtlooks.
 //! - ADR-1403 D10: the tab's filter line, its one list in groups, and its
@@ -23,9 +31,11 @@
 use super::super::canvas::{Row, span};
 use super::super::color::Style;
 use super::super::input::Key;
+use super::super::layout::PICTURE_ROW;
 use super::super::listbox::{Body, Item, ListBox, Marks, plain, prose, rows, step, tail};
-use super::super::model::{Shared, Size};
+use super::super::model::{Font, FontState, Shared, Size};
 use super::super::resources::{self, From, Resource};
+use super::super::shot::{Applied, Preview, Source};
 use super::super::words;
 use super::{Command, Room, Tab};
 
@@ -114,6 +124,38 @@ impl Effects {
             Effect::Shader(i) => found.shaders.get(i),
             Effect::Vtlook(_) => None,
         }
+    }
+
+    /// `item` as the preview applies it.
+    fn applied(shared: &Shared, item: Option<Effect>) -> Applied<'_> {
+        let found = &shared.inputs.effects;
+        match item {
+            Some(Effect::Vtlook(i)) => found
+                .vtlooks
+                .get(i)
+                .map_or(Applied::Nothing, Applied::Vtlook),
+            Some(Effect::Map(i)) => found.maps.get(i).map_or(Applied::Nothing, Applied::Map),
+            Some(Effect::Shader(i)) => found
+                .shaders
+                .get(i)
+                .map_or(Applied::Nothing, Applied::Shader),
+            None => Applied::Nothing,
+        }
+    }
+
+    /// The font the preview draws the sample screen in: the draft's
+    /// `font-name`, else the font the console shows, else the first font
+    /// that reads.
+    fn font(shared: &Shared) -> Option<&Font> {
+        let fonts = &shared.inputs.fonts;
+        let named = |name: Option<String>| name.and_then(|n| fonts.iter().find(|f| f.name == n));
+        named(shared.drafted("font-name"))
+            .or_else(|| named(shared.shown_font.clone()))
+            .or_else(|| {
+                fonts
+                    .iter()
+                    .find(|f| !matches!(f.state, FontState::Refused(_)))
+            })
     }
 
     /// The looks of the draft that use the color map or shader `r`.
@@ -252,6 +294,10 @@ impl Effects {
             }
         }
         sentence.push_str(words::EFFECTS_HINT);
+        let mut under = tail(&sentence, cols);
+        if let Some(line) = Tab::preview(self, shared, size).preview_line() {
+            under.extend(tail(&line, cols).into_iter().skip(1));
+        }
         Body {
             list,
             keep: if self.list.at == 0 {
@@ -259,7 +305,7 @@ impl Effects {
             } else {
                 keep.saturating_add(1)
             },
-            tail: tail(&sentence, cols),
+            tail: under,
         }
     }
 }
@@ -313,6 +359,35 @@ impl Tab for Effects {
                 }
             }
         }
+    }
+
+    /// Under the list and the sentences under it, from the left edge,
+    /// since the list's marks reach across the screen.
+    fn picture_at(&self, shared: &Shared, size: Size) -> (usize, usize) {
+        let body = self.list_body(shared, size);
+        (
+            PICTURE_ROW
+                .saturating_add(body.list.len())
+                .saturating_add(body.tail.len())
+                .saturating_add(1),
+            2,
+        )
+    }
+
+    /// The highlighted item applied to the sample screen, while the list
+    /// shows; nothing while the list of groups or a detail is open.
+    fn preview<'a>(&self, shared: &'a Shared, size: Size) -> Preview<'a> {
+        if self.open.is_some() {
+            return Preview::nothing(shared, size);
+        }
+        Preview::of(
+            shared,
+            size,
+            Source::Effect {
+                font: Self::font(shared),
+                effect: Self::applied(shared, self.highlighted(shared)),
+            },
+        )
     }
 
     fn offset(&self) -> usize {

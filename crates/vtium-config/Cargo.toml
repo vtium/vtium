@@ -81,8 +81,10 @@ resvg = { version = "=0.50.0", default-features = false }
 roxmltree = "=0.21.1"
 # The pointer's bounds, the cursor theme's and the SVG file's
 # (`POINTER_SIDE_MAX`, `XCURSOR_FILE_MAX` and the rest), and the ten
-# shapes' names, from the crate the console draws the pointer with.
-vtium-render.workspace = true
+# shapes' names, from the crate the console draws the pointer with. Its
+# frame filters' color tables too, which the Effects tab's preview draws a
+# picture of the console through, as the console's CPU path draws a frame.
+vtium-render = { workspace = true, features = ["filters"] }
 
 # The TUI's layout, buffer of cells, styled text and Terminal, and its
 # lists, tabs and paragraphs. Only their `std` feature, and no backend
