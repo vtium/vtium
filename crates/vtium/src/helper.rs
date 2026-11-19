@@ -5396,7 +5396,7 @@ mod tests {
         ))];
         let config = crate::config::load(&args, &mut |_: &Path| Ok(None)).config;
         let launcher = Launcher::configured(&config).unwrap();
-        let active = launcher.active.expect("the active fonts");
+        let active = launcher.active.unwrap();
         let me = rustix::process::geteuid().as_raw();
         assert_eq!(&active[..8], b"VTVSREQA");
         assert_eq!(active[8..12], ACTIVE.to_le_bytes());
