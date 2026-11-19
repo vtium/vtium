@@ -821,12 +821,9 @@
 ## The vtlook, a file of frame filters that change the picture before the
 ## display shows it, such as a CRT effect.
 ##
-## The value names a file `NAME.vtlook`. vtium looks for it in
-## `/etc/vtium/looks`, the administrator's folder, and then in
-## `/usr/share/vtium/looks`, where the package installs its presets, such as
-## `amber` and `green`. A file in `/etc/vtium/looks` takes the place of a
-## preset of the same name. A look's own `vtlook` wins over this one. Unset or
-## `default` is the built-in vtlook, which changes no pixel.
+## The value names `NAME.vtlook` in `/etc/vtium/looks` or a preset such as
+## `amber`. A look's own `vtlook` wins over this one. Unset or `default` is
+## the built-in vtlook, which changes no pixel.
 
 #vtlook=
 

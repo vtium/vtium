@@ -30,9 +30,18 @@
 //! past 255 and a file over [`PALETTE_FILE_MAX`] bytes are errors. Any
 //! error makes the whole file count as missing.
 //!
+//! A palette file is a resource, so vtium reads it only through a
+//! [`Gate`]. The file must pass the trust rule that [`cullet::open`]
+//! checks: root owns it and every folder above it, nobody else can write
+//! them, none of them is a symbolic link, and its filesystem stays
+//! mounted. The batch must also list the file, which makes it active. The
+//! package's palettes are active from the first start, because the list
+//! of a fresh install holds every file in [`PACKAGE_PALETTES`]. A file
+//! that fails either check counts as missing.
+//!
 //! References:
-//! - ADR-1205 D10: what a palette is, its two folders, its name rule, its format, its errors and its bound.
-//! - ADR-1205 D4: a palette file is a resource under the trust rule.
+//! - ADR-1205 D10: what a palette is, its two folders, its name rule, its format, its errors and its bound, and the package's palettes being active on a fresh install.
+//! - ADR-1205 D4: a palette file is a resource under the trust rule, and draws only while the batch holds it.
 //! - ADR-1304 D4: the name rule a palette's name shares with a vtlook's.
 
 use std::collections::BTreeSet;
@@ -41,9 +50,11 @@ use std::path::{Path, PathBuf};
 
 use vtium_term::{PALETTE_NAMES, Palette, Rgb, Special};
 
+use crate::batch::{BATCH_FILE, Batch};
 use crate::bounds::{ERRORS_MAX, PALETTE_FILE_MAX};
-use crate::error::{Problem, Quoted, Rejected, Untrusted};
-use crate::file::{Trust, read_limited};
+use crate::cullet::{self, Check, Rule};
+use crate::error::Quoted;
+use crate::mounts::Mounts;
 use crate::split::BOM;
 
 /// The administrator's palette folder: set at build time with
@@ -131,10 +142,10 @@ pub enum Reason {
     TooLarge,
     /// A file that takes the name of a palette that needs no file.
     Shadows(&'static str),
-    /// A file the trust rule refuses.
-    Untrusted(Untrusted),
-    /// A path that is not a regular file.
-    NotAFile,
+    /// A file that fails the trust rule, with the check it failed.
+    Refused(Check),
+    /// A file the batch does not list, which is not active.
+    Inactive,
     /// A file the system cannot read.
     Unreadable(std::io::ErrorKind),
 }
@@ -170,10 +181,13 @@ impl fmt::Display for Reason {
                 f,
                 "The file takes the name of the built-in color scheme {name}, so vtium never reads it. Give the file another name."
             ),
-            Reason::Untrusted(why) => {
-                write!(f, "vtium does not read the file, because {}", why.reason())
+            Reason::Refused(check) => {
+                write!(f, "vtium treats the file as missing, because {check}")
             }
-            Reason::NotAFile => f.write_str("The color scheme is not a regular file."),
+            Reason::Inactive => write!(
+                f,
+                "The color scheme is not active, so vtium treats the file as missing. A color scheme is active while {BATCH_FILE} lists the file's path. To activate it, add the path to {BATCH_FILE} as root, on a line of its own."
+            ),
             Reason::Unreadable(kind) => write!(f, "vtium cannot read the file: {kind}."),
         }
     }
@@ -430,27 +444,57 @@ fn color(key: &'static str, value: &str) -> Result<Rgb, Reason> {
     })
 }
 
-/// Opens the palette file at `path` under `trust`: its bytes, at most
-/// [`PALETTE_FILE_MAX`], or `None` when it does not exist.
-///
-/// This is the one place a palette file is opened, the seam where the
-/// trust rule's full check and the batch, which says which resources are
-/// active, take the place of the ownership walk vtium reads vtium.conf
-/// with today.
+/// What a palette file passes before vtium reads it: the trust rule under
+/// `rule`, with `mounts` judging whether the file's filesystem stays
+/// mounted, and the batch, which lists the active resources.
+#[derive(Clone, Debug)]
+pub struct Gate {
+    pub rule: Rule,
+    pub mounts: Mounts,
+    pub batch: Batch,
+}
+
+/// Opens the palette file at `path` through `gate` and reads at most
+/// [`PALETTE_FILE_MAX`] bytes of it. `Ok(None)` when nothing exists at
+/// the path. A file that fails the trust rule is refused with the check
+/// it failed, and a file the batch does not list is refused as inactive.
+/// The checks run on the descriptor the bytes are read from, so nobody can
+/// swap the file between the check and the read. This is the one place a
+/// palette file is opened.
 ///
 /// References:
 /// - ADR-1205 D4: the trust rule and the batch that a resource passes before it draws.
-fn open(path: &Path, trust: &Trust) -> Result<Option<Vec<u8>>, Rejected> {
-    read_limited(path, trust, PALETTE_FILE_MAX)
+fn open(path: &Path, gate: &Gate) -> Result<Option<Vec<u8>>, Reason> {
+    use std::io::Read as _;
+    let opened = match cullet::open(path, &gate.rule, &gate.mounts) {
+        Ok(opened) => opened,
+        Err(refused) if refused.check == Check::Missing => return Ok(None),
+        Err(refused) => return Err(Reason::Refused(refused.check)),
+    };
+    if !gate.batch.holds(path) {
+        return Err(Reason::Inactive);
+    }
+    let limit = u64::try_from(PALETTE_FILE_MAX).unwrap_or(u64::MAX);
+    let mut bytes = Vec::new();
+    opened
+        .file
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| Reason::Unreadable(e.kind()))?;
+    if bytes.len() > PALETTE_FILE_MAX {
+        return Err(Reason::TooLarge);
+    }
+    Ok(Some(bytes))
 }
 
 /// Reads the palette file `name` from the first of `folders` that holds
-/// it, under `trust`. `Ok(None)` when no folder holds it, and for a name
+/// it, through `gate`. `Ok(None)` when no folder holds it, and for a name
 /// no file can take. A file that takes a built-in palette's name is never
 /// read, and is an error here. The first folder's file wins on a name
-/// even when it has errors, so a broken file of the administrator's
-/// counts as missing and never lets the package's file through.
-pub fn read(name: &str, folders: &[&Path], trust: &Trust) -> Result<Option<Scheme>, Failure> {
+/// even when it has errors, fails the trust rule or is not active, so a
+/// file of the administrator's that vtium cannot use counts as missing
+/// and never lets the package's file through.
+pub fn read(name: &str, folders: &[&Path], gate: &Gate) -> Result<Option<Scheme>, Failure> {
     if !named(name) {
         return Ok(None);
     }
@@ -462,10 +506,10 @@ pub fn read(name: &str, folders: &[&Path], trust: &Trust) -> Result<Option<Schem
             }
             continue;
         }
-        let bytes = match open(&file, trust) {
+        let bytes = match open(&file, gate) {
             Ok(Some(bytes)) => bytes,
             Ok(None) => continue,
-            Err(rejected) => return Err(Failure::one(name, &file, refused(&rejected))),
+            Err(reason) => return Err(Failure::one(name, &file, reason)),
         };
         return match parse(&bytes) {
             Ok((palette, ignored, more_ignored)) => Ok(Some(Scheme {
@@ -509,17 +553,6 @@ pub fn shadowing(folders: &[&Path]) -> Vec<Failure> {
         }
     }
     found
-}
-
-/// Why the walk refused a palette file.
-fn refused(rejected: &Rejected) -> Reason {
-    match rejected.errors.first().map(|e| &e.problem) {
-        Some(Problem::Untrusted(why)) => Reason::Untrusted(why.clone()),
-        Some(Problem::TooLarge) => Reason::TooLarge,
-        Some(Problem::NotAFile) => Reason::NotAFile,
-        Some(Problem::Unreadable(kind)) => Reason::Unreadable(*kind),
-        _ => Reason::Unreadable(std::io::ErrorKind::Other),
-    }
 }
 
 #[cfg(test)]

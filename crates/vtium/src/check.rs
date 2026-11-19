@@ -403,6 +403,9 @@ pub struct Host {
     /// The root under which systemd's unit links say which VTs vtium is
     /// enabled on: `/`, or a scratch directory in a test.
     pub systemd_root: PathBuf,
+    /// The batch file, the list of active fonts and effects:
+    /// [`vtium_settings::batch::BATCH_FILE`], or a scratch file in a test.
+    pub batch: PathBuf,
 }
 
 impl Host {
@@ -416,6 +419,7 @@ impl Host {
             frits: font::frits(config),
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/"),
+            batch: PathBuf::from(vtium_settings::batch::BATCH_FILE),
         }
     }
 }
@@ -585,14 +589,21 @@ fn outcome_with(
         .zip(loaded.config.origin(&keys::PALETTE))
         .filter(|(_, origin)| !(heads.refused && matches!(origin, Origin::File { .. })))
         .map(|(name, origin)| (name, origin.to_string()));
-    let folders = vtium_settings::palette::FOLDERS.map(Path::new);
-    let (schemes, scheme_notes) = palette_findings(
-        top_palette,
-        path,
-        &heads.palettes,
-        &folders,
+    // the batch a start reads, and what the check says of its file
+    let batch = Config::batch_at(
+        &host.batch,
         &settings.trust,
+        Path::new(vtium_settings::palette::PACKAGE_PALETTES),
     );
+    let (batch_counted, batch_notes) = batch_findings(&batch.findings);
+    let gate = vtium_settings::palette::Gate {
+        rule: vtium_settings::cullet::Rule::new(settings.trust.clone()),
+        mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
+        batch: batch.batch,
+    };
+    let folders = vtium_settings::palette::FOLDERS.map(Path::new);
+    let (schemes, scheme_notes) =
+        palette_findings(top_palette, path, &heads.palettes, &folders, &gate);
     let stderr: Vec<String> = stderr
         .into_iter()
         .chain(refused)
@@ -600,6 +611,7 @@ fn outcome_with(
         .chain(needs.warnings)
         .chain(vtlooks)
         .chain(schemes)
+        .chain(batch_counted)
         .collect();
     let problems = stderr.len().saturating_add(heads.counted.len());
     let status = match problems {
@@ -609,7 +621,9 @@ fn outcome_with(
     };
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
-        stdout: renamed
+        stdout: batch_notes
+            .into_iter()
+            .chain(renamed)
             .chain(notes(&loaded.config))
             .chain(root_refuses)
             .chain(needs.notes)
@@ -1120,6 +1134,42 @@ fn vtlook_findings(
     top.into_iter().chain(looks).collect()
 }
 
+/// What check-config says of the batch file, the list of active fonts and
+/// effects: the first list counts against the file, and the second is
+/// notes. A missing file is a note that says what vtium uses in its place
+/// and how to create the file. A file vtium cannot use, because it fails
+/// the owner and mode check, is too large or cannot be read, counts, and
+/// so does each line vtium ignores.
+///
+/// References:
+/// - ADR-1205 D4, its notes of 2026-11-18 and 2026-11-19: check-config says the batch file is missing and how to create it, and names a file vtium ignores and why.
+fn batch_findings(findings: &[vtium_settings::batch::Finding]) -> (Vec<String>, Vec<String>) {
+    use vtium_settings::batch::Finding;
+    let (mut counted, mut notes) = (Vec::new(), Vec::new());
+    for finding in findings {
+        match finding {
+            Finding::Missing { path } => notes.push(format!(
+                "{}: The list of active fonts and color schemes does not exist, so vtium uses the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, and the color schemes vtium ships. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line.",
+                path.display()
+            )),
+            Finding::Line { path, line, fault } => {
+                let fault = fault.to_string();
+                let mut chars = fault.chars();
+                let fault: String = chars
+                    .next()
+                    .map(|c| c.to_uppercase().chain(chars).collect())
+                    .unwrap_or_default();
+                counted.push(format!(
+                    "{}:{line}: {fault}. Because of this, vtium ignores the line.",
+                    path.display()
+                ));
+            }
+            Finding::Refused { .. } => counted.push(finding.to_string()),
+        }
+    }
+    (counted, notes)
+}
+
 /// The heads that a color scheme named at the top level are for.
 const TOP_SCHEME_HEADS: &str = "the heads whose look names no color scheme of its own";
 
@@ -1135,8 +1185,9 @@ const LOOK_INSTEAD: &str = "draw the color scheme that vtium.conf's top level na
 /// `conf`. Only a name that is not a built-in palette names a file. The
 /// first list counts against the file, and the second is notes.
 ///
-/// It reads each named file once from `folders` under `trust`, as the
-/// start reads it. A name no folder holds is a warning, since the heads
+/// It reads each named file once from `folders` through `gate`, as the
+/// start reads it: a file the trust rule refuses, or one the batch does not
+/// list, names the file and why, as a file with errors does. A name no folder holds is a warning, since the heads
 /// that name it draw the palette below it. A file with errors lists each
 /// error with its file and line, then each place in vtium.conf that names
 /// the file. A file that takes the name of a built-in palette, which vtium
@@ -1150,7 +1201,7 @@ fn palette_findings(
     conf: &Path,
     looks: &[(String, String, usize)],
     folders: &[&Path],
-    trust: &Trust,
+    gate: &vtium_settings::palette::Gate,
 ) -> (Vec<String>, Vec<String>) {
     use vtium_settings::palette;
     let mut names: Vec<&str> = top.iter().map(|(name, _)| *name).collect();
@@ -1178,7 +1229,7 @@ fn palette_findings(
                     });
             top.chain(looks).collect::<Vec<_>>()
         };
-        match palette::read(name, folders, trust) {
+        match palette::read(name, folders, gate) {
             Ok(Some(scheme)) => {
                 notes.extend(scheme.ignored.iter().map(|i| {
                     let follows = matches!(i.key.as_str(), "config-file" | "theme");
@@ -1231,8 +1282,19 @@ fn palette_findings(
                         crate::notice::more_errors(failure.more)
                     ));
                 }
+                // a file the gate refuses has no errors of its own, so the
+                // places that name it say what vtium does with it
+                let said = match failure.faults.first().map(|f| &f.reason) {
+                    Some(palette::Reason::Inactive) => {
+                        format!("The color scheme {name} is not active")
+                    }
+                    Some(palette::Reason::Refused(_)) => {
+                        format!("vtium treats the color scheme {name} as missing")
+                    }
+                    _ => format!("The color scheme {name} has errors"),
+                };
                 counted.extend(places(&|heads, instead| {
-                    format!("The color scheme {name} has errors, so {heads} {instead}.")
+                    format!("{said}, so {heads} {instead}.")
                 }));
             }
         }
@@ -1775,11 +1837,157 @@ mod tests {
         }
     }
 
+    // check-config says what it finds of the batch file, the list of active
+    // fonts and effects: a missing file is a note that says what vtium
+    // uses instead and how to create the file, while a file others can
+    // write, and a line vtium ignores, count against the configuration.
+    //
+    // References:
+    // - ADR-1205 D4, its notes of 2026-11-18 and 2026-11-19: what check-config says of a missing batch file and of one vtium cannot use.
+    #[test]
+    fn check_config_says_what_it_finds_of_the_batch_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, file, _) = heads_fixture(
+            "batch",
+            "version = 1\n[head console]\n[rules]\ndisplay * -> console\ninput * -> roaming\n",
+            0o644,
+        );
+        let batch = dir.join("batch.conf");
+        let host = Host {
+            conf_file: file.with_file_name("installed.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust().below(&dir),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: batch.clone(),
+        };
+        let f = file.display().to_string();
+        let b = batch.display().to_string();
+        let out = outcome_on(&["--no-devices", f.as_str()], &host);
+        assert_eq!(out.status, 0, "{:#?}", out.stderr);
+        assert_eq!(
+            out.stdout.first().map(String::as_str),
+            Some(format!(
+                "{b}: The list of active fonts and color schemes does not exist, so vtium uses the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, and the color schemes vtium ships. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line."
+            ).as_str()),
+            "{:#?}",
+            out.stdout
+        );
+        let _ = std::fs::write(
+            &batch,
+            "/usr/share/vtium/palettes/kiln.palette\nrelative/path\n",
+        );
+        let _ = std::fs::set_permissions(&batch, std::fs::Permissions::from_mode(0o644));
+        let out = outcome_on(&["--no-devices", f.as_str()], &host);
+        assert_eq!(out.status, 1, "{:#?}", out.stderr);
+        assert!(
+            out.stderr.contains(&format!(
+                "{b}:2: This line does not hold an absolute path, one that starts with /. Because of this, vtium ignores the line."
+            )),
+            "{:#?}",
+            out.stderr
+        );
+        assert!(
+            !out.stdout.iter().any(|l| l.starts_with(&b)),
+            "{:#?}",
+            out.stdout
+        );
+        let _ = std::fs::set_permissions(&batch, std::fs::Permissions::from_mode(0o666));
+        let out = outcome_on(&["--no-devices", f.as_str()], &host);
+        assert_eq!(out.status, 1, "{:#?}", out.stderr);
+        let refused = format!(
+            "{b}: vtium ignores this list of active fonts and effects and uses the list of a fresh install, because "
+        );
+        assert!(
+            out.stderr.iter().any(|l| l.starts_with(&refused)),
+            "{refused}\n{:#?}",
+            out.stderr
+        );
+    }
+
+    // A color scheme that fails the trust rule, or that the batch does not
+    // list, names its file and the check it failed, and each place that
+    // names it.
+    // covers: color.palette.named
+    #[test]
+    fn check_config_names_a_color_scheme_the_gate_refuses() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("check-palette-gate");
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let write = |name: &str| {
+            let path = dir.join(format!("{name}.palette"));
+            std::fs::write(&path, "background = #000000\n").unwrap_or_default();
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+            path
+        };
+        let shut = write("shut");
+        let open = write("open");
+        let gate = palette_gate(&dir);
+        let gate = vtium_settings::palette::Gate {
+            batch: vtium_settings::batch::Batch::new(vec![vtium_settings::batch::Entry::Path(
+                open.clone(),
+            )]),
+            ..gate
+        };
+        let _ = std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o666));
+        let conf = Path::new("/etc/vtium/vtium.conf");
+        let looks = [("warm".to_owned(), "open".to_owned(), 4)];
+        let (counted, _) = palette_findings(
+            Some(("shut", "/etc/vtium/vtium.conf:1".to_owned())),
+            conf,
+            &looks,
+            &[&*dir],
+            &gate,
+        );
+        let batch = vtium_settings::batch::BATCH_FILE;
+        assert_eq!(
+            counted,
+            [
+                format!(
+                    "{}: The color scheme is not active, so vtium treats the file as missing. A color scheme is active while {batch} lists the file's path. To activate it, add the path to {batch} as root, on a line of its own.",
+                    shut.display()
+                ),
+                "/etc/vtium/vtium.conf:1: The color scheme shut is not active, so the heads whose look names no color scheme of its own draw the color scheme legacy instead.".to_owned(),
+                format!(
+                    "{o}: vtium treats the file as missing, because other users can change \"{o}\" (mode 666). Run `chmod go-w {o}` so that only its owner can change it.",
+                    o = open.display()
+                ),
+                "/etc/vtium/vtium.conf:4: vtium treats the color scheme open as missing, so the heads that use look warm draw the color scheme that vtium.conf's top level names instead, or legacy when that one fails too.".to_owned(),
+            ]
+        );
+    }
+
+    /// The gate a palette file in the scratch folder `dir` passes: its
+    /// owner's files under `dir`, this machine's mount table, and a batch
+    /// that lists each file in `dir` now.
+    fn palette_gate(dir: &Path) -> vtium_settings::palette::Gate {
+        use std::os::unix::fs::MetadataExt;
+        let me = std::fs::metadata(dir).map_or(0, |m| m.uid());
+        let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .collect();
+        files.sort();
+        vtium_settings::palette::Gate {
+            rule: vtium_settings::cullet::Rule::new(Trust::owner(me)).below(dir),
+            mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
+            batch: vtium_settings::batch::Batch::new(
+                files
+                    .into_iter()
+                    .map(vtium_settings::batch::Entry::Path)
+                    .collect(),
+            ),
+        }
+    }
+
     // A color scheme that sets many keys vtium ignores gives one note for
     // each of the first ERRORS_MAX keys and one note that counts the rest.
     #[test]
     fn check_config_counts_the_ignored_keys_past_the_bound() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        use std::os::unix::fs::PermissionsExt;
         let dir = Scratch::new("check-palette-keys");
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
         let path = dir.join("many.palette");
@@ -1788,14 +1996,13 @@ mod tests {
             .collect();
         std::fs::write(&path, text).unwrap_or_default();
         let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
-        let me = std::fs::metadata(&*dir).map_or(0, |m| m.uid());
-        let trust = Trust::owner(me).below(&dir);
+        let gate = palette_gate(&dir);
         let (counted, notes) = palette_findings(
             Some(("many", "/etc/vtium/vtium.conf:1".to_owned())),
             Path::new("/etc/vtium/vtium.conf"),
             &[],
             &[&*dir],
-            &trust,
+            &gate,
         );
         assert_eq!(counted, Vec::<String>::new());
         assert_eq!(notes.len(), vtium_settings::ERRORS_MAX + 1);
@@ -1820,7 +2027,7 @@ mod tests {
     // covers: color.palette.named
     #[test]
     fn check_config_reports_the_color_schemes_vtium_conf_names() {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        use std::os::unix::fs::PermissionsExt;
         let dir = Scratch::new("check-palettes");
         let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
         let write = |name: &str, text: &str| {
@@ -1838,8 +2045,7 @@ mod tests {
             "background = #000000\nnope\nforeground = notacolor\n",
         );
         let legacy = write("legacy", "background = #000000\n");
-        let me = std::fs::metadata(&*dir).map_or(0, |m| m.uid());
-        let trust = Trust::owner(me).below(&dir);
+        let gate = palette_gate(&dir);
         let conf = Path::new("/etc/vtium/vtium.conf");
         let looks = [
             ("warm".to_owned(), "broken".to_owned(), 4),
@@ -1851,7 +2057,7 @@ mod tests {
             conf,
             &looks,
             &[&*dir],
-            &trust,
+            &gate,
         );
         let (b, l) = (broken.display(), legacy.display());
         assert_eq!(
@@ -1892,7 +2098,7 @@ mod tests {
             conf,
             &[("warm".to_owned(), "custom".to_owned(), 4)],
             &[Path::new("/nonexistent/vtium/palettes")],
-            &trust,
+            &gate,
         );
         assert_eq!(
             (counted, notes),
@@ -4087,6 +4293,7 @@ mod tests {
             frits: PathBuf::from("/nonexistent/vtium/frits"),
             frit_trust: font::trust(),
             systemd_root: root.clone(),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let off = "Head terminal-1 runs only on VT 12, and vtium is not enabled on VT 12";
         let out = outcome_on(&[f.as_str()], &host);
@@ -4135,6 +4342,7 @@ mod tests {
             frits: PathBuf::from("/nonexistent/vtium/frits"),
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
             .iter()
@@ -4171,6 +4379,7 @@ mod tests {
             frits: PathBuf::from("/nonexistent/vtium/frits"),
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let out = outcome_on(&[], &host);
         assert_eq!(out.status, 1);
@@ -4247,6 +4456,7 @@ mod tests {
             frits: PathBuf::from("/nonexistent/vtium/frits"),
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         for named in [&file, &link] {
             let out = outcome_on(&[named.to_str().unwrap()], &host);
@@ -4281,6 +4491,7 @@ mod tests {
             frits: frits.clone(),
             frit_trust: font::trust().below(file.parent().unwrap()),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let (covered, lacked) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
         let cover = |_: &helper::FritText, _: &[u32]| {
@@ -4335,6 +4546,7 @@ mod tests {
             frits: frits.clone(),
             frit_trust: font::trust().below(file.parent().unwrap()),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
             .iter()
@@ -4417,6 +4629,7 @@ mod tests {
                 frits: frits.clone(),
                 frit_trust: font::trust().below(file.parent().unwrap()),
                 systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+                batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
             };
             let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
                 .iter()
@@ -4475,6 +4688,7 @@ mod tests {
             frits: frits.clone(),
             frit_trust: font::trust().below(anchor.parent().unwrap()),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let mut files: Vec<PathBuf> = std::fs::read_dir(docs)
             .unwrap()
@@ -4678,6 +4892,7 @@ mod tests {
             frits: PathBuf::from("/nonexistent/vtium/frits"),
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let out = outcome_on(&[file.to_str().unwrap()], &host);
         assert_eq!((out.status, out.stderr), (0, Vec::new()));
@@ -4936,6 +5151,7 @@ mod tests {
             frits: PathBuf::from("/nonexistent/vtium/frits"),
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
             .iter()
@@ -5031,6 +5247,7 @@ mod tests {
             frits: PathBuf::from("/nonexistent/vtium/frits"),
             frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
         };
         let check = |args: &[&str]| {
             let args: Vec<OsString> = [SUBCOMMAND, "--no-devices"]
