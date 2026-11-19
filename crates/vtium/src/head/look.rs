@@ -234,13 +234,67 @@ pub(crate) fn choose(head: &str, config: &Config) -> Chosen {
 /// reads it, with the line to log, if any. vtium looks in the
 /// administrator's folder first and then in the package's, so a preset
 /// such as `amber` draws with no copy in the administrator's folder, and
-/// a copy there takes its place.
+/// a copy there takes its place. A `cube` filter's `.cube` file is in the
+/// administrator's folder, and vtium reads it only when the batch lists it
+/// and it passes the trust rule.
 ///
 /// References:
 /// - ADR-1304 D4, its note of 2026-11-19: the two folders, and the administrator's vtlook winning on a name.
+/// - ADR-1304 D9: the `.cube` file sits beside the administrator's vtlooks.
+/// - ADR-1205 D4: the batch and the trust rule a `.cube` file passes.
 #[cfg(feature = "filters")]
 fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
-    read_in(head, name, &vtlook::folders(), &crate::font::trust())
+    let gate = cube_gate();
+    let cubes = vtlook::Gate {
+        dir: std::path::Path::new(vtlook::LOOKS),
+        batch: &gate.batch,
+        rule: &gate.rule,
+        mounts: &gate.mounts,
+    };
+    read_in(
+        head,
+        name,
+        &vtlook::folders(),
+        &crate::font::trust(),
+        &cubes,
+    )
+}
+
+/// What a vtlook's `.cube` file passes before vtium reads it: the batch,
+/// the trust rule of the account vtium runs as, and this machine's mount
+/// table.
+#[cfg(feature = "filters")]
+struct CubeGate {
+    batch: vtium_settings::batch::Batch,
+    rule: vtium_settings::cullet::Rule,
+    mounts: vtium_settings::mounts::Mounts,
+}
+
+/// The console's [`CubeGate`], made the first time a vtlook is read: the
+/// batch file read as the start reads it, with the list of a fresh install
+/// in its place when the file is missing or vtium cannot use it, and the
+/// mount table. A mount table vtium cannot read is empty, so every `.cube`
+/// file fails the trust rule and counts as missing. The palette reader
+/// logs what vtium finds reading the batch file, so this logs nothing.
+///
+/// References:
+/// - ADR-1205 D4: a `.cube` file counts as missing unless the batch lists it and it passes the trust rule.
+#[cfg(feature = "filters")]
+fn cube_gate() -> &'static CubeGate {
+    static GATE: std::sync::OnceLock<CubeGate> = std::sync::OnceLock::new();
+    GATE.get_or_init(|| {
+        let trust = crate::font::trust();
+        let read = Config::batch_at(
+            std::path::Path::new(vtium_settings::batch::BATCH_FILE),
+            &trust,
+            std::path::Path::new(vtium_settings::palette::PACKAGE_PALETTES),
+        );
+        CubeGate {
+            batch: read.batch,
+            rule: vtium_settings::cullet::Rule::new(trust),
+            mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
+        }
+    })
 }
 
 /// What a build without frame filters does with the vtlook `name`: it
@@ -251,14 +305,15 @@ fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
 }
 
 /// Reads the vtlook `name` from the first of `folders` that holds it,
-/// under `trust`: the vtlook read, or the built-in one with the line that
-/// says why.
+/// under `trust`, and each `cube` filter's file through `cubes`: the
+/// vtlook read, or the built-in one with the line that says why.
 #[cfg(feature = "filters")]
 fn read_in(
     head: &str,
     name: &str,
     folders: &[&std::path::Path],
     trust: &vtium_settings::Trust,
+    cubes: &vtlook::Gate,
 ) -> (Chosen, Option<String>) {
     let look = match vtlook::find(name, folders, trust) {
         Ok(look) => look,
@@ -271,7 +326,7 @@ fn read_in(
         };
         return (chosen, None);
     }
-    match vtlook::table(&look) {
+    match vtlook::table_with(&look, cubes) {
         Ok(table) => {
             let chosen = Chosen {
                 vtlook: Some(look),
@@ -437,14 +492,26 @@ mod tests {
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
         };
         write("plain", "version = 1\n[requires]\nmin-depth = 8\n");
-        let (chosen, said) = read_in("console", "plain", &[dir.as_path()], &trust);
+        let (chosen, said) = read_in(
+            "console",
+            "plain",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!(said, None);
         assert!(chosen.vtlook.is_some_and(|l| !l.holds_filters()));
         write(
             "crt",
             "version = 1\n[requires]\nmin-depth = 12\n[color sepia]\n[spatial scanlines]\nperiod = 12\n",
         );
-        let (chosen, said) = read_in("console", "crt", &[dir.as_path()], &trust);
+        let (chosen, said) = read_in(
+            "console",
+            "crt",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!(chosen, Chosen::default());
         assert_eq!(
             said,
@@ -453,7 +520,13 @@ mod tests {
                 dir.join("crt.vtlook").display()
             ))
         );
-        let (chosen, said) = read_in("desk", "gone", &[dir.as_path()], &trust);
+        let (chosen, said) = read_in(
+            "desk",
+            "gone",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!(chosen, Chosen::default());
         assert!(
             said.as_deref()
@@ -489,9 +562,21 @@ mod tests {
             "version = 1\n[requires]\nmin-depth = 16\nmax-size = 1920x1080\nmin-dpi = 90\nmax-dpi = 200\ngpu = any\n[color tint]\ncolor = 255,176,0\n",
         );
         write("plain", "version = 1\n");
-        let (plain, said) = read_in("console", "plain", &[dir.as_path()], &trust);
+        let (plain, said) = read_in(
+            "console",
+            "plain",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!((plain.table.is_none(), said), (true, None));
-        let (chosen, said) = read_in("console", "amber", &[dir.as_path()], &trust);
+        let (chosen, said) = read_in(
+            "console",
+            "amber",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!(said, None);
         let want = chosen
             .vtlook
@@ -577,6 +662,99 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The `.cube` files a test's vtlooks may read: those named in
+    /// `active` in the folder `dir`, under a trust rule that takes the
+    /// test's own user's files below `dir`, and this machine's mount table.
+    #[cfg(feature = "filters")]
+    struct Cubes {
+        dir: std::path::PathBuf,
+        batch: vtium_settings::batch::Batch,
+        rule: vtium_settings::cullet::Rule,
+        mounts: vtium_settings::mounts::Mounts,
+    }
+
+    #[cfg(feature = "filters")]
+    impl Cubes {
+        fn active(dir: &std::path::Path, active: &[&str]) -> Cubes {
+            use std::os::unix::fs::MetadataExt;
+            use vtium_settings::batch::{Batch, Entry};
+            let me = std::fs::metadata(dir).map_or(0, |m| m.uid());
+            Cubes {
+                dir: dir.to_path_buf(),
+                batch: Batch::new(active.iter().map(|n| Entry::Path(dir.join(n))).collect()),
+                rule: vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me))
+                    .below(dir),
+                mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
+            }
+        }
+
+        fn gate(&self) -> vtlook::Gate<'_> {
+            vtlook::Gate {
+                dir: &self.dir,
+                batch: &self.batch,
+                rule: &self.rule,
+                mounts: &self.mounts,
+            }
+        }
+    }
+
+    // A vtlook whose cube filter names an active .cube file that passes
+    // the trust rule draws through the file's table. One that names a
+    // file the batch does not list draws the built-in vtlook, and the line
+    // names the file and says why vtium treats it as missing.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_vtlook_draws_an_active_cube_and_not_an_inactive_one() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vtium-look-cube-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_default();
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let write = |name: &str, text: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap_or_default();
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+        };
+        write(
+            "warm.cube",
+            "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 0.95 0\n1 0.95 0\n0 0 0.85\n1 0 0.85\n0 0.95 0.85\n1 0.95 0.85\n",
+        );
+        write(
+            "film.vtlook",
+            "version = 1\n[color cube]\nfile = warm.cube\n",
+        );
+        let cubes = Cubes::active(&dir, &["warm.cube"]);
+        let me = std::fs::metadata(&dir).map_or(0, |m| std::os::unix::fs::MetadataExt::uid(&m));
+        let trust = vtium_settings::Trust::owner(me).below(&dir);
+        let (chosen, said) = read_in("console", "film", &[dir.as_path()], &trust, &cubes.gate());
+        assert_eq!(said, None);
+        let cube = std::fs::read(dir.join("warm.cube")).unwrap_or_default();
+        let want = vtlook::read_cube(&cube).ok().and_then(|cube| {
+            let map = vtium_render::filter::Map::cube(std::sync::Arc::new(cube));
+            vtium_render::filter::Table::build(&[map]).ok()
+        });
+        assert!(want.is_some());
+        assert_eq!(chosen.table.as_deref(), want.as_ref());
+        let inactive = Cubes::active(&dir, &["other.cube"]);
+        let (chosen, said) = read_in(
+            "console",
+            "film",
+            &[dir.as_path()],
+            &trust,
+            &inactive.gate(),
+        );
+        assert_eq!(chosen, Chosen::default());
+        assert_eq!(
+            said,
+            Some(format!(
+                "vtlook film ({}): color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is not active: {} does not list it.; head console draws the built-in vtlook instead",
+                dir.join("warm.cube").display(),
+                vtium_settings::batch::BATCH_FILE
+            ))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // A head reads a vtlook from the administrator's folder, and failing
     // that from the package's: a preset with no copy in the
     // administrator's folder draws, and a copy there takes its place.
@@ -608,12 +786,24 @@ mod tests {
             })
         };
         write(&share, "version = 1\n[color tint]\ncolor = 255,176,0\n");
-        let (chosen, said) = read_in("console", "amber", &folders, &trust);
+        let (chosen, said) = read_in(
+            "console",
+            "amber",
+            &folders,
+            &trust,
+            &Cubes::active(&etc, &[]).gate(),
+        );
         assert_eq!(said, None);
         assert_eq!(filters(&chosen), Some(vec!["tint".to_owned()]));
         assert!(chosen.table.is_some());
         write(&etc, "version = 1\n[color gamma]\n");
-        let (chosen, said) = read_in("console", "amber", &folders, &trust);
+        let (chosen, said) = read_in(
+            "console",
+            "amber",
+            &folders,
+            &trust,
+            &Cubes::active(&etc, &[]).gate(),
+        );
         assert_eq!(said, None);
         assert_eq!(filters(&chosen), Some(vec!["gamma".to_owned()]));
         let _ = std::fs::remove_dir_all(&top);
