@@ -1,0 +1,36 @@
+# Tokyo Night Moon, a color scheme for vtium.
+#
+# Source: the file extras/ghostty/tokyonight_moon of
+# https://github.com/folke/tokyonight.nvim, at commit
+# cdc07ac78467a233fd62c493de29a17e0cf2b2b6.
+# Author: Folke Lemaitre. The scheme began as enkia's Tokyo Night theme for
+# Visual Studio Code.
+# License: Apache-2.0. vtium installs the license's text with its other
+# license notices, as palettes/tokyo-night-LICENSE in vtium's license folder,
+# which is /usr/share/licenses/vtium on most systems.
+#
+# The lines below are the source file's, in Ghostty's theme format. vtium adds
+# only these opening comments.
+
+palette = 0=#1b1d2b
+palette = 1=#ff757f
+palette = 2=#c3e88d
+palette = 3=#ffc777
+palette = 4=#82aaff
+palette = 5=#c099ff
+palette = 6=#86e1fc
+palette = 7=#828bb8
+palette = 8=#444a73
+palette = 9=#ff8d94
+palette = 10=#c7fb6d
+palette = 11=#ffd8ab
+palette = 12=#9ab8ff
+palette = 13=#caabff
+palette = 14=#b2ebff
+palette = 15=#c8d3f5
+
+background = #222436
+foreground = #c8d3f5
+cursor-color = #c8d3f5
+selection-background = #2d3f76
+selection-foreground = #c8d3f5
