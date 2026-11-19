@@ -126,6 +126,10 @@ considered:
     said: "these leans are fine [read Ghostty's theme format as it is; the shipped schemes active from the first start; palettes managed in the Looks tab; Monokai left out for now; a palette file may set colors 16 to 255]"
     via: steering session chat, 2026-11-19, after reading the leans in a table
     covers: [the file format, the palette folders, where palettes are managed, Monokai]
+  - operator: aaronsb
+    said: "I'm not interested in interacting with wimer … let's make an original scheme in the same spirit. 'glassfish' maybe as a name or something like that. maybe not glassfish but...idunno something"
+    via: steering session chat, 2026-11-19, after the steering session laid out the copyright and trademark risks of shipping Monokai's colors under another name
+    covers: [Monokai]
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -416,9 +420,9 @@ Here a head that takes the look `evening` draws Catppuccin Mocha's colors, and t
 | Catppuccin | `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha` | `themes/*.conf` of github.com/catppuccin/ghostty | MIT, "Copyright (c) 2021 Catppuccin" |
 | Tokyo Night | `tokyo-night`, `tokyo-night-storm`, `tokyo-night-moon`, `tokyo-night-day` | `extras/ghostty/` of github.com/folke/tokyonight.nvim | Apache-2.0, with no NOTICE file. The scheme began as Enkia's Visual Studio Code theme, which is MIT. |
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` | the palette in github.com/gruvbox-community/gruvbox, written out as Ghostty's format | MIT, "Copyright (c) 2018 Pavel Pertsev", the author of the original morhetz/gruvbox, whose README states MIT/X11 |
-| Monokai | none, until the probe *Monokai* is answered | Wimer Hazenberg's TextMate theme of 2006 | No license found from its author, who now sells Monokai Pro. Ports such as github.com/ku1ik/vim-monokai are MIT, "Copyright (c) 2009-2016 Marcin Kulik". |
+| An original scheme in Monokai's spirit | one file, its name chosen by the maintainer | vtium's own, its colors chosen independently: a warm near-black background, saturated accents and a light warm foreground | vtium's license. The file claims no lineage from Monokai and names no Monokai. |
 
-Nord and Solarized are already built-in palettes. The probe *Monokai* asks whether vtium ships Monokai. This record leans to leaving Monokai out until its author's license is found, because a port's license cannot grant more than the port's author holds. A person can still import Monokai as a file of their own.
+Nord and Solarized are already built-in palettes. vtium does not ship Monokai. Wimer Hazenberg's TextMate theme of 2006 carries no license from its author, who now sells Monokai Pro, and a port's license, such as the MIT of github.com/ku1ik/vim-monokai, cannot grant more than the port's author holds. The maintainer decided on 2026-11-19 that vtium ships an original scheme in the same spirit instead (`considered`). The slice that builds palettes chooses its colors without sampling Monokai's, and the maintainer judges them by eye on the picture page, as with the green and white presets. Its name is the maintainer's, and it does not pun on Monokai, since a name that calls the mark to mind is what trademark law guards against. A person can still import Monokai as a file of their own.
 
 **What D10 changes in other records.**
 
