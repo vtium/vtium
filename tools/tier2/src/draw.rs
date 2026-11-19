@@ -20,6 +20,7 @@ use vtium::head::NOTICES_MAX;
 use vtium::term::OverlayColors;
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face, Font, Glyph, Psf, Style as FontStyle, Unifont};
+use vtium_render::filter::{Given, Map, Table};
 use vtium_render::{
     Budgets, Canvas, Config, DecoColor, DecorationColors, Depth, DrawState, Mark, Orientation,
     Profile, Renderer, Storage,
@@ -631,6 +632,14 @@ pub struct Screen {
     /// References:
     /// - ADR-1308 D8: the programming ligatures.
     pub ligatures: bool,
+    /// The color filters of the head's vtlook, each a filter's name and its
+    /// parameters' values in its declaration's order, merged into one
+    /// color table that every pixel is looked up in. `None` draws no
+    /// table, as the built-in vtlook does.
+    ///
+    /// References:
+    /// - ADR-1304 D2: the look's color filters merged into one table.
+    pub color_filters: Option<&'static [(&'static str, &'static [Given])]>,
 }
 
 impl Screen {
@@ -678,6 +687,7 @@ impl Screen {
                 rapid_hidden: false,
             },
             ligatures: false,
+            color_filters: None,
         }
     }
 }
@@ -1263,11 +1273,29 @@ pub(crate) fn renderer<F: Face>(
     config: Config,
 ) -> Result<Renderer<F>, String> {
     let mut r = Renderer::new(font, w, h, config);
+    if let Some(table) = color_table(screen)? {
+        r.set_color_table(Some(&table)).map_err(|e| e.to_string())?;
+    }
     if let Some(file) = screen.pointer_file {
         let pictures = crate::pointers::pictures(file, r.pointer_cell_height())?;
         r.set_pointer_pictures(Some(pictures));
     }
     Ok(r)
+}
+
+/// The color table of `screen`'s color filters, `None` for a screen with
+/// none.
+pub(crate) fn color_table(screen: &Screen) -> Result<Option<Table>, String> {
+    let Some(steps) = screen.color_filters else {
+        return Ok(None);
+    };
+    let mut maps = Vec::new();
+    for &(name, values) in steps {
+        let declaration =
+            vtium_render::filter::color(name).ok_or(format!("no color filter {name}"))?;
+        maps.push(Map::new(declaration, values).ok_or(format!("{name}: values {values:?}"))?);
+    }
+    Table::build(&maps).map(Some).map_err(|e| e.to_string())
 }
 
 fn draw_config<F: Face>(
