@@ -77,6 +77,9 @@ struct Reader {
     size: Option<(Shape, &'static str, usize)>,
     /// The line of each keyword read, in [`KEYWORDS`]' order.
     seen: [Option<usize>; 5],
+    /// Whether a size keyword has come on any line, one that does not
+    /// read included, so the file is not also said to lack a size line.
+    sized: bool,
     /// Whether a data line has come.
     data: bool,
     /// The data lines counted, those that do not read included.
@@ -113,6 +116,9 @@ impl Reader {
         let Some(&keyword) = KEYWORDS.get(k) else {
             return;
         };
+        if keyword.ends_with("_SIZE") {
+            self.sized = true;
+        }
         if self.data {
             self.fault(
                 Some(n),
@@ -149,12 +155,7 @@ impl Reader {
             "LUT_3D_SIZE" | "LUT_1D_SIZE" => self.size_line(n, keyword, rest, line),
             _ => {
                 let want = if keyword == "DOMAIN_MIN" { 0.0 } else { 1.0 };
-                let values: Vec<Option<f64>> = rest
-                    .split([' ', '\t'])
-                    .filter(|w| !w.is_empty())
-                    .map(number)
-                    .collect();
-                if values != [Some(want); 3] {
+                if three(rest) != Some([want; 3]) {
                     self.fault(
                         Some(n),
                         format!(
@@ -170,7 +171,18 @@ impl Reader {
 
     /// Reads the size line `n`, `keyword` with the value `rest`.
     fn size_line(&mut self, n: usize, keyword: &'static str, rest: &str, line: &str) {
-        if let Some((_, other, _)) = self.size {
+        // a size line that failed still names its size, so the file holds
+        // both sizes whether or not the first one read
+        let other = if keyword == "LUT_3D_SIZE" {
+            "LUT_1D_SIZE"
+        } else {
+            "LUT_3D_SIZE"
+        };
+        let seen_other = KEYWORDS
+            .iter()
+            .position(|k| *k == other)
+            .and_then(|i| self.seen.get(i).copied().flatten());
+        if seen_other.is_some() {
             self.fault(
                 Some(n),
                 format!("found {keyword} after {other}, needs one of the two"),
@@ -223,11 +235,7 @@ impl Reader {
     fn data_line(&mut self, n: usize, line: &str) {
         self.data = true;
         self.count = self.count.saturating_add(1);
-        let words: Vec<&str> = line.split([' ', '\t']).filter(|w| !w.is_empty()).collect();
-        let values: Option<Vec<f64>> = (words.len() == 3)
-            .then(|| words.iter().copied().map(number).collect())
-            .flatten();
-        let Some(&[r, g, b]) = values.as_deref() else {
+        let Some([r, g, b]) = three(line) else {
             self.fault(
                 Some(n),
                 format!(
@@ -241,6 +249,36 @@ impl Reader {
             self.entries.push([r, g, b]);
         }
     }
+}
+
+/// The three numbers `text` holds, separated by blanks, or `None` when it
+/// holds another count of words or a word that is not a number. The words
+/// are taken one at a time, and the fourth ends the search, so a line of
+/// millions of words costs no memory beyond the line itself.
+fn three(text: &str) -> Option<[f64; 3]> {
+    let mut words = text.split([' ', '\t']).filter(|w| !w.is_empty());
+    let mut values = [0.0; 3];
+    for v in &mut values {
+        *v = number(words.next()?)?;
+    }
+    words.next().is_none().then_some(values)
+}
+
+/// Whether a line whose first word is `word` is a keyword line, `data`
+/// telling whether a data line has come. A keyword vtium reads always is.
+/// Before the data, so is any other word that starts with a letter or `_`,
+/// which the reader then reports as a keyword it does not read. Once the
+/// data has begun, a word that is no keyword starts a data line, and so
+/// does `nan`, `inf` or `infinity` in any case before it, so a value that
+/// is not a finite number is reported as one.
+fn keyword_line(word: &str, data: bool) -> bool {
+    if KEYWORDS.contains(&word) {
+        return true;
+    }
+    let not_finite = ["nan", "inf", "infinity"]
+        .iter()
+        .any(|w| word.eq_ignore_ascii_case(w));
+    !data && !not_finite && word.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
 }
 
 /// A number as a `.cube` file writes it: a decimal with an optional sign
@@ -321,13 +359,20 @@ pub fn read_cube(bytes: &[u8]) -> Result<Cube, Faults> {
             continue;
         }
         let word = line.split([' ', '\t']).next().unwrap_or_default();
-        if word.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+        if keyword_line(word, r.data) {
             r.keyword(n, word, line);
         } else {
             r.data_line(n, line);
         }
     }
     let Some((shape, keyword, _)) = r.size else {
+        if r.sized {
+            // the size line's own fault says what is wrong with it
+            return Err(Faults {
+                faults: r.faults,
+                more: r.more,
+            });
+        }
         r.faults.insert(
             0,
             Fault {
@@ -415,9 +460,11 @@ pub(super) fn load(file: &Path, gate: &Gate) -> Result<Cube, Unread> {
         Err(refused) => return missing(refused.check.to_string()),
     };
     let too_large = || {
-        Err(Unread::Missing(format!(
-            "The file is larger than {CUBE_FILE_MAX} bytes, the most a .cube file may hold."
-        )))
+        missing(format!(
+            "it is larger than {} MiB ({} bytes), the most a .cube file may hold.",
+            CUBE_FILE_MAX >> 20,
+            grouped(CUBE_FILE_MAX)
+        ))
     };
     if opened.meta.len() > u64::try_from(CUBE_FILE_MAX).unwrap_or(u64::MAX) {
         return too_large();
@@ -427,10 +474,7 @@ pub(super) fn load(file: &Path, gate: &Gate) -> Result<Cube, Unread> {
         .unwrap_or(u64::MAX)
         .saturating_add(1);
     if let Err(e) = opened.file.take(bound).read_to_end(&mut bytes) {
-        return Err(Unread::Missing(format!(
-            "vtium cannot read the file: {}.",
-            e.kind()
-        )));
+        return missing(format!("vtium cannot read it: {}.", e.kind()));
     }
     if bytes.len() > CUBE_FILE_MAX {
         // the file grew after vtium looked at its size
@@ -439,11 +483,19 @@ pub(super) fn load(file: &Path, gate: &Gate) -> Result<Cube, Unread> {
     read_cube(&bytes).map_err(Unread::Faults)
 }
 
+/// `n` in decimal with a comma between each group of three digits, as
+/// 16,777,216.
+fn grouped(n: usize) -> String {
+    let digits: Vec<char> = n.to_string().chars().collect();
+    let mut groups: Vec<String> = digits.rchunks(3).map(|g| g.iter().collect()).collect();
+    groups.reverse();
+    groups.join(",")
+}
+
 #[cfg(test)]
 #[expect(
     clippy::panic,
     clippy::arithmetic_side_effects,
-    clippy::indexing_slicing,
     reason = "a test fails by panicking, and its figures are small"
 )]
 mod tests {
@@ -481,7 +533,13 @@ mod tests {
         assert_eq!(one.shape(), Shape::One(2));
     }
 
-    // Each fault of ADR-1304 D14's table gives its report, on its line.
+    // Each fault in the record's table gives its report, on its line: a
+    // keyword vtium does not read, a 3D or 1D size out of range, both
+    // sizes in one file, a line that is not three numbers, the wrong count
+    // of data lines, and a domain other than 0 to 1.
+    //
+    // References:
+    // - ADR-1304 D14: the table of faults and the report of each.
     #[test]
     fn each_fault_names_its_line_what_it_found_and_what_it_needs() {
         assert_eq!(
@@ -495,14 +553,11 @@ mod tests {
         );
         assert_eq!(
             faults("TITLE \"x\"\nLUT_3D_SIZE 129\n0 0 0\n"),
-            [
-                "found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two",
-                "2: found LUT_3D_SIZE 129, needs 2 to 65",
-            ]
+            ["2: found LUT_3D_SIZE 129, needs 2 to 65"]
         );
         assert_eq!(
-            faults("TITLE \"x\"\nLUT_1D_SIZE 8192\n")[1],
-            "2: found LUT_1D_SIZE 8192, needs 2 to 4096"
+            faults("TITLE \"x\"\nLUT_1D_SIZE 8192\n"),
+            ["2: found LUT_1D_SIZE 8192, needs 2 to 4096"]
         );
         assert_eq!(
             faults(&format!(
@@ -532,6 +587,79 @@ mod tests {
         );
     }
 
+    // A size line that is present but fails gives its own fault and no
+    // fault saying the file lacks a size line: a value that is not a
+    // number, a comment after the value, and a size line after the data.
+    #[test]
+    fn a_size_line_that_fails_is_not_reported_missing() {
+        assert_eq!(
+            faults("LUT_3D_SIZE abc\n0 0 0\n"),
+            ["1: found LUT_3D_SIZE abc, needs 2 to 65"]
+        );
+        assert_eq!(
+            faults("LUT_1D_SIZE 2 # two\n0 0 0\n1 1 1\n"),
+            ["1: found LUT_1D_SIZE 2 # two, needs 2 to 4096"]
+        );
+        assert_eq!(
+            faults("TITLE \"x\"\n0 0 0\nLUT_1D_SIZE 1\n"),
+            [
+                "3: found LUT_1D_SIZE after the first data line, needs every keyword line before the data"
+            ]
+        );
+        // a keyword in the wrong case is no size line
+        assert_eq!(
+            faults("lut_1d_size 2\n"),
+            [
+                "found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two",
+                "1: found lut_1d_size, needs TITLE, LUT_3D_SIZE, LUT_1D_SIZE, DOMAIN_MIN or DOMAIN_MAX",
+            ]
+        );
+    }
+
+    // A value that is not a finite number, such as nan or inf, is a data
+    // line with a number vtium refuses, in the first data line and after
+    // it, in any case, and the line counts among the data lines.
+    #[test]
+    fn nan_and_inf_are_numbers_vtium_refuses() {
+        assert_eq!(
+            faults("LUT_1D_SIZE 2\nnan 0 0\n1 1 1\n"),
+            ["2: found \"nan 0 0\", needs three numbers separated by blanks"]
+        );
+        assert_eq!(
+            faults("LUT_1D_SIZE 2\n0 0 0\nInf 1 1\n"),
+            ["3: found \"Inf 1 1\", needs three numbers separated by blanks"]
+        );
+        assert_eq!(
+            faults("LUT_1D_SIZE 2\n0 0 0\n1 infinity 1\n"),
+            ["3: found \"1 infinity 1\", needs three numbers separated by blanks"]
+        );
+        // after the first data line, a word that is no keyword is data
+        assert_eq!(
+            faults("LUT_1D_SIZE 2\n0 0 0\nNaN0 1 1\n"),
+            ["3: found \"NaN0 1 1\", needs three numbers separated by blanks"]
+        );
+    }
+
+    // A size line that fails still counts as a size line, so a second
+    // size line after it gives the fault for a file with both sizes.
+    #[test]
+    fn a_second_size_after_one_that_fails_is_reported() {
+        assert_eq!(
+            faults("LUT_3D_SIZE 129\nLUT_1D_SIZE 2\n0 0 0\n1 1 1\n"),
+            [
+                "1: found LUT_3D_SIZE 129, needs 2 to 65",
+                "2: found LUT_1D_SIZE after LUT_3D_SIZE, needs one of the two",
+            ]
+        );
+        assert_eq!(
+            faults("LUT_1D_SIZE 0\nLUT_3D_SIZE 2\n"),
+            [
+                "1: found LUT_1D_SIZE 0, needs 2 to 4096",
+                "2: found LUT_3D_SIZE after LUT_1D_SIZE, needs one of the two",
+            ]
+        );
+    }
+
     // Faults the record's table does not list: a keyword twice, a keyword
     // after the data, a title without quotes, a number that is not finite,
     // a line of four numbers, a control character, bytes that are not
@@ -544,13 +672,13 @@ mod tests {
             [
                 "1: found TITLE x, needs TITLE \"text\"",
                 "2: found TITLE again, needs each keyword once; the first is on line 1",
-                "5: found nan, needs TITLE, LUT_3D_SIZE, LUT_1D_SIZE, DOMAIN_MIN or DOMAIN_MAX",
+                "5: found \"nan 0 0\", needs three numbers separated by blanks",
                 "6: found \"1e999 0 0\", needs three numbers separated by blanks",
                 "7: found \"0 0 0 0\", needs three numbers separated by blanks",
                 "8: found DOMAIN_MIN after the first data line, needs every keyword line before the data",
                 "9: found a control character, needs a line with none but tab",
                 "10: found \"0x1 0 0\", needs three numbers separated by blanks",
-                "10: found 4 data lines, needs 3, LUT_1D_SIZE 3",
+                "10: found 5 data lines, needs 3, LUT_1D_SIZE 3",
             ]
         );
         let bad = read_cube(b"LUT_1D_SIZE 2\n\xff\n").map_err(|f| {

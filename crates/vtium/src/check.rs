@@ -599,6 +599,7 @@ fn outcome_with(
         &heads.vtlooks,
         &vtium_settings::vtlook::folders(),
         &settings.trust,
+        &gate,
     );
     // each color scheme a start would read, read as the start reads it
     let top_palette = loaded
@@ -1056,16 +1057,21 @@ const TOP_HEADS: &str = "the heads whose look names no vtlook of its own";
 /// A build with frame filters reads each distinct vtlook once from the
 /// first of `folders` that holds it, under `trust`, as the start reads it:
 /// the administrator's folder and then the package's, so a preset the
-/// package ships is found with no copy in the administrator's folder. For
-/// each vtlook that fails, it lists the vtlook's errors, each starting with
-/// the vtlook's file and line, and then each place in vtium.conf that
-/// names the vtlook. It also reports a file named `default.vtlook` in any
-/// of `folders`, which vtium never reads.
+/// package ships is found with no copy in the administrator's folder. It
+/// then builds the vtlook's color table, reading each `cube` filter's
+/// `.cube` file from the first of `folders` through `gate`'s batch, trust
+/// rule and mount table, as the start does. For each vtlook that fails,
+/// it lists the vtlook's errors, each starting with the file and line at
+/// fault, the vtlook's or a `.cube` file's, and then each place in
+/// vtium.conf that names the vtlook. It also reports a file named
+/// `default.vtlook` in any of `folders`, which vtium never reads.
 ///
 /// References:
 /// - ADR-1304 D4: vtium refuses a file named default.vtlook, and its note of 2026-11-19 gives the two folders and the administrator's file winning on a name.
 /// - ADR-1304 D5: a vtlook's name, and the top level's `vtlook`.
 /// - ADR-1304 D6: check-config lists every error of the reading and checking stages, each report whole.
+/// - ADR-1304 D9: a `.cube` file sits beside the administrator's vtlooks.
+/// - ADR-1205 D4: a `.cube` file counts as missing unless the batch lists it and it passes the trust rule.
 #[cfg(feature = "filters")]
 fn vtlook_findings(
     top: Option<(&str, String)>,
@@ -1073,8 +1079,16 @@ fn vtlook_findings(
     looks: &[(String, String, usize)],
     folders: &[&Path],
     trust: &Trust,
+    gate: &vtium_settings::palette::Gate,
 ) -> Vec<String> {
     use vtium_settings::vtlook::{self, DEFAULT, SUFFIX};
+    // a `.cube` file sits in the administrator's folder, the first one
+    let cubes = vtlook::Gate {
+        dir: folders.first().copied().unwrap_or(Path::new(vtlook::LOOKS)),
+        batch: &gate.batch,
+        rule: &gate.rule,
+        mounts: &gate.mounts,
+    };
     let mut names: Vec<&str> = top.iter().map(|(name, _)| *name).collect();
     for (_, name, _) in looks {
         if !names.contains(&name.as_str()) {
@@ -1083,8 +1097,12 @@ fn vtlook_findings(
     }
     let mut out = Vec::new();
     for name in names {
-        let Err(failure) = vtlook::find(name, folders, trust) else {
-            continue;
+        let failure = match vtlook::find(name, folders, trust) {
+            Err(failure) => failure,
+            Ok(look) => match vtlook::table_with(&look, &cubes) {
+                Ok(_) => continue,
+                Err(failure) => failure,
+            },
         };
         out.extend(failure.reports.iter().map(|r| format!("{}: {r}", r.at())));
         if failure.more > 0 {
@@ -1147,6 +1165,7 @@ fn vtlook_findings(
     looks: &[(String, String, usize)],
     _folders: &[&Path],
     _trust: &Trust,
+    _gate: &vtium_settings::palette::Gate,
 ) -> Vec<String> {
     let none = |heads: &str, name: &str| {
         format!(
@@ -5274,7 +5293,8 @@ mod tests {
                 conf,
                 &looks,
                 &[Path::new("/nonexistent")],
-                &font::trust()
+                &font::trust(),
+                &palette_gate(Path::new("/nonexistent"))
             ),
             [
                 "/etc/vtium/vtium.conf:1: This build of vtium has no frame filters, so the heads whose look names no vtlook of its own draw the built-in vtlook instead of vtlook crt.",
@@ -5287,7 +5307,8 @@ mod tests {
                 conf,
                 &[],
                 &[Path::new("/nonexistent")],
-                &font::trust()
+                &font::trust(),
+                &palette_gate(Path::new("/nonexistent"))
             )
             .is_empty()
         );
@@ -5319,7 +5340,7 @@ mod tests {
         ];
         let top = Some(("gone", "argument 2".to_owned()));
         assert_eq!(
-            vtlook_findings(top, conf, &looks, &[&dir], &trust),
+            vtlook_findings(top, conf, &looks, &[&dir], &trust, &palette_gate(&dir)),
             [
                 format!(
                     "{}: reading: There is no file gone.vtlook in {}.",
@@ -5337,7 +5358,17 @@ mod tests {
                 "/etc/vtium/vtium.conf:5: The vtlook old has errors, so the heads that use look b draw the built-in vtlook instead.".to_owned(),
             ]
         );
-        assert!(vtlook_findings(None, conf, &looks[2..], &[&dir], &trust).is_empty());
+        assert!(
+            vtlook_findings(
+                None,
+                conf,
+                &looks[2..],
+                &[&dir],
+                &trust,
+                &palette_gate(&dir)
+            )
+            .is_empty()
+        );
         // past the bound, the rest of a vtlook's errors are counted
         let many = write("many", &"a\n".repeat(100));
         let said = vtlook_findings(
@@ -5346,6 +5377,7 @@ mod tests {
             &[("m".to_owned(), "many".to_owned(), 9)],
             &[&dir],
             &trust,
+            &palette_gate(&dir),
         );
         assert_eq!(said.len(), vtium_settings::ERRORS_MAX + 2, "{said:#?}");
         assert_eq!(
@@ -5355,7 +5387,14 @@ mod tests {
         // a file named default.vtlook is reported though nothing names it
         write("default", "version = 1\n");
         assert_eq!(
-            vtlook_findings(None, conf, &looks[2..], &[&dir], &trust),
+            vtlook_findings(
+                None,
+                conf,
+                &looks[2..],
+                &[&dir],
+                &trust,
+                &palette_gate(&dir)
+            ),
             [format!(
                 "{}: reading: vtium never reads a file named default.vtlook, because default is the name of the built-in vtlook. Give the file another name.",
                 dir.join("default.vtlook").display()
@@ -5392,17 +5431,83 @@ mod tests {
         let looks = [("warm".to_owned(), "amber".to_owned(), 3)];
         let folders = [etc.as_path(), share.as_path()];
         assert_eq!(
-            vtlook_findings(None, conf, &looks, &folders, &trust),
+            vtlook_findings(None, conf, &looks, &folders, &trust, &palette_gate(&etc)),
             Vec::<String>::new()
         );
         let copy = write(&etc, "version = 1\n[color sepia]\n");
         assert_eq!(
-            vtlook_findings(None, conf, &looks, &folders, &trust),
+            vtlook_findings(None, conf, &looks, &folders, &trust, &palette_gate(&etc)),
             [
                 format!(
-                    "{copy}:2: color filter 1 of 1, sepia: checking: found sepia, needs gamma, contrast, tint or color-blind"
+                    "{copy}:2: color filter 1 of 1, sepia: checking: found sepia, needs gamma, contrast, tint, color-blind or cube"
                 ),
                 "/etc/vtium/vtium.conf:3: The vtlook amber has errors, so the heads that use look warm draw the built-in vtlook instead.".to_owned(),
+            ]
+        );
+    }
+
+    // check-config reads each `.cube` file a vtlook's cube filter names as
+    // the start reads it, through the batch and the trust rule, and names
+    // the file of each one the start would refuse: one others can change,
+    // one the batch does not list, and one whose lines do not read. An
+    // active file that reads cleanly gives nothing to report.
+    //
+    // References:
+    // - ADR-1205 D4: a `.cube` file counts as missing unless the batch lists it and it passes the trust rule, and check-config names the check it failed.
+    // - ADR-1304 D6, D14: check-config lists a `.cube` file's faults on its lines.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn check_config_names_each_cube_file_a_start_refuses() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("check-vtlook-cubes");
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let trust = Trust::owner(rustix::process::geteuid().as_raw()).below(&dir);
+        let write = |name: &str, text: &str, mode: u32| {
+            let file = dir.join(name);
+            let _ = std::fs::write(&file, text);
+            let _ = std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode));
+            file.display().to_string()
+        };
+        for name in ["good", "loose", "bad", "off"] {
+            write(
+                &format!("{name}.vtlook"),
+                &format!("version = 1\n[color cube]\nfile = {name}.cube\n"),
+                0o644,
+            );
+        }
+        write("good.cube", "LUT_1D_SIZE 2\n0 0 0\n1 1 1\n", 0o644);
+        let loose = write("loose.cube", "LUT_1D_SIZE 2\n0 0 0\n1 1 1\n", 0o664);
+        let bad = write("bad.cube", "LUT_3D_SIZE 129\n", 0o644);
+        // the batch lists every file written so far, and not off.cube
+        let gate = palette_gate(&dir);
+        let off = write("off.cube", "LUT_1D_SIZE 2\n0 0 0\n1 1 1\n", 0o644);
+        let conf = Path::new("/etc/vtium/vtium.conf");
+        let looks: Vec<(String, String, usize)> = ["good", "loose", "bad", "off"]
+            .iter()
+            .zip([3, 5, 7, 9])
+            .map(|(name, line)| (format!("look-{name}"), (*name).to_owned(), line))
+            .collect();
+        let fails = |name: &str, line: usize| {
+            format!(
+                "/etc/vtium/vtium.conf:{line}: The vtlook {name} has errors, so the heads that use look look-{name} draw the built-in vtlook instead."
+            )
+        };
+        assert_eq!(
+            vtlook_findings(None, conf, &looks, &[&dir], &trust, &gate),
+            [
+                format!(
+                    "{loose}: color filter 1 of 1, cube: reading: vtium treats the file as missing, because other users can change \"{loose}\" (mode 664). Run `chmod go-w {loose}` so that only its owner can change it."
+                ),
+                fails("loose", 5),
+                format!(
+                    "{bad}:1: color filter 1 of 1, cube: checking: found LUT_3D_SIZE 129, needs 2 to 65"
+                ),
+                fails("bad", 7),
+                format!(
+                    "{off}: color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is not active: {} does not list it.",
+                    vtium_settings::batch::BATCH_FILE
+                ),
+                fails("off", 9),
             ]
         );
     }

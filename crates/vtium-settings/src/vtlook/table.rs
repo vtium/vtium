@@ -47,57 +47,22 @@ fn build(look: &Vtlook, gate: Option<&Gate>) -> Result<Table, Failure> {
     let mut reports = Vec::new();
     let mut more = 0_usize;
     for (i, f) in look.color.iter().enumerate() {
-        let place = i.saturating_add(1);
         let part = Part::Filter {
             layer: Layer::Color,
             name: f.declaration.name.to_owned(),
-            place,
+            place: i.saturating_add(1),
             of,
         };
-        if let Some(name) = cube_file(f) {
-            let dir = gate.map_or(std::path::Path::new(super::LOOKS), |g| g.dir);
-            let path = dir.join(name);
-            let report = |line, stage, message| Report {
-                vtlook: look.name.clone(),
-                file: path.clone(),
-                line,
-                part: Some(part.clone()),
-                stage,
-                message,
-            };
-            let read = match gate {
-                Some(gate) => load(&path, gate),
-                None => Err(Unread::Missing(
-                    "vtium treats the file as missing, because it reads a .cube file only through the batch and the trust rule, and this check has neither.".to_owned(),
-                )),
-            };
-            match read {
-                Ok(cube) => maps.push(Map::cube(Arc::new(cube))),
-                Err(Unread::Missing(message)) => {
-                    reports.push(report(None, Stage::Reading, message));
-                }
-                Err(Unread::Faults(faults)) => {
-                    more = more.saturating_add(faults.more);
-                    reports.extend(
-                        faults
-                            .faults
-                            .into_iter()
-                            .map(|fault| report(fault.line, Stage::Checking, fault.message)),
-                    );
-                }
+        let built = match cube_file(f) {
+            Some(name) => cube_map(look, name, part, gate),
+            None => formula_map(look, f, part),
+        };
+        match built {
+            Ok(map) => maps.push(map),
+            Err((failed, past)) => {
+                reports.extend(failed);
+                more = more.saturating_add(past);
             }
-            continue;
-        }
-        match map(f) {
-            Some(map) => maps.push(map),
-            None => reports.push(Report {
-                vtlook: look.name.clone(),
-                file: look.file.clone(),
-                line: Some(f.line),
-                part: Some(part),
-                stage: Stage::Building,
-                message: format!("{} has no color table", f.declaration.name),
-            }),
         }
     }
     if !reports.is_empty() {
@@ -111,6 +76,61 @@ fn build(look: &Vtlook, gate: Option<&Gate>) -> Result<Table, Failure> {
         });
     }
     Table::build(&maps).map_err(|e| fails(look, format!("{e}")))
+}
+
+/// The map of a `cube` filter, `part` of `look`, whose file is `name`: the
+/// table of the `.cube` file read through `gate`, or the reports of why
+/// vtium cannot read it with the count of faults past them.
+fn cube_map(
+    look: &Vtlook,
+    name: &str,
+    part: Part,
+    gate: Option<&Gate>,
+) -> Result<Map, (Vec<Report>, usize)> {
+    let dir = gate.map_or(std::path::Path::new(super::LOOKS), |g| g.dir);
+    let path = dir.join(name);
+    let report = |line, stage, message| Report {
+        vtlook: look.name.clone(),
+        file: path.clone(),
+        line,
+        part: Some(part.clone()),
+        stage,
+        message,
+    };
+    let read = match gate {
+        Some(gate) => load(&path, gate),
+        None => Err(Unread::Missing(
+            "vtium treats the file as missing, because it reads a .cube file only after checking the file against the batch and the trust rule, and this table was built without either.".to_owned(),
+        )),
+    };
+    match read {
+        Ok(cube) => Ok(Map::cube(Arc::new(cube))),
+        Err(Unread::Missing(message)) => Err((vec![report(None, Stage::Reading, message)], 0)),
+        Err(Unread::Faults(faults)) => Err((
+            faults
+                .faults
+                .into_iter()
+                .map(|fault| report(fault.line, Stage::Checking, fault.message))
+                .collect(),
+            faults.more,
+        )),
+    }
+}
+
+/// The map of the formula filter `f`, `part` of `look`, or the report of
+/// the building stage when one of its values has no part in the table.
+fn formula_map(look: &Vtlook, f: &Filter, part: Part) -> Result<Map, (Vec<Report>, usize)> {
+    map(f).ok_or_else(|| {
+        let report = Report {
+            vtlook: look.name.clone(),
+            file: look.file.clone(),
+            line: Some(f.line),
+            part: Some(part),
+            stage: Stage::Building,
+            message: format!("{} has no color table", f.declaration.name),
+        };
+        (vec![report], 0)
+    })
 }
 
 /// The `.cube` file a `cube` filter `f` names, `None` for any other
@@ -380,7 +400,10 @@ mod tests {
 
     // A .cube file's faults are of the checking stage, each on its line
     // of the .cube file, and the log line names the first and counts the
-    // rest, as ADR-1304 D14's table shows them.
+    // rest: a size out of range and a keyword vtium does not read.
+    //
+    // References:
+    // - ADR-1304 D14: the table of faults and the log line of each.
     #[test]
     fn a_cube_s_faults_are_reported_on_its_lines() {
         let f = Fixture::new("cube-faults");
@@ -394,9 +417,6 @@ mod tests {
         assert_eq!(
             f.table(text, &f.batch(&["panel.cube"])),
             Err(vec![
-                format!(
-                    "{at}: color filter 1 of 2, cube: checking: found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two"
-                ),
                 format!(
                     "{at}:2: color filter 1 of 2, cube: checking: found LUT_3D_SIZE 129, needs 2 to 65"
                 ),
@@ -417,9 +437,31 @@ mod tests {
         assert_eq!(
             super::super::log_line(&failure, "console"),
             Some(format!(
-                "vtlook amber ({at}): color filter 1 of 2, cube: checking: found no LUT_3D_SIZE or LUT_1D_SIZE line, needs one of the two; 2 more errors; head console draws the built-in vtlook instead"
+                "vtlook amber ({at}:2): color filter 1 of 2, cube: checking: found LUT_3D_SIZE 129, needs 2 to 65; 1 more error; head console draws the built-in vtlook instead"
             ))
         );
+    }
+
+    // A .cube file's faults past those a report keeps are counted, with
+    // the faults of the vtlook's other filters, in the failure's count.
+    #[test]
+    fn a_cube_s_faults_past_the_kept_ones_are_counted() {
+        let f = Fixture::new("cube-many");
+        let text = format!("LUT_1D_SIZE 2\n{}", "x,y\n".repeat(100));
+        f.write("many.cube", text.as_bytes(), 0o644);
+        let gate = Gate {
+            dir: &f.dir,
+            batch: &f.batch(&["many.cube"]),
+            rule: &f.rule,
+            mounts: &f.mounts,
+        };
+        let look = look("version = 1\n[color cube]\nfile = many.cube\n");
+        let Err(failure) = table_with(&look, &gate) else {
+            panic!("built");
+        };
+        // 100 lines that do not read and the count of data lines
+        assert_eq!(failure.reports.len(), ERRORS_MAX);
+        assert_eq!(failure.reports.len() + failure.more, 101);
     }
 
     // A .cube file past CUBE_FILE_MAX counts as missing at the reading
@@ -440,7 +482,7 @@ mod tests {
         assert_eq!(
             f.table(text, &batch),
             Err(vec![format!(
-                "{}: color filter 1 of 1, cube: reading: The file is larger than 16777216 bytes, the most a .cube file may hold.",
+                "{}: color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is larger than 16 MiB (16,777,216 bytes), the most a .cube file may hold.",
                 f.dir.join("big.cube").display()
             )])
         );
@@ -461,7 +503,7 @@ mod tests {
         assert_eq!(
             said,
             [
-                "/etc/vtium/looks/warm.cube: color filter 1 of 1, cube: reading: vtium treats the file as missing, because it reads a .cube file only through the batch and the trust rule, and this check has neither."
+                "/etc/vtium/looks/warm.cube: color filter 1 of 1, cube: reading: vtium treats the file as missing, because it reads a .cube file only after checking the file against the batch and the trust rule, and this table was built without either."
             ]
         );
     }
