@@ -503,11 +503,14 @@ impl Flow {
             }
             Obj::Pal(Slot::Special(p)) | Obj::New(Slot::Special(p)) => self.pick(shared, p.clone()),
             Obj::Pal(Slot::Display(sel)) => {
-                // a display is in one path for each VT: picking it is
+                // a display is in one path for each VT, so picking it is
                 // refused only when a path that holds it shares a VT with
-                // the new path's terminal (ADR-1403 D7). A part that
-                // matches no one device, as All displays, is held by the
-                // paths that name its match
+                // the new path's terminal. A part that matches no one
+                // device, as All displays, is held by the paths that name
+                // its match.
+                //
+                // References:
+                // - ADR-1403 D7: a display belongs to one path on each VT.
                 let held = match flow.displays.iter().find(|d| d.keys.contains(sel)) {
                     Some(d) => flowview::holders(&doc.paths, Kind::Display, d),
                     None => doc
@@ -1755,8 +1758,11 @@ mod tests {
         assert!(!text.contains("login"), "{text}");
     }
 
-    // ADR-1403 D7: All displays matches no one device, and picking it is
-    // still refused when a path on a VT the new path shares holds it
+    // All displays matches no one device, and picking it is still refused
+    // when a path on a VT the new path shares holds it.
+    //
+    // References:
+    // - ADR-1403 D7: a display belongs to one path on each VT.
     #[test]
     fn picking_a_display_part_held_on_a_shared_vt_is_refused() {
         let mut app = app();
@@ -1882,9 +1888,12 @@ mod tests {
         assert_eq!(text, off);
     }
 
-    // ADR-1401, "Enter on a head's own keyboard": the switch works only
-    // under policy = open, for a head that is not isolated and runs on a
-    // VT of its own from 1 to 12, and the hint says when it does nothing
+    // The switch on Enter works only under policy = open, for a head that
+    // is not isolated and runs on a VT of its own from 1 to 12, and the
+    // hint says when it does nothing.
+    //
+    // References:
+    // - ADR-1401, "Enter on a head's own keyboard": when the switch works.
     #[test]
     fn the_switch_on_enter_hint_says_when_the_key_has_no_effect() {
         let line = flowlayout::CardLine::Setting("switch-on-enter");
