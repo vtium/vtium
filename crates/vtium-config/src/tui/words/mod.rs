@@ -24,10 +24,12 @@ pub use settings::*;
 
 use std::fmt::Display;
 
-/// The actions beside the views in the tab bar (ADR-1403 D7), each in its
-/// long and its short form.
-/// The actions the tab bar shows beside the Looks, Fonts and Settings
-/// views (ADR-1403 D7, What carries over); the Help view shows none.
+/// The actions the tab bar shows beside every tab but Flow, which has its
+/// own, and Help, which shows none: Save and Install, each in its long and
+/// short form.
+///
+/// References:
+/// - ADR-1403 D7, "What carries over": the actions in the tab bar.
 pub const ACTIONS: [(&str, &str); 2] = [("Save", "Save"), ("Install", "Install")];
 
 /// How the TUI previews a change, and whether the live trial works, at

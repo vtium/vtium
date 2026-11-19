@@ -1,26 +1,34 @@
-//! The TUI that `vtium config` opens at a terminal (ADR-1201 D3, D4, D7):
-//! a full-screen program drawn in the terminal's text cells. Its views are
-//! Flow, which draws the configuration as paths from the displays to the
-//! input devices (ADR-1403 D7), Looks, Fonts, which lists the frits (font
-//! set files) and the built-in fonts, Settings and Help. A change the user
-//! highlights is previewed as a picture of the console with it applied,
-//! and `t` tries a font on the live console through OSC 50 ([`shot`]). It
-//! installs what the user keeps through `apply`.
+//! The TUI that `vtium config` opens at a terminal: a full-screen program
+//! drawn in the terminal's text cells. Its six tabs, in the tab bar's
+//! order, are Fonts, Effects, Looks, Flow, Settings and Help. Fonts lists
+//! the frits (font set files) and the built-in fonts, and Flow draws the
+//! configuration as paths from the displays to the input devices. A change
+//! the user highlights is previewed as a picture of the console with the
+//! change applied, and `t` tries a font on the live console through OSC 50
+//! ([`shot`]). The TUI installs what the user keeps through `apply`.
 //!
 //! [`model`] is the state machine, [`nav`] where the person is in it,
-//! [`tabs`] the Help, Settings, Fonts and Looks tabs, each with its state
-//! and its update, [`view`] its screen, [`flow`] the flow
-//! read from the draft and the devices present, [`paths`] that flow as
-//! paths, [`parts`] the parts a path is made from, [`flowview`] how the
-//! Flow view lays the paths and parts out, [`flowdraw`] how it draws them
-//! and [`flowcolor`] their colors, [`canvas`] the rows of styled text a
-//! screen is written in and the helpers that fit text to them, [`color`]
-//! their colors, [`input`] the decoder of what the terminal
-//! sends, [`replies`] the queue of who asked the terminal what, [`words`]
-//! the catalog of what the TUI says, and [`port`] the loop and the
-//! terminal it runs on. [`gather`] reads what the TUI starts
-//! from: the frits as text, never a font file (D3), and vtium.conf, which
-//! holds the heads, looks and rules too.
+//! [`tabs`] the Fonts, Effects, Looks, Settings and Help tabs, each with
+//! its state and its update, [`view`] its screen, [`flow`] the flow read
+//! from the draft and the devices present, [`paths`] that flow as paths,
+//! [`parts`] the parts a path is made from, [`flowview`] how the Flow view
+//! lays the paths and parts out, [`flowdraw`] how it draws them and
+//! [`flowcolor`] their colors, [`canvas`] the rows of styled text a screen
+//! is written in and the helpers that fit text to them, [`color`] their
+//! colors, [`input`] the decoder of what the terminal sends, [`replies`]
+//! the queue of who asked the terminal what, [`words`] the catalog of what
+//! the TUI says, and [`port`] the loop and the terminal it runs on.
+//! [`gather`] reads what the TUI starts from: the frits as text, never a
+//! font file, and vtium.conf, which holds the heads, looks and rules too.
+//!
+//! References:
+//! - ADR-1201 D3: the TUI, the views it opens and the frits it reads as
+//!   text.
+//! - ADR-1201 D4: the preview as a picture of the console, and the live
+//!   trial.
+//! - ADR-1201 D7: the TUI as a state machine apart from its terminal.
+//! - ADR-1205 D1: the six tabs and their order.
+//! - ADR-1403 D7: the Flow view and the paths it draws.
 
 pub mod backend;
 pub mod canvas;
