@@ -46,7 +46,8 @@ pub(super) struct State {
     /// Characters the GPU path's glyphs forget on its next frame.
     forget: Vec<char>,
     /// The head's color table, which present's color step samples, with
-    /// an id that tells a pipeline whether it holds the table already.
+    /// an id that tells a pipeline whether it holds the table already. It
+    /// shares its nodes with the head's other holders of the table.
     #[cfg(feature = "filters")]
     table: Option<(u64, crate::filter::Table)>,
 }

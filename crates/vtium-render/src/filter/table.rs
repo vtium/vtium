@@ -14,10 +14,17 @@
 //! floor(x × 255 + 0.5). It remembers the last color it looked up, so a run
 //! of one color, such as a background, costs one lookup.
 //!
+//! A table and its clones share one set of nodes. The first lookup in a
+//! table widens the nodes to 32-bit floats, and every later lookup in that
+//! table or its clones reads the same widened nodes. So a head builds its
+//! table once, and each of its displays costs only the color it remembers,
+//! on the CPU path and the GPU path alike.
+//!
 //! References:
 //! - ADR-1304 D2: the table's size, its nodes, how it is built and how each path reads it.
 
 use std::collections::TryReserveError;
+use std::sync::{Arc, OnceLock};
 
 use super::Map;
 use super::math::{from_half, half, unit};
@@ -33,14 +40,32 @@ const LAST: u16 = 32;
 /// The highest index a blend starts from, the node before the last.
 const LAST_START: u16 = 31;
 
-/// A look's color filters merged into one table.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A look's color filters merged into one table. A clone shares the
+/// table's nodes, so it costs no copy.
+#[derive(Clone, Debug)]
 pub struct Table {
+    nodes: Arc<Nodes>,
+}
+
+/// The nodes a table and its clones share.
+#[derive(Debug)]
+struct Nodes {
     /// Each node's red, green and blue as half floats, red's index the
     /// fastest, then green's, then blue's, as a 3D texture lays its texels
     /// out.
-    nodes: Vec<[u16; 3]>,
+    halves: Vec<[u16; 3]>,
+    /// The same nodes as 32-bit floats, which the CPU path's lookup reads,
+    /// made by the first lookup in the table.
+    wide: OnceLock<Vec<[f32; 3]>>,
 }
+
+impl PartialEq for Table {
+    fn eq(&self, other: &Table) -> bool {
+        self.nodes.halves == other.nodes.halves
+    }
+}
+
+impl Eq for Table {}
 
 impl Table {
     /// The table of the color filters `maps`, applied in order. An empty
@@ -60,13 +85,31 @@ impl Table {
                 }
             }
         }
-        Ok(Table { nodes })
+        Ok(Table {
+            nodes: Arc::new(Nodes {
+                halves: nodes,
+                wide: OnceLock::new(),
+            }),
+        })
     }
 
     /// Each node's red, green and blue as half floats, in the texture's
     /// order: red's index the fastest, then green's, then blue's.
     pub fn nodes(&self) -> &[[u16; 3]] {
-        &self.nodes
+        &self.nodes.halves
+    }
+
+    /// The nodes as 32-bit floats, made at the first call and shared with
+    /// every clone after it. The only failure is a want of memory.
+    fn wide(&self) -> Result<&[[f32; 3]], TryReserveError> {
+        if let Some(wide) = self.nodes.wide.get() {
+            return Ok(wide);
+        }
+        let mut wide = Vec::new();
+        wide.try_reserve_exact(self.nodes.halves.len())?;
+        wide.extend(self.nodes.halves.iter().map(|n| n.map(from_half)));
+        // another thread may have made them first; its copy is kept
+        Ok(self.nodes.wide.get_or_init(|| wide))
     }
 
     /// The table as the GPU path uploads it: an RGBA16F texture 33 a side,
@@ -74,8 +117,8 @@ impl Table {
     /// OpenGL ES 3.0 filters RGBA16F linearly on every GPU.
     pub fn rgba16f(&self) -> Result<Vec<u8>, TryReserveError> {
         let mut out = Vec::new();
-        out.try_reserve_exact(self.nodes.len().saturating_mul(8))?;
-        for &[r, g, b] in &self.nodes {
+        out.try_reserve_exact(self.nodes.halves.len().saturating_mul(8))?;
+        for &[r, g, b] in &self.nodes.halves {
             for h in [r, g, b, 0x3c00] {
                 out.extend_from_slice(&h.to_le_bytes());
             }
@@ -87,32 +130,26 @@ impl Table {
     pub const fn side() -> usize {
         SIDE
     }
-
-    /// A copy of the table, for a second holder such as the GPU path. The
-    /// only failure is a want of memory.
-    pub fn try_clone(&self) -> Result<Table, TryReserveError> {
-        let mut nodes = Vec::new();
-        nodes.try_reserve_exact(self.nodes.len())?;
-        nodes.extend_from_slice(&self.nodes);
-        Ok(Table { nodes })
-    }
 }
 
-/// The CPU path's lookup in a color table: the nodes widened to 32-bit
-/// floats, 421 KiB, and the last color looked up.
+/// The CPU path's lookup in a color table: the table, whose nodes it reads
+/// as 32-bit floats, and the last color looked up.
 #[derive(Clone, Debug)]
 pub struct Lookup {
-    nodes: Vec<[f32; 3]>,
+    table: Table,
     last: Option<(u32, u32)>,
 }
 
 impl Lookup {
-    /// The lookup in `table`. The only failure is a want of memory.
+    /// The lookup in `table`. The first lookup in a table widens its nodes
+    /// to 32-bit floats, 421 KiB, which every later lookup in the table or
+    /// its clones shares. The only failure is a want of memory for them.
     pub fn new(table: &Table) -> Result<Lookup, TryReserveError> {
-        let mut nodes = Vec::new();
-        nodes.try_reserve_exact(table.nodes.len())?;
-        nodes.extend(table.nodes.iter().map(|n| n.map(from_half)));
-        Ok(Lookup { nodes, last: None })
+        table.wide()?;
+        Ok(Lookup {
+            table: table.clone(),
+            last: None,
+        })
     }
 
     /// The color `px` maps to, both `0x00RRGGBB`. The byte above red passes
@@ -137,6 +174,8 @@ impl Lookup {
 
     /// The trilinear blend of the eight nodes around `px`'s color.
     fn blend(&self, px: u32) -> u32 {
+        // Lookup::new made the wide nodes, so they are always there
+        let wide: &[[f32; 3]] = self.table.nodes.wide.get().map_or(&[], Vec::as_slice);
         let [(r, fr), (g, fg), (b, fb)] = [16, 8, 0].map(|shift| axis(px >> shift & 0xff));
         let node = |dr: usize, dg: usize, db: usize| -> [f32; 3] {
             let i = (b.saturating_add(db))
@@ -144,7 +183,7 @@ impl Lookup {
                 .saturating_add(g.saturating_add(dg))
                 .saturating_mul(SIDE)
                 .saturating_add(r.saturating_add(dr));
-            self.nodes.get(i).copied().unwrap_or_default()
+            wide.get(i).copied().unwrap_or_default()
         };
         let mut out = px & 0xff00_0000;
         for (c, shift) in [(0, 16), (1, 8), (2, 0)] {

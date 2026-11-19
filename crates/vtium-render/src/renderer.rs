@@ -1126,11 +1126,14 @@ impl<F: Face> Renderer<F> {
     /// the GPU path present's color step samples it. A change of table
     /// changes every pixel, so the next frame draws whole, as does the
     /// first frame into each other buffer. A turned renderer keeps the
-    /// table. The only failure is a want of memory for the lookup or the
-    /// GPU path's copy, which leaves the table as it was.
+    /// table. The renderer shares `table`'s nodes with every other holder
+    /// of the table, so a head's displays hold one copy between them, and
+    /// the GPU path reads the same nodes. The only failure is a want of
+    /// memory for the nodes as 32-bit floats, which the first lookup in the
+    /// table makes; it leaves the table as it was.
     ///
     /// References:
-    /// - ADR-1304 D2: a change of the look's color filters makes the CPU path draw its frame whole.
+    /// - ADR-1304 D2: a change of the look's color filters makes the CPU path draw its frame whole, and the table and its 32-bit values are held once for each head.
     #[cfg(feature = "filters")]
     pub fn set_color_table(
         &mut self,
@@ -1138,8 +1141,7 @@ impl<F: Face> Renderer<F> {
     ) -> Result<(), std::collections::TryReserveError> {
         let lookup = table.map(crate::filter::Lookup::new).transpose()?;
         #[cfg(feature = "gpu")]
-        self.gpu
-            .set_table(table.map(crate::filter::Table::try_clone).transpose()?);
+        self.gpu.set_table(table.cloned());
         self.color = lookup;
         self.forget_history();
         Ok(())
