@@ -1,0 +1,175 @@
+---
+contract: adr/v1
+kind: decision
+verb: change
+capability: glyphs
+basis:
+  - operator: aaronsb
+    level: guided
+    said: "Let's make sure that the code behind the scenes has separation of concerns as far as nav, modules etc. Using a tui framework and a known message bus etc with that framework will help to make sure we don't end up with interface soup. Clear callers and functions etc."
+    via: the maintainer in the steering session, 2026-11-18, quoted in the steering session's brief for this record
+  - evidence: "Measured by this record's agent on 2026-11-18 at integration ee6d83a7, in scratch copies of the tree that were never committed. Each copy added one dependency and a hidden entry point in vtium-config's main.rs that the release build keeps. Each copy drew one screen: a vertical and a horizontal layout, a list with a highlight in a bordered block, a wrapped paragraph in a bordered block, and a key line, redrawn after each key. vtium-config was built with `cargo build --release -p vtium-config`, the profile `make config-release` uses (LTO, one codegen unit, abort on panic), for the host's x86_64-unknown-linux-gnu without the sysroot's linker wrapper, and stripped with strip(1). Unchanged, the binary is 8,122,728 bytes stripped and 8,811,680 unstripped. ratatui 0.30.2 with its default features, which bring crossterm 0.29: +256,024 bytes stripped (+250.0 KiB, 3.2 per cent). ratatui 0.30.2 with only its crossterm feature: +249,984 (+244.1 KiB). ratatui 0.30.2 with only its termion feature, termion 4.0.6: +244,904 (+239.2 KiB). ratatui-core 0.1.2 alone, with its `std` feature and a Backend written over rustix, drawing the list, the boxes and the paragraph from Line and Text by hand: +120,024 (+117.2 KiB). ratatui-core 0.1.2 and ratatui-widgets 0.3.2, each with only `std`, over the same Backend: +175,832 (+171.7 KiB, 2.2 per cent). The same two crates drawing a fuller screen as well, with a tab bar of six tabs, a table with a header and a highlighted row, a scroll bar, and a question box over a cleared area: +202,368 (+197.6 KiB, 2.5 per cent). Unstripped, the deltas are +292,016, +283,840, +277,360, +132,896, +195,208 and +223,520 bytes."
+  - evidence: "Read by this record's agent on 2026-11-18 from the same copies. The crates `cargo tree -e normal` links into vtium-config for x86_64: 90 unchanged, 145 with ratatui's defaults, 137 with ratatui and crossterm only, 124 with ratatui and termion, 111 with ratatui-core, 120 with ratatui-core and ratatui-widgets. Cargo.lock's packages: 165 unchanged, then 306, 230, 210, 191 and 206. Only ratatui's default features add a second version of a crate already in the lock: bitflags 1 beside 2, thiserror 1 beside 2, nix 0.29 beside 0.31, getrandom 0.3 beside 0.4, and sha2, digest, block-buffer, crypto-common, cpufeatures and r-efi in two versions each. Every variant keeps rustix at 1.1.6 alone. cargo-deny 0.20.2's `check bans licenses sources` against deny.toml passes for every variant. ratatui 0.30.2, ratatui-core 0.1.2 and ratatui-widgets 0.3.2 declare rust-version 1.88, the workspace's rust-version, and `cargo +1.88 check -p vtium-config` passes for the crossterm variant and for the ratatui-core and ratatui-widgets variant. All are MIT."
+  - evidence: "Read by this record's agent on 2026-11-18. crossterm 0.29.0's input parser (src/event/sys/unix/parse.rs, `parse_event`) reads ESC followed by any byte but `O`, `[` and ESC as that byte with Alt held, and termion 4.0.6's (src/event.rs, `parse_event`) does the same. So the reply to an OSC 50 query, `ESC ] 50 ; NAME ESC \\`, and the reply to a kitty graphics query, `ESC _ G ... ESC \\`, reach a program that reads keys through either crate as Alt+] or Alt+_ and then the reply's characters as key presses. ratatui-core 0.1.2's Buffer measures text with unicode-width 0.2 (src/buffer/buffer.rs); vtium-config's canvas measures it with vtium-term's `cluster_width`, the console's own rule (crates/vtium-config/src/tui/canvas.rs:84). ratatui-core's Terminal draws only the cells that changed since the last frame, marks a cell it must not write with `Cell::skip`, and offers `Terminal::clear` to draw the next frame whole. tui-realm 4.1.0, the component and message framework built on ratatui, reads its input through crossterm, termion or termwiz, and depends on lazy-regex."
+  - evidence: "The TUI at integration ee6d83a7, read by this record's agent on 2026-11-18: 25 files under crates/vtium-config/src/tui/. The audit's findings are in the Context section, each with its file and line."
+  - precedent: ADR-1201
+  - precedent: ADR-1205
+  - precedent: ADR-1403
+  - precedent: ADR-1503
+  - precedent: ADR-1505
+amends:
+  - "ADR-1201#D7: what the TUI is built with"
+  - "ADR-1201#D8: how it is judged"
+agent:
+  name: Claude
+  model: claude-opus-5-5
+status: proposed
+date: 2026-11-18
+deciders:
+  - aaronsb
+related:
+  - ADR-1201
+  - ADR-1205
+  - ADR-1403
+---
+
+# ADR-1206: vtium-config's TUI draws through ratatui's core and widgets over its own terminal layer, and each tab is a module that one navigation module and one update loop connect
+
+## Summary
+
+- **Decided:** vtium-config's TUI draws with ratatui's layout, buffer and widgets, from the crates ratatui-core and ratatui-widgets. vtium-config keeps its own terminal layer under them: raw mode, signals, the reader that decodes keys and replies, and every byte it writes. The TUI follows the Elm architecture as ratatui documents it: one model, one message type, one update function and one view function. Each of the six tabs is a module with its own state, messages, update and view. One navigation module alone owns where the person is, and reads ADR-1403's interface tree and key table to turn a key into an action. Update returns effects, and the loop alone performs them. Drawing takes the model read-only. No tab reads or writes another tab's state, and a test fails the build when one does. The work moves in five slices that keep the TUI working, and the navigation slice comes first.
+- **Trades away:** About 200 KiB of the 7.9 MiB stripped binary that every install ships. One list screen measures 172 KiB, and a screen with tabs, a table, a scroll bar and a question box 198 KiB. About thirty crates that vtium did not link before, each under a license that deny.toml allows. ratatui measures text width by Unicode's tables, which can differ from the console's own rule. So vtium-config's backend places the cursor again after any character the two rules measure differently. The screens move slightly when the views change to widgets, so their provisional goldens are drawn again for the maintainer.
+- **One-way?** No. The library sits behind the view functions and one backend, so a later change of library touches only those. The module structure is the costly part to change once the tabs are built on it.
+- **Probes:**
+  - *Confident (the library):* Should vtium-config take ratatui's core and widgets crates, at about 200 KiB, and draw through its own terminal layer instead of crossterm or termion? Lean: yes. ratatui with crossterm costs 250 KiB and with termion 239 KiB. Both crates read ESC `]` and ESC `_` as Alt with a key. So the replies to the TUI's OSC 50 and kitty graphics queries would arrive as key presses. vtium-config would have to keep its own reader beside theirs.
+  - *Confident (the message bus):* Is one message type with one update function, the Elm architecture that ratatui documents, the message bus you meant? Lean: yes. The audit finds state that five files change and four separate copies of where the person is. Typed messages through one update function fix both, and need no further crate. tui-realm is the known component framework with a message bus on ratatui, but it reads input through crossterm or termion and brings a regular expression library.
+  - *Not confident (the order):* Should the navigation module land first, before any ratatui code? Lean: yes. The navigation slice changes no picture, and the scenario maps judge it byte for byte. The scenario walk then builds on one navigation state. The doubt is that you may want to see ratatui's screens sooner.
+  - *Confident (the check):* Should a test fail when one tab's module uses another tab's module? Lean: yes. Rust's privacy rules stop most reaching across. The test also catches a tab that imports another's module only to read it, which privacy alone allows when a field is public.
+- **Inversion:** The decision sits between two ends. At one end, vtium-config writes every part of its screen layer itself, as ADR-1201 D7 decided. At the other, a framework owns the terminal, the input and the event loop, and vtium-config fills in components. vtium-config takes only the drawing half of ratatui and keeps the terminal, the input and the loop, because the console's replies and the exact bytes the tests check live there.
+
+## Context
+
+The maintainer reviewed vtium-config's TUI on 2026-11-17 and 2026-11-18. The navigation felt clunky, and ADR-1403 D10 sets one way to move through the six tabs. The maintainer then asked for separation of concerns behind the screens: navigation and modules apart, a TUI framework with a known message bus, and clear callers and functions.
+
+ADR-1201 D7 chose no TUI library. The TUI is a screen layer over rustix's terminal calls, and its state is a state machine apart from the terminal: events in, effects out. D7 rejected ratatui with crossterm or termion as a second terminal layer beside the raw mode and signal handling that `set` already has. vtium-config ships on every install as the glyph helper, so its size counts in the install tree that tier 3 measures.
+
+ratatui 0.30 splits into crates. ratatui-core holds the layout, the buffer of cells, the styled text and the Terminal that draws a frame through a Backend. ratatui-widgets holds the lists, tables, tabs, paragraphs and blocks. Each backend crate wraps one terminal library. So vtium-config can take the drawing half without a second terminal layer, which D7's alternative did not offer.
+
+### What the TUI is today
+
+The TUI at integration ee6d83a7 has about 20,500 lines in 25 files. The state machine's shape holds up:
+
+- One input type and one output type. `Event` (model.rs:125) is every key, reply, resize, signal, picture and desk answer, and `Effect` (model.rs:173) is every write, wait, picture request, desk operation and exit.
+- One loop. `drive_with` (port.rs:172) performs every effect, and it alone writes to the terminal. The OSC 50 switch, the queries and the kitty graphics bytes are effects like any other.
+- Drawing is read-only. `view::draw` (view.rs:1187) takes `&App` and returns bytes.
+- Tests drive the model with no terminal. tests/tui.rs holds 115 tests that send events to `App::event`. The scenario walk in tests/scenarios/ explores every state and checks ADR-1403's key table after each key. tests/tui_pty.rs holds 18 tests that run the binary on a pty and check its bytes.
+- Some parts are already separate. listbox.rs is one component with its own state, keys and rows, words.rs is the one catalog of what the TUI says, and input.rs decodes keys and replies in one reader.
+
+The concerns tangle in six places:
+
+1. **One state for every tab, changed from five files.** `App` (model.rs:340-447) has 44 fields, nearly all public, for every tab at once: `font_at`, `size_at`, `settings`, `editing`, `flow_view`, `pager`, `restore`, `about`, `help_at`, `new_frit` and the rest. Five files add methods to `App` (model.rs:479, console.rs:96, flowkeys.rs:25, flowedit.rs:16, shot.rs:187), and each can change any field. model.rs assigns to a field of the model on 52 lines, flowedit.rs on 44, shot.rs on 28 and flowkeys.rs on 16. The Settings tab's state is split between `app.settings` (model.rs:381) and `app.editing` (model.rs:392).
+2. **Where the person is, computed four times.** No field says which node of the interface tree is open. `App::key` (model.rs:916-1050) decides it by the order of its tests: a question, Ctrl-C, the live trial, the screen that is too small, typing, then the tab. `holds_view` (model.rs:616-629) decides it again for Tab, and `contract::node` (contract.rs:75-121) again for the key line and the help. The scenario walk decides it a fourth time for its map (tests/scenarios/state.rs:206-208, "in the order `App::key` reads the keys"). A change to one copy that misses another makes the key line, the keys and the tests disagree.
+3. **Update calls drawing code.** Every event ends in `flow_settle` (model.rs:676-679), which rebuilds the Flow view's parts and calls `flowdraw::layout_of` and `flowdraw::window` (flowkeys.rs:29-46). `overview_key` calls them again (flowkeys.rs:105-107). The Help tab scrolls by `view::help_window` (model.rs:1016), keys and clicks test `view::too_small` and `view::tab_at` (model.rs:934, 1098, 1108), and flowedit.rs:426 counts `view::key_rows`. shot.rs:465-471 overwrites the model's own size, picture and caption to draw `view::screen` at another size, then puts them back.
+4. **Keys matched by hand in about twenty functions.** ADR-1403's tables generate the key lines and the help (contract.rs, contract_text.rs), but no code reads them to act. `key`, `small_key`, `fonts_key`, `type_key`, `settings_key` and `new_key` in model.rs, eight handlers in flowkeys.rs, `confirm_key`, `pager_key` and `restore_key` in flowedit.rs, and `trial_key` in shot.rs:583 each match keys themselves. In the Fonts tab, `s` toggles the preview (model.rs:1133-1136), while in Looks and Settings it saves (model.rs:986-991). Only the scenario walk, after the fact, finds where the code and the table differ.
+5. **The loop changes the model itself.** port.rs:180 and port.rs:238 set `app.cell_px` directly, outside any event, so a test that drives `App::event` never sees the change.
+6. **A copy of state beside the state.** `flow_key` clones the Flow view's state (flowkeys.rs:56) and hands the copy to handlers that also change `self.flow_view`, so a handler can read a value it has already replaced.
+
+## Decision
+
+### D1: what the TUI is built with
+
+- **ratatui's core and widgets, with default features off.** vtium-config depends on ratatui-core and ratatui-widgets at exact versions, each with only its `std` feature. The TUI uses their layout, buffer, styled text, Terminal and widgets. vtium-config depends on no ratatui backend crate, on no ratatui umbrella crate, and on neither crossterm nor termion.
+- **vtium-config's own terminal layer stays under it.** The raw-mode guard, the signals held and read in the loop, and the reader that decodes keys and replies together stay as ADR-1201 D7 has them. One Backend, written in vtium-config, turns ratatui's cells into ECMA-48 cursor positions, SGR and text, and hands the bytes to the loop's writer. ratatui never writes to the terminal itself.
+- **The console's width rule decides where the cursor goes.** ratatui's buffer measures text with Unicode's width tables, and the console measures it with vtium-term's rule. After each cell whose character the two rules measure differently, the Backend writes a cursor position before the next cell. So a disagreement can misdraw one cell but never shifts the rest of the row.
+- **The cost, measured at integration ee6d83a7:** ratatui-core and ratatui-widgets add 171.7 KiB to the stripped release binary for one list screen. A screen with tabs, a table, a scroll bar and a question box adds 197.6 KiB. The binary is 7,932 KiB stripped without them. ratatui with crossterm adds 250.0 KiB, ratatui with termion 239.2 KiB, and ratatui-core alone 117.2 KiB. The basis gives every figure and how each was measured. ADR-1201 D7's reason, that vtium-config's size counts in the install tree, still holds. The figure is about 2.5 per cent of a binary that already links an outline rasteriser, a shaper and an SVG renderer.
+- **The versions move together.** ratatui-core and ratatui-widgets are released together. A change of version changes both in one commit, and that commit records the stripped size before and after.
+
+### D2: the message architecture
+
+The TUI follows the Elm architecture, as ratatui's documentation describes it: a model, a message type, an update function and a view function.
+
+- **The model** is one value with four parts. `nav` is the navigation state (D3). Each tab has its state: `fonts`, `effects`, `looks`, `flow`, `settings` and `help`. `shared` holds what every tab reads: the draft and its unsaved changes, and the live console's state, such as the start font, the switch in flight and the refused fonts. `shared` also holds what the terminal answered, the pictures, the pending installs and the message line. `size` holds the grid and the cell's pixels, which change only through a message.
+- **The message** is today's `Event`, under its present name. A message is a key, a reply, a resize, a signal, a timeout, a picture, a desk answer, an install's end or a hotplug. The loop turns every wake into a message, the cell's pixels included, and changes the model in no other way.
+- **Update** is one function, `App::event`. Update hands a key to the navigation module, which answers with an action from the key table, or with the key itself while a value is typed. Update routes the action to the open tab's update. Every other message goes to the module it concerns: a reply to the live console's module, a picture to the pictures, and a desk answer to the draft.
+- **A tab's update** takes its own state mutably, `shared` read-only and the action. The tab's update returns a list of commands of three kinds. Effects go to the loop, such as a write, a picture to draw or a desk operation. Changes go to `shared`, such as a draft change or a live trial. Requests go to the navigation module, such as opening a level, closing one or asking a question. Update applies the changes to `shared` in one place, then the requests to `nav`, then returns the effects.
+- **Effects** keep today's `Effect` type. The loop in port.rs alone performs them, writes to the terminal, runs the privileged step and asks the glyph helper for pictures.
+- **View** is one function that takes the model read-only and a frame. Each tab's view draws its own area, and the tab bar, the status line and the key line are drawn around them.
+
+### D3: one navigation module owns where the person is
+
+- **The navigation state** names where the person is, as a node of ADR-1403's interface tree. The state holds the open tab and, for each tab, a stack of the levels open in it: a detail or a card, then a list or a typed value. The state also holds the question over everything when one is open, the live trial and the key line's page. ADR-1403 D10 defines these levels. Each tab keeps its own stack while vtium-config runs, so coming back to a tab finds the place the person left.
+- **The navigation module reads the tables.** The interface tree and the key table beside ADR-1403 are compiled in, as `contract_text.rs` is today. For the node that is open, the module looks up each key's row and gives the open tab that row's action. The module itself handles the rows that ADR-1403 D10 makes the same everywhere: Tab, Shift-Tab, the digits, Esc, `q`, Ctrl-C, `.` and a question's answers.
+- **A tab asks; the navigation module moves.** A tab knows what Enter opens on its highlighted item, so it returns a request to open that level. The navigation module pushes the level and tells the tab what opened. Esc pops the level and tells the tab what closed, so a card can keep its changes as D10 decides.
+- **Every reader of the focus reads this state.** The key line, the help and the scenario walk's abstract state read the navigation state. So do the test for whether Tab may change the tab and the screen that is too small to draw. Nothing derives the node again from the tabs' fields.
+
+### D4: who may call whom
+
+| Module | May call | Never |
+|---|---|---|
+| The loop (port.rs) | `App::event`, the view, the Backend, the desk, the glyph helper | change the model except through `App::event` |
+| Update (`App::event`) | the navigation module, each tab's update, the modules of `shared` | draw, or call any view function |
+| The navigation module | the compiled tables, each tab's `node` query | read or change a tab's state |
+| A tab's update | its own state, `shared` read-only, the widgets' state types, words.rs | another tab's module, `nav`'s fields, the terminal |
+| A tab's layout | its own state, `shared` and the size, all read-only | change anything |
+| A view | the model read-only, the tab's layout, ratatui's widgets, words.rs | change anything, or write to the terminal |
+
+- **Layout is a pure function.** Update and view both need some facts about the layout, such as how many rows a page holds, where the Flow view's boxes stand, or which tab a click lands on. Those facts come from a layout function of the tab's own. That function takes the tab's state, `shared` and the size, and returns the positions. Update calls the layout function and never a view.
+- **Drawing takes the size as an argument.** A picture of the console that shows the TUI at another size calls the view with that size. Nothing overwrites the model's size to draw.
+- **The rules hold by Rust's privacy and by one test.** Each tab's state has private fields, visible only to its own module. A unit test reads the TUI's source files. The test fails on any path from one tab's module into another's, and on any call to a view function from an update or a layout function.
+
+### D5: how ADR-1201 D8's tests survive
+
+- **The model's tests** keep driving `App::event` with no terminal, and keep their names. A test that reads a field of today's `App` reads it through the tab's or the navigation module's query.
+- **The screen tests** read the screen as text, as today. They draw the view into ratatui-core's `TestBackend` and read its buffer, at 80×25, at 100×30, and below the minimum. The screen goldens stay provisional until the maintainer accepts the layout (ADR-1503 D10).
+- **The pty tests keep checking every byte.** vtium-config's Backend writes every byte of a frame through the loop, and every other byte stays an effect. So the four requests at start, each OSC 50 switch and its query, the switch back on every way out, and the kitty graphics bytes are written exactly as today. The tests check them unchanged.
+- **ratatui draws what changed.** Frames after the first write only the cells that changed. After a resize, after a picture is deleted, and after the privileged step gives the terminal back from sudo, the loop calls `Terminal::clear`. So the next frame is drawn whole. The cells under a kitty graphics picture are marked to skip, so no frame writes over the picture.
+- **The scenario walk is the refactor's judge.** The walk's maps, map-vtium.tsv, map-ops-off.tsv and map-other.tsv, stay byte-identical through each slice that only moves code. A slice that changes a transition on purpose says so, and the map changes in a commit of its own.
+
+### D6: the migration, in slices
+
+Each slice keeps the TUI working and every test passing, and leaves the screen goldens provisional. The slices run in this order, because each builds on the one before.
+
+1. **Navigation.** The navigation module of D3 takes over the precedence in `App::key`, `holds_view`, `contract::node` and the scenario walk's abstract state. The module reads the compiled tables for the rows that are the same everywhere. No picture moves, and the maps stay byte-identical. The work that walks every node of the interface tree in the scenario tests builds on this slice.
+2. **The tabs' state.** `App` splits into `nav`, one state per tab, and `shared`, one tab at a time: Help, Settings, Fonts, Looks, then Flow, the largest. Each tab's key handling moves into its module and acts on actions from the navigation module. The `impl App` blocks in console.rs, flowkeys.rs, flowedit.rs and shot.rs become functions of the modules they belong to. The loop stops setting `cell_px` itself. The maps stay byte-identical.
+3. **Pure layout.** The Flow view's box layout, the Help tab's window and the key line's rows move into layout functions that update and view both call. The picture of the console draws the view at its own size without touching the model. The test of D4 joins here.
+4. **ratatui.** The Backend of D1 lands. Each tab's view moves from the canvas to ratatui's layout and widgets, one tab at a time, and the shared list becomes ratatui's List with its state. When a tab's screen moves, its provisional goldens are drawn again in a commit of their own for the maintainer to look at.
+5. **New work on the new structure.** The Effects tab, the digits that go to a tab, and the rest of the tabs that ADR-1205 and ADR-1403 D10 set are built as modules of this structure.
+
+### D7: what this record changes in ADR-1201
+
+Once this record is accepted, ADR-1201 D7 reads: the TUI draws with ratatui-core and ratatui-widgets over vtium-config's own terminal layer (D1), and is structured as D2 to D4 decide. Its second bullet, the state machine apart from its terminal, stands and gains D2. ADR-1201 D8's first two bullets gain D5. The Alternatives Considered entry for ratatui gains a dated note citing this record. ADR-1201 carries a dated note at D7 from today.
+
+## Consequences
+
+### Positive
+
+- Each tab is one module that a reader can read alone: its state, its actions, its layout and its view.
+- One navigation state answers where the person is, so the key line, the help, the keys and the scenario walk cannot disagree about it.
+- The keys act by ADR-1403's tables, so a change of meaning is a change to a table row, and the walk checks it.
+- Update no longer calls drawing code, so a change to a screen cannot change what a key does.
+- vtium-config uses widgets that many other programs use and test, in place of the list, box and text helpers it maintains by hand.
+- The console's replies and every byte the tests check stay under vtium-config's own reader and writer.
+
+### Negative
+
+- vtium-config's stripped binary grows by about 200 KiB, and every install ships it, the smallest boards included.
+- vtium links about thirty more crates, several of them procedural macros, and their updates need review.
+- ratatui measures width by Unicode's tables, so a character on which the two width rules disagree can misdraw one cell.
+- The migration moves most of the TUI's 20,500 lines, and the screens move once more while the maintainer reviews them.
+- ratatui is at 0.30 and its API still changes between minor versions, so each update of ratatui needs work in the views.
+
+### Neutral
+
+- The pty tests, the desk, the glyph helper and the privileged step do not change.
+- The canvas and its helpers stay until the last view moves to ratatui, then go.
+- ratatui's documentation and examples become the reference for how a view is written.
+
+## Alternatives Considered
+
+- **No library, as ADR-1201 D7 decided, with the module structure alone.** Not taken: the structure of D2 to D4 fixes most of the tangle without a library. But the maintainer asked for a known framework, and the widgets replace code that vtium-config maintains by hand. The structure comes first in the slices, so this alternative is where slice 3 stands.
+- **ratatui with crossterm, its default.** Not taken: 250 KiB, about 80 KiB more than the core and widgets, and a second terminal layer with its own raw mode, signal handling and input reader. crossterm's reader turns the console's OSC 50 and kitty graphics replies into key presses, so vtium-config would still need its own reader.
+- **ratatui with termion.** Not taken: 239 KiB, and termion's reader turns the replies into key presses as crossterm's does.
+- **ratatui-core alone.** Not taken: 117 KiB, but the TUI would keep drawing its lists, tables, tabs and boxes by hand, which is most of what the widgets save.
+- **tui-realm, a component framework with a message bus on ratatui.** Not taken: tui-realm reads input through crossterm, termion or termwiz, so it brings the second terminal layer and turns the replies into key presses. tui-realm also adds a regular expression library on top of ratatui and crossterm. Its components and subscriptions organize what D2 to D4 organize with plain Rust modules and one message type.
+- **A message bus with subscribers, where any module may send any message to any other.** Not taken: a bus without a single update function lets a tab change another tab's state through a message, which is the tangle this record removes. One update function that routes each message gives the same decoupling with one place to read.
+- **Keeping key handling in code and only checking it against the tables.** Not taken: that is how the TUI works today, and the scenario walk finds each drift only after it lands.
