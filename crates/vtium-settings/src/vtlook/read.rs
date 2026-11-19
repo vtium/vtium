@@ -108,6 +108,13 @@ pub fn read(name: &str, dir: &Path, trust: &Trust) -> Result<Vtlook, Failure> {
     }
     match read_limited(&file, trust, VTLOOK_FILE_MAX) {
         Ok(Some(bytes)) => read_text(name, &file, &bytes),
+        Ok(None) if dangling(&file) => fail(
+            &file,
+            format!(
+                "{name}{SUFFIX} in {} is a symbolic link to a file that does not exist.",
+                dir.display()
+            ),
+        ),
         Ok(None) => fail(
             &file,
             format!("There is no file {name}{SUFFIX} in {}.", dir.display()),
@@ -136,8 +143,9 @@ pub fn read(name: &str, dir: &Path, trust: &Trust) -> Result<Vtlook, Failure> {
 /// vtlook replaces a preset of the same name. The first folder that holds
 /// the file is the one vtium reads, even when that file fails a check: a
 /// broken copy of a preset is an error to fix, and vtium does not quietly
-/// draw the preset instead. `Err` names every folder when none holds the
-/// file.
+/// draw the preset instead. A symbolic link to a file that does not exist
+/// counts as a copy too, so the error names the preset the link hides.
+/// `Err` names every folder when none holds the file.
 ///
 /// References:
 /// - ADR-1304 D4, its note of 2026-11-19: the administrator's vtlook wins over a preset of the same name.
@@ -149,17 +157,28 @@ pub fn find(name: &str, folders: &[&Path], trust: &Trust) -> Result<Vtlook, Fail
         return read(name, first, trust);
     }
     let file = format!("{name}{SUFFIX}");
-    let held = folders
-        .iter()
-        .find(|dir| match dir.join(&file).symlink_metadata() {
-            Ok(_) => true,
-            Err(e) => !matches!(
-                e.kind(),
-                std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-            ),
-        });
-    if let Some(dir) = held {
-        return read(name, dir, trust);
+    let holds = |dir: &&Path| match dir.join(&file).symlink_metadata() {
+        Ok(_) => true,
+        Err(e) => !matches!(
+            e.kind(),
+            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+        ),
+    };
+    let mut rest = folders.iter();
+    if let Some(dir) = rest.find(|dir| holds(dir)) {
+        // the folders after the one read, where a hidden preset may lie
+        return match (read(name, dir, trust), rest.find(|dir| holds(dir))) {
+            (Err(mut failure), Some(preset)) if dangling(&dir.join(&file)) => {
+                if let Some(report) = failure.reports.first_mut() {
+                    report.message.push_str(&format!(
+                        " While the link is there, vtium does not read the preset {file} in {}. Fix the link, or remove it to use the preset.",
+                        preset.display()
+                    ));
+                }
+                Err(failure)
+            }
+            (read, _) => read,
+        };
     }
     let names: Vec<String> = folders.iter().map(|d| d.display().to_string()).collect();
     let within = match names.split_last() {
@@ -175,6 +194,15 @@ pub fn find(name: &str, folders: &[&Path], trust: &Trust) -> Result<Vtlook, Fail
         stage: Stage::Reading,
         message: format!("There is no file {file} in {within}."),
     }))
+}
+
+/// Whether `file` is a symbolic link whose target does not exist.
+fn dangling(file: &Path) -> bool {
+    file.symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink())
+        && file
+            .metadata()
+            .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
 }
 
 /// Reads a vtlook's bytes, `bytes`, as the file `file` of the vtlook
@@ -1120,6 +1148,25 @@ mod tests {
         );
         let _ = std::fs::remove_file(etc.join("amber.vtlook"));
         assert_eq!(filter(find("amber", &folders, &trust)), Ok(vec!["tint"]));
+        // a symbolic link to a file that does not exist hides the preset,
+        // and the error says so rather than calling the file missing
+        let _ = std::os::unix::fs::symlink(root.join("nowhere"), etc.join("amber.vtlook"));
+        let dangling = format!(
+            "amber.vtlook in {} is a symbolic link to a file that does not exist.",
+            etc.display()
+        );
+        assert_eq!(
+            filter(read("amber", &etc, &trust)),
+            Err(Some(dangling.clone()))
+        );
+        assert_eq!(
+            filter(find("amber", &folders, &trust)),
+            Err(Some(format!(
+                "{dangling} While the link is there, vtium does not read the preset amber.vtlook in {}. Fix the link, or remove it to use the preset.",
+                share.display()
+            )))
+        );
+        let _ = std::fs::remove_file(etc.join("amber.vtlook"));
         assert_eq!(
             filter(find("green", &folders, &trust)),
             Err(Some(format!(

@@ -105,7 +105,7 @@ vtium comes with six vtlooks in `/usr/share/vtium/looks`. You can name one in a 
 | `deuteranopia` | Corrects the colors for a viewer with deuteranopia, who sees little green light. |
 | `tritanopia` | Corrects the colors for a viewer with tritanopia, who sees little blue light. |
 
-Each phosphor preset leaves its `floor` at 0. To change a preset, copy it to `/etc/vtium/looks` under the same name and edit the copy. vtium then reads your copy instead of the preset, even when the copy has an error. Remove the copy and vtium reads the preset again.
+Each phosphor preset leaves its `floor` at 0. To change a preset, copy it to `/etc/vtium/looks` under the same name and edit the copy. vtium then reads your copy instead of the preset. If your copy has an error, vtium reports it and the head draws the built-in vtlook, not the preset. Remove the copy and vtium reads the preset again.
 
 ## Display requirements
 
