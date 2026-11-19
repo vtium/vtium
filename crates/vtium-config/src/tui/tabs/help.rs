@@ -13,7 +13,7 @@ use super::super::canvas::{printable, width, wrap};
 use super::super::color::{Style, palette, sgr_cells};
 use super::super::contract::{NODES, Node};
 use super::super::input::Key;
-use super::super::model::{Shared, Size};
+use super::super::model::{Shared, Size, View};
 use super::super::words;
 use super::{Command, Room, Tab};
 
@@ -120,6 +120,47 @@ fn section(node: &Node, cols: usize, page: &mut Laid) {
     page.entry([Line::default()]);
 }
 
+/// The node of the interface tree that a tab of the bar shows: `fonts`
+/// for the Fonts tab, and the same for the form for a new font set, which
+/// belongs to it.
+fn tab_node(view: View) -> &'static str {
+    match view {
+        View::Fonts | View::New => "fonts",
+        View::Effects => "effects",
+        View::Looks => "looks",
+        View::Flow => "flow",
+        View::Settings => "settings",
+        View::Help => "help",
+    }
+}
+
+/// The nodes of the interface tree in the order the Help page describes
+/// them: the TUI's own node first, then each tab in the tab bar's order
+/// followed by the nodes under it, then what opens over any tab. The tree
+/// file keeps its own order, which is not the bar's, so the page sorts the
+/// nodes by the tab each one sits under. Within a tab, the nodes keep the
+/// tree's order.
+///
+/// References:
+/// - ADR-1205 D1: the six tabs and their order.
+fn in_bar_order() -> Vec<&'static Node> {
+    let rank = |node: &Node| {
+        let root = node.id.split('.').next().unwrap_or(node.id);
+        if root == "tui" {
+            return 0;
+        }
+        View::TABS
+            .iter()
+            .position(|v| tab_node(*v) == root)
+            .map_or(View::TABS.len().saturating_add(1), |at| {
+                at.saturating_add(1)
+            })
+    };
+    let mut nodes: Vec<&Node> = NODES.iter().collect();
+    nodes.sort_by_key(|n| rank(n));
+    nodes
+}
+
 /// Where the Help tab stands: the page it shows, and the page's first row
 /// in sight.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -192,7 +233,7 @@ impl Help {
             }
             return page;
         }
-        for node in NODES {
+        for node in in_bar_order() {
             if node.supported {
                 section(node, cols, &mut page);
                 continue;
