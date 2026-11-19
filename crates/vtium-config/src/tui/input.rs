@@ -368,7 +368,17 @@ fn csi(body: &[u8]) -> Front {
         return Front::Took(end.saturating_add(3), mouse);
     }
     if params.is_empty() && last == b'M' {
-        // mode 1000 without 1006: three bytes, each its value plus 32
+        // mode 1000 without 1006: three bytes, each its value plus 32. None
+        // of them can be ESC, so an ESC among them begins what follows and
+        // cancels the report.
+        let mut three = body
+            .get(end.saturating_add(1)..)
+            .unwrap_or_default()
+            .iter()
+            .take(3);
+        if let Some(i) = three.position(|&b| b == 0x1b) {
+            return Front::Cancelled(end.saturating_add(i).saturating_add(3));
+        }
         let Some(&[b, x, y]) = body.get(end.saturating_add(1)..end.saturating_add(4)) else {
             return Front::Short;
         };
@@ -693,6 +703,40 @@ mod tests {
         assert_eq!(d.feed(b"#%"), [at(Button::Press(0), 2, 4)]);
         // a report with a cell of 0 or too many numbers is dropped
         assert_eq!(keys(b"\x1b[<0;0;5M\x1b[<0;1;2;3M"), []);
+    }
+
+    /// A mode 1000 report's three bytes are each a value plus 32, so an
+    /// ESC among them is the start of what follows, and it cancels the
+    /// report as it cancels any other sequence.
+    #[test]
+    fn an_esc_among_a_mouse_reports_three_bytes_cancels_the_report() {
+        // ESC [ M, then DA1's reply, in one read
+        let mut d = Decoder::keys();
+        d.push(b"\x1b[M\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [DA1]);
+        // ESC [ M, then the font reply and DA1's, in one read
+        d.push(b"\x1b[M\x1b]50;tiny5\x1b\\\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [font("tiny5"), DA1]);
+        // the ESC as the second or third of the three bytes
+        d.push(b"\x1b[M \x1b[?62;4c\x1b[M #\x1b[?62;4c");
+        assert_eq!(drain(&mut d, true), [DA1, DA1]);
+        // the Esc key, `[` and `M`, each in a read of its own, then DA1's
+        // reply: the ESC was the Esc key, and `[` and `M` are keys
+        let mut d = Decoder::keys();
+        for typed in [&b"\x1b"[..], b"[", b"M"] {
+            d.push(typed);
+            assert_eq!(drain(&mut d, true), []);
+        }
+        d.push(b"\x1b[?62;4c");
+        assert_eq!(
+            drain(&mut d, true),
+            [
+                ESC,
+                Input::Key(Key::Char('[')),
+                Input::Key(Key::Char('M')),
+                DA1
+            ]
+        );
     }
 
     #[test]
