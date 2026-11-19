@@ -1471,6 +1471,27 @@ mod tests {
     }
 
     #[test]
+    fn enter_on_a_palette_font_set_shows_that_font_set_in_the_fonts_tab() {
+        let mut app = app();
+        let start = app.fonts.at();
+        let fonts = flowdraw::font_names(&app.shared);
+        let (at, name) = app
+            .shared
+            .inputs
+            .fonts
+            .iter()
+            .enumerate()
+            .rfind(|(i, f)| *i != start && fonts.contains(&f.name))
+            .map(|(i, f)| (i, f.name.clone()))
+            .expect("a second font set");
+        highlight(&mut app, Obj::Pal(Slot::Font(Some(name.clone()))));
+        keys(&mut app, &[Key::Enter]);
+        // the Flow view asks update to show the font set; it never writes
+        // the Fonts tab's highlight itself
+        assert_eq!((app.nav.view, app.fonts.at()), (View::Fonts, at), "{name}");
+    }
+
+    #[test]
     fn a_template_refuses_to_be_placed_and_enter_makes_a_part_from_it() {
         let mut app = app();
         let template = Obj::Pal(Slot::Template(Stage::Input));
@@ -1678,6 +1699,31 @@ mod tests {
             Some(words::display_taken("All displays", "desk", Some(3)).as_str())
         );
         assert!(state(&app).new.displays.is_empty());
+    }
+
+    #[test]
+    fn the_desk_s_answer_keeps_the_selected_item_on_the_rebuilt_flow() {
+        use super::super::super::desk::{Done, Op, Opened};
+        let text = super::super::super::paths::tests::TEXT;
+        let mut app = app();
+        app.shared.inputs.flow =
+            crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None);
+        let opened = Opened {
+            name: "north".into(),
+            text: text.into(),
+            ..Default::default()
+        };
+        app.shared.draft = Some(opened.clone());
+        // a rule past the first item, which a rebuild of the same draft
+        // keeps selected
+        let last = app.shared.inputs.flow.rules.len().saturating_sub(1);
+        app.flow.at = Item::Rule(last);
+        assert_ne!(first_item(&app.shared.inputs.flow), app.flow.at());
+        app.event(Event::Desked(
+            Op::Check(text.into()),
+            Ok(Done::Draft(opened, None)),
+        ));
+        assert_eq!(app.flow.at(), Item::Rule(last));
     }
 
     /// The Flow view on the draft `text`, with `head`'s card open.
