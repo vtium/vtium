@@ -493,3 +493,49 @@ pub fn open_in_theme(
         at: path.to_path_buf(),
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scratch::Scratch;
+
+    // A file swapped in between the look that found a regular file and
+    // the open is refused: the open compares the opened descriptor's
+    // device and inode with the file the look found, so the checks never
+    // run on one file while the caller reads another.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_file_swapped_between_the_look_and_the_open_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("cullet-swap");
+        let top = std::fs::canonicalize(&*dir).unwrap();
+        std::fs::set_permissions(&top, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for (name, text) in [("a.bdf", "checked"), ("b.bdf", "swapped")] {
+            std::fs::write(top.join(name), text).unwrap();
+            std::fs::set_permissions(top.join(name), std::fs::Permissions::from_mode(0o644))
+                .unwrap();
+        }
+        let uid = std::fs::metadata(&top).unwrap().uid();
+        let rule = Rule::new(Trust::owner(uid)).below(&top);
+        let mounts = Mounts::system().unwrap();
+        let file = top.join("a.bdf");
+        let mut walk = Walk {
+            rule: &rule,
+            mounts: &mounts,
+            asked: &file,
+            crossed: Vec::new(),
+        };
+        walk.start().unwrap();
+        let names = names(&top).unwrap();
+        for name in &names {
+            walk.enter(name).unwrap();
+        }
+        let name = OsString::from("a.bdf");
+        let found = walk.stat(&name).unwrap();
+        std::fs::rename(top.join("b.bdf"), &file).unwrap();
+        assert_eq!(
+            walk.open_file(&name, &found).unwrap_err().check,
+            Check::NotAFile { at: file.clone() }
+        );
+    }
+}
