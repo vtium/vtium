@@ -93,12 +93,34 @@ pub const CONSOLE_FONT_FOLDERS: [&str; 4] = [
     "/usr/share/consolefonts",
 ];
 
-/// The endings vtium tries after a console font's name: none, and then
-/// the suffixes kbd's console fonts carry, longest first, which a file
-/// name loses to give the name vconsole.conf's `FONT=` uses.
-const CONSOLE_FONT_SUFFIXES: [&str; 11] = [
-    "", ".psfu.gz", ".psf.gz", ".psfu", ".psf", ".cp.gz", ".fnt.gz", ".cp", ".fnt", ".gz", ".bz2",
-];
+/// The suffixes kbd's `setfont` tries after a console font's name, in
+/// order (`src/libkfont/context.c`). The font helper searches with the same
+/// list, so the fresh-install list holds every file the helper can find.
+pub const FONT_SUFFIXES: [&str; 5] = ["", ".psfu", ".psf", ".cp", ".fnt"];
+
+/// The compressions `setfont` tries after each suffix, in order
+/// (`kbdfile.c`).
+pub const COMPRESSED: [&str; 5] = ["", ".gz", ".bz2", ".xz", ".zst"];
+
+/// The pointer file the package installs: set at build time with
+/// `VTIUM_PACKAGE_POINTERS`, as the font folder is with
+/// `VTIUM_PACKAGE_FONTS`.
+pub const PACKAGE_POINTERS: &str = match option_env!("VTIUM_PACKAGE_POINTERS") {
+    Some(path) => path,
+    None => "/usr/share/vtium/pointers.svg",
+};
+
+/// Why the font helper refuses a font file the batch does not list, as
+/// what follows "because" in its reason.
+pub const NOT_ACTIVE: &str = "it is not among the active fonts.";
+
+/// What follows a refused font file's path in the font helper's reason,
+/// before why vtium refuses the file. `vtium check-config` reads the path
+/// and the why back from the helper's answer to a sources query.
+pub const MISSING_BECAUSE: &str = ": vtium treats this file as missing, because ";
+
+/// The most bytes vtium reads of vconsole.conf or the kernel command line.
+const SMALL_FILE_MAX: u64 = 64 * 1024;
 
 /// One problem with a line of the batch file. vtium ignores the line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -150,13 +172,12 @@ impl fmt::Display for Finding {
         match self {
             Finding::Missing { path } => write!(
                 f,
-                "{}: the list of active fonts and effects does not exist, so vtium uses the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, and the color schemes vtium ships. To keep that list, write those files' paths into {}, one on each line, as root.",
-                path.display(),
+                "{}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line.",
                 path.display()
             ),
             Finding::Refused { path, why } => write!(
                 f,
-                "{}: vtium ignores this list of active fonts and effects and uses the list of a fresh install, because {why}",
+                "{}: vtium ignores this list of active fonts, color schemes, effects and pointer themes and uses the list of a fresh install, because {why}",
                 path.display()
             ),
             Finding::Line { path, line, fault } => write!(
@@ -296,33 +317,34 @@ impl Batch {
 
     /// The list of a fresh install: the font files the package ships in
     /// `fonts` ([`FRESH_FONTS`]), the console font `console_font` that
-    /// vconsole.conf's `FONT=` names, and every file in `palettes`, the
-    /// folder of the palettes the package ships. The built-in font is
+    /// vconsole.conf's `FONT=` names, every file in `palettes`, the folder
+    /// of the palettes the package ships, and the package's pointer file
+    /// `pointers`, normally [`PACKAGE_POINTERS`]. The built-in font is
     /// always active besides.
     ///
     /// vconsole.conf names the console font by an absolute path or by
     /// kbd's name, such as `ter-v16n`. vtium looks for a font by kbd's
     /// name in `console_font_folders`, normally [`CONSOLE_FONT_FOLDERS`],
     /// and lists each regular file there whose name is the font's name
-    /// with one of kbd's suffixes or none. A file of that name in any
-    /// other folder is not active.
+    /// with one of kbd's suffixes and compressions, or none. A file of that
+    /// name in any other folder is not active. An absolute path is listed
+    /// as it is, and so is each file of that path with a suffix and a
+    /// compression, since the font helper tries them as `setfont` does.
     pub fn fresh_install(
         fonts: &Path,
         palettes: &Path,
         console_font: Option<&str>,
         console_font_folders: &[&Path],
+        pointers: &Path,
     ) -> Batch {
         let mut entries: Vec<Entry> = FRESH_FONTS
             .iter()
             .map(|f| Entry::Path(fonts.join(f)))
             .collect();
         if let Some(font) = console_font.filter(|f| !f.is_empty()) {
-            if let Ok(path) = plain(font) {
-                entries.push(Entry::Path(path));
-            } else {
-                console_fonts(font, console_font_folders, &mut entries);
-            }
+            console_fonts(font, console_font_folders, &mut entries);
         }
+        entries.push(Entry::Path(pointers.to_path_buf()));
         // a plain loop, where an iterator chain over read_dir costs the
         // console a kilobyte of Flatten code
         let mut shipped: Vec<PathBuf> = Vec::new();
@@ -379,22 +401,125 @@ impl Batch {
     }
 }
 
-/// Adds to `out` the regular files in `folders` that are kbd's console font
-/// `name`: the file named `name`, and each file named `name` with one of
-/// kbd's suffixes. A name that is not one plain file name, such as one
-/// holding `/` or `..`, names no file. Plain loops keep this small in the
-/// console, where an iterator chain compiles to several times the code.
+/// Adds to `out` the files that are the console font `name`. An absolute
+/// `name` is that path, whether or not a file is there, and each existing
+/// file of that path with one of kbd's suffixes and compressions after it. Any other `name` is
+/// kbd's name for a font in `folders`: each existing file named `name` with
+/// a suffix and a compression. A name that is not one plain file name, such
+/// as one holding `/` or `..`, names no file. Plain loops keep this small
+/// in the console, where an iterator chain compiles to several times the
+/// code.
 fn console_fonts(name: &str, folders: &[&Path], out: &mut Vec<Entry>) {
+    if let Ok(path) = plain(name) {
+        out.push(Entry::Path(path.clone()));
+        suffixed(&path, true, out);
+        return;
+    }
     if name.contains('/') || name == "." || name == ".." {
         return;
     }
     for folder in folders {
-        for suffix in CONSOLE_FONT_SUFFIXES {
-            let path = folder.join(format!("{name}{suffix}"));
+        suffixed(&folder.join(name), false, out);
+    }
+}
+
+/// Adds to `out` each regular file named `stem` with one of kbd's suffixes
+/// and compressions after it, leaving out `stem` itself when `listed`.
+fn suffixed(stem: &Path, listed: bool, out: &mut Vec<Entry>) {
+    for suffix in FONT_SUFFIXES {
+        for packed in COMPRESSED {
+            if listed && suffix.is_empty() && packed.is_empty() {
+                continue;
+            }
+            let mut path = stem.as_os_str().to_owned();
+            path.push(suffix);
+            path.push(packed);
+            let path = PathBuf::from(path);
             if std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file()) {
                 out.push(Entry::Path(path));
             }
         }
+    }
+}
+
+/// Where vtium reads what builds the batch: the batch file, vconsole.conf
+/// and the kernel command line that name the console font, the folders
+/// kbd keeps console fonts in, the folder of the package's fonts and
+/// palettes, and the package's pointer file. [`Places::system`] gives this
+/// machine's.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Places {
+    pub file: PathBuf,
+    pub vconsole_conf: PathBuf,
+    pub cmdline: PathBuf,
+    pub fonts: PathBuf,
+    pub palettes: PathBuf,
+    pub pointers: PathBuf,
+    pub console_font_folders: Vec<PathBuf>,
+}
+
+impl Places {
+    /// This machine's: [`BATCH_FILE`], `/etc/vconsole.conf`,
+    /// `/proc/cmdline`, [`PACKAGE_FONTS`], the package's palettes,
+    /// [`PACKAGE_POINTERS`] and [`CONSOLE_FONT_FOLDERS`].
+    pub fn system() -> Places {
+        Places {
+            file: PathBuf::from(BATCH_FILE),
+            vconsole_conf: PathBuf::from("/etc/vconsole.conf"),
+            cmdline: PathBuf::from("/proc/cmdline"),
+            fonts: PathBuf::from(PACKAGE_FONTS),
+            palettes: PathBuf::from(crate::palette::PACKAGE_PALETTES),
+            pointers: PathBuf::from(PACKAGE_POINTERS),
+            console_font_folders: CONSOLE_FONT_FOLDERS.iter().map(PathBuf::from).collect(),
+        }
+    }
+}
+
+/// `path`'s text, at most [`SMALL_FILE_MAX`] bytes; empty when vtium cannot
+/// read it.
+fn small_text(path: &Path) -> String {
+    use std::io::Read as _;
+    let mut bytes = Vec::new();
+    if let Ok(file) = std::fs::File::open(path) {
+        let _ = file.take(SMALL_FILE_MAX).read_to_end(&mut bytes);
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+impl Batch {
+    /// The list of a fresh install at `places`: [`Batch::fresh_install`],
+    /// with the console font that vconsole.conf names, and the kernel
+    /// command line over it.
+    pub fn fresh(places: &Places) -> Batch {
+        let named = vconsole(
+            &small_text(&places.vconsole_conf),
+            &small_text(&places.cmdline),
+        );
+        let mut folders: Vec<&Path> = Vec::new();
+        for folder in &places.console_font_folders {
+            folders.push(folder);
+        }
+        Batch::fresh_install(
+            &places.fonts,
+            &places.palettes,
+            named.font.as_deref(),
+            &folders,
+            &places.pointers,
+        )
+    }
+
+    /// The batch at `places`, read under `trust`, the check vtium.conf
+    /// passes, with the list of a fresh install in its place when the file
+    /// is missing or vtium cannot use it. This is the one place the console
+    /// and `vtium check-config` build the batch: the console reads it when
+    /// it starts and again at each new login, and hands the same batch to
+    /// its font helpers, its color schemes, its color maps and its pointer
+    /// files.
+    ///
+    /// References:
+    /// - ADR-1205 D4: one batch, read again at each new login, and the list of a fresh install in its place.
+    pub fn system(places: &Places, trust: &Trust) -> Read {
+        Batch::read(&places.file, trust, Batch::fresh(places))
     }
 }
 

@@ -75,6 +75,33 @@ pub(crate) fn palette_with(
     palette
 }
 
+impl super::Head {
+    /// The head's palette, read again from `config`, the head's
+    /// configuration, with `top`, the top level's palette, in place of a
+    /// palette file of the look's that fails or that no folder holds. The
+    /// console `id`, whose next session is about to start, takes it as the
+    /// palette it is configured with, and so does each console the head
+    /// opens from now on. vtium calls this when a new login finds the batch
+    /// changed.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: an activation takes effect at the next login.
+    /// - ADR-1205 D10: the look's palette is the head's configured palette.
+    pub(crate) fn repalette(&mut self, config: &Config, top: Palette, id: u64) {
+        self.palette = config.palette_or(|| top);
+        let palette = self.palette.clone();
+        if let Some(console) = self.console_mut(id) {
+            console.term.terminal.set_palette(palette);
+        }
+    }
+
+    /// The head's configured palette: the one its look's `palette` names,
+    /// else the top level's.
+    pub fn palette(&self) -> &Palette {
+        &self.palette
+    }
+}
+
 /// The vtlook a head draws with.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Chosen {
@@ -244,12 +271,10 @@ pub(crate) fn choose(head: &str, config: &Config) -> Chosen {
 /// - ADR-1205 D4: the batch and the trust rule a `.cube` file passes.
 #[cfg(feature = "filters")]
 fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
-    let gate = cube_gate();
-    let cubes = vtlook::Gate {
+    let gate = crate::font::gate();
+    let cubes = vtlook::Cubes {
         dir: std::path::Path::new(vtlook::LOOKS),
-        batch: &gate.batch,
-        rule: &gate.rule,
-        mounts: &gate.mounts,
+        gate: &gate,
     };
     read_in(
         head,
@@ -258,43 +283,6 @@ fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
         &crate::font::trust(),
         &cubes,
     )
-}
-
-/// What a vtlook's `.cube` file passes before vtium reads it: the batch,
-/// the trust rule of the account vtium runs as, and this machine's mount
-/// table.
-#[cfg(feature = "filters")]
-struct CubeGate {
-    batch: vtium_settings::batch::Batch,
-    rule: vtium_settings::cullet::Rule,
-    mounts: vtium_settings::mounts::Mounts,
-}
-
-/// The console's [`CubeGate`], made the first time a vtlook is read: the
-/// batch file read as the start reads it, with the list of a fresh install
-/// in its place when the file is missing or vtium cannot use it, and the
-/// mount table. A mount table vtium cannot read is empty, so every `.cube`
-/// file fails the trust rule and counts as missing. The palette reader
-/// logs what vtium finds reading the batch file, so this logs nothing.
-///
-/// References:
-/// - ADR-1205 D4: a `.cube` file counts as missing unless the batch lists it and it passes the trust rule.
-#[cfg(feature = "filters")]
-fn cube_gate() -> &'static CubeGate {
-    static GATE: std::sync::OnceLock<CubeGate> = std::sync::OnceLock::new();
-    GATE.get_or_init(|| {
-        let trust = crate::font::trust();
-        let read = Config::batch_at(
-            std::path::Path::new(vtium_settings::batch::BATCH_FILE),
-            &trust,
-            std::path::Path::new(vtium_settings::palette::PACKAGE_PALETTES),
-        );
-        CubeGate {
-            batch: read.batch,
-            rule: vtium_settings::cullet::Rule::new(trust),
-            mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
-        }
-    })
 }
 
 /// What a build without frame filters does with the vtlook `name`: it
@@ -313,7 +301,7 @@ fn read_in(
     name: &str,
     folders: &[&std::path::Path],
     trust: &vtium_settings::Trust,
-    cubes: &vtlook::Gate,
+    cubes: &vtlook::Cubes,
 ) -> (Chosen, Option<String>) {
     let look = match vtlook::find(name, folders, trust) {
         Ok(look) => look,
@@ -668,9 +656,7 @@ mod tests {
     #[cfg(feature = "filters")]
     struct Cubes {
         dir: std::path::PathBuf,
-        batch: vtium_settings::batch::Batch,
-        rule: vtium_settings::cullet::Rule,
-        mounts: vtium_settings::mounts::Mounts,
+        active: vtium_settings::cullet::Gate,
     }
 
     #[cfg(feature = "filters")]
@@ -681,19 +667,18 @@ mod tests {
             let me = std::fs::metadata(dir).map_or(0, |m| m.uid());
             Cubes {
                 dir: dir.to_path_buf(),
-                batch: Batch::new(active.iter().map(|n| Entry::Path(dir.join(n))).collect()),
-                rule: vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me))
-                    .below(dir),
-                mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
+                active: vtium_settings::cullet::Gate::new(
+                    vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me)).below(dir),
+                    Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+                    Batch::new(active.iter().map(|n| Entry::Path(dir.join(n))).collect()),
+                ),
             }
         }
 
-        fn gate(&self) -> vtlook::Gate<'_> {
-            vtlook::Gate {
+        fn gate(&self) -> vtlook::Cubes<'_> {
+            vtlook::Cubes {
                 dir: &self.dir,
-                batch: &self.batch,
-                rule: &self.rule,
-                mounts: &self.mounts,
+                gate: &self.active,
             }
         }
     }
@@ -747,7 +732,7 @@ mod tests {
         assert_eq!(
             said,
             Some(format!(
-                "vtlook film ({}): color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is not active: {} does not list it.; head console draws the built-in vtlook instead",
+                "vtlook film ({}): color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is not active: {} does not list it; head console draws the built-in vtlook instead",
                 dir.join("warm.cube").display(),
                 vtium_settings::batch::BATCH_FILE
             ))

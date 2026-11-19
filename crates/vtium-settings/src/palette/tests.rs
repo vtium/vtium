@@ -11,6 +11,9 @@
 use std::os::unix::fs::PermissionsExt;
 
 use super::*;
+use crate::batch::Batch;
+use crate::cullet::Rule;
+use crate::mounts::Mounts;
 use crate::scratch::Scratch;
 
 fn legacy() -> Palette {
@@ -328,11 +331,7 @@ impl Folders {
 
     /// The gate with `batch` as the batch, on this machine's mount table.
     fn gate(&self, batch: Batch) -> Gate {
-        Gate {
-            rule: self.rule.clone(),
-            mounts: Mounts::system().unwrap(),
-            batch,
-        }
+        Gate::new(self.rule.clone(), Some(Mounts::system().unwrap()), batch)
     }
 
     /// The batch that lists every file in both folders.
@@ -609,7 +608,13 @@ fn a_palette_outside_the_batch_is_refused() {
 fn a_shipped_palette_is_active_with_no_batch_file() {
     let f = Folders::new("palette-fresh");
     let shipped = f.write(&f.package, "kiln", b"foreground = #000001\n");
-    let fresh = Batch::fresh_install(Path::new("/nonexistent/fonts"), &f.package, None, &[]);
+    let fresh = Batch::fresh_install(
+        Path::new("/nonexistent/fonts"),
+        &f.package,
+        None,
+        &[],
+        Path::new(crate::batch::PACKAGE_POINTERS),
+    );
     let read = Batch::read(&f.admin.join("batch.conf"), &crate::Trust::ROOT, fresh);
     assert!(matches!(
         read.findings[..],
@@ -645,7 +650,10 @@ fn a_palette_through_a_symbolic_link_is_refused() {
     );
     let linked = f.admin.join("linked");
     std::os::unix::fs::symlink(&f.package, &linked).unwrap();
-    let failure = read("kiln", &[&linked], &f.gate(f.every_file())).unwrap_err();
+    // the batch lists the path through the link, so the trust rule alone
+    // refuses it
+    let listed = Batch::new(vec![crate::batch::Entry::Path(linked.join("kiln.palette"))]);
+    let failure = read("kiln", &[&linked], &f.gate(listed)).unwrap_err();
     assert_eq!(
         failure.faults[0].reason,
         Reason::Refused(Check::Link { at: linked })

@@ -403,7 +403,8 @@ pub struct Host {
     /// The root under which systemd's unit links say which VTs vtium is
     /// enabled on: `/`, or a scratch directory in a test.
     pub systemd_root: PathBuf,
-    /// The batch file, the list of active fonts and effects:
+    /// The batch file, the list of active fonts, color schemes, effects and
+    /// pointer themes:
     /// [`vtium_settings::batch::BATCH_FILE`], or a scratch file in a test.
     pub batch: PathBuf,
 }
@@ -534,17 +535,17 @@ fn outcome_with(
         vts,
     };
     // the batch a start reads, and the gate each resource file passes
-    let batch = Config::batch_at(
-        &host.batch,
-        &host.frit_trust,
-        Path::new(vtium_settings::palette::PACKAGE_PALETTES),
-    );
-    let (batch_counted, batch_notes) = batch_findings(&batch.findings);
-    let gate = vtium_settings::palette::Gate {
-        rule: vtium_settings::cullet::Rule::new(host.frit_trust.clone()),
-        mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
-        batch: batch.batch,
+    let places = vtium_settings::batch::Places {
+        file: host.batch.clone(),
+        ..vtium_settings::batch::Places::system()
     };
+    let batch = vtium_settings::batch::Batch::system(&places, &host.frit_trust);
+    let (batch_counted, batch_notes) = batch_findings(&batch.findings);
+    let gate = vtium_settings::cullet::Gate::new(
+        vtium_settings::cullet::Rule::new(host.frit_trust.clone()),
+        Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+        batch.batch,
+    );
     let settings = Settings {
         squeeze,
         sources,
@@ -581,9 +582,15 @@ fn outcome_with(
         .map(|(name, file)| font_needs(&name, &file, &settings))
         .unwrap_or_default();
     // the font files the font-name frit names by path that a start would
-    // treat as missing
+    // treat as missing; each line names the font set's file and line, so a
+    // line a look's check already holds, for a font set the top level and
+    // a look share, is said once
     if let Some((_, file)) = named_frit(&loaded.config, settings.frits) {
-        needs.warnings.extend(font_files(&file, &settings));
+        needs.warnings.extend(
+            font_files(&file, &settings)
+                .into_iter()
+                .filter(|said| !heads.counted.contains(said)),
+        );
     }
     let missing_fonts = needs.warnings.len().saturating_add(heads.missing_fonts);
     // each vtlook a start would read, read as the start reads it, with
@@ -615,7 +622,7 @@ fn outcome_with(
         .zip(loaded.config.origin(&keys::POINTER_THEME))
         .filter(|(_, origin)| !(heads.refused && matches!(origin, Origin::File { .. })))
         .map(|(value, origin)| (value, origin.to_string()));
-    let pointers = pointer_findings(top_pointer, &gate.rule, &gate.mounts);
+    let pointers = pointer_findings(top_pointer, &gate);
     let folders = vtium_settings::palette::FOLDERS.map(Path::new);
     let (schemes, scheme_notes) =
         palette_findings(top_palette, path, &heads.palettes, &folders, &gate);
@@ -787,7 +794,7 @@ pub struct Settings<'a> {
     pub sources: Option<FontSources<'a>>,
     /// The trust rule, the mount table and the batch that a font file a
     /// font set names by its path passes; `None` checks no font file.
-    pub gate: Option<&'a vtium_settings::palette::Gate>,
+    pub gate: Option<&'a vtium_settings::cullet::Gate>,
 }
 
 /// How the check asks the glyph helper of a font set for the lines of its
@@ -1079,15 +1086,13 @@ fn vtlook_findings(
     looks: &[(String, String, usize)],
     folders: &[&Path],
     trust: &Trust,
-    gate: &vtium_settings::palette::Gate,
+    gate: &vtium_settings::cullet::Gate,
 ) -> Vec<String> {
     use vtium_settings::vtlook::{self, DEFAULT, SUFFIX};
     // a `.cube` file sits in the administrator's folder, the first one
-    let cubes = vtlook::Gate {
+    let cubes = vtlook::Cubes {
         dir: folders.first().copied().unwrap_or(Path::new(vtlook::LOOKS)),
-        batch: &gate.batch,
-        rule: &gate.rule,
-        mounts: &gate.mounts,
+        gate,
     };
     let mut names: Vec<&str> = top.iter().map(|(name, _)| *name).collect();
     for (_, name, _) in looks {
@@ -1165,7 +1170,7 @@ fn vtlook_findings(
     looks: &[(String, String, usize)],
     _folders: &[&Path],
     _trust: &Trust,
-    _gate: &vtium_settings::palette::Gate,
+    _gate: &vtium_settings::cullet::Gate,
 ) -> Vec<String> {
     let none = |heads: &str, name: &str| {
         format!(
@@ -1181,24 +1186,26 @@ fn vtlook_findings(
 }
 
 /// What check-config says of the pointer file that `pointer-theme` names,
-/// `top`, with where it is named: each line counts, since vtium draws its
-/// own pictures in place of what it cannot read. A path that names neither
-/// an SVG file nor a cursor theme's folder is reported where it is named.
-/// An SVG file that fails the trust rule names the check it failed. In a
-/// cursor theme, each file that a shape's names lead to and that fails the
-/// rule is named once with the check it failed, such as a symbolic link
-/// that leads out of the theme's folder.
+/// `top`, with where it is named, read through `gate` as the console reads
+/// it: each line counts, since vtium draws its own pictures in place of
+/// what it cannot read. A path that names neither an SVG file nor a cursor
+/// theme's folder is reported where it is named. An SVG file that fails
+/// the gate names the check it failed. A cursor theme's folder that fails
+/// the gate is one line, since every file in it fails the same way. In a
+/// theme that passes, check-config reads each shape's names in turn, as
+/// the console does, and stops at the first file that passes. Each file
+/// before it that fails is named once, with the check it failed, such as a
+/// symbolic link that leads out of the theme's folder.
 ///
 /// References:
-/// - ADR-1205 D4: a pointer theme is a resource, its links pass while they stay inside the theme's folder, and check-config names the file and the check it failed.
+/// - ADR-1205 D4: a pointer theme is a resource activated by its folder, its links pass while they stay inside the theme's folder, and check-config names the file and the check it failed.
 /// - ADR-1309 D2, D3: what the path names, and which files of a cursor theme serve each shape.
 fn pointer_findings(
     top: Option<(&str, String)>,
-    rule: &vtium_settings::cullet::Rule,
-    mounts: &vtium_settings::mounts::Mounts,
+    gate: &vtium_settings::cullet::Gate,
 ) -> Vec<String> {
-    use crate::pointer_file::{Located, locate, theme_names};
-    use vtium_settings::cullet::{self, Check};
+    use crate::pointer_file::{Located, locate, theme_names, theme_refused_line};
+    use vtium_settings::cullet::Check;
     let Some((value, at)) = top else {
         return Vec::new();
     };
@@ -1208,7 +1215,7 @@ fn pointer_findings(
             "{at}: {}",
             crate::pointer_file::unusable_line(path)
         )],
-        Located::Svg(_) => match cullet::open(path, rule, mounts) {
+        Located::Svg(_) => match gate.open(path) {
             Err(r) if r.check != Check::Missing => vec![format!(
                 "{}: vtium treats this pointer file as missing, because {} So vtium draws its own pointer pictures.",
                 path.display(),
@@ -1217,24 +1224,28 @@ fn pointer_findings(
             _ => Vec::new(),
         },
         Located::Theme(_) => {
+            if let Err(r) = gate.theme(path) {
+                return vec![theme_refused_line(path, &r.check)];
+            }
             let mut out: Vec<String> = Vec::new();
             let mut seen: Vec<PathBuf> = Vec::new();
             for shape in vtium_term::PointerShape::ALL {
                 for name in theme_names(shape) {
                     let file = path.join("cursors").join(name);
-                    if file.symlink_metadata().is_err() || seen.contains(&file) {
-                        continue;
-                    }
-                    seen.push(file.clone());
-                    if let Err(r) = cullet::open_in_theme(path, &file, rule, mounts)
-                        && r.check != Check::Missing
-                    {
-                        out.push(format!(
-                            "{}: vtium treats this file of the pointer theme {} as missing, because {} vtium tries the shape's next file, or draws its own picture of the shape.",
-                            file.display(),
-                            path.display(),
-                            r.check
-                        ));
+                    match gate.open_in_theme(path, &file) {
+                        Ok(_) => break,
+                        Err(r) if r.check == Check::Missing => {}
+                        Err(r) => {
+                            if !seen.contains(&file) {
+                                out.push(format!(
+                                    "{}: vtium treats this file of the pointer theme {} as missing, because {} vtium tries the shape's next file, or draws its own picture of the shape.",
+                                    file.display(),
+                                    path.display(),
+                                    r.check
+                                ));
+                                seen.push(file);
+                            }
+                        }
                     }
                 }
             }
@@ -1243,8 +1254,8 @@ fn pointer_findings(
     }
 }
 
-/// What check-config says of the batch file, the list of active fonts and
-/// effects: the first list counts against the file, and the second is
+/// What check-config says of the batch file, the list of active fonts,
+/// color schemes, effects and pointer themes: the first list counts against the file, and the second is
 /// notes. A missing file is a note that says what vtium uses in its place
 /// and how to create the file. A file vtium cannot use, because it fails
 /// the owner and mode check, is too large or cannot be read, counts, and
@@ -1257,10 +1268,7 @@ fn batch_findings(findings: &[vtium_settings::batch::Finding]) -> (Vec<String>, 
     let (mut counted, mut notes) = (Vec::new(), Vec::new());
     for finding in findings {
         match finding {
-            Finding::Missing { path } => notes.push(format!(
-                "{}: The list of active fonts and color schemes does not exist, so vtium uses the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, and the color schemes vtium ships. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line.",
-                path.display()
-            )),
+            Finding::Missing { .. } => notes.push(finding.to_string()),
             Finding::Line { path, line, fault } => {
                 let fault = fault.to_string();
                 let mut chars = fault.chars();
@@ -1310,7 +1318,7 @@ fn palette_findings(
     conf: &Path,
     looks: &[(String, String, usize)],
     folders: &[&Path],
-    gate: &vtium_settings::palette::Gate,
+    gate: &vtium_settings::cullet::Gate,
 ) -> (Vec<String>, Vec<String>) {
     use vtium_settings::palette;
     let mut names: Vec<&str> = top.iter().map(|(name, _)| *name).collect();
@@ -1439,6 +1447,8 @@ fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
     };
     let mut out = Vec::new();
     for (n, line) in text.lines().enumerate() {
+        // A line may end in a `#` comment, which is not part of the path.
+        let line = line.split('#').next().unwrap_or_default();
         let Some((key, value)) = line.trim().split_once('=') else {
             continue;
         };
@@ -1453,17 +1463,17 @@ fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
             continue;
         }
         let at = format!("{}:{}", file.display(), n.saturating_add(1));
-        match vtium_settings::cullet::open(font, &gate.rule, &gate.mounts) {
+        match gate.open(font) {
             Err(r) if r.check == vtium_settings::cullet::Check::Missing => {}
+            Err(r) if r.check == vtium_settings::cullet::Check::Inactive => out.push(format!(
+                "{at}: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+                font.display(),
+                b = vtium_settings::batch::BATCH_FILE
+            )),
             Err(r) => out.push(format!(
                 "{at}: vtium treats the font {} as missing, because {} vtium draws its characters from the next font in the set.",
                 font.display(),
                 r.check
-            )),
-            Ok(_) if !gate.batch.holds(font) => out.push(format!(
-                "{at}: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
-                font.display(),
-                b = vtium_settings::batch::BATCH_FILE
             )),
             Ok(_) => {}
         }
@@ -1539,6 +1549,19 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
             out.notes.push(font_needs::refused(name, font, value));
             continue;
         }
+        // a font this machine has and the font helper refuses, because the
+        // batch does not list its file or the file fails the trust rule,
+        // is a font a start treats as missing, though installing it again
+        // would not help; a font named by its path is the font file line's
+        // to report, with the font set's file and line
+        if kind == "missing"
+            && let Some((path, because)) = value.split_once(vtium_settings::batch::MISSING_BECAUSE)
+        {
+            if named == check_config::font_needs::Named::ByName {
+                out.warnings.push(refused_font(name, font, path, because));
+            }
+            continue;
+        }
         let (version, url) = needs_of(&frit.text, line, spelling);
         let version = version.as_deref();
         let (said, missing) = match kind {
@@ -1574,6 +1597,27 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
         }
     }
     out
+}
+
+/// check-config's warning on the font `font` that the font set `set`
+/// needs and that the font helper treats as missing, though this machine
+/// has its file at `path`, `because` the batch does not list the file or
+/// the file fails the trust rule. A file that is not active comes with how
+/// to activate it.
+///
+/// References:
+/// - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
+fn refused_font(set: &str, font: &str, path: &str, because: &str) -> String {
+    if because == vtium_settings::batch::NOT_ACTIVE {
+        format!(
+            "Font set {set} needs the font {font}, and its file {path} is not active, so vtium treats the font as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+            b = vtium_settings::batch::BATCH_FILE
+        )
+    } else {
+        format!(
+            "Font set {set} needs the font {font}, and vtium treats its file {path} as missing, because {because} vtium draws the font's characters from the next font in the set."
+        )
+    }
 }
 
 /// The font a source's or a strike's `spelling` names, as a person knows
@@ -2000,7 +2044,7 @@ mod tests {
     }
 
     // check-config says what it finds of the batch file, the list of active
-    // fonts and effects: a missing file is a note that says what vtium
+    // fonts, color schemes, effects and pointer themes: a missing file is a note that says what vtium
     // uses instead and how to create the file, while a file others can
     // write, and a line vtium ignores, count against the configuration.
     //
@@ -2031,7 +2075,7 @@ mod tests {
         assert_eq!(
             out.stdout.first().map(String::as_str),
             Some(format!(
-                "{b}: The list of active fonts and color schemes does not exist, so vtium uses the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, and the color schemes vtium ships. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line."
+                "{b}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line."
             ).as_str()),
             "{:#?}",
             out.stdout
@@ -2059,7 +2103,7 @@ mod tests {
         let out = outcome_on(&["--no-devices", f.as_str()], &host);
         assert_eq!(out.status, 1, "{:#?}", out.stderr);
         let refused = format!(
-            "{b}: vtium ignores this list of active fonts and effects and uses the list of a fresh install, because "
+            "{b}: vtium ignores this list of active fonts, color schemes, effects and pointer themes and uses the list of a fresh install, because "
         );
         assert!(
             out.stderr.iter().any(|l| l.starts_with(&refused)),
@@ -2086,7 +2130,7 @@ mod tests {
         let shut = write("shut");
         let open = write("open");
         let gate = palette_gate(&dir);
-        let gate = vtium_settings::palette::Gate {
+        let gate = vtium_settings::cullet::Gate {
             batch: vtium_settings::batch::Batch::new(vec![vtium_settings::batch::Entry::Path(
                 open.clone(),
             )]),
@@ -2124,18 +2168,34 @@ mod tests {
     // check it failed: an SVG file reached through a symbolic link, and a
     // cursor theme's file whose link leads out of the theme's folder. A
     // link inside the theme passes, and a path that names neither is
-    // reported where vtium.conf names it.
+    // reported where vtium.conf names it. A theme folder the batch does not
+    // list is one line, not one for each of its files. A shape whose first
+    // file passes reads no further, as the console reads no further, so a
+    // broken file after it is not named.
     //
     // References:
-    // - ADR-1205 D4: pointer themes, their links, and check-config naming the file and the check it failed.
+    // - ADR-1205 D4: pointer themes are activated by their folder, their links, and check-config naming the file and the check it failed.
     #[test]
-    fn check_config_names_each_pointer_file_the_trust_rule_refuses() {
+    fn check_config_names_each_pointer_file_the_gate_refuses() {
         use std::os::unix::fs::PermissionsExt;
         let dir = Scratch::new("check-pointers");
         let me = rustix::process::geteuid().as_raw();
         let rule = vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir);
         let mounts = vtium_settings::mounts::Mounts::system().unwrap_or_default();
         let (theme, outside) = (dir.join("theme"), dir.join("outside"));
+        let (svg, linked) = (dir.join("pointers.svg"), dir.join("linked.svg"));
+        let listed = vtium_settings::batch::Batch::new(
+            [&svg, &linked, &theme, &outside]
+                .into_iter()
+                .map(|p| vtium_settings::batch::Entry::Path(p.clone()))
+                .collect(),
+        );
+        let gate = vtium_settings::cullet::Gate::new(rule.clone(), Some(mounts.clone()), listed);
+        let unlisted = vtium_settings::cullet::Gate::new(
+            rule,
+            Some(mounts),
+            vtium_settings::batch::Batch::default(),
+        );
         for d in [&*dir, &theme, &theme.join("cursors"), &outside] {
             let _ = std::fs::create_dir_all(d);
             let _ = std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755));
@@ -2144,19 +2204,22 @@ mod tests {
             let _ = std::fs::write(path, "x");
             let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644));
         };
-        let svg = dir.join("pointers.svg");
         write(&svg);
-        let linked = dir.join("linked.svg");
         let _ = std::os::unix::fs::symlink(&svg, &linked);
         let cursors = theme.join("cursors");
         write(&cursors.join("xterm"));
         let _ = std::os::unix::fs::symlink("xterm", cursors.join("text"));
         write(&outside.join("left_ptr"));
         let _ = std::os::unix::fs::symlink("../../outside/left_ptr", cursors.join("default"));
+        // the pointer shape's first file passes, so its broken second file
+        // is never opened
+        write(&cursors.join("pointer"));
+        let _ = std::os::unix::fs::symlink("../../outside/left_ptr", cursors.join("hand2"));
         let at = || "/etc/vtium/vtium.conf:2".to_owned();
-        let said = |value: &Path| {
-            pointer_findings(Some((value.to_str().unwrap_or(""), at())), &rule, &mounts)
+        let said_through = |value: &Path, gate: &vtium_settings::cullet::Gate| {
+            pointer_findings(Some((value.to_str().unwrap_or(""), at())), gate)
         };
+        let said = |value: &Path| said_through(value, &gate);
         assert_eq!(said(&svg), Vec::<String>::new());
         assert_eq!(
             said(&linked),
@@ -2181,7 +2244,15 @@ mod tests {
                 outside.display()
             )]
         );
-        assert_eq!(pointer_findings(None, &rule, &mounts), Vec::<String>::new());
+        assert_eq!(
+            said_through(&theme, &unlisted),
+            [format!(
+                "{t}: vtium treats this pointer theme as missing, because it is not active: {b} does not list it. So vtium draws its own pointer pictures.",
+                t = theme.display(),
+                b = vtium_settings::batch::BATCH_FILE
+            )]
+        );
+        assert_eq!(pointer_findings(None, &gate), Vec::<String>::new());
     }
 
     // check-config names each font file a font set names by its path that
@@ -2204,33 +2275,35 @@ mod tests {
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode));
             path
         };
-        let (good, open, idle) = (
+        let (good, open, idle, italic) = (
             font("good.bdf", 0o644),
             font("open.bdf", 0o666),
             font("idle.otf", 0o644),
+            font("idle-italic.otf", 0o644),
         );
         let frit = dir.join("desk.vtfrit");
         let _ = std::fs::write(
             &frit,
             format!(
-                "source=bdf:{}\nsource=font:Some Family\nsource=bdf:{}\nsource=outline:{}\nstrike=file:{}\nsource=bdf:{}\n",
+                "source=bdf:{}\nsource=font:Some Family\nsource=bdf:{}\nsource=outline:{}\nstrike=file:{}\nsource=bdf:{}\nsource=outline:{} # the italic face\n",
                 good.display(),
                 open.display(),
                 idle.display(),
                 good.display(),
-                dir.join("gone.bdf").display()
+                dir.join("gone.bdf").display(),
+                italic.display()
             ),
         );
         let _ = std::fs::set_permissions(&frit, std::fs::Permissions::from_mode(0o644));
-        let gate = vtium_settings::palette::Gate {
-            rule: vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir),
-            mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
-            batch: vtium_settings::batch::Batch::new(
+        let gate = vtium_settings::cullet::Gate::new(
+            vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir),
+            Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+            vtium_settings::batch::Batch::new(
                 [&good, &open]
                     .map(|p| vtium_settings::batch::Entry::Path(p.clone()))
                     .to_vec(),
             ),
-        };
+        );
         let settings = Settings {
             trust: Trust::owner(me).below(&dir),
             gate: Some(&gate),
@@ -2249,6 +2322,10 @@ mod tests {
                     "{f}:4: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
                     idle.display()
                 ),
+                format!(
+                    "{f}:7: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+                    italic.display()
+                ),
             ]
         );
         assert_eq!(font_files(&frit, &caps(4)), Vec::<String>::new());
@@ -2257,7 +2334,7 @@ mod tests {
     /// The gate a palette file in the scratch folder `dir` passes: its
     /// owner's files under `dir`, this machine's mount table, and a batch
     /// that lists each file in `dir` now.
-    fn palette_gate(dir: &Path) -> vtium_settings::palette::Gate {
+    fn palette_gate(dir: &Path) -> vtium_settings::cullet::Gate {
         use std::os::unix::fs::MetadataExt;
         let me = std::fs::metadata(dir).map_or(0, |m| m.uid());
         let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -2267,16 +2344,16 @@ mod tests {
             .map(|e| e.path())
             .collect();
         files.sort();
-        vtium_settings::palette::Gate {
-            rule: vtium_settings::cullet::Rule::new(Trust::owner(me)).below(dir),
-            mounts: vtium_settings::mounts::Mounts::system().unwrap_or_default(),
-            batch: vtium_settings::batch::Batch::new(
+        vtium_settings::cullet::Gate::new(
+            vtium_settings::cullet::Rule::new(Trust::owner(me)).below(dir),
+            Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+            vtium_settings::batch::Batch::new(
                 files
                     .into_iter()
                     .map(vtium_settings::batch::Entry::Path)
                     .collect(),
             ),
-        }
+        )
     }
 
     // A color scheme that sets many keys vtium ignores gives one note for
@@ -4817,6 +4894,54 @@ mod tests {
         assert_eq!((covered.get(), lacked.get()), (1, 1));
     }
 
+    // A font file that font-name's set names and that a start treats as
+    // missing is said once, with the font set's file and line, though
+    // font-name and two looks name the same set.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_font_file_line_is_said_once_for_a_set_the_top_level_and_looks_share() {
+        let text = "font-name=desk\nversion = 1\n[look big]\nfont-name = desk\n[look small]\nfont-name = desk\n[head a]\nlook = big\n[head b]\nlook = small\n[rules]\ndisplay * -> a\ndisplay * -> b\n";
+        let (_dir, file, _) = heads_fixture("font-file-once", text, 0o644);
+        let frits = file.with_file_name("frits");
+        std::fs::create_dir_all(&frits).unwrap();
+        let idle = file.with_file_name("idle.bdf");
+        std::fs::write(&idle, "x").unwrap();
+        std::fs::write(
+            frits.join("desk.vtfrit"),
+            format!("source=bdf:{}\nsource=builtin:unscii-8\n", idle.display()),
+        )
+        .unwrap();
+        let host = Host {
+            conf_file: file.with_file_name("absent.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: frits.clone(),
+            frit_trust: font::trust().below(file.parent().unwrap()),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: PathBuf::from("/nonexistent/vtium/batch.conf"),
+        };
+        let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let out = outcome_with(
+            &config::load(&args, &mut config::read_bytes),
+            &host,
+            None,
+            None,
+        );
+        let said: Vec<&String> = out
+            .stderr
+            .iter()
+            .filter(|l| l.contains("is not active"))
+            .collect();
+        assert_eq!(said.len(), 1, "{:#?}", out.stderr);
+        assert!(
+            said.first()
+                .is_some_and(|l| l.contains(&format!("desk.vtfrit:1: The font {}", idle.display())))
+        );
+    }
+
     // A font that font-name's set needs and this machine lacks is a
     // warning: check-config prints it on standard error and exits with
     // vtium_settings::CHECK_MISSING_FONTS. An
@@ -4886,6 +5011,35 @@ mod tests {
             "{:#?}",
             refused.stdout
         );
+        // a font this machine has and the font helper refuses, by name,
+        // is a warning on a file a start treats as missing, with what to
+        // do in place of installing it
+        let b = vtium_settings::batch::BATCH_FILE;
+        let idle = check(
+            "missing\t1\tfont:Gone Mono\t/usr/share/fonts/gone.otf: vtium treats this file as missing, because it is not among the active fonts.",
+        );
+        assert_eq!(idle.status, vtium_settings::CHECK_MISSING_FONTS);
+        assert_eq!(
+            idle.stderr,
+            [format!(
+                "Font set desk needs the font Gone Mono, and its file /usr/share/fonts/gone.otf is not active, so vtium treats the font as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own."
+            )]
+        );
+        let open = check(
+            "missing\t1\tfont:Gone Mono\t/usr/share/fonts/gone.otf: vtium treats this file as missing, because other users can change \"/usr/share/fonts/gone.otf\" (mode 666). Run `chmod go-w /usr/share/fonts/gone.otf` so that only its owner can change it.",
+        );
+        assert_eq!(
+            open.stderr,
+            [
+                "Font set desk needs the font Gone Mono, and vtium treats its file /usr/share/fonts/gone.otf as missing, because other users can change \"/usr/share/fonts/gone.otf\" (mode 666). Run `chmod go-w /usr/share/fonts/gone.otf` so that only its owner can change it. vtium draws the font's characters from the next font in the set."
+            ]
+        );
+        // a font named by its path that the helper refuses is the font
+        // file line's to report, with the font set's file and line
+        let by_path = check(
+            "missing\t4\tbdf:/usr/share/fonts/gone.bdf\t/usr/share/fonts/gone.bdf: vtium treats this file as missing, because it is not among the active fonts.",
+        );
+        assert_eq!((by_path.status, by_path.stderr), (0, Vec::<String>::new()));
         let older = check("older\t2\tfont:Old Mono\t3.000");
         assert_eq!((older.status, older.stderr), (0, Vec::<String>::new()));
         assert!(

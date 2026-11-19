@@ -24,7 +24,7 @@ vtium uses a color scheme only when its file passes the trust rule and the color
 - Neither the file nor a folder above it is a symbolic link.
 - The file sits on a filesystem that stays mounted, not on a removable disk, a network share or a FUSE filesystem.
 
-A color scheme is active while `/etc/vtium/batch.conf` lists its file's path, one path on each line. When that file does not exist, vtium uses the list of a fresh install, which holds every color scheme vtium installs. So the installed color schemes work from the first start, and your own work once you add them to the list. A file that fails the rule, or that the list leaves out, counts as missing, and `vtium check-config` says why. See [the trust rule issue](https://github.com/vtium/vtium/issues/438) for the work on the trust rule.
+A color scheme is active while `/etc/vtium/batch.conf` lists its file's path, one path on each line. When that file does not exist, vtium uses the list of a fresh install, which holds every color scheme vtium installs. So the installed color schemes work from the first start, and your own work once you add them to the list. vtium reads the list again each time a session ends, so a color scheme you add takes effect at the next login. A file that fails the rule, or that the list leaves out, counts as missing, and `vtium check-config` says why. See [the trust rule issue](https://github.com/vtium/vtium/issues/438) for the work on the trust rule.
 
 A palette file holds at most 16 KiB, and a file that sets all 256 colors takes under 7 KiB.
 

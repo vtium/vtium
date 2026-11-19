@@ -23,9 +23,7 @@ use std::path::{Path, PathBuf};
 
 use vtium_font::{PSF_BYTES_MAX, Sha256, sha256_hex};
 use vtium_platform::vt::font::ConsoleFont;
-use vtium_settings::batch::Batch;
-use vtium_settings::cullet::{self, Check, Rule};
-use vtium_settings::mounts::Mounts;
+use vtium_settings::cullet::{self, Check};
 
 use crate::child::Request;
 use crate::font::Font;
@@ -79,27 +77,18 @@ pub enum Gate {
     /// Any font file a frit names. vtium-config's own previews read fonts
     /// this way in vtium-config's window, and so do the tests.
     Open,
-    /// The active fonts alone, as the console's font helper draws.
-    Active(Active),
-}
-
-/// The active fonts: the files the batch lists that pass the trust rule.
-#[derive(Clone, Debug)]
-pub struct Active {
-    /// The batch, which lists every active resource by its path.
-    pub batch: Batch,
-    /// Whose files pass the rule's owner check: root's, and the console's
-    /// own account's when the console does not run as root.
-    pub rule: Rule,
-    /// The mount table the rule judges a file's filesystem by; `None`
-    /// reads the system's table each time a font file is opened, so a
-    /// filesystem mounted since counts as it is now.
-    pub mounts: Option<Mounts>,
+    /// The active fonts alone, as the console's font helper draws: the
+    /// files the batch lists that pass the trust rule, through the gate
+    /// every resource passes. Its mount table is `None`, so the helper
+    /// reads the system's table at each open, and a filesystem mounted
+    /// since counts as it is now.
+    Active(cullet::Gate),
 }
 
 /// Why a file the batch does not list is refused, as what follows
-/// "because" in [`SourceError::Refused`].
-pub const NOT_ACTIVE: &str = "it is not among the active fonts.";
+/// "because" in [`SourceError::Refused`], and what follows a refused font
+/// file's path in that reason.
+pub use vtium_settings::batch::{MISSING_BECAUSE, NOT_ACTIVE};
 
 impl Gate {
     /// Whether a search may take `path` as a candidate: any file through
@@ -108,7 +97,7 @@ impl Gate {
     fn lists(&self, path: &Path) -> bool {
         match self {
             Gate::Open => true,
-            Gate::Active(active) => active.batch.holds(path),
+            Gate::Active(active) => active.holds(path),
         }
     }
 
@@ -131,28 +120,16 @@ impl Gate {
             return open_regular(path)
                 .map_err(|e| SourceError::Failed(format!("{}: {e}", path.display())));
         };
-        if !active.batch.holds(path) {
-            return Err(SourceError::Refused {
-                path: path.to_path_buf(),
-                because: NOT_ACTIVE.to_owned(),
-            });
-        }
-        let system;
-        let mounts = match &active.mounts {
-            Some(mounts) => mounts,
-            None => {
-                // a table that cannot be read refuses every file whose
-                // filesystem has a device, which is the safe way to fail
-                system = Mounts::system().unwrap_or_default();
-                &system
-            }
-        };
-        match cullet::open(path, &active.rule, mounts) {
+        match active.open(path) {
             Ok(opened) => Ok(opened.file),
             Err(refused) if refused.check == Check::Missing => Err(SourceError::Missing(format!(
                 "{} is not on this machine",
                 path.display()
             ))),
+            Err(refused) if refused.check == Check::Inactive => Err(SourceError::Refused {
+                path: refused.path,
+                because: NOT_ACTIVE.to_owned(),
+            }),
             Err(refused) => Err(SourceError::Refused {
                 path: refused.path,
                 because: refused.check.to_string(),
@@ -343,11 +320,9 @@ impl std::fmt::Display for SourceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SourceError::Missing(why) | SourceError::Failed(why) => f.write_str(why),
-            SourceError::Refused { path, because } => write!(
-                f,
-                "{}: vtium treats this file as missing, because {because}",
-                path.display()
-            ),
+            SourceError::Refused { path, because } => {
+                write!(f, "{}{MISSING_BECAUSE}{because}", path.display())
+            }
         }
     }
 }
@@ -458,16 +433,21 @@ pub const FAMILY_FILES_MAX: usize = 4096;
 /// links to directories are not entered. A file is opened only if, its
 /// links resolved, it stays under `dirs`.
 pub fn find_outline_family(family: &str, dirs: &[PathBuf]) -> Result<Option<PathBuf>, String> {
-    find_outline_family_capped(family, dirs, FAMILY_FILES_MAX, &Gate::Open)
+    find_outline_family_capped(family, dirs, FAMILY_FILES_MAX, &Gate::Open, &mut None)
 }
 
 /// [`find_outline_family`] among the files `gate` lists. A file the gate
-/// does not list is never opened, and counts toward no bound.
+/// does not list is never opened, and counts toward no bound. Through an
+/// active gate, each candidate is opened through the gate, with no link
+/// followed, and its faces are read from the file the gate checked. A
+/// candidate the gate refuses is skipped, so it cannot hide a later one
+/// that passes, and the first refusal goes into `refused` for the message.
 fn find_outline_family_capped(
     family: &str,
     dirs: &[PathBuf],
     cap: usize,
     gate: &Gate,
+    refused: &mut Option<SourceError>,
 ) -> Result<Option<PathBuf>, String> {
     let key = outline_key(family);
     let regular = format!("{key}regular");
@@ -488,28 +468,40 @@ fn find_outline_family_capped(
         .filter_map(|d| std::fs::canonicalize(d).ok())
         .collect();
     let mut opened = 0usize;
-    // the faces of `real`, none for a file that is no regular file or no
-    // font; `None` once the search has opened `cap` files
-    let mut faces_of = |real: &Path| -> Option<Vec<crate::names::Face>> {
+    // what the search learns of the candidate `path`: its faces, with the
+    // path the search returns for it, or why it is skipped
+    let mut look = |path: &PathBuf| -> Look {
+        let real = if gate.active() {
+            path.clone()
+        } else {
+            let Some(real) = std::fs::canonicalize(path)
+                .ok()
+                .filter(|real| roots.iter().any(|r| real.starts_with(r)))
+            else {
+                return Look::Outside;
+            };
+            real
+        };
         if opened >= cap {
-            return None;
+            return Look::Over;
         }
         opened += 1;
-        Some(
-            open_regular(real)
-                .ok()
-                .and_then(|f| crate::names::faces(&f).ok())
-                .unwrap_or_default(),
-        )
+        let file = if gate.active() {
+            match gate.open(path) {
+                Ok(file) => Some(file),
+                Err(e) => {
+                    refused.get_or_insert(e);
+                    return Look::Refused;
+                }
+            }
+        } else {
+            open_regular(&real).ok()
+        };
+        let faces = file
+            .and_then(|f| crate::names::faces(&f).ok())
+            .unwrap_or_default();
+        Look::Faces(real, faces)
     };
-    let inside = |path: &Path| -> Option<PathBuf> {
-        let real = std::fs::canonicalize(path).ok()?;
-        roots.iter().any(|r| real.starts_with(r)).then_some(real)
-    };
-    // the file the search found: under an active gate, the path the
-    // batch lists, which the gate opens without following a link; else
-    // the file with its links resolved
-    let chosen = |path: &PathBuf, real: PathBuf| if gate.active() { path.clone() } else { real };
     // whether a face is of the family, and whether one such is Regular
     let declares = |faces: &[crate::names::Face]| {
         faces
@@ -535,15 +527,16 @@ fn find_outline_family_capped(
         .collect();
     named.sort();
     for (_, _, path) in &named {
-        let real = inside(path).ok_or_else(|| {
-            format!(
-                "{} is a link that leads out of the font directories",
-                path.display()
-            )
-        })?;
-        let faces = faces_of(&real).ok_or_else(|| over(None))?;
-        if declares(&faces).is_some() {
-            return Ok(Some(chosen(path, real)));
+        match look(path) {
+            Look::Faces(found, faces) if declares(&faces).is_some() => return Ok(Some(found)),
+            Look::Faces(..) | Look::Refused => {}
+            Look::Over => return Err(over(None)),
+            Look::Outside => {
+                return Err(format!(
+                    "{} is a link that leads out of the font directories",
+                    path.display()
+                ));
+            }
         }
     }
     // second pass: every other file, by the family its name table stores
@@ -552,19 +545,57 @@ fn find_outline_family_capped(
         if named.iter().any(|(_, _, p)| p == &path) {
             continue;
         }
-        let Some(real) = inside(path) else {
-            continue;
-        };
-        let Some(faces) = faces_of(&real) else {
-            return Err(over(first.as_ref()));
-        };
-        match declares(&faces) {
-            Some(true) => return Ok(Some(chosen(path, real))),
-            Some(false) if first.is_none() => first = Some(chosen(path, real)),
-            _ => {}
+        match look(path) {
+            Look::Faces(found, faces) => match declares(&faces) {
+                Some(true) => return Ok(Some(found)),
+                Some(false) if first.is_none() => first = Some(found),
+                _ => {}
+            },
+            Look::Over => return Err(over(first.as_ref())),
+            Look::Outside | Look::Refused => {}
         }
     }
     Ok(first)
+}
+
+/// What an outline family search learns of one candidate file.
+enum Look {
+    /// Its faces, and the path the search returns for it: through an
+    /// active gate the path the batch lists, else the file with its links
+    /// resolved.
+    Faces(PathBuf, Vec<crate::names::Face>),
+    /// The active gate refused it.
+    Refused,
+    /// Its links lead out of the font folders.
+    Outside,
+    /// The search has opened as many files as it may.
+    Over,
+}
+
+/// The outline font file under `dirs` whose file name, less its extension,
+/// is `family`, or `family` and `Regular`, with case, blanks, `-` and `_`
+/// ignored: the first, as [`find_outline_family`]'s first pass orders
+/// them. Only the names in the folders are read, and no file is opened.
+fn outline_named(family: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    let key = outline_key(family);
+    let regular = format!("{key}regular");
+    let files = outline_files(dirs, &Gate::Open).ok()?;
+    let mut named: Vec<(u8, usize, PathBuf)> = files
+        .into_iter()
+        .filter_map(|(order, path)| {
+            let stem = outline_key(path.file_stem()?.to_str()?);
+            let rank = if stem == key {
+                0
+            } else if stem == regular {
+                1
+            } else {
+                return None;
+            };
+            Some((rank, order, path))
+        })
+        .collect();
+    named.sort();
+    named.into_iter().next().map(|(_, _, path)| path)
 }
 
 /// The family of an installed outline font under `dirs` that covers the
@@ -699,11 +730,13 @@ fn contained(path: &Path, data_dirs: &[PathBuf], sub: &str) -> Result<PathBuf, S
 
 /// Why a `font:` source found no font of `family`, whose kbd console fonts
 /// were looked for in `kbd`. Through an active gate the search took the
-/// active fonts alone, so it looks again among every font in the same
-/// folders. A font of the family there that the batch does not list is
-/// refused, and the refusal names its file, so the person learns which
-/// file to activate. That second search reads only the fonts' names, in
-/// the helper's sandbox, and draws nothing from them.
+/// active fonts alone, so vtium looks again in the same folders for a font
+/// file named for the family, by its file name alone, as a kbd console font
+/// is found. A file found that
+/// way is refused as not active, and the refusal names it, so the person
+/// learns which file to activate. That second look opens no file: a font
+/// the batch does not list is never parsed, so a file anyone could have
+/// written never reaches the parser, even in the helper's sandbox.
 ///
 /// References:
 /// - ADR-1205 D4: a font the batch does not hold counts as missing, and
@@ -713,7 +746,7 @@ fn family_missing(family: &str, host: &Host<'_>, kbd: &str) -> SourceError {
         let inactive = find_family(family, &host.kbd_dirs)
             .ok()
             .flatten()
-            .or_else(|| find_outline_family(family, &host.font_dirs).ok().flatten());
+            .or_else(|| outline_named(family, &host.font_dirs));
         if let Some(path) = inactive {
             return SourceError::Refused {
                 path,
@@ -840,14 +873,18 @@ fn read_source(
                     (gate.read(&path, limit)?, source.unimap.clone())
                 }
                 None => {
+                    let mut refused = None;
                     let found = find_outline_family_capped(
                         family,
                         &host.font_dirs,
                         FAMILY_FILES_MAX,
                         gate,
+                        &mut refused,
                     )?;
                     let Some(path) = found else {
-                        return Err(family_missing(family, host, &dirs()));
+                        return Err(
+                            refused.unwrap_or_else(|| family_missing(family, host, &dirs()))
+                        );
                     };
                     if source.cp_size.is_some() {
                         return Err(SourceError::Failed(format!(
@@ -997,6 +1034,9 @@ mod tests {
     use std::fs;
 
     use vtium_platform::vt::font::UniPair;
+    use vtium_settings::batch::Batch;
+    use vtium_settings::cullet::Rule;
+    use vtium_settings::mounts::Mounts;
 
     use super::*;
 
@@ -1600,15 +1640,15 @@ mod tests {
         }
         let dirs = [t.0.join("a")];
         assert!(
-            find_outline_family_capped("Absent", &dirs, 3, &Gate::Open)
+            find_outline_family_capped("Absent", &dirs, 3, &Gate::Open, &mut None)
                 .unwrap()
                 .is_none()
         );
-        let e = find_outline_family_capped("Absent", &dirs, 2, &Gate::Open).unwrap_err();
+        let e = find_outline_family_capped("Absent", &dirs, 2, &Gate::Open, &mut None).unwrap_err();
         assert!(e.contains("Absent") && e.contains('2'), "{e}");
         // a match by file name opens one file
         assert!(
-            find_outline_family_capped("F2", &dirs, 1, &Gate::Open)
+            find_outline_family_capped("F2", &dirs, 1, &Gate::Open, &mut None)
                 .unwrap()
                 .is_some()
         );
@@ -1624,13 +1664,13 @@ mod tests {
         t.file("a/b.ttf", &outline_font("Other", "Regular"));
         t.file("a/c.ttf", &outline_font("Fam", "Regular"));
         let dirs = [t.0.join("a")];
-        let e = find_outline_family_capped("Fam", &dirs, 2, &Gate::Open).unwrap_err();
+        let e = find_outline_family_capped("Fam", &dirs, 2, &Gate::Open, &mut None).unwrap_err();
         assert!(
             e.contains("no Regular face of family Fam") && e.contains("a.ttf"),
             "{e}"
         );
         assert!(
-            find_outline_family_capped("Fam", &dirs, 3, &Gate::Open)
+            find_outline_family_capped("Fam", &dirs, 3, &Gate::Open, &mut None)
                 .unwrap()
                 .unwrap()
                 .ends_with("c.ttf")
@@ -1755,11 +1795,11 @@ mod tests {
     fn active(t: &Tree, paths: &[&Path]) -> Gate {
         use vtium_settings::batch::Entry;
         let me = rustix::process::geteuid().as_raw();
-        Gate::Active(Active {
-            batch: Batch::new(paths.iter().map(|p| Entry::Path(p.to_path_buf())).collect()),
-            rule: Rule::running_as(me).below(&t.0),
-            mounts: None,
-        })
+        Gate::Active(cullet::Gate::new(
+            Rule::running_as(me).below(&t.0),
+            None,
+            Batch::new(paths.iter().map(|p| Entry::Path(p.to_path_buf())).collect()),
+        ))
     }
 
     fn host_through<'a>(t: &Tree, consoles: &'a dyn Consoles, gate: &'a Gate) -> Host<'a> {
@@ -1781,8 +1821,11 @@ mod tests {
         fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
     }
 
-    // ADR-1205 D4: through an active gate, a font file the batch lists and
+    // Through an active gate, a font file the batch lists and
     // that passes the trust rule reads as it does through an open gate
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn an_active_font_that_passes_the_rule_reads() {
         let t = Tree::new("gate-pass");
@@ -1797,8 +1840,11 @@ mod tests {
         assert_eq!(r.font, b"font bytes");
     }
 
-    // ADR-1205 D4: a font file the batch does not list is not active, and
+    // A font file the batch does not list is not active, and
     // counts as missing, whatever else it passes
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_font_the_batch_does_not_list_is_refused() {
         let t = Tree::new("gate-unlisted");
@@ -1825,8 +1871,11 @@ mod tests {
         assert!(resolve(&source("f", Origin::File(font), None), &h).is_ok());
     }
 
-    // ADR-1205 D4: a font file its group can write fails the rule, even
+    // A font file its group can write fails the rule, even
     // when the batch lists it, and the refusal names the file and the mode
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_group_writable_font_is_refused() {
         let t = Tree::new("gate-writable");
@@ -1846,9 +1895,12 @@ mod tests {
         assert!(resolve(&source("f", Origin::Bdf(font), None), &h).is_ok());
     }
 
-    // ADR-1205 D4: a font reached through a symbolic link fails the rule,
+    // A font reached through a symbolic link fails the rule,
     // the link as the file and a link as a folder on the way, even when the
     // batch lists the link's path
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_font_through_a_symbolic_link_is_refused() {
         let t = Tree::new("gate-link");
@@ -1875,8 +1927,11 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4: the gate judges the filesystem that holds the file by
+    // The gate judges the filesystem that holds the file by
     // the mount table it is given, and refuses a network filesystem
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_font_on_a_network_filesystem_is_refused() {
         let t = Tree::new("gate-nfs");
@@ -1893,11 +1948,11 @@ mod tests {
                 format!("{head} - nfs4 {rest}\n")
             })
             .collect();
-        let gate = Gate::Active(Active {
-            batch: Batch::new(vec![vtium_settings::batch::Entry::Path(font.clone())]),
-            rule: Rule::running_as(me).below(&t.0),
-            mounts: Some(Mounts::parse(table, Path::new("/nonexistent-sys"))),
-        });
+        let gate = Gate::Active(cullet::Gate::new(
+            Rule::running_as(me).below(&t.0),
+            Some(Mounts::parse(table, Path::new("/nonexistent-sys"))),
+            Batch::new(vec![vtium_settings::batch::Entry::Path(font.clone())]),
+        ));
         let e = refused(&t, &gate, Origin::File(font));
         assert!(
             matches!(&e, SourceError::Refused { because, .. } if because.contains("nfs4")),
@@ -1905,10 +1960,14 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4 on ADR-1200 D25: a font in a user's own folder, which
+    // A font in a user's own folder, which
     // `font-paths` names, is no active font. The batch does not list it,
     // so a family search through an active gate never takes it; and listed,
     // it fails the rule, because root does not own the folder
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
+    // - ADR-1200 D25: `font-paths` names folders of a user's own fonts.
     #[test]
     fn a_font_in_a_users_folder_that_font_paths_names_is_not_active() {
         use vtium_settings::Trust;
@@ -1937,11 +1996,11 @@ mod tests {
         );
         // listed, under the rule of a console that runs as root, the
         // user's folder fails the owner check
-        let gate = Gate::Active(Active {
-            batch: Batch::new(vec![Entry::Path(font.clone())]),
-            rule: Rule::new(Trust::ROOT).below(&t.0),
-            mounts: None,
-        });
+        let gate = Gate::Active(cullet::Gate::new(
+            Rule::new(Trust::ROOT).below(&t.0),
+            None,
+            Batch::new(vec![Entry::Path(font.clone())]),
+        ));
         h.gate = &gate;
         let e = resolve(&family(), &h).unwrap_err();
         assert!(
@@ -1951,10 +2010,13 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4: a family search through an active gate takes only the
+    // A family search through an active gate takes only the
     // fonts the batch lists, so an active font of the family draws even
     // when a font that is not active comes first in the search's order;
     // a family the machine lacks is missing, as through an open gate
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_family_search_takes_the_active_font_of_the_family() {
         let t = Tree::new("gate-family");
@@ -1977,8 +2039,11 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4: a kbd font, found as setfont finds it, draws only while
+    // A kbd font, found as setfont finds it, draws only while
     // the batch lists the file found
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
     #[test]
     fn a_kbd_font_draws_only_while_the_batch_lists_it() {
         let t = Tree::new("gate-kbd");

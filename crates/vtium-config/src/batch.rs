@@ -207,21 +207,13 @@ pub fn batch_file(targets: &Targets) -> PathBuf {
     }
 }
 
-/// The list of a fresh install on this machine: the fonts and color
-/// schemes the package ships, and the console font that vconsole.conf's
-/// `FONT=` names. vtium uses it while no batch file is installed.
+/// The list of a fresh install on this machine: the fonts, color schemes
+/// and pointer file the package ships, and the console font that
+/// vconsole.conf's `FONT=` names, with the kernel command line over it.
+/// vtium uses it while no batch file is installed, and builds it the same
+/// way ([`Batch::fresh`]).
 pub fn fresh() -> Batch {
-    let system = crate::serve::Paths::default();
-    let conf = std::fs::read_to_string(&system.vconsole_conf).unwrap_or_default();
-    let cmdline = std::fs::read_to_string(&system.kernel_cmdline).unwrap_or_default();
-    let font = active::vconsole(&conf, &cmdline).font;
-    let folders: Vec<&Path> = active::CONSOLE_FONT_FOLDERS.iter().map(Path::new).collect();
-    Batch::fresh_install(
-        Path::new(active::PACKAGE_FONTS),
-        Path::new(vtium_settings::palette::PACKAGE_PALETTES),
-        font.as_deref(),
-        &folders,
-    )
+    Batch::fresh(&vtium_settings::batch::Places::system())
 }
 
 /// The batch the system holds: the one the installed batch file's text
@@ -413,7 +405,7 @@ pub fn rule_user(targets: &Targets, sudo: &std::ffi::OsString) -> u32 {
 /// when a picture in its `cursors` folder passes the rule for a theme,
 /// whose links may stay inside the theme. `Err` says why, file first.
 pub fn trusted(path: &Path, euid: u32) -> Result<(), String> {
-    use vtium_settings::cullet::{Rule, open, open_in_theme};
+    use vtium_settings::cullet::{Rule, check, check_in_theme};
     let rule = Rule::running_as(euid);
     let mounts = vtium_settings::mounts::Mounts::system().map_err(|e| {
         format!(
@@ -423,9 +415,7 @@ pub fn trusted(path: &Path, euid: u32) -> Result<(), String> {
     })?;
     let is_folder = std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir());
     if !is_folder {
-        return open(path, &rule, &mounts)
-            .map(drop)
-            .map_err(|refused| refused.to_string());
+        return check(path, &rule, &mounts).map_err(|refused| refused.to_string());
     }
     let cursors = path.join("cursors");
     let mut pictures: Vec<PathBuf> = std::fs::read_dir(&cursors)
@@ -441,9 +431,7 @@ pub fn trusted(path: &Path, euid: u32) -> Result<(), String> {
             path.display()
         ));
     };
-    open_in_theme(path, picture, &rule, &mounts)
-        .map(drop)
-        .map_err(|refused| refused.to_string())
+    check_in_theme(path, picture, &rule, &mounts).map_err(|refused| refused.to_string())
 }
 
 /// Where [`users`] finds what the looks name: the font sets' folder, and

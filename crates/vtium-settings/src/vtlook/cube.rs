@@ -34,10 +34,8 @@ use std::path::Path;
 use vtium_render::filter::{Cube, SIDES_3D, SIZES_1D, Shape};
 
 use super::report::quoted;
-use crate::batch::{BATCH_FILE, Batch};
 use crate::bounds::{CUBE_FILE_MAX, ERRORS_MAX};
-use crate::cullet::{self, Rule};
-use crate::mounts::Mounts;
+use crate::cullet::Gate;
 use crate::split::BOM;
 
 /// The keywords a `.cube` file may hold, in the order a fault lists them.
@@ -419,19 +417,16 @@ pub fn read_cube(bytes: &[u8]) -> Result<Cube, Faults> {
     })
 }
 
-/// Where a vtlook's `.cube` files come from, and the checks each passes
-/// before vtium reads it: the folder that holds them, the batch that says
-/// which resources are active, and the trust rule with the mount table it
-/// judges filesystems by. vtium passes the looks folder, the batch it read
-/// at start, its rule and the running system's mount table. A test passes
-/// fixtures of its own.
+/// Where a vtlook's `.cube` files come from, and the gate each passes
+/// before vtium reads it: the folder that holds them, and the gate every
+/// resource passes, the batch and the trust rule. vtium passes the looks
+/// folder and the gate it read at the last login. A test passes fixtures
+/// of its own.
 #[derive(Clone, Copy, Debug)]
-pub struct Gate<'a> {
+pub struct Cubes<'a> {
     /// The folder a vtlook's `file = NAME.cube` names a file in.
     pub dir: &'a Path,
-    pub batch: &'a Batch,
-    pub rule: &'a Rule,
-    pub mounts: &'a Mounts,
+    pub gate: &'a Gate,
 }
 
 /// Why vtium did not read a `.cube` file.
@@ -452,10 +447,7 @@ pub(super) fn load(file: &Path, gate: &Gate) -> Result<Cube, Unread> {
             "vtium treats the file as missing, because {why}"
         )))
     };
-    if !gate.batch.holds(file) {
-        return missing(format!("it is not active: {BATCH_FILE} does not list it."));
-    }
-    let opened = match cullet::open(file, gate.rule, gate.mounts) {
+    let opened = match gate.open(file) {
         Ok(opened) => opened,
         Err(refused) => return missing(refused.check.to_string()),
     };

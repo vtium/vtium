@@ -251,11 +251,11 @@ pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
 use crate::sources::{
-    Active, Consoles, FONT_DIRS, Gate, Host, Input, KBD_DIRS, SourceError, resolve_hashed,
+    Consoles, FONT_DIRS, Gate, Host, Input, KBD_DIRS, SourceError, resolve_hashed,
 };
 use vtium_render::{POINTER_SIDE_MAX, POINTER_SVG_BYTES_MAX, XCURSOR_FILE_MAX};
 use vtium_settings::batch::{Batch, Entry};
-use vtium_settings::cullet::Rule;
+use vtium_settings::cullet::{self, Rule};
 use vtium_term::{ClusterWidth, PointerShape};
 
 /// The command that makes the binary the helper.
@@ -862,11 +862,11 @@ impl ActiveAsk {
                 self.owner
             ));
         }
-        Ok(Gate::Active(Active {
-            batch: Batch::new(self.paths.iter().cloned().map(Entry::Path).collect()),
-            rule: Rule::running_as(self.owner),
-            mounts: None,
-        }))
+        Ok(Gate::Active(cullet::Gate::new(
+            Rule::running_as(self.owner),
+            None,
+            Batch::new(self.paths.iter().cloned().map(Entry::Path).collect()),
+        )))
     }
 }
 
@@ -8562,8 +8562,11 @@ mod tests {
         rustix::process::geteuid().as_raw()
     }
 
-    // ADR-1205 D4: the active fonts read back as they were encoded, and
+    // The active fonts read back as they were encoded, and
     // each field is checked before it is trusted
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
     #[test]
     fn an_active_ask_reads_back_and_refuses_each_field_out_of_bounds() {
         let ask = ActiveAsk {
@@ -8621,9 +8624,12 @@ mod tests {
         (status, frames(&out))
     }
 
-    // ADR-1205 D4: once the console names the active fonts, the helper
+    // Once the console names the active fonts, the helper
     // reads only the font files they list, and logs one line for each it
     // refuses; vtium-config's own previews, which name none, read any
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
     #[test]
     fn the_console_s_active_fonts_gate_every_font_file_the_helper_reads() {
         let font = fixture_font();
@@ -8687,8 +8693,11 @@ mod tests {
         );
     }
 
-    // ADR-1205 D4: the console names root's account, or its own, which
+    // The console names root's account, or its own, which
     // the helper then runs as; any other account is refused
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
     #[test]
     fn active_fonts_of_another_account_end_the_helper() {
         let ask = ActiveAsk {
@@ -8720,11 +8729,11 @@ mod tests {
             }
             let table =
                 vtium_settings::mounts::Mounts::system().is_ok_and(|m| !m.list().is_empty());
-            let gate = Gate::Active(Active {
-                batch: Batch::new(vec![Entry::Path(font.clone())]),
-                rule: Rule::running_as(me()),
-                mounts: None,
-            });
+            let gate = Gate::Active(cullet::Gate::new(
+                Rule::running_as(me()),
+                None,
+                Batch::new(vec![Entry::Path(font.clone())]),
+            ));
             let opened = crate::sources::resolve(
                 &crate::frit::Frit::parse(
                     format!("source=outline:{}\n", font.display()).as_bytes(),
@@ -8749,11 +8758,15 @@ mod tests {
         .unwrap()
     }
 
-    // ADR-1205 D4, ADR-1200 D15: inside the helper's real sandbox, the
+    // Inside the helper's real sandbox, the
     // trust rule reads the mount table and sysfs, so an active font on a
     // filesystem that stays mounted opens; were the sandbox to hide them,
     // the rule would refuse every font. Under the landlock domain, and
     // under the fallback filter that stands in for it
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
+    // - ADR-1200 D15: the font helper runs in a sandbox.
     #[test]
     fn the_trust_rule_reads_the_mount_table_and_sysfs_inside_the_sandbox() {
         fn fallback() -> Result<bool, String> {

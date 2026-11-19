@@ -108,7 +108,7 @@ file = warm.cube
 color = 255,176,0
 ```
 
-The file lives in `/etc/vtium/looks`, beside your vtlooks, and holds at most 16 MiB. vtium uses a `.cube` file only while it is active, which means that `/etc/vtium/batch.conf` lists its full path. The file must also pass the rule that vtium applies to every file it uses as a resource. Root owns the file and each folder above it, and neither the group nor other users can write any of them. No symbolic link lies on the path, and the file sits on a filesystem that is mounted at boot and stays mounted. vtium treats a file that fails either check as missing, so the vtlook fails and its heads draw the built-in vtlook.
+The file lives in `/etc/vtium/looks`, beside your vtlooks, and holds at most 16 MiB. vtium uses a `.cube` file only while it is active, which means that `/etc/vtium/batch.conf` lists its full path. The file must also pass the rule that vtium applies to every file it uses as a resource. Root owns the file and each folder above it, and neither the group nor other users can write any of them. No symbolic link lies on the path, and the file sits on a filesystem that is mounted at boot and stays mounted. vtium treats a file that fails either check as missing, so the vtlook fails and its heads draw the built-in vtlook. vtium reads a vtlook and its `.cube` file when it starts, so a `.cube` file you activate takes effect at vtium's next start.
 
 A `.cube` file is text. Keyword lines come first, and each keyword appears at most once:
 

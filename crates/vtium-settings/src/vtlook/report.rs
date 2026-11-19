@@ -189,8 +189,12 @@ pub fn log_line(failure: &Failure, head: &str) -> Option<String> {
         1 => "; 1 more error".to_owned(),
         n => format!("; {n} more errors"),
     };
+    // a message that ends a sentence of its own, as a reading-stage
+    // message does, drops its full stop before the semicolon that follows
+    let said = first.to_string();
+    let said = said.strip_suffix('.').unwrap_or(&said);
     Some(format!(
-        "vtlook {} ({}): {first}{more}; head {head} draws the built-in vtlook instead",
+        "vtlook {} ({}): {said}{more}; head {head} draws the built-in vtlook instead",
         first.vtlook,
         first.at()
     ))
@@ -249,6 +253,19 @@ mod tests {
             more: 0,
         };
         assert_eq!(log_line(&none, "desk"), None);
+        // a message that ends a sentence of its own, as a reading-stage
+        // message does, takes no full stop before the semicolon
+        let mut missing = scanlines();
+        missing.line = None;
+        missing.part = None;
+        missing.stage = Stage::Reading;
+        missing.message = "the file does not exist.".to_owned();
+        let line =
+            log_line(&Failure::of(vec![missing.clone(), missing], 0), "desk").unwrap_or_default();
+        assert!(
+            line.contains("reading: the file does not exist; 1 more error; head desk"),
+            "{line}"
+        );
         assert_eq!(
             three.reports.get(1).map(|r| format!("{}: {r}", r.at())),
             Some(
