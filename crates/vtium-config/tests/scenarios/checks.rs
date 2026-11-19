@@ -1659,6 +1659,7 @@ fn reached_today(id: &str) -> Option<bool> {
         | "looks.look.typing"
         | "looks.font-set"
         | "looks.pointer"
+        | "looks.palette"
         | "any.question.deactivate"
         | "any.question.system-font" => false,
         _ => return None,
