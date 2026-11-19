@@ -13,8 +13,9 @@
 //! read from the draft and the devices present, [`paths`] that flow as
 //! paths, [`parts`] the parts a path is made from, [`flowview`] how the
 //! Flow view lays the paths and parts out, [`flowdraw`] how it draws them
-//! and [`flowcolor`] their colors, [`canvas`] the cells a screen is drawn
-//! into, [`color`] its colors, [`input`] the decoder of what the terminal
+//! and [`flowcolor`] their colors, [`canvas`] the rows of styled text a
+//! screen is written in and the helpers that fit text to them, [`color`]
+//! their colors, [`input`] the decoder of what the terminal
 //! sends, [`replies`] the queue of who asked the terminal what, [`words`]
 //! the catalog of what the TUI says, and [`port`] the loop and the
 //! terminal it runs on. [`gather`] reads what the TUI starts

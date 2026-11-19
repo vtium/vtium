@@ -1,6 +1,6 @@
 //! How the Flow view draws ([`super::flowview`]): the status line,
 //! the policy line and the column titles fixed at the top, the key line
-//! fixed at the bottom, and between them a window on the canvas of paths,
+//! fixed at the bottom, and between them a window on the document of paths,
 //! the editor and the pieces, scrolled to the row [`super::flowview::State`]
 //! keeps at its top. Enter on a box draws its second layer in the
 //! window's place.
@@ -23,7 +23,7 @@ use ratatui_core::text::{Line, Span as RSpan};
 use ratatui_core::widgets::Widget;
 use ratatui_widgets::paragraph::Paragraph;
 
-use super::canvas::{Canvas, Row, fit, printable, put, span, width, wrap};
+use super::canvas::{Row, fit, printable, put, span, width, wrap};
 use super::color::{Color, Colors, Style};
 use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
@@ -112,8 +112,68 @@ const fn emph(style: Style) -> Style {
     }
 }
 
+/// The document of paths as a grid of cells, each a character and its
+/// style. The document is a picture: a line's character depends on the
+/// lines that meet at its cell, and a box's fill covers cells that hold
+/// no text. So it is drawn cell by cell, and its rows go to the screen
+/// through [`view::fill`].
+#[derive(Clone, Debug)]
+struct Grid {
+    cols: usize,
+    rows: usize,
+    cells: Vec<Vec<(char, Style)>>,
+}
+
+impl Grid {
+    fn new(cols: usize, rows: usize) -> Grid {
+        Grid {
+            cols,
+            rows,
+            cells: vec![vec![(' ', Style::PLAIN); cols]; rows],
+        }
+    }
+
+    /// Writes `text` from column `x` of row `y` in `style`, one character
+    /// a cell, as far as the grid's edge.
+    fn put(&mut self, x: usize, y: usize, text: &str, style: Style) {
+        let Some(row) = self.cells.get_mut(y) else {
+            return;
+        };
+        for (cell, c) in row.iter_mut().skip(x).zip(printable(text).chars()) {
+            *cell = (c, style);
+        }
+    }
+
+    /// The character at a cell, for the lines that join at it.
+    fn at(&self, x: usize, y: usize) -> Option<char> {
+        self.cells.get(y)?.get(x).map(|(c, _)| *c)
+    }
+
+    /// The style a cell is drawn in.
+    fn style_at(&self, x: usize, y: usize) -> Option<Style> {
+        self.cells.get(y)?.get(x).map(|(_, s)| *s)
+    }
+
+    /// The grid as rows of text, each run of one style a span.
+    fn into_rows(self) -> Vec<Row> {
+        self.cells
+            .into_iter()
+            .map(|cells| {
+                let mut row: Row = Vec::new();
+                for (c, style) in cells {
+                    match row.last_mut() {
+                        Some(s) if s.style == style => s.text.push(c),
+                        _ => row.push(span(c.to_string(), style)),
+                    }
+                }
+                row
+            })
+            .collect()
+    }
+}
+
 /// Draws the box `b` on `doc`, heavy when it is highlighted.
-fn draw_box(doc: &mut Canvas, b: &Boxed, highlighted: bool, pal: &Palette) {
+fn draw_box(doc: &mut Grid, b: &Boxed, highlighted: bool, pal: &Palette) {
     let border = pal.style(mood_role(b.mood));
     // the highlight is not a role: a placed box's is bright white in bold
     let border = match (highlighted, b.mood) {
@@ -230,7 +290,7 @@ fn cells(w: &Wire) -> Vec<(usize, usize)> {
 /// where they belong to the highlighted object, each ending in an arrow
 /// at its terminal. A cell that only dashed lines cross is drawn dashed,
 /// and one that only a roaming stub crosses is grey.
-fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>, pal: &Palette) {
+fn draw_wires(doc: &mut Grid, wires: &[Wire], at: Option<&Obj>, pal: &Palette) {
     let line = pal.style(Role::Line);
     let (cols, rows) = (doc.cols, doc.rows);
     // each cell's weight up, down, left and right, whether a whole line
@@ -316,10 +376,10 @@ fn draw_wires(doc: &mut Canvas, wires: &[Wire], at: Option<&Obj>, pal: &Palette)
     }
 }
 
-/// The whole canvas: the paths, the editor and the pieces, with `at`
+/// The whole document: the paths, the editor and the pieces, with `at`
 /// highlighted.
-pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -> Canvas {
-    let mut doc = Canvas::new(cols, layout.height.max(1));
+fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -> Grid {
+    let mut doc = Grid::new(cols, layout.height.max(1));
     draw_wires(&mut doc, &layout.wires, at, pal);
     for b in &layout.boxes {
         draw_box(&mut doc, b, Some(&b.obj) == at, pal);
@@ -352,17 +412,17 @@ pub fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -
     doc
 }
 
-/// The canvas as a window `height` rows tall from row `top` shows it: a
-/// box whose title is out of sight is left out, so no stray piece of a
+/// The document as a window `height` rows tall from row `top` shows it:
+/// a box whose title is out of sight is left out, so no stray piece of a
 /// border shows at the window's edges.
-pub fn window_of(
+fn window_of(
     layout: &Layout,
     cols: usize,
     at: Option<&Obj>,
     top: usize,
     height: usize,
     pal: &Palette,
-) -> Canvas {
+) -> Grid {
     let mut doc = document(layout, cols, at, pal);
     let end = top.saturating_add(height);
     for b in &layout.boxes {
@@ -626,9 +686,9 @@ fn window_cells(
     top: usize,
     height: usize,
     pal: &Palette,
-) -> Canvas {
+) -> Grid {
     let doc = window_of(layout, cols, at, top, height, pal);
-    let mut shown = Canvas::new(cols, height);
+    let mut shown = Grid::new(cols, height);
     for i in 0..height {
         let y = top.saturating_add(i);
         for x in 0..doc.cols {

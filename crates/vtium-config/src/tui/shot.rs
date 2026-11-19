@@ -127,15 +127,23 @@ pub fn sample_rows() -> Vec<Vec<(&'static str, super::color::Style)>> {
 
 /// The Looks view's preview screen laid out at `grid`, its sample content
 /// from the top left.
+/// Each row holds `cols` characters: the sample's text, cut at the right
+/// edge, then blanks.
 fn sample_screen((cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
-    let mut canvas = super::canvas::Canvas::new(cols, rows);
-    for (y, line) in sample_rows().into_iter().enumerate().take(rows) {
-        let mut x = 0usize;
-        for (text, style) in line {
-            x = canvas.put(x, y, text, style);
-        }
-    }
-    canvas.into_rows()
+    use super::canvas::{Row, put};
+    let lines = sample_rows();
+    (0..rows)
+        .map(|y| {
+            let mut row: Row = Vec::new();
+            put(&mut row, 0, &" ".repeat(cols), super::color::Style::PLAIN);
+            let mut x = 0usize;
+            for (text, style) in lines.get(y).into_iter().flatten() {
+                let shown: String = text.chars().take(cols.saturating_sub(x)).collect();
+                x = put(&mut row, x, &shown, *style);
+            }
+            row
+        })
+        .collect()
 }
 
 /// The most columns and rows a picture's screen is laid out at, whatever

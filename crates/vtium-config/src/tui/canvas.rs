@@ -1,6 +1,10 @@
-//! A screen of cells the TUI draws into, each a character and its style,
-//! and the text helpers that fit a name to a column (ADR-1403 D7: at 80 by
-//! 25 a long name is cut in the middle with `…`).
+//! The TUI's text helpers: a row of styled text, writing text on a row at
+//! a column, and fitting a name, a sentence or a list of words to the room
+//! a screen has for it. At 80×25 a long name is cut in the middle with `…`,
+//! so the end that tells two devices apart still shows.
+//!
+//! References:
+//! - ADR-1403 D7: how a long name is cut at the smallest screen.
 
 use super::color::Style;
 
@@ -61,107 +65,6 @@ pub fn put(row: &mut Row, x: usize, text: &str, style: Style) -> usize {
     }
     *row = out;
     end
-}
-
-/// The screen being drawn: `cols` by `rows` cells.
-#[derive(Clone, Debug)]
-pub struct Canvas {
-    pub cols: usize,
-    pub rows: usize,
-    cells: Vec<Vec<(char, Style)>>,
-    /// A row drawn whole by a raw span, in place of its cells.
-    raw: Vec<Option<Span>>,
-}
-
-impl Canvas {
-    pub fn new(cols: usize, rows: usize) -> Canvas {
-        Canvas {
-            cols,
-            rows,
-            cells: vec![vec![(' ', Style::PLAIN); cols]; rows],
-            raw: vec![None; rows],
-        }
-    }
-
-    /// Writes `text` from column `x` of row `y` in `style`, as far as the
-    /// screen's edge; returns the column after it.
-    pub fn put(&mut self, x: usize, y: usize, text: &str, style: Style) -> usize {
-        let Some(row) = self.cells.get_mut(y) else {
-            return x;
-        };
-        let mut at = x;
-        for c in text.chars() {
-            let Some(cell) = row.get_mut(at) else {
-                break;
-            };
-            // a name read from a file never carries a control onto the screen
-            *cell = (if c.is_control() { '?' } else { c }, style);
-            at = at.saturating_add(1);
-        }
-        at
-    }
-
-    /// Writes `text` from `x` on `y`, cut to `width` and padded to it in
-    /// `style`, so a block's color fills its whole width.
-    pub fn fill(&mut self, x: usize, y: usize, width: usize, text: &str, style: Style) {
-        let fitted = fit(text, width);
-        let pad = width.saturating_sub(fitted.chars().count());
-        self.put(x, y, &format!("{fitted}{}", " ".repeat(pad)), style);
-    }
-
-    /// The character at a cell, for the lines that join at it.
-    pub fn at(&self, x: usize, y: usize) -> Option<char> {
-        self.cells.get(y)?.get(x).map(|(c, _)| *c)
-    }
-
-    /// The style a cell is drawn in.
-    pub fn style_at(&self, x: usize, y: usize) -> Option<Style> {
-        self.cells.get(y)?.get(x).map(|(_, s)| *s)
-    }
-
-    /// Sets a row to a raw span, drawn as it is.
-    pub fn raw(&mut self, y: usize, text: String) {
-        if let Some(r) = self.raw.get_mut(y) {
-            *r = Some(Span {
-                text,
-                style: Style::PLAIN,
-                raw: true,
-            });
-        }
-    }
-
-    /// Writes each span of `row` from column 0 of `y`.
-    pub fn row(&mut self, y: usize, row: &Row) {
-        let mut x = 0;
-        for s in row {
-            if s.raw {
-                self.raw(y, s.text.clone());
-                return;
-            }
-            x = self.put(x, y, &s.text, s.style);
-        }
-    }
-
-    /// The screen as rows, each cell run of one style a span.
-    pub fn into_rows(self) -> Vec<Row> {
-        self.cells
-            .into_iter()
-            .zip(self.raw)
-            .map(|(cells, raw)| {
-                if let Some(raw) = raw {
-                    return vec![raw];
-                }
-                let mut row: Row = Vec::new();
-                for (c, style) in cells {
-                    match row.last_mut() {
-                        Some(s) if s.style == style => s.text.push(c),
-                        _ => row.push(span(c.to_string(), style)),
-                    }
-                }
-                row
-            })
-            .collect()
-    }
 }
 
 /// `text` with each control character shown as `?`, so a name read from a
@@ -282,7 +185,6 @@ pub fn width(text: &str) -> usize {
 }
 
 #[cfg(test)]
-#[expect(clippy::indexing_slicing, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
 
@@ -337,19 +239,5 @@ mod tests {
         let text: String = row.iter().map(|s| s.text.as_str()).collect();
         assert_eq!(text, "abXYefgh");
         assert_eq!(row.len(), 3);
-    }
-
-    #[test]
-    fn a_block_fills_its_width_and_runs_merge_by_style() {
-        let mut c = Canvas::new(6, 1);
-        let s = Style::block(super::super::color::Color::BrightCyan);
-        c.fill(1, 0, 4, "DP-8x", s);
-        let rows = c.into_rows();
-        let texts: Vec<(&str, Style)> =
-            rows[0].iter().map(|s| (s.text.as_str(), s.style)).collect();
-        assert_eq!(
-            texts,
-            [(" ", Style::PLAIN), ("DP-…", s), (" ", Style::PLAIN)]
-        );
     }
 }

@@ -16,8 +16,9 @@
 //! list and the screen below the minimum. Text that can hold any
 //! character, such as a font's name, its specimen or a line of the draft,
 //! is written by the console's width rule ([`fill`]). The Flow view's
-//! layers are still drawn on a [`super::canvas::Canvas`] and copied into
-//! their part of the buffer.
+//! layers are rows of such text, and its document of paths is a picture of
+//! box-drawing lines that [`super::flowdraw`] draws cell by cell, so both
+//! go through [`fill`] too.
 //!
 //! References:
 //! - ADR-1201 D3 and ADR-1403 D7: the views, the minimum size and the
@@ -435,8 +436,8 @@ pub fn rows(buf: &ratatui_core::buffer::Buffer) -> Vec<Row> {
 /// Draws `app`'s screen into `buf`, its colors read as `colors` says.
 /// ratatui draws the tab bar, the status line, the rules, the message
 /// line, the key line, the Help page and the lists. The Flow view's
-/// layers are still drawn on a canvas and copied into their part of the
-/// buffer.
+/// layers and its document of paths are written by the console's width
+/// rule.
 fn view(app: &App, colors: Colors, buf: &mut Buffer) {
     let area = buf.area;
     let (cols, rows) = (app.size.cols, app.size.rows);
