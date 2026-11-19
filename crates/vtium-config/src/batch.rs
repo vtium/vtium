@@ -664,6 +664,8 @@ pub enum Done {
     Changed { warnings: Vec<String> },
     /// The resource was already active, so nothing changed.
     AlreadyActive,
+    /// The draft already activates the resource, so nothing changed.
+    AlreadyActivates,
 }
 
 /// The current draft's view of the active resources: what the system
@@ -740,8 +742,10 @@ impl<'a> Resources<'a> {
     /// does not hold passes the trust rule here, as `apply` judges only
     /// those, so a pending deactivation can always be taken back.
     pub fn set(&mut self, path: &Path, change: Change) -> Result<Done, String> {
-        let active = matches!(self.state(path), State::Active | State::Activates);
+        let state = self.state(path);
+        let active = matches!(state, State::Active | State::Activates);
         match change {
+            Change::Activate if state == State::Activates => return Ok(Done::AlreadyActivates),
             Change::Activate if active => return Ok(Done::AlreadyActive),
             Change::Activate if !self.base.holds(path) => trusted(path, self.euid)?,
             Change::Activate => {}
@@ -820,6 +824,9 @@ fn change(
         let line = format!("{}	{}", kind(&path), path.display());
         match resources.set(&path, change) {
             Ok(Done::AlreadyActive) => said.push(format!("already active	{line}")),
+            Ok(Done::AlreadyActivates) => {
+                said.push(format!("already activates on install	{line}"));
+            }
             Ok(Done::Changed { warnings }) => {
                 said.push(format!("{command}	{line}"));
                 said.extend(warnings);

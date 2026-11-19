@@ -134,6 +134,12 @@ fn an_activation_waits_in_the_draft_and_installs_with_it() {
         "{}",
         ran.err
     );
+    // a second activation says the draft already makes it
+    let again = f.ok(&["activate", &mine]);
+    assert_eq!(
+        again.out,
+        "already activates on install\tfont\tROOT/res/mine.ttf\n"
+    );
     // the change waits beside the draft, and nothing is installed yet
     assert!(f.changes("desk").exists());
     assert_eq!(f.batch(), None);
@@ -170,6 +176,8 @@ fn an_activation_waits_in_the_draft_and_installs_with_it() {
         "{}",
         active.out
     );
+    let again = f.ok(&["activate", &mine]);
+    assert_eq!(again.out, "already active\tfont\tROOT/res/mine.ttf\n");
     // a deactivation installs the same way, and keeps every other line
     let before = f.listed();
     let ran = f.ok(&["deactivate", &mine]);
