@@ -10,7 +10,7 @@ Sets up the vtium console's fonts and settings, and can preview each font live o
 .PP
 With no command, vtium-config prints its usage. To open the full-screen tool, run vtium-config tui.
 .PP
-The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. The font set commands (new-frit, remove-frit) write a draft and print the command that installs it.
+The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. activate and deactivate keep their changes beside the draft, in NAME.batch, and install writes them to /etc/vtium/batch.conf. The font set commands (new-frit, remove-frit) write a draft and print the command that installs it.
 .PP
 vtium reads \fB/etc/vtium/vtium.conf\fR only when it starts on a VT, so a change that install makes takes effect when vtium starts again. install offers to restart vtium on the VTs it runs on. See vtium.conf(5) for the file and its settings.
 .PP
@@ -292,6 +292,42 @@ For example:
 .RS 4
 .nf
 vtium\-config remove\-frit my\-font
+.fi
+.RE
+.SS activate
+\fBvtium\-config\fR \fBactivate\fR \fIPATH\fR... [\fB\-\-dry\-run\fR] [\fB\-\-install\fR]
+.PP
+Activates, in the draft, each resource that a PATH names. A resource is a font, color scheme, color map, shader or pointer theme, given by its absolute path. vtium draws only from the active resources, which /etc/vtium/batch.conf lists. activate first checks that root owns the file and each folder above it, and that nobody else can write them. None of them may be a symbolic link. The file must be on a filesystem that stays mounted, so a file on removable media or a network filesystem fails. If any PATH fails, activate changes nothing. The change waits in the draft until you install it. When no batch.conf is installed yet, the install writes one from the resources of a fresh install, with your change. \-\-dry\-run shows the change without saving it, and \-\-install installs the draft afterwards.
+.PP
+For example:
+.PP
+.RS 4
+.nf
+vtium\-config activate /usr/share/fonts/TTF/Hack\-Regular.ttf
+.fi
+.RE
+.SS deactivate
+\fBvtium\-config\fR \fBdeactivate\fR \fIPATH\fR... [\fB\-\-dry\-run\fR] [\fB\-\-install\fR]
+.PP
+Deactivates, in the draft, each resource that a PATH names. Once the change is installed, vtium draws without the resource: a font as a missing font, and any other resource as a file that does not exist. When a look uses the resource, deactivate names the look. It can tell this for a font that a font set names by its path, and for a color scheme. It cannot tell this for a font that a font set names by its family, or for a color map or shader. The built-in font is always active, and deactivate refuses it. The change waits in the draft until you install it. \-\-dry\-run shows the change without saving it, and \-\-install installs the draft afterwards.
+.PP
+For example:
+.PP
+.RS 4
+.nf
+vtium\-config deactivate /usr/share/vtium/fonts/CulletMono\-Bold.ttf
+.fi
+.RE
+.SS active
+\fBvtium\-config\fR \fBactive\fR
+.PP
+Lists the active resources, one per line, tab-separated: the kind (font, color scheme, color map, shader or pointer theme), the path, and the state. The built-in font comes first and is always active. A resource the draft activates says activates on install, and one it deactivates says deactivates on install. When no /etc/vtium/batch.conf is installed, the list is the resources of a fresh install, and a last line says so. It changes nothing.
+.PP
+For example:
+.PP
+.RS 4
+.nf
+vtium\-config active
 .fi
 .RE
 .SS preview

@@ -34,6 +34,7 @@ macro_rules! static_message {
 
 pub mod apply;
 pub mod banner;
+pub mod batch;
 pub mod bdf;
 pub mod child;
 pub mod cli;
