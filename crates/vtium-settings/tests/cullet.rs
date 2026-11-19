@@ -1,5 +1,4 @@
-//! The trust rule on resource files, the mount check and the batch
-//! (ADR-1205 D4, D10).
+//! The trust rule on resource files, the mount check and the batch.
 //!
 //! No test runs as root, so each trusts its own user's files and root's
 //! folders with [`Trust::owner`], below a fixture folder of its own with
@@ -8,6 +7,10 @@
 //! running system's mount table, where the fixture sits on a local
 //! filesystem; the mount check's own tests feed it mount tables and sysfs
 //! folders written for the test.
+//!
+//! References:
+//! - ADR-1205 D4: the trust rule, the mount check, the batch and the list of a fresh install.
+//! - ADR-1205 D10: the palettes the package ships are active from the first start.
 
 use std::fs;
 use std::io::Read;

@@ -385,8 +385,8 @@ impl Walk<'_> {
 
 /// Opens the resource file at `path` under the rule, and checks it on
 /// the descriptor it returns: the file and every folder above it pass the
-/// owner and mode check, none of them is a symbolic link, and the file's
-/// filesystem stays mounted by `mounts`. The file is opened without
+/// owner and mode check, none of them is a symbolic link, and `mounts`
+/// judges that the file's filesystem stays mounted. The file is opened without
 /// blocking and without making a tty the controlling one, and only once
 /// a look without following links has found a regular file, since
 /// opening a FIFO or a device acts on it. A refused file counts as
