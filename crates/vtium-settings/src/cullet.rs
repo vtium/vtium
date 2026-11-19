@@ -221,13 +221,15 @@ const FOLDER: OFlags = OFlags::PATH
 /// The steps of `path`, one for each name and `None` for each `..`. The
 /// root and each `.` are no step.
 fn steps(path: &Path) -> Vec<Option<OsString>> {
-    path.components()
-        .filter_map(|c| match c {
-            Component::Normal(n) => Some(Some(n.to_owned())),
-            Component::ParentDir => Some(None),
-            _ => None,
-        })
-        .collect()
+    let mut out = Vec::new();
+    for c in path.components() {
+        match c {
+            Component::Normal(n) => out.push(Some(n.to_owned())),
+            Component::ParentDir => out.push(None),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// The names of a plain absolute path, or `None` for a relative path or
@@ -236,7 +238,11 @@ fn names(path: &Path) -> Option<Vec<OsString>> {
     if !path.is_absolute() {
         return None;
     }
-    steps(path).into_iter().collect()
+    let mut out = Vec::new();
+    for step in steps(path) {
+        out.push(step?);
+    }
+    Some(out)
 }
 
 impl Walk<'_> {
