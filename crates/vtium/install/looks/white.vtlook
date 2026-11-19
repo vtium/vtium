@@ -1,0 +1,16 @@
+# white.vtlook: a paper-white monochrome monitor.
+#
+# Shows the screen in shades of gray with a faint cool cast, as a monochrome
+# monitor with a white phosphor did. Each color becomes a gray as light as the
+# color itself, so yellow and white are the brightest and blue is nearly
+# black.
+#
+# vtium ships this vtlook in /usr/share/vtium/looks. To change it, copy it to
+# /etc/vtium/looks under the same name and edit the copy: vtium reads the
+# copy instead. To keep dark colors visible, raise floor, for example to 0.15.
+version = 1
+
+[color tint]
+color = 230,235,255
+amount = 1.0
+floor = 0.0

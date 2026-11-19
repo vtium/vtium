@@ -1,0 +1,20 @@
+# amber.vtlook: an amber monochrome monitor.
+#
+# Shows the screen in shades of one amber color, as a monitor with an amber
+# phosphor did. Each color becomes a shade as light as the color itself, so
+# yellow and white are the brightest and blue is nearly black. A contrast of
+# 1.15 then spreads the shades a little further apart.
+#
+# vtium ships this vtlook in /usr/share/vtium/looks. To change it, copy it to
+# /etc/vtium/looks under the same name and edit the copy: vtium reads the
+# copy instead. To keep dark colors visible, raise floor, for example to 0.15.
+version = 1
+
+[color tint]
+color = 255,176,0
+amount = 1.0
+floor = 0.0
+
+[color contrast]
+contrast = 1.15
+brightness = 0.0
