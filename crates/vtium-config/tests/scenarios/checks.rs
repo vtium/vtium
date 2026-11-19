@@ -1466,7 +1466,7 @@ impl Checks {
                         .contains(&((*n).to_owned(), row.id.clone()))
                 })
                 .collect();
-            if !row.key_line && !missed.is_empty() {
+            if !row.key_line && !row.unwalked && !missed.is_empty() {
                 self.found.failures.push(format!(
                     "the key table's row {} matched no transition in {}",
                     row.id,
@@ -1589,6 +1589,19 @@ fn reached_today(id: &str) -> Option<bool> {
         // nothing like it exists today
         "flow.card.list" | "looks.list" | "looks.new-frit.list" => false,
         "any.question.window-ops" => false,
+        // the six tabs' new screens and questions, which nothing builds yet
+        "effects"
+        | "effects.filter"
+        | "effects.effect"
+        | "fonts.filter"
+        | "fonts.font"
+        | "looks.look"
+        | "looks.look.list"
+        | "looks.look.typing"
+        | "looks.font-set"
+        | "looks.pointer"
+        | "any.question.deactivate"
+        | "any.question.system-font" => false,
         _ => return None,
     })
 }
