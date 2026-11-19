@@ -248,15 +248,18 @@ fn a_grid_too_small_draws_the_way_out() {
 #[test]
 fn keeping_a_font_and_a_size_writes_each_into_the_draft_and_install_counts_them() {
     let mut d = desk();
+    // the look proof's card, its size line, and 12 pt in its list, after
+    // vtium.conf's size, automatic and the sizes from 6 pt to 11 pt
     let mut c = console().keys(&[
-        UP, b"\r", TO_LOOKS, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, b"\r", b"i",
+        UP, b"\r", TO_LOOKS, b"\r", DOWN, DOWN, b"\r", DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN,
+        DOWN, b"\r", b"\x1b", b"i",
     ]);
     run_desk(&mut c, &mut d);
-    // the top level's last line is `version = 1`, so the new key follows it
+    // the look's new key goes first in its section
     assert_eq!(
         d.draft,
         format!("# mine\nfont-name=tiny5\n{SECTIONS}")
-            .replace("version = 1\n", "version = 1\nfont-size=12\n")
+            .replace("[look proof]\n", "[look proof]\nfont-size = 12\n")
     );
     let screen = c.seen.clone().expect("the screen");
     assert!(
@@ -352,9 +355,15 @@ fn nothing_changed_means_nothing_to_install() {
 #[test]
 fn each_view_at_80x25_and_100x30() {
     use model::View::Fonts;
-    let scripts: [(&str, model::View, &[&[u8]]); 6] = [
+    let scripts: [(&str, model::View, &[&[u8]]); 8] = [
         ("effects", Fonts, &[TO_EFFECTS]),
         ("looks", Fonts, &[TO_LOOKS]),
+        ("looks-card", Fonts, &[TO_LOOKS, b"\r"]),
+        (
+            "looks-font-set",
+            Fonts,
+            &[TO_LOOKS, DOWN, DOWN, DOWN, b"\r"],
+        ),
         ("fonts", Fonts, &[]),
         ("settings", Fonts, &[b"\t"]),
         ("help", Fonts, &[b"\t", b"\t"]),
@@ -390,8 +399,8 @@ fn tab_and_shift_tab_step_the_views_from_every_column_of_the_flow_through_the_lo
         keys.push(BACKTAB);
         let line = key_line(model::View::Flow, &keys);
         assert_eq!(
-            foot(&line, words::KEYS_LOOKS),
-            words::KEYS_LOOKS,
+            foot(&line, keys_of("looks")),
+            keys_of("looks"),
             "Shift-Tab from column {column}"
         );
     }
@@ -402,7 +411,7 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
     use model::View::{Effects, Flow, Fonts, Help, Looks, Settings};
     let own = |view| match view {
         Effects => keys_of("effects"),
-        Looks => words::KEYS_LOOKS,
+        Looks => keys_of("looks"),
         Fonts => words::KEYS_FONTS_LIVE,
         Settings => keys_of("settings"),
         _ => keys_of("help"),
@@ -457,15 +466,15 @@ fn the_key_line_shows_its_pages_on_period_and_its_first_page_in_each_node() {
     assert_eq!(last_row(&key_line(Flow, &[b".", TAB])), keys_of("settings"));
     assert_eq!(
         last_row(&key_line(Flow, &[b".", BACKTAB])),
-        words::KEYS_LOOKS
+        keys_of("looks")
     );
     assert_eq!(
         last_row(&key_line(Flow, &[b".", BACKTAB, TAB])),
         keys_of("flow")
     );
-    // a key line of one page takes `.` as a key that does nothing
-    let looks = key_line(Flow, &[BACKTAB]);
-    assert_eq!(key_line(Flow, &[BACKTAB, b"."]), looks);
+    // the Looks tab's key line shows its second page on `.`
+    let looks = vtium_config::tui::contract::key_pages("looks").expect("the Looks tab's pages");
+    assert_eq!(last_row(&key_line(Flow, &[BACKTAB, b"."])), looks[1]);
     let help = vtium_config::tui::contract::key_pages("help").expect("Help's pages");
     assert_eq!(last_row(&key_line(Help, &[b"."])), help[1]);
 }
@@ -473,8 +482,8 @@ fn the_key_line_shows_its_pages_on_period_and_its_first_page_in_each_node() {
 /// Tab leaves a question open on any view, and Esc answers it no.
 #[test]
 fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
-    // a size kept on Looks, then i asks to install it
-    let ask: [&[u8]; 4] = [TO_LOOKS, DOWN, b"\r", b"i"];
+    // a size kept on a look's card, then i asks to install it
+    let ask: [&[u8]; 7] = [TO_LOOKS, b"\r", DOWN, DOWN, RIGHT, b"\x1b", b"i"];
     let mut c = console().keys(&ask);
     let mut d = desk();
     run_desk(&mut c, &mut d);
@@ -500,8 +509,8 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_DONE), "{screen}");
     assert_eq!(
-        foot(&screen, words::KEYS_LOOKS),
-        words::KEYS_LOOKS,
+        foot(&screen, keys_of("looks")),
+        keys_of("looks"),
         "{screen}"
     );
     assert!(d.plans.is_empty());
@@ -757,7 +766,7 @@ fn a_picture_that_comes_after_the_highlight_moved_is_not_shown() {
     use vtium_config::specimen::Picture;
     use vtium_config::tui::input::{Input, Key, Reply};
     use vtium_config::tui::model::{App, Effect, Event};
-    let (mut app, _) = App::new(inputs(), 80, 25);
+    let (mut app, _) = App::new(sized(), 80, 25);
     for r in [
         Reply::Version("vtium(test)".into()),
         Reply::Graphics(true),
@@ -836,7 +845,7 @@ fn no_frame_writes_over_the_cells_under_a_picture() {
     use vtium_config::tui::input::{Input, Key, Reply};
     use vtium_config::tui::model::{App, Effect, Event};
     use vtium_config::tui::shot::Covered;
-    let (mut app, _) = App::new(inputs(), 80, 25);
+    let (mut app, _) = App::new(sized(), 80, 25);
     for r in [
         Reply::Version("vtium(test)".into()),
         Reply::Graphics(true),
@@ -911,10 +920,11 @@ fn no_frame_writes_over_the_cells_under_a_picture() {
         written(&app).iter().all(|c| *c == ' '),
         "a frame wrote over the picture"
     );
-    // positive control: without the picture, the frame writes the
-    // sentence under the sizes into those cells
+    // positive control: without the picture, the Fonts tab's frame writes
+    // the notes of its fonts into those cells
     let mut bare = app.clone();
     bare.shared.picture = None;
+    bare.nav.view = vtium_config::tui::model::View::Fonts;
     assert!(written(&bare).iter().any(|c| *c != ' '));
 }
 
@@ -931,7 +941,7 @@ fn no_frame_writes_over_the_cells_under_a_picture() {
 fn a_picture_that_replaces_another_is_not_erased_by_the_clear() {
     let mut c = outside().keys(&[TO_LOOKS, DOWN, DOWN]);
     c.graphics = true;
-    drive(&mut c, inputs()).expect("the loop");
+    drive(&mut c, sized()).expect("the loop");
     let at = |pat: &[u8]| -> Vec<usize> {
         c.written
             .windows(pat.len())
@@ -1225,11 +1235,12 @@ fn a_vtium_console_that_draws_pictures_gets_no_picture() {
 #[test]
 fn without_kitty_graphics_no_picture_is_sent_and_the_view_says_so() {
     let mut c = outside().keys(&[TO_LOOKS, DOWN, DOWN]);
-    run(&mut c);
+    drive(&mut c, sized()).expect("the loop");
     assert!(c.pictures.is_empty());
     assert_eq!(count(&c.written, b"\x1b_Ga=T"), 0);
     let screen = c.seen.clone().expect("the screen");
-    assert!(screen.contains("does not support images"), "{screen}");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(text.contains("does not support images"), "{screen}");
 }
 
 #[test]
@@ -1237,14 +1248,14 @@ fn the_picture_never_reaches_the_footer_and_never_passes_the_cap() {
     // 80x25 at 8x16: rows 7 to 20 are the area, above the longest message
     let mut c = outside().keys(&[TO_LOOKS, DOWN]);
     c.graphics = true;
-    run(&mut c);
+    drive(&mut c, sized()).expect("the loop");
     let (_, _, (w, h)) = c.pictures.last().cloned().expect("6 pt's picture");
     assert!(h <= (25 - 8) * 16 && w <= (80 - 25) * 8, "{w}x{h}");
     // a terminal of very large cells is capped
     let mut c = outside().keys(&[TO_LOOKS, DOWN]);
     c.graphics = true;
     c.cell_px = Some((200, 400));
-    run(&mut c);
+    drive(&mut c, sized()).expect("the loop");
     let (_, _, max) = c.pictures.last().cloned().expect("6 pt's picture");
     assert_eq!(max, vtium_config::specimen::PICTURE_MAX);
 }
@@ -1258,7 +1269,7 @@ fn a_preview_area_less_than_one_line_high_says_so_on_the_message_line() {
     let mut c = outside().keys(&[TO_LOOKS, DOWN]);
     c.graphics = true;
     c.cell_px = Some((2, 1));
-    run(&mut c);
+    drive(&mut c, sized()).expect("the loop");
     let (_, _, (_, h)) = c
         .pictures
         .last()
@@ -1384,11 +1395,9 @@ fn at_80x25_no_key_or_sentence_is_cut() {
     let views: [Case; 7] = [
         (&[], words::KEYS_FONTS_LIVE, &[]),
         (&[TO_EFFECTS], keys_of("effects"), &[words::EFFECTS_HINT]),
-        (
-            &[TO_LOOKS],
-            words::KEYS_LOOKS,
-            &[words::CONSOLE_SIZE_CAPTION],
-        ),
+        // the Looks tab's sentences keep to the names' column beside the
+        // console's own preview, which tui_looks.rs checks
+        (&[TO_LOOKS], keys_of("looks"), &[]),
         (&[TO_SETTINGS], keys_of("settings"), &[words::SECTIONS_HINT]),
         (
             &[TO_SETTINGS, b"\r"],

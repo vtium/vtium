@@ -661,24 +661,25 @@ fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
     press(&mut sim, &["n", "x"]);
     assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::New);
     assert_eq!(
-        sim.app.fonts.form().fields.first().map(String::as_str),
+        sim.app.looks.form().fields.first().map(String::as_str),
         Some("x")
     );
     for moving in ["Up", "Down", "Home", "End", "PgUp", "PgDn", "Left", "Right"] {
         let mut typed = sim.clone();
         let did = typed.press(press_of(moving));
         assert_eq!(
-            typed.app.fonts.form(),
-            sim.app.fonts.form(),
+            typed.app.looks.form(),
+            sim.app.looks.form(),
             "{moving} moved"
         );
         assert!(did.effects.is_empty(), "{moving}: {did:?}");
     }
     let mut kept = sim.clone();
     press(&mut kept, &["Enter"]);
-    assert_eq!(kept.app.fonts.form().at, 1);
+    assert_eq!(kept.app.looks.form().at, 1);
+    // the form belongs to the Looks tab, so Esc goes back there
     press(&mut sim, &["Esc"]);
-    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Fonts);
+    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Looks);
 }
 
 /// A Settings key's list of values opens on the value the key has now, and

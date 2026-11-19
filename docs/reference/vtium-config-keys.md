@@ -576,7 +576,6 @@ The Looks tab: the looks, the font sets, the color schemes and the installed poi
 | p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. Among the color schemes and the pointer themes, does nothing, because a color scheme's preview is its 16 colors beside text in its foreground on its background. |
 | w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | o | - | Does nothing here. |
-| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the item above. |

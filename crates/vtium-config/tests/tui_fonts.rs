@@ -359,7 +359,7 @@ fn the_fonts_view_without_font_operations_at_80x25() {
 }
 
 #[test]
-fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_fonts() {
+fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_the_looks_tab() {
     for key in [TAB, BACKTAB] {
         let (screen, _) = reach_from(model::View::Fonts, 80, 25, &[b"n", b"abc", key]);
         assert_eq!(
@@ -369,8 +369,9 @@ fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_fonts() {
         );
         assert!(screen.contains("abc"), "{screen}");
     }
+    // the form belongs to the Looks tab, so Esc goes back there
     let line = key_line(model::View::Fonts, &[b"n", b"abc", TAB, b"\x1b"]);
-    assert_eq!(foot(&line, words::KEYS_FONTS_LIVE), words::KEYS_FONTS_LIVE);
+    assert_eq!(foot(&line, keys_of("looks")), keys_of("looks"));
 }
 
 /// `s` in the Fonts view switches the picture area to the detailed

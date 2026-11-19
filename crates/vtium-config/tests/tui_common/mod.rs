@@ -460,6 +460,18 @@ pub fn inputs() -> Inputs {
     vtium_config::tui::fixture::inputs()
 }
 
+/// The fixture's inputs with three looks that draw unifont, at automatic,
+/// 6 pt and 7 pt, and no other look. The Looks tab opens on the first, so
+/// Down previews unifont at 6 pt and Down again at 7 pt, as the tests of
+/// pictures at a size need.
+pub fn sized() -> Inputs {
+    let mut i = inputs();
+    i.conf = Some(
+        "# mine\nfont-name=unifont\nversion = 1\n[look auto]\nfont-name = unifont\nfont-size = 0\n[look six]\nfont-name = unifont\nfont-size = 6\n[look seven]\nfont-name = unifont\nfont-size = 7\n".to_owned(),
+    );
+    i
+}
+
 /// The console of most tests: vtium at 80x25 drawing unifont, taking the
 /// fonts that read at the same grid.
 pub fn console() -> Console {

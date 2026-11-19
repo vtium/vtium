@@ -290,7 +290,8 @@ impl Seen<'_> {
             .clone()
             .or_else(|| app.settings.editing().map(str::to_owned))
             .or_else(|| match app.nav.view {
-                View::New => app.fonts.form().fields.get(app.fonts.form().at).cloned(),
+                View::New => app.looks.form().fields.get(app.looks.form().at).cloned(),
+                View::Looks => app.looks.card().and_then(|c| c.typed()).map(str::to_owned),
                 _ => None,
             })
     }
@@ -613,17 +614,10 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // rows of what is not built yet, whose nodes the walk reaches in
     // another shape today: what the key does there today is not pinned
     let not_built: Check = |_| Err("not built".into());
-    for id in [
-        "list.filter-picker",
-        "list.font-sets",
-        "list.font-sizes",
-        "enter.view.looks",
-    ] {
-        m.insert(id, (not_built, None));
-    }
-    // the Looks view lists sizes today, where p and w do nothing
-    m.insert("p.view.looks", (not_built, Some(nothing)));
+    m.insert("list.filter-picker", (not_built, None));
+    // w asks nothing yet in the Looks tab
     m.insert("window-ops.view.looks", (not_built, Some(nothing)));
+    looks_checks(&mut m, not_built, nothing);
     m.insert(
         "enter.typing.settings",
         (
@@ -641,16 +635,6 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("n.view.flow", (|s| s.opens("question:new"), no_today));
     m.insert("v.view.flow", (|s| s.opens("layer:file-view"), no_today));
     m.insert("o.view.flow", (|s| s.opens("layer:restore"), no_today));
-    // the Looks view lists sizes today, and its own keys do not act
-    for id in ["r.view.looks", "n.view.looks", "t.view.looks"] {
-        m.insert(
-            id,
-            (
-                |_| Err("the Looks view's own keys are not built".into()),
-                Some(nothing),
-            ),
-        );
-    }
     // today `o` turns allow-font-ops on in Help and Settings, and does
     // nothing on the Effects tab, which is new and follows the row
     let ops_on: Check = |s| {
@@ -664,7 +648,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             s.nothing()
         }
     };
-    m.insert("o.view.looks", (nothing, Some(ops_on)));
+    m.insert("o.view.looks", (nothing, None));
     m.insert("o.view", (nothing, Some(ops_on)));
     // a card's own keys: Left and Right step the choice under the cursor,
     // Enter sets it, and e on a path's detail takes the path into NEW PATH
@@ -1156,6 +1140,127 @@ fn installs(s: &Seen<'_>) -> Result<(), String> {
     }
 }
 
+/// The checks of the Looks tab's rows and of a look's card: what Enter,
+/// `n`, `r`, `t` and `p` do on each kind of item, and what the card's keys
+/// do on each line.
+fn looks_checks(
+    m: &mut BTreeMap<&'static str, (Check, Option<Check>)>,
+    not_built: Check,
+    nothing: Check,
+) {
+    m.insert(
+        "enter.view.looks",
+        (
+            |s| match s.step.from.focus.split(',').next().unwrap_or("") {
+                "look" => s.goes_to("looks.look"),
+                "no looks" => s.nothing(),
+                _ => s.goes_to("looks.font-set"),
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "n.view.looks",
+        (
+            |s| match s.step.from.focus.split(',').next().unwrap_or("") {
+                // a new look goes into the draft, and its card opens with
+                // its name being typed
+                "look" | "no looks" => {
+                    let to = s.step.to.node();
+                    if to == "looks.look.typing" && Seen::draft(s.before) != Seen::draft(s.after) {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "expected a new look being named, and the TUI is in {to}"
+                        ))
+                    }
+                }
+                _ => {
+                    let to = s.step.to.node();
+                    if to == "looks.new-frit.typing" {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "expected the form for a new font set, and the TUI is in {to}"
+                        ))
+                    }
+                }
+            },
+            None,
+        ),
+    );
+    m.insert(
+        "r.view.looks",
+        (
+            |s| match s.step.from.focus.split(',').next().unwrap_or("") {
+                "look" => s.opens("question:change"),
+                "no looks" => s.nothing(),
+                // a font set is marked for removal, or the message says why
+                // it cannot be
+                _ => {
+                    if s.exited() || s.step.to.node() != "looks" {
+                        Err("r left the list".into())
+                    } else if s.before.app.shared.pending != s.after.app.shared.pending
+                        || s.after.app.shared.message.is_some()
+                    {
+                        Ok(())
+                    } else {
+                        Err("r neither marked the font set nor said why".into())
+                    }
+                }
+            },
+            None,
+        ),
+    );
+    let tries: Check = |s| {
+        if s.exited() || !s.kept() {
+            Err("t quit or changed what the person made".into())
+        } else {
+            Ok(())
+        }
+    };
+    m.insert("t.view.looks", (tries, None));
+    m.insert("t.layer.look", (tries, None));
+    m.insert(
+        "p.view.looks",
+        (
+            |s| {
+                if s.after.app.looks.picture() != s.before.app.looks.picture() && s.kept() {
+                    Ok(())
+                } else {
+                    Err("p did not switch the preview".into())
+                }
+            },
+            None,
+        ),
+    );
+    // Left and Right step the line through its choices, which changes the
+    // draft, and stay on the card
+    let steps: Check = |s| {
+        if s.exited() || s.step.to.node() != "looks.look" {
+            Err("the key left the card".into())
+        } else {
+            Ok(())
+        }
+    };
+    m.insert("left.layer.look", (steps, None));
+    m.insert("right.layer.look", (steps, None));
+    m.insert(
+        "enter.layer.look",
+        (|s| s.goes_to("looks.look.typing"), None),
+    );
+    for id in [
+        "list.font-sets",
+        "list.font-sizes",
+        "list.palettes",
+        "list.look-effects",
+    ] {
+        m.insert(id, (|s| s.goes_to("looks.look.list"), None));
+    }
+    // a look draws vtium.conf's pointer theme, so its line has no list
+    m.insert("list.pointer-themes", (not_built, Some(nothing)));
+}
+
 /// When a row applies, for rows that share a key in one node: the row is
 /// checked, and counts as reached, only on a transition from a state it
 /// applies in.
@@ -1181,6 +1286,16 @@ fn row_cases() -> BTreeMap<&'static str, Case> {
     });
     m.insert("list.terminals", |s| {
         matches!(card_line(s), Some(CardLine::Name))
+    });
+    // each line of a look's card opens its own list, and Enter on the name
+    // types it
+    m.insert("enter.layer.look", |s| s.step.from.focus == "name");
+    m.insert("list.font-sets", |s| s.step.from.focus == "font set");
+    m.insert("list.font-sizes", |s| s.step.from.focus == "size");
+    m.insert("list.palettes", |s| s.step.from.focus == "color scheme");
+    m.insert("list.look-effects", |s| s.step.from.focus == "vtlook");
+    m.insert("list.pointer-themes", |s| {
+        s.step.from.focus == "pointer theme"
     });
     m
 }
@@ -1646,19 +1761,15 @@ fn reached_today(id: &str) -> Option<bool> {
     Some(match id {
         // the view, the tab or the form exists today in another shape, the
         // Effects tab as a line that says it is coming
-        "looks" | "fonts" | "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
+        "fonts" | "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
         // nothing like it exists today
-        "flow.card.list" | "looks.list" | "looks.new-frit.list" => false,
+        "flow.card.list" | "looks.new-frit.list" => false,
         "any.question.window-ops" => false,
         // the six tabs' new screens and questions, which nothing builds yet
         "effects.filter"
         | "effects.effect"
         | "fonts.filter"
         | "fonts.font"
-        | "looks.look"
-        | "looks.look.list"
-        | "looks.look.typing"
-        | "looks.font-set"
         | "looks.pointer"
         | "looks.palette"
         | "any.question.deactivate"
