@@ -1857,18 +1857,24 @@ struct SmallerGlyph<'a> {
 }
 
 /// The line the console logs, once a boot, for a font file that the set
-/// `set` names and that the font helper refuses: the set, the file, and
-/// why vtium treats the file as missing. The font's characters then draw
-/// from the next font that has them.
+/// `set` names in `source` and that the font helper refuses: the set, the
+/// file, the layer the source came from when it came from one, and why
+/// vtium treats the file as missing. The font's characters then draw from
+/// the next font that has them.
 ///
 /// References:
 /// - ADR-1205 D4: a refused file counts as missing, and vtium logs one
 ///   line for it, naming the file and the check it failed.
 /// - ADR-1204 D7: a missing font's characters draw from the next source.
-fn refused_line(set: &str, refused: &SourceError) -> String {
+fn refused_line(set: &str, source: &Source, refused: &SourceError) -> String {
+    let from = source
+        .layer
+        .as_ref()
+        .map(|layer| format!(" from the layer {layer}"))
+        .unwrap_or_default();
     match refused {
         SourceError::Refused { path, because } => format!(
-            "{set} needs the font file {}, which vtium treats as missing, because {because} vtium draws the font's characters from the next font that has them.",
+            "{set} needs the font file {}{from}, which vtium treats as missing, because {because} vtium draws the font's characters from the next font that has them.",
             path.display()
         ),
         other => format!("{set}: {other}"),
@@ -1901,7 +1907,7 @@ fn smaller_fonts(
             )),
             // a font the gate refuses is logged, as a source's is
             (Err(refused @ SourceError::Refused { .. }), _) => {
-                warnings.push(refused_line(&frit.name, &refused));
+                warnings.push(refused_line(&frit.name, source, &refused));
             }
             // a font this machine lacks, and a CPI height that does not
             // decode, are left out quietly
@@ -2019,7 +2025,9 @@ fn strike_fonts(
             }
             Err(refused @ SourceError::Refused { .. }) => {
                 // the console logs this line once a boot
-                report.warnings.push(refused_line(&frit.name, &refused));
+                report
+                    .warnings
+                    .push(refused_line(&frit.name, &file, &refused));
                 report.left_out.push(LeftOut {
                     missing: true,
                     line: own_line,
@@ -2226,7 +2234,7 @@ impl Engine {
                     let e = refused.to_string();
                     why.push(format!("source={}: {e}", source.spelling));
                     // the console logs this line once a boot
-                    warnings.push(refused_line(&frit.name, &refused));
+                    warnings.push(refused_line(&frit.name, source, &refused));
                     left_out.push(LeftOut {
                         missing: true,
                         line: own_line,
@@ -8660,6 +8668,22 @@ mod tests {
         assert_eq!(
             (listed[0].0, listed[0].1.as_slice()),
             (FRAME_SOURCES, &b""[..])
+        );
+        // a font from a layer is logged with its layer's name
+        let symbols = format!("role=symbols\nsource=outline:{}\n", font.display());
+        let spliced = layered("source=builtin:unscii-8\nlayer=sym\n", "sym", &symbols);
+        let none = ActiveAsk {
+            owner: me(),
+            paths: Vec::new(),
+        };
+        let (_, layer) = sources_through(Gate::Open, Some(none), &spliced.text);
+        assert_eq!(layer[0].0, FRAME_WARNING);
+        assert!(
+            String::from_utf8_lossy(&layer[0].1).starts_with(&format!(
+                "t needs the font file {} from the layer sym, which vtium treats as missing",
+                font.display()
+            )),
+            "{layer:?}"
         );
     }
 
