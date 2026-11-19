@@ -1106,7 +1106,7 @@ The maintainer frames the check as one more guard against a failing display. The
 vtlook film: display DP-1 (3840x2160) draws the built-in vtlook: measuring: measured 41 fps at 3840x2160, needs 60 (refresh)
 ```
 
-**Decided by the maintainer (2026-11-18):** the run of 8 frames is timed with `glFinish` around each frame on every driver, and never with GL timer queries. llvmpipe offers timer queries, but its query reported 8.7 ms for a frame that `glFinish` timed at 57.5 ms. A look that misses its floor would pass there (`basis`). On the two GPUs measured, the two methods agreed within 0.25 ms. The run's `glFinish` stalls the pipeline only for its 8 frames, which come once for each change.
+**Decided by the maintainer (2026-11-18):** the run of 8 frames is timed with `glFinish` around each frame on every driver, and never with GL timer queries. llvmpipe offers timer queries, but its query reported 8.7 ms for a frame that `glFinish` timed at 57.5 ms. A look that misses its floor would pass there (`basis`). On the two GPUs measured, the two methods agreed within 0.25 ms.
 
 > Edited 2026-11-18: the maintainer decided that the run is timed with `glFinish` on every driver (`considered`), and the spatial chain now runs in passes (D3). The paragraph read "a run of 8 frames, a row of vtium-render's bounds table, of the display's whole present with the look's pieces, off-screen at the display's own size, over the frame the head shows. It times each frame on the GPU, through GL timer queries where the driver has `EXT_disjoint_timer_query`, and otherwise through `glFinish` around each frame."
 
@@ -1118,9 +1118,11 @@ vtlook film: display DP-1 (3840x2160) draws the built-in vtlook: measuring: meas
 
 **Determinism.** This is the one place where the machine's speed decides what vtium draws: the same look draws on one machine and falls to `default` on a slower one. It decides only whether a display's filters run, never the terminal's state, which docs/architecture.md's "Time enters in named places only" lists among the places time enters. Tests drive it through the stand-in GL with timings they give, never real ones. `vtium check-config`, where it reaches a GPU, and vtium-config's preview report the measured rate before a look is installed, and the log line says plainly that a display missed its floor and by how much.
 
+**Consequence.** The run's `glFinish` stalls the pipeline only for its 8 frames, which come once for each change.
+
 **Verification.** A test on the stand-in GL offers timer queries whose times disagree with its clock, and the measured rate follows the clock.
 
-> Edited 2026-11-19: the code review of wave 3 found this test as the last sentence of the maintainer's decision of 2026-11-18, above. The agent that recorded the decision added the test, and the maintainer did not decide it, so it moved here.
+> Edited 2026-11-19: the code review of wave 3 found this test and the sentence on the stall, now under Consequence, as the last two sentences of the maintainer's decision of 2026-11-18, above. The agent that recorded the decision added both, and the maintainer decided neither, so they moved here.
 
 ### D17: where a shader's pixel lies, and what color it holds
 
