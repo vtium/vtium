@@ -345,7 +345,7 @@ In `vtium config tui`, the Effects tab activates color maps and shaders, and the
 
 ## Upgrading and removing
 
-An upgrade restarts no running vtium, because a restart ends every session on its VT. Each VT runs the new build from its next start. A machine upgraded from a vtium that kept no list of active resources has no `batch.conf`, so vtium uses the list of a fresh install. A frit that names a font outside that list, such as `jetbrains-mono`, then renders in vtium's own fonts until you activate its fonts, as [Choosing what vtium may use](#choosing-what-vtium-may-use) shows. To restart vtium on VT 3 now, log out there. Then run this from another VT or over ssh:
+An upgrade restarts no running vtium, because a restart ends every session on its VT. Each VT runs the new build from its next start. To restart vtium on VT 3 now, log out there. Then run this from another VT or over ssh:
 
 ```
 # systemctl restart vtium@tty3.service

@@ -41,7 +41,7 @@ The package installs no `batch.conf`. While the file does not exist, vtium uses 
 - every color scheme in `/usr/share/vtium/palettes`;
 - vtium's pointer pictures, `/usr/share/vtium/pointers.svg`.
 
-So the default font set, `terminus`, and the color schemes vtium installs work with no setup. The list holds no color map, no shader and no other font. A machine upgraded from a vtium that had no such list keeps working the same way. `vtium check-config` notes that the file is missing.
+So the default font set, `terminus`, and the color schemes vtium installs work with no setup. The list holds no color map, no shader and no other font. `vtium check-config` notes that the file is missing.
 
 vtium also uses the list of a fresh install when `batch.conf` fails the owner check that vtium.conf passes, holds more than 64 KiB, or cannot be read. A list that someone other than root could have written says nothing about what root chose. `vtium check-config` names the file and says why vtium ignores it.
 
