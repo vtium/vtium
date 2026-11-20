@@ -394,8 +394,9 @@ impl App {
             Ok(Done::FontInstalled {
                 target,
                 said,
+                untrusted,
                 found,
-            }) => return self.font_installed(&target, &said, found),
+            }) => return self.font_installed(&target, &said, untrusted.as_deref(), found),
             Ok(_) => return Vec::new(),
             Err(why) => {
                 self.shared.quit_after_install = None;
@@ -421,25 +422,32 @@ impl App {
     /// The privileged step installed a font of the person's as the system
     /// font `target`: the Fonts tab lists the fonts found after it, the
     /// new system font among them, and the font helper describes the
-    /// files it has not described yet. Installing never activates the
-    /// font, so the message line says how to.
+    /// files it has not described yet. When the scan fails, the list stays
+    /// as it was with the new system font added, and its note says why.
+    /// Installing never activates the font, so the message line says how
+    /// to, or, when the copy fails the trust rule, why vtium cannot use it.
     fn font_installed(
         &mut self,
         target: &std::path::Path,
         said: &str,
-        found: Vec<crate::discover::Found>,
+        untrusted: Option<&str>,
+        found: Result<Vec<crate::discover::Found>, String>,
     ) -> Vec<Effect> {
         let highlighted = self.fonts.highlighted_path(&self.shared);
-        self.shared.inputs.font_files.rescanned(found);
+        match found {
+            Ok(found) => self.shared.inputs.font_files.rescanned(found),
+            Err(why) => self.shared.inputs.font_files.added_unscanned(target, &why),
+        }
         if let Some(draft) = &self.shared.draft {
             self.shared.inputs.font_files.set_states(&draft.resources);
         }
         self.fonts.keep(&self.shared, highlighted.as_deref());
-        let mut out = self.say(&format!(
-            "{} {said}",
-            words::system_font_installed(&crate::onscreen::path(target))
-        ));
-        let waiting = self.shared.inputs.font_files.waiting();
+        let target = crate::onscreen::path(target);
+        let mut out = self.say(&match untrusted {
+            Some(why) => words::system_font_untrusted(&target, why),
+            None => format!("{} {said}", words::system_font_installed(&target)),
+        });
+        let waiting = self.shared.inputs.font_files.ask();
         if !waiting.is_empty() {
             out.push(Effect::Describe(waiting));
         }

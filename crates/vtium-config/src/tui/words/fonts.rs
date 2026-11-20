@@ -322,6 +322,25 @@ pub fn system_font_installed(target: &str) -> String {
     )
 }
 
+/// What the message line says when the font was copied but fails the
+/// trust rule, which `apply` checks after the copy.
+pub fn system_font_untrusted(target: &str, why: &str) -> String {
+    format!(
+        "The font was copied to {target}, but it fails the trust rule, so vtium cannot use it: {why}"
+    )
+}
+
+/// The Fonts tab's note when the scan after an install fails.
+pub fn fonts_rescan_failed(why: &str) -> String {
+    format!(
+        "vtium-config cannot look for the fonts again after the install, so this list may be out of date. {why}"
+    )
+}
+
+/// The trust mark of a font vtium-config has not checked against the
+/// trust rule.
+pub const FONT_UNCHECKED: &str = "vtium-config has not checked this font against the trust rule.";
+
 pub fn system_font_failed(why: &str) -> String {
     format!("The font was not installed: {why}")
 }

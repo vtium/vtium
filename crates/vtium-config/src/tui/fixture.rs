@@ -295,7 +295,8 @@ pub fn font_installed() -> super::desk::Done {
     super::desk::Done::FontInstalled {
         target: PathBuf::from(OWN_FONT_INSTALLED),
         said: format!("wrote {OWN_FONT_INSTALLED}"),
-        found,
+        untrusted: None,
+        found: Ok(found),
     }
 }
 

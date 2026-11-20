@@ -80,6 +80,9 @@ pub struct Fonts {
     pub files: Vec<FontFile>,
     /// What the helper said of each file it has answered for.
     described: BTreeMap<PathBuf, Described>,
+    /// Each file the font helper has been asked to describe, answered or
+    /// not, so no file is asked for twice.
+    asked: std::collections::BTreeSet<PathBuf>,
     /// Why the marks may be wrong, such as a batch the TUI cannot read.
     pub note: Option<String>,
 }
@@ -90,6 +93,7 @@ impl Fonts {
         Fonts {
             files: found.into_iter().map(FontFile::of).collect(),
             described: BTreeMap::new(),
+            asked: std::collections::BTreeSet::new(),
             note: None,
         }
     }
@@ -98,8 +102,36 @@ impl Fonts {
     /// helper said of each file that is still there.
     pub fn rescanned(&mut self, found: Vec<Found>) {
         self.files = found.into_iter().map(FontFile::of).collect();
-        let paths: Vec<PathBuf> = self.files.iter().map(|f| f.path().to_path_buf()).collect();
-        self.described.retain(|p, _| paths.contains(p));
+        let paths: std::collections::BTreeSet<&Path> =
+            self.files.iter().map(FontFile::path).collect();
+        self.described.retain(|p, _| paths.contains(p.as_path()));
+    }
+
+    /// Adds the system font `target`, just installed, to the list when the
+    /// scan after the install failed with `why`: the list keeps the files
+    /// it had, the new font joins the system's group, and the note says
+    /// why the list may be out of date. The new font is not checked
+    /// against the trust rule, so its trust mark says so.
+    pub fn added_unscanned(&mut self, target: &Path, why: &str) {
+        if self.file(target).is_none() {
+            let found = Found {
+                path: target.to_path_buf(),
+                folder: crate::discover::Folder {
+                    path: target.parent().map(Path::to_path_buf).unwrap_or_default(),
+                    place: Place::System,
+                },
+                trust: Err(super::words::FONT_UNCHECKED.to_owned()),
+                state: State::Inactive,
+                duplicate: None,
+            };
+            let at = self
+                .files
+                .iter()
+                .rposition(|f| f.place == Place::System)
+                .map_or(0, |i| i.saturating_add(1));
+            self.files.insert(at, FontFile::of(found));
+        }
+        self.note = Some(super::words::fonts_rescan_failed(why));
     }
 
     /// Gives each file its state in the draft from `states`, as
@@ -121,6 +153,21 @@ impl Fonts {
     /// What the helper said of the file at `path`, once it has answered.
     pub fn described(&self, path: &Path) -> Option<&Described> {
         self.described.get(path)
+    }
+
+    /// The files the helper has not been asked to describe yet, in the
+    /// list's order, which are marked as asked. A file asked for earlier
+    /// and not answered yet is not asked for again, so an install while
+    /// the first descriptions are coming asks only for the new file.
+    pub fn ask(&mut self) -> Vec<PathBuf> {
+        let new: Vec<PathBuf> = self
+            .files
+            .iter()
+            .map(|f| f.path().to_path_buf())
+            .filter(|p| !self.described.contains_key(p) && !self.asked.contains(p))
+            .collect();
+        self.asked.extend(new.iter().cloned());
+        new
     }
 
     /// The files the helper has not answered for yet, in the list's order.
@@ -540,6 +587,10 @@ mod tests {
         }
     }
 
+    fn found_at(path: &str) -> Found {
+        found(path, Place::System)
+    }
+
     fn fonts(files: &[(&str, Option<Face>)]) -> Fonts {
         let mut out = Fonts::new(files.iter().map(|(p, _)| found(p, Place::System)).collect());
         out.describe(
@@ -682,6 +733,25 @@ mod tests {
         assert!(note.ends_with("bitmap sizes: 8×16."), "{note}");
         let none = super::super::words::sizes_note(&supplied, &[], false);
         assert!(none.contains("offers only Automatic"), "{none}");
+    }
+
+    // A file asked for once is not asked for again, answered or not, so a
+    // scan after an install asks only for the new file
+    #[test]
+    fn each_file_is_asked_for_once() {
+        let mut found = fonts(&[("/f/a.ttf", None), ("/f/b.ttf", None)]);
+        assert_eq!(
+            found.ask(),
+            [PathBuf::from("/f/a.ttf"), PathBuf::from("/f/b.ttf")]
+        );
+        assert!(found.ask().is_empty());
+        let mut files: Vec<Found> = ["/f/a.ttf", "/f/new.ttf", "/f/b.ttf"]
+            .iter()
+            .map(|p| found_at(p))
+            .collect();
+        found.rescanned(std::mem::take(&mut files));
+        assert_eq!(found.ask(), [PathBuf::from("/f/new.ttf")]);
+        assert_eq!(found.waiting().len(), 3);
     }
 
     // Only All keeps a font not described yet; a kind, a group or a

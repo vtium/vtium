@@ -207,3 +207,50 @@ fn a_file_the_helper_cannot_read_as_a_font_is_refused_and_its_draft_removed() {
         assert!(desk.install_font(&mut run).is_err(), "{name}");
     }
 }
+
+/// A font readied and never installed, as after Esc on its question,
+/// leaves no draft once the desk is gone. A copy that `apply` finds fails
+/// the trust rule comes back as such, apart from what `apply` wrote.
+#[test]
+fn a_readied_font_s_draft_goes_with_the_desk_and_an_untrusted_copy_is_reported() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    let bench = Bench::new("dropped");
+    let source = bench.yours("Mine.ttf", &font_bytes());
+    let mut desk = bench.desk(helper());
+    assert!(matches!(
+        desk.run(&Op::SystemFont(source.clone())),
+        Ok(Done::SystemFont(_))
+    ));
+    assert_eq!(bench.drafts_written().len(), 1);
+    drop(desk);
+    assert!(
+        bench.drafts_written().is_empty(),
+        "{:?}",
+        bench.drafts_written()
+    );
+    let mut desk = bench.desk(helper());
+    assert!(matches!(
+        desk.run(&Op::SystemFont(source)),
+        Ok(Done::SystemFont(_))
+    ));
+    let mut run = |_: &[std::ffi::OsString]| -> std::io::Result<(bool, String)> {
+        Ok((
+            true,
+            "wrote\t/x/Mine.ttf\nuntrusted\t/x/Mine.ttf\tthe file is writable by others.\n".into(),
+        ))
+    };
+    let Ok(Done::FontInstalled {
+        said, untrusted, ..
+    }) = desk.install_font(&mut run)
+    else {
+        panic!("the font is not installed");
+    };
+    assert_eq!(said, "wrote /x/Mine.ttf");
+    assert_eq!(
+        untrusted.as_deref(),
+        Some("the file is writable by others.")
+    );
+}

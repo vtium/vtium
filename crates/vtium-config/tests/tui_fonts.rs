@@ -551,6 +551,41 @@ fn enter_on_a_font_installed_already_says_nothing_changed() {
     assert!(d.fonts_installed.is_empty());
 }
 
+/// When the copy fails the trust rule, the message line says so and why,
+/// not that the font is installed. When the scan after the install fails,
+/// the list keeps its fonts, the new system font joins them unchecked,
+/// and the note says why the list may be out of date.
+#[test]
+fn an_install_that_fails_the_trust_rule_or_the_scan_says_so_and_keeps_the_list() {
+    use vtium_config::tui::desk::Done;
+    let (mut app, _) = App::new(inputs(), 100, 30);
+    let before = app.shared.inputs.font_files.files.len();
+    app.event(Event::Installed(Ok(Done::FontInstalled {
+        target: PathBuf::from(OWN_FONT_INSTALLED),
+        said: format!("wrote {OWN_FONT_INSTALLED}"),
+        untrusted: Some("the file belongs to user 1000, and only root may own it.".into()),
+        found: Err("cannot read the mount table".into()),
+    })));
+    let message = app.shared.message.clone().unwrap_or_default();
+    assert_eq!(
+        message,
+        words::system_font_untrusted(
+            OWN_FONT_INSTALLED,
+            "the file belongs to user 1000, and only root may own it."
+        )
+    );
+    let files = &app.shared.inputs.font_files;
+    assert_eq!(files.files.len(), before + 1);
+    let new = files
+        .file(std::path::Path::new(OWN_FONT_INSTALLED))
+        .expect("the new system font");
+    assert_eq!(new.resource.trust, Err(words::FONT_UNCHECKED.to_owned()));
+    assert_eq!(
+        files.note,
+        Some(words::fonts_rescan_failed("cannot read the mount table"))
+    );
+}
+
 /// Enter in the detail of a system font installs nothing and says it is a
 /// system font already.
 #[test]

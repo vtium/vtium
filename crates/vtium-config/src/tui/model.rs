@@ -1103,7 +1103,7 @@ impl App {
         if !frits.is_empty() {
             out.push(Effect::Sources(frits));
         }
-        let waiting = self.shared.inputs.font_files.waiting();
+        let waiting = self.shared.inputs.font_files.ask();
         if !waiting.is_empty() {
             out.push(Effect::Describe(waiting));
         }
