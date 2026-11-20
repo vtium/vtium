@@ -15,7 +15,9 @@
 //!   names, and a digit whose row is planned does nothing. The keys that
 //!   move stay in the tab, and a key that is a child node's whole `reach`
 //!   opens that child, as `v` opens the file view. A row whose meaning
-//!   begins "Asks whether" opens a question. Two planned rows act by
+//!   begins "Asks whether" opens a question: the question whose reach
+//!   names the key and the node, as `w in looks` does, else the confirm
+//!   question. Two planned rows act by
 //!   what their notes say the TUI does today, so the walks reach a value
 //!   being typed.
 //! - In a layer or a typed value, Esc goes where the node's `leave`
@@ -322,8 +324,38 @@ pub fn expect(from: &str, key: &str) -> Option<Expect> {
     if planned_row(node, key) && key.chars().all(|c| c.is_ascii_digit()) {
         return Some(Expect::At(from.to_owned()));
     }
+    // a question of its own names the key and the node it is asked from
+    // in its reach, as `w in looks` does; any other is the confirm question
     if means("Asks whether") {
-        return Some(Expect::At("any.question.confirm".to_owned()));
+        let named = rows.iter().any(|r| r.key.split(", ").any(|k| k == key));
+        // the moving keys can take the tab to a node of the same tab with
+        // no dot in its id, as looks-resources is for looks, and the
+        // reference cannot tell which; a key that only one of them lists
+        // is not predicted
+        let ids: Vec<&String> = node
+            .keys
+            .iter()
+            .filter(|id| {
+                tables()
+                    .rows
+                    .get(*id)
+                    .is_some_and(|r| r.key.split(", ").any(|k| k == key))
+            })
+            .collect();
+        let elsewhere = tables().tree.iter().any(|n| {
+            n.parent == node.id && !n.id.contains('.') && !ids.iter().all(|id| n.keys.contains(id))
+        });
+        if named && elsewhere {
+            return None;
+        }
+        let own = tables().tree.iter().find(|n| {
+            named
+                && n.id.starts_with("any.question.")
+                && n.status == "supported"
+                && n.reach.starts_with(&format!("{key} in {} ", node.id))
+        });
+        let to = own.map_or("any.question.confirm", |n| n.id.as_str());
+        return Some(Expect::At(to.to_owned()));
     }
     if let Some(child) = tables()
         .tree

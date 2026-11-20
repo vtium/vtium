@@ -29,6 +29,20 @@ impl App {
         Vec::new()
     }
 
+    /// Closes the question with nothing done, as Esc does.
+    fn cancel_question(&mut self, leaves: bool) -> Vec<Effect> {
+        self.nav.confirm = None;
+        self.shared.font_install = None;
+        // going back from the install the leave question started leaves
+        // no install waiting
+        self.shared.quit_after_install = None;
+        self.say(if leaves {
+            words::NOT_LEFT
+        } else {
+            words::NOT_DONE
+        })
+    }
+
     /// A key while a question is asked. `y` does what the question asks.
     /// The quit question also takes `n`, which quits without the unsaved
     /// changes, and the leave question takes `n`, which quits without
@@ -44,21 +58,14 @@ impl App {
             self.nav.confirm.as_ref().map(|c| &c.then),
             Some(Then::Quit(_) | Then::Leave(_))
         );
+        // the question whether to let programs resize the grid takes `n`
+        // as a no, as Esc is
+        let no = super::nav::node(self) == "any.question.window-ops";
         match key {
             Key::Char('y') => {}
             Key::Char('n') if leaves => {}
-            Key::Escape | Key::Interrupt => {
-                self.nav.confirm = None;
-                self.shared.font_install = None;
-                // going back from the install the leave question started
-                // leaves no install waiting
-                self.shared.quit_after_install = None;
-                return self.say(if leaves {
-                    words::NOT_LEFT
-                } else {
-                    words::NOT_DONE
-                });
-            }
+            Key::Escape | Key::Interrupt => return self.cancel_question(leaves),
+            Key::Char('n') if no => return self.cancel_question(leaves),
             _ => return Vec::new(),
         }
         let Some(confirm) = self.nav.confirm.take() else {

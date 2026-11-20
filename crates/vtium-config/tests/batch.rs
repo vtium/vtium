@@ -425,9 +425,9 @@ fn deactivating_a_font_that_a_look_uses_warns_and_names_the_look() {
 }
 
 /// Deactivating the pointer theme that vtium.conf's pointer-theme names
-/// warns that every head shows vtium's own pointer pictures from the next
-/// login, since a look cannot pick a pointer theme of its own. The key's
-/// value matches the theme's folder with or without its last slash.
+/// warns that each look that names no pointer theme of its own shows
+/// vtium's own pointer pictures from the next login. The key's value
+/// matches the theme's folder with or without its last slash.
 ///
 /// References:
 /// - ADR-1205 D8: deactivating a resource warns and names what uses it.
@@ -447,7 +447,38 @@ fn deactivating_the_pointer_theme_vtium_conf_names_warns() {
     let ran = f.ok(&["deactivate", &theme]);
     assert!(
         ran.out.contains(
-            "vtium.conf's pointer-theme names this pointer theme. From the next login after the install, every head shows vtium's own pointer pictures in its place."
+            "vtium.conf's pointer-theme names this pointer theme. From the next login after the install, each look that names no pointer theme of its own shows vtium's own pointer pictures in its place."
+        ),
+        "{}",
+        ran.out
+    );
+}
+
+/// Deactivating a pointer theme that a look names in its own
+/// `pointer-theme` line warns that the look shows vtium's own pointer
+/// pictures from the next login.
+///
+/// References:
+/// - ADR-1205 D6: each look picks its own pointer theme.
+/// - ADR-1205 D8: deactivating a resource warns and names the looks that
+///   use it.
+#[test]
+fn deactivating_a_pointer_theme_a_look_names_warns_of_that_look() {
+    let f = fixture("warn-look-pointer");
+    std::fs::create_dir_all(f.path("res/theme/cursors")).expect("a cursor theme");
+    std::fs::write(f.path("res/theme/cursors/default"), "a cursor\n").expect("a cursor");
+    let theme = f.arg("res/theme");
+    std::fs::write(f.path("etc/batch.conf"), format!("{theme}\n")).expect("a batch file");
+    std::fs::write(
+        f.path("etc/vtium.conf"),
+        format!("{INSTALLED}[look big]\npointer-theme = {theme}\n"),
+    )
+    .expect("vtium.conf");
+    f.desk();
+    let ran = f.ok(&["deactivate", &theme]);
+    assert!(
+        ran.out.contains(
+            "Look big uses this pointer theme. From the next login after the install, look big shows vtium's own pointer pictures in its place."
         ),
         "{}",
         ran.out

@@ -21,9 +21,9 @@
 //! outline font, or a font not described yet, the usual sizes. A value the
 //! look sets that the choices lack, such as a color scheme file or a font
 //! set that does not read, is listed too, so stepping from it never drops
-//! the look's key. Every look
-//! draws the pointer theme vtium.conf sets, so the pointer theme line
-//! shows that theme and has no choices.
+//! the look's key. The pointer theme line offers vtium.conf's theme first,
+//! which leaves the look's `pointer-theme` unset, then each active pointer
+//! theme, so a look picks only a theme that passed the trust rule.
 //!
 //! References:
 //! - ADR-1205 D6: a look is assembled by role, and picks its effects
@@ -38,6 +38,9 @@
 //!   new look, and a vtlook that does not read may still be picked.
 //! - ADR-1304 D5: the look's vtlook wins, then the top level's, then the
 //!   built-in one, which `vtlook = default` names.
+//! - ADR-1205 D6: each look picks one active pointer theme, and
+//!   vtium.conf's `pointer-theme` stays the default for a look that picks
+//!   none.
 //! - ADR-1403 D10: the card, its shared list and Esc keeping its changes.
 
 use super::super::super::edit::Change as DraftChange;
@@ -78,7 +81,8 @@ impl Line {
             Line::Size => Some("font-size"),
             Line::Palette => Some("palette"),
             Line::Vtlook => Some("vtlook"),
-            Line::Name | Line::Pointer => None,
+            Line::Pointer => Some("pointer-theme"),
+            Line::Name => None,
         }
     }
 }
@@ -312,7 +316,38 @@ pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
             );
             out
         }
-        Line::Name | Line::Pointer => return Vec::new(),
+        Line::Pointer => {
+            // vtium.conf's theme first, which leaves the look's key unset,
+            // then each active theme, vtium's own pictures first as the
+            // list of pointer themes holds them
+            let top = top(shared, "pointer-theme");
+            let mut out = vec![Choice::new(
+                words::top_choice(
+                    words::TOP_POINTER,
+                    top.as_deref().unwrap_or(words::POINTER_OWN),
+                ),
+                None,
+                "",
+            )];
+            out.extend(
+                shared
+                    .inputs
+                    .effects
+                    .pointers
+                    .iter()
+                    .filter(|r| r.active() && !r.hidden)
+                    .map(|r| {
+                        let path = r.path.to_string_lossy().into_owned();
+                        Choice::new(
+                            crate::onscreen::text(&r.name()),
+                            Some(path),
+                            words::POINTER_ACTIVE_NOTE,
+                        )
+                    }),
+            );
+            out
+        }
+        Line::Name => return Vec::new(),
     };
     let now = value(shared, look, line);
     if now.is_some() && !out.iter().any(|c| c.value == now) {
@@ -355,7 +390,8 @@ fn value(shared: &Shared, look: &Look, line: Line) -> Option<String> {
             .vtlook
             .clone()
             .filter(|v| v != vtium_settings::vtlook::DEFAULT || top_vtlook(shared).is_some()),
-        Line::Name | Line::Pointer => None,
+        Line::Pointer => look.pointer.clone(),
+        Line::Name => None,
     }
 }
 
@@ -416,11 +452,10 @@ fn shown(shared: &Shared, look: &Look, line: Line) -> String {
                 None => shown,
             }
         }
-        Line::Pointer => {
-            let theme =
-                vtium_settings::setting(shared.conf_text().unwrap_or_default(), "pointer-theme");
-            words::pointer_line(theme.as_deref())
-        }
+        Line::Pointer => match &look.pointer {
+            Some(own) => words::pointer_line(Some(own), false),
+            None => words::pointer_line(top(shared, "pointer-theme").as_deref(), true),
+        },
     }
 }
 
@@ -526,6 +561,15 @@ impl Card {
         } else {
             words::CARD_HINT.to_owned()
         }];
+        // on the size line, a vtium console that does not let programs
+        // resize its grid takes no size live, and the card says why
+        if self.line() == Line::Size
+            && shared.in_vtium()
+            && !shared.window_ops()
+            && !shared.window_ops_drafted()
+        {
+            sentences.push(words::WINDOW_OPS_NOTICE.to_owned());
+        }
         sentences.push(words::ROLES_HEADING.to_owned());
         match look.frit.clone().or_else(|| shared.drafted("font-name")) {
             Some(frit) => {
@@ -567,6 +611,29 @@ impl Card {
                 value: choice.value,
             }],
             select: None,
+        })]
+    }
+
+    /// Enter on the size `pick` of the size line's list: the size tried on
+    /// the console's grid, in points, where the console can take it. The
+    /// first choice leaves the look's size to vtium.conf, so it tries
+    /// vtium.conf's size.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
+    ///   highlighted size to the console as a timed trial.
+    fn try_size(&self, shared: &Shared, look: &Look, pick: usize) -> Vec<Command> {
+        let Some(choice) = choices(shared, look, Line::Size).into_iter().nth(pick) else {
+            return Vec::new();
+        };
+        let points = choice
+            .value
+            .or_else(|| top(shared, "font-size"))
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(0);
+        vec![Command::Change(Change::TrySize {
+            font: self.font_set(shared),
+            points,
         })]
     }
 
@@ -617,6 +684,11 @@ impl Card {
             Some(Open::List(mut lb)) => {
                 let n = choices(shared, &look, line).len();
                 Step::Stay(match lb.key(key, n) {
+                    Act::Picked(i) if line == Line::Size => {
+                        let mut out = self.pick(shared, &look, line, i);
+                        out.extend(self.try_size(shared, &look, i));
+                        out
+                    }
                     Act::Picked(i) => self.pick(shared, &look, line, i),
                     Act::Closed => Vec::new(),
                     _ => {
@@ -635,11 +707,6 @@ impl Card {
                     self.open = Some(Open::Typing(self.name.clone()));
                     Step::Stay(Vec::new())
                 }
-                // the pointer theme line offers no choices yet, so Enter
-                // says why
-                Key::Enter if line == Line::Pointer => Step::Stay(vec![Command::Change(
-                    Change::Say(words::LOOK_POINTER_NOT_YET.to_owned()),
-                )]),
                 Key::Enter if !choices(shared, &look, line).is_empty() => {
                     let at = chosen(shared, &look, line).unwrap_or(0);
                     self.open = Some(Open::List(ListBox::at(at)));

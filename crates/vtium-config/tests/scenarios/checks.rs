@@ -599,9 +599,12 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // another shape today: what the key does there today is not pinned
     let not_built: Check = |_| Err("not built".into());
     m.insert("list.filter-picker", (not_built, None));
-    // w asks nothing yet in the Looks tab
-    m.insert("window-ops.view.looks", (not_built, Some(nothing)));
-    looks_checks(&mut m, not_built, nothing);
+    // w asks whether to let programs resize the grid
+    m.insert(
+        "window-ops.view.looks",
+        (|s| s.opens("question:window-ops"), None),
+    );
+    looks_checks(&mut m);
     m.insert(
         "enter.typing.settings",
         (
@@ -1129,11 +1132,7 @@ fn installs(s: &Seen<'_>) -> Result<(), String> {
 /// The checks of the Looks tab's rows and of a look's card: what Enter,
 /// `n`, `r`, `t` and `p` do on each kind of item, and what the card's keys
 /// do on each line.
-fn looks_checks(
-    m: &mut BTreeMap<&'static str, (Check, Option<Check>)>,
-    not_built: Check,
-    nothing: Check,
-) {
+fn looks_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
     m.insert(
         "enter.view.looks",
         (
@@ -1253,11 +1252,10 @@ fn looks_checks(
         "list.font-sizes",
         "list.palettes",
         "list.look-effects",
+        "list.pointer-themes",
     ] {
         m.insert(id, (|s| s.goes_to("looks.look.list"), None));
     }
-    // a look draws vtium.conf's pointer theme, so its line has no list
-    m.insert("list.pointer-themes", (not_built, Some(nothing)));
 }
 
 /// The group of the item the Looks tab highlighted before the key, as
@@ -1755,7 +1753,11 @@ impl Checks {
             }
             if let Some(wrote) = self.found.writes.get(v.id.as_str()) {
                 for part in wrote {
-                    if !v.writes.contains(part) {
+                    // `top:KEY` is one top-level key, which a row's `top`
+                    // allows with every other
+                    let allowed = v.writes.contains(part)
+                        || part.starts_with("top:") && v.writes.iter().any(|w| w == "top");
+                    if !allowed {
                         self.found.failures.push(format!(
                             "{} writes {part}, which the views table does not list",
                             v.id
@@ -1768,7 +1770,8 @@ impl Checks {
 }
 
 /// The parts of vtium.conf that differ between `before` and `after`, by
-/// the views table's names: `top`, `look`, `head`, `rules` and `labels`.
+/// the views table's names: `top:KEY` for each top-level key, `look`,
+/// `head`, `rules` and `labels`.
 /// The `version = 1` line that the first change to a draft with no
 /// sections writes is left out, as the views table's note says.
 fn written(before: &str, after: &str) -> BTreeSet<String> {
@@ -1796,7 +1799,16 @@ fn written(before: &str, after: &str) -> BTreeSet<String> {
     a.keys()
         .chain(b.keys())
         .filter(|k| a.get(*k) != b.get(*k))
-        .map(|(part, _)| part.clone())
+        .map(|(part, line)| {
+            if part != "top" {
+                return part.clone();
+            }
+            // a top-level line names its key before `=`, or is the bare
+            // key of a switch that is on, or `no-KEY` for one that is off
+            let key = line.split('=').next().unwrap_or("").trim();
+            let key = key.strip_prefix("no-").unwrap_or(key);
+            format!("top:{key}")
+        })
         .collect()
 }
 
@@ -1811,7 +1823,6 @@ fn reached_today(id: &str) -> Option<bool> {
         "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
         // nothing like it exists today
         "flow.card.list" | "looks.new-frit.list" => false,
-        "any.question.window-ops" => false,
         // the six tabs' new screens and questions, which nothing builds yet
         "effects.filter" | "effects.effect" | "any.question.deactivate" => false,
         _ => return None,

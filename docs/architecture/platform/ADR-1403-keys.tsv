@@ -62,7 +62,7 @@ n.view.looks	n	view:looks	Among the looks, makes a new look and lets you type it
 t.view.looks	t	view:looks	Tries the highlighted look or font set on this console for 10 seconds.	supported	today t tries the look's font set alone; the look's size, color scheme, and vtlook take effect when vtium starts with them	ADR-1201 D4; ADR-1403 D10	#379	try live	1
 enter.view.looks	Enter	view:looks	On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail.	supported		ADR-1205 D1, D6, D10; ADR-1403 D10	#379	open	1
 p.view.looks	p	view:looks	On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview.	supported	the label names the preview p switches to, picture or sample	ADR-1201 D4	#379	picture | sample	
-window-ops.view.looks	w	view:looks	Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing.	planned	the notice line shows w	ADR-1201 D4	#379	resize grid	
+window-ops.view.looks	w	view:looks	Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing.	supported	the notice line shows w	ADR-1201 D4	#379	resize grid	
 t.layer.flow-card	t	layer:flow-card	Tries the card's look on this console for 10 seconds.	planned	today t does nothing on a card	ADR-1201 D4; ADR-1205 D1; ADR-1403 D10	#379	try live	
 o.view.looks	o	view:looks	Does nothing here.	supported		ADR-1201 D4; ADR-1403 D7	#412	-	
 looks-keys.view.resources	n, r, t, p	view:resources	Does nothing here, because these keys act on a look or a font set.	supported		ADR-1403 D7, D10	#379	-	
@@ -138,7 +138,7 @@ right.layer.look	Right	layer:look	Steps the highlighted line to its next choice.
 enter.layer.look	Enter	layer:look	On the look's name, lets you type a new name.	supported		ADR-1403 D10	#379	choose	1
 t.layer.look	t	layer:look	Tries this look on this console for 10 seconds.	supported	today t tries the look's font set alone; the look's size, color scheme, and vtlook take effect when vtium starts with them	ADR-1201 D4; ADR-1403 D10	#379	try live	
 list.look-effects	Enter	layer:look	On the look's vtlook, shows the vtlooks as a list in the Effects tab's order: No filter first, then the presets, then the administrator's vtlooks. A vtlook that does not read, such as one that names a color map that is not active, shows why, and the look can still pick it. A new look starts on No filter.	supported		ADR-1205 D6; ADR-1304 D4; ADR-1403 D5, D10	#379	choose	1
-list.pointer-themes	Enter	layer:look	On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first.	planned	today a look cannot pick a pointer theme of its own, and Enter on the line says so	ADR-1205 D6; ADR-1403 D10	#379	choose	1
+list.pointer-themes	Enter	layer:look	On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first.	supported		ADR-1205 D6; ADR-1403 D10	#379	choose	1
 up.layer.flow-detail	Up	layer:flow-detail	Does nothing on the label line, which is the first line of the detail.	supported		ADR-1403 D7		-	
 down.layer.flow-detail	Down	layer:flow-detail	Moves from the label line to the part's first choice.	supported		ADR-1403 D7		choices	
 end.layer.flow-detail	End	layer:flow-detail	Moves from the label line to the last choice.	supported		ADR-1403 D7		choices	

@@ -129,6 +129,10 @@ pub fn node(app: &App) -> &'static str {
             Then::Leave(_) => "any.question.leave",
             Then::Desk(super::desk::Op::Resource { .. }) => "any.question.deactivate",
             Then::InstallFont => "any.question.system-font",
+            Then::Change(super::edit::Change::Top {
+                key: "allow-window-ops",
+                ..
+            }) => "any.question.window-ops",
             _ => "any.question.confirm",
         };
     }

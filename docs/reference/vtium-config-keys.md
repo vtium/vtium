@@ -102,7 +102,7 @@ flowchart LR
     any --> any_trial
     any --> any_too_small
     classDef planned stroke-dasharray: 5 5
-    class flow_card_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,any_question_window_ops planned
+    class flow_card_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list planned
 ```
 
 Each section below names a screen by its place in the tree, says how you open and leave it, and lists its keys. The column "Shown as" gives the word the key line shows beside the key, and a dash marks a key that the key line leaves out.
@@ -576,7 +576,7 @@ The Looks tab: the looks, the font sets, the color schemes and the installed poi
 | t | try live | Tries the highlighted look or font set on this console for 10 seconds. |
 | Enter | open | On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail. |
 | p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview. |
-| w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. |
 | o | - | Does nothing here. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
@@ -649,7 +649,7 @@ A look's card: its name, font set, size, color scheme, vtlook and pointer theme,
 | Enter | choose | On the look's size, shows the sizes that the look's fonts supply as a list. |
 | Enter | choose | On the look's color scheme, shows the color schemes as a list: first the one vtium.conf sets, which leaves the look's own unset, then the built-in schemes, then the active scheme files. |
 | Enter | choose | On the look's vtlook, shows the vtlooks as a list in the Effects tab's order: No filter first, then the presets, then the administrator's vtlooks. A vtlook that does not read, such as one that names a color map that is not active, shows why, and the look can still pick it. A new look starts on No filter. |
-| Enter | choose | On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first. |
 | t | try live | Tries this look on this console for 10 seconds. |
 
 ## `looks.look.list`
@@ -1254,8 +1254,6 @@ The question before a font from your own folders is installed as a system font, 
 ## `any.question.window-ops`
 
 "Let programs resize the grid?"
-
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config has no such question.
 
 **Open it:** W in looks while allow-window-ops is off.
 

@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+assertion_line: 117
+description: "any.question.window-ops at 79×24, keys: 3 w"
+---
+y yes  n no  Esc Ctrl-C cancel
+This terminal is too small: vtium-config needs at least 80x25 characters, and
+this terminal is 79x24.
+
+Make this terminal larger, or use these commands, which work at any size:
+  vtium-config flow
+  vtium-config diff
+  vtium-config install
+  vtium-config get
+  vtium-config set
+  vtium-config revert
+  vtium-config new
+  vtium-config rule
+  vtium-config head
+  vtium-config look
+  vtium-config draft
+  vtium-config history
+  vtium-config restore
+  vtium-config library
+  vtium-config edit
+  vtium-config fonts
+  vtium-config check
+  vtium-config new-frit
+  vtium-config remove-frit

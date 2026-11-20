@@ -6,15 +6,17 @@
 //! tabs share. A cursor theme is activated by its folder, and every file
 //! in the folder is active while the batch lists the folder.
 //!
-//! A look cannot pick a pointer theme yet, because vtium.conf's
-//! `pointer-theme` key is read only at the top level. So every look draws
-//! the theme that key names, and a theme's detail says whether the key
-//! names it.
+//! Each look picks one active theme on its card with its own
+//! `pointer-theme` line, and a look that picks none draws the theme that
+//! vtium.conf's top-level `pointer-theme` names. A theme's detail names the
+//! looks that use it.
 //!
 //! References:
 //! - ADR-1205 D4, its notes of 2026-11-19: a pointer theme is activated by
 //!   its folder, vtium's own pictures are active on a fresh install, and
 //!   every kind of resource passes the same gate.
+//! - ADR-1205 D6: each look picks an active pointer theme, and vtium.conf's
+//!   `pointer-theme` stays the default for a look that picks none.
 //! - ADR-1205 D6: the Looks tab lists the installed pointer themes, from
 //!   `/usr/share/vtium/pointers.svg`, `/usr/share/icons` and
 //!   `/usr/local/share/icons`.
@@ -42,8 +44,9 @@ pub fn item(shared: &Shared, at: usize) -> Item {
 }
 
 /// The uses of the pointer theme at `path` in the draft, by the rule the
-/// command line's warning follows: the top level of vtium.conf when its
-/// `pointer-theme` names the theme, which every look then draws.
+/// command line's warning follows: each look whose own `pointer-theme`
+/// names the theme, and the top level of vtium.conf when its
+/// `pointer-theme` names it, which every look that names none draws.
 pub fn uses(shared: &Shared, path: &Path) -> Vec<Use> {
     let none = |_: &str| Vec::new();
     crate::batch::uses(
@@ -76,6 +79,13 @@ pub fn detail(shared: &Shared, at: usize) -> Vec<String> {
         },
         words::detail_state(words::active_mark(r.state)),
         words::detail_trust(r.kind, r.trust.as_ref().err().map(String::as_str)),
-        words::pointer_users(!uses(shared, &r.path).is_empty()),
+        {
+            let uses = uses(shared, &r.path);
+            let looks: Vec<String> = uses
+                .iter()
+                .filter_map(|u| u.look.as_deref().map(text))
+                .collect();
+            words::pointer_users(uses.iter().any(|u| u.look.is_none()), &looks)
+        },
     ]
 }

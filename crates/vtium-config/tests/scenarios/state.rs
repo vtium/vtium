@@ -193,6 +193,10 @@ fn open(app: &App, at: &str) -> (StateKind, &'static str) {
             match &confirm.then {
                 Then::Quit(_) => "quit",
                 Then::Leave(_) => "leave",
+                Then::Change(vtium_config::tui::edit::Change::Top {
+                    key: "allow-window-ops",
+                    ..
+                }) => "window-ops",
                 Then::Change(_) => "change",
                 Then::Install(_) => "install",
                 Then::InstallFont => "system font",
