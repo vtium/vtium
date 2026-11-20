@@ -304,7 +304,7 @@ fn a_pointer_file_follows_its_place_in_the_batch_from_login_to_login() {
     settle(&mut lp, &mut app, t);
     let id = app.heads.first().unwrap().console.id;
     assert!(
-        app.pointer_store.asked().is_empty(),
+        app.top_pointer_store().asked().is_empty(),
         "a pointer file the batch does not list is not read"
     );
     // root activates the pointer file, and the next login loads it
@@ -314,18 +314,18 @@ fn a_pointer_file_follows_its_place_in_the_batch_from_login_to_login() {
     app.turn(t);
     settle(&mut lp, &mut app, t);
     assert_eq!(
-        app.pointer_store.asked().len(),
+        app.top_pointer_store().asked().len(),
         1,
         "the display asks the loaded file for its height"
     );
     // root deactivates it, and the next login drops it
     write(&file, "# nothing is active\n");
     app.return_font(0, id);
-    assert!(app.pointer_store.current().is_none());
+    assert!(app.top_pointer_store().current().is_none());
     app.turn(t);
     settle(&mut lp, &mut app, t);
     assert!(
-        app.pointer_store.asked().is_empty(),
+        app.top_pointer_store().asked().is_empty(),
         "a deactivated pointer file is not read again"
     );
 }

@@ -1265,10 +1265,11 @@ pub const POINTER_THEME: Key = Key {
     kind: Kind::Path,
     default: Default::Unset,
     scope: Scope::Anywhere,
-    levels: TOP,
+    levels: TOP_LOOK,
     what: "The SVG file or cursor theme folder whose pictures the pointer takes.\n\n\
            [docs] The value is an SVG file in vtium's pointer file format, or the folder of a desktop cursor theme, such as `/usr/share/icons/Adwaita`. vtium installs its own pictures as `/usr/share/vtium/pointers.svg`, which you can copy and edit. The format is described in [the pointer file reference](https://vtium.github.io/vtium/reference/pointer-file/).\n\n\
-           [docs] When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and `pointer-char` keeps the default shape. The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no `Inherits=` line, so name the folder that holds the `cursors` folder.",
+           [docs] When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and `pointer-char` keeps the default shape. The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no `Inherits=` line, so name the folder that holds the `cursors` folder.\n\n\
+           [docs] A look's own `pointer-theme` wins over this one.",
 };
 
 pub const POINTER_SIZE: Key = Key {
@@ -2810,6 +2811,7 @@ mod tests {
             names(Level::Look),
             [
                 "palette",
+                "pointer-theme",
                 "font-engine",
                 "font-name",
                 "font-size",

@@ -148,6 +148,7 @@ mod held;
 pub mod keyboard_layout;
 #[cfg(test)]
 mod login_scope;
+mod pointers;
 #[cfg(test)]
 mod rapid;
 mod survive;
@@ -424,9 +425,6 @@ pub struct App {
     /// The glyph helper's program, opened at the start, which every helper
     /// starts from; why not, when it cannot be.
     launcher: Result<helper::Launcher, String>,
-    /// Whether the pointer file `pointer-theme` names has started loading
-    /// ([`App::pointer_turn`]).
-    pointer_file_started: bool,
     /// Where the console reads its batch, which lists the active
     /// resources, and the trust rule each resource passes: this
     /// machine's, or a test's.
@@ -434,12 +432,10 @@ pub struct App {
     /// How many times a reading of the batch found it changed since vtium
     /// started. Each head keeps the count it last caught up with.
     batch_changes: u64,
-    /// The pointer file while it loads, with the font helper that draws
-    /// its pictures.
-    pointer_file: Option<(crate::pointer_file::Loader, Helper)>,
-    /// The pointer file's pictures and the heights its displays ask for,
-    /// which the loader shares with every display's view.
-    pointer_store: crate::pointer_file::Store,
+    /// The pointer files the console loads: the top level's
+    /// `pointer-theme`, and each other one a head's look names, each with
+    /// its loader and the store its displays' views read.
+    pointers: Vec<pointers::Theme>,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
     /// The kernel's font, read from the VT at start for a frit's
@@ -643,14 +639,12 @@ impl App {
             reread: None,
             launcher: helper::Launcher::configured(&config)
                 .map(|l| l.with_locale(&locale(&inherited))),
-            pointer_file_started: false,
             batch_places: (
                 vtium_settings::batch::Places::system(),
                 vtium_settings::cullet::Rule::new(font::trust()),
             ),
             batch_changes: 0,
-            pointer_file: None,
-            pointer_store: crate::pointer_file::Store::default(),
+            pointers: Vec::new(),
             frits: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
@@ -1667,6 +1661,8 @@ impl App {
             ));
         }
         self.choose_font_adding(h, Some(size));
+        // the display draws the pointer theme of its head's look
+        let pointers = self.pointer_store(h);
         let Some(head) = self.heads.get(h) else {
             return;
         };
@@ -1685,7 +1681,7 @@ impl App {
                 ..head.render_config(&self.config)
             },
             self.measure(),
-            self.pointer_store.clone(),
+            pointers,
         );
         if self.config.switch(&keys::SOFT_CURSOR) {
             view.pointer = crate::pointer::Pointer::software();
@@ -2163,69 +2159,6 @@ impl App {
                 p.ping();
             }
         }))
-    }
-
-    /// Loads the pointer file `pointer-theme` names, from the first turn
-    /// on: takes the font helper's answer to the last pointer ask, sends
-    /// the next ask, and draws every head once the pictures change, so
-    /// that each display's pointer takes them. The loader and its helper
-    /// go once the loader asks for nothing more. A helper that cannot
-    /// start leaves vtium's own pictures.
-    ///
-    /// References:
-    /// - ADR-1309 D5: the compiled-in pictures draw until the font helper answers.
-    fn pointer_turn(&mut self, now: Instant) {
-        if !self.pointer_file_started {
-            self.pointer_file_started = true;
-            let size = self
-                .config
-                .number(&crate::config::keys::POINTER_SIZE)
-                .and_then(|n| u32::try_from(n).ok());
-            if let Some(path) = self.config.text(&crate::config::keys::POINTER_THEME) {
-                let path = PathBuf::from(path);
-                if let Some(loader) =
-                    crate::pointer_file::Loader::start(&path, size, &self.pointer_store)
-                {
-                    match self
-                        .launcher
-                        .clone()
-                        .and_then(|l| self.helper_wake().map(|w| (l, w)))
-                    {
-                        Ok((launcher, wake)) => {
-                            self.pointer_store.set_wake(std::sync::Arc::clone(&wake));
-                            let helper = Helper::for_pointers(launcher, wake, self.epoch);
-                            self.pointer_file = Some((loader, helper));
-                        }
-                        Err(why) => log::warn!("{}", crate::pointer_file::lost_line(&path, &why)),
-                    }
-                }
-            }
-        }
-        let Some((loader, helper)) = &mut self.pointer_file else {
-            return;
-        };
-        helper.poll(now);
-        loop {
-            if let Some(answer) = helper.pointer_answer() {
-                loader.take(answer);
-            }
-            if helper.busy() {
-                break;
-            }
-            match loader.next_ask() {
-                Some(ask) => helper.pointer(&ask, now),
-                None => break,
-            }
-        }
-        loader.emit();
-        if !helper.busy() && loader.publish() {
-            for head in &mut self.heads {
-                head.draw_now = true;
-            }
-        }
-        if loader.ended() && !helper.busy() {
-            self.pointer_file = None;
-        }
     }
 
     /// Takes each helper's answers: each display at a set's cell, of every
@@ -5379,7 +5312,7 @@ impl App {
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
         }
-        due.extend(self.pointer_file.as_ref().and_then(|(_, h)| h.deadline()));
+        due.extend(self.pointer_deadlines());
         // A notice's time runs out while the displays draw, and its screen
         // has no other timer, since its cursor is hidden (ADR-1401 D3).
         if self.awake {
@@ -6247,7 +6180,7 @@ mod tests {
     }
 
     /// What the start runs for a trusted head file holding `text`.
-    fn start(text: &str) -> Start {
+    pub(super) fn start(text: &str) -> Start {
         Start::trusted(Path::new("heads.conf"), text.as_bytes())
     }
 
@@ -6304,13 +6237,13 @@ mod tests {
     #[test]
     fn a_display_asks_the_consoles_pointer_file_store_for_its_height() {
         let (_lp, mut app) = seat(None, no_fonts());
-        app.pointer_store.take_heights();
+        app.top_pointer_store().take_heights();
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A")])),
         );
         shown(&mut app);
-        assert_eq!(app.pointer_store.asked(), [16]);
+        assert_eq!(app.top_pointer_store().asked(), [16]);
     }
 
     // A display that joins a head takes the color table of the head's
