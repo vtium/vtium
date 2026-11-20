@@ -941,14 +941,15 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
 /// `fonts --files`: each font file vtium-config finds on this machine, one
 /// line each, tab-separated, in the columns of [`crate::discover::row`].
 /// The font helper describes each file under its own sandbox, so this
-/// process parses no font. Its state comes from the current draft, as
-/// `active` reports it.
+/// process parses no font, and each line is printed as soon as its file
+/// is described. Its state comes from the current draft, as `active`
+/// reports it.
 ///
 /// References:
 /// - ADR-1205 D3: the folders, and a user's font listed as not usable.
 /// - ADR-1205 D4: each font's trust mark and its state in the batch.
 fn font_files(paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    use crate::discover::{Folders, describe, row, scan};
+    use crate::discover::{Folders, describe_each, row, scan};
     let text = match conf(paths) {
         Ok((_, text)) => text,
         Err(why) => return failed(err, &why),
@@ -982,31 +983,41 @@ fn font_files(paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
         &|p: &Path| resources.state(p),
     );
     let files: Vec<PathBuf> = found.iter().map(|f| f.path.clone()).collect();
-    for (f, d) in found.iter().zip(describe(&paths.helper, &files)) {
-        let _ = writeln!(out, "{}", row(f, &d));
-    }
+    let mut rows = found.iter();
+    describe_each(&paths.helper, &files, &mut |d| {
+        if let Some(f) = rows.next() {
+            let _ = writeln!(out, "{}", row(f, &d));
+            let _ = out.flush();
+        }
+    });
     0
 }
 
 /// `fonts --install-system FILE [--replace]`: installs the font file FILE
 /// as a system font, a copy in `/usr/local/share/fonts` that root owns.
 ///
-/// The font helper first reads FILE in its sandbox, and a file it cannot
-/// describe as a font is refused. When the folder already holds a file of
-/// the same name with the same bytes, the font is already installed and
-/// nothing changes. When that file holds other bytes, the command shows
-/// both files and replaces the installed one only after a yes at a
-/// terminal, or with `--replace`. The install is a draft that holds this
-/// one font, installed through `sudo vtium-config apply DIR`. At a
-/// terminal the command shows that command and asks before it runs it,
-/// each time. Away from a terminal it prints the draft and the command,
-/// as the frit commands do, and runs nothing.
+/// vtium-config reads FILE once and writes those bytes into a draft that
+/// holds this one font. The font helper then reads the draft's copy in
+/// its sandbox, so the file it judges is the file that is installed, and
+/// a copy it cannot describe as a font is refused and its draft removed.
+/// A font that a package installed under `/usr/share/fonts` is refused,
+/// because it is a system font already. When the folder already holds a
+/// file of the same name with the same bytes, the font is already
+/// installed and nothing changes. When that file holds other bytes, the
+/// command shows both files and replaces the installed one only after a
+/// yes at a terminal, or with `--replace`. The draft is installed through
+/// `sudo vtium-config apply DIR`. At a terminal the command shows that
+/// command and asks before it runs it, each time. Away from a terminal it
+/// prints the draft and the command, as the frit commands do, and runs
+/// nothing. Every path and reason it prints passes through
+/// [`crate::onscreen::text`].
 ///
 /// References:
 /// - ADR-1205 D5: the install step, its clash and its identical file.
 fn install_system(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     use crate::apply::{Placement, SystemFont};
     use crate::discover::{Described, FileFacts, describe};
+    use crate::onscreen::{path as shown_path, text};
     let (file, replace) = match words {
         [file] => (file, false),
         [file, flag] | [flag, file] if flag == "--replace" => (file, true),
@@ -1019,46 +1030,59 @@ fn install_system(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mu
     };
     let source = match std::path::absolute(file) {
         Ok(p) => p,
-        Err(e) => return failed(err, &format!("{file}: {e}")),
+        Err(e) => return failed(err, &text(&format!("{file}: {e}"))),
     };
     let targets = paths.targets();
     let font = match SystemFont::read(&source, &targets) {
         Ok(font) => font,
-        Err(why) => return failed(err, &why),
+        Err(why) => return failed(err, &text(&why)),
     };
     let placement = font.placement();
-    let mut asked = vec![font.source.clone()];
+    let draft = match font.write_draft(&paths.drafts) {
+        Ok(draft) => draft,
+        Err(e) => {
+            return failed(
+                err,
+                &text(&format!("the draft under {}: {e}", paths.drafts.display())),
+            );
+        }
+    };
+    // the draft is removed whenever the command installs nothing from it
+    let discard = || {
+        let _ = std::fs::remove_dir_all(&draft);
+    };
+    let mut asked = vec![font.draft_copy(&draft)];
     if placement == Placement::Replaces {
         asked.push(font.target.clone());
     }
     let described = describe(&paths.helper, &asked);
-    match described.first() {
-        Some(Described::Font(_)) => {}
-        Some(Described::NotAFont(why) | Described::Unknown(why)) => {
-            return failed(
-                err,
-                &format!(
-                    "{}: vtium-config cannot install this file as a system font, because the font helper cannot read it as a font: {why}",
-                    font.source.display()
-                ),
-            );
-        }
-        None => return failed(err, "the font helper did not answer"),
+    let unknown = Described::Unknown("the font helper did not answer".to_owned());
+    let yours = described.first().unwrap_or(&unknown);
+    if let Described::NotAFont(why) | Described::Unknown(why) = yours {
+        discard();
+        return failed(
+            err,
+            &format!(
+                "{}: vtium-config cannot install this file as a system font, because the font helper cannot read it as a font: {}",
+                shown_path(&font.source),
+                text(why)
+            ),
+        );
     }
     let terminal = std::io::IsTerminal::is_terminal(&std::io::stdin());
     match placement {
         Placement::Identical => {
+            discard();
             let _ = writeln!(
                 out,
                 "This font is already installed as {}, and the two files are the same. Nothing changed.",
-                font.target.display()
+                shown_path(&font.target)
             );
             return 0;
         }
         Placement::Replaces => {
-            let unknown = Described::Unknown("the font helper did not answer".to_owned());
             let installed = FileFacts::of(&font.target, described.get(1).unwrap_or(&unknown));
-            let yours = FileFacts::of(&font.source, described.first().unwrap_or(&unknown));
+            let yours = FileFacts::of(&font.source, yours);
             let _ = writeln!(out, "A different file of this name is already installed.");
             let _ = writeln!(out, "Installed: {}", installed.line());
             let _ = writeln!(out, "Yours: {}", yours.line());
@@ -1066,6 +1090,7 @@ fn install_system(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mu
                 || (terminal
                     && crate::vts::ask_line(out, "Replace the installed file with yours?"));
             if !yes {
+                discard();
                 let _ = writeln!(
                     out,
                     "Nothing changed. To replace the installed file, answer y at a terminal, or run the command again with --replace."
@@ -1075,45 +1100,41 @@ fn install_system(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mu
         }
         Placement::New => {}
     }
-    let draft = match font.write_draft(&paths.drafts) {
-        Ok(draft) => draft,
-        Err(e) => {
-            return failed(
-                err,
-                &format!("the draft under {}: {e}", paths.drafts.display()),
-            );
-        }
-    };
     let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
     let route = crate::apply::route(&targets, &paths.sudo);
     let argv = crate::apply::save_argv(&route, &program, &targets, &draft);
-    let shown = crate::vts::shown(&argv);
+    let shown = text(&crate::vts::shown(&argv));
     if !terminal {
-        let _ = writeln!(out, "write\t{}", font.target.display());
-        let _ = writeln!(out, "draft\t{}", draft.display());
+        let _ = writeln!(out, "write\t{}", shown_path(&font.target));
+        let _ = writeln!(out, "draft\t{}", shown_path(&draft));
         let _ = writeln!(out, "run\t{shown}");
         return 0;
     }
     let _ = writeln!(
         out,
         "To install {} as {}, vtium-config runs this command:\n  {shown}",
-        font.source.display(),
-        font.target.display()
+        shown_path(&font.source),
+        shown_path(&font.target)
     );
     if !crate::vts::ask_line(out, "Run this command?") {
         let _ = writeln!(
             out,
             "Nothing changed. The draft stays in {}.",
-            draft.display()
+            shown_path(&draft)
         );
         return 1;
     }
     match crate::drafts::run_child(&argv) {
         Ok((ok, said)) => {
-            let _ = write!(out, "{said}");
+            // what apply printed, a line at a time, each tab-separated
+            // column shown as text
+            for line in said.lines() {
+                let columns: Vec<String> = line.split('\t').map(text).collect();
+                let _ = writeln!(out, "{}", columns.join("\t"));
+            }
             u8::from(!ok)
         }
-        Err(e) => failed(err, &format!("{shown}: {e}")),
+        Err(e) => failed(err, &text(&format!("{shown}: {e}"))),
     }
 }
 

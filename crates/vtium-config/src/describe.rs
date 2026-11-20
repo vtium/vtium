@@ -326,16 +326,10 @@ fn ranges_of(mapped: &[u32]) -> (Vec<Cover>, bool) {
 /// character that turns text around or hides it replaced by U+FFFD, and
 /// cut at a character's edge to [`TEXT_BYTES_MAX`] bytes.
 pub fn clean(text: &str) -> String {
-    let hidden = |c: char| {
-        c.is_control()
-            || matches!(
-                c,
-                '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'
-            )
-    };
+    use crate::onscreen::{REPLACEMENT, hides};
     let mut out = String::new();
     for c in text.trim().chars() {
-        let c = if hidden(c) { '\u{fffd}' } else { c };
+        let c = if hides(c) { REPLACEMENT } else { c };
         if out.len().saturating_add(c.len_utf8()) > TEXT_BYTES_MAX {
             break;
         }
@@ -402,7 +396,7 @@ impl Read<'_> {
         Face {
             family: clean(self.family),
             style: clean(self.style),
-            version: self.version.map(clean).filter(|v| !v.is_empty()),
+            version: self.version.map(version_number).filter(|v| !v.is_empty()),
             outline: self.outline,
             monospaced: self.monospaced,
             scripts: scripts_of(&self.mapped),
@@ -412,6 +406,23 @@ impl Read<'_> {
             coverage,
             coverage_cut,
         }
+    }
+}
+
+/// A font's version as a listing shows it after the word "version":
+/// [`clean`] text less the word "Version" and its space that the name
+/// table usually puts before the number, in any case, as in "Version
+/// 2.000". A version that is the word alone stays as it is.
+fn version_number(text: &str) -> String {
+    let text = clean(text);
+    let word = "version ";
+    match text.get(..word.len()) {
+        Some(head) if head.eq_ignore_ascii_case(word) => text
+            .get(word.len()..)
+            .unwrap_or_default()
+            .trim_start()
+            .to_owned(),
+        _ => text,
     }
 }
 
@@ -903,7 +914,12 @@ mod tests {
         assert_eq!(d.format, Format::OpenType);
         let face = &d.faces[0];
         assert_eq!(face.family, "Test Mono");
-        assert_eq!(face.version.as_deref(), Some("Version 2.5"));
+        // the name table's "Version " before the number is left out
+        assert_eq!(face.version.as_deref(), Some("2.5"));
+        let lower = describe(&font.build_with_version("version 3"), "/f/t.ttf").unwrap();
+        assert_eq!(lower.faces[0].version.as_deref(), Some("3"));
+        let bare = describe(&font.build_with_version("Version"), "/f/t.ttf").unwrap();
+        assert_eq!(bare.faces[0].version.as_deref(), Some("Version"));
         assert!(face.outline);
         assert!(face.monospaced, "A and W both advance 600");
         assert_eq!(

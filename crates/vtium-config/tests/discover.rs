@@ -61,7 +61,7 @@ fn the_helper_describes_each_font_file_and_refuses_what_is_no_font() {
     };
     assert_eq!(d.format, Format::OpenType);
     assert_eq!(d.faces[0].family, "Test Mono");
-    assert_eq!(d.faces[0].version.as_deref(), Some("Version 3.1"));
+    assert_eq!(d.faces[0].version.as_deref(), Some("3.1"));
     assert!(d.faces[0].groups.contains(&Group::ColorEmoji));
     assert!(
         matches!(&got[1], Described::NotAFont(why) if why.contains("not a font that vtium reads")),
