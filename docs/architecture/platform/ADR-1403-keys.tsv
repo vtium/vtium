@@ -45,11 +45,11 @@ n.question	n	question	Answers no. Nothing changes.	supported		ADR-1403 D7	#412	n
 i.question.leave	i	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 l.question.leave	l	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 other.question	any other key	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-	
-s.view	s	view	Saves the changes that are not saved into the draft.	supported	it acts in Effects, Looks, Flow and Settings, whose tab bars show Save	ADR-1403 D7		save	
-s.view.fonts	s	view:fonts	Saves the changes that are not saved into the draft.	planned	today the Fonts view's tab bar shows Save, but outside a vtium console s switches the preview between the specimen and the picture of the console	ADR-1205 D1; ADR-1403 D10	#375	save	
+s.view	s	view	Saves the changes that are not saved into the draft.	supported	it acts in Fonts, Effects, Looks, Flow and Settings, whose tab bars show Save	ADR-1403 D7		save	
+s.view.fonts	s	view:fonts	Saves the changes that are not saved into the draft.	supported		ADR-1205 D1; ADR-1403 D10	#375	save	
 s.view.help	s	view:help	Does nothing here.	supported	Help's tab bar shows no action	ADR-1403 D7		-	
 s.layer.file-view	s	layer:file-view	Saves the changes that are not saved into the draft. The file view stays open and shows the file as it now stands.	supported		ADR-1403 D7		save	
-i.view	i	view	Saves, then asks whether to install the draft.	supported	it acts in Effects, Looks, Flow and Settings, whose tab bars show Install	ADR-1403 D7		install	
+i.view	i	view	Saves, then asks whether to install the draft.	supported	it acts in Fonts, Effects, Looks, Flow and Settings, whose tab bars show Install	ADR-1403 D7		install	
 i.view.help	i	view:help	Does nothing here.	supported		ADR-1403 D7	#412	-	
 i.layer.file-view	i	layer:file-view	Saves, then asks whether to install the draft. The file view stays open.	supported		ADR-1403 D7		install	
 action.layer	s i r n v o	layer	Do nothing until you close what is open with Esc.	supported	the file view is the exception, where s and i act	ADR-1403 D7	#412	-	
@@ -120,16 +120,16 @@ pgup.view.help	PgUp	view:help	Scrolls the page up by a window.	supported		ADR-14
 pgdn.view.help	PgDn	view:help	Scrolls the page down by a window.	supported		ADR-1403 D7		page down	
 left.view.help	Left	view:help	Switches between the Help and About pages.	supported		ADR-1403 D7		Help, About	1
 right.view.help	Right	view:help	Switches between the Help and About pages.	supported		ADR-1403 D7		Help, About	1
-enter.view.fonts	Enter	view:fonts	On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it.	planned	today Enter chooses the highlighted font set	ADR-1205 D3, D8; ADR-1403 D10	#375	open	
-t.view.fonts	t	view:fonts	Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why.	planned	today t tries the highlighted font set	ADR-1201 D4; ADR-1205 D3; ADR-1403 D10	#375	try live	
-n.view.fonts	n	view:fonts	Does nothing here. New font sets are made in the Looks tab.	planned	today n opens the form for a new font set	ADR-1205 D1; ADR-1403 D10	#375	-	
-r.view.fonts	r	view:fonts	Does nothing here. Font sets are removed in the Looks tab.	planned	today r marks the highlighted font set for removal at the next install	ADR-1205 D1; ADR-1403 D10	#375	-	
-space.view.resources	Space	view:resources	On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing.	supported	the Effects tab's color maps and shaders; on the Fonts tab, and on the Looks tab's color schemes and pointer themes, Space does nothing yet	ADR-1205 D1, D2, D4, D6, D8, D10; ADR-1403 D10	#375, #439, #379	activate	1
-p.view.fonts	p	view:fonts	Switches the preview between the sample characters and the picture of the console.	planned		ADR-1201 D4; ADR-1205 D3; ADR-1403 D10	#375	preview	
+enter.view.fonts	Enter	view:fonts	On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it.	supported		ADR-1205 D3, D8; ADR-1403 D10	#375	open	
+t.view.fonts	t	view:fonts	Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why.	planned	vtium's OSC 50 switches to a font set by its name, not to a single font file, so today t in the Fonts tab says that a font set made from the font can be tried in the Looks tab	ADR-1201 D4; ADR-1205 D3; ADR-1403 D10	#375	try live	
+n.view.fonts	n	view:fonts	Does nothing here. New font sets are made in the Looks tab.	supported		ADR-1205 D1; ADR-1403 D10	#375	-	
+r.view.fonts	r	view:fonts	Does nothing here. Font sets are removed in the Looks tab.	supported		ADR-1205 D1; ADR-1403 D10	#375	-	
+space.view.resources	Space	view:resources	On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing.	supported	the Fonts tab's fonts and the Effects tab's color maps and shaders; on the Looks tab's color schemes and pointer themes, Space does nothing yet	ADR-1205 D1, D2, D4, D6, D8, D10; ADR-1403 D10	#375, #439, #379	activate	1
+p.view.fonts	p	view:fonts	Switches the preview between the sample characters and the picture of the console.	supported		ADR-1201 D4; ADR-1205 D3; ADR-1403 D10	#375	preview	
 enter.view.effects	Enter	view:effects	On the filter line, shows the filters as a list. On a vtlook, a color map or a shader, opens its detail.	supported		ADR-1205 D3, D8; ADR-1304 D4, D11; ADR-1403 D10	#439	open	
 up.layer.detail	Up	layer:detail	Scrolls the detail up by a line.	supported		ADR-1403 D10	#375, #439, #379	scroll	
 down.layer.detail	Down	layer:detail	Scrolls the detail down by a line.	supported		ADR-1403 D10	#375, #439, #379	scroll	
-enter.layer.font	Enter	layer:font	On a font from your own folders, asks whether to install it as a system font. The question shows the exact command first.	planned		ADR-1205 D5; ADR-1403 D10	#375	install as system font	
+enter.layer.font	Enter	layer:font	On a font from your own folders, asks whether to install it as a system font. The question shows the exact command first.	supported		ADR-1205 D5; ADR-1403 D10	#375	install as system font	
 up.layer.look	Up	layer:look	Moves to the line above.	supported		ADR-1403 D10	#379	move	1
 down.layer.look	Down	layer:look	Moves to the line below.	supported		ADR-1403 D10	#379	move	1
 left.layer.look	Left	layer:look	Steps the highlighted line to its choice before.	supported		ADR-1403 D10	#379	change	1
