@@ -15,6 +15,7 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 | `src/variant.rs` | The glyph variant that a cell's attributes ask for: bold, italic, and superscript or subscript. |
 | `src/stored.rs` | A glyph as the cache keeps it. The cache turns the glyph once, keeps it at 1 bit when that is lossless, keeps it at the bitmap font's own size, and draws it a line at a time. |
 | `src/deco.rs` | The underline, strike and overline sprites. |
+| `src/beside.rs` | The ink beside a piece of a magnified character: for each row of the piece's cell, the pixels near the ink of the character's other pieces, which the piece's underline skips. |
 | `src/trig.rs` | `sin` and `cos` from basic float operations, for the curly underline. |
 | `src/blend.rs` | The per-pixel arithmetic, in whole numbers. |
 | `src/blend/linear.rs` | With `images`: the three tables that blend a partly transparent picture pixel in linear light, and their layout as the GPU path's texture. |
@@ -38,6 +39,7 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 | `src/gpu/stand_in.rs` | With `gpu`: `StandIn`, the tests' GL. It records its calls, and it draws the clears and the cell program's quads into its upright frames. |
 | `src/gpu/model.rs` | With `gpu`: the stand-in's model of the cell shader. The model reads what the GPU path hands the shader, as the shader does, and it blends with `src/blend.rs`. |
 | `src/gpu/ink.rs` | With `gpu`: the ink grid. The ink grid is what the cell shader reads about the neighbours whose ink a cell receives, and about the display lines that receive it. |
+| `src/gpu/beside.rs` | With `gpu`: the texture of the ink beside the pieces of magnified characters, which the cell shader reads for each piece whose underline the frame draws. |
 | `src/gpu/box_lines.rs` | With `gpu`: where the box of a glyph whose ink passes its cells holds ink, cell by cell. The ink grid sets a cell's line bits from it. |
 | `src/gpu/pipeline.rs` | With `gpu`: `Pipeline`, a display's frame through the five slots, what fills each slot, and present. |
 | `src/gpu/compose.rs` | With `gpu`: the composition into the upright frame and its tiles, `Work`, and the renderer's back end that turns cell jobs into quads. |
@@ -117,6 +119,10 @@ An overline (SGR 53) draws along the cell's top rows, over the glyph. In a scrip
 
 The underline and strike are sprites made from the font's lines (`src/deco.rs`). No specification covers an underline's shape. vtium gives an underline at most a quarter of the cell's rows, because an underline drawn over the letters hides their lower rows. At 8 pixels, a double or a curl drawn whole would take three of the cell's eight rows (vtium/vtium#119).
 
+A cell's underline skips its glyph's ink, in every style and in SGR 58's color. vtium leaves the line off every pixel within one pixel of the ink along the cell's row. So the line stops just short of a descender such as the tail of g, leaves a gap of one pixel, and goes on after it. Ink is any pixel of the glyph, or of its color layer, with a coverage above 0, and only the cell's own glyph counts. The line then shares no pixel with that glyph, so vtium draws it under the glyph and gets the pixels a line drawn on top would give. The ink of a neighbour's glyph that reaches into the cell draws over the line. The strike-through and the overline cross the glyph and skip nothing, and the underline cursor keeps its whole line. The maintainer decided this on 2026-11-20 (ADR-1302 D7). Tests: `tests/skip_ink.rs`.
+
+A magnified cell keeps a gap as wide as its magnification: 2 pixels on a line of double size, and `s` pixels in a sized run of scale `s`. So a magnified cell skips what the normal cell skips, magnified. Such a character draws as pieces, one for each display cell, and each piece holds only its own part of the character's ink. A descender near the edge between two pieces would then leave the gap short on the other side. So the glyph cache gives each piece the pixels near the ink of the character's other pieces, row by row, when it cuts the piece from the whole character (`src/beside.rs`). The whole block of a sized run counts as its one character. The CPU path's underline leaves those pixels out with the ones near the piece's own ink. The GPU path hands the same rows to the cell shader, as the GPU section says. Tests: `a_doubled_underline_skips_the_ink_of_the_whole_doubled_character`, `a_sized_runs_underline_skips_the_ink_of_the_whole_run` and `a_magnified_underline_skips_the_ink_of_its_whole_character_on_the_gpu_path`.
+
 The single, dotted and dashed lines are the font's line. A face with no metrics of its own puts that line in the cell's bottom rows, one row below the letters at 8 pixels. A curl lowers its wave to fit, down to 2 rows peak to peak. A double, or a curl that still does not fit, draws as the single line. A cell 12 rows tall or more has room for the double, with the lines that `for_height` gives. The cell also has room for the curl when it is at most half as wide as it is tall. A face with lines of its own meets the same quarter at the sizes that its own thickness sets.
 
 A strike is one size of a bitmap font. A strike that vtium-font scales by a whole factor brings the lines of the cell it draws (vtium/vtium#124). When the strike's own lines were `for_height` of its height, the strike brings `for_height` of the scaled height. Otherwise the strike brings its own lines, scaled. The room is the drawn cell's room, so an 8-pixel strike drawn at 16 pixels draws a 16-pixel cell's double. Take a strike whose own lines scale with it, two rows thick from row 14. It draws its double as the 8-pixel single line, scaled. It draws its curl as a wave 2 rows peak to peak in rows 12 to 15, which the 8-pixel cell had no room for. Tests: `every_underline_at_8_pixels_lies_in_the_bottom_row`, `no_underline_takes_more_than_a_quarter_of_the_cell`, `a_double_or_curl_with_no_room_draws_as_the_single_line`, `a_curl_lowers_its_wave_to_fit_before_it_flattens` and `a_scaled_strike_takes_the_room_of_the_cell_it_draws`.
@@ -156,7 +162,7 @@ A color emoji drawn in one cell also carries an ink box, 1 pixel past each side 
 Each cell remembers its reach in one byte. The reach says how many cells the ink of the cell's last glyph reaches to the left, to the right, up and down, in two bits each. To draw a cell, the renderer finds the neighbours whose reach covers the cell. It composes each pixel in this order (ADR-1306 D4):
 
 1. the cell's background;
-2. its underline;
+2. its underline, which leaves out every pixel within one pixel of the cell's own glyph's ink, so it draws what a line over the glyph would draw;
 3. the ink of the row above;
 4. the ink of the row below;
 5. the ink of the cells beside it, the farthest first;
@@ -370,7 +376,9 @@ The cell shader (`src/gpu/glsl/cell.frag`) draws a cell with the CPU path's inte
 - there is no dithering;
 - each channel `c` is written as `(c + 0.25) / 255`.
 
-A quad carries the cell's foreground and the glyph's kind, and its background. It also carries the colors and sprites of its underline, and of the lines over its glyph: the strike, the overline, or both. Each kind sits in the top byte of a color. A cell of one layer is `mask` or `over_bg`. A cell of several layers composes its underline, glyph and strike premultiplied, and then goes over its background, as `cell_line` does.
+A quad carries the cell's foreground and the glyph's kind, and its background. It also carries the colors and sprites of its underline, and of the lines over its glyph: the strike, the overline, or both. Each kind sits in the top byte of a color. A cell of one layer is `mask` or `over_bg`. A cell of several layers composes its underline, glyph and strike premultiplied, and then goes over its background, as `cell_line` does. Where the underline skips the glyph's ink, the shader reads the glyph's texels beside each pixel of the line, as `near_ink` does on the CPU path.
+
+A piece of a magnified character also needs the ink of the character's other pieces, which lie in other slots, perhaps in other textures. A slot keeps no pixels the CPU could read later, so the glyphs keep each slot's rows of the ink beside its piece when they fill the slot (`src/gpu/beside.rs`). Each frame gives each such slot that one of its underlines reads an entry in a small RGBA texture. The quad names that entry in the high bits of its column. The shader then leaves out the pixels each row of the entry keeps clear from the cell's left and right edges. A frame whose entries are the last frame's uploads nothing there, and a screen with no magnified underline never makes the texture.
 
 A glyph's ink that reaches past its cells is drawn into the cells around it, as the CPU path draws it (ADR-1306 D9, ADR-1300 D6). A glyph whose ink passes its cells goes to a fifth pool, the boxes. Each slot of the boxes holds the largest box that the glyph's ink may have at the bound. That is a wide glyph's two cells and the bound's cells to each side, by its row and the bound's rows above and below. The boxes count against the masks' budgets. They lie in one R8 texture, so that the shader samples every neighbour's glyph from it.
 

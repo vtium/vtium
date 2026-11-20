@@ -7,6 +7,7 @@
 
 use vtium_font::{Format as FontFormat, Glyph};
 
+use crate::beside::Beside;
 use crate::reach::{self, Reach};
 use crate::target::Orientation;
 
@@ -43,6 +44,10 @@ pub(crate) struct Stored {
     /// of a sized run whose text mixes them with text, which keep their
     /// own colors over the text the mask draws.
     layer: Option<Box<Stored>>,
+    /// For a piece of a magnified character, the pixels near the ink in
+    /// the character's pieces beside it, which the piece's underline
+    /// skips ([`Beside`]).
+    beside: Option<Box<Beside>>,
 }
 
 /// `width` by `height` pixels of `bpp` bytes turned by `o`: the pixel at
@@ -305,6 +310,7 @@ impl Stored {
                 at: (0, 0),
                 reach: Reach::NONE,
                 layer: None,
+                beside: None,
             };
         }
         Stored {
@@ -317,15 +323,30 @@ impl Stored {
             at: (0, 0),
             reach: Reach::NONE,
             layer: None,
+            beside: None,
         }
     }
 
-    /// Bytes its pixels take, its color layer's included: what the cache's
-    /// byte ceilings count.
+    /// Bytes its pixels take, its color layer's and the ink beside it
+    /// included: what the cache's byte ceilings count.
     pub(crate) fn bytes(&self) -> usize {
         self.data
             .len()
             .saturating_add(self.layer.as_ref().map_or(0, |l| l.bytes()))
+            .saturating_add(self.beside.as_ref().map_or(0, |b| b.bytes()))
+    }
+
+    /// This piece of a magnified character with `beside`, the pixels near
+    /// the ink in the character's pieces beside it, if any come near.
+    pub(crate) fn with_beside(mut self, beside: Option<Beside>) -> Stored {
+        self.beside = beside.map(Box::new);
+        self
+    }
+
+    /// The pixels near the ink beside this piece of a magnified character,
+    /// which its underline skips.
+    pub(crate) fn beside(&self) -> Option<&Beside> {
+        self.beside.as_deref()
     }
 
     /// This mask with `layer`, a color image of the same size, drawn over

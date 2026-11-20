@@ -21,8 +21,8 @@ Every decoder lives here. The console reads only the helper's glyphs and its own
 | `src/main.rs` | The binary: the command line, or the parser when run as `vtium-config --parse`. |
 | `src/cli.rs` | The command line: its options, the commands it dispatches, and their exit codes. |
 | `src/commands.rs` | `fonts`, `check FILE`, `remove-frit NAME` and `new-frit`'s non-interactive forms (ADR-1201 D2), and the key checks that `get` and `set` share. |
-| `src/store.rs` | vtium-config's store under the XDG directories (ADR-1403 D8). It holds the drafts, the library, the tool's settings, the installed history and each draft's base. It finds root's home from the password database. |
-| `src/drafts.rs` | The current draft, made from the installed file when there is none. The draft's state against the installed file, the check that every change runs, and `install`. |
+| `src/store.rs` | vtium-config's store under the XDG directories (ADR-1403 D8). It holds the drafts, each draft's font set folder `NAME.frits/`, the library, the tool's settings, the installed history and each draft's base. It finds root's home from the password database. |
+| `src/drafts.rs` | The current draft, made from the installed file when there is none. The draft's state against the installed file, its font set changes against the installed frits, the check that every change runs, and `install`, which writes the new frits, the batch file, vtium.conf, and then the removals. |
 | `src/batch.rs` | The active resources beside a draft (ADR-1205 D4): the draft's changes to the batch file in `NAME.batch`, the batch file an install writes from them, the trust rule each activated file passes, and the commands `activate`, `deactivate` and `active`. |
 | `src/vts.rs` | The step after an install of the system's vtium.conf (ADR-1201 D5). It reads `vtium console status`. It enables vtium with `vtium console enable` on each VT that a head names, where vtium is not enabled yet. It runs the `systemctl start` and `restart` that apply the new file, only after a yes. |
 | `src/ops.rs` | The one set of operations on the draft. Each operation takes vtium.conf's text and gives back the edited text, through vtium-settings's line editor and section writer. The commands and the TUI call them alike. |
@@ -523,6 +523,8 @@ Each later source fills only the codepoints that the earlier ones lack. A bitmap
 ## Outline fonts
 
 The engine rasterises each outline font with swash at the cell asked for, so the console's grid never moves for a font. The engine places each glyph in its cell by the rules below.
+
+**A damaged font is refused before swash reads it.** swash 0.2.10 checks a range by subtracting its start from the end of the data before it compares the two. So a start past the end overflows, and a debug build panics. vtium-config therefore checks each font with `names::sound` before it hands the font to swash. It does so on every path: the font helper's coverage and drawing, a font's description, and the search for a family. The check refuses a font whose table directory places a table past the end of the file. It refuses a `name` table that holds records or strings past its own end. It refuses a format 12 character map that runs past the end of the file or maps a character past U+10FFFF. It also refuses one that maps a character to a glyph number that swash's sum overflows. The refusal names what is damaged, as in `the font is damaged: its name table points past its own end`. See [the swash overflow issue](https://github.com/vtium/vtium/issues/428).
 
 **Size.** The frit's first outline source is sized so that its ascent and descent span the cell's height less half a pixel. A FreeType cell request for that height does the same. Each outline source after the first draws at the first source's size, as many pixels to the em. So Noto Sans CJK's ideographs behind DejaVu Sans Mono draw at DejaVu's size.
 

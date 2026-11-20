@@ -330,6 +330,87 @@ fn a_pointer_file_follows_its_place_in_the_batch_from_login_to_login() {
     );
 }
 
+// A pointer file that a head's look names, while the top level names none,
+// follows its place in the batch from login to login as the top level's
+// does: the look's file is not read while the batch does not list it, the
+// login after root activates it loads it for the head's display, and the
+// login after root deactivates it drops its pictures, so the head's pointer
+// draws vtium's own again.
+//
+// References:
+// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
+// - ADR-1205 D6: each look picks its pointer theme.
+#[test]
+fn a_look_s_pointer_file_follows_its_place_in_the_batch_from_login_to_login() {
+    let dir = Scratch::new("batch-look-pointer");
+    std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let svg = dir.join("own.svg");
+    write(
+        &svg,
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"/>\n",
+    );
+    let file = dir.join("batch.conf");
+    write(&file, "# nothing is active\n");
+    let me = rustix::process::geteuid().as_raw();
+    let t = Instant::now();
+    let fonts = font::Sources {
+        trust: Trust::owner(me).below(&dir),
+        ..no_fonts()
+    };
+    let heads = format!(
+        "version = 1\n[look own]\npointer-theme = {}\n[head a]\nlook = own\n\
+         [rules]\ndisplay connector:mem/A -> a\n",
+        svg.display()
+    );
+    let (mut lp, mut app) = seat_with(&[], Some(&heads), fonts);
+    app.add_video(
+        PathBuf::from("/dev/mem0"),
+        Box::new(Still::new(&[(1, "A")])),
+    );
+    app.set_batch_places(
+        Places {
+            file: file.clone(),
+            vconsole_conf: PathBuf::from("/dev/null"),
+            cmdline: PathBuf::from("/dev/null"),
+            ..Places::system()
+        },
+        Rule::new(Trust::owner(me)).below(&dir),
+    );
+    shown_at(&mut app, t);
+    settle(&mut lp, &mut app, t);
+    let id = app.heads.first().unwrap().console.id;
+    assert!(
+        app.top_pointer_store().current().is_none(),
+        "the top level names no pointer file"
+    );
+    let look = app.pointer_store(0);
+    assert!(
+        look.asked().is_empty(),
+        "a look's pointer file the batch does not list is not read"
+    );
+    // root activates the look's pointer file, and the next login loads it
+    write(&file, &format!("{}\n", svg.display()));
+    app.return_font(0, id);
+    // a turn loads the pointer file, and the display's next frame asks it
+    app.turn(t);
+    settle(&mut lp, &mut app, t);
+    assert_eq!(
+        look.asked().len(),
+        1,
+        "the head's display asks its look's loaded file for its height"
+    );
+    // root deactivates it, and the next login drops it
+    write(&file, "# nothing is active\n");
+    app.return_font(0, id);
+    assert!(look.current().is_none());
+    app.turn(t);
+    settle(&mut lp, &mut app, t);
+    assert!(
+        look.asked().is_empty(),
+        "a deactivated look's pointer file is not read again"
+    );
+}
+
 // A login whose batch changed ends the running font helper, so the helper
 // that draws the screen again reads the new active fonts before any ask,
 // and no glyph comes through a font root just deactivated. Each stand-in

@@ -129,7 +129,15 @@ Some package builds run with no network, as Debian's does. Such a build takes th
 - The archive holds the source of every outside crate in `Cargo.lock`, for every architecture. It also holds a `.cargo/config.toml` that tells Cargo to read those crates from `vendor/`.
 - Unpack the archive at the top of the release's source tree, beside `Cargo.toml`, with `tar -xf vtium-VERSION-vendor.tar.zst -C DIR`. It adds `vendor/` and `.cargo/config.toml`, and it replaces none of vtium's files. `make install` and `cargo build --offline --locked` then build with no network.
 
-When a release is published, a CI workflow packs the archive. The workflow builds vtium offline from the archive before it attaches the archive to the release. In a checkout, `make vendor-archive` packs the same archive for the commit you have checked out. `make vendor-archive-check` also builds vtium offline from that archive.
+Each release from 0.1.0-alpha.11 on carries more files, which the same workflow makes from the tagged commit:
+
+- `vtium-VERSION.tar.gz` and `vtium-VERSION.zip` hold the release's source, made with `git archive`. The same commit always gives the same bytes, so a recipe can pin their checksums.
+- `vtium-VERSION-dependencies.tsv` lists each crate in the vendor archive with its version, source, license and checksum.
+- `SHA256SUMS` lists the SHA-256 of the vendor archive and of each file above.
+
+To check a download, put it beside `SHA256SUMS` and run `sha256sum --check --ignore-missing SHA256SUMS`. Each file also has a build provenance attestation, which shows that vtium's release workflow made the file from the tagged commit. With the [GitHub CLI](https://cli.github.com/), `gh attestation verify vtium-VERSION.tar.gz --repo vtium/vtium` checks a file's attestation. The "Source code" links that GitHub adds to every release page are made on the fly, so `SHA256SUMS` does not list them.
+
+When a release is published, a CI workflow makes these files. The workflow builds vtium offline from the vendor archive before it attaches the files to the release. In a checkout, `make vendor-archive` writes the same files for the commit you have checked out. `make vendor-archive-check` also checks them against `SHA256SUMS` and the commit, and builds vtium offline from the vendor archive.
 
 With both `libseat` and `logind` in `FEATURES`, `make install` also stages a second unit, `vtium-seat@.service`, and the PAM file `/etc/pam.d/vtium`. These two files run vtium in seat mode, which [Direct mode and seat mode](#direct-mode-and-seat-mode) describes. See [systemd.md](systemd.md) for details.
 

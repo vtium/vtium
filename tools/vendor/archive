@@ -1,16 +1,27 @@
 #!/bin/sh
-# The vendor archive: the source of every outside crate vtium builds with,
-# which each GitHub release carries so that a package manager that builds
-# with no network has it (ADR-1500 D9). The repository keeps no copy of the
-# crates; Cargo.lock pins each one and its checksum.
+# The files each GitHub release carries: the source of vtium, the vendor
+# archive, which holds the source of every outside crate vtium builds with so
+# that a package manager that builds with no network has it (ADR-1500 D9),
+# the manifest of those crates, and SHA256SUMS over them all. The repository
+# keeps no copy of the crates; Cargo.lock pins each one and its checksum.
 #
-#   archive pack OUT    write OUT/vtium-VERSION-vendor.tar.zst,
-#                       OUT/vtium-VERSION-vendor.tar.zst.sha256 and the
-#                       manifest OUT/vtium-VERSION-dependencies.tsv
-#   archive check OUT   build the workspace from a clean copy of the commit
-#                       with OUT's archive unpacked over it, offline and
+#   archive pack OUT    write into OUT the source archives
+#                       vtium-VERSION.tar.gz and vtium-VERSION.zip, the
+#                       vendor archive vtium-VERSION-vendor.tar.zst and its
+#                       .sha256, the manifest vtium-VERSION-dependencies.tsv,
+#                       and SHA256SUMS, which lists the SHA-256 of each
+#   archive verify OUT  check OUT's files against SHA256SUMS and the source
+#                       archives against the commit
+#   archive check OUT   verify OUT, then build the
+#                       workspace from a clean copy of the commit with OUT's
+#                       vendor archive unpacked over it, offline and
 #                       --locked, and fail if it does not build or if the
 #                       manifest does not list the archive's crates
+#
+# The source archives are `git archive` of the commit, with every file under
+# a folder vtium-VERSION/. Git writes the tar file with the commit's time and
+# compresses it with its own gzip, so the same commit gives the same bytes
+# from the same git. The release workflow attests each file.
 #
 # Both work on the commit HEAD names, never on the working tree: each takes a
 # clean copy of the commit with `git archive`, the same files GitHub's source
@@ -72,7 +83,7 @@ set -eu
 
 die() { echo "archive: $*" >&2; exit 1; }
 
-[ $# -eq 2 ] || die "usage: archive pack|check OUT"
+[ $# -eq 2 ] || die "usage: archive pack|verify|check OUT"
 mode=$1
 mkdir -p "$2"
 out=$(cd "$2" && pwd)
@@ -92,6 +103,11 @@ case $version in
 esac
 name=vtium-$version-vendor.tar.zst
 manifest=vtium-$version-dependencies.tsv
+src_tgz=vtium-$version.tar.gz
+src_zip=vtium-$version.zip
+sums=SHA256SUMS
+# The files SHA256SUMS lists, in the order it lists them.
+released="$src_tgz $src_zip $name $name.sha256 $manifest"
 arm_targets="aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf"
 
 work=$(mktemp -d "$out/work.XXXXXX")
@@ -181,12 +197,68 @@ EOF
     packed=$(grep -c '^vendor/[^/]*/Cargo\.toml$' "$work/members") || true
     [ "$packed" -eq "$crates" ] || die "the packed archive holds $packed crates of the $crates vendored"
     (cd "$work" && sha256sum "$name" > "$name.sha256")
-    mv "$work/$name" "$out/$name"
-    mv "$work/$name.sha256" "$out/$name.sha256"
-    mv "$work/$manifest" "$out/$manifest"
+    # Git's own gzip, named here so that a tar.tar.gz.command in the
+    # caller's git configuration cannot change the bytes.
+    git -c tar.tar.gz.command='git archive gzip' archive --format=tar.gz --prefix="vtium-$version/" \
+        --output="$work/$src_tgz" "$commit" || die "git archive cannot write $src_tgz"
+    git archive --format=zip --prefix="vtium-$version/" --output="$work/$src_zip" "$commit" ||
+        die "git archive cannot write $src_zip"
+    # shellcheck disable=SC2086 # $released is a list of file names without spaces
+    (cd "$work" && sha256sum $released > "$sums") || die "cannot write $sums"
+    for f in $released $sums; do
+        mv "$work/$f" "$out/$f"
+    done
     echo "archive: $out/$name, $crates crates, $(wc -c < "$out/$name") bytes"
-    cat "$out/$name.sha256"
     echo "archive: $out/$manifest lists them"
+    echo "archive: $out/$src_tgz and $out/$src_zip hold commit $commit"
+    echo "archive: $out/$sums:"
+    cat "$out/$sums"
+}
+
+# Fails unless SHA256SUMS lists exactly the release's files and each matches
+# its line, and unless both source archives hold the commit's files and
+# nothing else: the tar file inside the .tar.gz must be byte for byte what
+# git archive writes for the commit, and the .zip must hold the same files
+# with the same contents and modes.
+check_release() {
+    for f in $released $sums; do
+        [ -f "$out/$f" ] || die "no $out/$f; make vendor-archive writes it"
+    done
+    cut -c67- "$out/$sums" > "$work/sums.names" || die "cannot read $sums"
+    printf '%s\n' $released > "$work/sums.expected"
+    cmp -s "$work/sums.names" "$work/sums.expected" ||
+        die "$sums does not list exactly $released"
+    (cd "$out" && sha256sum --check --quiet "$sums") || die "a file does not match $sums"
+    git archive --format=tar --prefix="vtium-$version/" --output="$work/commit.tar" "$commit" ||
+        die "git archive $commit failed"
+    gzip -d -c "$out/$src_tgz" > "$work/released.tar" || die "cannot decompress $src_tgz"
+    cmp -s "$work/commit.tar" "$work/released.tar" || die "$src_tgz does not hold commit $commit"
+    python3 -I -B - "$work/commit.tar" "$out/$src_zip" <<'PY' || die "$src_zip does not hold commit $commit"
+import sys, tarfile, zipfile
+tar = tarfile.open(sys.argv[1])
+want = {m.name.rstrip("/"): (m.isdir(), tar.extractfile(m).read() if m.isfile() else m.linkname, m.mode & 0o111 != 0)
+        for m in tar.getmembers() if m.type != tarfile.XGLTYPE}
+got = {}
+with zipfile.ZipFile(sys.argv[2]) as z:
+    for i in z.infolist():
+        mode = i.external_attr >> 16
+        link = mode & 0o170000 == 0o120000
+        got[i.filename.rstrip("/")] = (i.is_dir(), z.read(i).decode() if link else z.read(i) if not i.is_dir() else "",
+                                       mode & 0o111 != 0 and not i.is_dir() and not link)
+for k, v in want.items():
+    if v[0]:
+        want[k] = (True, "", False)
+    elif not isinstance(v[1], bytes):
+        want[k] = (False, v[1], False)
+    if len(got) != len(z.infolist()):
+        print("archive: the zip names a file twice", file=sys.stderr)
+        sys.exit(1)
+diff = sorted(set(want) ^ set(got)) or sorted(k for k in want if want[k] != got[k])
+if diff:
+    print("archive: the zip and the commit differ at", ", ".join(diff[:5]), file=sys.stderr)
+    sys.exit(1)
+PY
+    echo "archive: every file matches $sums, and $src_tgz and $src_zip hold commit $commit"
 }
 
 # Stages the font files make install installs in $work/target, the target
@@ -222,8 +294,7 @@ stage_fonts() {
 }
 
 check() {
-    [ -f "$out/$name" ] || die "no $out/$name; make vendor-archive packs it"
-    [ -f "$out/$manifest" ] || die "no $out/$manifest; make vendor-archive writes it"
+    check_release
     (cd "$out" && sha256sum --check --quiet "$name.sha256") || die "$name does not match $name.sha256"
     export_commit
     # Unpacking must add files and replace none of the commit's. A member
@@ -269,6 +340,7 @@ check() {
 
 case $mode in
     pack) pack ;;
+    verify) check_release ;;
     check) check ;;
-    *) die "usage: archive pack|check OUT" ;;
+    *) die "usage: archive pack|verify|check OUT" ;;
 esac

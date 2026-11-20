@@ -153,6 +153,162 @@ pub fn faces<S: Source + ?Sized>(src: &S) -> Result<Vec<Face>, String> {
     Ok(out)
 }
 
+/// The faces of the TrueType or OpenType font, or collection, `font`, as
+/// swash reads them, once [`sound`] passes the font. Every path of
+/// vtium-config that hands a font to swash comes through here.
+pub fn swash_fonts(font: &[u8]) -> Result<swash::FontDataRef<'_>, String> {
+    sound(font)?;
+    swash::FontDataRef::new(font).ok_or_else(|| NOT_A_FONT.to_owned())
+}
+
+const NOT_A_FONT: &str = "not a TrueType or OpenType font";
+
+/// Checks that the structures swash reads in `font` stay inside the file,
+/// and refuses a font where one does not. swash 0.2.10 checks a range by
+/// subtracting the range's start from the end of its data before it
+/// compares them, so a start past the end overflows, which panics in a
+/// debug build. vtium-config checks each face swash would read:
+///
+/// - each table its table directory lists lies inside the file;
+/// - its `name` table holds the records its count gives, and each
+///   record's string lies inside the table;
+/// - each character map subtable of format 12, the format whose range
+///   swash checks against the end of the file, lies inside the file, maps
+///   no character past U+10FFFF, and maps no character to a glyph number
+///   past the largest one a 32-bit number holds, which swash's sum would
+///   overflow.
+///
+/// Swash reads a format 4 subtable only after a check that cannot
+/// overflow, so a format 4 subtable is left to swash.
+pub fn sound(font: &[u8]) -> Result<(), String> {
+    let is_font = |at: usize| {
+        font.get(at..at.saturating_add(4))
+            .is_some_and(|t| matches!(t, [0, 1, 0, 0] | b"OTTO" | b"true"))
+    };
+    let offsets: Vec<usize> = if font.starts_with(b"ttcf") {
+        let count = u32_at(font, 8).ok_or(NOT_A_FONT)?;
+        // swash reads each face's offset only where the file holds it
+        (0..count)
+            .map_while(|i| u32_at(font, 12usize.checked_add((i as usize).checked_mul(4)?)?))
+            .map(|o| o as usize)
+            .filter(|&o| is_font(o))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    } else if is_font(0) {
+        vec![0]
+    } else {
+        return Err(NOT_A_FONT.to_owned());
+    };
+    offsets.into_iter().try_for_each(|at| sound_face(font, at))
+}
+
+/// [`sound`] for the face whose table directory starts at `at`.
+fn sound_face(font: &[u8], at: usize) -> Result<(), String> {
+    let damaged = |what: &str| format!("the font is damaged: {what}");
+    let tables = usize::from(u16_at(font, at.saturating_add(4)).unwrap_or(0));
+    for i in 0..tables {
+        let record = at.saturating_add(12).saturating_add(i * 16);
+        let (Some(tag), Some(start), Some(len)) = (
+            font.get(record..record.saturating_add(4)),
+            u32_at(font, record.saturating_add(8)),
+            u32_at(font, record.saturating_add(12)),
+        ) else {
+            return Err(damaged("its table directory runs past the end of the file"));
+        };
+        let (start, len) = (start as usize, len as usize);
+        let Some(table) = start.checked_add(len).and_then(|end| font.get(start..end)) else {
+            let name = match std::str::from_utf8(tag) {
+                Ok(t) if t.bytes().all(|b| b.is_ascii_graphic() || b == b' ') => {
+                    format!("the {} table", t.trim_end())
+                }
+                _ => "a table".to_owned(),
+            };
+            return Err(damaged(&format!(
+                "its table directory places {name} past the end of the file"
+            )));
+        };
+        match tag {
+            b"name" => {
+                sound_name(table).map_err(|()| damaged("its name table points past its own end"))?
+            }
+            b"cmap" => sound_cmap(font, start).map_err(damaged)?,
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Whether the `name` table `table` holds each record its count gives, and
+/// each record's string inside the table.
+fn sound_name(table: &[u8]) -> Result<(), ()> {
+    // swash reads no record from a table too short for its count
+    let Some(count) = u16_at(table, 2) else {
+        return Ok(());
+    };
+    let storage = usize::from(u16_at(table, 4).ok_or(())?);
+    for i in 0..usize::from(count) {
+        let record = 6 + i * 12;
+        let (Some(len), Some(offset)) = (u16_at(table, record + 8), u16_at(table, record + 10))
+        else {
+            return Err(());
+        };
+        let start = storage + usize::from(offset);
+        if start + usize::from(len) > table.len() {
+            return Err(());
+        }
+    }
+    Ok(())
+}
+
+/// Whether each character map subtable of format 12 that the `cmap` table
+/// at `cmap` lists is sound, as [`sound`] says. swash reads the subtables'
+/// list and each subtable against the end of the file, not of the table,
+/// and so does this.
+fn sound_cmap(font: &[u8], cmap: usize) -> Result<(), &'static str> {
+    let records = usize::from(u16_at(font, cmap.saturating_add(2)).unwrap_or(0));
+    for i in 0..records {
+        // swash stops at the first record the file does not hold
+        let Some(offset) = u32_at(font, cmap.saturating_add(4 + i * 8 + 4)) else {
+            return Ok(());
+        };
+        let at = cmap.saturating_add(offset as usize);
+        if u16_at(font, at) != Some(12) {
+            continue;
+        }
+        let groups = u32_at(font, at.saturating_add(12)).map(|n| n as usize);
+        let end = groups
+            .and_then(|n| n.checked_mul(12))
+            .and_then(|n| n.checked_add(16))
+            .and_then(|n| n.checked_add(at));
+        if end.is_none_or(|end| end > font.len()) {
+            return Err("its character map runs past the end of the file");
+        }
+        for g in 0..groups.unwrap_or(0) {
+            let group = at + 16 + g * 12;
+            let (Some(first), Some(last), Some(glyph)) = (
+                u32_at(font, group),
+                u32_at(font, group + 4),
+                u32_at(font, group + 8),
+            ) else {
+                return Err("its character map runs past the end of the file");
+            };
+            if first > last {
+                continue;
+            }
+            if last > 0x10_ffff {
+                return Err("its character map maps a character past U+10FFFF");
+            }
+            if glyph.checked_add(last).is_none() {
+                return Err(
+                    "its character map maps a character to a glyph past the largest glyph number",
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// What a `name` table gives a face: its families, whether its style is
 /// Regular, and its version.
 type Names = (Vec<String>, bool, Option<String>);
@@ -477,5 +633,138 @@ mod tests {
             assert!(got.as_ref().map_or(true, Vec::is_empty), "{cut}: {got:?}");
         }
         assert_eq!(faces_of(&[0u8; 64], "zeros").unwrap(), []);
+    }
+
+    /// A font of one face whose directory lists `tables`, each `(tag,
+    /// bytes)` laid out after the directory in order; `cut` bytes are then
+    /// taken off the end of the file.
+    fn font_of(tables: &[(&[u8; 4], Vec<u8>)], cut: usize) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend(0x0001_0000u32.to_be_bytes());
+        out.extend((tables.len() as u16).to_be_bytes());
+        out.extend([0u8; 6]);
+        let mut at = 12 + 16 * tables.len();
+        for (tag, bytes) in tables {
+            out.extend(*tag);
+            out.extend(0u32.to_be_bytes());
+            out.extend((at as u32).to_be_bytes());
+            out.extend((bytes.len() as u32).to_be_bytes());
+            at += bytes.len();
+        }
+        for (_, bytes) in tables {
+            out.extend(bytes);
+        }
+        out.truncate(out.len() - cut);
+        out
+    }
+
+    /// A `cmap` table of one Windows Unicode record whose format 12
+    /// subtable holds `groups`, each `(first, last, glyph)`.
+    fn cmap12(groups: &[(u32, u32, u32)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for v in [0u16, 1, 3, 10] {
+            out.extend(v.to_be_bytes());
+        }
+        out.extend(12u32.to_be_bytes());
+        out.extend(12u16.to_be_bytes());
+        out.extend(0u16.to_be_bytes());
+        out.extend((16 + 12 * groups.len() as u32).to_be_bytes());
+        out.extend(0u32.to_be_bytes());
+        out.extend((groups.len() as u32).to_be_bytes());
+        for (first, last, glyph) in groups {
+            for v in [first, last, glyph] {
+                out.extend(v.to_be_bytes());
+            }
+        }
+        out
+    }
+
+    /// Whether swash, asked for the font's coverage as the helper asks,
+    /// panics on `font`. The test profile checks overflow, as a debug
+    /// build does.
+    fn swash_panics(font: &[u8]) -> bool {
+        std::panic::catch_unwind(|| {
+            if let Some(f) = swash::FontRef::from_index(font, 0) {
+                f.charmap().enumerate(|_, _| {});
+                let _ = f
+                    .localized_strings()
+                    .find_by_id(swash::StringId::Family, None);
+            }
+        })
+        .is_err()
+    }
+
+    // Each font below makes swash 0.2.10 subtract past zero in a range
+    // check, or overflow a sum, which panics in a debug build. The check
+    // refuses each one with a message that names what is damaged, and
+    // passes the sound fonts it is built from.
+    #[test]
+    fn the_check_refuses_each_structure_that_makes_swash_overflow() {
+        let damaged = |what: &str| Err(format!("the font is damaged: {what}"));
+        let name = sfnt(&[&[(1, "Mono")]]);
+        assert_eq!(sound(&name), Ok(()));
+        assert_eq!(
+            sound(&font_of(&[(b"cmap", cmap12(&[(0x41, 0x5a, 1)]))], 0)),
+            Ok(())
+        );
+        assert_eq!(sound(&vtium_testfont::ttf::test_mono().build()), Ok(()));
+
+        // a name table whose records end past it
+        let mut short = name.clone();
+        short[31] = 9;
+        assert!(swash_panics(&short));
+        assert_eq!(
+            sound(&short),
+            damaged("its name table points past its own end")
+        );
+        // a string past the end of its name table
+        let mut long = name.clone();
+        long[44] = 0xf0;
+        assert_eq!(
+            sound(&long),
+            damaged("its name table points past its own end")
+        );
+
+        // a format 12 subtable cut 8 bytes into its header
+        let cut = font_of(&[(b"cmap", cmap12(&[]))], 8);
+        assert!(swash_panics(&cut));
+        assert_eq!(
+            sound(&cut),
+            damaged("its table directory places the cmap table past the end of the file")
+        );
+        let mut cut = cut;
+        cut[24..28].copy_from_slice(&20u32.to_be_bytes());
+        assert_eq!(
+            sound(&cut),
+            damaged("its character map runs past the end of the file")
+        );
+        // a glyph number the sum of the first glyph and a character overflows
+        let wraps = font_of(&[(b"cmap", cmap12(&[(0x41, 0x42, u32::MAX - 1)]))], 0);
+        assert!(swash_panics(&wraps));
+        assert_eq!(
+            sound(&wraps),
+            damaged("its character map maps a character to a glyph past the largest glyph number")
+        );
+        let far = font_of(&[(b"cmap", cmap12(&[(0x41, 0x11_0000, 1)]))], 0);
+        assert_eq!(
+            sound(&far),
+            damaged("its character map maps a character past U+10FFFF")
+        );
+
+        // a table directory listing a table past the end of the file
+        let mut past = name.clone();
+        past[20..24].copy_from_slice(&0xffff_0000u32.to_be_bytes());
+        assert_eq!(
+            sound(&past),
+            damaged("its table directory places the name table past the end of the file")
+        );
+        assert_eq!(sound(b"not a font"), Err(NOT_A_FONT.to_owned()));
+        // a collection is checked face by face
+        let two = sfnt(&[&[(1, "A")], &[(1, "B")]]);
+        assert_eq!(sound(&two), Ok(()));
+        let mut two = two;
+        let last = two.len() - 1;
+        two[last - 4] = 0xff;
+        assert!(sound(&two).is_err());
     }
 }

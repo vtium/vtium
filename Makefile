@@ -601,13 +601,13 @@ VENDOR_DIR = $(or $(CARGO_TARGET_DIR),target)/vendor-archive
 
 .PHONY: vendor-archive
 vendor-archive: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
-vendor-archive: ## Pack the source of every crate Cargo.lock names, for the commit HEAD names, as VENDOR_DIR/vtium-VERSION-vendor.tar.zst, its .sha256 and the manifest of its crates, vtium-VERSION-dependencies.tsv (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
+vendor-archive: ## Write the release files for the commit HEAD names into VENDOR_DIR: the source archives vtium-VERSION.tar.gz and .zip from git archive, the vendor archive vtium-VERSION-vendor.tar.zst with the source of every crate Cargo.lock names, its .sha256, the manifest of its crates, vtium-VERSION-dependencies.tsv, and SHA256SUMS over them all (VENDOR_DIR=DIR, VENDOR_VERSION=VERSION)
 	tools/vendor/archive pack '$(VENDOR_DIR)'
 
 .PHONY: vendor-archive-check
 vendor-archive-check: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
 vendor-archive-check: export VTIUM_VENDOR_CULLET_MONO = $(abspath $(CULLET_MONO_OUT))
-vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace and make install from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build or if the manifest does not list the archive's crates (stages the font files first: needs the network once, and FontForge 20251009 unless make cullet-mono has built the faces)
+vendor-archive-check: vendor-archive ## Write the release files, check them against SHA256SUMS and the source archives against the commit, then build the workspace and make install from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build or if the manifest does not list the archive's crates (stages the font files first: needs the network once, and FontForge 20251009 unless make cullet-mono has built the faces)
 	tools/vendor/archive check '$(VENDOR_DIR)'
 
 # The ARM single-board computers minspec is judged against

@@ -197,6 +197,21 @@ The loop runs at the five verification levels that [The verification levels](#th
 
 A small change to pages for readers only skips this loop. It changes files under `docs/` and nothing that a gate builds or runs, such as adding an image or fixing a sentence. The steering session makes it on a branch cut from main, runs `docs/scripts/prose --check`, `docs/scripts/claims`, `docs/scripts/fork-refs` and `make docs`, and pushes the branch straight to main once they pass. Then the steering session merges main into `integration`. The maintainer decided this on 2026-11-16, after a one-commit docs change went through `stage` and its PR.
 
+### Scope on the way to a release
+
+Work meets reality as it is built, and the loop takes in what that finds without letting the release's scope keep growing. The maintainer set this on 2026-11-20. Each thing that comes up during a wave goes to one place:
+
+| What came up | Where it goes |
+|---|---|
+| A finding the card caused, or one in code the card touches or runs through | Fixed in the card, as [The working loop](#the-working-loop) step 9 says. |
+| A bug in vtium, a false statement in a page included | The next wave, without asking. |
+| A new feature or idea | An issue with the label `after-0.1.0`. It moves into the plan only when the maintainer pulls it in, with one line on the issue saying why. |
+| Something that changes a card's scope or a phase of the plan | A question for the maintainer before anyone builds it. |
+
+The scope of 0.1.0 is the list of open issues on the tracker, vtium/vtium#47, as of 2026-11-20. An issue filed after that starts as `after-0.1.0`. From the first beta on, the plan takes in only bugs and findings a card owns.
+
+Before each stage PR, the steering session checks that the README, the docs index and the showcase say what the wave added. The stage PR's body ends with a scope ledger: each item that came up during the wave, and where it went.
+
 ### Testing rules
 
 - Before you delete a test because the golden or other reference that the test compared against is going away, check which defects only that test would catch, and keep a test that still catches each of them.

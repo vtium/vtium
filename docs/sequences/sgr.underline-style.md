@@ -26,6 +26,12 @@ The colon form of SGR 4 chooses the underline's style. vtium draws each of the f
 These tests check what vtium does with the sequences on this page.
 
 - `every_decoration_draws_on_the_gpu_path_as_on_the_cpu_path` in [crates/vtium-render/tests/gpu_decorations.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/gpu_decorations.rs)
+- `a_doubled_underline_skips_the_ink_of_the_whole_doubled_character` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
+- `a_magnified_underline_skips_the_ink_of_its_whole_character_on_the_gpu_path` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
+- `a_sized_runs_underline_skips_the_ink_of_the_whole_run` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
+- `an_underline_skips_the_ink_at_every_turn_of_the_display` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
+- `every_underline_style_skips_the_ink_of_descenders` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
+- `every_underline_style_skips_the_ink_of_descenders_on_the_gpu_path` in [crates/vtium-render/tests/skip_ink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/skip_ink.rs)
 - `underline_styles_take_a_sub_parameter` in [crates/vtium-term/tests/sgr.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/sgr.rs)
 
 ## Where to read more

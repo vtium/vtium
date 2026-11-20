@@ -629,7 +629,7 @@ fn bdf(bytes: &[u8], plain: &[u8], stem: &str) -> Result<Description, String> {
 
 /// An OpenType font or collection: each face, at most [`FACES_MAX`].
 fn opentype(bytes: &[u8]) -> Result<Description, String> {
-    let fonts = swash::FontDataRef::new(bytes).ok_or("not a TrueType or OpenType font")?;
+    let fonts = crate::names::swash_fonts(bytes)?;
     let mut faces = Vec::new();
     for index in 0..fonts.len().min(FACES_MAX) {
         let Some(font) = fonts.get(index) else {
