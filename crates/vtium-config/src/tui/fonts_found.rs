@@ -433,7 +433,7 @@ pub fn source_of(path: &Path) -> Option<String> {
 }
 
 /// A family with case and blanks ignored, as the console matches one.
-fn squashed(family: &str) -> String {
+pub fn squashed(family: &str) -> String {
     family
         .chars()
         .filter(|c| !c.is_whitespace())

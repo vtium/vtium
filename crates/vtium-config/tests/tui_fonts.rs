@@ -333,6 +333,45 @@ fn deactivating_a_font_a_look_uses_asks_first_and_names_the_look() {
     );
 }
 
+/// Space on an active font that a look's font set names by its family
+/// asks first too, once the font helper has described the file, and the
+/// detail names the look among the font's users.
+///
+/// References:
+/// - ADR-1205 D8: deactivating warns and lists the looks that use it.
+#[test]
+fn deactivating_a_font_a_look_names_by_its_family_asks_first() {
+    let mut i = inputs();
+    i.installed.insert(
+        "proof".to_owned(),
+        b"source=font:dejavu sans mono\n".to_vec(),
+    );
+    let (mut app, _) = App::new(i, 100, 30);
+    let answers = app
+        .shared
+        .inputs
+        .font_files
+        .waiting()
+        .into_iter()
+        .map(|p| {
+            let d = vtium_config::tui::fixture::described(&p);
+            (p, d)
+        })
+        .collect();
+    app.event(Event::Described(answers));
+    for key in [Key::Down, Key::Char(' ')] {
+        app.event(Event::Input(Input::Key(key)));
+    }
+    let question = app.nav.confirm.as_ref().expect("a question");
+    assert!(
+        question
+            .question
+            .contains("Look proof uses it through the font set proof"),
+        "{}",
+        question.question
+    );
+}
+
 /// Enter on a font opens its detail: its file and folder, each face with
 /// what it covers and its sizes, whether it is active, its trust mark,
 /// a duplicate's mark and the looks that use it. Esc goes back to the

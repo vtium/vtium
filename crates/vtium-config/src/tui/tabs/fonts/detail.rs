@@ -13,20 +13,27 @@
 
 use std::path::Path;
 
-use crate::batch::{Places, Use};
+use crate::batch::{Places, Through, Use};
 use crate::describe::Face;
 use crate::discover::Described;
 use crate::onscreen::{path as shown, text};
 
-use super::super::super::fonts_found::FontFile;
+use super::super::super::fonts_found::{FontFile, squashed};
 use super::super::super::model::Shared;
 use super::super::super::words;
 
 /// The looks of the draft that use the font at `path`: those whose font
-/// set names the file by its path.
+/// set names the file by its path, and those whose font set names by its
+/// family a face the font helper found in the file. A font set is read as
+/// the install would leave it, so a new set that waits for the install
+/// counts too.
+///
+/// References:
+/// - ADR-1205 D8: deactivating a font warns and lists the looks that use
+///   it.
 pub fn uses(shared: &Shared, path: &Path) -> Vec<Use> {
     let conf = shared.conf_text().unwrap_or_default();
-    crate::batch::uses(
+    let mut out = crate::batch::uses(
         path,
         conf,
         &Places {
@@ -34,7 +41,85 @@ pub fn uses(shared: &Shared, path: &Path) -> Vec<Use> {
             palettes: &[],
             vtlook: &|_| Vec::new(),
         },
-    )
+    );
+    let families: Vec<String> = shared
+        .inputs
+        .font_files
+        .faces(path)
+        .iter()
+        .map(|face| squashed(&face.family))
+        .collect();
+    if families.is_empty() {
+        return out;
+    }
+    for (look, frit) in drawn_frits(conf) {
+        if out.iter().any(|u| u.look == look) || !names_family(shared, &frit, &families) {
+            continue;
+        }
+        out.push(Use {
+            look,
+            through: Through::FontSet(frit),
+        });
+    }
+    out
+}
+
+/// Whether the font set `name`, as the install would leave it, has a
+/// `font:` source of one of `families`, each with case and blanks
+/// ignored.
+fn names_family(shared: &Shared, name: &str, families: &[String]) -> bool {
+    let text = shared
+        .pending
+        .frits
+        .iter()
+        .find(|(n, _)| n == name)
+        .map(|(_, t)| t.as_bytes())
+        .or_else(|| shared.inputs.installed.get(name).map(Vec::as_slice));
+    let Some(frit) = text.and_then(|t| crate::frit::Frit::parse(t, Path::new(name), name).ok())
+    else {
+        return false;
+    };
+    frit.sources.iter().any(|source| {
+        matches!(&source.origin, crate::frit::Origin::Font(family)
+            if families.contains(&squashed(family)))
+    })
+}
+
+/// Each look of vtium.conf's text `conf` that draws with a font set, with
+/// that set's name, the top level first: the top level when no head names
+/// a look with a section of its own, then each look, which takes the top
+/// level's `font-name` when it names none. This is the order and the rule
+/// [`crate::batch::uses`] counts looks by.
+fn drawn_frits(conf: &str) -> Vec<(Option<String>, String)> {
+    use vtium_settings::keys::FONT_NAME;
+    let top = vtium_settings::setting(conf, FONT_NAME.name);
+    let Some(reading) = vtium_settings::sections(conf.as_bytes()) else {
+        return top.map(|t| (None, t)).into_iter().collect();
+    };
+    let config = reading.parsed.config;
+    let mut out = Vec::new();
+    let bare = config
+        .heads
+        .iter()
+        .any(|h| !config.looks.iter().any(|l| l.name == h.look));
+    if (config.heads.is_empty() || bare)
+        && let Some(top) = &top
+    {
+        out.push((None, top.clone()));
+    }
+    for look in config.looks {
+        let frit = look
+            .settings
+            .iter()
+            .rev()
+            .find(|s| s.key.name == FONT_NAME.name)
+            .map(|s| s.value.clone())
+            .or_else(|| top.clone());
+        if let Some(frit) = frit {
+            out.push((Some(look.name), frit));
+        }
+    }
+    out
 }
 
 /// The lines that describe `face`, the sizes it supplies included.
