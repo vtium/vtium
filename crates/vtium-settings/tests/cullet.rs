@@ -17,6 +17,7 @@ use std::io::Read;
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
+use vtium_settings::ERRORS_MAX;
 use vtium_settings::Trust;
 use vtium_settings::Untrusted;
 use vtium_settings::batch::{
@@ -711,6 +712,40 @@ fn a_batch_line_longer_than_a_path_or_not_utf8_is_ignored() {
             ..
         }
     ));
+}
+
+#[test]
+fn a_batch_file_that_starts_with_a_byte_order_mark_keeps_its_first_line() {
+    let read = Batch::parse(b"\xef\xbb\xbf/usr/share/fonts/a.ttf\n/b\n", Path::new("/b"));
+    assert_eq!(read.findings, []);
+    assert_eq!(
+        read.batch.entries(),
+        [
+            Entry::Path("/usr/share/fonts/a.ttf".into()),
+            Entry::Path("/b".into())
+        ]
+    );
+}
+
+#[test]
+fn a_batch_file_keeps_its_first_errors_and_counts_the_rest() {
+    let text = "x\n".repeat(1000);
+    let read = Batch::parse(text.as_bytes(), Path::new("/b"));
+    assert_eq!(read.findings.len(), ERRORS_MAX);
+    assert!(matches!(
+        read.findings.last(),
+        Some(Finding::Line {
+            line: ERRORS_MAX,
+            fault: LineFault::NotAbsolute,
+            ..
+        })
+    ));
+    assert_eq!(read.more, 1000 - ERRORS_MAX);
+    assert_eq!(
+        read.more_line().as_deref(),
+        Some("/b: vtium also ignores 936 more lines of this file. Only the first 64 are listed.")
+    );
+    assert_eq!(Batch::parse(b"x\n", Path::new("/b")).more_line(), None);
 }
 
 fn fresh() -> Batch {

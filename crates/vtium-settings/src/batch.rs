@@ -30,6 +30,7 @@ use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 use crate::Trust;
+use crate::bounds::ERRORS_MAX;
 use crate::error::{Problem, Untrusted};
 
 pub use crate::bounds::BATCH_MAX;
@@ -253,6 +254,27 @@ pub struct Read {
     pub batch: Batch,
     /// The findings, in the file's order.
     pub findings: Vec<Finding>,
+    /// The count of the lines vtium ignores past the first [`ERRORS_MAX`],
+    /// which `findings` does not list.
+    pub more: usize,
+}
+
+impl Read {
+    /// The line `vtium check-config` shows after the findings when vtium
+    /// ignores more lines than it lists, or `None` when it lists them all.
+    pub fn more_line(&self) -> Option<String> {
+        if self.more == 0 {
+            return None;
+        }
+        let Some(Finding::Line { path, .. }) = self.findings.last() else {
+            return None;
+        };
+        Some(format!(
+            "{}: vtium also ignores {} more lines of this file. Only the first {ERRORS_MAX} are listed.",
+            path.display(),
+            self.more
+        ))
+    }
 }
 
 /// A path as a batch line gives it: absolute, with no `..`, and with `.`
@@ -280,17 +302,27 @@ impl Batch {
     }
 
     /// Reads a batch file's bytes. `path` names the file in the findings.
+    /// A byte-order mark at the start is dropped, as every other file
+    /// vtium reads drops one. vtium keeps the first [`ERRORS_MAX`] lines it
+    /// ignores as findings and counts the rest in [`Read::more`], so a
+    /// file of nothing but bad lines costs a bounded list.
     pub fn parse(bytes: &[u8], path: &Path) -> Read {
+        let bytes = bytes.strip_prefix(crate::split::BOM).unwrap_or(bytes);
         let mut entries = Vec::new();
         let mut findings = Vec::new();
+        let mut more = 0_usize;
         for (n, raw) in bytes.split(|&b| b == b'\n').enumerate() {
             let line = n.saturating_add(1);
             let mut fault = |fault| {
-                findings.push(Finding::Line {
-                    path: path.to_path_buf(),
-                    line,
-                    fault,
-                });
+                if findings.len() < ERRORS_MAX {
+                    findings.push(Finding::Line {
+                        path: path.to_path_buf(),
+                        line,
+                        fault,
+                    });
+                } else {
+                    more = more.saturating_add(1);
+                }
             };
             if raw.len() > PATH_MAX {
                 fault(LineFault::TooLong);
@@ -310,8 +342,9 @@ impl Batch {
             }
         }
         Read {
-            batch: Batch { entries },
+            batch: Batch::new(entries),
             findings,
+            more,
         }
     }
 
@@ -374,6 +407,7 @@ impl Batch {
                 findings: vec![Finding::Missing {
                     path: path.to_path_buf(),
                 }],
+                more: 0,
             },
             Err(rejected) => Read {
                 batch: fresh,
@@ -385,6 +419,7 @@ impl Batch {
                         .next()
                         .map_or(Unread::NotAFile, |e| e.problem.into()),
                 }],
+                more: 0,
             },
         }
     }
