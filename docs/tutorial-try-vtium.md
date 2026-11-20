@@ -15,20 +15,26 @@ The commands below run in a terminal on your desktop, as your own user. Each com
 
 ## 1. Install the package
 
-vtium's package comes from the AUR, the Arch User Repository, as a recipe that `makepkg` builds on your machine. The recipe checks that the maintainer signed the release it builds. So first import the maintainer's key, which the recipe carries. Then build and install:
+vtium comes from the AUR, the Arch User Repository, as recipes that `makepkg` builds on your machine. You need two packages: `vtium-terminfo`, which tells programs what vtium's terminal can do, and `vtium`, the console itself. makepkg installs only dependencies from Arch's own repositories, so build `vtium-terminfo` first. Each recipe checks that the maintainer signed the release it builds, so import the maintainer's key once, from the copy the recipe carries. Then build and install both:
 
 ```
+$ git clone https://aur.archlinux.org/vtium-terminfo.git
+$ cd vtium-terminfo
+$ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
+$ makepkg -sri
+$ cd ..
 $ git clone https://aur.archlinux.org/vtium.git
 $ cd vtium
-$ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
 $ makepkg -sri
 ```
 
-Here is what makepkg does:
+An AUR helper such as paru or yay builds both packages with one command, such as `paru -S vtium`.
+
+Here is what makepkg does for each package:
 
 1. It asks pacman to install the packages that vtium needs only to build, such as `cargo`, where your machine lacks them. The `-s` flag does this. sudo asks for your password, and pacman asks you to confirm. Answer yes.
 2. It downloads vtium's source and builds it. This takes a few minutes.
-3. It asks pacman to install two packages, because of the `-i` flag. They are `vtium`, the console itself, and `vtium-terminfo`, which tells programs what vtium's terminal can do. Answer yes again.
+3. It asks pacman to install the package it built, because of the `-i` flag. Answer yes again.
 4. It removes the build-only packages that it installed at the start. The `-r` flag does this.
 
 The install gives vtium every free VT, but it starts nothing. Each of those VTs changes at its next start, so nothing on your screen changes yet. The install message lists the VTs that vtium now holds. Step 3 takes them back, so do steps 2 and 3 before you next restart the machine.
