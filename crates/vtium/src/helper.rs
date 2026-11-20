@@ -3248,10 +3248,14 @@ mod tests {
         );
         let bytes = active_request(0, &batch);
         let read = vtium_config::serve::read_request(&mut bytes.as_slice());
-        let Ok(Some(vtium_config::serve::Request::Active(ask))) = read else {
-            panic!("the helper refuses the request: {read:?}");
-        };
-        assert_eq!(ask.paths, [PathBuf::from("/ok.bdf")]);
+        assert!(
+            matches!(
+                &read,
+                Ok(Some(vtium_config::serve::Request::Active(ask)))
+                    if ask.paths == [PathBuf::from("/ok.bdf")]
+            ),
+            "the helper reads the request as the one good path: {read:?}"
+        );
     }
 
     // ADR-1200 D19, D21: an italic glyph an ask past the store's limit
