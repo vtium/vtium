@@ -445,7 +445,7 @@ pub fn describe(bytes: &[u8], name: &str) -> Result<Description, String> {
     if plain.starts_with(&[0x36, 0x04]) || plain.starts_with(&[0x72, 0xb5, 0x4a, 0x86]) {
         return psf(&plain, stem);
     }
-    if name.ends_with(".hex") {
+    if ends_with_ignoring_case(name, ".hex") {
         let font = crate::hex::font(&plain)?;
         let face = bitmap_face(&font, stem, "", None, true);
         return Ok(Description {
@@ -461,15 +461,35 @@ pub fn describe(bytes: &[u8], name: &str) -> Result<Description, String> {
 
 /// The file's name less its directory, its compression's suffix and its
 /// format's suffix: `ter-v16n` for `/x/ter-v16n.psf.gz`.
+/// The suffixes are matched without case, as the scan that lists font
+/// files matches them ([`crate::discover::is_font_file`]).
 fn stem(name: &str) -> &str {
     let mut stem = name.rsplit('/').next().unwrap_or(name);
     for suffix in [".gz", ".bz2", ".xz", ".zst"] {
-        stem = stem.strip_suffix(suffix).unwrap_or(stem);
+        stem = strip_suffix_ignoring_case(stem, suffix);
     }
     for suffix in [".psfu", ".psf", ".bdf", ".hex"] {
-        stem = stem.strip_suffix(suffix).unwrap_or(stem);
+        stem = strip_suffix_ignoring_case(stem, suffix);
     }
     stem
+}
+
+/// Whether `name` ends with `suffix`, an ASCII suffix, in any case.
+fn ends_with_ignoring_case(name: &str, suffix: &str) -> bool {
+    name.len() >= suffix.len()
+        && name
+            .get(name.len() - suffix.len()..)
+            .is_some_and(|end| end.eq_ignore_ascii_case(suffix))
+}
+
+/// `name` without `suffix`, an ASCII suffix matched in any case, or
+/// `name` as it is when it does not end with it.
+fn strip_suffix_ignoring_case<'a>(name: &'a str, suffix: &str) -> &'a str {
+    if ends_with_ignoring_case(name, suffix) {
+        name.get(..name.len() - suffix.len()).unwrap_or(name)
+    } else {
+        name
+    }
 }
 
 /// Whether `bytes` start as a TrueType or OpenType font or collection.
@@ -1075,6 +1095,21 @@ mod tests {
                 height: 8
             }]
         );
+    }
+
+    /// A `.hex` font's suffix is matched without case, as the scan that
+    /// lists font files matches it, so a file the Fonts tab lists as
+    /// `MyFont.HEX` is described too, by its name less the suffix.
+    #[test]
+    fn a_hex_font_s_suffix_is_matched_without_case() {
+        for name in ["/f/MyFont.hex", "/f/MyFont.HEX", "/f/MyFont.Hex"] {
+            let d = describe(b"0041:00000000000000000000000000000000\n", name).unwrap();
+            assert_eq!(d.format, Format::Hex, "{name}");
+            assert_eq!(d.faces[0].family, "MyFont", "{name}");
+        }
+        let psf = crate::decode::tests::psf2(8, 16, 256, None);
+        let d = describe(&psf, "/f/Ter-V16N.PSF").unwrap();
+        assert_eq!(d.faces[0].family, "Ter-V16N");
     }
 
     #[test]
