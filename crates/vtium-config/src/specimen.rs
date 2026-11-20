@@ -939,12 +939,14 @@ pub fn through(
                 .collect(),
         ),
     );
+    // the first error with its file and line, as `vtium check-config`
+    // prints it
     let first = |failure: vtlook::Failure| {
         Outcome::Failed(
             failure
                 .reports
                 .first()
-                .map_or_else(String::new, ToString::to_string),
+                .map_or_else(String::new, |r| format!("{}: {r}", r.at())),
         )
     };
     let (look, dir) = match &filtered.filter {
@@ -970,14 +972,33 @@ pub fn through(
             }
         }
     };
+    drawn_through(picture, &look, &dir, &gate)
+}
+
+/// Draws `picture` through the vtlook `look`, which reads cleanly, as the
+/// CPU path draws a frame: its color filters merged into one color table,
+/// each `.cube` file read from `dir` through `gate`. The CPU path draws no
+/// spatial filter, so a vtlook that holds any is shown in its colors
+/// alone, and the outcome says so.
+fn drawn_through(
+    picture: &mut Picture,
+    look: &vtium_settings::vtlook::Vtlook,
+    dir: &std::path::Path,
+    gate: &vtium_settings::cullet::Gate,
+) -> Outcome {
+    use vtium_settings::vtlook;
     if !look.color.is_empty() {
-        let cubes = vtlook::Cubes {
-            dir: &dir,
-            gate: &gate,
-        };
-        let table = match vtlook::table_with(&look, &cubes) {
+        let cubes = vtlook::Cubes { dir, gate };
+        let table = match vtlook::table_with(look, &cubes) {
             Ok(table) => table,
-            Err(failure) => return first(failure),
+            Err(failure) => {
+                return Outcome::Failed(
+                    failure
+                        .reports
+                        .first()
+                        .map_or_else(String::new, |r| format!("{}: {r}", r.at())),
+                );
+            }
         };
         if let Err(e) = map_pixels(picture, &table) {
             return Outcome::Failed(e.to_string());
@@ -1640,6 +1661,50 @@ fn paint(
 mod tests {
     use super::*;
     use crate::scratch::Scratch;
+
+    // A vtlook with color filters and spatial filters is drawn in its
+    // colors and says it leaves the spatial filters out; one with spatial
+    // filters alone leaves the pixels as they are and says the same. This
+    // build reads no spatial filter, so the test moves a color filter into
+    // the spatial list to stand for one.
+    #[test]
+    fn a_vtlook_with_spatial_filters_is_drawn_in_its_colors_alone() {
+        use vtium_settings::vtlook::read_text;
+        let tinted = read_text(
+            "amber",
+            std::path::Path::new("/x/amber.vtlook"),
+            b"version = 1\n[color tint]\ncolor = 255,176,0\n",
+        )
+        .expect("a vtlook that reads");
+        let gate = vtium_settings::cullet::Gate::new(
+            vtium_settings::cullet::Rule::running_as(0),
+            None,
+            vtium_settings::batch::Batch::new(Vec::new()),
+        );
+        let white = || Picture {
+            width: 1,
+            height: 1,
+            rgba: vec![255, 255, 255, 255],
+        };
+        let draw = |look: &vtium_settings::vtlook::Vtlook| {
+            let mut picture = white();
+            let outcome = drawn_through(&mut picture, look, std::path::Path::new("/x"), &gate);
+            (outcome, picture.rgba)
+        };
+        let (outcome, rgba) = draw(&tinted);
+        assert_eq!(outcome, Outcome::Applied);
+        assert_ne!(rgba, white().rgba);
+        let mut both = tinted.clone();
+        both.spatial = tinted.color.clone();
+        let (outcome, rgba) = draw(&both);
+        assert_eq!(outcome, Outcome::ColorOnly);
+        assert_ne!(rgba, white().rgba);
+        let mut spatial = tinted.clone();
+        spatial.spatial = std::mem::take(&mut spatial.color);
+        let (outcome, rgba) = draw(&spatial);
+        assert_eq!(outcome, Outcome::ColorOnly);
+        assert_eq!(rgba, white().rgba);
+    }
 
     /// A pipe whose reader is gone.
     struct Closed;

@@ -27,10 +27,10 @@
 //! - ADR-1403 D10: the card, its shared list and Esc keeping its changes.
 
 use super::super::super::edit::Change as DraftChange;
+use super::super::super::effects_found::From;
 use super::super::super::input::Key;
 use super::super::super::listbox::{Act, Body, Item, ListBox, Marks, rows, tail};
 use super::super::super::model::{SIZES, Shared, Size};
-use super::super::super::resources::From;
 use super::super::super::words;
 use super::super::{Change, Command};
 use super::list::{self, Look};

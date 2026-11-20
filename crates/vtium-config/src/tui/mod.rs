@@ -38,6 +38,7 @@ pub mod contract;
 mod contract_text;
 pub mod desk;
 pub mod edit;
+pub mod effects_found;
 #[doc(hidden)]
 pub mod fixture;
 pub mod flow;
@@ -236,26 +237,39 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         locale: locale(),
         // the loop reads them once the store is open, since each color
         // map's and shader's mark needs the draft's batch
-        effects: resources::Effects::default(),
+        effects: effects_found::Effects::default(),
     })
 }
 
-/// What the Effects tab lists, read from the system's folders and the
-/// person's own: each color map and shader marked as the current draft's
-/// batch and the trust rule judge it for an install through `paths`.
-fn effects(store: &crate::store::Store, paths: &Paths) -> resources::Effects {
-    let session = crate::drafts::Session {
-        store: store.clone(),
-        paths,
-    };
-    let active = crate::batch::Resources::open(&session).ok();
-    let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
+/// The folders the Effects tab lists from and its preview reads color
+/// maps from: the system's, and the person's own under
+/// `$XDG_CONFIG_HOME`, else `~/.config`.
+fn effect_folders() -> effects_found::Folders {
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|c| !c.is_empty())
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
-    resources::find(
-        &resources::Folders::system(config),
+    effects_found::Folders::system(config)
+}
+
+/// What the Effects tab lists, read from `folders`: each color map and
+/// shader marked as the current draft's batch and the trust rule judge it
+/// for an install through `paths`. When vtium-config cannot read the
+/// draft's batch, every file shows as not active, and the tab's note says
+/// why.
+fn effects(
+    store: &crate::store::Store,
+    paths: &Paths,
+    folders: &effects_found::Folders,
+) -> effects_found::Effects {
+    let session = crate::drafts::Session {
+        store: store.clone(),
+        paths,
+    };
+    let active = crate::batch::Resources::open(&session);
+    let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
+    let mut found = effects_found::find(
+        folders,
         &vtium_settings::Trust::running_as(euid),
         &|path| {
             active
@@ -263,7 +277,11 @@ fn effects(store: &crate::store::Store, paths: &Paths) -> resources::Effects {
                 .map_or(crate::batch::State::Inactive, |a| a.state(path))
         },
         &|path| crate::batch::trusted(path, euid),
-    )
+    );
+    if let Err(fail) = &active {
+        found.note = Some(words::effects_unread(fail.text()));
+    }
+    found
 }
 
 /// The name the specimen's frit takes: a frit's name, never a built-in
@@ -314,18 +332,19 @@ pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) 
 /// The TUI's filterer: draws a picture of the console through an effect,
 /// as the console's CPU path draws a frame. The vtlook is read under the
 /// trust rule of the user `euid`, whose files an install trusts, and its
-/// `.cube` files from the administrator's looks folder through the gate
-/// every resource passes.
+/// `.cube` files from `looks` through the gate every resource passes.
+/// `looks` is the folder the Effects tab lists color maps from, so the
+/// list and the preview agree on where they live.
 ///
 /// References:
 /// - ADR-1205 D4: the gate, the batch and the trust rule.
 /// - ADR-1205 D8: the preview leaves the live console alone.
-pub fn filterer(euid: u32) -> port::Filterer {
+pub fn filterer(looks: PathBuf, euid: u32) -> port::Filterer {
     std::sync::Arc::new(move |picture, filtered| {
         crate::specimen::through(
             picture,
             filtered,
-            Path::new(vtium_settings::vtlook::LOOKS),
+            &looks,
             &vtium_settings::Trust::running_as(euid),
             vtium_settings::cullet::Rule::running_as(euid),
         )
@@ -434,11 +453,15 @@ pub fn run(
             return fail.code();
         }
     };
-    inputs.effects = effects(&store, paths);
+    let folders = effect_folders();
+    inputs.effects = effects(&store, paths, &folders);
     let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
-        filterer: filterer(crate::batch::rule_user(&paths.targets(), &paths.sudo)),
+        filterer: filterer(
+            folders.looks.clone(),
+            crate::batch::rule_user(&paths.targets(), &paths.sudo),
+        ),
         measurer: measurer(inputs.frits.clone(), paths.helper.clone()),
         detailer: detailer(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(

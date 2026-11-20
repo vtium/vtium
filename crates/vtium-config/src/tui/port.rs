@@ -357,12 +357,73 @@ pub type Filterer = std::sync::Arc<
         + Sync,
 >;
 
+/// The last cell the measurer gave and the last picture the painter drew,
+/// each with what it was asked for. Moving the Effects tab's highlight
+/// asks for the same cell and the same unfiltered sample screen each time,
+/// so the port measures and paints once, and each new effect costs only
+/// its color table and the mapping of the pixels.
+#[derive(Default)]
+pub struct Kept {
+    cell: Option<(String, u32, (vtium_font::Cell, u32))>,
+    picture: Option<(crate::specimen::Shot, crate::specimen::Picture)>,
+}
+
+/// The cell of `font` at `height`, from `kept` where the last measure
+/// asked the same, else from `measure`, which `kept` then keeps.
+fn measured(
+    font: &str,
+    height: u32,
+    measure: &Measurer,
+    kept: &Mutex<Kept>,
+) -> Result<(vtium_font::Cell, u32), String> {
+    if let Ok(k) = kept.lock()
+        && let Some((f, h, cell)) = &k.cell
+        && f == font
+        && *h == height
+    {
+        return Ok(*cell);
+    }
+    let cell = measure(font, height)?;
+    if let Ok(mut k) = kept.lock() {
+        k.cell = Some((font.to_owned(), height, cell));
+    }
+    Ok(cell)
+}
+
 /// What the loop answers for the picture `shot` asks for: the picture
 /// `paint` draws, and where the shot carries an effect, the picture drawn
 /// through it by `filter`, with what became of the effect. A shot with no
-/// effect, such as No filter's, keeps the painter's pixels.
-fn painted(shot: &crate::specimen::Shot, paint: &Painter, filter: &Filterer) -> Drawn {
-    match (paint(shot), &shot.filter) {
+/// effect, such as No filter's, keeps the painter's pixels. The painter
+/// draws the shot without its effect, and `kept` keeps that picture, so a
+/// shot that differs from the last only in its effect is not painted
+/// again.
+fn painted(
+    shot: &crate::specimen::Shot,
+    paint: &Painter,
+    filter: &Filterer,
+    kept: &Mutex<Kept>,
+) -> Drawn {
+    let plain = crate::specimen::Shot {
+        filter: None,
+        ..shot.clone()
+    };
+    let again = kept
+        .lock()
+        .ok()
+        .and_then(|k| k.picture.clone())
+        .filter(|(s, _)| *s == plain)
+        .map(|(_, p)| p);
+    let painted = match again {
+        Some(picture) => Ok(picture),
+        None => {
+            let painted = paint(&plain);
+            if let (Ok(picture), Ok(mut k)) = (&painted, kept.lock()) {
+                k.picture = Some((plain, picture.clone()));
+            }
+            painted
+        }
+    };
+    match (painted, &shot.filter) {
         (Ok(mut picture), Some(filtered)) => {
             let outcome = filter(&mut picture, filtered);
             Drawn::Filtered { picture, outcome }
@@ -424,6 +485,9 @@ pub struct Tty {
     /// device, between waits; `None` when there is none. At each change
     /// the desk reads the devices present again (ADR-1403 D7).
     udev: Option<Watch>,
+    /// The last cell and the last unfiltered picture the preview's threads
+    /// made, which the next preview reuses.
+    kept: std::sync::Arc<Mutex<Kept>>,
 }
 
 #[expect(
@@ -546,6 +610,7 @@ impl Tty {
             events,
             deadline: None,
             udev,
+            kept: std::sync::Arc::default(),
         };
         tty.write(ENTER)?;
         Ok(tty)
@@ -697,6 +762,11 @@ impl Port for Tty {
     }
 
     fn privileged(&mut self, step: Step<'_>) -> Result<Done, String> {
+        // an install can write font sets, so a kept cell or picture of a
+        // font set by its name may no longer be what the font set draws
+        if let Ok(mut kept) = self.kept.lock() {
+            *kept = Kept::default();
+        }
         self.cooked(true).map_err(|e| e.to_string())?;
         let mut run = |argv: &[OsString]| -> io::Result<(bool, String)> {
             let result = spawn_foreground(argv);
@@ -743,14 +813,15 @@ impl Port for Tty {
             std::sync::Arc::clone(&self.tools.filterer),
         );
         let drawn = self.drawn.clone();
+        let kept = std::sync::Arc::clone(&self.kept);
         std::thread::spawn(move || {
             let (measure, paint, summarize, detail, filter) = tools;
             let answer = match ask {
                 Draw::Cell { font, height } => {
-                    let cell = measure(&font, height);
+                    let cell = measured(&font, height, &measure, &kept);
                     Drawn::Celled { font, height, cell }
                 }
-                Draw::Picture(shot) => painted(&shot, &paint, &filter),
+                Draw::Picture(shot) => painted(&shot, &paint, &filter, &kept),
                 Draw::Specimen {
                     font,
                     height,
@@ -817,6 +888,77 @@ mod tests {
         assert!(LEAVE.ends_with(b"\x1b[?25h\x1b[?1049l"), "{LEAVE:?}");
     }
 
+    /// A shot that differs from the last only in its effect reuses the
+    /// unfiltered picture and the cell, so moving the Effects tab's
+    /// highlight measures and paints once; a shot of another font or size
+    /// is painted again.
+    #[test]
+    fn a_new_effect_on_the_same_screen_is_not_painted_again() {
+        use crate::specimen::{Filter, Filtered, Outcome, Picture, Shot};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let paints = std::sync::Arc::new(AtomicUsize::new(0));
+        let measures = std::sync::Arc::new(AtomicUsize::new(0));
+        let counted = std::sync::Arc::clone(&paints);
+        let paint: Painter = std::sync::Arc::new(move |shot| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(shot.filter, None, "the painter draws no effect");
+            Ok(Picture {
+                width: 1,
+                height: 1,
+                rgba: vec![128, 128, 128, 255],
+            })
+        });
+        let filter: Filterer = std::sync::Arc::new(|_, _| Outcome::Applied);
+        let counted = std::sync::Arc::clone(&measures);
+        let measure: Measurer = std::sync::Arc::new(move |_, _| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Ok((
+                vtium_font::Cell {
+                    width: 8,
+                    height: 16,
+                },
+                16,
+            ))
+        });
+        let effect = |file: &str| {
+            Some(Filtered {
+                filter: Filter::Cube(file.into()),
+                active: Vec::new(),
+            })
+        };
+        let mut shot = Shot {
+            font: "unifont".to_owned(),
+            height: 16,
+            cell: vtium_font::Cell {
+                width: 8,
+                height: 16,
+            },
+            face_height: 16,
+            display: (640, 480),
+            grid: (80, 30),
+            screen: Vec::new(),
+            palette: String::new(),
+            color: true,
+            max: (8, 16),
+            filter: effect("/etc/vtium/looks/warm.cube"),
+        };
+        let kept = Mutex::new(Kept::default());
+        for file in ["/etc/vtium/looks/warm.cube", "/etc/vtium/looks/sepia.cube"] {
+            shot.filter = effect(file);
+            painted(&shot, &paint, &filter, &kept);
+            assert!(measured("unifont", 16, &measure, &kept).is_ok());
+        }
+        shot.filter = None;
+        painted(&shot, &paint, &filter, &kept);
+        assert_eq!(paints.load(Ordering::SeqCst), 1);
+        assert_eq!(measures.load(Ordering::SeqCst), 1);
+        shot.height = 32;
+        painted(&shot, &paint, &filter, &kept);
+        assert!(measured("unifont", 32, &measure, &kept).is_ok());
+        assert_eq!(paints.load(Ordering::SeqCst), 2);
+        assert_eq!(measures.load(Ordering::SeqCst), 2);
+    }
+
     /// A shot with no effect keeps the painter's pixels and is answered as
     /// any picture; a shot with one is drawn through it, and the answer
     /// says what became of it.
@@ -850,13 +992,17 @@ mod tests {
             max: (8, 16),
             filter: None,
         };
-        assert_eq!(painted(&shot, &paint, &filter), Drawn::Pictured(Ok(grey)));
+        let kept = Mutex::new(Kept::default());
+        assert_eq!(
+            painted(&shot, &paint, &filter, &kept),
+            Drawn::Pictured(Ok(grey))
+        );
         shot.filter = Some(Filtered {
             filter: Filter::Cube("/etc/vtium/looks/warm.cube".into()),
             active: Vec::new(),
         });
         assert_eq!(
-            painted(&shot, &paint, &filter),
+            painted(&shot, &paint, &filter, &kept),
             Drawn::Filtered {
                 picture: Picture {
                     width: 1,

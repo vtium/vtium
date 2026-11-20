@@ -74,6 +74,10 @@ pub struct Opened {
     /// The draft's changes to the active resources, which the status line
     /// counts among its changes.
     pub batch: usize,
+    /// Each resource that is active or that the draft activates or
+    /// deactivates, with its state, so the tabs' marks follow the draft
+    /// after every answer that changes the draft or its batch.
+    pub resources: Vec<(std::path::PathBuf, crate::batch::State)>,
 }
 
 /// One file of the installed history.
@@ -194,6 +198,7 @@ impl Store {
             count: checked.count(),
             problems: checked.problems,
             batch: self.store.batch_changes(name)?.len(),
+            resources: crate::batch::Resources::open(&session)?.list(),
         })
     }
 
@@ -326,8 +331,11 @@ impl Store {
                             .collect::<Vec<_>>()
                             .join(" ")
                     }
-                    crate::batch::Done::AlreadyActive | crate::batch::Done::AlreadyActivates => {
-                        crate::tui::words::ALREADY_ACTIVE.to_owned()
+                    crate::batch::Done::AlreadyActive => {
+                        crate::tui::words::already_active(crate::batch::kind(path))
+                    }
+                    crate::batch::Done::AlreadyActivates => {
+                        crate::tui::words::already_activates(crate::batch::kind(path))
                     }
                 };
                 resources.save()?;

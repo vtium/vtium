@@ -150,7 +150,7 @@ pub struct Inputs {
     pub locale: String,
     /// The vtlooks, color maps and shaders the Effects tab lists, with each
     /// resource's marks, which an activation through the desk updates.
-    pub effects: super::resources::Effects,
+    pub effects: super::effects_found::Effects,
 }
 
 /// One thing that happened.
@@ -388,6 +388,8 @@ pub struct Shared {
     pub drawing: bool,
     /// What the picture on the screen shows: the line beside it.
     pub shot: Option<super::shot::Caption>,
+    /// Why no picture shows for the preview asked for last, if none does.
+    pub unpictured: Option<super::shot::Unpictured>,
     /// The font the console last said it draws.
     pub shown_font: Option<String>,
     /// The switch sent whose reply has not come.
@@ -670,6 +672,7 @@ impl App {
                 asked: None,
                 drawing: false,
                 shot: None,
+                unpictured: None,
                 shown_font: None,
                 in_flight: None,
                 refused: BTreeSet::new(),

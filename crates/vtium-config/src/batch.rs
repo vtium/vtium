@@ -364,7 +364,7 @@ pub fn applied(installed: Option<&str>, fresh: &Batch, changes: &Changes) -> Opt
 
 /// What kind of resource `path` is, in the words a person uses: a folder
 /// or a `.svg` file is a pointer theme, a `.cube` file a color map, a
-/// `.glsl` file a shader, a file in a color scheme folder a color scheme,
+/// `.vtshader` file a shader, a file in a color scheme folder a color scheme,
 /// and anything else a font.
 pub fn kind(path: &Path) -> &'static str {
     let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -377,7 +377,7 @@ pub fn kind(path: &Path) -> &'static str {
         "pointer theme"
     } else if extension == "cube" {
         "color map"
-    } else if extension == "glsl" {
+    } else if extension == "vtshader" {
         "shader"
     } else if in_palettes {
         "color scheme"
@@ -434,34 +434,83 @@ pub fn trusted(path: &Path, euid: u32) -> Result<(), String> {
     check_in_theme(path, picture, &rule, &mounts).map_err(|refused| refused.to_string())
 }
 
-/// Where [`users`] finds what the looks name: the font sets' folder, and
-/// the folders of the color schemes.
+/// Where [`uses`] finds what the looks name: the font sets' folder, the
+/// folders of the color schemes, and the color maps and shaders each
+/// vtlook names.
 pub struct Places<'a> {
     pub frits: Option<&'a Path>,
     pub palettes: &'a [&'a Path],
+    /// The color maps and shaders that the vtlook of this name names, as
+    /// vtium reads the vtlook, or none when it cannot be read.
+    pub vtlook: &'a dyn Fn(&str) -> Vec<PathBuf>,
 }
 
-/// One look of vtium.conf's text, or its top level, with the font set and
-/// the color scheme it names.
-struct User {
+/// How a look uses a resource.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Through {
+    /// The look's font set, of this name, names the font by its path.
+    FontSet(String),
+    /// The look names the color scheme.
+    Palette,
+    /// The look's vtlook, of this name, names the color map or shader.
+    Vtlook(String),
+}
+
+/// A look that uses a resource, and how. `look` is `None` for the top
+/// level of vtium.conf, which a head draws with when no section has the
+/// name of its look.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Use {
+    pub look: Option<String>,
+    pub through: Through,
+}
+
+/// One look of vtium.conf's text, or its top level, with the font set,
+/// the color scheme and the vtlook it draws with.
+struct Drawn {
     /// `None` for the top level.
     look: Option<String>,
     frit: Option<String>,
     palette: Option<String>,
+    vtlook: Option<String>,
 }
 
-/// The top level of vtium.conf's text `conf` and each of its looks.
-fn looks_of(conf: &str) -> Vec<User> {
+/// What each look of vtium.conf's text `conf` draws with. A look takes
+/// the top level's font set, color scheme and vtlook where it names none
+/// of its own. The top level is listed too when a head draws with it,
+/// because no section has the name of the head's look, or because the
+/// text has no heads.
+///
+/// References:
+/// - ADR-1304 D5: a head's vtlook comes from its look, else the top level, else the built-in one.
+fn looks_of(conf: &str) -> Vec<Drawn> {
     use vtium_settings::keys::{FONT_NAME, PALETTE};
-    let mut users = vec![User {
+    let top = Drawn {
         look: None,
         frit: vtium_settings::setting(conf, FONT_NAME.name),
         palette: vtium_settings::setting(conf, PALETTE.name),
-    }];
-    let Some(reading) = vtium_settings::sections(conf.as_bytes()) else {
-        return users;
+        vtlook: vtium_settings::setting(conf, "vtlook"),
     };
-    for look in reading.parsed.config.looks {
+    let Some(reading) = vtium_settings::sections(conf.as_bytes()) else {
+        return vec![top];
+    };
+    let config = reading.parsed.config;
+    let mut out = Vec::new();
+    // a head draws its look's section, or the top level when no section
+    // has its look's name; an unset `look` names the look `default`
+    let bare = config
+        .heads
+        .iter()
+        .any(|h| !config.looks.iter().any(|l| l.name == h.look));
+    if config.heads.is_empty() || bare {
+        out.push(Drawn {
+            look: None,
+            frit: top.frit.clone(),
+            palette: top.palette.clone(),
+            vtlook: top.vtlook.clone(),
+        });
+    }
+    for look in config.looks {
         let value = |key: &str| {
             look.settings
                 .iter()
@@ -469,51 +518,127 @@ fn looks_of(conf: &str) -> Vec<User> {
                 .find(|s| s.key.name == key)
                 .map(|s| s.value.clone())
         };
-        users.push(User {
-            frit: value(FONT_NAME.name),
-            palette: value(PALETTE.name),
+        out.push(Drawn {
+            frit: value(FONT_NAME.name).or_else(|| top.frit.clone()),
+            palette: value(PALETTE.name).or_else(|| top.palette.clone()),
+            vtlook: look.vtlook.clone().or_else(|| top.vtlook.clone()),
             look: Some(look.name),
         });
     }
-    users
+    out
 }
 
-/// The sentences that warn, before `path` is deactivated, of each look in
-/// vtium.conf's text `conf` that uses it, where vtium-config can tell
-/// without reading a font or a vtlook: a font set that names the font
-/// file by its path, and a color scheme a look names. A font a set names
-/// by its family is found only by the font helper, and the color maps and
-/// shaders a vtlook names only by the vtlook reader, which this build of
-/// vtium-config leaves out, so no warning names them.
-pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
+/// The looks of vtium.conf's text `conf` that use the resource at `path`,
+/// the top level first, and how each uses it: a font that its font set
+/// names by its path, its color scheme, or a color map or shader that its
+/// vtlook names. A font that a set names by its family is found only by
+/// the font helper, so no look is named for it here. The command line's
+/// warning and the TUI's question both come from this list.
+pub fn uses(path: &Path, conf: &str, places: &Places<'_>) -> Vec<Use> {
     let mut out = Vec::new();
-    for user in looks_of(conf) {
-        let who = user.look.as_ref().map_or_else(
-            || "The top level of vtium.conf".to_owned(),
-            |name| format!("Look {name}"),
-        );
-        let after = user.look.as_ref().map_or_else(
-            || "the looks that take their settings from the top level render without it".to_owned(),
-            |name| format!("look {name} renders without it"),
-        );
-        let mut uses = None;
-        if let (Some(frit), Some(frits)) = (&user.frit, places.frits)
+    for drawn in looks_of(conf) {
+        let mut through = None;
+        if let (Some(frit), Some(frits)) = (&drawn.frit, places.frits)
             && frit_names(frits, frit, path)
         {
-            uses = Some(format!("this font through the font set {frit}"));
+            through = Some(Through::FontSet(frit.clone()));
         }
-        if let Some(palette) = &user.palette
+        if let Some(palette) = &drawn.palette
             && palette_file(places.palettes, palette).as_deref() == Some(path)
         {
-            uses = Some("this color scheme".to_owned());
+            through = Some(Through::Palette);
         }
-        if let Some(uses) = uses {
-            out.push(format!(
-                "{who} uses {uses}. Once this change is installed, {after}."
-            ));
+        if let Some(vtlook) = &drawn.vtlook
+            && vtlook != vtium_settings::vtlook::DEFAULT
+            && (places.vtlook)(vtlook).iter().any(|f| f == path)
+        {
+            through = Some(Through::Vtlook(vtlook.clone()));
+        }
+        if let Some(through) = through {
+            out.push(Use {
+                look: drawn.look,
+                through,
+            });
         }
     }
     out
+}
+
+/// The looks of vtium.conf's text `conf` that draw with the vtlook
+/// `name`, the top level first, as [`uses`] counts them.
+pub fn drawing_vtlook(conf: &str, name: &str) -> Vec<Option<String>> {
+    looks_of(conf)
+        .into_iter()
+        .filter(|d| d.vtlook.as_deref() == Some(name))
+        .map(|d| d.look)
+        .collect()
+}
+
+/// The color maps and shaders that `vtlook` names, each in `looks`, the
+/// folder vtium reads them from.
+pub fn named_files(vtlook: &vtium_settings::vtlook::Vtlook, looks: &Path) -> Vec<PathBuf> {
+    use vtium_settings::vtlook::Value;
+    vtlook
+        .color
+        .iter()
+        .chain(&vtlook.spatial)
+        .flat_map(|f| f.values.iter())
+        .filter_map(|(_, v)| match v {
+            Value::File(file) => Some(looks.join(file)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The color maps and shaders that the vtlook `name` names, read as vtium
+/// reads it under `trust`: from the administrator's folder, else from the
+/// package's presets. None when the vtlook cannot be read.
+pub fn vtlook_files(name: &str, trust: &vtium_settings::Trust) -> Vec<PathBuf> {
+    use vtium_settings::vtlook::{LOOKS, SUFFIX, folders, read};
+    let file = format!("{name}{SUFFIX}");
+    let Some(dir) = folders()
+        .into_iter()
+        .find(|d| d.join(&file).symlink_metadata().is_ok())
+    else {
+        return Vec::new();
+    };
+    read(name, dir, trust).map_or_else(|_| Vec::new(), |v| named_files(&v, Path::new(LOOKS)))
+}
+
+/// The sentences that warn, before `path` is deactivated, of each look in
+/// vtium.conf's text `conf` that uses it, as [`uses`] finds them. A
+/// deactivation takes effect at the next login after the install, when
+/// vtium reads the batch again.
+///
+/// References:
+/// - ADR-1205 D4, its note of 2026-11-19: vtium reads the batch again at each new login.
+/// - ADR-1205 D8: deactivating a resource warns and lists the looks that use it.
+pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
+    let kind = kind(path);
+    uses(path, conf, places)
+        .into_iter()
+        .map(|u| {
+            let (who, after) = match &u.look {
+                None => (
+                    "The top level of vtium.conf".to_owned(),
+                    "each head that uses the top level renders".to_owned(),
+                ),
+                Some(name) => (format!("Look {name}"), format!("look {name} renders")),
+            };
+            let (uses, without) = match &u.through {
+                Through::FontSet(frit) => (
+                    format!("this font through the font set {frit}"),
+                    "without it",
+                ),
+                Through::Palette => ("this color scheme".to_owned(), "without it"),
+                Through::Vtlook(vtlook) => (
+                    format!("this {kind} through the vtlook {vtlook}"),
+                    "with no filter",
+                ),
+            };
+            format!("{who} uses {uses}. From the next login after the install, {after} {without}.")
+        })
+        .collect()
 }
 
 /// The file vtium reads for the color scheme `name`: `NAME.palette` in
@@ -754,9 +879,12 @@ impl<'a> Resources<'a> {
                     .iter()
                     .map(Path::new)
                     .collect();
+                let trust = vtium_settings::Trust::running_as(self.euid);
+                let vtlook = |name: &str| vtlook_files(name, &trust);
                 let places = Places {
                     frits: self.session.paths.frits.as_ref().ok().map(PathBuf::as_path),
                     palettes: &palettes,
+                    vtlook: &vtlook,
                 };
                 users(path, &self.text, &places)
             }
@@ -1004,6 +1132,53 @@ mod tests {
         assert_eq!(plain("/a b.ttf"), Some(PathBuf::from("/a b.ttf")));
     }
 
+    // A look that names no vtlook draws the top level's, and one that
+    // names `default` draws the built-in vtlook. The top level itself is
+    // named only where a head draws it, because the head names no look or
+    // the text has no heads.
+    #[test]
+    fn a_look_that_takes_the_top_level_s_vtlook_uses_its_files() {
+        let sepia = Path::new("/etc/vtium/looks/sepia.cube");
+        let files = |name: &str| match name {
+            "sepia" => vec![sepia.to_path_buf()],
+            _ => Vec::new(),
+        };
+        let places = Places {
+            frits: None,
+            palettes: &[],
+            vtlook: &files,
+        };
+        let looks = "vtlook = sepia\nversion = 1\n[look desk]\n[look plain]\nvtlook = default\n[look own]\nvtlook = sepia\n";
+        let named = |conf: &str| -> Vec<Option<String>> {
+            uses(sepia, conf, &places)
+                .into_iter()
+                .map(|u| u.look)
+                .collect()
+        };
+        let some = |n: &str| Some(n.to_owned());
+        assert_eq!(named(looks), [None, some("desk"), some("own")]);
+        let headed = format!("{looks}[head h]\nlook = desk\n");
+        assert_eq!(named(&headed), [some("desk"), some("own")]);
+        let bare = format!("{looks}[head h]\nlook = desk\n[head g]\n");
+        assert_eq!(named(&bare), [None, some("desk"), some("own")]);
+        assert_eq!(
+            uses(sepia, &headed, &places)
+                .first()
+                .map(|u| u.through.clone()),
+            Some(Through::Vtlook("sepia".to_owned()))
+        );
+        assert_eq!(
+            drawing_vtlook(&headed, "sepia"),
+            [some("desk"), some("own")]
+        );
+        assert_eq!(
+            users(sepia, &headed, &places).first().map(String::as_str),
+            Some(
+                "Look desk uses this color map through the vtlook sepia. From the next login after the install, look desk renders with no filter."
+            )
+        );
+    }
+
     #[test]
     fn a_look_that_names_a_color_scheme_is_warned_of() {
         // vtium reads a look's `palette = NAME` from NAME.palette in the
@@ -1018,18 +1193,21 @@ mod tests {
             std::fs::write(file, "palette = 0=#000000\n").unwrap();
         }
         let conf = "palette = top\nversion = 1\n[look big]\npalette = dracula\n";
+        let none = |_: &str| Vec::new();
         let places = Places {
             frits: None,
             palettes: &[&etc, &pkg],
+            vtlook: &none,
         };
         let big = [
-            "Look big uses this color scheme. Once this change is installed, look big renders without it.",
+            "Look big uses this color scheme. From the next login after the install, look big renders without it.",
         ];
         assert_eq!(users(&pkg.join("dracula.palette"), conf, &places), big);
+        // the text has no heads, so the console draws the top level
         assert_eq!(
             users(&pkg.join("top.palette"), conf, &places),
             [
-                "The top level of vtium.conf uses this color scheme. Once this change is installed, the looks that take their settings from the top level render without it."
+                "The top level of vtium.conf uses this color scheme. From the next login after the install, each head that uses the top level renders without it."
             ]
         );
         // a path that is not the file vtium reads warns of nothing
