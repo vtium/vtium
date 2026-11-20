@@ -26,6 +26,7 @@
 //! - ADR-1205 D10: the palettes the package ships are active from the first start.
 //! - ADR-1401 D10: the owner and mode check the batch file passes, as vtium.conf does.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
@@ -242,9 +243,15 @@ pub enum Entry {
 }
 
 /// The batch: the resources vtium may draw from.
+///
+/// Beside the entries in their order, the batch keeps a set of their
+/// paths, so [`Batch::holds`] answers without walking the whole list. The
+/// console, `vtium check-config` and vtium-config ask it once for each
+/// font file they find, and a batch can list thousands of files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     entries: Vec<Entry>,
+    paths: BTreeSet<PathBuf>,
 }
 
 /// The batch file's verdict: the batch, and what vtium found reading it.
@@ -293,7 +300,11 @@ fn plain(text: &str) -> Result<PathBuf, LineFault> {
 impl Batch {
     /// The batch listing `entries`.
     pub fn new(entries: Vec<Entry>) -> Batch {
-        Batch { entries }
+        let mut paths = BTreeSet::new();
+        for Entry::Path(path) in &entries {
+            paths.insert(path.clone());
+        }
+        Batch { entries, paths }
     }
 
     /// The entries, in order.
@@ -391,7 +402,7 @@ impl Batch {
         }
         shipped.sort();
         entries.extend(shipped.into_iter().map(Entry::Path));
-        Batch { entries }
+        Batch::new(entries)
     }
 
     /// Reads the batch file at `path` under `trust`, the check vtium.conf
@@ -432,7 +443,7 @@ impl Batch {
         let Some(Ok(path)) = path.to_str().map(plain) else {
             return false;
         };
-        self.entries.iter().any(|Entry::Path(p)| *p == path)
+        self.paths.contains(&path)
     }
 }
 
