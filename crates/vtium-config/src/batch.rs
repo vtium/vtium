@@ -139,6 +139,8 @@ impl Changes {
 
     /// Builds the index again after changes left `list`.
     fn reindex(&mut self) {
+        #[cfg(test)]
+        tests::LIST_PASSES.with(|n| n.set(n.get().saturating_add(1)));
         self.index = self
             .list
             .iter()
@@ -1058,6 +1060,12 @@ fn list(session: &Session<'_>, words: &[String], out: &mut dyn Write) -> Result<
     reason = "a test fails by panicking"
 )]
 mod tests {
+    thread_local! {
+        /// How many times this thread's `Changes` walked their whole list
+        /// to build the index again.
+        pub(super) static LIST_PASSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
     use super::*;
 
     fn batch(paths: &[&str]) -> Batch {
@@ -1103,22 +1111,25 @@ mod tests {
         }
     }
 
-    /// A large `NAME.batch` reads quickly: the changes are found by path,
-    /// not by a scan of the list on each line. The bound on the wait only
-    /// keeps a slow read from hanging the test.
+    /// A large `NAME.batch` reads in one pass: each line finds its path
+    /// through the index, so the read never walks the list again. The test
+    /// counts the passes over the list instead of timing the read.
     #[test]
     fn a_large_changes_file_reads_without_a_scan_for_each_line() {
         let text: String = (0..26_000)
-            .map(|n| format!("activate /fonts/font-{n:05}.ttf\n"))
+            .map(|n| {
+                format!("activate /fonts/font-{n:05}.ttf\ndeactivate /fonts/font-{n:05}.ttf\n")
+            })
             .collect();
-        let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let _ = sender.send(Changes::parse(&text, Path::new("d.batch")).map(|c| c.len()));
-        });
-        let read = receiver
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .expect("26,000 changes read in under 5 s");
-        assert_eq!(read, Ok(26_000));
+        LIST_PASSES.with(|n| n.set(0));
+        let changes = Changes::parse(&text, Path::new("d.batch")).expect("the file reads");
+        assert_eq!(LIST_PASSES.with(std::cell::Cell::get), 0);
+        assert_eq!(changes.len(), 26_000);
+        assert_eq!(changes.index.len(), 26_000);
+        for (at, (path, change)) in changes.list.iter().enumerate() {
+            assert_eq!(changes.index.get(path), Some(&at));
+            assert_eq!(*change, Change::Deactivate);
+        }
     }
 
     #[test]
