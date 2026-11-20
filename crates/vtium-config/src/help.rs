@@ -410,7 +410,7 @@ const TOPICS: &[Topic] = &[
             "deactivate PATH... [--dry-run] [--install]",
             "stop vtium using a resource",
         )],
-        detail: "Deactivates, in the draft, each resource that a PATH names. Once the change is installed, vtium no longer uses the resource: it treats a font as a missing font, and any other resource as a file that does not exist. When a look uses the resource, deactivate names the look. It can tell this for a font that a font set names by its path, and for a color scheme. It cannot tell this for a font that a font set names by its family, or for a color map or shader. The built-in font is always active, and deactivate refuses it. The change waits in the draft until you install it, and revert drops it. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
+        detail: "Deactivates, in the draft, each resource that a PATH names. From the next login after you install the change, vtium no longer uses the resource: it treats a font as a missing font, and any other resource as a file that does not exist. When a look uses the resource, deactivate names the look. It can tell this for a font that a font set names by its path, for a color scheme, and for a color map or shader that the look's vtlook names. It cannot tell this for a font that a font set names by its family. The built-in font is always active, and deactivate refuses it. The change waits in the draft until you install it, and revert drops it. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
         example: "vtium-config deactivate /usr/share/vtium/fonts/CulletMono-Bold.ttf",
     },
     Topic {
