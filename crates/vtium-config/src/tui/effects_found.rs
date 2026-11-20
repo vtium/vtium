@@ -789,7 +789,7 @@ mod palette_tests {
             );
             assert!(err.contains(why), "{name}: {err}");
         };
-        refused("fifo", "is not a regular file or folder");
+        refused("fifo", "is not a regular file.");
         refused("link", "is a symbolic link");
         refused("open", "other users can change");
         let _ = std::fs::remove_dir_all(&root);
