@@ -1423,6 +1423,26 @@ fn check_batch(bytes: &[u8], path: &Path) -> Result<(), String> {
             return Err(finding.to_string());
         }
     }
+    // The reader names only the first lines it ignores and counts the
+    // rest, so when it counted more, each line the installed file does
+    // not hold is read on its own to find a new line vtium would ignore.
+    if read.more > 0 {
+        for (at, raw) in bytes.split(|&b| b == b'\n').enumerate() {
+            if held.contains(&raw) {
+                continue;
+            }
+            let alone = vtium_settings::batch::Batch::parse(raw, path);
+            if let Some(Finding::Line { fault, .. }) = alone.findings.into_iter().next() {
+                let line = at.saturating_add(1);
+                return Err(Finding::Line {
+                    path: path.to_path_buf(),
+                    line,
+                    fault,
+                }
+                .to_string());
+            }
+        }
+    }
     let base = installed.base(&crate::batch::fresh());
     for vtium_settings::batch::Entry::Path(resource) in read.batch.entries() {
         if !base.holds(resource) {
@@ -1603,8 +1623,35 @@ mod tests {
         let refused = check_batch(b"# a comment\nfonts/x.ttf\n", &path).unwrap_err();
         assert!(
             refused.ends_with(
-                "batch.conf:2: this line does not hold an absolute path, one that starts with /. Because of this, vtium ignores the line."
+                "batch.conf:2: This line does not hold an absolute path, one that starts with /. Because of this, vtium ignores the line."
             ),
+            "{refused}"
+        );
+    }
+
+    /// A new line that vtium ignores is refused even past the first 64
+    /// lines that vtium names, which the installed file already holds.
+    #[test]
+    fn a_new_line_past_the_named_ones_is_refused() {
+        // the installed file must pass the trust rule, which a file
+        // under the world-writable temporary folder does not
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("vtium-config-check-batch-more-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.canonicalize().unwrap().join("batch.conf");
+        let held: String = (0..70).map(|n| format!("held/{n}.ttf\n")).collect();
+        std::fs::write(&path, &held).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let new = format!("{held}new/x.ttf\n");
+        let refused = check_batch(new.as_bytes(), &path).unwrap_err();
+        let line = 71;
+        assert!(
+            refused.contains(&format!(
+                "batch.conf:{line}: This line does not hold an absolute path"
+            )),
             "{refused}"
         );
     }
