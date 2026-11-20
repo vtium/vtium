@@ -37,6 +37,7 @@ fn kind(k: &Key) -> String {
         Kind::Path => "an absolute path".to_owned(),
         Kind::Paths => "absolute paths, separated by `:`".to_owned(),
         Kind::Choice(c) => format!("one of `{}`", c.join("`, `")),
+        Kind::Name(c) => format!("a name: one of `{}`, or a file's name", c.join("`, `")),
         Kind::Command => "a command and its arguments".to_owned(),
         Kind::Rgb => "a color, `r,g,b`".to_owned(),
         Kind::Mode => "a display mode, one to a line".to_owned(),
@@ -63,6 +64,7 @@ fn bound(k: &Key) -> Option<String> {
             format!("{min} to {max}; vtium clamps a number outside that range")
         }
         Kind::Text => format!("at most {TEXT_MAX} bytes, with no control character"),
+        Kind::Name(_) => "1 to 64 of the characters A-Z a-z 0-9 . _ + -".to_owned(),
         Kind::Path => format!("at most {TEXT_MAX} bytes, with no control character"),
         Kind::Paths => format!("at most {TEXT_MAX} bytes in all, with no control character"),
         Kind::Command => format!("at most {TEXT_MAX} bytes in a file"),

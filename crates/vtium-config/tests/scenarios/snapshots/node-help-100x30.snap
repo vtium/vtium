@@ -1,34 +1,34 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "help at 100×30, keys: 6"
+description: "help at 100×30, keys: Shift-Tab"
 ---
- Flow  Looks  Fonts  Settings  Help
- draft mine · no changes · no problems                                   text preview · t: try live
+ Fonts  Effects  Looks  Flow  Settings  Help
+ draft mine · no changes · no problems                           text preview · live trial in Looks
 ----------------------------------------------------------------------------------------------------
- The Flow view: CONFIGURATION, NEW PATH and PARTS
-   ↑          Moves to the box above.
-   ↓          Moves to the box below.
-   ←          Moves to the box before, and on to the line before.
-   →          Moves to the box after, and on to the next line.
-   Home       Goes to the first box.
-   End        Goes to the last box.
-   PgUp       Scrolls up by a window.
-   PgDn       Scrolls down by a window.
-   Space      Picks the highlighted part into NEW PATH, or takes it out.
-   Enter      Opens the highlighted box: a part's detail, a path's card, a template's part maker, or
-              the list of other inputs.
-   1          Goes straight to the Fonts tab.
+ The Fonts tab: a line of filters, then the fonts found on this system, each with its active mark
+ and trust mark, with a preview of the highlighted font
+   ↑          Moves to the item above.
+   ↓          Moves to the item below.
+   Home       Goes to the first item.
+   End        Goes to the last item.
+   PgUp       Moves up by a page.
+   PgDn       Moves down by a page.
+   Space      On a font, a color map, a shader, a color scheme file or a pointer theme, activates
+              it, or deactivates it when it is active. A pointer theme is activated by its folder,
+              with every file in it. Deactivating asks first when a look uses it. On a vtlook, the
+              built-in font or a built-in color scheme, does nothing.
+   Enter      On the filter line, shows the filters as a list. On a font, opens its detail: its
+              files, what it covers, its sizes, its trust mark and the looks that use it.
+   2          Goes straight to the Effects tab.
    3          Goes straight to the Looks tab.
+   4          Goes straight to the Flow tab.
    5          Goes straight to the Settings tab.
    6          Goes straight to the Help tab.
    s          Saves the changes that are not saved into the draft.
    i          Saves, then asks whether to install the draft.
-   r          Asks whether to throw away the draft's changes and copy the installed file back.
-   n          Asks whether to start a new configuration.
-   v          Shows the draft's vtium.conf as text.
-   o          Lists the files installed before, newest first, to copy one into the draft.
    .          Shows the key line's next page, and the first page again after the last. Does nothing
               where the keys fit on one row.
+   p          Switches the preview between the sample characters and the picture of the console.
 
 ----------------------------------------------------------------------------------------------------
  ↑↓ scroll  ←→ Help, About  q quit  . more 1/4

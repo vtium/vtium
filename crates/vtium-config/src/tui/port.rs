@@ -19,6 +19,7 @@
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::os::fd::{AsFd, OwnedFd};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -48,6 +49,9 @@ pub enum Wake {
     Bytes(Vec<u8>),
     /// The sources each frit lacks, which [`Port::sources`] asked for.
     Sourced(Vec<(String, super::model::SourcesFound)>),
+    /// What the font helper said of some of the files [`Port::describe`]
+    /// named, as the answers came.
+    Described(Vec<(PathBuf, crate::discover::Described)>),
     Resize,
     Signal(i32),
     Timeout,
@@ -88,6 +92,11 @@ pub enum Drawn {
         cell: Result<(vtium_font::Cell, u32), String>,
     },
     Pictured(Result<crate::specimen::Picture, String>),
+    /// A picture drawn through an effect, and what became of the effect.
+    Filtered {
+        picture: crate::specimen::Picture,
+        outcome: crate::specimen::Outcome,
+    },
     /// The detailed specimen, and what it gives: the cell, the grid on the
     /// display and how many of its characters the font draws itself.
     Detailed {
@@ -108,6 +117,7 @@ impl Drawn {
         match self {
             Drawn::Celled { font, height, cell } => Event::Celled { font, height, cell },
             Drawn::Pictured(p) => Event::Pictured(p),
+            Drawn::Filtered { picture, outcome } => Event::Filtered { picture, outcome },
             Drawn::Detailed {
                 font,
                 height,
@@ -155,6 +165,10 @@ pub trait Port {
     /// waiting: the answers come later, as [`Wake::Sourced`], and the loop
     /// reads keys meanwhile.
     fn sources(&mut self, fonts: Vec<String>);
+    /// Asks the font helper what each of `paths` is, without waiting: the
+    /// answers come later, a few at a time, as [`Wake::Described`], and
+    /// the loop reads keys meanwhile.
+    fn describe(&mut self, paths: Vec<PathBuf>);
 }
 
 /// Alternate screen, cursor hidden; and back, with mouse reporting off in
@@ -239,7 +253,13 @@ pub fn drive_with(
                     }),
                     Effect::Summary { font, height } => port.draw(Draw::Summary { font, height }),
                     Effect::Sources(fonts) => port.sources(fonts),
+                    Effect::Describe(paths) => port.describe(paths),
                     Effect::Desk(op) => {
+                        // readying a system font waits on the font helper,
+                        // so the screen first shows that it is checking
+                        if matches!(op, super::desk::Op::SystemFont(_)) {
+                            port.write(&painter.frame(&app)?)?;
+                        }
                         let done = match desk.as_deref_mut() {
                             Some(desk) => desk.run(&op),
                             None => Err(super::words::NO_DESK.to_owned()),
@@ -260,6 +280,16 @@ pub fn drive_with(
                         queue.extend(app.event(Event::Resize(size_of(port))));
                         queue.extend(app.event(Event::Installed(result)));
                     }
+                    Effect::InstallFont => {
+                        port.write(&painter.frame(&app)?)?;
+                        let result = match desk.as_deref_mut() {
+                            Some(desk) => port.privileged(&mut |run, _, _| desk.install_font(run)),
+                            None => Err(super::words::NO_DESK.to_owned()),
+                        };
+                        port.write(&painter.forget()?)?;
+                        queue.extend(app.event(Event::Resize(size_of(port))));
+                        queue.extend(app.event(Event::Installed(result)));
+                    }
                 }
             }
         }
@@ -274,6 +304,7 @@ pub fn drive_with(
                 Wake::Resize => vec![Event::Resize(size_of(port))],
                 Wake::Signal(n) => vec![Event::Signal(n)],
                 Wake::Sourced(found) => vec![Event::Sourced(found)],
+                Wake::Described(answers) => vec![Event::Described(answers)],
                 Wake::Timeout => vec![Event::Timeout],
                 Wake::Hotplug => vec![Event::Hotplug],
                 Wake::Drawn(drawn) => vec![drawn.event()],
@@ -343,6 +374,89 @@ pub type Painter = std::sync::Arc<
     dyn Fn(&crate::specimen::Shot) -> Result<crate::specimen::Picture, String> + Send + Sync,
 >;
 
+/// Draws a picture through an effect, on the painter's thread, and says
+/// what became of the effect.
+pub type Filterer = std::sync::Arc<
+    dyn Fn(&mut crate::specimen::Picture, &crate::specimen::Filtered) -> crate::specimen::Outcome
+        + Send
+        + Sync,
+>;
+
+/// The last cell the measurer gave and the last picture the painter drew,
+/// each with what it was asked for. Moving the Effects tab's highlight
+/// asks for the same cell and the same unfiltered sample screen each time,
+/// so the port measures and paints once, and each new effect costs only
+/// its color table and the mapping of the pixels.
+#[derive(Default)]
+pub struct Kept {
+    cell: Option<(String, u32, (vtium_font::Cell, u32))>,
+    picture: Option<(crate::specimen::Shot, crate::specimen::Picture)>,
+}
+
+/// The cell of `font` at `height`, from `kept` where the last measure
+/// asked the same, else from `measure`, which `kept` then keeps.
+fn measured(
+    font: &str,
+    height: u32,
+    measure: &Measurer,
+    kept: &Mutex<Kept>,
+) -> Result<(vtium_font::Cell, u32), String> {
+    if let Ok(k) = kept.lock()
+        && let Some((f, h, cell)) = &k.cell
+        && f == font
+        && *h == height
+    {
+        return Ok(*cell);
+    }
+    let cell = measure(font, height)?;
+    if let Ok(mut k) = kept.lock() {
+        k.cell = Some((font.to_owned(), height, cell));
+    }
+    Ok(cell)
+}
+
+/// What the loop answers for the picture `shot` asks for: the picture
+/// `paint` draws, and where the shot carries an effect, the picture drawn
+/// through it by `filter`, with what became of the effect. A shot with no
+/// effect, such as No filter's, keeps the painter's pixels. The painter
+/// draws the shot without its effect, and `kept` keeps that picture, so a
+/// shot that differs from the last only in its effect is not painted
+/// again.
+fn painted(
+    shot: &crate::specimen::Shot,
+    paint: &Painter,
+    filter: &Filterer,
+    kept: &Mutex<Kept>,
+) -> Drawn {
+    let plain = crate::specimen::Shot {
+        filter: None,
+        ..shot.clone()
+    };
+    let again = kept
+        .lock()
+        .ok()
+        .and_then(|k| k.picture.clone())
+        .filter(|(s, _)| *s == plain)
+        .map(|(_, p)| p);
+    let painted = match again {
+        Some(picture) => Ok(picture),
+        None => {
+            let painted = paint(&plain);
+            if let (Ok(picture), Ok(mut k)) = (&painted, kept.lock()) {
+                k.picture = Some((plain, picture.clone()));
+            }
+            painted
+        }
+    };
+    match (painted, &shot.filter) {
+        (Ok(mut picture), Some(filtered)) => {
+            let outcome = filter(&mut picture, filtered);
+            Drawn::Filtered { picture, outcome }
+        }
+        (painted, _) => Drawn::Pictured(painted),
+    }
+}
+
 /// Draws a font's detailed specimen at a pixel height in at most so many
 /// pixels, on a thread of its own.
 pub type Detailer = std::sync::Arc<
@@ -367,14 +481,28 @@ pub type Summarizer =
 /// Finds the sources each frit lacks, on a thread of its own.
 pub type Finder = Box<dyn FnOnce(Vec<String>) -> Vec<(String, super::model::SourcesFound)> + Send>;
 
+/// Describes font files through the font helper, on a thread of its own,
+/// passing each answer on in order as it comes.
+pub type Describer =
+    std::sync::Arc<dyn Fn(&[PathBuf], &mut dyn FnMut(crate::discover::Described)) + Send + Sync>;
+
+/// How many descriptions the describing thread sends the loop at once.
+const DESCRIBED_AT_ONCE: usize = 32;
+
+/// How long the describing thread holds descriptions before it sends
+/// those it has.
+const DESCRIBED_WAIT: Duration = Duration::from_millis(250);
+
 /// What the real port asks the glyph helper through.
 pub struct Tools {
     pub painter: Painter,
+    pub filterer: Filterer,
     pub measurer: Measurer,
     pub detailer: Detailer,
     pub summarizer: Summarizer,
     /// Taken by the one sources query a run makes.
     pub finder: Option<Finder>,
+    pub describer: Describer,
 }
 
 /// The terminal on standard input and output.
@@ -383,6 +511,9 @@ pub struct Tty {
     /// Where the source finder's thread sends its answers, which the loop
     /// reads as [`Wake::Sourced`].
     sourced: Sender<Vec<(String, super::model::SourcesFound)>>,
+    /// Where the describing thread sends its answers, which the loop reads
+    /// as [`Wake::Described`].
+    described: Sender<Vec<(PathBuf, crate::discover::Described)>>,
     /// Where each preview's thread sends what it drew, which the loop reads
     /// as [`Wake::Drawn`].
     drawn: Sender<Drawn>,
@@ -395,6 +526,9 @@ pub struct Tty {
     /// device, between waits; `None` when there is none. At each change
     /// the desk reads the devices present again (ADR-1403 D7).
     udev: Option<Watch>,
+    /// The last cell and the last unfiltered picture the preview's threads
+    /// made, which the next preview reuses.
+    kept: std::sync::Arc<Mutex<Kept>>,
 }
 
 #[expect(
@@ -467,6 +601,15 @@ impl Tty {
                 }
             })
             .map_err(|e| io::Error::other(e.to_string()))?;
+        let (described, descriptions) = channel();
+        events
+            .handle()
+            .insert_source(descriptions, |sent, _, w: &mut Woken| {
+                if let Sent::Msg(answers) = sent {
+                    w.wakes.push(Wake::Described(answers));
+                }
+            })
+            .map_err(|e| io::Error::other(e.to_string()))?;
         let (drawn, previews) = channel();
         events
             .handle()
@@ -510,6 +653,7 @@ impl Tty {
         let mut tty = Tty {
             tools,
             sourced,
+            described,
             drawn,
             input,
             raw,
@@ -517,6 +661,7 @@ impl Tty {
             events,
             deadline: None,
             udev,
+            kept: std::sync::Arc::default(),
         };
         tty.write(ENTER)?;
         Ok(tty)
@@ -668,6 +813,11 @@ impl Port for Tty {
     }
 
     fn privileged(&mut self, step: Step<'_>) -> Result<Done, String> {
+        // an install can write font sets, so a kept cell or picture of a
+        // font set by its name may no longer be what the font set draws
+        if let Ok(mut kept) = self.kept.lock() {
+            *kept = Kept::default();
+        }
         self.cooked(true).map_err(|e| e.to_string())?;
         let mut run = |argv: &[OsString]| -> io::Result<(bool, String)> {
             let result = spawn_foreground(argv);
@@ -711,16 +861,18 @@ impl Port for Tty {
             std::sync::Arc::clone(&self.tools.painter),
             std::sync::Arc::clone(&self.tools.summarizer),
             std::sync::Arc::clone(&self.tools.detailer),
+            std::sync::Arc::clone(&self.tools.filterer),
         );
         let drawn = self.drawn.clone();
+        let kept = std::sync::Arc::clone(&self.kept);
         std::thread::spawn(move || {
-            let (measure, paint, summarize, detail) = tools;
+            let (measure, paint, summarize, detail, filter) = tools;
             let answer = match ask {
                 Draw::Cell { font, height } => {
-                    let cell = measure(&font, height);
+                    let cell = measured(&font, height, &measure, &kept);
                     Drawn::Celled { font, height, cell }
                 }
-                Draw::Picture(shot) => Drawn::Pictured(paint(&shot)),
+                Draw::Picture(shot) => painted(&shot, &paint, &filter, &kept),
                 Draw::Specimen {
                     font,
                     height,
@@ -756,6 +908,33 @@ impl Port for Tty {
         }
     }
 
+    /// Describes `paths` on a thread of its own. The answers go to the loop
+    /// `DESCRIBED_AT_ONCE` at a time, or sooner once `DESCRIBED_WAIT` has
+    /// passed since the last went, so the list fills in steps without a
+    /// redraw for each file.
+    fn describe(&mut self, paths: Vec<PathBuf>) {
+        let describer = std::sync::Arc::clone(&self.tools.describer);
+        let described = self.described.clone();
+        std::thread::spawn(move || {
+            let mut names = paths.iter();
+            let mut batch = Vec::new();
+            let mut sent = now();
+            describer(&paths, &mut |answer| {
+                if let Some(path) = names.next() {
+                    batch.push((path.clone(), answer));
+                }
+                if batch.len() >= DESCRIBED_AT_ONCE || now().duration_since(sent) >= DESCRIBED_WAIT
+                {
+                    let _ = described.send(std::mem::take(&mut batch));
+                    sent = now();
+                }
+            });
+            if !batch.is_empty() {
+                let _ = described.send(batch);
+            }
+        });
+    }
+
     fn on_panic(&mut self, bytes: Vec<u8>) {
         if let Ok(mut r) = RESTORE.lock()
             && let Some(r) = r.as_mut()
@@ -785,5 +964,131 @@ mod tests {
         let off = super::super::model::MOUSE_OFF;
         assert!(LEAVE.windows(off.len()).any(|w| w == off), "{LEAVE:?}");
         assert!(LEAVE.ends_with(b"\x1b[?25h\x1b[?1049l"), "{LEAVE:?}");
+    }
+
+    /// A shot that differs from the last only in its effect reuses the
+    /// unfiltered picture and the cell, so moving the Effects tab's
+    /// highlight measures and paints once; a shot of another font or size
+    /// is painted again.
+    #[test]
+    fn a_new_effect_on_the_same_screen_is_not_painted_again() {
+        use crate::specimen::{Filter, Filtered, Outcome, Picture, Shot};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let paints = std::sync::Arc::new(AtomicUsize::new(0));
+        let measures = std::sync::Arc::new(AtomicUsize::new(0));
+        let counted = std::sync::Arc::clone(&paints);
+        let paint: Painter = std::sync::Arc::new(move |shot| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(shot.filter, None, "the painter draws no effect");
+            Ok(Picture {
+                width: 1,
+                height: 1,
+                rgba: vec![128, 128, 128, 255],
+            })
+        });
+        let filter: Filterer = std::sync::Arc::new(|_, _| Outcome::Applied);
+        let counted = std::sync::Arc::clone(&measures);
+        let measure: Measurer = std::sync::Arc::new(move |_, _| {
+            counted.fetch_add(1, Ordering::SeqCst);
+            Ok((
+                vtium_font::Cell {
+                    width: 8,
+                    height: 16,
+                },
+                16,
+            ))
+        });
+        let effect = |file: &str| {
+            Some(Filtered {
+                filter: Filter::Cube(file.into()),
+                active: Vec::new(),
+            })
+        };
+        let mut shot = Shot {
+            font: "unifont".to_owned(),
+            height: 16,
+            cell: vtium_font::Cell {
+                width: 8,
+                height: 16,
+            },
+            face_height: 16,
+            display: (640, 480),
+            grid: (80, 30),
+            screen: Vec::new(),
+            palette: String::new(),
+            color: true,
+            max: (8, 16),
+            filter: effect("/etc/vtium/looks/warm.cube"),
+        };
+        let kept = Mutex::new(Kept::default());
+        for file in ["/etc/vtium/looks/warm.cube", "/etc/vtium/looks/sepia.cube"] {
+            shot.filter = effect(file);
+            painted(&shot, &paint, &filter, &kept);
+            assert!(measured("unifont", 16, &measure, &kept).is_ok());
+        }
+        shot.filter = None;
+        painted(&shot, &paint, &filter, &kept);
+        assert_eq!(paints.load(Ordering::SeqCst), 1);
+        assert_eq!(measures.load(Ordering::SeqCst), 1);
+        shot.height = 32;
+        painted(&shot, &paint, &filter, &kept);
+        assert!(measured("unifont", 32, &measure, &kept).is_ok());
+        assert_eq!(paints.load(Ordering::SeqCst), 2);
+        assert_eq!(measures.load(Ordering::SeqCst), 2);
+    }
+
+    /// A shot with no effect keeps the painter's pixels and is answered as
+    /// any picture; a shot with one is drawn through it, and the answer
+    /// says what became of it.
+    #[test]
+    fn a_picture_is_drawn_through_its_effect_and_one_without_keeps_its_pixels() {
+        use crate::specimen::{Filter, Filtered, Outcome, Picture, Shot};
+        let grey = Picture {
+            width: 1,
+            height: 1,
+            rgba: vec![128, 128, 128, 255],
+        };
+        let painted_grey = grey.clone();
+        let paint: Painter = std::sync::Arc::new(move |_| Ok(painted_grey.clone()));
+        let filter: Filterer = std::sync::Arc::new(|picture, _| {
+            picture.rgba = vec![255, 176, 0, 255];
+            Outcome::Applied
+        });
+        let mut shot = Shot {
+            font: "unifont".to_owned(),
+            height: 16,
+            cell: vtium_font::Cell {
+                width: 8,
+                height: 16,
+            },
+            face_height: 16,
+            display: (640, 480),
+            grid: (80, 30),
+            screen: Vec::new(),
+            palette: String::new(),
+            color: true,
+            max: (8, 16),
+            filter: None,
+        };
+        let kept = Mutex::new(Kept::default());
+        assert_eq!(
+            painted(&shot, &paint, &filter, &kept),
+            Drawn::Pictured(Ok(grey))
+        );
+        shot.filter = Some(Filtered {
+            filter: Filter::Cube("/etc/vtium/looks/warm.cube".into()),
+            active: Vec::new(),
+        });
+        assert_eq!(
+            painted(&shot, &paint, &filter, &kept),
+            Drawn::Filtered {
+                picture: Picture {
+                    width: 1,
+                    height: 1,
+                    rgba: vec![255, 176, 0, 255],
+                },
+                outcome: Outcome::Applied,
+            }
+        );
     }
 }

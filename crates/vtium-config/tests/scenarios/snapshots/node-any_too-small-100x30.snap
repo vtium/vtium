@@ -1,34 +1,34 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "any.too-small at 100×30, keys: Enter Shrink"
+description: "any.too-small at 100×30, keys: 3 n Shrink"
 ---
- Flow  Looks  Fonts  Settings  Help                                                   Save  Install
- draft mine · no changes · 1 not saved · no problems                     text preview · t: try live
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft mine · 2 changes · 1 not saved · no problems                      text preview · t: try live
 ----------------------------------------------------------------------------------------------------
-   broken     cannot be read: line 2: unknown key colour
-   minspec-16 reads
-   proof      reads
-   tiny5      reads
- > unifont    built in, installed
-   unscii-8   built in
+   Name           new-look_
+   Font set       unifont, from vtium.conf
+   Size           automatic, from vtium.conf. vtium-config offers its usual sizes, because the text
+                  font is built into vtium or is the console's own font.
+   Color scheme   legacy, from vtium.conf
+   vtlook         No filter
+   Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a pointer theme of its
+                  own yet.
 
- The console draws these characters in unifont, the font it uses now. Press t to try the
- highlighted font on the console, k to keep it, and s to save it in the draft.
-
-  !"#$%&'()*+,-./0123456789:;<=>?
- @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
- `abcdefghijklmnopqrstuvwxyz{|}~
- ÀÁÂÄÅÆÇÈÉÊËÍÎÏÑÓÔÖØÚÜÝß àáâäåæçèéêëíîïñ
- óôöøúüýÿ ŁłŒœŠšŽžĞğİıŞş ¡¿«»“”‘’„–—…•
- ┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝
- ├─┼─┤ ╠═╬═╣ ╰─╯ ┗━┻━┛ ■□▪▫ ▲▼◆◇○●
- €£¥¢§¶©®™°±×÷µ ←↑→↓↔↕⇐⇒ ✓✗★☆♠♣♥♦
-         
- Αα Ββ Γγ Δδ Λλ Ξξ Ππ Σσ Φφ Ψψ Ωω
- Аа Бб Вв Гг Дд Жж Ии Лл Фф Щщ Ыы Яя
- 日本語 中文 한국어 ひらがな カタカナ
+ Type the look's name, then press Enter. Esc keeps the name it had.
+ Its fonts, by role:
+ Text: the built-in font unifont
+ Box drawing: vtium's own lines, unless the text font has them all
+ What it still misses:
+ Nothing: this machine has every font it names.
 
 
- vtium config set font-name unifont
+
+
+
+
+
+
+
+ Made the look new-look. Type its name, then press Enter.
 ----------------------------------------------------------------------------------------------------
- Enter choose  t try live  s save  n new  r remove  i install  q quit
+ Enter keep  Backspace delete  letters type  Esc cancel  Ctrl-C save and quit

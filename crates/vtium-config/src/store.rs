@@ -5,6 +5,7 @@
 //! | Path | What it holds |
 //! |---|---|
 //! | `$XDG_CONFIG_HOME/vtium/drafts/NAME.conf` | each draft, a whole vtium.conf |
+//! | `$XDG_CONFIG_HOME/vtium/drafts/NAME.batch` | each draft's changes to the active resources, when it has any ([`crate::batch`]) |
 //! | `$XDG_CONFIG_HOME/vtium/library.conf` | the library, in vtium.conf's section syntax |
 //! | `$XDG_CONFIG_HOME/vtium/vtium-config.conf` | `draft = NAME`, the current draft, and `history = N` |
 //! | `$XDG_CONFIG_HOME/vtium/installed/DRAFT-N.conf` | each installed file an install replaced |
@@ -20,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use vtium_font::{Sha256, sha256_hex};
 
+use crate::batch::Changes;
 use crate::outcome::Fail;
 
 /// The tool's settings file, in the store's configuration directory.
@@ -259,11 +261,39 @@ impl Store {
     }
 
     /// The draft `name`'s file. Every path the store builds from a draft's
-    /// name is built here or in `Store::base_path`,
+    /// name is built here or in `Store::base_path`, [`Store::batch_path`],
     /// [`Store::edit_copy`] and [`Store::save_history`], each through
     /// [`named`], so no name can reach outside the store.
     pub fn draft_path(&self, name: &str) -> Result<PathBuf, Fail> {
         Ok(self.drafts_dir().join(format!("{}.conf", named(name)?)))
+    }
+
+    /// The file beside the draft `name` that keeps its changes to the
+    /// active resources, `NAME.batch`.
+    pub fn batch_path(&self, name: &str) -> Result<PathBuf, Fail> {
+        Ok(self.drafts_dir().join(format!("{}.batch", named(name)?)))
+    }
+
+    /// The draft `name`'s changes to the active resources; none when it
+    /// has no file of them.
+    pub fn batch_changes(&self, name: &str) -> Result<Changes, Fail> {
+        let path = self.batch_path(name)?;
+        match read(&path)? {
+            Some(text) => Changes::parse(&text, &path),
+            None => Ok(Changes::default()),
+        }
+    }
+
+    /// Keeps `changes` as the draft `name`'s changes to the active
+    /// resources. A draft with no change has no file, so this removes the
+    /// file when `changes` is empty.
+    pub fn set_batch_changes(&self, name: &str, changes: &Changes) -> Result<(), Fail> {
+        let path = self.batch_path(name)?;
+        if changes.is_empty() {
+            remove(&path)
+        } else {
+            write(&path, &changes.text(name))
+        }
     }
 
     /// Where `edit` copies the draft `name` for the editor.
@@ -385,9 +415,11 @@ impl Store {
         write(&self.draft_path(name)?, text)
     }
 
-    /// Removes the draft `name` and its base.
+    /// Removes the draft `name`, its changes to the active resources and
+    /// its base.
     pub fn remove_draft(&self, name: &str) -> Result<(), Fail> {
         remove(&self.draft_path(name)?)?;
+        remove(&self.batch_path(name)?)?;
         remove(&self.base_path(name)?)
     }
 
@@ -586,6 +618,11 @@ mod tests {
             );
             assert_eq!(
                 store.base_path(bad).map_err(|f| f.code()),
+                Err(2),
+                "{bad:?}"
+            );
+            assert_eq!(
+                store.batch_path(bad).map_err(|f| f.code()),
                 Err(2),
                 "{bad:?}"
             );

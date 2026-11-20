@@ -1774,15 +1774,7 @@ pub(crate) mod raster {
         let (font, family, index) = face(&request.font, &request.family)?;
         let metrics = metrics(font)?;
         let charmap = font.charmap();
-        let mut wanted: Vec<(u32, u16)> = Vec::new();
-        charmap.enumerate(|c, g| {
-            let control = c < 0x20 || (0x7f..0xa0).contains(&c);
-            if g != 0 && !control && request.covers(c) && char::from_u32(c).is_some() {
-                wanted.push((c, g));
-            }
-        });
-        wanted.sort_unstable();
-        wanted.dedup_by_key(|&mut (c, _)| c);
+        let wanted = crate::describe::mapped(charmap, |c| request.covers(c));
         let shaped =
             crate::shaping::shape::shape_all(&request.font, index, font, &request.clusters);
         let widen = if request.double_width { 2.0 } else { 1.0 };

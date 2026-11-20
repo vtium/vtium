@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "fonts.filter at 80×25, keys: Enter"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems       text preview · live trial in Looks
+--------------------------------------------------------------------------------
+   ● All fonts
+   ○ Bitmap fonts
+   ○ Outline fonts
+   ○ Monospaced fonts
+   ○ Proportional fonts
+   ○ Nerd Fonts fonts
+   ○ Powerline fonts
+   ○ color emoji fonts
+   ○ box drawing fonts
+   ○ Fonts for Latin
+   ○ Fonts for Greek
+   ○ Fonts for Cyrillic
+   ○ Fonts for Armenian
+   ○ Fonts for Hebrew
+   ○ Fonts for Arabic
+   ○ Fonts for Devanagari
+
+ Enter shows the fonts that pass the highlighted filter. A filter other than
+ All fonts leaves out each font the font helper has not described.
+
+--------------------------------------------------------------------------------
+ ↑↓ move  Enter pick  Esc back  q quit  . more 1/3

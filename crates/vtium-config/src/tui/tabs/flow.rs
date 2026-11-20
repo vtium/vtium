@@ -33,6 +33,7 @@ use super::super::parts::{self, Make, Pick, Stage};
 use super::super::paths::{self, Adding, Doc, Path, Picked, Piece};
 use super::super::{flowlayout, words};
 use super::{Change, Command, Request};
+use super::{Room, Tab};
 
 /// Where the Flow tab stands.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -421,8 +422,8 @@ impl Flow {
         })
     }
 
-    /// Enter on the document: opens the highlighted box's layer, or a font
-    /// set's preview in the Fonts view.
+    /// Enter on the document: opens the highlighted box's layer, or shows
+    /// a font set in the Looks tab's font sets.
     fn open(&mut self, shared: &Shared, at: Option<Obj>) -> Vec<Command> {
         let Some(obj) = at else {
             return Vec::new();
@@ -1452,6 +1453,30 @@ fn carry(old: &Wiring, new: &Wiring, item: Item) -> Item {
         .unwrap_or_else(|| first_item(new))
 }
 
+impl Tab for Flow {
+    fn name(&self) -> &'static str {
+        words::FLOW
+    }
+
+    /// Revert, Restore and New beside Save and Install.
+    fn actions(&self) -> &'static [(&'static str, &'static str)] {
+        &words::FLOW_ACTIONS
+    }
+
+    fn node(&self) -> &'static str {
+        Flow::node(self)
+    }
+
+    /// The Flow tab's own update reads every action key itself.
+    fn takes_action(&self, _action: char) -> bool {
+        false
+    }
+
+    fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
+        Flow::update(self, shared, room.size, room.keys, key)
+    }
+}
+
 #[cfg(test)]
 #[expect(clippy::expect_used, reason = "a test fails by panicking")]
 mod tests {
@@ -1491,24 +1516,22 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_a_palette_font_set_shows_that_font_set_in_the_fonts_tab() {
+    fn enter_on_a_palette_font_set_shows_the_font_sets_in_the_looks_tab() {
         let mut app = app();
-        let start = app.fonts.at();
         let fonts = flowlayout::font_names(&app.shared);
-        let (at, name) = app
+        let name = app
             .shared
             .inputs
             .fonts
             .iter()
-            .enumerate()
-            .rfind(|(i, f)| *i != start && fonts.contains(&f.name))
-            .map(|(i, f)| (i, f.name.clone()))
-            .expect("a second font set");
+            .rfind(|f| fonts.contains(&f.name))
+            .map(|f| f.name.clone())
+            .expect("a font set");
         highlight(&mut app, Obj::Pal(Slot::Font(Some(name.clone()))));
         keys(&mut app, &[Key::Enter]);
-        // the Flow view asks update to show the font set; it never writes
-        // the Fonts tab's highlight itself
-        assert_eq!((app.nav.view, app.fonts.at()), (View::Fonts, at), "{name}");
+        // the Flow view asks update to show the font set, which the Looks
+        // tab lists; it never writes another tab's state itself
+        assert_eq!(app.nav.view, View::Looks, "{name}");
     }
 
     #[test]

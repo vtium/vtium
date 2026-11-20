@@ -1,8 +1,8 @@
 //! The draft and the installed file (ADR-1403 D8): the current draft,
 //! made from the installed file when there is none, how it stands against
 //! the installed file, the check every change runs, and `install`, which
-//! hands the draft to `apply DIR` and keeps the file it replaced in the
-//! installed history.
+//! hands the draft and its changes to the active resources to `apply DIR`
+//! and keeps the file it replaced in the installed history.
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -311,15 +311,26 @@ impl Session<'_> {
     /// current; returns its text.
     pub fn make(&self, name: &str, from: From) -> Result<String, Fail> {
         let installed = self.installed()?;
-        let text = match from {
-            From::Installed => installed.clone().unwrap_or_else(|| HEADER.to_owned()),
-            From::Empty => crate::ops::new_text(HEADER),
-            From::Draft(other) => self
-                .store
-                .read_draft(&other)?
-                .ok_or_else(|| Fail::Usage(format!("there is no draft named {other}")))?,
+        // a copy of a draft takes its changes to the active resources
+        // along, and any other new draft has none
+        let (text, changes) = match from {
+            From::Installed => (
+                installed.clone().unwrap_or_else(|| HEADER.to_owned()),
+                crate::batch::Changes::default(),
+            ),
+            From::Empty => (
+                crate::ops::new_text(HEADER),
+                crate::batch::Changes::default(),
+            ),
+            From::Draft(other) => (
+                self.store
+                    .read_draft(&other)?
+                    .ok_or_else(|| Fail::Usage(format!("there is no draft named {other}")))?,
+                self.store.batch_changes(&other)?,
+            ),
         };
         self.store.write_draft(name, &text)?;
+        self.store.set_batch_changes(name, &changes)?;
         self.store
             .set_base(name, installed.as_deref().map(str::as_bytes))?;
         self.store.set_current(Some(name))?;
@@ -364,6 +375,73 @@ impl Session<'_> {
         })
     }
 
+    /// The batch file an install writes, which lists the active resources
+    /// ([`crate::batch::batch_file`]).
+    pub fn batch_file(&self) -> PathBuf {
+        crate::batch::batch_file(&self.paths.targets())
+    }
+
+    /// The installed batch file, as vtium reads it
+    /// ([`crate::batch::Installed::read`]): under the trust that the
+    /// console that reads it runs with, root for the system's directories.
+    pub fn installed_batch(&self) -> crate::batch::Installed {
+        let euid = crate::batch::rule_user(&self.paths.targets(), &self.paths.sudo);
+        crate::batch::Installed::read(&self.batch_file(), euid)
+    }
+
+    /// The edit an install of the draft `name` makes to the batch file:
+    /// the draft's changes to the active resources applied to the
+    /// installed batch file, or to the list of a fresh install when vtium
+    /// reads no batch file ([`crate::batch::applied`]). A batch file that
+    /// vtium refuses is replaced, and none of its lines is kept, since
+    /// someone other than root could have written them. `None` when the
+    /// draft changes nothing there, so the install leaves the batch file
+    /// alone.
+    pub fn batch_edit(&self, name: &str) -> Result<Option<FileEdit>, Fail> {
+        use crate::batch::Installed;
+        let changes = self.store.batch_changes(name)?;
+        if changes.is_empty() {
+            return Ok(None);
+        }
+        let path = self.batch_file();
+        let installed = self.installed_batch();
+        let text = installed.text(&path).map_err(Fail::Check)?;
+        let Some(new) = crate::batch::applied(text, &crate::batch::fresh(), &changes) else {
+            return Ok(None);
+        };
+        // the file the install replaces, as apply finds it, for the check
+        // that it has not changed since
+        let old = match &installed {
+            Installed::Missing => None,
+            Installed::Read(_) => text.map(str::to_owned),
+            Installed::Refused(why) => crate::tui::read_conf(&path).map_err(|e| {
+                Fail::File(format!(
+                    "{why} vtium-config cannot replace the file: {e}. Remove it as root, and the install then writes a new one."
+                ))
+            })?,
+        };
+        Ok(Some(FileEdit { path, old, new }))
+    }
+
+    /// Takes out of the draft `name` each change to the active resources
+    /// that the system now matches, as after an install: what is left is
+    /// what an install still has to do.
+    pub fn settle_batch(&self, name: &str) -> Result<(), Fail> {
+        let mut changes = self.store.batch_changes(name)?;
+        if changes.is_empty() {
+            return Ok(());
+        }
+        changes.settle(&self.installed_batch().base(&crate::batch::fresh()));
+        self.store.set_batch_changes(name, &changes)
+    }
+
+    /// Drops the draft `name`'s changes to the active resources, as
+    /// `revert` and `new` do: the draft then installs none.
+    pub fn drop_batch(&self, name: &str) -> Result<(), Fail> {
+        self.store
+            .set_batch_changes(name, &crate::batch::Changes::default())
+    }
+
     /// Runs `vtium check-config` on `text`, a copy of the draft at `shown`,
     /// against the configuration directory; each line it prints names
     /// `shown`. A console that cannot be started is exit 5's failure.
@@ -402,8 +480,14 @@ impl Session<'_> {
     /// fails (exit 1), printing what the check found. A draft whose only
     /// problem is that it wires no complete route is readied with the
     /// plan's `no_route` set, and the caller asks the person, or takes
-    /// `--force`, before it installs it (ADR-1403 D8). `None` when the
-    /// draft is the installed file already, which then becomes its base.
+    /// `--force`, before it installs it. The plan writes vtium.conf when
+    /// the draft differs from it, and the batch file when the draft changes
+    /// the active resources ([`Session::batch_edit`]). `None` when the
+    /// draft is the installed file already and changes no resource, and
+    /// the installed file then becomes its base.
+    ///
+    /// References:
+    /// - ADR-1403 D8: Install asks before it installs a draft with no complete route, and `--force` skips that one question.
     pub fn prepare(
         &self,
         name: &str,
@@ -428,25 +512,39 @@ impl Session<'_> {
                 "nothing installed: the check found problems in draft {name}. The draft keeps your changes."
             )));
         }
-        if installed.as_deref() == Some(text) {
+        let batch = self.batch_edit(name)?;
+        if batch.is_some()
+            && let crate::batch::Installed::Refused(why) = self.installed_batch()
+        {
+            let _ = writeln!(
+                out,
+                "{why} The install replaces it with the list of a fresh install and the changes of draft {name}."
+            );
+        }
+        let same = installed.as_deref() == Some(text);
+        if same && batch.is_none() {
             let _ = writeln!(
                 out,
                 "Nothing to install: draft {name} is the same as the installed vtium.conf."
             );
             self.store.set_base(name, Some(text.as_bytes()))?;
+            self.settle_batch(name)?;
             return Ok(None);
         }
+        // the batch file goes first, so the vtium.conf that follows it
+        // never names a resource that is not active yet
+        let conf = (!same).then(|| FileEdit {
+            path: self.installed_path(),
+            old: installed.clone(),
+            new: text.to_owned(),
+        });
         Ok(Some(Ready {
             plan: Plan {
-                files: vec![FileEdit {
-                    path: self.installed_path(),
-                    old: installed.clone(),
-                    new: text.to_owned(),
-                }],
+                files: batch.into_iter().chain(conf).collect(),
                 removals: Vec::new(),
                 no_route,
             },
-            replaced: installed,
+            replaced: if same { None } else { installed },
         }))
     }
 
@@ -493,7 +591,9 @@ impl Session<'_> {
 
     /// After the privileged step installed the draft `name`, `text`:
     /// keeps `replaced`, the file it replaced, in the installed history,
-    /// and makes the draft's base the new installed file.
+    /// makes the draft's base the new installed file, and takes out of
+    /// the draft the changes to the active resources that are now
+    /// installed.
     pub fn finish(
         &self,
         name: &str,
@@ -507,6 +607,7 @@ impl Session<'_> {
             let _ = writeln!(out, "kept {}", saved.display());
         }
         self.store.set_base(name, Some(text.as_bytes()))?;
+        self.settle_batch(name)?;
         let _ = writeln!(out, "installed draft {name}");
         Ok(())
     }
@@ -576,8 +677,8 @@ impl Session<'_> {
                     return Err(Fail::Check(crate::tui::words::no_route_force()));
                 }
                 Unrouted::Ask(ask) => {
-                    let (added, removed) =
-                        counts(ready.replaced.as_deref().unwrap_or_default(), text);
+                    let installed = self.installed()?;
+                    let (added, removed) = counts(installed.as_deref().unwrap_or_default(), text);
                     if !ask(
                         out,
                         &crate::tui::words::no_route_question(added, removed, 0),

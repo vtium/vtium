@@ -34,12 +34,15 @@ macro_rules! static_message {
 
 pub mod apply;
 pub mod banner;
+pub mod batch;
 pub mod bdf;
 pub mod child;
 pub mod cli;
 pub mod commands;
 pub mod cover;
 pub mod decode;
+pub mod describe;
+pub mod discover;
 pub mod display;
 pub mod draft;
 pub mod drafts;
@@ -55,6 +58,7 @@ pub mod library;
 pub mod made;
 pub mod names;
 pub mod needs;
+pub mod onscreen;
 pub mod ops;
 pub mod outcome;
 pub mod outline;

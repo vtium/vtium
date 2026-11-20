@@ -49,7 +49,7 @@ fn a_clean_configuration_exits_zero_and_says_nothing() {
 
 #[test]
 fn each_warning_is_printed_and_it_exits_one() {
-    let d = dir("warn", "sb-size=200000\npalette=frob\n");
+    let d = dir("warn", "sb-size=200000\npalette=../frob\n");
     let out = check(&d, &["--frob"]);
     assert_eq!(out.status.code(), Some(1));
     let err = String::from_utf8_lossy(&out.stderr);
@@ -65,9 +65,10 @@ fn each_warning_is_printed_and_it_exits_one() {
     );
     assert!(
         lines[2].ends_with(
-            "vtium.conf:2: palette=\"frob\" is not a value this setting takes. It takes legacy, \
-             custom, nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, \
-             base16-light, or vga. Because of this error, vtium ignores this setting."
+            "vtium.conf:2: palette=\"../frob\": the value is a built-in color scheme (legacy, \
+             nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, \
+             base16-light or vga), custom, or a color scheme file's name, which has 1 to 64 of \
+             the characters A-Z a-z 0-9 . _ + - and no path, ignored"
         ),
         "{err}"
     );

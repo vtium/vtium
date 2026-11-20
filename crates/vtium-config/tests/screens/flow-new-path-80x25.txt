@@ -1,4 +1,4 @@
- Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ Fonts  Effects  Looks  Flow  Settings  Help   View file Save Install Revert New
  draft bench   All devices are in a path · no changes · no problems
  policy open: a keyboard that no rule names types into the active terminal
  CONFIGURATION
@@ -22,4 +22,4 @@
 
  ──────────────────────────────────────────────────────────────────────────────
  This part is in a path in the configuration. Press e to revise the path.
- ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  q quit
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  q quit  . more 1/5

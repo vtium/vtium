@@ -56,6 +56,8 @@ pub struct Desk {
     /// The check finds that the draft wires no complete route, so a
     /// prepared install needs the person's yes.
     pub no_route: bool,
+    /// The resources that are active or that the draft changes.
+    pub resources: Vec<(std::path::PathBuf, vtium_config::batch::State)>,
 }
 
 impl Desk {
@@ -66,7 +68,20 @@ impl Desk {
             text: text.to_owned(),
             added,
             removed,
+            resources: self.resources.clone(),
             ..Default::default()
+        }
+    }
+
+    /// Drops the draft's changes to the active resources, as the real
+    /// desk does when Revert, New or Delete starts the draft over.
+    fn drop_batch(&mut self) {
+        self.resources
+            .retain(|(_, s)| *s != vtium_config::batch::State::Activates);
+        for (_, s) in &mut self.resources {
+            if *s == vtium_config::batch::State::Deactivates {
+                *s = vtium_config::batch::State::Active;
+            }
         }
     }
 
@@ -77,7 +92,7 @@ impl Desk {
     fn run(&mut self, op: &Op) -> Result<Done, String> {
         Ok(match op {
             Op::Open => Done::Draft(self.opened(&self.draft), Some(present())),
-            Op::Write(text) | Op::WriteChecked(text) => {
+            Op::Write(text) => {
                 self.draft.clone_from(text);
                 self.writes = self.writes.saturating_add(1);
                 self.draft()
@@ -98,10 +113,12 @@ impl Desk {
             }),
             Op::Revert | Op::Delete => {
                 self.draft.clone_from(&self.installed);
+                self.drop_batch();
                 self.draft()
             }
             Op::New => {
                 self.draft = "version = 1\n[look default]\n".to_owned();
+                self.drop_batch();
                 self.draft()
             }
             Op::History => Done::History(
@@ -124,6 +141,13 @@ impl Desk {
                 self.draft()
             }
             Op::Devices => Done::Present(present()),
+            Op::Resource { path, change } => {
+                vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)?
+            }
+            Op::SystemFont(path) => vtium_config::tui::fixture::system_font_op(
+                path,
+                vtium_config::apply::Placement::New,
+            )?,
         })
     }
 }
@@ -223,6 +247,7 @@ impl Sim {
                 ],
                 writes: 0,
                 no_route: false,
+                resources: vtium_config::tui::fixture::active(),
             },
             console_font: START_FONT.to_owned(),
             mouse: false,
@@ -294,6 +319,19 @@ impl Sim {
                     self.desk.installed.clone_from(&self.desk.draft);
                     Event::Installed(Ok(self.desk.draft()))
                 }
+                Effect::InstallFont => {
+                    did.effects.push("install font".into());
+                    Event::Installed(Ok(vtium_config::tui::fixture::font_installed()))
+                }
+                Effect::Describe(paths) => Event::Described(
+                    paths
+                        .into_iter()
+                        .map(|p| {
+                            let d = vtium_config::tui::fixture::described(&p);
+                            (p, d)
+                        })
+                        .collect(),
+                ),
                 Effect::Desk(op) => {
                     did.effects.push(op_word(&op).into());
                     let done = self.desk.run(&op);
@@ -388,7 +426,6 @@ fn op_word(op: &Op) -> &'static str {
     match op {
         Op::Open => "open",
         Op::Write(_) => "save",
-        Op::WriteChecked(_) => "save checked",
         Op::Check(_) => "check",
         Op::Prepare => "prepare",
         Op::Revert => "revert",
@@ -397,5 +434,7 @@ fn op_word(op: &Op) -> &'static str {
         Op::History => "history",
         Op::Restore(_) => "restore",
         Op::Devices => "devices",
+        Op::Resource { .. } => "resource",
+        Op::SystemFont(_) => "system font",
     }
 }

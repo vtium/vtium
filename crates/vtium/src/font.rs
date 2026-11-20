@@ -33,7 +33,9 @@ use vtium_font::set::{SetFace, builtin, builtin_name, layer};
 use vtium_font::spacing::{Band, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
-use vtium_settings::Trust;
+use vtium_settings::cullet::{self, Rule};
+use vtium_settings::mounts::Mounts;
+use vtium_settings::{Trust, batch};
 
 use crate::config::keys::{
     FONT_ENGINE, FONT_FRITS, FONT_NAME, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX,
@@ -847,30 +849,121 @@ pub fn read_text(path: &Path) -> String {
         .unwrap_or_default()
 }
 
-/// The font vconsole names, as systemd-vconsole-setup reads it: `FONT=` in
-/// `conf`, with the kernel command line's `vconsole.font=` over it; the
-/// last assignment of each wins.
-pub fn vconsole_font(conf: &str, cmdline: &str) -> Option<String> {
-    let unquote = |v: &str| {
-        let v = v.trim();
-        ['"', '\'']
-            .iter()
-            .find_map(|&q| v.strip_prefix(q).and_then(|v| v.strip_suffix(q)))
-            .unwrap_or(v)
-            .to_owned()
-    };
-    let mut font = None;
-    for line in conf.lines().map(str::trim) {
-        if let Some(("FONT", value)) = line.split_once('=').map(|(k, v)| (k.trim(), v)) {
-            font = Some(unquote(value));
+/// What the console reads its resources through for this login: the gate
+/// and the folder of the palettes the package ships.
+struct Held {
+    gate: std::sync::Arc<cullet::Gate>,
+    palettes: PathBuf,
+}
+
+thread_local! {
+    /// The console's gate for this login: the batch, the trust rule and
+    /// the mount table that every resource the console reads passes. The
+    /// console reads the batch when it starts and again at each new login
+    /// ([`load_batch`]), and every reader takes the gate from here: the
+    /// font helpers, the color schemes, the color maps and the pointer
+    /// files. The console reads its resources on its main loop's thread, so
+    /// the gate is that thread's; each test, which runs on a thread of its
+    /// own, holds a gate of its own.
+    static HELD: std::cell::RefCell<Option<Held>> = const { std::cell::RefCell::new(None) };
+}
+
+/// What [`HELD`] holds, read the first time from this machine's places,
+/// as a start reads them.
+fn held<T>(f: impl Fn(&Held) -> T) -> T {
+    if let Some(t) = HELD.with_borrow(|h| h.as_ref().map(&f)) {
+        return t;
+    }
+    let _ = start_batch(&batch::Places::system(), &trust(), Rule::new(trust()));
+    HELD.with_borrow(|h| h.as_ref().map(&f)).unwrap_or_else(|| {
+        // `start_batch` always leaves something held; this stands in only
+        // to keep the function free of a panic
+        f(&Held {
+            gate: std::sync::Arc::new(cullet::Gate::new(
+                Rule::new(trust()),
+                None,
+                batch::Batch::default(),
+            )),
+            palettes: PathBuf::from(vtium_settings::palette::PACKAGE_PALETTES),
+        })
+    })
+}
+
+/// Reads the batch the way a start does, at `places` under `trust` with
+/// `rule` for each resource, unless the console already holds one; what
+/// vtium found reading the batch file, for the caller to log, or `None`
+/// when the console already held a batch.
+pub fn start_batch(
+    places: &batch::Places,
+    trust: &Trust,
+    rule: Rule,
+) -> Option<Vec<batch::Finding>> {
+    if HELD.with_borrow(Option::is_some) {
+        return None;
+    }
+    load_batch(places, trust, rule)
+}
+
+/// The console's gate for this login. The first call before any
+/// [`load_batch`] reads this machine's batch, as a start does.
+///
+/// References:
+/// - ADR-1205 D4: one gate for every kind of resource, and one batch for each login.
+pub fn gate() -> std::sync::Arc<cullet::Gate> {
+    held(|h| std::sync::Arc::clone(&h.gate))
+}
+
+/// The folder of the palettes the package ships, as the places the batch
+/// was last read from name it: [`vtium_settings::palette::PACKAGE_PALETTES`],
+/// or a test's.
+pub fn package_palettes() -> PathBuf {
+    held(|h| h.palettes.clone())
+}
+
+/// Reads the batch at `places` under `trust`, the check vtium.conf passes,
+/// and makes it the console's, with `rule`, the trust rule each resource
+/// passes, and this machine's mount table read again. When the batch
+/// differs from the one the console held, which it does at the first read,
+/// the result is what vtium found reading the batch file, for the caller
+/// to log; `None` when nothing changed, so a login that changes nothing
+/// logs nothing.
+///
+/// References:
+/// - ADR-1205 D4, its note of 2026-11-19: the console reads the batch again at each new login, so an activation takes effect at the next login.
+pub fn load_batch(
+    places: &batch::Places,
+    trust: &Trust,
+    rule: Rule,
+) -> Option<Vec<batch::Finding>> {
+    let read = batch::Batch::system(places, trust);
+    let same = HELD.with_borrow(|held| {
+        held.as_ref()
+            .is_some_and(|h| h.gate.batch == read.batch && h.palettes == places.palettes)
+    });
+    if same {
+        return None;
+    }
+    HELD.set(Some(Held {
+        gate: std::sync::Arc::new(cullet::Gate::new(
+            rule,
+            Some(Mounts::system().unwrap_or_default()),
+            read.batch,
+        )),
+        palettes: places.palettes.clone(),
+    }));
+    Some(read.findings)
+}
+
+/// Logs what vtium found reading the batch file: a missing file as
+/// information, since a machine upgraded from an earlier vtium has none,
+/// and a file vtium cannot use, or a line it ignores, as a warning.
+pub fn log_batch_findings(findings: &[batch::Finding]) {
+    for finding in findings {
+        match finding {
+            batch::Finding::Missing { .. } => log::info!(target: "batch", "{finding}"),
+            _ => log::warn!(target: "batch", "{finding}"),
         }
     }
-    for word in cmdline.split_whitespace() {
-        if let Some(v) = word.strip_prefix("vconsole.font=") {
-            font = Some(v.to_owned());
-        }
-    }
-    font.filter(|f| !f.is_empty())
 }
 
 /// The font the configuration asks for (ADR-1200 D9): `font-name`, set in
@@ -893,7 +986,7 @@ pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wan
                 _ => Came::Config,
             },
         }),
-        _ => Some(vconsole_font(vconsole_conf, cmdline).map_or_else(
+        _ => Some(batch::vconsole(vconsole_conf, cmdline).font.map_or_else(
             || Wanted {
                 name: DEFAULT_SET.to_owned(),
                 came: Came::Default,
@@ -2612,22 +2705,89 @@ mod tests {
         assert_eq!(unifont.smallest("C"), 16);
     }
 
+    /// Each font file the shipped font set or layer `rel`, under
+    /// vtium-config's `frits` folder, names by its path.
+    fn shipped_paths(rel: &str) -> Vec<PathBuf> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../vtium-config/frits")
+            .join(rel);
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .lines()
+            .filter_map(|l| {
+                l.strip_prefix("source=")
+                    .or_else(|| l.strip_prefix("strike="))
+            })
+            .filter_map(|v| v.split_once(':').map(|(_, p)| PathBuf::from(p)))
+            .collect()
+    }
+
+    /// The batch [`batch::Batch::system`] builds from the batch file
+    /// `file`, vconsole.conf at `vconsole` and the kernel command line at
+    /// `cmdline`, read under `trust`.
+    fn system_batch(file: &Path, vconsole: &Path, cmdline: &Path, trust: &Trust) -> batch::Read {
+        let places = batch::Places {
+            file: file.to_path_buf(),
+            vconsole_conf: vconsole.to_path_buf(),
+            cmdline: cmdline.to_path_buf(),
+            ..batch::Places::system()
+        };
+        batch::Batch::system(&places, trust)
+    }
+
+    // With no batch file, the
+    // batch is the list of a fresh install. It holds every font file the
+    // default set terminus and its fallback layer name, and the console
+    // font vconsole.conf names, so the default set draws with no setup. A
+    // batch file that root wrote replaces the list.
+    //
+    // References:
+    // - ADR-1205 D4, its note of 2026-11-18: with no batch file, the batch is the list of a fresh install.
     #[test]
-    fn vconsole_names_the_font_with_the_kernel_over_it() {
-        assert_eq!(vconsole_font("", ""), None);
+    fn with_no_batch_file_the_default_set_and_the_console_font_are_active() {
+        let d = Scratch::new("fresh-batch");
+        let vconsole = d.join("vconsole.conf");
+        std::fs::write(
+            &vconsole,
+            "FONT=/usr/share/kbd/consolefonts/ter-v16n.psf.gz\n",
+        )
+        .unwrap();
+        let file = d.join("batch.conf");
+        let read = system_batch(&file, &vconsole, &d.join("cmdline"), &trust());
         assert_eq!(
-            vconsole_font("KEYMAP=us\nFONT=ter-v16n\n", "").as_deref(),
-            Some("ter-v16n")
+            read.findings,
+            [batch::Finding::Missing { path: file.clone() }]
         );
-        assert_eq!(
-            vconsole_font("FONT=\"lat2-16\"\n# FONT=x\nFONT = 'eurlatgr'\n", "").as_deref(),
-            Some("eurlatgr")
+        let default_set = shipped_paths("console/terminus.vtfrit");
+        let fallback = shipped_paths("layers/unifont.vtlayer");
+        assert_eq!((default_set.len(), fallback.len()), (18, 1));
+        for path in default_set.iter().chain(&fallback) {
+            assert!(read.batch.holds(path), "{} is not active", path.display());
+        }
+        assert!(
+            read.batch
+                .holds(Path::new("/usr/share/kbd/consolefonts/ter-v16n.psf.gz"))
         );
-        assert_eq!(
-            vconsole_font("FONT=ter-v16n\n", "quiet vconsole.font=ter-v32n rw").as_deref(),
-            Some("ter-v32n")
+        assert!(
+            !read
+                .batch
+                .holds(Path::new("/usr/share/fonts/TTF/DejaVuSansMono.ttf"))
         );
-        assert_eq!(vconsole_font("FONT=\n", ""), None);
+        // a batch file replaces the fresh list
+        std::fs::write(&file, "/usr/share/fonts/TTF/DejaVuSansMono.ttf\n").unwrap();
+        let me = rustix::process::geteuid().as_raw();
+        let read = system_batch(
+            &file,
+            &vconsole,
+            &d.join("cmdline"),
+            &Trust::running_as(me).below(&d),
+        );
+        assert_eq!(read.findings, []);
+        assert!(
+            read.batch
+                .holds(Path::new("/usr/share/fonts/TTF/DejaVuSansMono.ttf"))
+        );
+        assert!(!read.batch.holds(&default_set[0]));
     }
 
     #[test]

@@ -3,7 +3,11 @@
 //!
 //! A frame filter changes the finished frame before the display shows it,
 //! as a color correction or a CRT effect does. A vtlook (a look file) is
-//! `NAME.vtlook` in the looks folder, [`LOOKS`]. A `[look NAME]` section of
+//! `NAME.vtlook` in one of two folders: the administrator's, [`LOOKS`], and
+//! the package's, [`PACKAGE_LOOKS`], which holds the presets vtium ships.
+//! When both hold a file of the same name, vtium reads the administrator's,
+//! so a copy of a preset in [`LOOKS`] replaces the preset, and removing the
+//! copy brings the preset back. A `[look NAME]` section of
 //! vtium.conf names its vtlook with `vtlook = NAME`, and vtium.conf's
 //! top-level `vtlook` sets the vtlook of every look that names none. With
 //! neither, a head takes the built-in vtlook, `default`, which holds no
@@ -13,16 +17,23 @@
 //! This part is in every build, so a build without frame filters still
 //! reads `vtlook` and says that it draws `default`. With the `filters`
 //! feature, [`read`] reads a vtlook against the filters' declarations,
-//! [`Report`] says where a vtlook fails, [`table`] merges a vtlook's color
-//! filters into the one color table both drawing paths read, and
+//! [`Report`] says where a vtlook fails, [`table_with`] merges a vtlook's
+//! color filters into the one color table both drawing paths read, and
 //! [`template`] gives the built-in vtlook's text, which vtium-config writes
-//! out to start a new vtlook.
+//! out to start a new vtlook. A `cube` filter takes its table from a
+//! `.cube` file in [`LOOKS`], which [`read_cube`] reads once the file has
+//! passed the [`crate::cullet::Gate`]: the batch must hold it, and it must pass the trust
+//! rule.
 //!
 //! References:
-//! - ADR-1304 D4: the vtlook file and the built-in default.
+//! - ADR-1304 D4: the vtlook file and the built-in default, and its note of 2026-11-19: the presets in the package's folder, and the administrator's folder winning on a name.
 //! - ADR-1304 D5: how a head chooses its vtlook through its look section.
+//! - ADR-1304 D9: the `.cube` file a `cube` filter reads, beside the administrator's vtlooks.
 //! - ADR-1304 D10: the reader sits behind the `filters` feature, and the key is in every build.
+//! - ADR-1205 D4: a `.cube` file counts as missing unless the batch holds it and it passes the trust rule.
 
+#[cfg(feature = "filters")]
+mod cube;
 #[cfg(feature = "filters")]
 mod read;
 #[cfg(feature = "filters")]
@@ -35,13 +46,17 @@ mod table;
 mod template;
 
 #[cfg(feature = "filters")]
-pub use read::{Filter, Value, Vtlook, read, read_text, read_text_with};
+pub use crate::bounds::CUBE_FILE_MAX;
+#[cfg(feature = "filters")]
+pub use cube::{Cubes, Fault, Faults, read_cube};
+#[cfg(feature = "filters")]
+pub use read::{Filter, Value, Vtlook, find, read, read_text, read_text_with};
 #[cfg(feature = "filters")]
 pub use report::{Failure, Part, Report, Stage, log_line};
 #[cfg(feature = "filters")]
 pub use requires::{Depth, Fps, Gpu, Requires, Size};
 #[cfg(feature = "filters")]
-pub use table::table;
+pub use table::{table, table_with};
 #[cfg(feature = "filters")]
 pub use template::{TEMPLATE, template};
 
@@ -52,13 +67,28 @@ pub const DEFAULT: &str = "default";
 /// `vtium check-config` call it the built-in vtlook.
 pub const BUILT_IN: &str = "default (built in)";
 
-/// The folder vtium reads vtlooks from: set at build time with
-/// `VTIUM_LOOKS`, as the font sets' folder is set with
+/// The administrator's vtlooks folder, which vtium looks in first: set at
+/// build time with `VTIUM_LOOKS`, as the font sets' folder is set with
 /// `VTIUM_FONT_FRITS`.
 pub const LOOKS: &str = match option_env!("VTIUM_LOOKS") {
     Some(dir) => dir,
     None => "/etc/vtium/looks",
 };
+
+/// The package's vtlooks folder, which holds the presets vtium ships and
+/// which vtium looks in after [`LOOKS`]: set at build time with
+/// `VTIUM_PACKAGE_LOOKS`. The install tree puts package data under
+/// /usr/share/vtium whatever the prefix is.
+pub const PACKAGE_LOOKS: &str = match option_env!("VTIUM_PACKAGE_LOOKS") {
+    Some(dir) => dir,
+    None => "/usr/share/vtium/looks",
+};
+
+/// The folders vtium reads vtlooks from, in the order it looks in them:
+/// the administrator's and then the package's.
+pub fn folders() -> [&'static std::path::Path; 2] {
+    [LOOKS, PACKAGE_LOOKS].map(std::path::Path::new)
+}
 
 /// The suffix of a vtlook's file name.
 pub const SUFFIX: &str = ".vtlook";

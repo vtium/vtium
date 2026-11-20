@@ -47,7 +47,7 @@ Here, "first" means the file in the font directory that is listed first, and wit
 
 vtium ships ready-made frits for Arabic, Hebrew, the Indic scripts, Thai, Lao and Vietnamese, whose marks need room above and below the letters. It also ships four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters. See [Fonts for other scripts](fonts-for-scripts.md) for details.
 
-vtium's service unit runs vtium as root. When vtium runs as root, it starts the font helper as the user `nobody`. The font helper looks for outline fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. It never sees a font installed in your home directory, for example under `~/.local/share/fonts`. To use such a font, copy it into `/usr/local/share/fonts`:
+vtium's service unit runs vtium as root. When vtium runs as root, it starts the font helper as the user `nobody`. The font helper looks for outline fonts under `/usr/share/fonts` and `/usr/local/share/fonts`, and renders only the fonts that are active. The `font-paths` key in vtium.conf replaces those two folders with a list of your own, in the order you give. A font installed in your home directory, for example under `~/.local/share/fonts`, is never active. To use such a font, copy it into `/usr/local/share/fonts`, then activate it as [Active fonts](#active-fonts) describes:
 
 ```
 $ sudo install -Dm644 -t /usr/local/share/fonts/monoid-nerd-font-mono ~/.local/share/fonts/monoid-nerd-font-mono/*.ttf
@@ -55,6 +55,38 @@ $ sudo install -Dm644 -t /usr/local/share/fonts/monoid-nerd-font-mono ~/.local/s
 ```
 
 The first line runs through sudo from your own shell on purpose. Your shell turns `~` and `*.ttf` into the files in your home directory before sudo runs. In a root shell, `~` would be root's home directory. The font helper reads the font directories itself and does not use the fontconfig cache. The second line, `fc-cache -f`, updates that cache for the other programs on the machine.
+
+## Active fonts
+
+vtium renders only the fonts that are active. A font is active when `/etc/vtium/batch.conf` lists its file. The file holds one absolute path on each line, and a line that starts with `#` is a comment. Only root can change the file, so only root decides which fonts the console renders. The same file lists the other resources that a look uses, such as color schemes.
+
+A fresh install activates the fonts that vtium ships in `/usr/share/vtium/fonts`: Terminus, GNU Unifont and Cullet Mono. It also activates the console font that `FONT=` names in `/etc/vconsole.conf`, the color schemes in `/usr/share/vtium/palettes`, and vtium's pointer file, `/usr/share/vtium/pointers.svg`. vtium uses this list while `batch.conf` does not exist, so the default font set `terminus` works with no setup. The built-in fonts are always active.
+
+vtium-config's Fonts tab and `vtium config activate` write `batch.conf` for you, as [Choosing a font with vtium config](#choosing-a-font-with-vtium-config) shows. To activate another font by hand, add the path of each of its files to `batch.conf`. Once the file exists, vtium uses only the paths it lists. So when you create the file, list the fonts, color schemes and pointer file that vtium ships too:
+
+```
+$ ls -d /usr/share/vtium/fonts/* /usr/share/vtium/palettes/* /usr/share/vtium/pointers.svg | sudo tee /etc/vtium/batch.conf
+$ echo /usr/local/share/fonts/monoid-nerd-font-mono/MonoidNerdFontMono-Regular.ttf | sudo tee -a /etc/vtium/batch.conf
+```
+
+When `/etc/vconsole.conf` names a console font, list that font's file as well, because your new file replaces the list that held it. For `FONT=ter-v16n`, kbd keeps the file in its `consolefonts` folder, which is `/usr/share/kbd/consolefonts` on many distributions:
+
+```
+$ ls /usr/share/kbd/consolefonts/ter-v16n.* | sudo tee -a /etc/vtium/batch.conf
+```
+
+vtium reads `batch.conf` when it starts and again each time a session ends. A font you activate or deactivate therefore takes effect at the next login, and vtium needs no restart.
+
+A listed font file must also pass four checks:
+
+- Root owns the file and every folder above it.
+- Neither the group nor other users can write the file or any of those folders.
+- Neither the file nor any folder on its path is a symbolic link.
+- The filesystem that holds the file stays mounted while the system runs. A network filesystem, a FUSE filesystem, an automounted filesystem and a removable disk, such as a USB stick, fail this check.
+
+vtium treats a font that is not listed, or that fails a check, as missing. vtium then renders the font's characters from the next font in the frit. It logs one line for the file, once a boot, which names the file and the check it failed.
+
+A font in your home folder no longer renders, even when you name its folder in the `font-paths` key of `vtium.conf`. You own that folder, not root, so the font fails the first check. A program you run as yourself could change that font while the console uses it. Install the font as a system font instead, as [An outline font](#an-outline-font) shows, and then list it in `batch.conf`. See [the trust rule issue](https://github.com/vtium/vtium/issues/438) and [the font-paths issue](https://github.com/vtium/vtium/issues/441).
 
 ## A console font
 
@@ -142,7 +174,7 @@ The smaller font's characters must be from half to three quarters as high as the
 
 A bitmap font with no smaller size shows its superscripts and subscripts scaled to two thirds. An outline font renders them at two thirds of its size.
 
-`vtium-config preview FONT` ends its preview with a line of superscripts and subscripts, and so does the font view of `vtium-config`. That line shows x2 + y2 = z2 and H2O with the digits small. Both also say how the font makes them. See [the superscript and subscript issue](https://github.com/vtium/vtium/issues/37).
+`vtium-config preview FONT` ends its preview with a line of superscripts and subscripts, and so does the preview in the Fonts tab of `vtium config tui`. That line shows x2 + y2 = z2 and H2O with the digits small. Both also say how the font makes them. See [the superscript and subscript issue](https://github.com/vtium/vtium/issues/37).
 
 ## Install a missing font
 
@@ -176,9 +208,9 @@ After the list of frits, the command names each missing font, with the version t
 To install a missing font, use one of these two ways:
 
 - Search your distribution's packages for the font's name, and install the package that provides it. Many distributions package common fonts, such as JetBrains Mono, Noto Color Emoji and the Nerd Fonts builds.
-- Download the font from its page, and copy its files into `/usr/local/share/fonts`. The font helper looks for fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. See [An outline font](#an-outline-font) for details.
+- Download the font from its page, and copy its files into `/usr/local/share/fonts`. The font helper looks for fonts under `/usr/share/fonts` and `/usr/local/share/fonts`, or in the folders that `font-paths` names instead. See [An outline font](#an-outline-font) for details.
 
-vtium uses the font from its next start. You don't need to change the frit. Run `vtium config fonts` again to check that the font is found.
+Then list the font's files in `/etc/vtium/batch.conf`, as [Active fonts](#active-fonts) describes. vtium uses the font from the next login. You don't need to change the frit. Run `vtium config fonts` again to check that the font is found.
 
 [crates/vtium-config/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md#what-a-source-needs) describes each of the four lines in full.
 
@@ -200,35 +232,38 @@ Run this command inside a vtium console to open vtium-config's full-screen tool:
 $ vtium config tui
 ```
 
-The tool's Fonts view lists the frits and the built-in fonts, with a preview beside the list. Moving the highlight never changes the console's font. What the preview shows depends on where the tool runs:
+Two of the tool's tabs work with fonts. The Fonts tab lists the font files on this machine and sets which of them vtium may use. The Looks tab combines fonts into font sets, and gives each look a font set and a size. The tool opens on its Flow tab. Press `1` for the Fonts tab and `3` for the Looks tab. [The TUI](configure.md#the-tui) describes every tab and its keys.
 
-- In a vtium console with the `allow-font-ops` key on, the preview is text that the console draws in the font it uses now. To see the highlighted font there, try it on the console itself with `t`. The preview text then shows that font.
+To render text in a font you have not used yet, take these steps:
+
+1. In the Fonts tab, highlight the font and press Space to activate it.
+2. In the Looks tab, highlight a font set and press `n` to open the form for a new font set. Type the font's family name, such as `JetBrains Mono`, in the first font field. Press Enter on each field, then Enter on the form's last row to add the font set to the install.
+3. Press `i` to install the draft. The install writes the new font set, and adds the font to the list of active fonts.
+4. Log out and back in, because the console reads the list of active fonts again at the next login. Then run `vtium config tui` again.
+5. In the Looks tab, highlight the new font set and press `t` to try it on the console.
+6. Highlight a look and press Enter to open its card. Choose the new font set on its Font set line, and a size on its Size line. For a bitmap font, the Size line offers only the point sizes that draw the font's bitmap sizes. When your displays have different densities, these sizes are for the display with the lowest density.
+7. Press `s` to save the draft and `i` to install it.
+
+A font in your own folder, such as `~/.local/share/fonts`, cannot be activated, because root does not own it. In the Fonts tab, press Enter on such a font to open its detail, and Enter again to install it as a system font. vtium-config shows the command, which copies the file into `/usr/local/share/fonts` through sudo, and asks before it runs it. Then activate the installed copy with Space.
+
+Moving the highlight never changes the console's font. `t` in the Looks tab switches the console to the highlighted font set for 10 seconds. Press `k` to keep it until you quit the tool. Any other key puts back the font the console used before, and so does the end of the 10 seconds. So a font that makes the screen unreadable undoes itself. To keep a font set after you quit, choose it on a look's card, then save and install. The trial needs a vtium console with the `allow-font-ops` key on.
+
+Under the list, both tabs preview the highlighted item, and `p` switches the preview between the sample characters and a picture of the console. What the preview shows depends on where the tool runs:
+
+- In a vtium console with `allow-font-ops` on, the preview is text that the console draws in the font it uses now. To see a font set there, try it with `t`.
 - Anywhere else, the preview shows the highlighted font. If the terminal can show kitty graphics images, the preview is an image. Otherwise, the tool describes the character cell and the grid in words. The grid is the number of columns and rows of characters that fit on the display.
 
-The tool opens on its Flow view. To reach Fonts, press Tab twice, or click Fonts in the top row. In the Fonts view, these keys work:
+An image of the sample characters is a specimen, a sample of every character the font covers, at its real size. A character that the font itself does not have shows in grey where the built-in font supplies it. It shows as an empty box where no font supplies it. `vtium config preview FONT` prints the same specimen. The Looks tab previews a look at the look's size. A vtium console shows images when vtium is built with the `images` feature.
 
-- Up and Down move the highlight.
-- Enter keeps the highlighted font. The tool writes it as `font-name` into your draft. The draft is your working copy of vtium.conf.
-- `t` switches the console to the highlighted font for 10 seconds. Press `k` to keep it. Any other key puts back the font the console used before, and so does the end of the 10 seconds. So a font that makes the screen unreadable undoes itself.
-- `s` in a vtium console with `allow-font-ops` on saves the font the console shows now into your draft. Elsewhere, `s` switches the image between the specimen and the console rendered in the font.
-- `n` makes a new frit.
-- `r` marks a frit to be removed.
-- `i` installs the draft.
-- `q` or Ctrl-C leaves the tool and puts back the font the console had when the tool started.
+A head is one terminal of vtium, on one or more displays, and a look is what a head draws with: its font set, size, color scheme and vtlook. To give one head a font of its own, give that head a look of its own. See [The sections of vtium.conf](head-file.md#reading-the-sections) for details.
 
-An image preview is a specimen, a sample of every character the font covers, at its real size. A character that the font itself does not have shows in grey where the built-in font supplies it. It shows as an empty box where no font supplies it. The line under the list gives the grid that the font makes on the display. `vtium config preview FONT` prints the same specimen.
+Before it installs, the tool asks you to confirm. It tells you how many lines of vtium.conf change, and how many font sets it installs with them. Then it runs the one command that needs root, `sudo /usr/bin/vtium-config apply DIR`. sudo asks for your password once.
 
-The Looks view previews each size the same way. In a vtium console with `allow-font-ops` on, its preview is a sample screen that the console draws as text. Elsewhere, its preview is an image of the display in the font at that size. A vtium console shows images when vtium is built with the `images` feature.
+That command checks each frit, the list of active fonts and the new vtium.conf with vtium's own checks. It writes the frits first, then the list, and vtium.conf last. It keeps each old file beside the new one as `NAME.bak`, such as `vtium.conf.bak`. vtium-config changes only the lines that need to change, so your comments stay. [When vtium-config asks for sudo](configure.md#when-vtium-config-asks-for-sudo) describes each step.
 
-A head is one terminal of vtium, on one or more displays, and a look is the set of font settings a head uses. To give one head a font of its own, set the frit as the `font-name` of that head's look. See [The sections of vtium.conf](head-file.md#reading-the-sections) for details.
+A font set that a look names takes effect at the console's next start, like any change to vtium.conf. Until then, the console you installed from stays in the font you installed. A font you activate takes effect sooner, at the next login.
 
-Before it installs, the tool asks you to confirm. It tells you how many lines of vtium.conf change, and how many frits it installs with them. Then it runs the one command that needs root, `sudo /usr/bin/vtium-config apply DIR`. sudo asks for your password once.
-
-That command checks each frit and the new vtium.conf with vtium's own checks. It writes the frits first, and vtium.conf after them. It keeps each old file beside the new one as `NAME.bak`, such as `vtium.conf.bak`. vtium-config changes only the lines that need to change, so your comments stay. [When vtium-config asks for sudo](configure.md#when-vtium-config-asks-for-sudo) describes each step.
-
-A font installed this way takes effect at the console's next start, like any change to vtium.conf. Until then, the console you installed from stays in the font you installed.
-
-You can also run the tool in a terminal that is not vtium, such as a desktop terminal. There it shows the same lists and installs the same way. It does not send that terminal a font, and it tells you so. When the `allow-font-ops` key is off, the tool tells you that too, and offers to turn the key on in the draft.
+You can also run the tool in a terminal that is not vtium, such as a desktop terminal. There it shows the same lists and installs the same way. It does not send that terminal a font, and it tells you so. When the `allow-font-ops` key is off, the tool tells you that too, and says how to turn the key on in the Settings tab.
 
 `vtium config new-frit` makes a frit, and `vtium config remove-frit` removes one, without the full-screen tool. When you run either as your own user, it writes an install bundle and prints the `sudo` command that installs it. When you run either as root, it installs the change at once.
 

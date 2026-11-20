@@ -13,9 +13,9 @@ use super::super::canvas::{printable, width, wrap};
 use super::super::color::{Style, palette, sgr_cells};
 use super::super::contract::{NODES, Node};
 use super::super::input::Key;
-use super::super::model::{Shared, Size};
+use super::super::model::{Shared, Size, View};
 use super::super::words;
-use super::Command;
+use super::{Command, Room, Tab};
 
 /// The widest a key column of the Help page grows; keys wider than this
 /// push their meaning onto the rows below.
@@ -120,6 +120,47 @@ fn section(node: &Node, cols: usize, page: &mut Laid) {
     page.entry([Line::default()]);
 }
 
+/// The node of the interface tree that a tab of the bar shows: `looks`
+/// for the Looks tab, and the same for the form for a new font set, which
+/// belongs to it.
+fn tab_node(view: View) -> &'static str {
+    match view {
+        View::Fonts => "fonts",
+        View::Effects => "effects",
+        View::Looks | View::New => "looks",
+        View::Flow => "flow",
+        View::Settings => "settings",
+        View::Help => "help",
+    }
+}
+
+/// The nodes of the interface tree in the order the Help page describes
+/// them: the TUI's own node first, then each tab in the tab bar's order
+/// followed by the nodes under it, then what opens over any tab. The tree
+/// file keeps its own order, which is not the bar's, so the page sorts the
+/// nodes by the tab each one sits under. Within a tab, the nodes keep the
+/// tree's order.
+///
+/// References:
+/// - ADR-1205 D1: the six tabs and their order.
+fn in_bar_order() -> Vec<&'static Node> {
+    let rank = |node: &Node| {
+        let root = node.id.split('.').next().unwrap_or(node.id);
+        if root == "tui" {
+            return 0;
+        }
+        View::TABS
+            .iter()
+            .position(|v| tab_node(*v) == root)
+            .map_or(View::TABS.len().saturating_add(1), |at| {
+                at.saturating_add(1)
+            })
+    };
+    let mut nodes: Vec<&Node> = NODES.iter().collect();
+    nodes.sort_by_key(|n| rank(n));
+    nodes
+}
+
 /// Where the Help tab stands: the page it shows, and the page's first row
 /// in sight.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -152,14 +193,14 @@ impl Help {
     /// commands, from the contract and the catalog the command line's
     /// help draws on. The About page is what `vtium-config --help about`
     /// prints, from the same source.
-    pub fn page(&self, shared: &Shared, size: Size) -> Vec<Line<'static>> {
-        self.laid(shared, size).lines
+    pub fn page(&self, _shared: &Shared, size: Size) -> Vec<Line<'static>> {
+        self.laid(size).lines
     }
 
     /// How many rows the page has at `size`, and where each of its entries
     /// starts.
-    pub fn rows(&self, shared: &Shared, size: Size) -> Rows {
-        let laid = self.laid(shared, size);
+    pub fn rows(&self, _shared: &Shared, size: Size) -> Rows {
+        let laid = self.laid(size);
         Rows {
             len: laid.lines.len(),
             starts: laid.starts,
@@ -168,12 +209,8 @@ impl Help {
 
     /// The page the tab shows at `size`, with the row where each entry
     /// starts.
-    fn laid(&self, shared: &Shared, size: Size) -> Laid {
+    fn laid(&self, size: Size) -> Laid {
         let cols = size.cols;
-        let bold = Style {
-            bold: true,
-            ..Style::PLAIN
-        };
         let mut page = Laid::default();
         if self.about {
             let mut out = Vec::new();
@@ -192,48 +229,8 @@ impl Help {
             }
             return page;
         }
-        for node in NODES {
-            if node.supported {
-                section(node, cols, &mut page);
-                continue;
-            }
-            // a view whose node is still planned keeps its hand-written
-            // words
-            let Some((_, name, does, keys)) = words::HELP_PLANNED.iter().find(|p| p.0 == node.id)
-            else {
-                continue;
-            };
-            // the Fonts view's keys in a vtium console, where `s` saves
-            let (does, keys) = if *name == words::FONTS && shared.text_preview() {
-                (words::HELP_FONTS_LIVE, words::KEYS_FONTS_LIVE)
-            } else {
-                (*does, *keys)
-            };
-            // what the view does and its keys make one entry
-            let mut lines = Vec::new();
-            for (i, l) in wrap(
-                &format!("{name} {does}"),
-                cols.saturating_sub(2),
-                usize::MAX,
-            )
-            .into_iter()
-            .enumerate()
-            {
-                if i == 0 {
-                    let rest = l.strip_prefix(name).unwrap_or(&l).to_owned();
-                    lines.push(Line::from(vec![
-                        span(format!(" {name}"), bold),
-                        span(rest, Style::PLAIN),
-                    ]));
-                } else {
-                    lines.push(line(format!(" {l}"), Style::PLAIN));
-                }
-            }
-            for l in wrap(keys, cols.saturating_sub(6), usize::MAX) {
-                lines.push(line(format!("     {l}"), Style::text(palette::GREY)));
-            }
-            page.entry(lines);
-            page.entry([Line::default()]);
+        for node in in_bar_order().into_iter().filter(|n| n.supported) {
+            section(node, cols, &mut page);
         }
         page.entry([Line::default()]);
         page.entry(prose(words::HELP_COMMANDS, cols));
@@ -337,5 +334,44 @@ impl Help {
             _ => {}
         }
         Vec::new()
+    }
+}
+
+impl Tab for Help {
+    fn name(&self) -> &'static str {
+        words::HELP
+    }
+
+    /// The Help tab's tab bar shows no action.
+    fn actions(&self) -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+
+    fn node(&self) -> &'static str {
+        Help::node(self)
+    }
+
+    fn page(&self, shared: &Shared, size: Size) -> Option<(Vec<Line<'static>>, usize)> {
+        Some((Help::page(self, shared, size), self.top()))
+    }
+
+    /// Install and Save do not act where the tab bar shows no action;
+    /// `o` still turns `allow-font-ops` on.
+    fn takes_action(&self, action: char) -> bool {
+        !matches!(action, 'i' | 's')
+    }
+
+    /// The page's rows on the screen of `room`, scrolled in the rows of
+    /// the body.
+    fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
+        let rows = self.rows(shared, room.size);
+        Help::update(
+            self,
+            key,
+            Page {
+                rows,
+                room: room.body,
+            },
+        )
     }
 }

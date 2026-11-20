@@ -1,10 +1,12 @@
-# The section reader's, the split's, the section writer's and the vtlook
-# reader's fuzz targets,
+# The section reader's, the split's, the section writer's, the vtlook
+# reader's, the palette reader's and the .cube reader's fuzz targets,
 # run with cargo-fuzz on nightly:
 #   cargo +nightly fuzz run reading
 #   cargo +nightly fuzz run split
 #   cargo +nightly fuzz run sections
 #   cargo +nightly fuzz run vtlook
+#   cargo +nightly fuzz run palette
+#   cargo +nightly fuzz run cube
 # Its own workspace, so the main workspace and CI do not build it.
 [package]
 name = "vtium-settings-fuzz"
@@ -44,6 +46,20 @@ bench = false
 [[bin]]
 name = "vtlook"
 path = "fuzz_targets/vtlook.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "palette"
+path = "fuzz_targets/palette.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cube"
+path = "fuzz_targets/cube.rs"
 test = false
 doc = false
 bench = false

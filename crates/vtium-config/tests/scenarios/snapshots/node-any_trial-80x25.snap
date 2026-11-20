@@ -1,29 +1,29 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "any.trial at 80×25, keys: Up t"
+description: "any.trial at 80×25, keys: 3 t"
 ---
- Flow  Looks  Fonts  Settings  Help                               Save  Install
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
  draft mine · no changes · no problems               text preview · t: try live
 --------------------------------------------------------------------------------
-   broken     cannot be read: line 2: unknown key colour
-   minspec-16 reads
-   proof      reads
- > tiny5      reads
-   unifont    built in, installed
-   unscii-8   built in
-
- The console draws these characters in tiny5, the font it uses now. Press t to
- try the highlighted font on the console, k to keep it, and s to save it in the
- draft.
-
-  !"#$%&'()*+,-./0123456789:;<=>?
- @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
- `abcdefghijklmnopqrstuvwxyz{|}~
- ÀÁÂÄÅÆÇÈÉÊËÍÎÏÑÓÔÖØÚÜÝß àáâäåæçèéêëíîïñ
- óôöøúüýÿ ŁłŒœŠšŽžĞğİıŞş ¡¿«»“”‘’„–—…•
- ┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝
-
- Trying tiny5 on the console for 10 s. Press k to keep it, or any other key to
+ Looks
+   proof
+                         user@desk:~/notes$ ls -l
+ Font sets               drwxr-xr-x  2 user user 4096 Nov 10 09:12 drafts
+   broken                -rw-r--r--  1 user user 1823 Nov 10 09:14 plan.txt
+   minspec-16            -rwxr-xr-x  1 user user  512 Nov  9 17:40 build.sh
+   proof                 user@desk:~/notes$ colors
+                         red green yellow magenta cyan white
+ proof uses the font     grey red green yellow magenta cyan white
+ set proof at            Bold text and italic text beside plain text.
+ vtium.conf's size.      ┌──────────┬──────────┐
+ Terminal desk uses it.  │ name     │ size     │
+ The console draws this  ├──────────┼──────────┤
+ in its current font,    │ plan.txt │ 1.8 KiB  │
+ so t shows a font set   └──────────┴──────────┘
+ here. A size takes      Accents: café, naïve, Ångström, Straße, žluťoučký
+ effect when vtium       user@desk:~/notes$
+ starts again.
+ Trying proof on the console for 10 s. Press k to keep it, or any other key to
  put the font back.
 --------------------------------------------------------------------------------
  k keep  other keys put back  Ctrl-C save and quit

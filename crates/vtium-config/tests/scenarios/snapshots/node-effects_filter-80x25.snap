@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "effects.filter at 80×25, keys: Tab Enter"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems       text preview · live trial in Looks
+--------------------------------------------------------------------------------
+   ● All effects
+   ○ vtlooks (filter files)
+   ○ Color maps
+   ○ Shaders
+
+ Press Enter to show the highlighted group.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ ↑↓ move  Enter pick  Esc back  q quit  . more 1/3

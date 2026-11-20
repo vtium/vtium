@@ -60,8 +60,18 @@ fn conf(paths: &Paths) -> Result<(PathBuf, Option<String>), String> {
 /// - ADR-1201 D3: vtium-config reads a font only through the sandboxed helper.
 /// - ADR-1204 D7: what the report names, and the page it points to.
 pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    if !words.is_empty() {
-        return usage(err, "fonts takes no argument");
+    match words {
+        [] => {}
+        [files] if files == "--files" => return font_files(paths, out, err),
+        [install, rest @ ..] if install == "--install-system" => {
+            return install_system(rest, paths, out, err);
+        }
+        _ => {
+            return usage(
+                err,
+                "fonts takes no argument, --files, or --install-system FILE [--replace]",
+            );
+        }
     }
     let frits = match &paths.frits {
         Ok(frits) => frits,
@@ -471,6 +481,9 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
         },
         Kind::Choice(words) if !words.contains(&value) => {
             Err(format!("{} takes one of {}", key.name, words.join(", ")))
+        }
+        Kind::Name(words) if !keys::name(words, value) => {
+            Err(format!("{}={value:?}: {}", key.name, keys::NOT_A_NAME))
         }
         Kind::Path if !keys::absolute(value) => {
             Err(format!("{}={value:?}: {}", key.name, keys::NOT_ABSOLUTE))
@@ -925,9 +938,222 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
     }
 }
 
+/// `fonts --files`: each font file vtium-config finds on this machine, one
+/// line each, tab-separated, in the columns of [`crate::discover::row`].
+/// The font helper describes each file under its own sandbox, so this
+/// process parses no font, and each line is printed as soon as its file
+/// is described. Its state comes from the current draft, as `active`
+/// reports it.
+///
+/// References:
+/// - ADR-1205 D3: the folders, and a user's font listed as not usable.
+/// - ADR-1205 D4: each font's trust mark and its state in the batch.
+fn font_files(paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    use crate::discover::{Folders, describe_each, row, scan};
+    let text = match conf(paths) {
+        Ok((_, text)) => text,
+        Err(why) => return failed(err, &why),
+    };
+    let store = match crate::store::Store::system() {
+        Ok(store) => store,
+        Err(fail) => return failed(err, fail.text()),
+    };
+    let session = crate::drafts::Session { store, paths };
+    let resources = match crate::batch::Resources::open(&session) {
+        Ok(r) => r,
+        Err(fail) => return failed(err, fail.text()),
+    };
+    let mounts = match vtium_settings::mounts::Mounts::system() {
+        Ok(m) => m,
+        Err(e) => {
+            return failed(
+                err,
+                &format!(
+                    "vtium-config cannot read the mount table, so it cannot judge the fonts it finds: {e}"
+                ),
+            );
+        }
+    };
+    let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
+    let rule = vtium_settings::cullet::Rule::running_as(euid);
+    let found = scan(
+        &Folders::of_user(text.as_deref()),
+        &rule,
+        &mounts,
+        &|p: &Path| resources.state(p),
+    );
+    let files: Vec<PathBuf> = found.iter().map(|f| f.path.clone()).collect();
+    let mut rows = found.iter();
+    describe_each(&paths.helper, &files, &mut |d| {
+        if let Some(f) = rows.next() {
+            let _ = writeln!(out, "{}", row(f, &d));
+            let _ = out.flush();
+        }
+    });
+    0
+}
+
+/// `fonts --install-system FILE [--replace]`: installs the font file FILE
+/// as a system font, a copy in `/usr/local/share/fonts` that root owns.
+///
+/// vtium-config reads FILE once and writes those bytes into a draft that
+/// holds this one font. The font helper then reads the draft's copy in
+/// its sandbox, so the file it judges is the file that is installed, and
+/// a copy it cannot describe as a font is refused and its draft removed.
+/// A font that a package installed under `/usr/share/fonts` is refused,
+/// because it is a system font already. When the folder already holds a
+/// file of the same name with the same bytes, the font is already
+/// installed and nothing changes. When that file holds other bytes, the
+/// command shows both files and replaces the installed one only after a
+/// yes at a terminal, or with `--replace`. The draft is installed through
+/// `sudo vtium-config apply DIR`. At a terminal the command shows that
+/// command and asks before it runs it, each time. Away from a terminal it
+/// prints the draft and the command, as the frit commands do, and runs
+/// nothing. Every path and reason it prints passes through
+/// [`crate::onscreen::text`].
+///
+/// References:
+/// - ADR-1205 D5: the install step, its clash and its identical file.
+fn install_system(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
+    use crate::apply::{Placement, SystemFont};
+    use crate::discover::{Described, FileFacts, describe};
+    use crate::onscreen::{path as shown_path, text};
+    let (file, replace) = match words {
+        [file] => (file, false),
+        [file, flag] | [flag, file] if flag == "--replace" => (file, true),
+        _ => {
+            return usage(
+                err,
+                "fonts --install-system takes one FILE and may take --replace",
+            );
+        }
+    };
+    let source = match std::path::absolute(file) {
+        Ok(p) => p,
+        Err(e) => return failed(err, &text(&format!("{file}: {e}"))),
+    };
+    let targets = paths.targets();
+    let font = match SystemFont::read(&source, &targets) {
+        Ok(font) => font,
+        Err(why) => return failed(err, &text(&why)),
+    };
+    let placement = font.placement();
+    let draft = match font.write_draft(&paths.drafts) {
+        Ok(draft) => draft,
+        Err(e) => {
+            return failed(
+                err,
+                &text(&format!("the draft under {}: {e}", paths.drafts.display())),
+            );
+        }
+    };
+    // the draft is removed whenever the command installs nothing from it
+    let discard = || {
+        let _ = std::fs::remove_dir_all(&draft);
+    };
+    let mut asked = vec![font.draft_copy(&draft)];
+    if placement == Placement::Replaces {
+        asked.push(font.target.clone());
+    }
+    let described = describe(&paths.helper, &asked);
+    let unknown = Described::Unknown("the font helper did not answer".to_owned());
+    let yours = described.first().unwrap_or(&unknown);
+    if let Described::NotAFont(why) | Described::Unknown(why) = yours {
+        discard();
+        return failed(
+            err,
+            &format!(
+                "{}: vtium-config cannot install this file as a system font, because the font helper cannot read it as a font: {}",
+                shown_path(&font.source),
+                text(why)
+            ),
+        );
+    }
+    let terminal = std::io::IsTerminal::is_terminal(&std::io::stdin());
+    match placement {
+        Placement::Identical => {
+            discard();
+            let _ = writeln!(
+                out,
+                "This font is already installed as {}, and the two files are the same. Nothing changed.",
+                shown_path(&font.target)
+            );
+            return 0;
+        }
+        Placement::Replaces => {
+            let installed = FileFacts::of(&font.target, described.get(1).unwrap_or(&unknown));
+            let yours = FileFacts::of(&font.source, yours);
+            let _ = writeln!(out, "A different file of this name is already installed.");
+            let _ = writeln!(out, "Installed: {}", installed.line());
+            let _ = writeln!(out, "Yours: {}", yours.line());
+            let yes = replace
+                || (terminal
+                    && crate::vts::ask_line(out, "Replace the installed file with yours?"));
+            if !yes {
+                discard();
+                let _ = writeln!(
+                    out,
+                    "Nothing changed. To replace the installed file, answer y at a terminal, or run the command again with --replace."
+                );
+                return 1;
+            }
+        }
+        Placement::New => {}
+    }
+    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
+    let route = crate::apply::route(&targets, &paths.sudo);
+    let argv = crate::apply::save_argv(&route, &program, &targets, &draft);
+    let shown = text(&crate::vts::shown(&argv));
+    if !terminal {
+        let _ = writeln!(out, "write\t{}", shown_path(&font.target));
+        let _ = writeln!(out, "draft\t{}", shown_path(&draft));
+        let _ = writeln!(out, "run\t{shown}");
+        return 0;
+    }
+    let _ = writeln!(
+        out,
+        "To install {} as {}, vtium-config runs this command:\n  {shown}",
+        shown_path(&font.source),
+        shown_path(&font.target)
+    );
+    if !crate::vts::ask_line(out, "Run this command?") {
+        let _ = writeln!(
+            out,
+            "Nothing changed. The draft stays in {}.",
+            shown_path(&draft)
+        );
+        return 1;
+    }
+    match crate::drafts::run_child(&argv) {
+        Ok((ok, said)) => {
+            // what apply printed, a line at a time, each tab-separated
+            // column shown as text
+            for line in said.lines() {
+                let columns: Vec<String> = line.split('\t').map(text).collect();
+                let _ = writeln!(out, "{}", columns.join("\t"));
+            }
+            u8::from(!ok)
+        }
+        Err(e) => failed(err, &text(&format!("{shown}: {e}"))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // `vtium config set palette` takes a built-in palette's name or a
+    // file's name, and refuses a value that breaks the name rule.
+    #[test]
+    fn a_name_key_takes_a_built_in_or_a_file_s_name() {
+        for value in ["nord", "catppuccin-mocha"] {
+            assert_eq!(
+                set_edit(&keys::PALETTE, value),
+                Ok(Edit::Set("palette", value))
+            );
+        }
+        assert!(set_edit(&keys::PALETTE, "../nord").is_err());
+    }
 
     // The report names a strike whose file has another SHA-256 by the
     // strike's own file, with the page of the source the strike belongs

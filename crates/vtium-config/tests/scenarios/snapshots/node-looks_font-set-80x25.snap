@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "looks.font-set at 80×25, keys: 3 Down Enter"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+ Font set broken
+ The console does not read it: line 2: unknown key colour
+ Its fonts, by role:
+ vtium-config could not read the font set's file.
+ What it still misses:
+ Not known yet: the font helper has not checked its fonts.
+ No look uses it.
+
+ Up and Down scroll the detail, and Esc goes back to the list.
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ ↑↓ scroll  Esc back  Ctrl-C save and quit  q quit

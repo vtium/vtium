@@ -1,0 +1,547 @@
+//! Palette files: the color schemes a look can name beside the palettes
+//! built into vtium-term.
+//!
+//! A palette sets the terminal's colors: the 16 ANSI colors, the default
+//! foreground and background, and where the file gives them, the cursor's
+//! color and the selection's colors. Programs name those colors by number,
+//! and vtium resolves each cell through the palette when it draws. A
+//! palette file is `NAME.palette` in one of two folders. The package
+//! installs its color schemes in [`PACKAGE_PALETTES`], and an
+//! administrator's palettes go in [`PALETTES`], whose file wins when both
+//! folders hold the same name. On screen, vtium and vtium-config call a
+//! palette a color scheme, the word people who have themed another
+//! terminal already know.
+//!
+//! The file is Ghostty's theme format as it is, so a scheme written for
+//! Ghostty imports unchanged: `key = value` lines, comments that start
+//! with `#`, and blank lines. [`parse`] reads `palette` (`N=COLOR`, N from
+//! 0 to 255, in decimal or after Ghostty's prefixes `0b`, `0o` and `0x`),
+//! `foreground`, `background`, `cursor-color`,
+//! `selection-background` and `selection-foreground`. A `COLOR` is
+//! `#rrggbb`, `rrggbb` or an X11 color name, read as OSC 4 reads one. In
+//! the last three keys, `cell-foreground` and `cell-background` leave the
+//! color unset, so vtium draws the cursor or the selection by inverting
+//! the cell. Each color the file leaves unset keeps `legacy`'s value. When
+//! a key appears twice, the later line wins. Every other key is ignored
+//! and listed once as a note, and vtium never follows a `config-file` or
+//! `theme` line, so a palette file sets colors and nothing else.
+//!
+//! A line that is not `key = value`, a color vtium cannot read, an index
+//! past 255 and a file over [`PALETTE_FILE_MAX`] bytes are errors. Any
+//! error makes the whole file count as missing.
+//!
+//! A palette file is a resource, so vtium reads it only through a
+//! [`Gate`], the gate every resource passes. The file must pass the trust
+//! rule: root owns it and every folder above it, nobody else can write
+//! them, none of them is a symbolic link, and its filesystem stays
+//! mounted. The batch must also list the file, which makes it active. The
+//! package's palettes are active from the first start, because the list
+//! of a fresh install holds every file in [`PACKAGE_PALETTES`]. A file
+//! that fails either check counts as missing.
+//!
+//! References:
+//! - ADR-1205 D10: what a palette is, its two folders, its name rule, its format, its errors and its bound, and the package's palettes being active on a fresh install.
+//! - ADR-1205 D4: a palette file is a resource under the trust rule, and draws only while the batch holds it.
+//! - ADR-1304 D4: the name rule a palette's name shares with a vtlook's.
+
+use std::collections::BTreeSet;
+use std::fmt;
+use std::path::{Path, PathBuf};
+
+use vtium_term::{PALETTE_NAMES, Palette, Rgb, Special};
+
+use crate::batch::BATCH_FILE;
+use crate::bounds::{ERRORS_MAX, PALETTE_FILE_MAX};
+use crate::cullet::{Check, Gate};
+use crate::error::Quoted;
+use crate::split::BOM;
+
+/// The administrator's palette folder: set at build time with
+/// `VTIUM_PALETTES`. Its file wins over the package's on the same name.
+pub const PALETTES: &str = match option_env!("VTIUM_PALETTES") {
+    Some(dir) => dir,
+    None => "/etc/vtium/palettes",
+};
+
+/// The folder the package installs its color schemes in: set at build
+/// time with `VTIUM_PACKAGE_PALETTES`.
+pub const PACKAGE_PALETTES: &str = match option_env!("VTIUM_PACKAGE_PALETTES") {
+    Some(dir) => dir,
+    None => "/usr/share/vtium/palettes",
+};
+
+/// The folders vtium reads palette files from, in the order a name is
+/// looked up: the administrator's first.
+pub const FOLDERS: [&str; 2] = [PALETTES, PACKAGE_PALETTES];
+
+/// The suffix of a palette file's name.
+pub const SUFFIX: &str = ".palette";
+
+/// The palette that takes its colors from vtium.conf's `palette-*` keys.
+pub const CUSTOM: &str = "custom";
+
+/// Whether `name` names a palette that needs no file: one of the palettes
+/// vtium-term holds, or [`CUSTOM`]. No palette file may take such a name.
+pub fn built_in(name: &str) -> bool {
+    name == CUSTOM || PALETTE_NAMES.contains(&name)
+}
+
+/// Whether `name` can name a palette file: 1 to 64 of the characters
+/// `A-Z a-z 0-9 . _ + -`, the rule for a vtlook's name, so it never holds
+/// a path.
+pub fn named(name: &str) -> bool {
+    crate::parse::good_name(name)
+}
+
+/// A key the file sets that vtium does not read, at the first line that
+/// sets it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ignored {
+    /// The key as the file writes it, which [`Ignored::quoted`] shows.
+    pub key: String,
+    pub line: usize,
+}
+
+impl Ignored {
+    /// The key quoted for a screen or a log: cut to its first characters
+    /// and escaped, so a control character in the file never reaches a
+    /// console as itself.
+    pub fn quoted(&self) -> Quoted {
+        Quoted::new(&self.key)
+    }
+}
+
+/// A palette file that reads cleanly.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Scheme {
+    pub name: String,
+    pub file: PathBuf,
+    pub palette: Palette,
+    /// Each key vtium ignores, once, in the file's order: the first
+    /// [`ERRORS_MAX`] of them.
+    pub ignored: Vec<Ignored>,
+    /// The count of the other keys vtium ignores, past [`ERRORS_MAX`].
+    pub more_ignored: usize,
+}
+
+/// Why a palette file counts as missing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reason {
+    /// A line that is not `key = value`.
+    NotKeyValue,
+    /// A color vtium cannot read, the value of `key`.
+    BadColor { key: &'static str, value: Quoted },
+    /// A `palette` value that is not `N=COLOR`.
+    BadEntry(Quoted),
+    /// A `palette` index past 255.
+    PastLastColor(Quoted),
+    /// Bytes that are not UTF-8.
+    NotText,
+    /// A file larger than [`PALETTE_FILE_MAX`].
+    TooLarge,
+    /// A file that takes the name of a palette that needs no file.
+    Shadows(&'static str),
+    /// A file that fails the trust rule, with the check it failed.
+    Refused(Check),
+    /// A file the batch does not list, which is not active.
+    Inactive,
+    /// A file the system cannot read.
+    Unreadable(std::io::ErrorKind),
+}
+
+impl fmt::Display for Reason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Reason::NotKeyValue => f.write_str(
+                "This line is not a setting. Each line of a color scheme reads key = value, or is a comment that starts with #.",
+            ),
+            Reason::BadColor { key, value } => write!(
+                f,
+                "The color {value} of {key} is not one vtium can read. A color is #rrggbb, rrggbb or an X11 color name such as DarkSlateGray."
+            ),
+            Reason::BadEntry(value) => write!(
+                f,
+                "The palette line {value} does not read N=COLOR. N is the number of a color from 0 to 255, in decimal, or in binary, octal or hexadecimal after 0b, 0o or 0x."
+            ),
+            Reason::PastLastColor(index) => write!(
+                f,
+                "The color number {index} is past 255, the last of the 256 colors."
+            ),
+            Reason::NotText => f.write_str("The file is not UTF-8 text."),
+            Reason::TooLarge => write!(
+                f,
+                "The file is larger than {PALETTE_FILE_MAX} bytes, the most a color scheme may hold."
+            ),
+            Reason::Shadows(CUSTOM) => write!(
+                f,
+                "The file takes the name {CUSTOM}, which stands for the colors of vtium.conf's palette-* keys, so vtium never reads it. Give the file another name."
+            ),
+            Reason::Shadows(name) => write!(
+                f,
+                "The file takes the name of the built-in color scheme {name}, so vtium never reads it. Give the file another name."
+            ),
+            Reason::Refused(check) => {
+                write!(f, "vtium treats the file as missing, because {check}")
+            }
+            Reason::Inactive => write!(
+                f,
+                "The color scheme is not active, so vtium treats the file as missing. A color scheme is active while {BATCH_FILE} lists the file's path. To activate it, add the path to {BATCH_FILE} as root, on a line of its own."
+            ),
+            Reason::Unreadable(kind) => write!(f, "vtium cannot read the file: {kind}."),
+        }
+    }
+}
+
+/// One error of a palette file: its line, `None` for the whole file, and
+/// why.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Fault {
+    pub line: Option<usize>,
+    pub reason: Reason,
+}
+
+/// A palette file that counts as missing: the first errors in the file's
+/// order, at most [`ERRORS_MAX`], and the count of the rest.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Failure {
+    pub name: String,
+    pub file: PathBuf,
+    pub faults: Vec<Fault>,
+    pub more: usize,
+}
+
+impl Failure {
+    fn one(name: &str, file: &Path, reason: Reason) -> Failure {
+        Failure {
+            name: name.to_owned(),
+            file: file.to_path_buf(),
+            faults: vec![Fault { line: None, reason }],
+            more: 0,
+        }
+    }
+
+    /// Where the first error is: the file, and its line when it has one.
+    pub fn at(&self) -> String {
+        match self.faults.first().and_then(|f| f.line) {
+            Some(line) => format!("{}:{line}", self.file.display()),
+            None => self.file.display().to_string(),
+        }
+    }
+
+    /// The line vtium logs once for the failure: the scheme, where its
+    /// first error is and why, the count of the other errors, and
+    /// `instead`, which says what vtium draws in its place.
+    pub fn log_line(&self, instead: &str) -> String {
+        let why = self
+            .faults
+            .first()
+            .map(|f| f.reason.to_string())
+            .unwrap_or_default();
+        let others = self
+            .faults
+            .len()
+            .saturating_sub(1)
+            .saturating_add(self.more);
+        let more = match others {
+            0 => String::new(),
+            1 => " 1 more error.".to_owned(),
+            n => format!(" {n} more errors."),
+        };
+        format!(
+            "Color scheme {} ({}): {why}{more} {instead}",
+            self.name,
+            self.at()
+        )
+    }
+}
+
+/// A palette file's colors and the keys it ignores, or its errors.
+pub type Parsed = Result<(Palette, Vec<Ignored>, usize), (Vec<Fault>, usize)>;
+
+/// Reads a palette file's bytes. The colors the file leaves unset keep
+/// `legacy`'s values. `Ok` holds the palette, the first [`ERRORS_MAX`]
+/// keys the file sets that vtium ignores, each once, and the count of the
+/// other keys it ignores. `Err` holds the first [`ERRORS_MAX`] errors in
+/// the file's order and the count of the rest.
+pub fn parse(bytes: &[u8]) -> Parsed {
+    if bytes.len() > PALETTE_FILE_MAX {
+        let fault = Fault {
+            line: None,
+            reason: Reason::TooLarge,
+        };
+        return Err((vec![fault], 0));
+    }
+    let bytes = bytes.strip_prefix(BOM).unwrap_or(bytes);
+    let text = match std::str::from_utf8(bytes) {
+        Ok(text) => text,
+        Err(e) => {
+            let before = bytes.get(..e.valid_up_to()).unwrap_or_default();
+            let line = before
+                .iter()
+                .filter(|&&b| b == b'\n')
+                .count()
+                .saturating_add(1);
+            let fault = Fault {
+                line: Some(line),
+                reason: Reason::NotText,
+            };
+            return Err((vec![fault], 0));
+        }
+    };
+    let mut palette = Palette::default();
+    let mut ignored: Vec<Ignored> = Vec::new();
+    // every key ignored so far, listed or counted, so a key set again is
+    // neither listed nor counted twice
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut more_ignored = 0_usize;
+    let mut faults = Vec::new();
+    let mut more = 0_usize;
+    for (at, line) in text.split('\n').enumerate() {
+        let n = at.saturating_add(1);
+        let line = line.strip_suffix('\r').unwrap_or(line).trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let result = match key_value(line) {
+            Some((key, value)) => setting(&mut palette, key, value).map(|known| {
+                if known || !seen.insert(key) {
+                    return;
+                }
+                if ignored.len() < ERRORS_MAX {
+                    ignored.push(Ignored {
+                        key: key.to_owned(),
+                        line: n,
+                    });
+                } else {
+                    more_ignored = more_ignored.saturating_add(1);
+                }
+            }),
+            None => Err(Reason::NotKeyValue),
+        };
+        if let Err(reason) = result {
+            if faults.len() < ERRORS_MAX {
+                faults.push(Fault {
+                    line: Some(n),
+                    reason,
+                });
+            } else {
+                more = more.saturating_add(1);
+            }
+        }
+    }
+    if faults.is_empty() {
+        Ok((palette, ignored, more_ignored))
+    } else {
+        Err((faults, more))
+    }
+}
+
+/// A line's key and value: the text before the first `=` and after it,
+/// each trimmed, with one pair of double quotes around the value removed,
+/// as Ghostty takes a quoted value. `None` when the line has no `=` or
+/// its key is empty or holds a blank or a control character.
+fn key_value(line: &str) -> Option<(&str, &str)> {
+    let (key, value) = line.split_once('=')?;
+    let key = key.trim();
+    if key.is_empty() || !key.chars().all(|c| c.is_ascii_graphic()) {
+        return None;
+    }
+    let value = value.trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .unwrap_or(value);
+    Some((key, value))
+}
+
+/// What a key vtium reads sets.
+#[derive(Clone, Copy)]
+enum Target {
+    /// `palette`: one of the 256 colors.
+    Entry,
+    Fg,
+    Bg,
+    /// A color that `cell-foreground` and `cell-background` leave unset.
+    Special(Special),
+}
+
+/// The keys vtium reads in a palette file.
+const KEYS: [(&str, Target); 6] = [
+    ("palette", Target::Entry),
+    ("foreground", Target::Fg),
+    ("background", Target::Bg),
+    ("cursor-color", Target::Special(Special::Cursor)),
+    (
+        "selection-background",
+        Target::Special(Special::SelectionBg),
+    ),
+    (
+        "selection-foreground",
+        Target::Special(Special::SelectionFg),
+    ),
+];
+
+/// Sets what the line `key = value` sets in `palette`. `Ok(false)` for a
+/// key vtium ignores.
+fn setting(palette: &mut Palette, key: &str, value: &str) -> Result<bool, Reason> {
+    let Some(&(key, target)) = KEYS.iter().find(|(k, _)| *k == key) else {
+        return Ok(false);
+    };
+    match target {
+        Target::Entry => {
+            let bad = || Reason::BadEntry(Quoted::new(value));
+            let (index, rest) = value.split_once('=').ok_or_else(bad)?;
+            let index = index.trim();
+            // decimal, or another base after Ghostty's prefix for it
+            let (radix, digits) = match (index.get(..2), index.get(2..)) {
+                (Some("0b"), Some(digits)) => (2, digits),
+                (Some("0o"), Some(digits)) => (8, digits),
+                (Some("0x"), Some(digits)) => (16, digits),
+                _ => (10, index),
+            };
+            if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+                return Err(bad());
+            }
+            let index = u8::from_str_radix(digits, radix)
+                .map_err(|_| Reason::PastLastColor(Quoted::new(index)))?;
+            palette.set_color(index, color(key, rest.trim())?);
+        }
+        Target::Fg => palette.set_fg(color(key, value)?),
+        Target::Bg => palette.set_bg(color(key, value)?),
+        Target::Special(which) => {
+            let rgb = match value {
+                "cell-foreground" | "cell-background" => None,
+                _ => Some(color(key, value)?),
+            };
+            palette.set_special(which, rgb);
+        }
+    }
+    Ok(true)
+}
+
+/// A color as a palette file writes it: `#rrggbb`, `rrggbb` or an X11
+/// color name.
+fn color(key: &'static str, value: &str) -> Result<Rgb, Reason> {
+    let hex = value.strip_prefix('#').unwrap_or(value);
+    let rgb = if hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        let channel = |at: usize| {
+            hex.get(at..at.saturating_add(2))
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+        };
+        channel(0)
+            .zip(channel(2))
+            .zip(channel(4))
+            .map(|((r, g), b)| Rgb::new(r, g, b))
+    } else if value.starts_with('#') {
+        None
+    } else {
+        Rgb::from_x11_name(value)
+    };
+    rgb.ok_or_else(|| Reason::BadColor {
+        key,
+        value: Quoted::new(value),
+    })
+}
+
+/// Opens the palette file at `path` through `gate` and reads at most
+/// [`PALETTE_FILE_MAX`] bytes of it. `Ok(None)` when nothing exists at
+/// the path. A file that fails the trust rule is refused with the check
+/// it failed, and a file the batch does not list is refused as inactive
+/// without being opened. The checks run on the descriptor the bytes are
+/// read from, so nobody can swap the file between the check and the read.
+/// This is the one place a palette file is opened.
+///
+/// References:
+/// - ADR-1205 D4: the trust rule and the batch that a resource passes before it draws.
+fn open(path: &Path, gate: &Gate) -> Result<Option<Vec<u8>>, Reason> {
+    use std::io::Read as _;
+    let opened = match gate.open(path) {
+        Ok(opened) => opened,
+        Err(refused) if refused.check == Check::Missing => return Ok(None),
+        Err(refused) if refused.check == Check::Inactive => return Err(Reason::Inactive),
+        Err(refused) => return Err(Reason::Refused(refused.check)),
+    };
+    let limit = u64::try_from(PALETTE_FILE_MAX).unwrap_or(u64::MAX);
+    let mut bytes = Vec::new();
+    opened
+        .file
+        .take(limit.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|e| Reason::Unreadable(e.kind()))?;
+    if bytes.len() > PALETTE_FILE_MAX {
+        return Err(Reason::TooLarge);
+    }
+    Ok(Some(bytes))
+}
+
+/// Reads the palette file `name` from the first of `folders` that holds
+/// it, through `gate`. `Ok(None)` when no folder holds it, and for a name
+/// no file can take. A file that takes a built-in palette's name is never
+/// read, and is an error here. The first folder's file wins on a name
+/// even when it has errors, fails the trust rule or is not active, so a
+/// file of the administrator's that vtium cannot use counts as missing
+/// and never lets the package's file through.
+pub fn read(name: &str, folders: &[&Path], gate: &Gate) -> Result<Option<Scheme>, Failure> {
+    if !named(name) {
+        return Ok(None);
+    }
+    for folder in folders {
+        let file = folder.join(format!("{name}{SUFFIX}"));
+        if let Some(shadowed) = shadowed(name) {
+            if file.exists() {
+                return Err(Failure::one(name, &file, Reason::Shadows(shadowed)));
+            }
+            continue;
+        }
+        let bytes = match open(&file, gate) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => continue,
+            Err(reason) => return Err(Failure::one(name, &file, reason)),
+        };
+        return match parse(&bytes) {
+            Ok((palette, ignored, more_ignored)) => Ok(Some(Scheme {
+                name: name.to_owned(),
+                file,
+                palette,
+                ignored,
+                more_ignored,
+            })),
+            Err((faults, more)) => Err(Failure {
+                name: name.to_owned(),
+                file,
+                faults,
+                more,
+            }),
+        };
+    }
+    Ok(None)
+}
+
+/// The built-in palette `name` takes the name of, if any.
+fn shadowed(name: &str) -> Option<&'static str> {
+    PALETTE_NAMES
+        .iter()
+        .chain(std::iter::once(&CUSTOM))
+        .find(|n| **n == name)
+        .copied()
+}
+
+/// Every palette file in `folders` that takes the name of a palette that
+/// needs no file, with the failure that says so. vtium never reads such a
+/// file.
+pub fn shadowing(folders: &[&Path]) -> Vec<Failure> {
+    let mut found = Vec::new();
+    for folder in folders {
+        for name in PALETTE_NAMES.iter().chain(std::iter::once(&CUSTOM)) {
+            let file = folder.join(format!("{name}{SUFFIX}"));
+            if file.symlink_metadata().is_ok() {
+                found.push(Failure::one(name, &file, Reason::Shadows(name)));
+            }
+        }
+    }
+    found
+}
+
+#[cfg(test)]
+#[path = "palette/tests.rs"]
+mod tests;

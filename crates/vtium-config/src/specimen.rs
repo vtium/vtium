@@ -226,7 +226,9 @@ pub fn pixel_height(points: u32, dpi: u32) -> u32 {
 /// One frame the helper sent.
 type Frame = (u32, Vec<u8>);
 
-fn frame(from: &mut dyn Read) -> Result<Frame, String> {
+/// One frame from the helper's output: its kind and its payload, at most
+/// `FRAME_BYTES_MAX` bytes, or why the helper sent none.
+pub(crate) fn frame(from: &mut dyn Read) -> Result<Frame, String> {
     let mut head = [0u8; 8];
     from.read_exact(&mut head)
         .map_err(|_| "the font helper stopped without answering".to_owned())?;
@@ -318,7 +320,7 @@ fn failure_sent(stdout: &mut dyn Read) -> Option<String> {
 /// the process that parses fonts holds none of the user's terminal, and the
 /// helper sheds any other descriptor it is given as it starts
 /// ([`crate::serve::SHED_VAR`]).
-fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
+pub(crate) fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
     let mut child = Command::new(&helper.program)
         .args(&helper.options)
         .arg(crate::serve::SERVE_ARG)
@@ -328,13 +330,18 @@ fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("{}: {e}", helper.program.display()))?;
+        .map_err(|e| {
+            format!(
+                "cannot start the font helper {}: {e}",
+                helper.program.display()
+            )
+        })?;
     match (child.stdin.take(), child.stdout.take()) {
         (Some(i), Some(o)) => Ok((child, i, o)),
         _ => {
             let _ = child.kill();
             let _ = child.wait();
-            Err("the helper's pipes".to_owned())
+            Err("vtium-config cannot reach the font helper through its pipes".to_owned())
         }
     }
 }
@@ -869,6 +876,160 @@ pub struct Shot {
     /// The most pixels the picture takes, across and down: the preview
     /// area.
     pub max: (u32, u32),
+    /// The effect the picture is drawn through, which the Effects tab
+    /// previews, or none.
+    pub filter: Option<Filtered>,
+}
+
+/// An effect that a picture of the console is drawn through.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Filter {
+    /// The vtlook `name`, read from its file `file`.
+    Vtlook { name: String, file: PathBuf },
+    /// The color map in the `.cube` file at this path.
+    Cube(PathBuf),
+}
+
+/// An effect with the color maps the draft holds active, which are the
+/// only `.cube` files the picture may read, as the console reads only the
+/// files its batch lists.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Filtered {
+    pub filter: Filter,
+    pub active: Vec<PathBuf>,
+}
+
+/// What became of the effect that a picture was drawn through.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// The picture shows the effect.
+    Applied,
+    /// The picture shows the effect's color filters, and leaves out its
+    /// spatial filters, which only the GPU path draws.
+    ColorOnly,
+    /// vtium cannot build the effect's color table, for this reason, so
+    /// the picture shows the console without it.
+    Failed(String),
+}
+
+/// Draws `picture` through `filtered`, as the console draws its screen
+/// through a vtlook's color table on the CPU path. The vtlook is read
+/// under `trust`. Its `.cube` files, and a color map's own file, are read
+/// from `looks` through the gate every resource passes: the batch of the
+/// draft's active color maps, and `rule`. When vtium cannot build the
+/// table, the picture stays as it is and the outcome says why.
+///
+/// A color map alone is read as a vtlook of one `cube` filter, so both
+/// kinds of effect take the console's own path from file to table.
+///
+/// References:
+/// - ADR-1205 D8: the Effects tab previews an effect as a picture of the console with the effect applied, and leaves the live console alone.
+/// - ADR-1205 D4: a `.cube` file that the batch does not list, or that fails the trust rule, counts as missing.
+/// - ADR-1304 D2, D3: one color table for every color filter, and the CPU path draws the color layer and skips the spatial one.
+pub fn through(
+    picture: &mut Picture,
+    filtered: &Filtered,
+    looks: &std::path::Path,
+    trust: &vtium_settings::Trust,
+    rule: vtium_settings::cullet::Rule,
+) -> Outcome {
+    use vtium_settings::batch::{Batch, Entry};
+    use vtium_settings::vtlook;
+    let gate = vtium_settings::cullet::Gate::new(
+        rule,
+        None,
+        Batch::new(
+            filtered
+                .active
+                .iter()
+                .map(|p| Entry::Path(p.clone()))
+                .collect(),
+        ),
+    );
+    // the first error with its file and line, as `vtium check-config`
+    // prints it
+    let first = |failure: vtlook::Failure| {
+        Outcome::Failed(
+            failure
+                .reports
+                .first()
+                .map_or_else(String::new, |r| format!("{}: {r}", r.at())),
+        )
+    };
+    let (look, dir) = match &filtered.filter {
+        Filter::Vtlook { name, file } => {
+            let read = file.parent().map(|dir| vtlook::read(name, dir, trust));
+            match read {
+                Some(Ok(look)) => (look, looks.to_path_buf()),
+                Some(Err(failure)) => return first(failure),
+                None => return Outcome::Failed(file.display().to_string()),
+            }
+        }
+        Filter::Cube(path) => {
+            let (Some(dir), Some(name)) = (path.parent(), path.file_name()) else {
+                return Outcome::Failed(path.display().to_string());
+            };
+            let text = format!(
+                "version = 1\n[color cube]\nfile = {}\n",
+                name.to_string_lossy()
+            );
+            match vtlook::read_text("color map", path, text.as_bytes()) {
+                Ok(look) => (look, dir.to_path_buf()),
+                Err(failure) => return first(failure),
+            }
+        }
+    };
+    drawn_through(picture, &look, &dir, &gate)
+}
+
+/// Draws `picture` through the vtlook `look`, which reads cleanly, as the
+/// CPU path draws a frame: its color filters merged into one color table,
+/// each `.cube` file read from `dir` through `gate`. The CPU path draws no
+/// spatial filter, so a vtlook that holds any is shown in its colors
+/// alone, and the outcome says so.
+fn drawn_through(
+    picture: &mut Picture,
+    look: &vtium_settings::vtlook::Vtlook,
+    dir: &std::path::Path,
+    gate: &vtium_settings::cullet::Gate,
+) -> Outcome {
+    use vtium_settings::vtlook;
+    if !look.color.is_empty() {
+        let cubes = vtlook::Cubes { dir, gate };
+        let table = match vtlook::table_with(look, &cubes) {
+            Ok(table) => table,
+            Err(failure) => {
+                return Outcome::Failed(
+                    failure
+                        .reports
+                        .first()
+                        .map_or_else(String::new, |r| format!("{}: {r}", r.at())),
+                );
+            }
+        };
+        if let Err(e) = map_pixels(picture, &table) {
+            return Outcome::Failed(e.to_string());
+        }
+    }
+    if look.spatial.is_empty() {
+        Outcome::Applied
+    } else {
+        Outcome::ColorOnly
+    }
+}
+
+/// Maps each pixel of `picture` through `table`, keeping its alpha.
+fn map_pixels(
+    picture: &mut Picture,
+    table: &vtium_render::filter::Table,
+) -> Result<(), std::collections::TryReserveError> {
+    let mut lookup = vtium_render::filter::Lookup::new(table)?;
+    for [r, g, b, _] in picture.rgba.as_chunks_mut::<4>().0 {
+        let from = u32::from(*r) << 16 | u32::from(*g) << 8 | u32::from(*b);
+        let [_, nr, ng, nb] = lookup.map(from).to_be_bytes();
+        (*r, *g, *b) = (nr, ng, nb);
+    }
+    Ok(())
 }
 
 /// The size of the picture of `shot`, as the detailed specimen is sized:
@@ -1508,6 +1669,50 @@ mod tests {
     use super::*;
     use crate::scratch::Scratch;
 
+    // A vtlook with color filters and spatial filters is drawn in its
+    // colors and says it leaves the spatial filters out; one with spatial
+    // filters alone leaves the pixels as they are and says the same. This
+    // build reads no spatial filter, so the test moves a color filter into
+    // the spatial list to stand for one.
+    #[test]
+    fn a_vtlook_with_spatial_filters_is_drawn_in_its_colors_alone() {
+        use vtium_settings::vtlook::read_text;
+        let tinted = read_text(
+            "amber",
+            std::path::Path::new("/x/amber.vtlook"),
+            b"version = 1\n[color tint]\ncolor = 255,176,0\n",
+        )
+        .expect("a vtlook that reads");
+        let gate = vtium_settings::cullet::Gate::new(
+            vtium_settings::cullet::Rule::running_as(0),
+            None,
+            vtium_settings::batch::Batch::new(Vec::new()),
+        );
+        let white = || Picture {
+            width: 1,
+            height: 1,
+            rgba: vec![255, 255, 255, 255],
+        };
+        let draw = |look: &vtium_settings::vtlook::Vtlook| {
+            let mut picture = white();
+            let outcome = drawn_through(&mut picture, look, std::path::Path::new("/x"), &gate);
+            (outcome, picture.rgba)
+        };
+        let (outcome, rgba) = draw(&tinted);
+        assert_eq!(outcome, Outcome::Applied);
+        assert_ne!(rgba, white().rgba);
+        let mut both = tinted.clone();
+        both.spatial = tinted.color.clone();
+        let (outcome, rgba) = draw(&both);
+        assert_eq!(outcome, Outcome::ColorOnly);
+        assert_ne!(rgba, white().rgba);
+        let mut spatial = tinted.clone();
+        spatial.spatial = std::mem::take(&mut spatial.color);
+        let (outcome, rgba) = draw(&spatial);
+        assert_eq!(outcome, Outcome::ColorOnly);
+        assert_eq!(rgba, white().rgba);
+    }
+
     /// A pipe whose reader is gone.
     struct Closed;
 
@@ -1578,6 +1783,7 @@ mod tests {
             palette: "vga".to_owned(),
             color: true,
             max,
+            filter: None,
         }
     }
 
@@ -1949,5 +2155,114 @@ mod tests {
                 multiple: 1,
             })
         );
+    }
+
+    /// A folder under the build's `target/`, which nobody else can write,
+    /// as the trust rule asks of every folder above a resource, holding
+    /// the package's amber preset and two color maps.
+    fn effects_folder(name: &str) -> PathBuf {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!(
+                "vtium-config-preview-{name}-{}",
+                std::process::id()
+            ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the folder");
+        // a resource's path is absolute, with no `..`
+        let dir = std::fs::canonicalize(&dir).expect("the folder's path");
+        let amber = std::fs::read(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vtium/install/looks/amber.vtlook"),
+        )
+        .expect("the amber preset");
+        std::fs::write(dir.join("amber.vtlook"), amber).expect("amber");
+        // every color to pure red
+        let red = "LUT_3D_SIZE 2\n1 0 0\n1 0 0\n1 0 0\n1 0 0\n1 0 0\n1 0 0\n1 0 0\n1 0 0\n";
+        std::fs::write(dir.join("red.cube"), red).expect("red");
+        std::fs::write(dir.join("broken.cube"), "LUT_3D_SIZE 2\n1 0\n").expect("broken");
+        dir
+    }
+
+    /// A picture of a white, a grey and a blue pixel.
+    fn three_pixels() -> Picture {
+        Picture {
+            width: 3,
+            height: 1,
+            rgba: vec![255, 255, 255, 255, 128, 128, 128, 255, 0, 0, 255, 255],
+        }
+    }
+
+    fn euid() -> u32 {
+        rustix::process::geteuid().as_raw()
+    }
+
+    fn draw(dir: &std::path::Path, filter: Filter, active: &[&str]) -> (Picture, Outcome) {
+        let mut picture = three_pixels();
+        let filtered = Filtered {
+            filter,
+            active: active.iter().map(|n| dir.join(n)).collect(),
+        };
+        let outcome = through(
+            &mut picture,
+            &filtered,
+            dir,
+            &vtium_settings::Trust::running_as(euid()),
+            vtium_settings::cullet::Rule::running_as(euid()),
+        );
+        (picture, outcome)
+    }
+
+    // The amber preset turns the picture amber: white and grey lose most
+    // of their blue and keep more red than green, the order of amber's
+    // 255,176,0, and each pixel keeps its alpha.
+    #[test]
+    fn the_amber_preset_turns_the_picture_amber() {
+        let dir = effects_folder("amber");
+        let (picture, outcome) = draw(
+            &dir,
+            Filter::Vtlook {
+                name: "amber".to_owned(),
+                file: dir.join("amber.vtlook"),
+            },
+            &[],
+        );
+        assert_eq!(outcome, Outcome::Applied);
+        let px = |i: usize| <[u8; 4]>::try_from(&picture.rgba[i * 4..i * 4 + 4]).expect("a pixel");
+        for i in [0, 1] {
+            let [r, g, b, a] = px(i);
+            assert!(r > g && g > b, "pixel {i}: {:?}", px(i));
+            assert!(b < 40, "pixel {i}: {:?}", px(i));
+            assert_eq!(a, 255);
+        }
+        assert_ne!(picture, three_pixels());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A color map the draft holds active draws the picture through its
+    // table. One the draft does not hold active counts as missing, as the
+    // console's gate treats it, so the picture stays as it is and the
+    // outcome says why; so does one whose lines do not read as a table.
+    #[test]
+    fn a_color_map_draws_only_when_the_draft_holds_it_active() {
+        let dir = effects_folder("cube");
+        let (picture, outcome) = draw(&dir, Filter::Cube(dir.join("red.cube")), &["red.cube"]);
+        assert_eq!(outcome, Outcome::Applied);
+        for px in picture.rgba.as_chunks::<4>().0 {
+            assert_eq!(*px, [255, 0, 0, 255]);
+        }
+        let (picture, outcome) = draw(&dir, Filter::Cube(dir.join("red.cube")), &[]);
+        assert_eq!(picture, three_pixels());
+        assert!(
+            matches!(&outcome, Outcome::Failed(why) if why.contains("not active")),
+            "{outcome:?}"
+        );
+        let (picture, outcome) = draw(
+            &dir,
+            Filter::Cube(dir.join("broken.cube")),
+            &["broken.cube"],
+        );
+        assert_eq!(picture, three_pixels());
+        assert!(matches!(outcome, Outcome::Failed(_)), "{outcome:?}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -273,6 +273,8 @@ class EndToEnd(unittest.TestCase):
             self.assertEqual(sorted(recs), ["boom", "x", "y"])
             for r in recs.values():
                 self.assertEqual(r["opts"]["max_total_time"], "7")
+                # libFuzzer refuses an allocation the font helper's 512 MiB limit refuses.
+                self.assertEqual(r["opts"]["malloc_limit_mb"], "512")
                 self.assertFalse(Path(r["corpus"]).is_relative_to(c.root), r["corpus"])
                 self.assertFalse(Path(r["corpus"]).exists(), "the corpus directory is left behind")
             self.assertEqual(recs["x"]["cwd"], str(c.root / "crates" / "a" / "fuzz"))

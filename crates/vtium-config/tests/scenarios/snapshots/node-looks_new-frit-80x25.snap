@@ -1,9 +1,9 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "looks.new-frit at 80×25, keys: n Enter Enter Enter Enter Enter Enter"
+description: "looks.new-frit at 80×25, keys: 3 Down n Enter Enter Enter Enter Enter Enter"
 ---
- Flow  Looks  Fonts  Settings  Help                               Save  Install
- draft mine · no changes · no problems               text preview · t: try live
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems       text preview · live trial in Looks
 --------------------------------------------------------------------------------
    Name
    Font 1

@@ -1,0 +1,30 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft workstation · 1 change · no problems                              text preview · t: try live
+----------------------------------------------------------------------------------------------------
+   unifont
+   unscii-8
+
+ Color schemes
+   legacy
+   vga
+   nord
+   solarized
+   solarized-black
+   solarized-white
+   soft-black
+   base16-dark
+   base16-light
+   dusk
+   paper
+   dusk
+   loose
+   broken
+
+ Pointer themes
+   pointers.svg
+   Adwaita
+
+ Adwaita: not active, trusted.
+
+----------------------------------------------------------------------------------------------------
+ ↑↓ move  Enter open  Space activate  n new  t try live  q quit  . more 1/5

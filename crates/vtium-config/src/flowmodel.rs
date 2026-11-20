@@ -448,14 +448,29 @@ pub fn state_words(flow: &Flow, rule: &Rule) -> String {
 }
 
 /// The first line of `flow` and of the status line: the draft's name and
-/// state against the installed file, and its problems.
-pub fn state_line(name: &str, state: &crate::drafts::State, problems: usize) -> String {
+/// state against the installed file, the count of its `batch` changes to
+/// the active resources, and its problems. A draft that changes the
+/// active resources is not the same as installed, even when its text is.
+///
+/// References:
+/// - ADR-1403 D8: the state line counts a draft's changes beside vtium.conf.
+pub fn state_line(
+    name: &str,
+    state: &crate::drafts::State,
+    batch: usize,
+    problems: usize,
+) -> String {
     let problems = match problems {
         0 => "no problems".to_owned(),
         1 => "1 problem".to_owned(),
         n => format!("{n} problems"),
     };
-    format!("draft {name}: {} · {problems}", state.words())
+    let words = match (state, batch) {
+        (_, 0) => state.words(),
+        (crate::drafts::State::Same, n) => crate::batch::resource_changes(n),
+        (state, n) => format!("{}, {}", state.words(), crate::batch::resource_changes(n)),
+    };
+    format!("draft {name}: {words} · {problems}")
 }
 
 /// The flow as `vtium config flow` prints it, under `first`, the state

@@ -1356,6 +1356,7 @@ version = "0.1.0-alpha.9"
 dependencies = [
  "rustix",
  "vtium-font",
+ "vtium-render",
  "vtium-term",
 ]
 

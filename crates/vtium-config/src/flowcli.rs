@@ -197,7 +197,12 @@ impl Command<'_, '_> {
         } else {
             flowmodel::text(
                 &flow,
-                &flowmodel::state_line(&name, &state, checked.count()),
+                &flowmodel::state_line(
+                    &name,
+                    &state,
+                    self.session.store.batch_changes(&name)?.len(),
+                    checked.count(),
+                ),
                 &missing,
             )
         };
@@ -205,7 +210,12 @@ impl Command<'_, '_> {
         Ok(())
     }
 
-    /// `diff`: the installed file to the draft.
+    /// `diff`: the installed file to the draft, then the installed batch
+    /// file to the one the draft's install writes, when the draft changes
+    /// the active resources.
+    ///
+    /// References:
+    /// - ADR-1403 D8: `diff` shows the changes that wait beside the draft too.
     fn diff(&mut self, words: &[String]) -> Result<(), Fail> {
         if !words.is_empty() {
             return Err(Fail::Usage("diff takes no argument".to_owned()));
@@ -219,6 +229,19 @@ impl Command<'_, '_> {
             &text,
         );
         let _ = write!(self.out, "{shown}");
+        if let Some(edit) = self.session.batch_edit(&name)? {
+            if let crate::batch::Installed::Refused(why) = self.session.installed_batch() {
+                let _ = writeln!(self.out, "{why}");
+            }
+            let path = edit.path.to_string_lossy();
+            let shown = diff(
+                &path,
+                edit.old.as_deref().unwrap_or_default(),
+                &format!("{path} (after install)"),
+                &edit.new,
+            );
+            let _ = write!(self.out, "{shown}");
+        }
         Ok(())
     }
 
@@ -338,7 +361,8 @@ impl Command<'_, '_> {
             Err(fail) => return Err(fail),
         };
         self.print_check(&checked);
-        self.say(&flowmodel::state_line(name, &state, checked.count()));
+        let batch = self.session.store.batch_changes(name)?.len();
+        self.say(&flowmodel::state_line(name, &state, batch, checked.count()));
         if install {
             self.session
                 .install(name, new, Unrouted::Refuse, &mut run_child, None, self.out)?;
@@ -369,8 +393,12 @@ impl Command<'_, '_> {
         };
         if args.has("--dry-run") {
             let (added, removed) = crate::drafts::counts(&new, &text);
+            let batch = match self.session.store.batch_changes(&name)?.len() {
+                0 => String::new(),
+                n => format!(", and {}", crate::batch::resource_changes(n)),
+            };
             self.say(&format!(
-                "{command} would lose {} of draft {name}",
+                "{command} would lose {} of draft {name}{batch}",
                 crate::drafts::lines(added, removed)
             ));
             return Ok(());
@@ -380,6 +408,8 @@ impl Command<'_, '_> {
                 .store
                 .set_base(&name, installed.as_deref().map(str::as_bytes))?;
         }
+        // the draft starts over, so its changes to the active resources go
+        self.session.drop_batch(&name)?;
         self.write(&name, &text, &new, false, false)
     }
 

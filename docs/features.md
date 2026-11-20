@@ -77,9 +77,10 @@ vtium's main process never parses a font file. A frit is a font set file, `/etc/
 - The helper reads PSF and raw console fonts, kbd font names, BDF fonts, and the kernel's own VT font. It also reads outline fonts, by family or by file, including color emoji (COLR version 0, CBDT, and sbix). It rasterizes outlines with swash. It shapes each grapheme cluster, a character as a reader sees it, with HarfRust.
 - With `font-ligatures` on, vtium draws a programming font's ligatures, such as `->` and `!=`, across the cells of their characters. Each character keeps its own cell, so the cursor and what programs count do not change. A ligature splits into its characters while the cursor is on one of them. Bitmap fonts show no ligatures.
 - Unifont and Unscii-8 are built into the vtium binary. They draw the first frame and every character a frit lacks.
+- vtium renders only the fonts that root has activated in `/etc/vtium/batch.conf`, and only from root-owned files on a filesystem that stays mounted. A fresh install activates the fonts vtium ships and the console font. See [Active resources and the trust rule](concepts/resources.md) for details.
 - `vtium config use-frit` switches the running console's font through OSC 50. Ctrl+= and Ctrl+- zoom the font. A switch or a zoom lasts until the session ends. Then vtium returns the head to the font and size that vtium.conf names.
 - `vtium config tui`, run at a terminal, opens vtium-config's full-screen tool. The tool opens on its Flow view, which draws the configuration as six columns. The columns run from the displays, through the rules, heads and looks, to the input devices. The view places the devices that are plugged in now. Every change goes into a draft of your own. Only Install writes `/etc/vtium/vtium.conf`. Install runs one `sudo vtium-config apply DIR`, the only step that runs as root. For scripts, every change the view makes is also a `vtium config` command with fixed exit statuses. The tool needs a terminal of at least 80 by 25 cells.
-- The tool's Fonts view lists the frits and the built-in fonts. In a vtium console, as you move the highlight to a font, the Fonts view switches the live console to that font through OSC 50. So you judge each font on the real console. Where the console draws kitty graphics, the view shows each size as an image.
+- The tool's Fonts tab lists the font files on this machine, with what each covers and the sizes it supplies, and sets which of them vtium may use. Its Looks tab lists the font sets. In a vtium console, `t` in the Looks tab tries the highlighted font set on the live console through OSC 50. So you judge each font set on the real console.
 - `vtium config new-frit` makes a frit of the fonts you name, in the order you name them. Run with no fonts at a terminal, it opens the same tool at its new-frit view. `vtium config preview` draws a sample of each font you name, as the helper would draw it, and writes nothing. [configure.md](configure.md) walks through the draft and the Flow view, and [fonts.md](fonts.md) walks through the fonts.
 
 ## Images
@@ -99,7 +100,8 @@ When an image changes, vtium redraws only the cells it covers. Tier 3's `img-tmu
 
 ## The terminal
 
-- vtium renders 24-bit color, the 256-color palette and named palettes. It renders bold, faint, strike, blink and reverse text. It renders underline in five styles (single, double, curly, dotted, dashed), each in a color of its own.
+- vtium renders 24-bit color and the 256-color palette. It renders bold, faint, strike, blink and reverse text. It renders underline in five styles (single, double, curly, dotted, dashed), each in a color of its own.
+- Each look takes a color scheme: one of the nine built into vtium, one of the 13 that vtium installs, or a palette file of your own. A build with the `filters` feature also applies a look's vtlook, which changes the finished picture with filters such as gamma, a tint, a color-blind correction or a color map. See [Looks and effects](concepts/looks.md) for details.
 - It splits Unicode text into extended grapheme clusters, the characters as a reader sees them. It draws wide characters and emoji presentation. When a program resets mode 2027, vtium measures text width with the codepoint-width method instead.
 - A vtium built with the `bidi` feature lays out right-to-left text, such as Arabic and Hebrew. It shows the text in the order that the Unicode bidirectional algorithm gives. It draws mirrored characters as their counterparts, and it joins Arabic letters. The cursor, the selection, mouse reports and the arrow keys all move in that same order.
 - It reports the mouse with modes 9, 1000, 1002 and 1003, in the SGR, urxvt and pixel encodings. It also reports focus, bracketed pastes, and in-band resizes (mode 2048). It holds frames back for synchronized output (mode 2026).
@@ -119,11 +121,11 @@ When the width changes, vtium rewraps the main screen and its scrollback. It car
 
 The default build, minspec, is the smallest build that is still a complete terminal. It holds the CPU renderer, the two built-in bitmap fonts, the parser and screen, the pty, and input. Like every build, it draws outline fonts and color emoji through the font helper when a frit names them. It is built for a single-board computer with ARM cores of the Cortex-A53 class or older, 512 MB of memory or less, and no GPU. Its smallest display is a 320×240 panel with 8×8 cells, which gives 40 columns by 30 rows. `make arm` builds it for aarch64 and armv7.
 
-Tier 3 measures minspec in a virtual machine guest with 1 vCPU and 512 MB of memory. The memory and install tree figures come from `make tier3-minimal` at commit `c107f9a`, run on 2026-11-01. The binary's size comes from `make minspec` for x86_64, run on 2026-11-15:
+Tier 3 measures minspec in a virtual machine guest with 1 vCPU and 512 MB of memory. The memory and install tree figures come from `make tier3-minimal` at commit `c107f9a`, run on 2026-11-01. The binary's size comes from `make minspec` for x86_64, run on 2026-11-19:
 
 | Measure | Value |
 |---|---|
-| Console binary | 4,226,160 bytes. A tier 3 run fails past a budget of 4,259,840 bytes (4 MiB + 64 KiB). |
+| Console binary | 4,306,016 bytes. A tier 3 run fails past a budget of 4,325,376 bytes (4 MiB + 128 KiB). |
 | Install tree, the font helper included | 7.63 MiB |
 | Peak resident memory at 320×240, 8×8 cells | 5.81 MiB |
 | Peak resident memory at 640×480, 8×16 cells | 7.77 MiB |

@@ -1707,9 +1707,179 @@ const DEUTERANOPIA: &[(&str, &[Given])] = &[(
     ],
 )];
 
+/// The amber look with a brightness floor of 0.15 on its tint, so dark
+/// colors such as blue stay visible.
+const AMBER_FLOOR: &[(&str, &[Given])] = &[
+    (
+        "tint",
+        &[
+            Given::Color([255, 176, 0]),
+            Given::Number(Fixed::of(1, 0)),
+            Given::Number(Fixed::of(0, 1500)),
+        ],
+    ),
+    (
+        "contrast",
+        &[
+            Given::Number(Fixed::of(1, 1500)),
+            Given::Number(Fixed::of(0, 0)),
+        ],
+    ),
+];
+
+/// The green preset: a tint toward 51,255,102 at full amount.
+const GREEN: &[(&str, &[Given])] = &[(
+    "tint",
+    &[
+        Given::Color([51, 255, 102]),
+        Given::Number(Fixed::of(1, 0)),
+        Given::Number(Fixed::of(0, 0)),
+    ],
+)];
+
+/// The white preset: a tint toward 230,235,255 at full amount.
+const WHITE: &[(&str, &[Given])] = &[(
+    "tint",
+    &[
+        Given::Color([230, 235, 255]),
+        Given::Number(Fixed::of(1, 0)),
+        Given::Number(Fixed::of(0, 0)),
+    ],
+)];
+
+/// A cube filter reading tier 2's sepia table, a 3D table of 9 a side.
+const SEPIA: &[(&str, &[Given])] = &[("cube", &[])];
+
 const LOOK_AMBER_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): tint toward amber, 255,176,0, at full amount, then a contrast of 1.15, merged into one color table that every pixel is looked up in. The screen is 40 by 6 cells: a title, the sixteen ANSI background colors, colored words, a gradient from green at the left to red at the right over a mid blue, a gray ramp from black to white and a prompt, with vtium's pointer over the word green. Correct: every pixel is a shade of amber or black, with no other hue anywhere: the text, each color block, both gradients and the pointer, whose outline stays black. Each shade follows its color's lightness, so the gray ramp runs evenly from black to a bright amber, the blue block and the word blue are nearly black, yellow and white are the brightest, and the green-to-red gradient darkens from left to right because green is lighter than red.";
 
 const LOOK_DEUTERANOPIA_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): color-blind simulating deuteranopia at full amount, through Machado, Oliveira and Fernandes's matrix in linear light. The screen is look-amber's, with vtium's pointer over the word green. Correct: red and green no longer stand apart. Red, green and yellow, as blocks and as words, become olive and golden yellows, blue stays a strong blue, magenta becomes a mid blue and cyan a pale blue gray. The gradient runs from a pale khaki at the left through a blue gray to a gray olive at the right. Every gray of the gray ramp, the white text, the black background and the white pointer with its black outline stay as they are.";
+
+const LOOK_AMBER_FLOOR_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2, D21): look-amber's tint and contrast, with the tint's brightness floor at 0.15. The screen is look-amber's, with vtium's pointer over the word green. Correct: as look-amber, every pixel is a shade of amber or black, with no other hue, and the shades keep look-amber's order. Every color above black is lighter than in look-amber, most of all the dark ones: the blue block and the word blue are a dim but plainly visible amber where look-amber shows them nearly black, and the darkest steps of the gray ramp lift off black. The black background, the black outline of the pointer and the first step of the gray ramp stay black, and white and yellow stay about as bright as in look-amber.";
+
+const LOOK_GREEN_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): the green preset, a tint toward 51,255,102 at full amount, as a green phosphor monitor. The screen is look-amber's, with vtium's pointer over the word green. Correct: every pixel is a shade of one green or black, with no other hue anywhere. Each shade follows its color's lightness as in look-amber, so the gray ramp runs evenly from black to a bright green, the blue block and the word blue are nearly black, yellow and white are the brightest, and the green-to-red gradient darkens from left to right.";
+
+const LOOK_CUBE_SEPIA_DESC: &str = "A vtlook's cube filter on the CPU path (ADR-1304 D2, D9): tools/tier2/cubes/sepia.cube, a 3D table of 9 a side holding the classic sepia matrix, read by the console's .cube reader and sampled into the 33-a-side color table. The screen is look-amber's, with vtium's pointer over the word green. Correct: every pixel is a warm brown, a cream or black, with no blue, green or purple hue anywhere. Each color becomes the sepia of its own mix: white becomes a pale cream, 255,255,239, and black stays black. Red and green, as blocks and as words, become mid browns and tans, yellow a pale cream, blue a dark brown close to black, magenta a mid brown and cyan a light tan. The gray ramp runs from black through browns to a pale cream at its light end, where it reaches full brightness before its last step. The green-to-red gradient runs from a lighter tan at the left to a darker brown at the right, and the pointer keeps its black outline around a cream fill.";
+
+const LOOK_WHITE_DESC: &str = "A vtlook's color filters on the CPU path (ADR-1304 D2): the white preset, a tint toward 230,235,255 at full amount, as a paper-white monochrome monitor. The screen is look-amber's, with vtium's pointer over the word green. Correct: every pixel is a gray with a faint cool cast, or black, with no other hue anywhere. Each gray follows its color's lightness as in look-amber, so the gray ramp runs evenly from black to a slightly blue white, the blue block and the word blue are nearly black, yellow and white are the brightest, and the green-to-red gradient darkens from left to right.";
+
+/// The screen each color scheme's case draws, 40 by 12 cells in unifont:
+/// the sixteen colors as labelled swatches, normal, bold and dim text,
+/// the six colors and their bright twins as words, a prompt, a listing as
+/// `ls --color` colors it, a diff as `git diff` colors it, and a last
+/// prompt where the cursor waits.
+const SCHEME: &[u8] = concat!(
+    " 0\x1b[40m  \x1b[0m  1\x1b[41m  \x1b[0m  2\x1b[42m  \x1b[0m  3\x1b[43m  \x1b[0m  4\x1b[44m  \x1b[0m  5\x1b[45m  \x1b[0m  6\x1b[46m  \x1b[0m  7\x1b[47m  \x1b[0m \r\n",
+    " 8\x1b[100m  \x1b[0m  9\x1b[101m  \x1b[0m 10\x1b[102m  \x1b[0m 11\x1b[103m  \x1b[0m 12\x1b[104m  \x1b[0m 13\x1b[105m  \x1b[0m 14\x1b[106m  \x1b[0m 15\x1b[107m  \x1b[0m \r\n",
+    "Normal text, \x1b[1mbold text\x1b[0m, \x1b[2mdim text\x1b[0m\r\n",
+    "\x1b[31mred \x1b[32mgreen \x1b[33myellow \x1b[34mblue \x1b[35mmagenta \x1b[36mcyan \x1b[37mwhite\x1b[0m\r\n",
+    "\x1b[91mred \x1b[92mgreen \x1b[93myellow \x1b[94mblue \x1b[95mmagenta \x1b[96mcyan \x1b[97mwhite\x1b[0m\r\n",
+    "\x1b[1;32mpi@desk\x1b[0m:\x1b[1;34m~/src\x1b[0m$ ls --color\r\n",
+    "\x1b[1;34mdocs\x1b[0m  \x1b[1;32mrun.sh\x1b[0m  \x1b[1;36mlib\x1b[0m  README  \x1b[1;31ma.tgz\x1b[0m  \x1b[1;35ma.png\x1b[0m\r\n",
+    "\x1b[1;32mpi@desk\x1b[0m:\x1b[1;34m~/src\x1b[0m$ git diff \x1b[90m# one line\x1b[0m\r\n",
+    "\x1b[36m@@ -4,2 +4,2 @@\x1b[0m int main(void)\r\n",
+    "\x1b[31m-    puts(\"goodbye\");\x1b[0m\r\n",
+    "\x1b[32m+    puts(\"hello, world\");\x1b[0m\r\n",
+    "\x1b[1;32mpi@desk\x1b[0m:\x1b[1;34m~/src\x1b[0m$ make",
+)
+.as_bytes();
+
+/// What a color scheme's case shows and what correct looks like:
+/// `$scheme` names the scheme, and `$correct` says what correct looks
+/// like, which depends on whether the file sets the cursor's and the
+/// selection's colors.
+macro_rules! scheme_desc {
+    ($scheme:literal, $correct:expr) => {
+        concat!(
+            $scheme,
+            ", read from its file in crates/vtium/install/palettes by vtium-settings's palette reader and given to the terminal as a head gives a look's palette (ADR-1205 D10). The screen is 40 by 12 cells in unifont: the sixteen colors as swatches, each labelled with its number in the foreground; normal, bold and dim text; the words red to white in colors 1 to 7, then in 9 to 15; a prompt in bold green and bold blue; a listing as ls --color colors it; a diff as git diff colors it, its command followed by a comment in color 8; and a prompt with a steady block cursor after the word make. The diff's added line is selected. ",
+            $correct,
+        )
+    };
+}
+
+/// The correct words of a scheme whose file sets the cursor's color and
+/// the selection's colors.
+macro_rules! scheme_set {
+    () => {
+        "Correct: the background and the text are the file's background and foreground; each swatch and each colored word is the file's color of that number; bold text is the foreground drawn bold and dim text a fainter foreground; the cursor is a block in the file's cursor color; and the selected line is drawn in the file's selection foreground on its selection background. The maintainer judges by eye whether every word reads well on the background."
+    };
+}
+
+/// The correct words of a scheme whose file sets neither the cursor's
+/// color nor the selection's.
+macro_rules! scheme_inverted {
+    () => {
+        "The file sets no cursor color and no selection colors. Correct: the background and the text are the file's background and foreground; each swatch and each colored word is the file's color of that number; bold text is the foreground drawn bold and dim text a fainter foreground; the cursor draws the cell under it inverted, a block in the foreground; and the selected line draws inverted, each letter in the background's color on a block of its own color. The maintainer judges by eye whether every word reads well on the background."
+    };
+}
+
+const PALETTE_KILN_DESC: &str = scheme_desc!(
+    "Kiln, vtium's own color scheme: a warm near-black background, saturated glaze colors, a warm light foreground and an ember-orange cursor",
+    scheme_set!()
+);
+const PALETTE_SUNNY_DESC: &str = scheme_desc!(
+    "Sunny, vtium's own color scheme: black text on a white background, deep colors that read on white, a light gray color 7, a vermilion cursor and a pale blue selection",
+    scheme_set!()
+);
+const PALETTE_DRACULA_DESC: &str = scheme_desc!("Dracula, a dark color scheme", scheme_set!());
+const PALETTE_CATPPUCCIN_LATTE_DESC: &str = scheme_desc!(
+    "Catppuccin Latte, the light flavor of Catppuccin",
+    scheme_set!()
+);
+const PALETTE_CATPPUCCIN_FRAPPE_DESC: &str = scheme_desc!(
+    "Catppuccin Frappé, the lightest of Catppuccin's three dark flavors",
+    scheme_set!()
+);
+const PALETTE_CATPPUCCIN_MACCHIATO_DESC: &str = scheme_desc!(
+    "Catppuccin Macchiato, the middle one of Catppuccin's three dark flavors",
+    scheme_set!()
+);
+const PALETTE_CATPPUCCIN_MOCHA_DESC: &str = scheme_desc!(
+    "Catppuccin Mocha, the darkest of Catppuccin's flavors",
+    scheme_set!()
+);
+const PALETTE_TOKYO_NIGHT_DESC: &str =
+    scheme_desc!("Tokyo Night, a dark blue color scheme", scheme_set!());
+const PALETTE_TOKYO_NIGHT_STORM_DESC: &str = scheme_desc!(
+    "Tokyo Night Storm, Tokyo Night on a lighter slate background",
+    scheme_set!()
+);
+const PALETTE_TOKYO_NIGHT_MOON_DESC: &str = scheme_desc!(
+    "Tokyo Night Moon, Tokyo Night's softer dark variant",
+    scheme_set!()
+);
+const PALETTE_TOKYO_NIGHT_DAY_DESC: &str = scheme_desc!(
+    "Tokyo Night Day, Tokyo Night's light variant, with dark blue text",
+    scheme_set!()
+);
+const PALETTE_GRUVBOX_DARK_DESC: &str = scheme_desc!(
+    "Gruvbox dark, a warm retro color scheme on a dark background",
+    scheme_inverted!()
+);
+const PALETTE_GRUVBOX_LIGHT_DESC: &str = scheme_desc!(
+    "Gruvbox light, a warm retro color scheme on a light background",
+    scheme_inverted!()
+);
+
+/// A case drawing [`SCHEME`] in the color scheme whose file's bytes are
+/// `file`, with the cursor shown and the diff's added line selected.
+const fn color_scheme(name: &'static str, desc: &'static str, file: &'static [u8]) -> Case {
+    Case {
+        screen: Screen {
+            palette: Some(file),
+            selection: Some(((0, 10), (25, 10))),
+            tail: b"\x1b[2 q\x1b[?25h",
+            phase: crate::draw::Phase {
+                cursor_on: true,
+                blink_hidden: false,
+                rapid_hidden: false,
+            },
+            ..Screen::new(name, desc, SCHEME, 40, 12)
+        },
+    }
+}
+
+const LOOK_DEUTERANOPIA_CORRECT_DESC: &str = "The deuteranopia preset, crates/vtium/install/looks/deuteranopia.vtlook, read by vtium-settings's vtlook reader and built into one color table (ADR-1304 D2, D8): color-blind correcting for deuteranopia at full amount. In linear light, the filter works out the difference between each color and how a viewer with deuteranopia sees it, through Machado, Oliveira and Fernandes's matrix, and adds that lost difference to green and blue. The screen is look-amber's, with vtium's pointer over the word green. Correct: the reds gain blue, so red turns a rose pink and bright red a pink; green and bright green stay pure greens, a little darker; yellow stays yellow; blue turns a brighter blue, magenta a lilac and cyan a teal green. The gradient runs from a pure green at the left through a neutral gray to a pink at the right, so its two ends differ in blue as well as in red and green. Every gray of the gray ramp, the white text, the black background and the white pointer with its black outline stay exactly as they are, since a gray loses nothing to deuteranopia.";
 
 /// Every case, in the order the report lists them: the screens below,
 /// then the ink screens, then the right-to-left screens.
@@ -3457,6 +3627,115 @@ const BASE: &[Case] = &[
             ..Screen::new("look-deuteranopia", LOOK_DEUTERANOPIA_DESC, COLORS, 40, 6)
         },
     },
+    Case {
+        screen: Screen {
+            arrow: Some(COLORS_TIP),
+            color_filters: Some(AMBER_FLOOR),
+            ..Screen::new("look-amber-floor", LOOK_AMBER_FLOOR_DESC, COLORS, 40, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            arrow: Some(COLORS_TIP),
+            color_filters: Some(GREEN),
+            ..Screen::new("look-green", LOOK_GREEN_DESC, COLORS, 40, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            arrow: Some(COLORS_TIP),
+            color_filters: Some(WHITE),
+            ..Screen::new("look-white", LOOK_WHITE_DESC, COLORS, 40, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            arrow: Some(COLORS_TIP),
+            color_filters: Some(SEPIA),
+            cube: Some(include_str!("../cubes/sepia.cube")),
+            ..Screen::new("look-cube-sepia", LOOK_CUBE_SEPIA_DESC, COLORS, 40, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            arrow: Some(COLORS_TIP),
+            vtlook: Some(include_bytes!(
+                "../../../crates/vtium/install/looks/deuteranopia.vtlook"
+            )),
+            ..Screen::new(
+                "look-deuteranopia-correct",
+                LOOK_DEUTERANOPIA_CORRECT_DESC,
+                COLORS,
+                40,
+                6,
+            )
+        },
+    },
+    color_scheme(
+        "palette-kiln",
+        PALETTE_KILN_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/kiln.palette"),
+    ),
+    color_scheme(
+        "palette-dracula",
+        PALETTE_DRACULA_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/dracula.palette"),
+    ),
+    color_scheme(
+        "palette-catppuccin-latte",
+        PALETTE_CATPPUCCIN_LATTE_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/catppuccin-latte.palette"),
+    ),
+    color_scheme(
+        "palette-catppuccin-frappe",
+        PALETTE_CATPPUCCIN_FRAPPE_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/catppuccin-frappe.palette"),
+    ),
+    color_scheme(
+        "palette-catppuccin-macchiato",
+        PALETTE_CATPPUCCIN_MACCHIATO_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/catppuccin-macchiato.palette"),
+    ),
+    color_scheme(
+        "palette-catppuccin-mocha",
+        PALETTE_CATPPUCCIN_MOCHA_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/catppuccin-mocha.palette"),
+    ),
+    color_scheme(
+        "palette-tokyo-night",
+        PALETTE_TOKYO_NIGHT_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/tokyo-night.palette"),
+    ),
+    color_scheme(
+        "palette-tokyo-night-storm",
+        PALETTE_TOKYO_NIGHT_STORM_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/tokyo-night-storm.palette"),
+    ),
+    color_scheme(
+        "palette-tokyo-night-moon",
+        PALETTE_TOKYO_NIGHT_MOON_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/tokyo-night-moon.palette"),
+    ),
+    color_scheme(
+        "palette-tokyo-night-day",
+        PALETTE_TOKYO_NIGHT_DAY_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/tokyo-night-day.palette"),
+    ),
+    color_scheme(
+        "palette-gruvbox-dark",
+        PALETTE_GRUVBOX_DARK_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/gruvbox-dark.palette"),
+    ),
+    color_scheme(
+        "palette-gruvbox-light",
+        PALETTE_GRUVBOX_LIGHT_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/gruvbox-light.palette"),
+    ),
+    color_scheme(
+        "palette-sunny",
+        PALETTE_SUNNY_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/sunny.palette"),
+    ),
 ];
 
 /// The `bitmap-outline` screens: ASCII from the built-in GNU Unifont, a

@@ -11,6 +11,7 @@ mod sim;
 mod snapshots;
 mod state;
 mod tables;
+mod tabs;
 mod walk;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -514,6 +515,39 @@ fn press(sim: &mut Sim, keys: &[&str]) {
     }
 }
 
+/// The keys that highlight the font set tiny5 in the Looks tab: the tab
+/// lists its one look, proof, then the font sets broken, minspec-16, proof
+/// and tiny5.
+const TO_TINY5: [&str; 5] = ["3", "Down", "Down", "Down", "Down"];
+
+/// Sets vtium.conf's `font-name` to `font` in the draft through the
+/// Settings tab, as a person types it: the section that holds the key, the
+/// key, its value unifont erased and `font` typed, and Esc to close the
+/// section again. It makes one change that is not saved.
+fn set_font_name(sim: &mut Sim, font: &str) {
+    use vtium_config::tui::tabs::settings::sections;
+    let (section, key) = sections()
+        .iter()
+        .enumerate()
+        .find_map(|(s, sec)| {
+            sec.keys()
+                .iter()
+                .position(|k| k.name == "font-name")
+                .map(|k| (s, k))
+        })
+        .expect("a section holds font-name");
+    press(sim, &["5", "Home"]);
+    press(sim, &vec!["Down"; section]);
+    press(sim, &["Enter"]);
+    press(sim, &vec!["Down"; key]);
+    press(sim, &["Enter"]);
+    press(sim, &vec!["Backspace"; "unifont".len()]);
+    for c in font.chars() {
+        sim.press(sim::Press::Key(Key::Char(c)));
+    }
+    press(sim, &["Enter", "Esc"]);
+}
+
 /// The leave question of #411: with a font set marked for removal and a
 /// change not saved, `q` asks the leave question, which names the change.
 /// `y` saves the change and installs before the TUI quits, `n` saves the
@@ -526,8 +560,10 @@ fn press(sim: &mut Sim, keys: &[&str]) {
 #[test]
 fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
-    // in Fonts: proof as the font, one change; tiny5 marked for removal
-    press(&mut sim, &["Up", "Up", "Enter", "Down", "r", "q"]);
+    // proof as the font, one change; tiny5 marked for removal in Looks
+    set_font_name(&mut sim, "proof");
+    press(&mut sim, &TO_TINY5);
+    press(&mut sim, &["r", "q"]);
     assert_eq!(sim.app.shared.unsaved, 1);
     assert_eq!(sim.app.shared.pending.removals, ["tiny5"]);
     let question = sim
@@ -576,12 +612,34 @@ fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
     assert_eq!(font.as_deref(), Some("proof"), "{}", sim.desk.installed);
 }
 
+/// On the Effects tab, `o` does nothing, as the key table's `o.view` row
+/// says. In a vtium console with allow-font-ops off, `o` turns the key on
+/// from Help and Settings today, but the Effects tab is new and takes the
+/// row's meaning from the start.
+///
+/// References:
+/// - ADR-1403 D7, "The same keys in every view": the `o.view` row, which
+///   does nothing outside the Flow view.
+#[test]
+fn o_does_nothing_on_the_effects_tab() {
+    let mut sim = Sim::start(Term::OpsOff, 80, 25);
+    press(&mut sim, &["2"]);
+    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Effects);
+    let before = sim.screen();
+    let did = sim.press(press_of("o"));
+    assert!(did.effects.is_empty(), "{did:?}");
+    assert_eq!(sim.app.shared.unsaved, 0);
+    assert_eq!(sim.desk.writes, 0);
+    assert_eq!(sim.screen(), before);
+}
+
 /// Without a change waiting, the leave question's `y` installs the font
 /// set's removal and quits, and saves nothing.
 #[test]
 fn the_leave_question_with_nothing_unsaved_installs_on_y() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
-    press(&mut sim, &["Up", "r", "q"]);
+    press(&mut sim, &TO_TINY5);
+    press(&mut sim, &["r", "q"]);
     let question = sim
         .app
         .nav
@@ -607,7 +665,8 @@ fn the_leave_question_with_nothing_unsaved_installs_on_y() {
 #[test]
 fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
-    press(&mut sim, &["Up", "Enter", "Shrink", "q"]);
+    set_font_name(&mut sim, "tiny5");
+    press(&mut sim, &["Shrink", "q"]);
     assert_eq!(sim.app.shared.unsaved, 1);
     assert_eq!(sim.exited, None);
     let first = sim.screen().first().cloned().unwrap_or_default();
@@ -636,27 +695,29 @@ fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
 #[test]
 fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
-    press(&mut sim, &["n", "x"]);
+    press(&mut sim, &walk::TO_FORM);
+    press(&mut sim, &["x"]);
     assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::New);
     assert_eq!(
-        sim.app.fonts.form().fields.first().map(String::as_str),
+        sim.app.looks.form().fields.first().map(String::as_str),
         Some("x")
     );
     for moving in ["Up", "Down", "Home", "End", "PgUp", "PgDn", "Left", "Right"] {
         let mut typed = sim.clone();
         let did = typed.press(press_of(moving));
         assert_eq!(
-            typed.app.fonts.form(),
-            sim.app.fonts.form(),
+            typed.app.looks.form(),
+            sim.app.looks.form(),
             "{moving} moved"
         );
         assert!(did.effects.is_empty(), "{moving}: {did:?}");
     }
     let mut kept = sim.clone();
     press(&mut kept, &["Enter"]);
-    assert_eq!(kept.app.fonts.form().at, 1);
+    assert_eq!(kept.app.looks.form().at, 1);
+    // the form belongs to the Looks tab, so Esc goes back there
     press(&mut sim, &["Esc"]);
-    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Fonts);
+    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Looks);
 }
 
 /// A Settings key's list of values opens on the value the key has now, and
@@ -719,7 +780,8 @@ fn a_value_list_opens_on_the_value_now_and_esc_keeps_the_section() {
 fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     sim.desk.no_route = true;
-    press(&mut sim, &["Up", "r", "q"]);
+    press(&mut sim, &TO_TINY5);
+    press(&mut sim, &["r", "q"]);
     let did = sim.press(press_of("y"));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
     assert_eq!(sim.exited, None);
@@ -747,7 +809,8 @@ fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
 fn the_leave_question_without_a_draft_leaves_no_install_waiting() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     let draft = sim.app.shared.draft.take();
-    press(&mut sim, &["Up", "r", "q", "y"]);
+    press(&mut sim, &TO_TINY5);
+    press(&mut sim, &["r", "q", "y"]);
     assert_eq!(sim.exited, None);
     sim.app.shared.draft = draft;
     let did = sim.press(press_of("i"));
@@ -762,7 +825,9 @@ fn the_leave_question_without_a_draft_leaves_no_install_waiting() {
 #[test]
 fn below_the_minimum_size_the_leave_question_says_what_it_does() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
-    press(&mut sim, &["Up", "Up", "Enter", "Down", "r", "Shrink", "q"]);
+    set_font_name(&mut sim, "proof");
+    press(&mut sim, &TO_TINY5);
+    press(&mut sim, &["r", "Shrink", "q"]);
     let screen = sim.screen();
     let top = screen
         .iter()
@@ -809,10 +874,20 @@ fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
         "n quit without installing",
         "Esc Ctrl-C cancel",
     ];
-    for (name, keys, said) in [
-        ("quit", &["Up", "Enter"][..], quit),
-        ("leave", &["Up", "Up", "Enter", "Down", "r"][..], leave),
-    ] {
+    // one change, then for the leave question tiny5 marked for removal
+    fn quit_keys(sim: &mut Sim) {
+        set_font_name(sim, "tiny5");
+    }
+    fn leave_keys(sim: &mut Sim) {
+        set_font_name(sim, "proof");
+        press(sim, &TO_TINY5);
+        press(sim, &["r"]);
+    }
+    let cases = [
+        ("quit", quit_keys as fn(&mut Sim), quit),
+        ("leave", leave_keys, leave),
+    ];
+    for (name, keys, said) in cases {
         for (cols, rows) in [
             (60, 30),
             (50, 25),
@@ -823,7 +898,7 @@ fn below_the_minimum_size_a_question_wraps_and_keeps_its_keys() {
             (80, 2),
         ] {
             let mut sim = Sim::start(Term::Vtium, 80, 25);
-            press(&mut sim, keys);
+            keys(&mut sim);
             sim.press(sim::Press::Resize(cols, rows));
             press(&mut sim, &["q"]);
             assert!(sim.app.nav.confirm.is_some(), "{name} at {cols}x{rows}");

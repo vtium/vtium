@@ -330,6 +330,8 @@ vtium-config stays one binary, apart from vtiumctl. Each command is typed as `vt
 
 > Edited 2026-11-07: the maintainer decided that vtium-config takes over the job ADR-1401 D12 planned for `vtiumctl`, a separate binary, and vtium does not build `vtiumctl` (ADR-1401 D12). vtium-config is the one configuration binary, and no `vtiumctl` stands beside it.
 
+> Note 2026-11-19: ADR-1205 D3 and D5 add two forms to `fonts`, rather than two new commands. `fonts --files` lists each font file vtium-config finds in the system's folders, the folders of `font-paths` and the user's folders, one line each: its path, its trust mark, its state in the batch, and whether it sits in a user's folder or duplicates another copy. vtium-config reads each file's family, coverage and sizes through the sandboxed font helper (D3). `fonts --install-system FILE [--replace]` copies one font file from a user's folder into `/usr/local/share/fonts` through the privileged install step, as ADR-1205 D5 decides: it does nothing when an identical file is already there, and replaces a different file of the same name only with `--replace` or the person's yes.
+
 ### D3: the TUI
 
 - **Four views, and it opens on Flow** (the maintainer, 2026-11-04, 2026-11-05 and 2026-11-11). Most configuration work happens in the Flow view of ADR-1403 D7, so vtium-config opens there. Tab steps through the views in this order:

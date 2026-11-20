@@ -736,15 +736,6 @@ fn reports_read_as_lines() {
 // covers: color.palette.named
 #[test]
 fn palette_names_a_palette_vtium_term_holds() {
-    let mut choices = match PALETTE.kind {
-        Kind::Choice(c) => c.to_vec(),
-        _ => Vec::new(),
-    };
-    choices.sort_unstable();
-    let mut names: Vec<&str> = vtium_term::PALETTE_NAMES.to_vec();
-    names.push("custom");
-    names.sort_unstable();
-    assert_eq!(choices, names);
     for name in vtium_term::PALETTE_NAMES {
         let l = main_file(&format!("palette={name}\n"));
         assert_eq!(l.reports, [], "{name}");
@@ -768,13 +759,14 @@ fn legacy_is_drawn_when_no_source_names_a_palette() {
 }
 
 #[test]
-fn a_palette_vtium_does_not_hold_is_reported_and_leaves_the_value_below() {
-    let l = main_file("palette=frob\n");
+fn a_palette_name_that_could_name_no_file_is_reported_and_leaves_the_value_below() {
+    let l = main_file("palette=../frob\n");
     assert_eq!(
         problems(&l),
-        [&Problem::NotAChoice {
+        [&Problem::BadValue {
             key: "palette",
-            value: "frob".into()
+            value: "../frob".into(),
+            why: keys::NOT_A_NAME,
         }]
     );
     assert_eq!(
@@ -782,7 +774,7 @@ fn a_palette_vtium_does_not_hold_is_reported_and_leaves_the_value_below() {
         vtium_term::Palette::named("legacy")
     );
     let l = load_with(
-        &["--palette=Nord"],
+        &["--palette=No rd"],
         &[("/etc/vtium/vtium.conf", b"palette=vga\n")],
     );
     assert_eq!(l.reports.len(), 1);

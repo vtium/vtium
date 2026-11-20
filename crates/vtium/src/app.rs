@@ -134,6 +134,9 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+mod batch;
+#[cfg(test)]
+mod batch_login;
 #[cfg(test)]
 mod colorterm;
 #[cfg(test)]
@@ -424,6 +427,13 @@ pub struct App {
     /// Whether the pointer file `pointer-theme` names has started loading
     /// ([`App::pointer_turn`]).
     pointer_file_started: bool,
+    /// Where the console reads its batch, which lists the active
+    /// resources, and the trust rule each resource passes: this
+    /// machine's, or a test's.
+    batch_places: (vtium_settings::batch::Places, vtium_settings::cullet::Rule),
+    /// How many times a reading of the batch found it changed since vtium
+    /// started. Each head keeps the count it last caught up with.
+    batch_changes: u64,
     /// The pointer file while it loads, with the font helper that draws
     /// its pictures.
     pointer_file: Option<(crate::pointer_file::Loader, Helper)>,
@@ -514,6 +524,16 @@ impl App {
         inherited: Vec<(OsString, OsString)>,
     ) -> App {
         let now = clock();
+        // The batch the start reads, which lists the active resources, and
+        // what vtium found reading its file, logged once.
+        let trust = font::trust();
+        if let Some(found) = font::start_batch(
+            &vtium_settings::batch::Places::system(),
+            &trust,
+            vtium_settings::cullet::Rule::new(trust.clone()),
+        ) {
+            font::log_batch_findings(&found);
+        }
         let cap = vtium_term::sb_size_cap(
             physical_memory(),
             config.number(&keys::SB_SIZE_CAP).map(to_usize),
@@ -624,6 +644,11 @@ impl App {
             launcher: helper::Launcher::configured(&config)
                 .map(|l| l.with_locale(&locale(&inherited))),
             pointer_file_started: false,
+            batch_places: (
+                vtium_settings::batch::Places::system(),
+                vtium_settings::cullet::Rule::new(font::trust()),
+            ),
+            batch_changes: 0,
             pointer_file: None,
             pointer_store: crate::pointer_file::Store::default(),
             frits: BTreeMap::new(),
@@ -683,6 +708,9 @@ impl App {
         let scrollback = (self.scrollback, self.scrollback_bytes);
         self.let_go_of_painters();
         self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
+        for head in &mut self.heads {
+            head.batch = self.batch_changes;
+        }
         self.built = self.heads.len();
         self.notices.clear();
         self.spare_notices.clear();
@@ -2155,12 +2183,9 @@ impl App {
                 .and_then(|n| u32::try_from(n).ok());
             if let Some(path) = self.config.text(&crate::config::keys::POINTER_THEME) {
                 let path = PathBuf::from(path);
-                if let Some(loader) = crate::pointer_file::Loader::start(
-                    &path,
-                    size,
-                    font::trust(),
-                    &self.pointer_store,
-                ) {
+                if let Some(loader) =
+                    crate::pointer_file::Loader::start(&path, size, &self.pointer_store)
+                {
                     match self
                         .launcher
                         .clone()
@@ -4483,10 +4508,14 @@ impl App {
     /// leaves the font and the size as they were, with one line saying
     /// why.
     fn return_font(&mut self, h: usize, id: u64) {
+        // the batch changed since the head's font was resolved, so the
+        // font is resolved again, as a newly active first source can set
+        // its cell
+        let rebatched = self.reread_batch(Some(h));
         let Some(due) = self.heads.get(h).map(|head| head.returns(id)) else {
             return;
         };
-        if !due.size {
+        if !due.size && !rebatched {
             return;
         }
         self.reread_font_keys();
@@ -4506,9 +4535,10 @@ impl App {
             let (chosen, configured) = self.configured_font(h, None);
             made = Some(configured);
             Some(chosen)
-        } else if head.sized() != was_sized {
+        } else if head.sized() != was_sized || rebatched {
             // The frit drawn, with its own cell or without it as the
-            // `font-size` read again now says (ADR-1200 D16).
+            // `font-size` read again now says (ADR-1200 D16), and with its
+            // own cell asked for again under a changed batch.
             match &head.font {
                 Some(Chosen::Frit { frit, .. }) => {
                     Chosen::frit(frit.clone(), head.sized(), head.look_cell()).ok()
@@ -4524,7 +4554,7 @@ impl App {
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
-            if !same_font(head.chosen(), &new) || head.sized() != was_sized {
+            if !same_font(head.chosen(), &new) || head.sized() != was_sized || rebatched {
                 left = Some(head.frit().map(str::to_owned));
                 kept.font = Some(head.font.replace(new));
                 head.refont = true;
@@ -4580,7 +4610,9 @@ impl App {
             }) {
                 self.ask_glyphs(other);
             }
-            if let Some(head) = self.heads.get(h) {
+            if let Some(head) = self.heads.get(h)
+                && (due.font || head.sized() != was_sized)
+            {
                 log::info!(
                     "head {}: the session in console {id} ended: the font returns to {}",
                     head.name(),

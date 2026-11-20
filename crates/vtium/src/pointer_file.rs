@@ -8,9 +8,14 @@
 //! no icon folder and follows no `Inherits=` line, so the path names
 //! exactly the files vtium reads.
 //!
-//! The console never parses a pointer file. It reads each file under the
-//! ownership check that a font set passes, and sends the bytes to the font
-//! helper in a pointer ask. The helper draws the pictures in its sandbox
+//! The console never parses a pointer file. A pointer file is a resource,
+//! so the console reads each file only when it passes the trust rule: root
+//! owns the file and every folder above it, nobody else can write them,
+//! none of them is a symbolic link, and the file's filesystem stays
+//! mounted. A cursor theme's folder holds symbolic links, such as `text`
+//! naming `xterm`, so inside the theme's folder a link passes while it
+//! stays inside that folder, and a link that leads out of it fails. The
+//! console sends the bytes to the font helper in a pointer ask. The helper draws the pictures in its sandbox
 //! and answers with pixels and a hotspot. The console checks each answer
 //! frame by frame before it trusts it ([`Reply`]), and refuses an answer
 //! that brings more pictures or pixels than the ask can bring.
@@ -33,6 +38,7 @@
 //! compiled-in pictures for every shape and height the table lacks.
 //!
 //! References:
+//! - ADR-1205 D4: the trust rule a pointer file passes, and the links a pointer theme may hold.
 //! - ADR-1309 D2: what the path names.
 //! - ADR-1309 D3: which file of a cursor theme serves each shape.
 //! - ADR-1309 D5: the console reads, the helper draws as it does for glyphs, and the console checks each picture.
@@ -46,7 +52,7 @@ use vtium_render::{
     Arrow, POINTER_SIDE_MAX, POINTER_SVG_BYTES_MAX, POINTER_THEME_PIXELS_MAX, PictureSizes,
     PointerPictures, XCURSOR_FILE_MAX,
 };
-use vtium_settings::Trust;
+use vtium_settings::cullet::{Check, Gate, Opened, Refused};
 use vtium_term::PointerShape;
 
 const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQA";
@@ -112,30 +118,70 @@ pub fn theme_names(shape: PointerShape) -> &'static [&'static str] {
     }
 }
 
-/// The bytes of the pointer file at `path`, read under the ownership check
-/// `trust` makes, at most `limit` bytes: `Ok(None)` when it does not exist,
-/// and otherwise the sentence vtium logs when it does not read it.
-pub fn read(path: &Path, trust: &Trust, limit: usize) -> Result<Option<Vec<u8>>, String> {
+/// The bytes of the SVG pointer file at `path`, opened through `gate`,
+/// which checks that the batch lists the file and that the file passes the
+/// trust rule, at most `limit` bytes: `Ok(None)` when it does not exist,
+/// and otherwise the sentence vtium logs when it does not read it, which
+/// names the check the file failed.
+pub fn read(path: &Path, gate: &Gate, limit: usize) -> Result<Option<Vec<u8>>, String> {
+    bytes(path, gate.open(path), limit)
+}
+
+/// The bytes of the file at `path` inside the cursor theme's folder
+/// `theme`, as [`read`] reads a file, but with the batch listing `theme`
+/// and each symbolic link inside `theme` followed while it stays inside
+/// `theme`. A link that leads out of `theme` fails, and the sentence names
+/// it.
+pub fn read_in_theme(
+    theme: &Path,
+    path: &Path,
+    gate: &Gate,
+    limit: usize,
+) -> Result<Option<Vec<u8>>, String> {
+    bytes(path, gate.open_in_theme(theme, path), limit)
+}
+
+/// The sentence vtium logs, and `vtium check-config` shows, when the
+/// cursor theme's folder `theme` fails the gate: the batch does not list
+/// it, or it or a folder above it fails the trust rule. Every file in the
+/// folder fails the same way, so vtium says it once for the folder.
+pub fn theme_refused_line(theme: &Path, check: &Check) -> String {
+    format!(
+        "{}: vtium treats this pointer theme as missing, because {check} So vtium draws its own pointer pictures.",
+        theme.display()
+    )
+}
+
+/// At most `limit` bytes of the file `opened`, the pointer file at `path`.
+fn bytes(
+    path: &Path,
+    opened: Result<Opened, Refused>,
+    limit: usize,
+) -> Result<Option<Vec<u8>>, String> {
+    use std::io::Read as _;
     let refused = |because: String| {
         format!(
             "vtium does not read the pointer file {}, because {because}",
             path.display()
         )
     };
-    match vtium_settings::read_limited(path, trust, limit) {
-        Ok(bytes) => Ok(bytes),
-        Err(rejected) => Err(refused(match rejected.errors.first().map(|e| &e.problem) {
-            Some(vtium_settings::Problem::TooLarge) => {
-                format!("it is longer than {} MiB.", (limit / (1024 * 1024)).max(1))
-            }
-            Some(vtium_settings::Problem::Untrusted(why)) => why.reason().to_string(),
-            Some(vtium_settings::Problem::NotAFile) => "it is not a regular file.".to_owned(),
-            Some(vtium_settings::Problem::Unreadable(kind)) => {
-                format!("reading it failed ({}).", std::io::Error::from(*kind))
-            }
-            _ => "it cannot be read.".to_owned(),
-        })),
+    let opened = match opened {
+        Ok(opened) => opened,
+        Err(r) if r.check == Check::Missing => return Ok(None),
+        Err(r) => return Err(refused(r.check.to_string())),
+    };
+    let mut out = Vec::new();
+    let most = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
+    if let Err(e) = opened.file.take(most).read_to_end(&mut out) {
+        return Err(refused(format!("reading it failed ({e}).")));
     }
+    if out.len() > limit {
+        return Err(refused(format!(
+            "it is longer than {} MiB.",
+            (limit / (1024 * 1024)).max(1)
+        )));
+    }
+    Ok(Some(out))
 }
 
 /// One pointer ask: a file's bytes and the shape to draw from it.
@@ -461,7 +507,9 @@ pub struct Loader {
     /// The store the console's displays read the table from and ask
     /// heights through.
     store: Store,
-    trust: Trust,
+    /// The gate each of the pointer file's files passes: the console's,
+    /// as it was when the loader started.
+    gate: Arc<Gate>,
     file: File,
     table: PointerPictures,
     /// The shape of the ask under way, and the file its bytes came from.
@@ -478,28 +526,49 @@ pub struct Loader {
 }
 
 impl Loader {
-    /// A loader for the pointer file at `path`, each of whose files is read
-    /// under `trust`, with `pointer-size` `size`; `None`, and the line
-    /// logged, when the path names nothing vtium uses. An SVG file is read
-    /// now, and a theme's files as each shape is asked for. The loader
-    /// publishes its table into `store`, and takes the heights the
-    /// console's displays ask through `store`.
-    pub fn start(path: &Path, size: Option<u32>, trust: Trust, store: &Store) -> Option<Loader> {
+    /// A loader for the pointer file at `path`, each of whose files passes
+    /// the console's gate ([`crate::font::gate`]), as
+    /// [`Loader::start_with`] reads them.
+    pub fn start(path: &Path, size: Option<u32>, store: &Store) -> Option<Loader> {
+        Loader::start_with(path, size, crate::font::gate(), store)
+    }
+
+    /// A loader for the pointer file at `path`, each of whose files passes
+    /// `gate`, and with `pointer-size` `size`; `None`, and the line logged,
+    /// when the path names nothing vtium uses. An SVG file is read now. A
+    /// theme's folder is checked now, once, and its files are read as each
+    /// shape is asked for. The loader publishes its table into `store`,
+    /// and takes the heights the console's displays ask through `store`.
+    ///
+    /// References:
+    /// - ADR-1205 D4: a pointer theme passes the gate by its folder, which the batch lists.
+    pub fn start_with(
+        path: &Path,
+        size: Option<u32>,
+        gate: Arc<Gate>,
+        store: &Store,
+    ) -> Option<Loader> {
         let (file, sizes) = match locate(path) {
             Located::Unusable(path) => {
                 log::warn!("{}", unusable_line(&path));
                 return None;
             }
-            Located::Theme(_) => (
-                File::Theme {
-                    size,
-                    shape: 0,
-                    name: 0,
-                },
-                PictureSizes::Theme { size },
-            ),
+            Located::Theme(_) => {
+                if let Err(refused) = gate.theme(path) {
+                    log::warn!("{}", theme_refused_line(path, &refused.check));
+                    return None;
+                }
+                (
+                    File::Theme {
+                        size,
+                        shape: 0,
+                        name: 0,
+                    },
+                    PictureSizes::Theme { size },
+                )
+            }
             Located::Svg(_) => {
-                let bytes = match read(path, &trust, POINTER_SVG_BYTES_MAX) {
+                let bytes = match read(path, &gate, POINTER_SVG_BYTES_MAX) {
                     Ok(Some(bytes)) => bytes,
                     Ok(None) => {
                         log::warn!(
@@ -529,7 +598,7 @@ impl Loader {
         Some(Loader {
             path: path.to_owned(),
             store: store.clone(),
-            trust,
+            gate,
             file,
             table: PointerPictures::new(sizes),
             asked: None,
@@ -574,7 +643,8 @@ impl Loader {
                 };
                 *name = name.saturating_add(1);
                 let path = self.path.join("cursors").join(file);
-                match read(&path, &self.trust, XCURSOR_FILE_MAX) {
+                let theme = read_in_theme(&self.path, &path, &self.gate, XCURSOR_FILE_MAX);
+                match theme {
                     Ok(Some(bytes)) => {
                         self.asked = Some((s, path));
                         return Some(Ask {
@@ -755,6 +825,18 @@ impl Store {
     /// drawn at a new height.
     pub fn set_wake(&self, wake: Arc<dyn Fn() + Send + Sync>) {
         self.lock().wake = Some(wake);
+    }
+
+    /// Forgets the pointer file's pictures and the heights asked of it,
+    /// so the displays draw vtium's own pictures until a loader publishes
+    /// new ones. The wake-up into the console's loop stays.
+    pub fn forget(&self) {
+        let mut s = self.lock();
+        s.pictures = None;
+        s.svg = false;
+        s.asked.clear();
+        s.waiting.clear();
+        s.forget.clear();
     }
 
     /// Makes the store take heights as an SVG file's loader does, for a

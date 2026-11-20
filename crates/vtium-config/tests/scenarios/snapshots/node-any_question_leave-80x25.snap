@@ -1,29 +1,29 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "any.question.leave at 80×25, keys: Up r q"
+description: "any.question.leave at 80×25, keys: 3 Down r q"
 ---
- Flow  Looks  Fonts  Settings  Help                               Save  Install
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
  draft mine · no changes · no problems · 1 to install        text · t: try live
 --------------------------------------------------------------------------------
-   broken     cannot be read: line 2: unknown key colour
-   minspec-16 reads
-   proof      reads
- > tiny5      reads, to remove
-   unifont    built in, installed
-   unscii-8   built in
-
- The console draws these characters in unifont, the font it uses now. Press t
- to try the highlighted font on the console, k to keep it, and s to save it in
- the draft.
-
-  !"#$%&'()*+,-./0123456789:;<=>?
- @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
- `abcdefghijklmnopqrstuvwxyz{|}~
- ÀÁÂÄÅÆÇÈÉÊËÍÎÏÑÓÔÖØÚÜÝß àáâäåæçèéêëíîïñ
- óôöøúüýÿ ŁłŒœŠšŽžĞğİıŞş ¡¿«»“”‘’„–—…•
- ┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝
-
+ Looks
+   proof
+                         user@desk:~/notes$ ls -l
+ Font sets               drwxr-xr-x  2 user user 4096 Nov 10 09:12 drafts
+   broken                -rw-r--r--  1 user user 1823 Nov 10 09:14 plan.txt
+   minspec-16            -rwxr-xr-x  1 user user  512 Nov  9 17:40 build.sh
+   proof                 user@desk:~/notes$ colors
+   tiny5                 red green yellow magenta cyan white
+                         grey red green yellow magenta cyan white
+ broken: cannot be       Bold text and italic text beside plain text.
+ read: line 2: unknown   ┌──────────┬──────────┐
+ key colour, to remove.  │ name     │ size     │
+ The console draws this  ├──────────┼──────────┤
+ in its current font,    │ plan.txt │ 1.8 KiB  │
+ so t shows a font set   └──────────┴──────────┘
+ here. A size takes      Accents: café, naïve, Ångström, Straße, žluťoučký
+ effect when vtium       user@desk:~/notes$
+ starts again.
  Install before you quit? Quitting without installing loses the removal of
- tiny5. y installs and quits, n quits without installing, and Esc goes back.
+ broken. y installs and quits, n quits without installing, and Esc goes back.
 --------------------------------------------------------------------------------
  y install and quit  n quit without installing  Esc Ctrl-C cancel

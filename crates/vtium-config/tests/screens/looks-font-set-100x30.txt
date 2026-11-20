@@ -1,0 +1,30 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft workstation · 1 change · no problems                              text preview · t: try live
+----------------------------------------------------------------------------------------------------
+ Font set proof
+ The console reads it without errors.
+ Its fonts, by role:
+ Text: the font family JetBrains Mono, not on this machine
+ Box drawing: vtium's own lines, unless the text font has them all
+ What it still misses:
+ Text: the font family JetBrains Mono is not on this machine: no such family.
+ Used by look proof.
+
+ Up and Down scroll the detail, and Esc goes back to the list.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ ↑↓ scroll  Esc back  Ctrl-C save and quit  q quit

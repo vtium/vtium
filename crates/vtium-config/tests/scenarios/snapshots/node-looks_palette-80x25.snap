@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "looks.palette at 80×25, keys: 3 PgDn Enter"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+ Color scheme solarized
+ File: none, because it is built into vtium
+ State: always active
+ No look uses it.
+ The scheme's 16 colors, then its foreground and background:
+   0    #073642   1    #dc322f   2    #859900   3    #b58900
+   4    #268bd2   5    #d33682   6    #2aa198   7    #eee8d5
+   8    #002b36   9    #cb4b16  10    #586e75  11    #657b83
+  12    #839496  13    #6c71c4  14    #93a1a1  15    #fdf6e3
+ foreground #eee8d5, background #073642
+
+ 0-7
+ 8-15
+ Text    ~/notes $ ls -l todo.txt error done
+
+ Up and Down scroll the detail, and Esc goes back to the list.
+
+
+
+
+--------------------------------------------------------------------------------
+ ↑↓ scroll  Esc back  Ctrl-C save and quit  q quit

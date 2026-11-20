@@ -6,7 +6,9 @@
 //! never panic. The first byte chooses the declarations. vtium's own list
 //! holds the color filters, and a vtlook that reads cleanly against it
 //! goes on to build its color table, which must succeed, since the reader
-//! has checked every value it builds from. The fixed list lets the input
+//! has checked every value it builds from. A `cube` filter is the one
+//! exception: the target gives it no batch to read its file through, so
+//! the file counts as missing at the reading stage. The fixed list lets the input
 //! reach every value parser: numbers with a sign and a fraction, integers,
 //! colors, choices, switches, file names, and a parameter with no default.
 //!
@@ -129,11 +131,24 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!(look.name, "fuzz");
             if !fixed {
                 // vtium's own color filters build their table from any
-                // values the reader accepts, and it has no spatial filter
+                // values the reader accepts, and it has no spatial filter.
+                // A cube filter reads a file, which this call is given no
+                // gate to read, so it counts as missing at the reading
+                // stage and names the .cube file.
                 assert!(look.spatial.is_empty());
                 if !look.color.is_empty() {
                     let built = vtium_settings::vtlook::table(&look);
-                    assert!(built.is_ok(), "{built:?}");
+                    let cube = look.color.iter().any(|f| f.declaration.name == "cube");
+                    match built {
+                        Ok(_) => assert!(!cube),
+                        Err(failure) => {
+                            assert!(cube, "{failure:?}");
+                            for r in &failure.reports {
+                                assert_eq!(r.stage, vtium_settings::vtlook::Stage::Reading);
+                                assert!(r.file.extension().is_some_and(|e| e == "cube"));
+                            }
+                        }
+                    }
                 }
             }
             for f in look.color.iter().chain(&look.spatial) {

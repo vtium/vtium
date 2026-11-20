@@ -122,9 +122,33 @@ const VTLOOK_SECTIONS: Bound = Bound {
     cite: "ADR-1304 D4",
 };
 
+const BATCH: Bound = Bound {
+    name: "BATCH_MAX",
+    value: 64 * 1024,
+    what: "Bytes of the batch, `/etc/vtium/batch.conf`, the list of active resources",
+    past: "vtium ignores the file, says so in `vtium check-config`, and uses the list of a fresh install",
+    cite: "vtium's own: about a thousand paths of 60 bytes, far more than the fonts, color maps, shaders, palettes and pointer themes a console uses, read whole at each start like vtium.conf",
+};
+
+const PALETTE_FILE: Bound = Bound {
+    name: "PALETTE_FILE_MAX",
+    value: 16 * 1024,
+    what: "Bytes of a palette file, a color scheme",
+    past: "The file counts as missing, and vtium draws the color scheme below it: the top level's in place of a look's, and legacy in place of the top level's",
+    cite: "ADR-1205 D10; a file that sets all 256 colors and every other key it may set is under 7 KiB",
+};
+
+const CUBE_FILE: Bound = Bound {
+    name: "CUBE_FILE_MAX",
+    value: 16 * 1024 * 1024,
+    what: "Bytes of a `.cube` file, a color table a vtlook's `cube` filter reads",
+    past: "The file counts as missing: the vtlook fails at its reading stage, and the head draws the built-in vtlook",
+    cite: "ADR-1304 D9: enough for a 3D table of 65 a side, the largest vtium reads, which is 274,625 lines of three numbers, at up to 61 bytes a line",
+};
+
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 13] = [
+pub(crate) const BOUNDS: [Bound; 16] = [
     FILE,
     LINE,
     NAME,
@@ -138,6 +162,9 @@ pub(crate) const BOUNDS: [Bound; 13] = [
     QUOTE,
     VTLOOK_FILE,
     VTLOOK_SECTIONS,
+    BATCH,
+    PALETTE_FILE,
+    CUBE_FILE,
 ];
 
 /// Bytes of vtium.conf; past them every section is dropped but for the
@@ -193,6 +220,27 @@ pub const VTLOOK_FILE_MAX: usize = VTLOOK_FILE.value as usize;
 
 /// Sections of a vtlook, its `[requires]` included (ADR-1304 D4).
 pub const VTLOOK_SECTIONS_MAX: usize = VTLOOK_SECTIONS.value as usize;
+
+/// Bytes of the batch file; vtium ignores a longer one and uses the list
+/// of a fresh install.
+///
+/// References:
+/// - ADR-1205 D4: the batch file, and the list of a fresh install that vtium uses in its place.
+pub const BATCH_MAX: usize = BATCH.value as usize;
+
+/// Bytes of a palette file, a color scheme.
+///
+/// References:
+/// - ADR-1205 D10: the 16 KiB bound on a palette file.
+pub const PALETTE_FILE_MAX: usize = PALETTE_FILE.value as usize;
+
+/// Bytes of a `.cube` file; a larger file counts as missing, and the
+/// vtlook that names it fails at its reading stage.
+///
+/// References:
+/// - ADR-1304 D9: the bound of 16 MiB on a `.cube` file.
+#[cfg_attr(not(feature = "filters"), allow(dead_code))]
+pub const CUBE_FILE_MAX: usize = CUBE_FILE.value as usize;
 
 #[cfg(test)]
 #[expect(clippy::panic, reason = "a test fails by panicking")]

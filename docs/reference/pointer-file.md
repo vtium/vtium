@@ -83,7 +83,7 @@ A cursor file may be at most 16 MiB, with at most 4,096 entries in its table of 
 
 ## Who reads the file
 
-vtium reads a pointer file only when root owns it, or the user vtium runs as. Neither the group nor other users may be able to change the file or any folder on the way to it. These are the same checks that vtium.conf and the font sets pass.
+vtium reads a pointer file only while `/etc/vtium/batch.conf` lists it: a cursor theme by its folder, and an SVG file by its own path. A fresh install lists vtium's own pointer file, `/usr/share/vtium/pointers.svg`. The file must also pass the rule that every font and color scheme passes. Root owns the file and each folder above it, and neither the group nor other users can write any of them. A symbolic link inside a cursor theme passes while it stays inside the theme's folder. vtium reads `batch.conf` again each time a session ends, so a pointer file you add or remove takes effect at the next login. See [Active fonts](../fonts.md#active-fonts) for how to edit the list.
 
 The console never reads a pointer file's contents itself. It passes the file to the font helper, which draws the pictures in its sandbox, as it draws the font's glyphs. The console then checks each picture before it shows it.
 

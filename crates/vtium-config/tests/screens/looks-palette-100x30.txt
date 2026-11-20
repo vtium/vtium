@@ -1,0 +1,30 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft workstation · 1 change · no problems                              text preview · t: try live
+----------------------------------------------------------------------------------------------------
+ Color scheme paper
+ File: /usr/share/vtium/palettes/paper.palette
+ State: active
+ This color scheme passes the trust rule.
+ No look uses it.
+ The scheme's 16 colors, then its foreground and background:
+   0    #101820   1    #b42828   2    #2c343c   3    #3a424a
+   4    #485058   5    #565e66   6    #646c74   7    #727a82
+   8    #808890   9    #8e969e  10    #9ca4ac  11    #aab2ba
+  12    #b8c0c8  13    #c6ced6  14    #d4dce4  15    #e2eaf2
+ foreground #f0f0f0, background #101010
+
+ 0-7
+ 8-15
+ Text    ~/notes $ ls -l todo.txt error done
+
+ Up and Down scroll the detail, and Esc goes back to the list.
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ ↑↓ scroll  Esc back  Ctrl-C save and quit  q quit

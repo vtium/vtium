@@ -2,28 +2,28 @@
 source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "fonts at 80×25, keys: "
 ---
- Flow  Looks  Fonts  Settings  Help                               Save  Install
- draft mine · no changes · no problems               text preview · t: try live
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems       text preview · live trial in Looks
 --------------------------------------------------------------------------------
-   broken     cannot be read: line 2: unknown key colour
-   minspec-16 reads
-   proof      reads
-   tiny5      reads
- > unifont    built in, installed
-   unscii-8   built in
+ Show: All fonts
+ System fonts
+   DejaVuSansMono.ttf  DejaVu Sans Mono Regular, active, trusted
+   ter-u16n.otb        Terminus Regular, not active, trusted
+   NotoColorEmoji.ttf  Noto Color Emoji Regular, not active, fails the trust
+                       rule, duplicate
 
- The console draws these characters in unifont, the font it uses now. Press t
- to try the highlighted font on the console, k to keep it, and s to save it in
- the draft.
+ vtium's own fonts
+   cullet-mono.otf     Cullet Mono Regular, active, trusted
 
-  !"#$%&'()*+,-./0123456789:;<=>?
- @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
- `abcdefghijklmnopqrstuvwxyz{|}~
- ÀÁÂÄÅÆÇÈÉÊËÍÎÏÑÓÔÖØÚÜÝß àáâäåæçèéêëíîïñ
- óôöøúüýÿ ŁłŒœŠšŽžĞğİıŞş ¡¿«»“”‘’„–—…•
- ┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝
+ Your own fonts, which vtium cannot use until you install them as system fonts
+   Mine-Regular.ttf    Mine Regular, not usable
+
+ Space activates or deactivates the highlighted font. Enter opens a font's
+ detail, or the filters on the filter line. p switches the preview to the
+ picture of the console.
+
 
 
 
 --------------------------------------------------------------------------------
- Enter choose  t try live  s save  n new  r remove  i install  q quit
+ ↑↓ move  Space activate  q quit  . more 1/4

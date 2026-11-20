@@ -2,6 +2,10 @@ use super::*;
 use crate::scratch::Scratch;
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
+use vtium_settings::Trust;
+use vtium_settings::batch::{Batch, Entry};
+use vtium_settings::cullet::Rule;
+use vtium_settings::mounts::Mounts;
 
 /// Reads `bytes`, the helper's answer to `ask`, as the console reads it:
 /// each frame through the helper client's frame reader, then [`Reply`].
@@ -42,14 +46,29 @@ fn load(loader: &mut Loader) -> Log {
     loader.take_log()
 }
 
-/// A directory of the test's own whose folders pass the ownership check
-/// that `trust` makes, removed when the test ends.
-fn scratch(name: &str) -> (Scratch, Trust) {
+/// A directory of the test's own whose files pass the trust rule that
+/// `rule` checks, removed when the test ends.
+fn scratch(name: &str) -> (Scratch, Rule) {
     let dir = Scratch::new(&format!("pointer-file-{name}"));
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&dir).unwrap());
-    let trust = Trust::owner(uid).below(&dir);
-    (dir, trust)
+    let rule = Rule::new(Trust::owner(uid)).below(&dir);
+    (dir, rule)
+}
+
+/// This machine's mount table.
+fn mounts() -> Mounts {
+    Mounts::system().unwrap()
+}
+
+/// The gate of `rule` and this machine's mount table, with a batch that
+/// lists `listed`: a pointer file, or a cursor theme's folder.
+fn gate(rule: &Rule, listed: &Path) -> Arc<Gate> {
+    Arc::new(Gate::new(
+        rule.clone(),
+        Some(mounts()),
+        Batch::new(vec![Entry::Path(listed.to_path_buf())]),
+    ))
 }
 
 fn write(path: &Path, bytes: &[u8], mode: u32) {
@@ -156,28 +175,31 @@ fn each_shape_tries_its_names_in_order() {
     );
 }
 
-// The console reads a pointer file under the ownership check, and says why
-// it does not: too long, or writable by others with the command that
-// fixes it.
+// The console reads a pointer file under the trust rule, and says why it
+// does not: too long, or writable by others with the command that fixes
+// it.
 #[test]
 fn a_file_vtium_does_not_read_is_logged_with_why() {
-    let (dir, trust) = scratch("read");
+    let (dir, rule) = scratch("read");
     let (long, open) = (dir.join("long"), dir.join("open"));
     write(&long, &[0; 32], 0o644);
     write(&open, b"x", 0o666);
     assert_eq!(
-        read(&long, &trust, 16),
+        read(&long, &gate(&rule, &long), 16),
         Err(format!(
             "vtium does not read the pointer file {}, because it is longer than 1 MiB.",
             long.display()
         ))
     );
-    let why = read(&open, &trust, 16).unwrap_err();
+    let why = read(&open, &gate(&rule, &open), 16).unwrap_err();
     assert!(
         why.contains("other users can change") && why.contains("chmod go-w"),
         "{why}"
     );
-    assert_eq!(read(&dir.join("none"), &trust, 16), Ok(None));
+    assert_eq!(
+        read(&dir.join("none"), &gate(&rule, &dir.join("none")), 16),
+        Ok(None)
+    );
 }
 
 /// The ask `answers` checks frames against: the text shape at 16.
@@ -339,7 +361,7 @@ fn the_console_bounds_the_pictures_of_one_answer() {
 #[test]
 fn a_theme_takes_each_shapes_first_drawable_file_in_order() {
     let store = Store::default();
-    let (dir, trust) = scratch("theme");
+    let (dir, rule) = scratch("theme");
     let cursors = dir.join("cursors");
     std::fs::create_dir_all(&cursors).unwrap();
     std::fs::set_permissions(&cursors, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -364,7 +386,7 @@ fn a_theme_takes_each_shapes_first_drawable_file_in_order() {
     ] {
         write(&cursors.join(name), &cursor(&[24]), 0o644);
     }
-    let mut loader = Loader::start(&dir, None, trust.clone(), &store).unwrap();
+    let mut loader = Loader::start_with(&dir, None, gate(&rule, &dir), &store).unwrap();
     let log = load(&mut loader);
     assert!(loader.ended());
     let table = loader.table();
@@ -399,7 +421,7 @@ fn a_theme_takes_each_shapes_first_drawable_file_in_order() {
     assert!(loader.publish());
     assert!(!loader.publish());
     assert_eq!(store.current().unwrap().sizes_of(PointerShape::Wait), [48]);
-    let mut sized = Loader::start(&dir, Some(24), trust, &store).unwrap();
+    let mut sized = Loader::start_with(&dir, Some(24), gate(&rule, &dir), &store).unwrap();
     load(&mut sized);
     assert_eq!(sized.table().sizes_of(PointerShape::Default), [24]);
 }
@@ -410,12 +432,12 @@ fn a_theme_takes_each_shapes_first_drawable_file_in_order() {
 #[test]
 fn an_svg_file_draws_at_each_height_asked_and_logs_once() {
     let store = Store::default();
-    let (dir, trust) = scratch("svg");
+    let (dir, rule) = scratch("svg");
     let shipped =
         std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/install/pointers.svg")).unwrap();
     let path = dir.join("pointers.svg");
     write(&path, &shipped, 0o644);
-    let mut svg = Loader::start(&path, None, trust.clone(), &store).unwrap();
+    let mut svg = Loader::start_with(&path, None, gate(&rule, &path), &store).unwrap();
     // nothing is asked until a display wants a height
     assert_eq!(svg.next_ask(), None);
     store.want(16);
@@ -439,7 +461,7 @@ fn an_svg_file_draws_at_each_height_asked_and_logs_once() {
         b"<svg xmlns=\"http://www.w3.org/2000/svg\"><symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><rect width=\"8\" height=\"16\" fill=\"#fff\"/></symbol><symbol id=\"wait\" viewBox=\"0 0 8 16\"/></svg>",
         0o644,
     );
-    let mut s = Loader::start(&small, None, trust, &store).unwrap();
+    let mut s = Loader::start_with(&small, None, gate(&rule, &small), &store).unwrap();
     store.want(16);
     let log = load(&mut s);
     assert_eq!(
@@ -468,14 +490,14 @@ fn an_svg_file_draws_at_each_height_asked_and_logs_once() {
 #[test]
 fn every_height_wanted_is_drawn_and_the_oldest_makes_room() {
     let store = Store::default();
-    let (dir, trust) = scratch("heights");
+    let (dir, rule) = scratch("heights");
     let path = dir.join("one.svg");
     write(
         &path,
         b"<svg xmlns=\"http://www.w3.org/2000/svg\"><symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><rect width=\"8\" height=\"16\" fill=\"#fff\"/></symbol></svg>",
         0o644,
     );
-    let mut svg = Loader::start(&path, None, trust, &store).unwrap();
+    let mut svg = Loader::start_with(&path, None, gate(&rule, &path), &store).unwrap();
     let heights: Vec<u32> = (8..).take(SVG_HEIGHTS_KEPT).collect();
     for &h in &heights {
         store.want(h);
@@ -499,12 +521,12 @@ fn every_height_wanted_is_drawn_and_the_oldest_makes_room() {
 #[test]
 fn a_failed_helper_gives_the_file_up() {
     let store = Store::default();
-    let (dir, trust) = scratch("failed");
+    let (dir, rule) = scratch("failed");
     let shipped =
         std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/install/pointers.svg")).unwrap();
     let path = dir.join("pointers.svg");
     write(&path, &shipped, 0o644);
-    let mut svg = Loader::start(&path, None, trust, &store).unwrap();
+    let mut svg = Loader::start_with(&path, None, gate(&rule, &path), &store).unwrap();
     store.want(16);
     let first = svg.next_ask().unwrap();
     svg.take(helper_answer(&first));
@@ -533,12 +555,12 @@ fn a_failed_helper_gives_the_file_up() {
 #[test]
 fn a_display_of_another_console_asks_this_loader_nothing() {
     let store = Store::default();
-    let (dir, trust) = scratch("another");
+    let (dir, rule) = scratch("another");
     let shipped =
         std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/install/pointers.svg")).unwrap();
     let path = dir.join("pointers.svg");
     write(&path, &shipped, 0o644);
-    let mut svg = Loader::start(&path, None, trust, &store).unwrap();
+    let mut svg = Loader::start_with(&path, None, gate(&rule, &path), &store).unwrap();
     std::thread::spawn(|| {
         let font = vtium_font::Font::new(vtium_font::Unifont::new(16));
         let mut r = vtium_render::Renderer::new(font, 36, 34, vtium_render::Config::default());
@@ -560,4 +582,56 @@ fn a_display_of_another_console_asks_this_loader_nothing() {
     let mut arrow = r.arrow().clone();
     crate::pointer::Pointer::default().follow(&mut r, &mut arrow, PointerShape::Default, &store);
     assert_eq!(svg.next_ask().map(|ask| ask.heights), Some(vec![16]));
+}
+
+// A pointer file is a resource: an SVG file reached through a symbolic
+// link fails the trust rule, and the line names the link. Inside a cursor
+// theme, a link that stays inside the theme's folder passes, and a link
+// that leads out of it fails, so its shape takes the next file name.
+#[test]
+fn a_link_that_leaves_the_theme_fails_and_one_inside_passes() {
+    let store = Store::default();
+    let (dir, rule) = scratch("links");
+    let svg = dir.join("pointers.svg");
+    write(
+        &svg,
+        &std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/install/pointers.svg")).unwrap(),
+        0o644,
+    );
+    let linked = dir.join("linked.svg");
+    std::os::unix::fs::symlink(&svg, &linked).unwrap();
+    assert_eq!(
+        read(&linked, &gate(&rule, &linked), POINTER_SVG_BYTES_MAX),
+        Err(format!(
+            "vtium does not read the pointer file {l}, because {l} is a symbolic link, and vtium uses no resource reached through one.",
+            l = linked.display()
+        ))
+    );
+    let theme = dir.join("theme");
+    let cursors = theme.join("cursors");
+    let outside = dir.join("outside");
+    for d in [&theme, &cursors, &outside] {
+        std::fs::create_dir_all(d).unwrap();
+        std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    write(&cursors.join("xterm"), &cursor(&[24]), 0o644);
+    std::os::unix::fs::symlink("xterm", cursors.join("text")).unwrap();
+    write(&outside.join("left_ptr"), &cursor(&[32]), 0o644);
+    std::os::unix::fs::symlink("../../outside/left_ptr", cursors.join("default")).unwrap();
+    write(&cursors.join("left_ptr"), &cursor(&[24]), 0o644);
+    let mut loader = Loader::start_with(&theme, None, gate(&rule, &theme), &store).unwrap();
+    let log = load(&mut loader);
+    let table = loader.table();
+    assert_eq!(table.sizes_of(PointerShape::Text), [24]);
+    assert_eq!(table.sizes_of(PointerShape::Default), [24]);
+    let default = cursors.join("default");
+    assert_eq!(
+        log.warnings,
+        [format!(
+            "vtium does not read the pointer file {}, because the symbolic link {} leads outside the pointer theme's folder {}.",
+            default.display(),
+            default.display(),
+            theme.display()
+        )]
+    );
 }

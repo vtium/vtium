@@ -1,9 +1,9 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "looks.new-frit.typing at 80×25, keys: n"
+description: "looks.new-frit.typing at 80×25, keys: 3 Down n"
 ---
- Flow  Looks  Fonts  Settings  Help                               Save  Install
- draft mine · no changes · no problems               text preview · t: try live
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems       text preview · live trial in Looks
 --------------------------------------------------------------------------------
  > Name     _
    Font 1

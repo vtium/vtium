@@ -1,8 +1,8 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "any.trial at 79×24, keys: Up t"
+description: "any.trial at 79×24, keys: 3 t"
 ---
-Trying tiny5 on the console for 10 s. Press k to keep it, or any other key to
+Trying proof on the console for 10 s. Press k to keep it, or any other key to
 put the font back.
 
 This terminal is too small: vtium-config needs at least 80x25 characters, and
