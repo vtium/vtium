@@ -555,9 +555,11 @@ The value is an SVG file in vtium's pointer file format, or the folder of a desk
 .IP
 When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and \fBpointer\-char\fR keeps the default shape. The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no \fBInherits=\fR line, so name the folder that holds the \fBcursors\fR folder.
 .IP
+A look's own \fBpointer\-theme\fR wins over this one.
+.IP
 It takes an absolute path: at most 4095 bytes, with no control character. Default: unset.
 .IP
-Set it in the top level, or on vtium's command line with \fB\-\-pointer\-theme=VALUE\fR.
+Set it in the top level or a \fB[look NAME]\fR section, or on vtium's command line with \fB\-\-pointer\-theme=VALUE\fR.
 .TP
 \fBpointer-size\fR
 The size of a cursor theme's pointer.

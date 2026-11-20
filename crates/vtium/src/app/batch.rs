@@ -6,10 +6,7 @@
 //! References:
 //! - ADR-1205 D4, its note of 2026-11-19: every resource passes one gate, and an activation or a deactivation takes effect at the next login.
 
-use std::path::Path;
-
 use super::App;
-use crate::config::keys;
 use crate::font;
 
 impl App {
@@ -85,15 +82,7 @@ impl App {
         if let Ok(launcher) = &mut self.launcher {
             *launcher = launcher.clone().with_active(me, &gate.batch);
         }
-        if let (Ok(launcher), Some((_, helper))) = (&self.launcher, self.pointer_file.as_mut()) {
-            helper.activate(launcher);
-        }
-        if let Some(path) = self.config.text(&keys::POINTER_THEME) {
-            let path = Path::new(path);
-            if before.batch.holds(path) != gate.batch.holds(path) {
-                self.reload_pointer_file();
-            }
-        }
+        self.rebatch_pointers(&before.batch, &gate.batch);
         self.batch_changes = self.batch_changes.saturating_add(1);
         // A font the batch gains may draw characters that another font
         // drew or that no font had, and a font it loses may have drawn any
@@ -191,23 +180,6 @@ impl App {
             }
             head.draw_now = true;
             self.ask_glyphs(h);
-        }
-    }
-
-    /// Drops the pointer file's loader, its helper and its pictures, so
-    /// that the next turn loads the pointer file again through the
-    /// console's new gate. A pointer file the new batch lists loads, and
-    /// one it no longer lists is refused with one line, while every
-    /// display draws vtium's own pictures.
-    ///
-    /// References:
-    /// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
-    fn reload_pointer_file(&mut self) {
-        self.pointer_file = None;
-        self.pointer_file_started = false;
-        self.pointer_store.forget();
-        for head in &mut self.heads {
-            head.draw_now = true;
         }
     }
 }

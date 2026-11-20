@@ -662,7 +662,7 @@ fn outcome_with(
         .zip(loaded.config.origin(&keys::POINTER_THEME))
         .filter(|(_, origin)| !(heads.refused && matches!(origin, Origin::File { .. })))
         .map(|(value, origin)| (value, origin.to_string()));
-    let pointers = pointer_findings(top_pointer, &gate);
+    let pointers = pointer_findings(top_pointer, path, &heads.pointers, &gate);
     let folders = vtium_settings::palette::FOLDERS.map(Path::new);
     let (schemes, scheme_notes) =
         palette_findings(top_palette, path, &heads.palettes, &folders, &gate);
@@ -800,6 +800,10 @@ pub struct HeadCheck {
     /// other than a built-in palette: the look's name, the palette's and
     /// the line of its `palette`, for check-config to read.
     pub palettes: Vec<(String, String, usize)>,
+    /// The pointer file each look of the file that a start runs names:
+    /// the look's name, the file's path and the line of its
+    /// `pointer-theme`, for check-config to read.
+    pub pointers: Vec<(String, String, usize)>,
 }
 
 /// Whether `a` and `b` name one file, by its device and inode once
@@ -1173,6 +1177,18 @@ fn findings(
                     .find(|s| s.key.name == keys::PALETTE.name)?;
                 let file = !vtium_settings::palette::built_in(&s.value);
                 file.then(|| (l.name.clone(), s.value.clone(), s.line))
+            })
+            .collect();
+        out.pointers = parsed
+            .config
+            .looks
+            .iter()
+            .filter_map(|l| {
+                let s = l
+                    .settings
+                    .iter()
+                    .find(|s| s.key.name == keys::POINTER_THEME.name)?;
+                Some((l.name.clone(), s.value.clone(), s.line))
             })
             .collect();
     }
@@ -1640,7 +1656,12 @@ mod tests {
         let _ = std::os::unix::fs::symlink("../../outside/left_ptr", cursors.join("hand2"));
         let at = || "/etc/vtium/vtium.conf:2".to_owned();
         let said_through = |value: &Path, gate: &vtium_settings::cullet::Gate| {
-            pointer_findings(Some((value.to_str().unwrap_or(""), at())), gate)
+            pointer_findings(
+                Some((value.to_str().unwrap_or(""), at())),
+                Path::new("/etc/vtium/vtium.conf"),
+                &[],
+                gate,
+            )
         };
         let said = |value: &Path| said_through(value, &gate);
         assert_eq!(said(&svg), Vec::<String>::new());
@@ -1675,7 +1696,65 @@ mod tests {
                 b = vtium_settings::batch::BATCH_FILE
             )]
         );
-        assert_eq!(pointer_findings(None, &gate), Vec::<String>::new());
+        assert_eq!(
+            pointer_findings(None, Path::new("/etc/vtium/vtium.conf"), &[], &gate),
+            Vec::<String>::new()
+        );
+    }
+
+    // A look's pointer theme is checked as the top level's is: a theme the
+    // batch does not list says so, and a path that names neither an SVG
+    // file nor a theme's folder is reported on the look's own line. A
+    // theme that the top level and a look both name is said once.
+    //
+    // References:
+    // - ADR-1205 D6: each look picks its pointer theme, which passes the same trust rule as the top level's.
+    #[test]
+    fn check_config_checks_each_look_s_pointer_theme_as_the_top_level_s() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("check-look-pointers");
+        let me = rustix::process::geteuid().as_raw();
+        let rule = vtium_settings::cullet::Rule::new(Trust::owner(me)).below(&dir);
+        let mounts = vtium_settings::mounts::Mounts::system().unwrap_or_default();
+        let theme = dir.join("theme");
+        for d in [&*dir, &theme, &theme.join("cursors")] {
+            let _ = std::fs::create_dir_all(d);
+            let _ = std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755));
+        }
+        let nothing = dir.join("nothing");
+        let unlisted = vtium_settings::cullet::Gate::new(
+            rule,
+            Some(mounts),
+            vtium_settings::batch::Batch::default(),
+        );
+        let conf = Path::new("/etc/vtium/vtium.conf");
+        let t = theme.display().to_string();
+        let looks = [
+            ("arrows".to_owned(), t.clone(), 5),
+            ("lost".to_owned(), nothing.display().to_string(), 8),
+        ];
+        let inactive = format!(
+            "{t}: vtium treats this pointer theme as missing, because it is not active: {b} does not list it. So vtium draws its own pointer pictures.",
+            b = vtium_settings::batch::BATCH_FILE
+        );
+        let unusable = format!(
+            "/etc/vtium/vtium.conf:8: The pointer file {} is neither an SVG file nor a folder that holds a cursors folder, so vtium draws its own pointer pictures.",
+            nothing.display()
+        );
+        assert_eq!(
+            pointer_findings(None, conf, &looks, &unlisted),
+            [inactive.clone(), unusable.clone()]
+        );
+        assert_eq!(
+            pointer_findings(
+                Some((t.as_str(), "/etc/vtium/vtium.conf:1".to_owned())),
+                conf,
+                &looks,
+                &unlisted
+            ),
+            [inactive, unusable],
+            "the theme both name is said once"
+        );
     }
 
     // check-config names each font file a font set names by its path that
@@ -3798,6 +3877,7 @@ mod tests {
                 missing_fonts: 0,
                 vtlooks: Vec::new(),
                 palettes: Vec::new(),
+                pointers: Vec::new(),
             }
         );
         assert_eq!(
@@ -3809,6 +3889,7 @@ mod tests {
                 missing_fonts: 0,
                 vtlooks: Vec::new(),
                 palettes: Vec::new(),
+                pointers: Vec::new(),
             }
         );
     }
@@ -3933,6 +4014,7 @@ mod tests {
             missing_fonts: 0,
             vtlooks: Vec::new(),
             palettes: Vec::new(),
+            pointers: Vec::new(),
         };
         assert_eq!(
             conf_file(&file, false, &trust, &machine(true), &caps(4)),
@@ -4844,6 +4926,51 @@ mod tests {
         assert!(
             HELP.replace('\n', " ")
                 .contains("It opens nothing under /dev and changes nothing.")
+        );
+    }
+
+    // check-config reports a look's pointer theme it would not read on the
+    // look's own line of the file it checks, and the line counts.
+    #[test]
+    fn check_config_reports_a_look_s_pointer_theme_on_the_look_s_line() {
+        let (dir, file, _) = heads_fixture(
+            "look-pointer",
+            "version = 1\n[look lost]\npointer-theme = /nonexistent/vtium/pointers\n[head console]\nlook = lost\n[rules]\ndisplay * -> console\ninput * -> roaming\n",
+            0o644,
+        );
+        let host = Host {
+            conf_file: file.with_file_name("installed.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust().below(&dir),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+            batch: dir.join("batch.conf"),
+        };
+        let f = file.display().to_string();
+        let out = outcome_on(&["--no-devices", f.as_str()], &host);
+        assert_eq!(
+            out.stderr,
+            [format!(
+                "{f}:3: The pointer file /nonexistent/vtium/pointers is neither an SVG file nor a folder that holds a cursors folder, so vtium draws its own pointer pictures."
+            )]
+        );
+        assert_eq!(out.status, 1);
+    }
+
+    // The looks of a file that runs each name their pointer file for the
+    // check to read, and a look that names none is not listed.
+    #[test]
+    fn each_look_s_pointer_theme_is_listed_for_the_check() {
+        let text = "version = 1\n[look arrows]\npointer-theme = /usr/share/icons/Adwaita\n[look none]\n[head desk]\nlook = arrows\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
+        let (out, _) = checked("pointers", text, true);
+        assert_eq!(
+            out.pointers,
+            [(
+                "arrows".to_owned(),
+                "/usr/share/icons/Adwaita".to_owned(),
+                3
+            )]
         );
     }
 

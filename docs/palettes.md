@@ -133,5 +133,8 @@ vtium installs these color schemes in `/usr/share/vtium/palettes`. Each comes fr
 | Gruvbox | `gruvbox-dark`, `gruvbox-light` | [gruvbox-community/gruvbox](https://github.com/gruvbox-community/gruvbox) | MIT |
 | Kiln | `kiln` | vtium's own: a warm near-black background, saturated accents and a light warm foreground | vtium's license |
 | Sunny | `sunny` | vtium's own: black text on a white background, like the white consoles of 1990s Unix workstations | vtium's license |
+| Ink | `ink` | vtium's own: black and red on white, for a display of three inks such as a three-color e-paper panel | vtium's license |
+
+Ink holds only black, red and white, so a panel that shows those three inks displays every one of its colors. Red, yellow and magenta print in red ink, and the other colors in black, so text a program colors stays readable on white. Colors 7 and 15 are the white of the paper, so text in those colors shows only on a colored background.
 
 Nord and Solarized are built-in palettes, so they need no file. To use a color scheme vtium does not install, copy its Ghostty theme file to `/etc/vtium/palettes/NAME.palette` as root, and add that path to `/etc/vtium/batch.conf`.
