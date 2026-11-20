@@ -3787,7 +3787,7 @@ CULLET_MONO_NOTICES = sorted(os.listdir(os.path.join(ROOT, "tools", "cullet-mono
 # the license text of each scheme's family in the package's license
 # directory, and the preset vtlooks it installs in /usr/share/vtium/looks.
 PALETTES = ["catppuccin-frappe", "catppuccin-latte", "catppuccin-macchiato", "catppuccin-mocha", "dracula",
-            "gruvbox-dark", "gruvbox-light", "kiln", "sunny", "tokyo-night", "tokyo-night-day",
+            "gruvbox-dark", "gruvbox-light", "ink", "kiln", "sunny", "tokyo-night", "tokyo-night-day",
             "tokyo-night-moon", "tokyo-night-storm"]
 PALETTE_LICENSES = ["catppuccin-LICENSE", "dracula-LICENSE", "gruvbox-LICENSE", "tokyo-night-LICENSE"]
 LOOKS = ["amber", "deuteranopia", "green", "protanopia", "tritanopia", "white"]
@@ -4573,6 +4573,68 @@ class Pty:
         self.wait_for(b"\x1b[6n")
         self.send(b"\x1b[14;1R")
 
+    def proc(self, pid):
+        """The state, process group and session of process PID, the
+        terminal's foreground process group, and the signal masks from its
+        status file, or None once the process is gone."""
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                stat = f.read()
+            with open(f"/proc/{pid}/status") as f:
+                status = dict(line.split(":\t", 1) for line in f.read().splitlines() if ":\t" in line)
+        # A process that ends between the open and the read gives ESRCH.
+        except (FileNotFoundError, ProcessLookupError):
+            return None
+        # The name, in parentheses, may hold spaces; the fields after it do not.
+        name = stat[stat.index("(") + 1:stat.rindex(")")]
+        state, _ppid, pgrp, sid, _tty, tpgid = stat[stat.rindex(")") + 2:].split()[:6]
+        return {"name": name, "state": state, "pgrp": int(pgrp), "sid": int(sid), "tpgid": int(tpgid),
+                **{k: int(status[k], 16) for k in ("SigIgn", "SigBlk", "SigCgt", "SigPnd", "ShdPnd")}}
+
+    def descendants(self):
+        """The pids of the processes this terminal's program has started,
+        and theirs, read from each process's children file."""
+        found, todo = [], [self.pid]
+        while todo:
+            pid = todo.pop()
+            try:
+                with open(f"/proc/{pid}/task/{pid}/children") as f:
+                    kids = [int(k) for k in f.read().split()]
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            found += kids
+            todo += kids
+        return found
+
+    def program(self, name, sig, timeout=WAIT_BOUND):
+        """Waits until a process called NAME runs on this terminal, in its
+        foreground process group, with SIG at its default action: neither
+        ignored, blocked nor caught. A key that sends SIG then ends it.
+        Returns its pid."""
+        bit = 1 << (sig - 1)
+        end = time.monotonic() + timeout
+        last = "no process of that name"
+        while True:
+            for pid in self.descendants():
+                p = self.proc(pid)
+                if p is None or p["name"] != name:
+                    continue
+                if (p["state"] not in "ZX" and p["pgrp"] == p["tpgid"]
+                        and not (p["SigIgn"] | p["SigBlk"] | p["SigCgt"]) & bit):
+                    return int(pid)
+                last = f"process {pid}: {p}"
+            if time.monotonic() > end:
+                raise AssertionError(f"no {name} on the terminal with {signal.Signals(sig).name} at its default: {last}")
+            time.sleep(0.01)
+
+    def ended(self, pid, timeout=WAIT_BOUND):
+        """Waits until process PID has ended, a zombie or gone."""
+        end = time.monotonic() + timeout
+        while (p := self.proc(pid)) is not None and p["state"] not in "ZX":
+            if time.monotonic() > end:
+                raise AssertionError(f"process {pid} still runs: {p}")
+            time.sleep(0.01)
+
     def finish(self, timeout=WAIT_BOUND):
         end = time.monotonic() + timeout
         while time.monotonic() < end:
@@ -5079,19 +5141,20 @@ class Guide(Case):
         # Ctrl-C stops the command, and Ctrl-\ the program it runs, as at a
         # prompt; the checks go on, the step asks with the status, and the
         # keys echo again.
-        for k, title, out, key, status in ((3, "Stopped", b"started", b"\x03", 130),
-                                           (4, "Quit", b"begun", b"\x1c", 131)):
+        for k, title, out, key, sig, status in ((3, "Stopped", b"started", b"\x03", signal.SIGINT, 130),
+                                                (4, "Quit", b"begun", b"\x1c", signal.SIGQUIT, 131)):
             g.wait_for(f"Step {k} of 4: {title}".encode())
             g.wait_for(b"Press Enter to run it (")
             g.send(b"\r")
             g.wait_for(out + b"\r\n")
-            # The key goes in once sleep runs: bash ignores Ctrl-\, so one
-            # sent between echo and sleep would reach no program.
-            end = time.monotonic() + WAIT_BOUND
-            while subprocess.run(["pgrep", "-s", str(g.pid), "-x", "sleep"], capture_output=True).returncode:
-                self.assertLess(time.monotonic(), end, "sleep never started")
-                time.sleep(0.02)
+            # The key goes in once the key's signal would end sleep: bash
+            # ignores Ctrl-\, so one sent between echo and sleep would reach
+            # no program. The test then waits for sleep to end before it
+            # reads the status, so a key that ends nothing fails here and
+            # names the state sleep was left in.
+            sleep = g.program("sleep", sig)
             g.send(key)
+            g.ended(sleep)
             g.wait_for(f"The command exited with status {status}.".encode())
             g.wait_for(b"[y]es [n]o [s]kip: ")
             g.send(b"n")
