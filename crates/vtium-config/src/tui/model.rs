@@ -17,7 +17,7 @@
 //! - ADR-1403 D7: the Flow view draws the configuration as paths.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use vtium_settings::keys;
@@ -29,6 +29,7 @@ use super::flow::Flow;
 use super::input::{Button, Input, Key, Mouse, Reply};
 use super::replies::{Answer, Asker, Batch, Query, Queue};
 use crate::draft::{FileEdit, Plan, Removal};
+use crate::frit::Frit;
 
 /// How long the TUI waits for the terminal's answers at start, and for
 /// the console's font to come back when it leaves: `set`'s wait.
@@ -1428,7 +1429,22 @@ impl App {
             self.shared.inputs.installed.remove(name);
             self.shared.sources.remove(name);
         }
+        // each new font set joins the list the Looks tab offers at once,
+        // as the next start would list it, in place of an installed set of
+        // its name
         for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
+            let state = match Frit::parse(text.as_bytes(), Path::new(&name), &name) {
+                Ok(_) => FontState::Reads,
+                Err(e) if e.line == 0 => FontState::Refused(e.why.clone()),
+                Err(e) => FontState::Refused(format!("line {}: {}", e.line, e.why)),
+            };
+            let fonts = &mut self.shared.inputs.fonts;
+            fonts.retain(|f| f.name != name);
+            fonts.push(Font {
+                name: name.clone(),
+                state,
+            });
+            fonts.sort_by(|a, b| a.name.cmp(&b.name));
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
         self.fonts.keep(&self.shared, None);
