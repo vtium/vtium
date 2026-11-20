@@ -202,7 +202,7 @@ pub fn builtin(word: &str) -> bool {
 /// `batch.conf` in the configuration directory for any other, such as a
 /// test's.
 pub fn batch_file(targets: &Targets) -> PathBuf {
-    if targets.configdir == crate::cli::default_configdir() {
+    if targets.is_system() {
         PathBuf::from(active::BATCH_FILE)
     } else {
         targets.configdir.join("batch.conf")
@@ -337,7 +337,17 @@ fn line_path(line: &str) -> Option<PathBuf> {
 /// when the result lists the same resources as the system holds now, so
 /// the install leaves the batch file as it is.
 pub fn applied(installed: Option<&str>, fresh: &Batch, changes: &Changes) -> Option<String> {
-    let mut lines: Vec<String> = match installed {
+    let text = edited(installed, fresh, changes);
+    let after = Batch::parse(text.as_bytes(), Path::new("")).batch;
+    (after != base(installed, fresh)).then_some(text)
+}
+
+/// The text [`applied`] makes, whether or not it changes anything. Each
+/// line is read once, and the paths it names are looked up in sets, so a
+/// long list of changes takes time in proportion to its length.
+fn edited(installed: Option<&str>, fresh: &Batch, changes: &Changes) -> String {
+    use std::collections::BTreeSet;
+    let lines: Vec<String> = match installed {
         Some(text) => text.lines().map(str::to_owned).collect(),
         None => HEADER
             .lines()
@@ -350,18 +360,53 @@ pub fn applied(installed: Option<&str>, fresh: &Batch, changes: &Changes) -> Opt
             )
             .collect(),
     };
+    let gone: BTreeSet<&Path> = changes
+        .iter()
+        .filter(|(_, c)| *c == Change::Deactivate)
+        .map(|(p, _)| p)
+        .collect();
+    let mut named = BTreeSet::new();
+    let mut text = String::new();
+    for line in &lines {
+        let path = line_path(line);
+        if path.as_deref().is_some_and(|p| gone.contains(p)) {
+            continue;
+        }
+        named.extend(path);
+        text.push_str(line);
+        text.push('\n');
+    }
+    // `changes` holds each path once, so no activation adds a line that
+    // another activation added
     for (path, change) in changes.iter() {
-        let names = |line: &String| line_path(line).as_deref() == Some(path);
-        match change {
-            Change::Deactivate => lines.retain(|l| !names(l)),
-            Change::Activate if !lines.iter().any(names) => lines.push(path.display().to_string()),
-            Change::Activate => {}
+        if change == Change::Activate && !named.contains(path) {
+            text.push_str(&path.display().to_string());
+            text.push('\n');
         }
     }
-    let mut text = lines.join("\n");
-    text.push('\n');
-    let after = Batch::parse(text.as_bytes(), Path::new("")).batch;
-    (after != base(installed, fresh)).then_some(text)
+    if text.is_empty() {
+        text.push('\n');
+    }
+    text
+}
+
+/// How many bytes vtium reads of the batch file at most, in KiB, as the
+/// messages about the bound say it.
+const BATCH_KIB: usize = active::BATCH_MAX / 1024;
+
+/// Why the batch file that `changes` make, starting from `installed` and
+/// `fresh` as [`applied`] does, is refused: it is longer than vtium reads,
+/// and longer than the file `before` makes. `None` when the file fits, or
+/// when it shrinks, so that a draft that holds too many activations can
+/// always be brought back within the bound by deactivating resources.
+fn too_long(
+    installed: Option<&str>,
+    fresh: &Batch,
+    before: &Changes,
+    changes: &Changes,
+) -> Option<usize> {
+    let after = edited(installed, fresh, changes).len();
+    (after > active::BATCH_MAX && after > edited(installed, fresh, before).len()).then_some(after)
 }
 
 /// What kind of resource `path` is, in the words a person uses: a folder
@@ -890,13 +935,47 @@ impl<'a> Resources<'a> {
     }
 
     /// Activates or deactivates the resource at `path` in the draft, in
-    /// memory. `Err` says, file first, why it is refused: a file that fails
-    /// the trust rule, and a deactivation of a resource that is not
-    /// active. A change that brings the resource back to what the system
-    /// holds takes the draft's change back. Only a resource the system
-    /// does not hold passes the trust rule here, as `apply` judges only
-    /// those, so a pending deactivation can always be taken back.
+    /// memory, as the TUI's Space does. `Err` says why it is refused: a
+    /// file that fails the trust rule, a deactivation of a resource that
+    /// is not active, both file first, and an activation that would make
+    /// the batch file longer than vtium reads ([`Resources::fits`]). A
+    /// refused change leaves the draft's other changes as they were.
     pub fn set(&mut self, path: &Path, change: Change) -> Result<Done, String> {
+        let before = self.changes.clone();
+        let done = self.record(path, change)?;
+        if self.fits(&before).is_err() {
+            self.changes = before;
+            return Err(format!(
+                "The list of active resources is full. vtium reads at most {BATCH_KIB} KiB of the list, about a thousand paths, so vtium-config did not {} this {}. Deactivate resources you do not use to make room.",
+                change.word(),
+                kind(path)
+            ));
+        }
+        Ok(done)
+    }
+
+    /// Whether the batch file that the draft's changes make fits in what
+    /// vtium reads, [`active::BATCH_MAX`] bytes, or at least is no longer
+    /// than the one the changes `before` make. `Err` gives its length in
+    /// bytes. vtium ignores a longer file, so the install would refuse it;
+    /// this check refuses the change at once instead, and keeps the file's
+    /// edit, which takes time in proportion to its length, within the
+    /// bound. A batch file that is not UTF-8 is not judged here, as the
+    /// install refuses it with its own reason.
+    pub fn fits(&self, before: &Changes) -> Result<(), usize> {
+        let file = self.session.batch_file();
+        let Ok(installed) = self.installed.text(&file) else {
+            return Ok(());
+        };
+        match too_long(installed, &fresh(), before, &self.changes) {
+            Some(len) => Err(len),
+            None => Ok(()),
+        }
+    }
+
+    /// [`Resources::set`] without the check of the batch file's length,
+    /// which `activate` and `deactivate` make once after every path.
+    fn record(&mut self, path: &Path, change: Change) -> Result<Done, String> {
         let state = self.state(path);
         let active = matches!(state, State::Active | State::Activates);
         match change {
@@ -956,6 +1035,7 @@ fn change(
     let command = change.word();
     let asked = asked(command, words)?;
     let mut resources = Resources::open(session)?;
+    let before = resources.changes.clone();
     let mut said = Vec::new();
     let mut refused = Vec::new();
     for word in &asked.paths {
@@ -980,7 +1060,7 @@ fn change(
             )));
         };
         let line = format!("{}	{}", kind(&path), path.display());
-        match resources.set(&path, change) {
+        match resources.record(&path, change) {
             Ok(Done::AlreadyActive) => said.push(format!("already active	{line}")),
             Ok(Done::AlreadyActivates) => {
                 said.push(format!("already activates on install	{line}"));
@@ -993,6 +1073,13 @@ fn change(
         }
     }
     let name = &resources.name;
+    if refused.is_empty()
+        && let Err(len) = resources.fits(&before)
+    {
+        refused.push(format!(
+            "These changes would make the list of active resources too long. vtium reads at most {BATCH_KIB} KiB of the list, about a thousand paths, and these changes make it {len} bytes. Activate fewer resources, or deactivate resources you do not use."
+        ));
+    }
     if !refused.is_empty() {
         return Err(Fail::Check(format!(
             "{}\nNothing was changed: draft {name} keeps the active resources it had.",
