@@ -90,6 +90,10 @@ considered:
   - operator: aaronsb
     said: "Supported"
     via: the maintainer, through the steering session's question tool, 2026-11-13, asked whether osc.kmscon-display and platform.hand-back move from partial to supported once the focus reports are built
+  - operator: aaronsb
+    said: "Mode 2034, contour's semantic block query, is declined for now: its row stays weighed, not now, because a reply hands the output of earlier commands to any program on the pty. Its issue closes with that reopen trigger."
+    via: the maintainer's interview in the steering session, 2026-11-20, round 4, as the steering session's notes of that interview record it
+    paraphrase: true
 status: accepted
 date: 2026-10-26
 deciders:
@@ -196,6 +200,8 @@ The `linux` column records the Linux kernel's own console: the escape and contro
 ### Declined for now
 
 VT52 (DECANM, DEC 2) has a reserved row, ignored: DECRQM reports the ANSI state (DECANM set) as permanent and a reset does nothing. Its own issue holds the space for full VT52 support in a later layer.
+
+contour's semantic block query (DEC 2034) stays weighed, and vtium does not take it now. The maintainer decided on 2026-11-20 that a reply to the query hands the output of earlier commands to any program on the pty: a program that prints untrusted text, or a remote host at the far end of ssh, could ask for it, and the session token that contour's specification gives is the only guard. The mode stays out of vtium's mode table, so DECRQM answers 0. Its issue reopens when a program on the console needs the mode, or when xterm and one of foot, Ghostty, WezTerm or kitty document it, as the rule for a new mode asks; the reply's exposure is then decided with it.
 
 ### Replies and policy
 
