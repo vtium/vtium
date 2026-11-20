@@ -172,7 +172,7 @@ impl fmt::Display for Finding {
         match self {
             Finding::Missing { path } => write!(
                 f,
-                "{}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line.",
+                "{}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. To activate a resource, press Space on it in vtium-config's Fonts, Effects or Looks tab, or run vtium-config activate PATH, then install the change. vtium-config then writes this file with the fresh-install list and your change. If you write the file by hand instead, it replaces the fresh-install list, so list every path that stays active, vtium's own fonts, color schemes and pointer file included.",
                 path.display()
             ),
             Finding::Refused { path, why } => write!(
