@@ -859,8 +859,8 @@ struct Held {
 thread_local! {
     /// The console's gate for this login: the batch, the trust rule and
     /// the mount table that every resource the console reads passes. The
-    /// console reads the batch when it starts and again at each new login
-    /// ([`load_batch`]), and every reader takes the gate from here: the
+    /// console reads the batch and the mount table when it starts and again
+    /// at each new login ([`load_batch`]), and every reader takes the gate from here: the
     /// font helpers, the color schemes, the color maps and the pointer
     /// files. The console reads its resources on its main loop's thread, so
     /// the gate is that thread's; each test, which runs on a thread of its
@@ -921,12 +921,13 @@ pub fn package_palettes() -> PathBuf {
 }
 
 /// Reads the batch at `places` under `trust`, the check vtium.conf passes,
-/// and makes it the console's, with `rule`, the trust rule each resource
-/// passes, and this machine's mount table read again. When the batch
-/// differs from the one the console held, which it does at the first read,
-/// the result is what vtium found reading the batch file, for the caller
-/// to log; `None` when nothing changed, so a login that changes nothing
-/// logs nothing.
+/// and this machine's mount table, and makes them the console's gate, with
+/// `rule`, the trust rule each resource passes. vtium calls this at the
+/// start and at each new login. When the batch differs from the one the
+/// console held, which it does at the first read, the result is what vtium
+/// found reading the batch file, for the caller to log. The result is
+/// `None` when the batch is the same, so a login that changes nothing logs
+/// nothing.
 ///
 /// References:
 /// - ADR-1205 D4, its note of 2026-11-19: the console reads the batch again at each new login, so an activation takes effect at the next login.
@@ -935,23 +936,36 @@ pub fn load_batch(
     trust: &Trust,
     rule: Rule,
 ) -> Option<Vec<batch::Finding>> {
+    load_batch_with(places, trust, rule, Mounts::system().unwrap_or_default())
+}
+
+/// [`load_batch`], judging filesystems by `mounts`. The gate takes the
+/// mount table of every login, even one whose batch is the same, because
+/// the kernel can give a mount ID to a new mount once the old mount is
+/// gone. A gate that kept an older table would then judge the new
+/// filesystem by the old mount's line.
+fn load_batch_with(
+    places: &batch::Places,
+    trust: &Trust,
+    rule: Rule,
+    mounts: Mounts,
+) -> Option<Vec<batch::Finding>> {
     let read = batch::Batch::system(places, trust);
-    let same = HELD.with_borrow(|held| {
-        held.as_ref()
-            .is_some_and(|h| h.gate.batch == read.batch && h.palettes == places.palettes)
+    let (same, kept) = HELD.with_borrow(|held| {
+        let Some(h) = held else {
+            return (false, false);
+        };
+        let same = h.gate.batch == read.batch && h.palettes == places.palettes;
+        (same, same && h.gate.mounts.as_ref() == Some(&mounts))
     });
-    if same {
+    if kept {
         return None;
     }
     HELD.set(Some(Held {
-        gate: std::sync::Arc::new(cullet::Gate::new(
-            rule,
-            Some(Mounts::system().unwrap_or_default()),
-            read.batch,
-        )),
+        gate: std::sync::Arc::new(cullet::Gate::new(rule, Some(mounts), read.batch)),
         palettes: places.palettes.clone(),
     }));
-    Some(read.findings)
+    (!same).then_some(read.findings)
 }
 
 /// Logs what vtium found reading the batch file: a missing file as
@@ -3247,5 +3261,38 @@ mod tests {
         });
         assert_eq!(found, Err(99));
         assert_eq!(asked, [99]);
+    }
+
+    // Each login reads the mount table again, though the batch is the same.
+    // A mount ID can be reused after an unmount, so a gate that kept the
+    // table of the first login would judge a filesystem mounted later under
+    // that ID by the old mount's line, an NFS share as ext4. The login
+    // that finds only the mount table changed logs nothing.
+    //
+    // References:
+    // - ADR-1205 D4: the trust rule judges the filesystem a resource sits on.
+    #[test]
+    fn each_login_judges_by_the_mount_table_read_again() {
+        let dir = Scratch::new("batch-mounts");
+        let me = rustix::process::geteuid().as_raw();
+        let places = batch::Places {
+            file: dir.join("batch.conf"),
+            vconsole_conf: PathBuf::from("/dev/null"),
+            cmdline: PathBuf::from("/dev/null"),
+            palettes: dir.to_path_buf(),
+            ..batch::Places::system()
+        };
+        let trust = Trust::owner(me).below(&dir);
+        let sys = Path::new("/nonexistent-sys");
+        let ext4 = Mounts::parse("40 22 8:17 / /mnt rw - ext4 /dev/sdb1 rw\n", sys);
+        let nfs = Mounts::parse("40 22 0:52 / /mnt rw - nfs4 host:/share rw\n", sys);
+        let rule = || Rule::new(trust.clone());
+        assert!(load_batch_with(&places, &trust, rule(), ext4.clone()).is_some());
+        assert_eq!(gate().mounts.as_ref(), Some(&ext4));
+        assert!(
+            load_batch_with(&places, &trust, rule(), nfs.clone()).is_none(),
+            "the batch is the same, so there is nothing to log"
+        );
+        assert_eq!(gate().mounts.as_ref(), Some(&nfs));
     }
 }
