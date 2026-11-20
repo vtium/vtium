@@ -9,7 +9,7 @@ pub const LOOKS: &str = "Looks";
 
 /// The caption of the console's own preview, which the console draws in
 /// the font and size it uses now.
-pub const CONSOLE_SIZE_CAPTION: &str = "The console draws this in its current font, so t shows a font set here. A size takes effect when vtium starts again.";
+pub const CONSOLE_SIZE_CAPTION: &str = "The console draws this in its current font. Press t to try the font set. A size takes effect when vtium starts again.";
 
 /// The size that lets vtium choose.
 pub const AUTOMATIC: &str = "automatic";
@@ -41,7 +41,7 @@ pub const NO_LOOKS: &str = "No looks yet";
 pub const NO_LOOKS_NOTE: &str = "press n to make one";
 
 /// `items` as a list in a sentence: "a", "a and b", "a, b, and c".
-fn and_list(items: &[String]) -> String {
+pub(super) fn and_list(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [one] => one.clone(),

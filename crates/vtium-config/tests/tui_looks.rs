@@ -257,7 +257,7 @@ fn enter_on_a_look_opens_its_card_with_its_lines_and_its_fonts_by_role() {
         "Color scheme legacy, from vtium.conf",
         "vtlook sepia",
         "Pointer theme vtium's own pictures, from vtium.conf.",
-        "vtium-config offers its usual sizes, because it found no font file for the text font font:JetBrains Mono.",
+        "vtium-config offers its usual sizes, because it found no font file for the text font JetBrains Mono.",
         "Its fonts, by role:",
         "Text: the font family JetBrains Mono, not on this machine",
         "Box drawing: vtium's own lines, unless the text font has them all",
