@@ -144,6 +144,7 @@ impl Desk {
             Op::Resource { path, change } => {
                 vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)?
             }
+            Op::SystemFont(path) => vtium_config::tui::fixture::system_font_op(path)?,
         })
     }
 }
@@ -246,6 +247,12 @@ impl Sim {
                 resources: vtium_config::tui::fixture::effects()
                     .maps
                     .iter()
+                    .chain(
+                        vtium_config::tui::fixture::font_files()
+                            .files
+                            .iter()
+                            .map(|f| &f.resource),
+                    )
                     .filter(|m| m.active())
                     .map(|m| (m.path.clone(), m.state))
                     .collect(),
@@ -320,6 +327,19 @@ impl Sim {
                     self.desk.installed.clone_from(&self.desk.draft);
                     Event::Installed(Ok(self.desk.draft()))
                 }
+                Effect::InstallFont => {
+                    did.effects.push("install font".into());
+                    Event::Installed(Ok(vtium_config::tui::fixture::font_installed()))
+                }
+                Effect::Describe(paths) => Event::Described(
+                    paths
+                        .into_iter()
+                        .map(|p| {
+                            let d = vtium_config::tui::fixture::described(&p);
+                            (p, d)
+                        })
+                        .collect(),
+                ),
                 Effect::Desk(op) => {
                     did.effects.push(op_word(&op).into());
                     let done = self.desk.run(&op);
@@ -424,5 +444,6 @@ fn op_word(op: &Op) -> &'static str {
         Op::Restore(_) => "restore",
         Op::Devices => "devices",
         Op::Resource { .. } => "resource",
+        Op::SystemFont(_) => "system font",
     }
 }

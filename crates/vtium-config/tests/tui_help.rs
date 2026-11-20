@@ -206,7 +206,6 @@ fn page_up_and_page_down_keep_each_entry_of_the_help_page_on_one_screen() {
 #[test]
 fn the_help_page_describes_the_tabs_in_the_tab_bars_order() {
     use vtium_config::tui::contract::NODES;
-    use vtium_config::tui::words;
     let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     let node_of = |view: View| match view {
         View::Fonts | View::New => "fonts",
@@ -231,15 +230,8 @@ fn the_help_page_describes_the_tabs_in_the_tab_bars_order() {
         for view in View::TABS {
             let id = node_of(view);
             let node = NODES.iter().find(|n| n.id == id).expect("a tab's node");
-            let heading = if node.supported {
-                words(node.what)
-            } else {
-                let (_, name, does, _) = words::HELP_PLANNED
-                    .iter()
-                    .find(|p| p.0 == id)
-                    .expect("a planned tab's words");
-                words(&format!("{name} {does}"))
-            };
+            assert!(node.supported, "{id} is planned");
+            let heading = words(node.what);
             let at = page
                 .find(&heading)
                 .unwrap_or_else(|| panic!("{cols}: the page leaves out {id}"));

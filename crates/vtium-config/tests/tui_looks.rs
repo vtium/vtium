@@ -67,22 +67,17 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
             ("unifont".to_owned(), 9, area)
         ]
     );
-    // the Fonts view's specimen of unifont at 12 points comes first and
-    // last
-    let fonts: Vec<(&str, u32)> = c
-        .specimens
-        .iter()
-        .map(|(f, h, _)| (f.as_str(), *h))
-        .collect();
-    assert_eq!(fonts, [("unifont", 16), ("unifont", 16)]);
+    // the Fonts tab opens on its filter line, which previews nothing
+    assert!(c.specimens.is_empty(), "{:?}", c.specimens);
     assert_eq!(
         kitty::show(kitty::IMAGE_ID, 2, 1, &[255, 0, 0, 255, 0, 0, 255, 255]),
         b"\x1b_Ga=T,f=32,t=d,i=1201,s=2,v=1,C=1,q=2,m=0;/wAA/wAA//8=\x1b\\"
     );
     assert_eq!(count(&c.written, &shown()), 2);
-    // deleted at automatic, when the next size comes, when the Fonts view
-    // draws its own, and when the TUI leaves
-    assert_eq!(count(&c.written, &kitty::delete(kitty::IMAGE_ID)), 4);
+    // deleted when the next size comes, and when the Fonts tab shows its
+    // filter line, which previews nothing, so none is left when the TUI
+    // leaves
+    assert_eq!(count(&c.written, &kitty::delete(kitty::IMAGE_ID)), 2);
     let last_show = c
         .written
         .windows(shown().len())
@@ -116,10 +111,10 @@ fn without_pictures_a_size_shows_its_cell_grid_and_coverage() {
         ),
         "{screen}"
     );
-    // the Fonts view's line at 12 pt, then one summary a size, at 96 dpi:
-    // the Fonts tab's highlighted font, then the look at 12 pt
+    // one summary, the look's at 12 pt and 96 dpi; the Fonts tab opens on
+    // its filter line, which previews nothing
     let heights: Vec<u32> = c.summaries.iter().map(|(_, h)| *h).collect();
-    assert_eq!(heights, [16, 16]);
+    assert_eq!(heights, [16]);
     assert!(c.summaries.iter().all(|(f, _)| f == "unifont"));
     assert!(c.pictures.is_empty());
 }
@@ -262,7 +257,7 @@ fn enter_on_a_look_opens_its_card_with_its_lines_and_its_fonts_by_role() {
         "Color scheme legacy, from vtium.conf",
         "vtlook sepia",
         "Pointer theme vtium's own pictures, from vtium.conf.",
-        words::SIZES_USUAL,
+        "vtium-config offers its usual sizes, because it found no font file for the text font font:JetBrains Mono.",
         "Its fonts, by role:",
         "Text: the font family JetBrains Mono, not on this machine",
         "Box drawing: vtium's own lines, unless the text font has them all",
@@ -737,13 +732,43 @@ fn t_says_why_it_has_nothing_to_try() {
     );
 }
 
-/// `n` in the Fonts tab opens the form for a new font set, which belongs
-/// to the Looks tab, and the message line says where Esc goes.
+/// A look whose text font is a bitmap font offers the point sizes that
+/// draw its strikes, from the font helper's description of the font's
+/// file, and the size line says so; an outline text font offers the
+/// usual sizes and says it draws at any size.
+///
+/// References:
+/// - ADR-1205 D7: a look offers the sizes its fonts supply.
 #[test]
-fn n_in_the_fonts_tab_says_the_form_belongs_to_the_looks_tab() {
-    let screen = reach(100, 30, &[TO_FONTS, b"n"]);
+fn a_look_s_size_line_offers_the_sizes_its_text_font_supplies() {
+    let conf = "font-name=unifont\nversion = 1\n[look proof]\nfont-name = term\n[head desk]\nlook = proof\n";
+    let mut i = with_conf(conf);
+    i.installed.insert(
+        "term".to_owned(),
+        b"source=outline:/usr/share/fonts/misc/ter-u16n.otb\n".to_vec(),
+    );
+    let card = reach_inputs(i.clone(), &[TO_LOOKS, b"\r"]);
     assert!(
-        flat(&screen).contains("The form for a new font set is part of the Looks tab, so Esc or adding the font set goes to the Looks tab."),
-        "{screen}"
+        flat(&card).contains(
+            "The text font, Terminus, is a bitmap font, so the look offers its sizes: 8×16."
+        ),
+        "{card}"
+    );
+    // the size line's list: vtium.conf's size, automatic, then 12 points,
+    // which draw the 8×16 strike at 96 DPI
+    let list = reach_inputs(i, &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r"]);
+    assert!(flat(&list).contains("12 pt, the 8×16 strike"), "{list}");
+    assert!(!flat(&list).contains("14 pt"), "{list}");
+    let mut i = with_conf(&conf.replace("term", "dejavu"));
+    i.installed.insert(
+        "dejavu".to_owned(),
+        b"source=font:DejaVu Sans Mono\n".to_vec(),
+    );
+    let card = reach_inputs(i, &[TO_LOOKS, b"\r"]);
+    assert!(
+        flat(&card).contains(
+            "The text font, DejaVu Sans Mono, has outlines, so the look can take any size."
+        ),
+        "{card}"
     );
 }

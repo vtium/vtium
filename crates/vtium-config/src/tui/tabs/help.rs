@@ -209,12 +209,8 @@ impl Help {
 
     /// The page the tab shows at `size`, with the row where each entry
     /// starts.
-    fn laid(&self, shared: &Shared, size: Size) -> Laid {
+    fn laid(&self, _shared: &Shared, size: Size) -> Laid {
         let cols = size.cols;
-        let bold = Style {
-            bold: true,
-            ..Style::PLAIN
-        };
         let mut page = Laid::default();
         if self.about {
             let mut out = Vec::new();
@@ -233,48 +229,8 @@ impl Help {
             }
             return page;
         }
-        for node in in_bar_order() {
-            if node.supported {
-                section(node, cols, &mut page);
-                continue;
-            }
-            // a view whose node is still planned keeps its hand-written
-            // words
-            let Some((_, name, does, keys)) = words::HELP_PLANNED.iter().find(|p| p.0 == node.id)
-            else {
-                continue;
-            };
-            // the Fonts view's keys in a vtium console, where `s` saves
-            let (does, keys) = if *name == words::FONTS && shared.text_preview() {
-                (words::HELP_FONTS_LIVE, words::KEYS_FONTS_LIVE)
-            } else {
-                (*does, *keys)
-            };
-            // what the view does and its keys make one entry
-            let mut lines = Vec::new();
-            for (i, l) in wrap(
-                &format!("{name} {does}"),
-                cols.saturating_sub(2),
-                usize::MAX,
-            )
-            .into_iter()
-            .enumerate()
-            {
-                if i == 0 {
-                    let rest = l.strip_prefix(name).unwrap_or(&l).to_owned();
-                    lines.push(Line::from(vec![
-                        span(format!(" {name}"), bold),
-                        span(rest, Style::PLAIN),
-                    ]));
-                } else {
-                    lines.push(line(format!(" {l}"), Style::PLAIN));
-                }
-            }
-            for l in wrap(keys, cols.saturating_sub(6), usize::MAX) {
-                lines.push(line(format!("     {l}"), Style::text(palette::GREY)));
-            }
-            page.entry(lines);
-            page.entry([Line::default()]);
+        for node in in_bar_order().into_iter().filter(|n| n.supported) {
+            section(node, cols, &mut page);
         }
         page.entry([Line::default()]);
         page.entry(prose(words::HELP_COMMANDS, cols));

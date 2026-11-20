@@ -1516,24 +1516,22 @@ mod tests {
     }
 
     #[test]
-    fn enter_on_a_palette_font_set_shows_that_font_set_in_the_fonts_tab() {
+    fn enter_on_a_palette_font_set_shows_the_font_sets_in_the_looks_tab() {
         let mut app = app();
-        let start = app.fonts.at();
         let fonts = flowlayout::font_names(&app.shared);
-        let (at, name) = app
+        let name = app
             .shared
             .inputs
             .fonts
             .iter()
-            .enumerate()
-            .rfind(|(i, f)| *i != start && fonts.contains(&f.name))
-            .map(|(i, f)| (i, f.name.clone()))
-            .expect("a second font set");
+            .rfind(|f| fonts.contains(&f.name))
+            .map(|f| f.name.clone())
+            .expect("a font set");
         highlight(&mut app, Obj::Pal(Slot::Font(Some(name.clone()))));
         keys(&mut app, &[Key::Enter]);
-        // the Flow view asks update to show the font set; it never writes
-        // the Fonts tab's highlight itself
-        assert_eq!((app.nav.view, app.fonts.at()), (View::Fonts, at), "{name}");
+        // the Flow view asks update to show the font set, which the Looks
+        // tab lists; it never writes another tab's state itself
+        assert_eq!(app.nav.view, View::Looks, "{name}");
     }
 
     #[test]

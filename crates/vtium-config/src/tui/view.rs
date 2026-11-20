@@ -1012,27 +1012,31 @@ mod tests {
 
     #[test]
     fn under_cluster_width_single_update_keeps_the_list_window_the_view_draws() {
-        // each font's name holds a space with a vowel sign after it: 25
-        // cells under `double`, more than the column of 24 the Fonts tab
-        // gives names, so its note goes on the row below; 24 cells under
-        // `single`, so the note shares its row. The twelve fonts take
-        // twelve rows under `single`, which the screen has room for, so
-        // the list's window starts at the first font wherever the TUI lays
-        // the list out: at start, after a key, and in a picture of the TUI
-        let name = |c: char| format!("{c}{} \u{BCA}", "x".repeat(22));
+        // each font file's name holds a space with a vowel sign after it,
+        // which takes one cell more under `double` than under `single`;
+        // the five fonts fill the Fonts tab's window, and under `single`
+        // the list's window starts at the filter line wherever the TUI
+        // lays the list out: at start, after a key, and in a picture of
+        // the TUI
+        let name = |c: char| format!("{c}{} \u{BCA}.ttf", "x".repeat(18));
         let mut inputs = super::super::fixture::inputs();
-        inputs.conf = Some(format!(
-            "cluster-width = single\nfont-name = {}\n",
-            name('l')
-        ));
-        inputs.fonts = ('a'..='l')
-            .map(|c| super::super::model::Font {
-                name: name(c),
-                state: super::super::model::FontState::Reads,
-            })
-            .collect();
+        inputs.conf = Some("cluster-width = single\n".to_owned());
+        inputs.font_files = super::super::fonts_found::Fonts::new(
+            ('a'..='e')
+                .map(|c| crate::discover::Found {
+                    path: std::path::PathBuf::from(format!("/usr/share/fonts/{}", name(c))),
+                    folder: crate::discover::Folder {
+                        path: "/usr/share/fonts".into(),
+                        place: crate::discover::Place::System,
+                    },
+                    trust: Ok(()),
+                    state: crate::batch::State::Inactive,
+                    duplicate: None,
+                })
+                .collect(),
+        );
         let all_shown = |shown: &[String], when: &str| {
-            for c in 'a'..='l' {
+            for c in 'a'..='e' {
                 assert!(
                     shown.iter().any(|r| r.contains(&name(c))),
                     "{when}: {}: {shown:#?}",
@@ -1040,13 +1044,12 @@ mod tests {
                 );
             }
         };
-        // the configured font, the last, is highlighted from the start
         let (mut app, _) = App::new(inputs, 80, 25);
         all_shown(&texts(&app), "at start");
         app.event(super::super::model::Event::Input(
             super::super::input::Input::Key(super::super::input::Key::End),
         ));
-        assert_eq!(app.fonts.offset(), 0);
+        assert_eq!(super::super::tabs::Tab::offset(&app.fonts), 0);
         all_shown(&texts(&app), "after End");
         let shot: Vec<String> = screen_at(&app, app.size)
             .iter()

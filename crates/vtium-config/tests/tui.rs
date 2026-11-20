@@ -412,7 +412,7 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
     let own = |view| match view {
         Effects => keys_of("effects"),
         Looks => keys_of("looks"),
-        Fonts => words::KEYS_FONTS_LIVE,
+        Fonts => keys_of("fonts"),
         Settings => keys_of("settings"),
         _ => keys_of("help"),
     };
@@ -540,8 +540,8 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_LEFT), "{screen}");
     assert_eq!(
-        foot(&screen, words::KEYS_FONTS_LIVE),
-        words::KEYS_FONTS_LIVE,
+        foot(&screen, keys_of("fonts")),
+        keys_of("fonts"),
         "{screen}"
     );
 }
@@ -1204,7 +1204,7 @@ fn outside_a_vtium_console_the_preview_is_a_picture_or_a_description() {
         run(&mut c);
         let screen = c.seen.clone().expect("the screen");
         assert!(!screen.contains("@ABCDEFGHIJ"), "{screen}");
-        assert!(screen.contains(words::KEYS_FONTS), "{screen}");
+        assert!(screen.contains(keys_of("fonts")), "{screen}");
         if graphics {
             assert!(!c.specimens.is_empty() && !c.shots.is_empty());
         } else {
@@ -1393,7 +1393,7 @@ fn at_80x25_no_key_or_sentence_is_cut() {
     // the keys that reach a view, its key line, and its sentences
     type Case<'a> = (&'a [&'a [u8]], &'a str, &'a [&'a str]);
     let views: [Case; 7] = [
-        (&[], words::KEYS_FONTS_LIVE, &[]),
+        (&[], keys_of("fonts"), &[]),
         (&[TO_EFFECTS], keys_of("effects"), &[words::EFFECTS_HINT]),
         // the Looks tab's sentences keep to the names' column beside the
         // console's own preview, which tui_looks.rs checks

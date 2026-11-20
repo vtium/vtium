@@ -55,6 +55,12 @@ pub enum Op {
         path: std::path::PathBuf,
         change: crate::batch::Change,
     },
+    /// Readies the install of the font file at `path`, one in the
+    /// person's own folder, as a system font: reads the file once into a
+    /// draft of its own, has the font helper check that the draft's copy
+    /// is a font, and gives the command [`Desk::install_font`] runs. A
+    /// file already installed with the same bytes needs no install.
+    SystemFont(std::path::PathBuf),
 }
 
 /// The current draft as the desk read or wrote it.
@@ -112,6 +118,38 @@ pub enum Done {
         said: String,
         changes: usize,
     },
+    /// The install of a font file as a system font, readied by
+    /// [`Op::SystemFont`].
+    SystemFont(FontReady),
+    /// The font file installed as a system font at `target`, what the
+    /// privileged step printed, and the font files found after it.
+    FontInstalled {
+        target: std::path::PathBuf,
+        said: String,
+        found: Vec<crate::discover::Found>,
+    },
+}
+
+/// The install of a font file as a system font, as the question before it
+/// shows it: the file, where it goes, and whether a file of its name is
+/// there; for a different file of that name, both files' facts; and the
+/// exact command the install runs. Each text has passed through
+/// [`crate::onscreen`], so a file's name prints as text.
+///
+/// References:
+/// - ADR-1205 D5, its note of 2026-11-18: both files on a clash, and
+///   nothing when they are identical.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FontReady {
+    pub source: String,
+    pub target: String,
+    pub placement: crate::apply::Placement,
+    /// The installed file's facts, then the person's file's, for a file
+    /// that replaces another.
+    pub facts: Option<(String, String)>,
+    /// The command, as [`crate::vts::shown`] spells it; empty when the
+    /// font is installed already.
+    pub command: String,
 }
 
 /// What the loop hands each [`Op`] to.
@@ -130,6 +168,13 @@ pub trait Desk {
         out: &mut dyn std::io::Write,
         ask: Ask<'_>,
     ) -> Result<Done, String>;
+
+    /// Installs the font file that [`Op::SystemFont`] readied, through the
+    /// privileged step `run` runs, and gives [`Done::FontInstalled`]. A
+    /// desk that readies no font says so.
+    fn install_font(&mut self, _run: Runner<'_>) -> Result<Done, String> {
+        Err(crate::tui::words::NO_FONT_READY.to_owned())
+    }
 }
 
 /// Reads the devices present.
@@ -145,6 +190,17 @@ pub struct Store {
     /// The install that [`Op::Prepare`] readied, which [`Desk::install`]
     /// runs.
     ready: Option<Prepared>,
+    /// The system font that [`Op::SystemFont`] readied, which
+    /// [`Desk::install_font`] runs.
+    font: Option<FontDraft>,
+}
+
+/// A font file readied as a system font: the draft that holds its copy,
+/// the command that installs the draft, and where the font goes.
+struct FontDraft {
+    draft: std::path::PathBuf,
+    argv: Vec<std::ffi::OsString>,
+    target: std::path::PathBuf,
 }
 
 /// An install that [`Op::Prepare`] readied: the draft's name and text, and
@@ -173,7 +229,84 @@ impl Store {
             paths,
             devices,
             ready: None,
+            font: None,
         }
+    }
+
+    /// Removes the draft of a font readied earlier and not installed, so a
+    /// question answered with Esc leaves no draft behind once another font
+    /// is readied.
+    fn drop_font(&mut self) {
+        if let Some(old) = self.font.take() {
+            let _ = std::fs::remove_dir_all(&old.draft);
+        }
+    }
+
+    /// [`Op::SystemFont`]: reads the font file at `source` once into a
+    /// draft that holds this one font, then has the font helper describe
+    /// the draft's copy, so the file the helper judges is the file that is
+    /// installed. A copy the helper cannot read as a font is refused, and
+    /// its draft removed. When the folder already holds a file of the
+    /// same name with the same bytes, nothing needs doing and no draft is
+    /// written. When it holds other bytes, both files are described for
+    /// the question.
+    ///
+    /// References:
+    /// - ADR-1205 D5: the install step copies one font file into
+    ///   `/usr/local/share/fonts` through the privileged step.
+    fn system_font(&mut self, source: &std::path::Path) -> Result<Done, Fail> {
+        use crate::apply::{Placement, SystemFont};
+        use crate::discover::{Described, FileFacts, describe};
+        use crate::onscreen::{path as shown, text};
+        self.drop_font();
+        let targets = self.paths.targets();
+        let font = SystemFont::read(source, &targets).map_err(|why| Fail::Usage(text(&why)))?;
+        let placement = font.placement();
+        let mut ready = FontReady {
+            source: shown(&font.source),
+            target: shown(&font.target),
+            placement,
+            facts: None,
+            command: String::new(),
+        };
+        if placement == Placement::Identical {
+            return Ok(Done::SystemFont(ready));
+        }
+        let draft = font.write_draft(&self.paths.drafts).map_err(|e| {
+            Fail::File(text(&format!(
+                "the draft under {}: {e}",
+                self.paths.drafts.display()
+            )))
+        })?;
+        let mut asked = vec![font.draft_copy(&draft)];
+        if placement == Placement::Replaces {
+            asked.push(font.target.clone());
+        }
+        let described = describe(&self.paths.helper, &asked);
+        let unknown = Described::Unknown(crate::tui::words::HELPER_SILENT.to_owned());
+        let yours = described.first().unwrap_or(&unknown);
+        if let Described::NotAFont(why) | Described::Unknown(why) = yours {
+            let _ = std::fs::remove_dir_all(&draft);
+            return Err(Fail::Check(crate::tui::words::system_font_not_a_font(
+                &ready.source,
+                &text(why),
+            )));
+        }
+        if placement == Placement::Replaces {
+            let installed = FileFacts::of(&font.target, described.get(1).unwrap_or(&unknown));
+            ready.facts = Some((installed.line(), FileFacts::of(&font.source, yours).line()));
+        }
+        let program =
+            std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("vtium-config"));
+        let route = crate::apply::route(&targets, &self.paths.sudo);
+        let argv = crate::apply::save_argv(&route, &program, &targets, &draft);
+        ready.command = text(&crate::vts::shown(&argv));
+        self.font = Some(FontDraft {
+            draft,
+            argv,
+            target: font.target,
+        });
+        Ok(Done::SystemFont(ready))
     }
 
     fn session(&self) -> Session<'_> {
@@ -212,6 +345,7 @@ impl Store {
     fn step(&mut self, op: &Op) -> Result<Done, Fail> {
         match op {
             Op::Devices => return Ok(Done::Present((self.devices)())),
+            Op::SystemFont(source) => return self.system_font(source),
             Op::Open => {
                 let present = (self.devices)();
                 let (name, text) = self.session().current()?;
@@ -345,7 +479,7 @@ impl Store {
                     changes: self.store.batch_changes(&resources.name)?.len(),
                 })
             }
-            Op::Open | Op::Devices => Err(Fail::Usage(String::new())),
+            Op::Open | Op::Devices | Op::SystemFont(_) => Err(Fail::Usage(String::new())),
         }
     }
 }
@@ -392,6 +526,39 @@ impl Desk for Store {
         Ok(match after {
             Some(outcome) => Done::Installed(opened, outcome),
             None => Done::Draft(opened, None),
+        })
+    }
+
+    /// Runs the command [`Op::SystemFont`] showed, through `run`, which
+    /// asks for sudo's password on the terminal. `apply` prints `wrote
+    /// PATH`, `failed PATH WHY`, or `wrote PATH` then `untrusted PATH WHY`,
+    /// and each column passes through [`crate::onscreen::text`]. The font
+    /// files are found again afterwards, so the new system font joins the
+    /// list, where the person can activate it.
+    fn install_font(&mut self, run: Runner<'_>) -> Result<Done, String> {
+        use crate::onscreen::text;
+        let Some(font) = self.font.take() else {
+            return Err(crate::tui::words::NO_FONT_READY.to_owned());
+        };
+        let (ok, said) = run(&font.argv).map_err(|e| text(&e.to_string()))?;
+        let said: Vec<String> = said
+            .lines()
+            .map(|line| line.split('\t').map(text).collect::<Vec<_>>().join(" "))
+            .collect();
+        let said = said.join(" ");
+        if !ok {
+            return Err(said);
+        }
+        Ok(Done::FontInstalled {
+            target: font.target,
+            said,
+            found: crate::tui::read_conf(&self.paths.configdir.join("vtium.conf"))
+                .ok()
+                .and_then(|conf| {
+                    crate::tui::scan_fonts(&self.store, &self.paths, conf.as_deref()).ok()
+                })
+                .map(|(found, _)| found)
+                .unwrap_or_default(),
         })
     }
 }

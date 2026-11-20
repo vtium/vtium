@@ -11,10 +11,6 @@
 /// The Effects tab's name in the tab bar.
 pub const EFFECTS: &str = "Effects";
 
-/// The Effects tab's keys, as the Help tab lists them.
-pub const KEYS_EFFECTS: &str =
-    "Space activate  Enter open  Tab next view  s save  i install  q quit";
-
 /// The groups of the Effects tab's list, in their order, each the name the
 /// filter line and its list show. The first heading says what a vtlook
 /// is, the first time the tab shows the word.

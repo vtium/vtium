@@ -88,7 +88,10 @@ impl Run {
             escapes: 0,
             exit: None,
         };
-        run.event(Event::Input(Input::Key(Key::Up)));
+        // tiny5 is the fourth font set below the Looks tab's one look
+        for key in [Key::Char('3'), Key::Down, Key::Down, Key::Down, Key::Down] {
+            run.event(Event::Input(Input::Key(key)));
+        }
         run.event(Event::Input(Input::Key(Key::Char('t'))));
         assert!(run.app.awaiting(), "the trial's switch is outstanding");
         assert_eq!(run.app.shared.in_flight.as_deref(), Some("tiny5"));

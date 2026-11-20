@@ -128,6 +128,7 @@ pub fn node(app: &App) -> &'static str {
             Then::Quit(_) => "any.question.quit",
             Then::Leave(_) => "any.question.leave",
             Then::Desk(super::desk::Op::Resource { .. }) => "any.question.deactivate",
+            Then::InstallFont => "any.question.system-font",
             _ => "any.question.confirm",
         };
     }

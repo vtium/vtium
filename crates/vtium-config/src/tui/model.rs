@@ -151,6 +151,9 @@ pub struct Inputs {
     /// The vtlooks, color maps and shaders the Effects tab lists, with each
     /// resource's marks, which an activation through the desk updates.
     pub effects: super::effects_found::Effects,
+    /// The font files the Fonts tab lists, with each file's marks and what
+    /// the font helper has said of it so far.
+    pub font_files: super::fonts_found::Fonts,
 }
 
 /// One thing that happened.
@@ -196,6 +199,9 @@ pub enum Event {
     },
     /// The sources each frit [`Effect::Sources`] named lacks.
     Sourced(Vec<(String, SourcesFound)>),
+    /// What the font helper said of some of the files
+    /// [`Effect::Describe`] named, as the answers came.
+    Described(Vec<(PathBuf, crate::discover::Described)>),
     /// The desk did the op [`Effect::Desk`] asked for, or says why not.
     Desked(Op, Result<Done, String>),
     /// udev reported that a device came or went.
@@ -247,8 +253,19 @@ pub enum Effect {
     /// Asks the glyph helper which sources each frit named lacks, then
     /// sends [`Event::Sourced`].
     Sources(Vec<String>),
+    /// Asks the font helper what each of these font files is, then sends
+    /// [`Event::Described`] as the answers come, while the loop goes on
+    /// reading keys.
+    Describe(Vec<PathBuf>),
     /// Hands the op to the desk, then sends [`Event::Desked`].
     Desk(Op),
+    /// Runs the privileged step that installs the font file the desk
+    /// prepared as a system font, then sends [`Event::Installed`].
+    ///
+    /// References:
+    /// - ADR-1205 D5: the install step for a system font runs through the
+    ///   same privileged step as an install, on its own.
+    InstallFont,
     /// Leaves, with this exit status.
     Exit(u8),
 }
@@ -417,6 +434,10 @@ pub struct Shared {
     pub present: crate::flowmodel::Present,
     /// The privileged step is installing the draft.
     pub installing: bool,
+    /// The install of a font of the person's as a system font that the
+    /// desk readied and the question asks about: the font's detail shows
+    /// both files' facts and the exact command while the question is open.
+    pub font_install: Option<super::desk::FontReady>,
     /// The install that waits for the replies still due, which
     /// [`App::event`] hands the loop once no query is outstanding.
     install_waits: Option<Plan>,
@@ -607,6 +628,8 @@ pub enum Then {
     /// Leaves with this status: `y` saves the unsaved changes first, `n`
     /// leaves without them.
     Quit(u8),
+    /// Installs the font file the desk prepared as a system font.
+    InstallFont,
 }
 
 /// The pager's place in the draft: its first line in sight and how far it
@@ -636,11 +659,6 @@ impl App {
     /// The TUI at its start in a terminal of `size`, and what it does
     /// first: the four requests, and the wait for their answers.
     pub fn start(inputs: Inputs, size: Size) -> (App, Vec<Effect>) {
-        let configured = inputs.conf.as_deref().and_then(|c| setting(c, "font-name"));
-        let font_at = configured
-            .as_deref()
-            .and_then(|n| inputs.fonts.iter().position(|f| f.name == n))
-            .unwrap_or(0);
         let view = inputs.view;
         let flow = super::tabs::flow::Flow::new(&inputs.flow);
         let cluster_width = match inputs
@@ -687,6 +705,7 @@ impl App {
                 draft: None,
                 present: crate::flowmodel::Present::default(),
                 installing: false,
+                font_install: None,
                 install_waits: None,
                 came: None,
                 live_said: false,
@@ -695,7 +714,7 @@ impl App {
                 unsaved: 0,
             },
             size,
-            fonts: super::tabs::fonts::Fonts::new(font_at),
+            fonts: super::tabs::fonts::Fonts::default(),
             effects: super::tabs::effects::Effects::default(),
             looks: super::tabs::looks::Looks::default(),
             settings: super::tabs::settings::Settings::default(),
@@ -775,9 +794,9 @@ impl App {
         self.set_view(view)
     }
 
-    /// The font the Fonts tab highlights.
-    pub fn font(&self) -> Option<&Font> {
-        self.shared.inputs.fonts.get(self.fonts.at())
+    /// The font file the Fonts tab highlights.
+    pub fn font(&self) -> Option<&super::fonts_found::FontFile> {
+        self.fonts.highlighted(&self.shared)
     }
 
     /// The state of the open tab, as every tab answers the parts of the
@@ -960,6 +979,10 @@ impl App {
                 self.shared.sources.extend(found);
                 Vec::new()
             }
+            Event::Described(answers) => {
+                self.shared.inputs.font_files.describe(answers);
+                Vec::new()
+            }
             Event::Desked(op, done) => self.desked(&op, done),
             Event::Hotplug => vec![Effect::Desk(Op::Devices)],
         }
@@ -1057,8 +1080,8 @@ impl App {
     }
 
     /// What follows once the terminal is known: the sources each frit that
-    /// reads lacks, found once, and the highlighted font's picture where
-    /// one shows.
+    /// reads lacks, found once, a description of each font file the Fonts
+    /// tab lists, and the highlighted font's picture where one shows.
     fn started(&mut self) -> Vec<Effect> {
         let frits: Vec<String> = self
             .shared
@@ -1071,6 +1094,10 @@ impl App {
         let mut out = Vec::new();
         if !frits.is_empty() {
             out.push(Effect::Sources(frits));
+        }
+        let waiting = self.shared.inputs.font_files.waiting();
+        if !waiting.is_empty() {
+            out.push(Effect::Describe(waiting));
         }
         out
     }
@@ -1088,7 +1115,6 @@ impl App {
             (true, Some(font)) => {
                 self.shared.start_font = Some(font.clone());
                 self.shared.shown_font = Some(font.clone());
-                self.fonts.highlight(&self.shared, &font);
                 Live::On
             }
             (true, None) => Live::OpsOff,
@@ -1282,12 +1308,8 @@ impl App {
             match request {
                 Request::Go(view) => effects.extend(self.set_view(view)),
                 Request::Ask { question, then } => self.ask(question, then),
-                // the Fonts tab highlights the font before it opens, in
-                // that order, so its first frame shows the font
-                Request::ShowFont(name) => {
-                    self.fonts.highlight(&self.shared, &name);
-                    effects.extend(self.set_view(View::Fonts));
-                }
+                // font sets are listed in the Looks tab
+                Request::ShowFont(_) => effects.extend(self.set_view(View::Looks)),
             }
         }
         effects
@@ -1309,7 +1331,6 @@ impl App {
                 let Some(start) = self.shared.start_font.clone() else {
                     return Vec::new();
                 };
-                self.fonts.highlight(&self.shared, &start);
                 self.shared.want = Some(start);
                 self.follow()
             }
@@ -1440,7 +1461,16 @@ mod tests {
         ] {
             app.event(Event::Input(Input::Reply(reply)));
         }
-        for key in [Key::Up, Key::Char('t'), Key::Escape] {
+        // tiny5 is the fourth font set below the Looks tab's one look
+        for key in [
+            Key::Char('3'),
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Char('t'),
+            Key::Escape,
+        ] {
             app.event(Event::Input(Input::Key(key)));
         }
         assert!(app.nav.trial.is_none(), "the key ended the trial");
