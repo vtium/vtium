@@ -434,8 +434,8 @@ pub fn describe_each(helper: &Helper, paths: &[PathBuf], each: &mut dyn FnMut(De
 }
 
 /// [`describe`], with each helper run as `account`, a uid and a gid, when
-/// one is given, as `apply` runs it as `nobody` when it runs as root
-/// ([`crate::specimen::start_as`]).
+/// one is given, as `apply` runs it as `nobody` when it runs as root. A
+/// helper that holds any other id is ended, and its files are unknown.
 pub fn describe_as(
     helper: &Helper,
     account: Option<(u32, u32)>,
