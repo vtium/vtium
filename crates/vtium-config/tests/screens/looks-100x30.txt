@@ -12,19 +12,19 @@
    unifont               grey red green yellow magenta cyan white
    unscii-8              Bold text and italic text beside plain text.
                          ┌──────────┬──────────┐
- proof uses the font     │ name     │ size     │
- set proof at            ├──────────┼──────────┤
- vtium.conf's size.      │ plan.txt │ 1.8 KiB  │
- Terminal desk uses it.  └──────────┴──────────┘
- The console draws this  Accents: café, naïve, Ångström, Straße, žluťoučký
- in its current font,    user@desk:~/notes$
+ Color schemes           │ name     │ size     │
+   legacy                ├──────────┼──────────┤
+                         │ plan.txt │ 1.8 KiB  │
+ proof uses the font     └──────────┴──────────┘
+ set proof at            Accents: café, naïve, Ångström, Straße, žluťoučký
+ vtium.conf's size.      user@desk:~/notes$
+ Terminal desk uses it.
+ The console draws this
+ in its current font,
  so t shows a font set
  here. A size takes
  effect when vtium
  starts again.
 
-
-
-
 ----------------------------------------------------------------------------------------------------
- ↑↓ move  Enter open  r remove  n new  t try live  q quit  . more 1/4
+ ↑↓ move  Enter open  Space activate  n new  t try live  q quit  . more 1/5

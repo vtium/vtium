@@ -22,4 +22,4 @@
  starts again.
 
 --------------------------------------------------------------------------------
- ↑↓ move  Enter open  r remove  n new  t try live  q quit  . more 1/4
+ ↑↓ move  Enter open  Space activate  n new  t try live  q quit  . more 1/5
