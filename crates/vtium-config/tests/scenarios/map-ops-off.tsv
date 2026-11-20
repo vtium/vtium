@@ -2,22 +2,26 @@
 from	key	to	effects
 ops-off any.question.confirm	Ctrl-C	ops-off effects(filter)	
 ops-off any.question.confirm	Ctrl-C	ops-off flow(doc display)	
+ops-off any.question.confirm	Ctrl-C	ops-off flow(doc terminal)	
 ops-off any.question.confirm	Ctrl-C	ops-off fonts(filter)	
 ops-off any.question.confirm	Ctrl-C	ops-off looks(look)	
+ops-off any.question.confirm	Ctrl-C	ops-off looks(no looks)	
 ops-off any.question.confirm	Ctrl-C	ops-off settings(first)	
 ops-off any.question.confirm	Esc	ops-off effects(filter)	
 ops-off any.question.confirm	Esc	ops-off flow(doc display)	
+ops-off any.question.confirm	Esc	ops-off flow(doc terminal)	
 ops-off any.question.confirm	Esc	ops-off fonts(filter)	
 ops-off any.question.confirm	Esc	ops-off looks(look)	
+ops-off any.question.confirm	Esc	ops-off looks(no looks)	
 ops-off any.question.confirm	Esc	ops-off settings(first)	
 ops-off any.question.confirm	Shrink	ops-off any.question.confirm below 80×25	
 ops-off any.question.confirm	y	ops-off effects(filter)	install
-ops-off any.question.confirm	y	ops-off flow(doc display)	install
 ops-off any.question.confirm	y	ops-off flow(doc display)	restore
 ops-off any.question.confirm	y	ops-off flow(doc display)	revert
+ops-off any.question.confirm	y	ops-off flow(doc terminal)	install
 ops-off any.question.confirm	y	ops-off flow(new empty)	new
 ops-off any.question.confirm	y	ops-off fonts(filter)	install
-ops-off any.question.confirm	y	ops-off looks(look)	install
+ops-off any.question.confirm	y	ops-off looks(no looks)	install
 ops-off any.question.confirm	y	ops-off looks(no looks) +unsaved	check
 ops-off any.question.confirm	y	ops-off settings(first)	install
 ops-off any.question.confirm +pending	Ctrl-C	ops-off effects(filter) +pending	
@@ -42,18 +46,18 @@ ops-off any.question.confirm +pending	y	ops-off fonts(filter)	install
 ops-off any.question.confirm +pending	y	ops-off looks(frit)	install
 ops-off any.question.confirm +pending	y	ops-off looks(no looks) +unsaved +pending	check
 ops-off any.question.confirm +pending	y	ops-off settings(first)	install
-ops-off any.question.confirm +unsaved	Ctrl-C	ops-off flow(doc display) +unsaved	
+ops-off any.question.confirm +unsaved	Ctrl-C	ops-off flow(doc terminal) +unsaved	
 ops-off any.question.confirm +unsaved	Ctrl-C	ops-off looks(look) +unsaved	
-ops-off any.question.confirm +unsaved	Esc	ops-off flow(doc display) +unsaved	
+ops-off any.question.confirm +unsaved	Esc	ops-off flow(doc terminal) +unsaved	
 ops-off any.question.confirm +unsaved	Esc	ops-off looks(look) +unsaved	
 ops-off any.question.confirm +unsaved	Shrink	ops-off any.question.confirm below 80×25 +unsaved	
 ops-off any.question.confirm +unsaved	y	ops-off flow(doc display)	restore
 ops-off any.question.confirm +unsaved	y	ops-off flow(doc display)	revert
 ops-off any.question.confirm +unsaved	y	ops-off flow(new empty)	new
 ops-off any.question.confirm +unsaved	y	ops-off looks(no looks) +unsaved	check
-ops-off any.question.confirm +unsaved +pending	Ctrl-C	ops-off flow(doc display) +unsaved +pending	
+ops-off any.question.confirm +unsaved +pending	Ctrl-C	ops-off flow(doc terminal) +unsaved +pending	
 ops-off any.question.confirm +unsaved +pending	Ctrl-C	ops-off looks(look) +unsaved +pending	
-ops-off any.question.confirm +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pending	
+ops-off any.question.confirm +unsaved +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	
 ops-off any.question.confirm +unsaved +pending	Esc	ops-off looks(look) +unsaved +pending	
 ops-off any.question.confirm +unsaved +pending	Shrink	ops-off any.question.confirm below 80×25 +unsaved +pending	
 ops-off any.question.confirm +unsaved +pending	y	ops-off flow(doc display) +pending	restore
@@ -98,10 +102,6 @@ ops-off any.question.deactivate +pending	Ctrl-C	ops-off effects(color map: activ
 ops-off any.question.deactivate +pending	Esc	ops-off effects(color map: active, trusted, used) +pending	
 ops-off any.question.deactivate +pending	Shrink	ops-off any.question.deactivate below 80×25 +pending	
 ops-off any.question.deactivate +pending	y	ops-off effects(color map: deactivates on install, trusted, used) +pending	resource
-ops-off any.question.deactivate +unsaved	Ctrl-C	ops-off effects(color map: active, trusted, used) +unsaved	
-ops-off any.question.deactivate +unsaved	Esc	ops-off effects(color map: active, trusted, used) +unsaved	
-ops-off any.question.deactivate +unsaved	Shrink	ops-off any.question.deactivate below 80×25 +unsaved	
-ops-off any.question.deactivate +unsaved	y	ops-off effects(color map: deactivates on install, trusted, used) +unsaved	resource
 ops-off any.question.deactivate +unsaved +pending	Ctrl-C	ops-off effects(color map: active, trusted, used) +unsaved +pending	
 ops-off any.question.deactivate +unsaved +pending	Esc	ops-off effects(color map: active, trusted, used) +unsaved +pending	
 ops-off any.question.deactivate +unsaved +pending	Shrink	ops-off any.question.deactivate below 80×25 +unsaved +pending	
@@ -114,10 +114,6 @@ ops-off any.question.deactivate below 80×25 +pending	Ctrl-C	ops-off any.too-sma
 ops-off any.question.deactivate below 80×25 +pending	Esc	ops-off any.too-small +pending	
 ops-off any.question.deactivate below 80×25 +pending	Grow	ops-off any.question.deactivate +pending	
 ops-off any.question.deactivate below 80×25 +pending	y	ops-off any.too-small +pending	resource
-ops-off any.question.deactivate below 80×25 +unsaved	Ctrl-C	ops-off any.too-small +unsaved	
-ops-off any.question.deactivate below 80×25 +unsaved	Esc	ops-off any.too-small +unsaved	
-ops-off any.question.deactivate below 80×25 +unsaved	Grow	ops-off any.question.deactivate +unsaved	
-ops-off any.question.deactivate below 80×25 +unsaved	y	ops-off any.too-small +unsaved	resource
 ops-off any.question.deactivate below 80×25 +unsaved +pending	Ctrl-C	ops-off any.too-small +unsaved +pending	
 ops-off any.question.deactivate below 80×25 +unsaved +pending	Esc	ops-off any.too-small +unsaved +pending	
 ops-off any.question.deactivate below 80×25 +unsaved +pending	Grow	ops-off any.question.deactivate +unsaved +pending	
@@ -127,14 +123,14 @@ ops-off any.question.leave +pending	Ctrl-C	ops-off flow(doc display) +pending
 ops-off any.question.leave +pending	Ctrl-C	ops-off fonts(filter) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off help(help) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off looks(marked) +pending	
-ops-off any.question.leave +pending	Ctrl-C	ops-off looks.new-frit(row 6) +pending	
+ops-off any.question.leave +pending	Ctrl-C	ops-off looks.new-frit(row 0) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off settings(first) +pending	
 ops-off any.question.leave +pending	Esc	ops-off effects(filter) +pending	
 ops-off any.question.leave +pending	Esc	ops-off flow(doc display) +pending	
 ops-off any.question.leave +pending	Esc	ops-off fonts(filter) +pending	
 ops-off any.question.leave +pending	Esc	ops-off help(help) +pending	
 ops-off any.question.leave +pending	Esc	ops-off looks(marked) +pending	
-ops-off any.question.leave +pending	Esc	ops-off looks.new-frit(row 6) +pending	
+ops-off any.question.leave +pending	Esc	ops-off looks.new-frit(row 0) +pending	
 ops-off any.question.leave +pending	Esc	ops-off settings(first) +pending	
 ops-off any.question.leave +pending	Shrink	ops-off any.question.leave below 80×25 +pending	
 ops-off any.question.leave +pending	n	ops-off left	exit 0
@@ -142,18 +138,18 @@ ops-off any.question.leave +pending	n	ops-off left	mouse off, exit 0
 ops-off any.question.leave +pending	y	ops-off left	prepare, install, exit 0
 ops-off any.question.leave +pending	y	ops-off left	prepare, install, mouse off, exit 0
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off effects(filter) +unsaved +pending	
-ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off flow(doc display) +unsaved +pending	
+ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off flow(doc terminal) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off fonts(filter) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off help(help) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off looks(marked) +unsaved +pending	
-ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off looks.new-frit(row 6) +unsaved +pending	
+ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off looks.new-frit(row 0) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off settings(first) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off effects(filter) +unsaved +pending	
-ops-off any.question.leave +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pending	
+ops-off any.question.leave +unsaved +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off fonts(filter) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off help(help) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
-ops-off any.question.leave +unsaved +pending	Esc	ops-off looks.new-frit(row 6) +unsaved +pending	
+ops-off any.question.leave +unsaved +pending	Esc	ops-off looks.new-frit(row 0) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off settings(first) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Shrink	ops-off any.question.leave below 80×25 +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	n	ops-off left	save, exit 0
@@ -171,18 +167,18 @@ ops-off any.question.leave below 80×25 +unsaved +pending	Grow	ops-off any.quest
 ops-off any.question.leave below 80×25 +unsaved +pending	n	ops-off left	save, exit 0
 ops-off any.question.leave below 80×25 +unsaved +pending	y	ops-off left	save, prepare, install, exit 0
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off effects(filter) +unsaved	
-ops-off any.question.quit +unsaved	Ctrl-C	ops-off flow(doc display) +unsaved	
+ops-off any.question.quit +unsaved	Ctrl-C	ops-off flow(doc terminal) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off fonts(filter) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off help(help) +unsaved	
-ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks(look) +unsaved	
-ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks.new-frit(row 6) +unsaved	
+ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks.look(name) +unsaved	
+ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks.new-frit(row 0) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off settings(first) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off effects(filter) +unsaved	
-ops-off any.question.quit +unsaved	Esc	ops-off flow(doc display) +unsaved	
+ops-off any.question.quit +unsaved	Esc	ops-off flow(doc terminal) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off fonts(filter) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off help(help) +unsaved	
-ops-off any.question.quit +unsaved	Esc	ops-off looks(look) +unsaved	
-ops-off any.question.quit +unsaved	Esc	ops-off looks.new-frit(row 6) +unsaved	
+ops-off any.question.quit +unsaved	Esc	ops-off looks.look(name) +unsaved	
+ops-off any.question.quit +unsaved	Esc	ops-off looks.new-frit(row 0) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off settings(first) +unsaved	
 ops-off any.question.quit +unsaved	Shrink	ops-off any.question.quit below 80×25 +unsaved	
 ops-off any.question.quit +unsaved	n	ops-off left	exit 0
@@ -236,11 +232,11 @@ ops-off any.question.window-ops +pending	Esc	ops-off looks(marked) +pending
 ops-off any.question.window-ops +pending	Shrink	ops-off any.question.window-ops below 80×25 +pending	
 ops-off any.question.window-ops +pending	n	ops-off looks(marked) +pending	
 ops-off any.question.window-ops +pending	y	ops-off looks(marked) +unsaved +pending	check
-ops-off any.question.window-ops +unsaved	Ctrl-C	ops-off looks(look) +unsaved	
-ops-off any.question.window-ops +unsaved	Esc	ops-off looks(look) +unsaved	
+ops-off any.question.window-ops +unsaved	Ctrl-C	ops-off looks(no looks) +unsaved	
+ops-off any.question.window-ops +unsaved	Esc	ops-off looks(no looks) +unsaved	
 ops-off any.question.window-ops +unsaved	Shrink	ops-off any.question.window-ops below 80×25 +unsaved	
-ops-off any.question.window-ops +unsaved	n	ops-off looks(look) +unsaved	
-ops-off any.question.window-ops +unsaved	y	ops-off looks(look) +unsaved	check
+ops-off any.question.window-ops +unsaved	n	ops-off looks(no looks) +unsaved	
+ops-off any.question.window-ops +unsaved	y	ops-off looks(no looks) +unsaved	check
 ops-off any.question.window-ops +unsaved +pending	Ctrl-C	ops-off looks(marked) +unsaved +pending	
 ops-off any.question.window-ops +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
 ops-off any.question.window-ops +unsaved +pending	Shrink	ops-off any.question.window-ops below 80×25 +unsaved +pending	
@@ -273,10 +269,10 @@ ops-off any.too-small +pending	Ctrl-C	ops-off left	exit 130
 ops-off any.too-small +pending	Grow	ops-off looks(marked) +pending	
 ops-off any.too-small +pending	q	ops-off any.question.leave below 80×25 +pending	
 ops-off any.too-small +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off any.too-small +unsaved	Grow	ops-off help(help) +unsaved	
+ops-off any.too-small +unsaved	Grow	ops-off looks.look.typing +unsaved	
 ops-off any.too-small +unsaved	q	ops-off any.question.quit below 80×25 +unsaved	
 ops-off any.too-small +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off any.too-small +unsaved +pending	Grow	ops-off looks(marked) +unsaved +pending	
+ops-off any.too-small +unsaved +pending	Grow	ops-off looks.look.typing +unsaved +pending	
 ops-off any.too-small +unsaved +pending	q	ops-off any.question.leave below 80×25 +unsaved +pending	
 ops-off effects(color map: activates on install, trusted)	1	ops-off fonts(filter)	
 ops-off effects(color map: activates on install, trusted)	3	ops-off looks(look)	
@@ -317,7 +313,7 @@ ops-off effects(color map: activates on install, trusted) +pending	Up	ops-off ef
 ops-off effects(color map: activates on install, trusted) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off effects(color map: activates on install, trusted) +pending	q	ops-off any.question.leave +pending	
 ops-off effects(color map: activates on install, trusted) +unsaved	1	ops-off fonts(filter) +unsaved	
-ops-off effects(color map: activates on install, trusted) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off effects(color map: activates on install, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off effects(color map: activates on install, trusted) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off effects(color map: activates on install, trusted) +unsaved	6	ops-off help(help) +unsaved	
@@ -331,8 +327,8 @@ ops-off effects(color map: activates on install, trusted) +unsaved	PgUp	ops-off 
 ops-off effects(color map: activates on install, trusted) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
 ops-off effects(color map: activates on install, trusted) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off effects(color map: activates on install, trusted) +unsaved	Space	ops-off effects(color map: not active, trusted) +unsaved	resource
-ops-off effects(color map: activates on install, trusted) +unsaved	Tab	ops-off looks(look) +unsaved	
-ops-off effects(color map: activates on install, trusted) +unsaved	Up	ops-off effects(color map: active, trusted, used) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Tab	ops-off looks(no looks) +unsaved	
+ops-off effects(color map: activates on install, trusted) +unsaved	Up	ops-off effects(color map: active, trusted) +unsaved	
 ops-off effects(color map: activates on install, trusted) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off effects(color map: activates on install, trusted) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off effects(color map: activates on install, trusted) +unsaved	s	ops-off effects(color map: activates on install, trusted)	save
@@ -356,6 +352,45 @@ ops-off effects(color map: activates on install, trusted) +unsaved +pending	Up	o
 ops-off effects(color map: activates on install, trusted) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off effects(color map: activates on install, trusted) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off effects(color map: activates on install, trusted) +unsaved +pending	s	ops-off effects(color map: activates on install, trusted) +pending	save
+ops-off effects(color map: active, trusted)	1	ops-off fonts(filter)	
+ops-off effects(color map: active, trusted)	3	ops-off looks(no looks)	
+ops-off effects(color map: active, trusted)	4	ops-off flow(doc display)	mouse on
+ops-off effects(color map: active, trusted)	5	ops-off settings(first)	
+ops-off effects(color map: active, trusted)	6	ops-off help(help)	
+ops-off effects(color map: active, trusted)	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: active, trusted)	Down	ops-off effects(color map: not active, trusted)	
+ops-off effects(color map: active, trusted)	End	ops-off effects(color map: not usable)	
+ops-off effects(color map: active, trusted)	Enter	ops-off effects.effect	
+ops-off effects(color map: active, trusted)	Home	ops-off effects(filter)	
+ops-off effects(color map: active, trusted)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(color map: active, trusted)	PgUp	ops-off effects(filter)	
+ops-off effects(color map: active, trusted)	Shift-Tab	ops-off fonts(filter)	
+ops-off effects(color map: active, trusted)	Shrink	ops-off any.too-small	
+ops-off effects(color map: active, trusted)	Space	ops-off effects(color map: deactivates on install, trusted)	resource
+ops-off effects(color map: active, trusted)	Tab	ops-off looks(no looks)	
+ops-off effects(color map: active, trusted)	Up	ops-off effects(vtlook)	
+ops-off effects(color map: active, trusted)	i	ops-off any.question.confirm	prepare
+ops-off effects(color map: active, trusted)	q	ops-off left	exit 0
+ops-off effects(color map: active, trusted) +unsaved	1	ops-off fonts(filter) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	3	ops-off looks(no looks) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(color map: active, trusted) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: active, trusted) +unsaved	Down	ops-off effects(color map: not active, trusted) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	Space	ops-off effects(color map: deactivates on install, trusted) +unsaved	resource
+ops-off effects(color map: active, trusted) +unsaved	Tab	ops-off looks(no looks) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	Up	ops-off effects(vtlook) +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	i	ops-off any.question.confirm	save, prepare
+ops-off effects(color map: active, trusted) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(color map: active, trusted) +unsaved	s	ops-off effects(color map: active, trusted)	save
 ops-off effects(color map: active, trusted, used)	1	ops-off fonts(filter)	
 ops-off effects(color map: active, trusted, used)	3	ops-off looks(look)	
 ops-off effects(color map: active, trusted, used)	4	ops-off flow(doc display)	mouse on
@@ -394,26 +429,6 @@ ops-off effects(color map: active, trusted, used) +pending	Tab	ops-off looks(mar
 ops-off effects(color map: active, trusted, used) +pending	Up	ops-off effects(vtlook) +pending	
 ops-off effects(color map: active, trusted, used) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off effects(color map: active, trusted, used) +pending	q	ops-off any.question.leave +pending	
-ops-off effects(color map: active, trusted, used) +unsaved	1	ops-off fonts(filter) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	3	ops-off looks(look) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
-ops-off effects(color map: active, trusted, used) +unsaved	5	ops-off settings(first) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	6	ops-off help(help) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off effects(color map: active, trusted, used) +unsaved	Down	ops-off effects(color map: not active, trusted) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	Enter	ops-off effects.effect +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	Home	ops-off effects(filter) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	PgUp	ops-off effects(filter) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	Space	ops-off any.question.deactivate +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	Tab	ops-off looks(look) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	Up	ops-off effects(vtlook) +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off effects(color map: active, trusted, used) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off effects(color map: active, trusted, used) +unsaved	s	ops-off effects(color map: active, trusted, used)	save
 ops-off effects(color map: active, trusted, used) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
 ops-off effects(color map: active, trusted, used) +unsaved +pending	3	ops-off looks(marked) +unsaved +pending	
 ops-off effects(color map: active, trusted, used) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
@@ -434,6 +449,45 @@ ops-off effects(color map: active, trusted, used) +unsaved +pending	Up	ops-off e
 ops-off effects(color map: active, trusted, used) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off effects(color map: active, trusted, used) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off effects(color map: active, trusted, used) +unsaved +pending	s	ops-off effects(color map: active, trusted, used) +pending	save
+ops-off effects(color map: deactivates on install, trusted)	1	ops-off fonts(filter)	
+ops-off effects(color map: deactivates on install, trusted)	3	ops-off looks(no looks)	
+ops-off effects(color map: deactivates on install, trusted)	4	ops-off flow(doc display)	mouse on
+ops-off effects(color map: deactivates on install, trusted)	5	ops-off settings(first)	
+ops-off effects(color map: deactivates on install, trusted)	6	ops-off help(help)	
+ops-off effects(color map: deactivates on install, trusted)	Ctrl-C	ops-off left	exit 130
+ops-off effects(color map: deactivates on install, trusted)	Down	ops-off effects(color map: not active, trusted)	
+ops-off effects(color map: deactivates on install, trusted)	End	ops-off effects(color map: not usable)	
+ops-off effects(color map: deactivates on install, trusted)	Enter	ops-off effects.effect	
+ops-off effects(color map: deactivates on install, trusted)	Home	ops-off effects(filter)	
+ops-off effects(color map: deactivates on install, trusted)	PgDn	ops-off effects(color map: not usable)	
+ops-off effects(color map: deactivates on install, trusted)	PgUp	ops-off effects(filter)	
+ops-off effects(color map: deactivates on install, trusted)	Shift-Tab	ops-off fonts(filter)	
+ops-off effects(color map: deactivates on install, trusted)	Shrink	ops-off any.too-small	
+ops-off effects(color map: deactivates on install, trusted)	Space	ops-off effects(color map: active, trusted)	resource
+ops-off effects(color map: deactivates on install, trusted)	Tab	ops-off looks(no looks)	
+ops-off effects(color map: deactivates on install, trusted)	Up	ops-off effects(vtlook)	
+ops-off effects(color map: deactivates on install, trusted)	i	ops-off any.question.confirm	prepare
+ops-off effects(color map: deactivates on install, trusted)	q	ops-off left	exit 0
+ops-off effects(color map: deactivates on install, trusted) +unsaved	1	ops-off fonts(filter) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	3	ops-off looks(no looks) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
+ops-off effects(color map: deactivates on install, trusted) +unsaved	5	ops-off settings(first) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	6	ops-off help(help) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Down	ops-off effects(color map: not active, trusted) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Enter	ops-off effects.effect +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Home	ops-off effects(filter) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	PgUp	ops-off effects(filter) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Space	ops-off effects(color map: active, trusted) +unsaved	resource
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Tab	ops-off looks(no looks) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	Up	ops-off effects(vtlook) +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	i	ops-off any.question.confirm	save, prepare
+ops-off effects(color map: deactivates on install, trusted) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off effects(color map: deactivates on install, trusted) +unsaved	s	ops-off effects(color map: deactivates on install, trusted)	save
 ops-off effects(color map: deactivates on install, trusted, used)	1	ops-off fonts(filter)	
 ops-off effects(color map: deactivates on install, trusted, used)	3	ops-off looks(look)	
 ops-off effects(color map: deactivates on install, trusted, used)	4	ops-off flow(doc display)	mouse on
@@ -472,26 +526,6 @@ ops-off effects(color map: deactivates on install, trusted, used) +pending	Tab	o
 ops-off effects(color map: deactivates on install, trusted, used) +pending	Up	ops-off effects(vtlook) +pending	
 ops-off effects(color map: deactivates on install, trusted, used) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off effects(color map: deactivates on install, trusted, used) +pending	q	ops-off any.question.leave +pending	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	1	ops-off fonts(filter) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	3	ops-off looks(look) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	5	ops-off settings(first) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	6	ops-off help(help) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Down	ops-off effects(color map: not active, trusted) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	End	ops-off effects(color map: not usable) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Enter	ops-off effects.effect +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Home	ops-off effects(filter) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	PgUp	ops-off effects(filter) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Space	ops-off effects(color map: active, trusted, used) +unsaved	resource
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Tab	ops-off looks(look) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	Up	ops-off effects(vtlook) +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off effects(color map: deactivates on install, trusted, used) +unsaved	s	ops-off effects(color map: deactivates on install, trusted, used)	save
 ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
 ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	3	ops-off looks(marked) +unsaved +pending	
 ops-off effects(color map: deactivates on install, trusted, used) +unsaved +pending	4	ops-off flow(doc display) +unsaved +pending	mouse on
@@ -549,7 +583,7 @@ ops-off effects(color map: not active, fails the trust rule) +pending	Up	ops-off
 ops-off effects(color map: not active, fails the trust rule) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off effects(color map: not active, fails the trust rule) +pending	q	ops-off any.question.leave +pending	
 ops-off effects(color map: not active, fails the trust rule) +unsaved	1	ops-off fonts(filter) +unsaved	
-ops-off effects(color map: not active, fails the trust rule) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off effects(color map: not active, fails the trust rule) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off effects(color map: not active, fails the trust rule) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off effects(color map: not active, fails the trust rule) +unsaved	6	ops-off help(help) +unsaved	
@@ -562,7 +596,7 @@ ops-off effects(color map: not active, fails the trust rule) +unsaved	PgDn	ops-o
 ops-off effects(color map: not active, fails the trust rule) +unsaved	PgUp	ops-off effects(filter) +unsaved	
 ops-off effects(color map: not active, fails the trust rule) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
 ops-off effects(color map: not active, fails the trust rule) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off effects(color map: not active, fails the trust rule) +unsaved	Tab	ops-off looks(look) +unsaved	
+ops-off effects(color map: not active, fails the trust rule) +unsaved	Tab	ops-off looks(no looks) +unsaved	
 ops-off effects(color map: not active, fails the trust rule) +unsaved	Up	ops-off effects(color map: not active, trusted) +unsaved	
 ops-off effects(color map: not active, fails the trust rule) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off effects(color map: not active, fails the trust rule) +unsaved	q	ops-off any.question.quit +unsaved	
@@ -625,7 +659,7 @@ ops-off effects(color map: not active, trusted) +pending	Up	ops-off effects(colo
 ops-off effects(color map: not active, trusted) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off effects(color map: not active, trusted) +pending	q	ops-off any.question.leave +pending	
 ops-off effects(color map: not active, trusted) +unsaved	1	ops-off fonts(filter) +unsaved	
-ops-off effects(color map: not active, trusted) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off effects(color map: not active, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off effects(color map: not active, trusted) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off effects(color map: not active, trusted) +unsaved	6	ops-off help(help) +unsaved	
@@ -639,8 +673,8 @@ ops-off effects(color map: not active, trusted) +unsaved	PgUp	ops-off effects(fi
 ops-off effects(color map: not active, trusted) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
 ops-off effects(color map: not active, trusted) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off effects(color map: not active, trusted) +unsaved	Space	ops-off effects(color map: activates on install, trusted) +unsaved	resource
-ops-off effects(color map: not active, trusted) +unsaved	Tab	ops-off looks(look) +unsaved	
-ops-off effects(color map: not active, trusted) +unsaved	Up	ops-off effects(color map: active, trusted, used) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Tab	ops-off looks(no looks) +unsaved	
+ops-off effects(color map: not active, trusted) +unsaved	Up	ops-off effects(color map: active, trusted) +unsaved	
 ops-off effects(color map: not active, trusted) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off effects(color map: not active, trusted) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off effects(color map: not active, trusted) +unsaved	s	ops-off effects(color map: not active, trusted)	save
@@ -695,7 +729,7 @@ ops-off effects(color map: not usable) +pending	Up	ops-off effects(color map: no
 ops-off effects(color map: not usable) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off effects(color map: not usable) +pending	q	ops-off any.question.leave +pending	
 ops-off effects(color map: not usable) +unsaved	1	ops-off fonts(filter) +unsaved	
-ops-off effects(color map: not usable) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off effects(color map: not usable) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off effects(color map: not usable) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off effects(color map: not usable) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off effects(color map: not usable) +unsaved	6	ops-off help(help) +unsaved	
@@ -705,7 +739,7 @@ ops-off effects(color map: not usable) +unsaved	Home	ops-off effects(filter) +un
 ops-off effects(color map: not usable) +unsaved	PgUp	ops-off effects(filter) +unsaved	
 ops-off effects(color map: not usable) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
 ops-off effects(color map: not usable) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off effects(color map: not usable) +unsaved	Tab	ops-off looks(look) +unsaved	
+ops-off effects(color map: not usable) +unsaved	Tab	ops-off looks(no looks) +unsaved	
 ops-off effects(color map: not usable) +unsaved	Up	ops-off effects(color map: not active, fails the trust rule) +unsaved	
 ops-off effects(color map: not usable) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off effects(color map: not usable) +unsaved	q	ops-off any.question.quit +unsaved	
@@ -757,7 +791,7 @@ ops-off effects(filter) +pending	Tab	ops-off looks(marked) +pending
 ops-off effects(filter) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off effects(filter) +pending	q	ops-off any.question.leave +pending	
 ops-off effects(filter) +unsaved	1	ops-off fonts(filter) +unsaved	
-ops-off effects(filter) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off effects(filter) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off effects(filter) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off effects(filter) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off effects(filter) +unsaved	6	ops-off help(help) +unsaved	
@@ -768,7 +802,7 @@ ops-off effects(filter) +unsaved	Enter	ops-off effects.filter +unsaved
 ops-off effects(filter) +unsaved	PgDn	ops-off effects(color map: not usable) +unsaved	
 ops-off effects(filter) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
 ops-off effects(filter) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off effects(filter) +unsaved	Tab	ops-off looks(look) +unsaved	
+ops-off effects(filter) +unsaved	Tab	ops-off looks(no looks) +unsaved	
 ops-off effects(filter) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off effects(filter) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off effects(filter) +unsaved	s	ops-off effects(filter)	save
@@ -823,7 +857,7 @@ ops-off effects(vtlook) +pending	Up	ops-off effects(filter) +pending
 ops-off effects(vtlook) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off effects(vtlook) +pending	q	ops-off any.question.leave +pending	
 ops-off effects(vtlook) +unsaved	1	ops-off fonts(filter) +unsaved	
-ops-off effects(vtlook) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off effects(vtlook) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off effects(vtlook) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off effects(vtlook) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off effects(vtlook) +unsaved	6	ops-off help(help) +unsaved	
@@ -835,7 +869,7 @@ ops-off effects(vtlook) +unsaved	PgDn	ops-off effects(color map: not usable) +un
 ops-off effects(vtlook) +unsaved	PgUp	ops-off effects(filter) +unsaved	
 ops-off effects(vtlook) +unsaved	Shift-Tab	ops-off fonts(filter) +unsaved	
 ops-off effects(vtlook) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off effects(vtlook) +unsaved	Tab	ops-off looks(look) +unsaved	
+ops-off effects(vtlook) +unsaved	Tab	ops-off looks(no looks) +unsaved	
 ops-off effects(vtlook) +unsaved	Up	ops-off effects(filter) +unsaved	
 ops-off effects(vtlook) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off effects(vtlook) +unsaved	q	ops-off any.question.quit +unsaved	
@@ -946,7 +980,7 @@ ops-off flow(doc display) +pending	r	ops-off any.question.confirm +pending
 ops-off flow(doc display) +pending	v	ops-off flow.file +pending	
 ops-off flow(doc display) +unsaved	1	ops-off fonts(filter) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
-ops-off flow(doc display) +unsaved	3	ops-off looks(look) +unsaved	mouse off
+ops-off flow(doc display) +unsaved	3	ops-off looks(no looks) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Click box	ops-off flow(doc terminal) +unsaved	
@@ -957,7 +991,7 @@ ops-off flow(doc display) +unsaved	End	ops-off flow(parts font) +unsaved
 ops-off flow(doc display) +unsaved	Enter	ops-off flow.info +unsaved	
 ops-off flow(doc display) +unsaved	PgDn	ops-off flow(parts template) +unsaved	
 ops-off flow(doc display) +unsaved	Right	ops-off flow(doc terminal) +unsaved	
-ops-off flow(doc display) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
+ops-off flow(doc display) +unsaved	Shift-Tab	ops-off looks(no looks) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(doc display) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Wheel down	ops-off flow(doc terminal) +unsaved	
@@ -1160,70 +1194,6 @@ ops-off flow(new display) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(new display) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(new display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new display) +pending	v	ops-off flow.file +pending	
-ops-off flow(new display) +unsaved	1	ops-off fonts(filter) +unsaved	mouse off
-ops-off flow(new display) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
-ops-off flow(new display) +unsaved	3	ops-off looks(look) +unsaved	mouse off
-ops-off flow(new display) +unsaved	5	ops-off settings(first) +unsaved	mouse off
-ops-off flow(new display) +unsaved	6	ops-off help(help) +unsaved	mouse off
-ops-off flow(new display) +unsaved	Click box	ops-off flow(new terminal) +unsaved	
-ops-off flow(new display) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
-ops-off flow(new display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(new display) +unsaved	Down	ops-off flow(parts template) +unsaved	
-ops-off flow(new display) +unsaved	End	ops-off flow(parts font) +unsaved	
-ops-off flow(new display) +unsaved	Enter	ops-off flow.detail.choices +unsaved	
-ops-off flow(new display) +unsaved	Esc	ops-off flow(doc terminal) +unsaved	check
-ops-off flow(new display) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
-ops-off flow(new display) +unsaved	Left	ops-off flow(doc terminal) +unsaved	
-ops-off flow(new display) +unsaved	PgDn	ops-off flow(parts special) +unsaved	
-ops-off flow(new display) +unsaved	Right	ops-off flow(new terminal) +unsaved	
-ops-off flow(new display) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
-ops-off flow(new display) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off flow(new display) +unsaved	Space	ops-off flow(new empty) +unsaved	
-ops-off flow(new display) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
-ops-off flow(new display) +unsaved	Up	ops-off flow(doc terminal) +unsaved	
-ops-off flow(new display) +unsaved	Wheel down	ops-off flow(parts template) +unsaved	
-ops-off flow(new display) +unsaved	Wheel up	ops-off flow(doc terminal) +unsaved	
-ops-off flow(new display) +unsaved	a	ops-off flow(doc terminal) +unsaved	
-ops-off flow(new display) +unsaved	d	ops-off flow(new display) +unsaved	devices
-ops-off flow(new display) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off flow(new display) +unsaved	n	ops-off any.question.confirm +unsaved	
-ops-off flow(new display) +unsaved	o	ops-off flow.restore +unsaved	history
-ops-off flow(new display) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off flow(new display) +unsaved	r	ops-off any.question.confirm +unsaved	
-ops-off flow(new display) +unsaved	s	ops-off flow(new display)	save
-ops-off flow(new display) +unsaved	v	ops-off flow.file +unsaved	
-ops-off flow(new display) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	3	ops-off looks(marked) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	Click box	ops-off flow(new terminal) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(new display) +unsaved +pending	Down	ops-off flow(parts template) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Enter	ops-off flow.detail.choices +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	check
-ops-off flow(new display) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Left	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	PgDn	ops-off flow(parts special) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Right	ops-off flow(new terminal) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Shift-Tab	ops-off looks(marked) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Space	ops-off flow(new empty) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Tab	ops-off settings(first) +unsaved +pending	mouse off
-ops-off flow(new display) +unsaved +pending	Up	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Wheel down	ops-off flow(parts template) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Wheel up	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	a	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	d	ops-off flow(new display) +unsaved +pending	devices
-ops-off flow(new display) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off flow(new display) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	o	ops-off flow.restore +unsaved +pending	history
-ops-off flow(new display) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	s	ops-off flow(new display) +pending	save
-ops-off flow(new display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(new empty)	1	ops-off fonts(filter)	mouse off
 ops-off flow(new empty)	2	ops-off effects(filter)	mouse off
 ops-off flow(new empty)	3	ops-off looks(look)	mouse off
@@ -1401,18 +1371,15 @@ ops-off flow(new terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 13
 ops-off flow(new terminal) +unsaved	Down	ops-off flow(parts display) +unsaved	
 ops-off flow(new terminal) +unsaved	End	ops-off flow(parts font) +unsaved	
 ops-off flow(new terminal) +unsaved	Enter	ops-off flow.new-card +unsaved	
-ops-off flow(new terminal) +unsaved	Esc	ops-off flow(doc terminal) +unsaved	check
-ops-off flow(new terminal) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
-ops-off flow(new terminal) +unsaved	Left	ops-off flow(new display) +unsaved	
+ops-off flow(new terminal) +unsaved	Esc	ops-off flow(new empty) +unsaved	check
+ops-off flow(new terminal) +unsaved	Home	ops-off flow(new empty) +unsaved	
+ops-off flow(new terminal) +unsaved	Left	ops-off flow(new empty) +unsaved	
 ops-off flow(new terminal) +unsaved	PgDn	ops-off flow(parts template) +unsaved	
 ops-off flow(new terminal) +unsaved	Right	ops-off flow(new empty) +unsaved	
 ops-off flow(new terminal) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(new terminal) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
-ops-off flow(new terminal) +unsaved	Up	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new terminal) +unsaved	Wheel down	ops-off flow(parts display) +unsaved	
-ops-off flow(new terminal) +unsaved	Wheel up	ops-off flow(doc terminal) +unsaved	
-ops-off flow(new terminal) +unsaved	a	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new terminal) +unsaved	d	ops-off flow(new terminal) +unsaved	devices
 ops-off flow(new terminal) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off flow(new terminal) +unsaved	n	ops-off any.question.confirm +unsaved	
@@ -1432,18 +1399,15 @@ ops-off flow(new terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off
 ops-off flow(new terminal) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Enter	ops-off flow.new-card +unsaved +pending	
-ops-off flow(new terminal) +unsaved +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	check
-ops-off flow(new terminal) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(new terminal) +unsaved +pending	Left	ops-off flow(new display) +unsaved +pending	
+ops-off flow(new terminal) +unsaved +pending	Esc	ops-off flow(new empty) +unsaved +pending	check
+ops-off flow(new terminal) +unsaved +pending	Home	ops-off flow(new empty) +unsaved +pending	
+ops-off flow(new terminal) +unsaved +pending	Left	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	PgDn	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Right	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Shift-Tab	ops-off looks(marked) +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Tab	ops-off settings(first) +unsaved +pending	mouse off
-ops-off flow(new terminal) +unsaved +pending	Up	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Wheel down	ops-off flow(parts display) +unsaved +pending	
-ops-off flow(new terminal) +unsaved +pending	Wheel up	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(new terminal) +unsaved +pending	a	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	d	ops-off flow(new terminal) +unsaved +pending	devices
 ops-off flow(new terminal) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off flow(new terminal) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
@@ -1829,11 +1793,13 @@ ops-off flow(parts font) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts font) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts font) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts font) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(parts font) +unsaved	Home	ops-off flow(doc display) +unsaved	
+ops-off flow(parts font) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts font) +unsaved	PgUp	ops-off flow(parts special) +unsaved	
 ops-off flow(parts font) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
 ops-off flow(parts font) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(parts font) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts font) +unsaved	Up	ops-off flow(parts template) +unsaved	
+ops-off flow(parts font) +unsaved	Wheel up	ops-off flow(parts template) +unsaved	
 ops-off flow(parts font) +unsaved	d	ops-off flow(parts font) +unsaved	devices
 ops-off flow(parts font) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off flow(parts font) +unsaved	n	ops-off any.question.confirm +unsaved	
@@ -1849,11 +1815,13 @@ ops-off flow(parts font) +unsaved +pending	5	ops-off settings(first) +unsaved +p
 ops-off flow(parts font) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(parts font) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
+ops-off flow(parts font) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts font) +unsaved +pending	PgUp	ops-off flow(parts special) +unsaved +pending	
 ops-off flow(parts font) +unsaved +pending	Shift-Tab	ops-off looks(marked) +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(parts font) +unsaved +pending	Tab	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts font) +unsaved +pending	Up	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts font) +unsaved +pending	Wheel up	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts font) +unsaved +pending	d	ops-off flow(parts font) +unsaved +pending	devices
 ops-off flow(parts font) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off flow(parts font) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
@@ -1926,10 +1894,10 @@ ops-off flow(parts input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts input) +unsaved	Down	ops-off flow(parts any input) +unsaved	
 ops-off flow(parts input) +unsaved	End	ops-off flow(parts font) +unsaved	
 ops-off flow(parts input) +unsaved	Enter	ops-off flow.detail +unsaved	
-ops-off flow(parts input) +unsaved	Home	ops-off flow(doc display) +unsaved	
-ops-off flow(parts input) +unsaved	Left	ops-off flow(parts template) +unsaved	
+ops-off flow(parts input) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts input) +unsaved	PgDn	ops-off flow(parts keyboard) +unsaved	
-ops-off flow(parts input) +unsaved	PgUp	ops-off flow(new empty) +unsaved	
+ops-off flow(parts input) +unsaved	PgUp	ops-off flow(parts special) +unsaved	
+ops-off flow(parts input) +unsaved	Right	ops-off flow(parts keyboard) +unsaved	
 ops-off flow(parts input) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(parts input) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
@@ -1954,10 +1922,10 @@ ops-off flow(parts input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off,
 ops-off flow(parts input) +unsaved +pending	Down	ops-off flow(parts any input) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Enter	ops-off flow.detail +unsaved +pending	
-ops-off flow(parts input) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
-ops-off flow(parts input) +unsaved +pending	Left	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts input) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	PgDn	ops-off flow(parts keyboard) +unsaved +pending	
-ops-off flow(parts input) +unsaved +pending	PgUp	ops-off flow(new empty) +unsaved +pending	
+ops-off flow(parts input) +unsaved +pending	PgUp	ops-off flow(parts special) +unsaved +pending	
+ops-off flow(parts input) +unsaved +pending	Right	ops-off flow(parts keyboard) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Shift-Tab	ops-off looks(marked) +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Tab	ops-off settings(first) +unsaved +pending	mouse off
@@ -2243,13 +2211,14 @@ ops-off flow(parts special) +unsaved	2	ops-off effects(filter) +unsaved	mouse of
 ops-off flow(parts special) +unsaved	3	ops-off looks(look) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	6	ops-off help(help) +unsaved	mouse off
+ops-off flow(parts special) +unsaved	Click box	ops-off flow(parts display) +unsaved	
 ops-off flow(parts special) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved	Down	ops-off flow(parts input) +unsaved	
 ops-off flow(parts special) +unsaved	End	ops-off flow(parts font) +unsaved	
-ops-off flow(parts special) +unsaved	Home	ops-off flow(doc display) +unsaved	
+ops-off flow(parts special) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts special) +unsaved	PgDn	ops-off flow(parts keyboard) +unsaved	
-ops-off flow(parts special) +unsaved	PgUp	ops-off flow(new empty) +unsaved	
+ops-off flow(parts special) +unsaved	PgUp	ops-off flow(parts display) +unsaved	
 ops-off flow(parts special) +unsaved	Right	ops-off flow(parts template) +unsaved	
 ops-off flow(parts special) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Shrink	ops-off any.too-small +unsaved	
@@ -2270,13 +2239,14 @@ ops-off flow(parts special) +unsaved +pending	2	ops-off effects(filter) +unsaved
 ops-off flow(parts special) +unsaved +pending	3	ops-off looks(marked) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
+ops-off flow(parts special) +unsaved +pending	Click box	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved +pending	Down	ops-off flow(parts input) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
-ops-off flow(parts special) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
+ops-off flow(parts special) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	PgDn	ops-off flow(parts keyboard) +unsaved +pending	
-ops-off flow(parts special) +unsaved +pending	PgUp	ops-off flow(new empty) +unsaved +pending	
+ops-off flow(parts special) +unsaved +pending	PgUp	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	Right	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	Shift-Tab	ops-off looks(marked) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
@@ -2350,7 +2320,7 @@ ops-off flow(parts template) +pending	r	ops-off any.question.confirm +pending
 ops-off flow(parts template) +pending	v	ops-off flow.file +pending	
 ops-off flow(parts template) +unsaved	1	ops-off fonts(filter) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
-ops-off flow(parts template) +unsaved	3	ops-off looks(look) +unsaved	mouse off
+ops-off flow(parts template) +unsaved	3	ops-off looks(no looks) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Click box	ops-off flow(parts display) +unsaved	
@@ -2363,7 +2333,7 @@ ops-off flow(parts template) +unsaved	Home	ops-off flow(doc display) +unsaved
 ops-off flow(parts template) +unsaved	Left	ops-off flow(new empty) +unsaved	
 ops-off flow(parts template) +unsaved	PgUp	ops-off flow(new empty) +unsaved	
 ops-off flow(parts template) +unsaved	Right	ops-off flow(parts display) +unsaved	
-ops-off flow(parts template) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
+ops-off flow(parts template) +unsaved	Shift-Tab	ops-off looks(no looks) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(parts template) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Up	ops-off flow(new empty) +unsaved	
@@ -2501,8 +2471,8 @@ ops-off flow.detail.choices +pending	Up	ops-off flow.detail +pending
 ops-off flow.detail.choices +pending	Wheel up	ops-off flow.detail +pending	
 ops-off flow.detail.choices +pending	q	ops-off any.question.leave +pending	
 ops-off flow.detail.choices +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.detail.choices +unsaved	Enter	ops-off flow(new display) +unsaved	
-ops-off flow.detail.choices +unsaved	Esc	ops-off flow(new display) +unsaved	
+ops-off flow.detail.choices +unsaved	Enter	ops-off flow(parts display) +unsaved	
+ops-off flow.detail.choices +unsaved	Esc	ops-off flow(parts display) +unsaved	
 ops-off flow.detail.choices +unsaved	Home	ops-off flow.detail +unsaved	
 ops-off flow.detail.choices +unsaved	PgUp	ops-off flow.detail +unsaved	
 ops-off flow.detail.choices +unsaved	Shrink	ops-off any.too-small +unsaved	
@@ -2510,8 +2480,8 @@ ops-off flow.detail.choices +unsaved	Up	ops-off flow.detail +unsaved
 ops-off flow.detail.choices +unsaved	Wheel up	ops-off flow.detail +unsaved	
 ops-off flow.detail.choices +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.detail.choices +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.detail.choices +unsaved +pending	Enter	ops-off flow(new display) +unsaved +pending	
-ops-off flow.detail.choices +unsaved +pending	Esc	ops-off flow(new display) +unsaved +pending	
+ops-off flow.detail.choices +unsaved +pending	Enter	ops-off flow(parts display) +unsaved +pending	
+ops-off flow.detail.choices +unsaved +pending	Esc	ops-off flow(parts display) +unsaved +pending	
 ops-off flow.detail.choices +unsaved +pending	Home	ops-off flow.detail +unsaved +pending	
 ops-off flow.detail.choices +unsaved +pending	PgUp	ops-off flow.detail +unsaved +pending	
 ops-off flow.detail.choices +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
@@ -2545,13 +2515,13 @@ ops-off flow.file +pending	Shrink	ops-off any.too-small +pending
 ops-off flow.file +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off flow.file +pending	q	ops-off any.question.leave +pending	
 ops-off flow.file +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.file +unsaved	Esc	ops-off flow(doc display) +unsaved	
+ops-off flow.file +unsaved	Esc	ops-off flow(doc terminal) +unsaved	
 ops-off flow.file +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.file +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off flow.file +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.file +unsaved	s	ops-off flow.file	save
 ops-off flow.file +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.file +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pending	
+ops-off flow.file +unsaved +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow.file +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.file +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off flow.file +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
@@ -2596,19 +2566,19 @@ ops-off flow.maker(line 0) +pending	Wheel down	ops-off flow.maker(line 1) +pendi
 ops-off flow.maker(line 0) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker(line 0) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 0) +unsaved	Down	ops-off flow.maker(line 1) +unsaved	
-ops-off flow.maker(line 0) +unsaved	End	ops-off flow.maker(line 4) +unsaved	
-ops-off flow.maker(line 0) +unsaved	Enter	ops-off flow(parts display) +unsaved	
-ops-off flow.maker(line 0) +unsaved	Esc	ops-off flow(parts template) +unsaved	
-ops-off flow.maker(line 0) +unsaved	PgDn	ops-off flow.maker(line 4) +unsaved	
+ops-off flow.maker(line 0) +unsaved	End	ops-off flow.maker(line 2) +unsaved	
+ops-off flow.maker(line 0) +unsaved	Enter	ops-off flow.new-card +unsaved	
+ops-off flow.maker(line 0) +unsaved	Esc	ops-off flow(new empty) +unsaved	
+ops-off flow.maker(line 0) +unsaved	PgDn	ops-off flow.maker(line 2) +unsaved	
 ops-off flow.maker(line 0) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.maker(line 0) +unsaved	Wheel down	ops-off flow.maker(line 1) +unsaved	
 ops-off flow.maker(line 0) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker(line 0) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 0) +unsaved +pending	Down	ops-off flow.maker(line 1) +unsaved +pending	
-ops-off flow.maker(line 0) +unsaved +pending	End	ops-off flow.maker(line 4) +unsaved +pending	
-ops-off flow.maker(line 0) +unsaved +pending	Enter	ops-off flow(parts display) +unsaved +pending	
-ops-off flow.maker(line 0) +unsaved +pending	Esc	ops-off flow(parts template) +unsaved +pending	
-ops-off flow.maker(line 0) +unsaved +pending	PgDn	ops-off flow.maker(line 4) +unsaved +pending	
+ops-off flow.maker(line 0) +unsaved +pending	End	ops-off flow.maker(line 2) +unsaved +pending	
+ops-off flow.maker(line 0) +unsaved +pending	Enter	ops-off flow.new-card +unsaved +pending	
+ops-off flow.maker(line 0) +unsaved +pending	Esc	ops-off flow(new empty) +unsaved +pending	
+ops-off flow.maker(line 0) +unsaved +pending	PgDn	ops-off flow.maker(line 2) +unsaved +pending	
 ops-off flow.maker(line 0) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.maker(line 0) +unsaved +pending	Wheel down	ops-off flow.maker(line 1) +unsaved +pending	
 ops-off flow.maker(line 0) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
@@ -2640,11 +2610,11 @@ ops-off flow.maker(line 1) +pending	Wheel up	ops-off flow.maker(line 0) +pending
 ops-off flow.maker(line 1) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker(line 1) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 1) +unsaved	Down	ops-off flow.maker(line 2) +unsaved	
-ops-off flow.maker(line 1) +unsaved	End	ops-off flow.maker(line 4) +unsaved	
-ops-off flow.maker(line 1) +unsaved	Enter	ops-off flow.maker.picker(line 0) +unsaved	
-ops-off flow.maker(line 1) +unsaved	Esc	ops-off flow(parts template) +unsaved	
+ops-off flow.maker(line 1) +unsaved	End	ops-off flow.maker(line 2) +unsaved	
+ops-off flow.maker(line 1) +unsaved	Enter	ops-off flow(new terminal) +unsaved	
+ops-off flow.maker(line 1) +unsaved	Esc	ops-off flow(new empty) +unsaved	
 ops-off flow.maker(line 1) +unsaved	Home	ops-off flow.maker(line 0) +unsaved	
-ops-off flow.maker(line 1) +unsaved	PgDn	ops-off flow.maker(line 4) +unsaved	
+ops-off flow.maker(line 1) +unsaved	PgDn	ops-off flow.maker(line 2) +unsaved	
 ops-off flow.maker(line 1) +unsaved	PgUp	ops-off flow.maker(line 0) +unsaved	
 ops-off flow.maker(line 1) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.maker(line 1) +unsaved	Up	ops-off flow.maker(line 0) +unsaved	
@@ -2653,11 +2623,11 @@ ops-off flow.maker(line 1) +unsaved	Wheel up	ops-off flow.maker(line 0) +unsaved
 ops-off flow.maker(line 1) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker(line 1) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 1) +unsaved +pending	Down	ops-off flow.maker(line 2) +unsaved +pending	
-ops-off flow.maker(line 1) +unsaved +pending	End	ops-off flow.maker(line 4) +unsaved +pending	
-ops-off flow.maker(line 1) +unsaved +pending	Enter	ops-off flow.maker.picker(line 0) +unsaved +pending	
-ops-off flow.maker(line 1) +unsaved +pending	Esc	ops-off flow(parts template) +unsaved +pending	
+ops-off flow.maker(line 1) +unsaved +pending	End	ops-off flow.maker(line 2) +unsaved +pending	
+ops-off flow.maker(line 1) +unsaved +pending	Enter	ops-off flow(new terminal) +unsaved +pending	
+ops-off flow.maker(line 1) +unsaved +pending	Esc	ops-off flow(new empty) +unsaved +pending	
 ops-off flow.maker(line 1) +unsaved +pending	Home	ops-off flow.maker(line 0) +unsaved +pending	
-ops-off flow.maker(line 1) +unsaved +pending	PgDn	ops-off flow.maker(line 4) +unsaved +pending	
+ops-off flow.maker(line 1) +unsaved +pending	PgDn	ops-off flow.maker(line 2) +unsaved +pending	
 ops-off flow.maker(line 1) +unsaved +pending	PgUp	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow.maker(line 1) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.maker(line 1) +unsaved +pending	Up	ops-off flow.maker(line 0) +unsaved +pending	
@@ -2691,29 +2661,21 @@ ops-off flow.maker(line 2) +pending	Wheel down	ops-off flow.maker(line 3) +pendi
 ops-off flow.maker(line 2) +pending	Wheel up	ops-off flow.maker(line 1) +pending	
 ops-off flow.maker(line 2) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker(line 2) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker(line 2) +unsaved	Down	ops-off flow.maker(line 3) +unsaved	
-ops-off flow.maker(line 2) +unsaved	End	ops-off flow.maker(line 4) +unsaved	
-ops-off flow.maker(line 2) +unsaved	Enter	ops-off flow.maker.picker(line 0) +unsaved	
-ops-off flow.maker(line 2) +unsaved	Esc	ops-off flow(parts template) +unsaved	
+ops-off flow.maker(line 2) +unsaved	Enter	ops-off flow(new terminal) +unsaved	
+ops-off flow.maker(line 2) +unsaved	Esc	ops-off flow(new empty) +unsaved	
 ops-off flow.maker(line 2) +unsaved	Home	ops-off flow.maker(line 0) +unsaved	
-ops-off flow.maker(line 2) +unsaved	PgDn	ops-off flow.maker(line 4) +unsaved	
 ops-off flow.maker(line 2) +unsaved	PgUp	ops-off flow.maker(line 0) +unsaved	
 ops-off flow.maker(line 2) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.maker(line 2) +unsaved	Up	ops-off flow.maker(line 1) +unsaved	
-ops-off flow.maker(line 2) +unsaved	Wheel down	ops-off flow.maker(line 3) +unsaved	
 ops-off flow.maker(line 2) +unsaved	Wheel up	ops-off flow.maker(line 1) +unsaved	
 ops-off flow.maker(line 2) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker(line 2) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker(line 2) +unsaved +pending	Down	ops-off flow.maker(line 3) +unsaved +pending	
-ops-off flow.maker(line 2) +unsaved +pending	End	ops-off flow.maker(line 4) +unsaved +pending	
-ops-off flow.maker(line 2) +unsaved +pending	Enter	ops-off flow.maker.picker(line 0) +unsaved +pending	
-ops-off flow.maker(line 2) +unsaved +pending	Esc	ops-off flow(parts template) +unsaved +pending	
+ops-off flow.maker(line 2) +unsaved +pending	Enter	ops-off flow(new terminal) +unsaved +pending	
+ops-off flow.maker(line 2) +unsaved +pending	Esc	ops-off flow(new empty) +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	Home	ops-off flow.maker(line 0) +unsaved +pending	
-ops-off flow.maker(line 2) +unsaved +pending	PgDn	ops-off flow.maker(line 4) +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	PgUp	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	Up	ops-off flow.maker(line 1) +unsaved +pending	
-ops-off flow.maker(line 2) +unsaved +pending	Wheel down	ops-off flow.maker(line 3) +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	Wheel up	ops-off flow.maker(line 1) +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker(line 3)	Ctrl-C	ops-off left	mouse off, exit 130
@@ -2742,32 +2704,6 @@ ops-off flow.maker(line 3) +pending	Up	ops-off flow.maker(line 2) +pending
 ops-off flow.maker(line 3) +pending	Wheel down	ops-off flow.maker(line 4) +pending	
 ops-off flow.maker(line 3) +pending	Wheel up	ops-off flow.maker(line 2) +pending	
 ops-off flow.maker(line 3) +pending	q	ops-off any.question.leave +pending	
-ops-off flow.maker(line 3) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker(line 3) +unsaved	Down	ops-off flow.maker(line 4) +unsaved	
-ops-off flow.maker(line 3) +unsaved	End	ops-off flow.maker(line 4) +unsaved	
-ops-off flow.maker(line 3) +unsaved	Enter	ops-off flow.maker.picker(line 0) +unsaved	
-ops-off flow.maker(line 3) +unsaved	Esc	ops-off flow(parts template) +unsaved	
-ops-off flow.maker(line 3) +unsaved	Home	ops-off flow.maker(line 0) +unsaved	
-ops-off flow.maker(line 3) +unsaved	PgDn	ops-off flow.maker(line 4) +unsaved	
-ops-off flow.maker(line 3) +unsaved	PgUp	ops-off flow.maker(line 0) +unsaved	
-ops-off flow.maker(line 3) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off flow.maker(line 3) +unsaved	Up	ops-off flow.maker(line 2) +unsaved	
-ops-off flow.maker(line 3) +unsaved	Wheel down	ops-off flow.maker(line 4) +unsaved	
-ops-off flow.maker(line 3) +unsaved	Wheel up	ops-off flow.maker(line 2) +unsaved	
-ops-off flow.maker(line 3) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off flow.maker(line 3) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker(line 3) +unsaved +pending	Down	ops-off flow.maker(line 4) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	End	ops-off flow.maker(line 4) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	Enter	ops-off flow.maker.picker(line 0) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	Esc	ops-off flow(parts template) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	Home	ops-off flow.maker(line 0) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	PgDn	ops-off flow.maker(line 4) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	PgUp	ops-off flow.maker(line 0) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	Up	ops-off flow.maker(line 2) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	Wheel down	ops-off flow.maker(line 4) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	Wheel up	ops-off flow.maker(line 2) +unsaved +pending	
-ops-off flow.maker(line 3) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker(line 4)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 4)	Enter	ops-off flow.maker.picker(line 0)	
 ops-off flow.maker(line 4)	Esc	ops-off flow(parts template)	
@@ -2786,24 +2722,6 @@ ops-off flow.maker(line 4) +pending	Shrink	ops-off any.too-small +pending
 ops-off flow.maker(line 4) +pending	Up	ops-off flow.maker(line 3) +pending	
 ops-off flow.maker(line 4) +pending	Wheel up	ops-off flow.maker(line 3) +pending	
 ops-off flow.maker(line 4) +pending	q	ops-off any.question.leave +pending	
-ops-off flow.maker(line 4) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker(line 4) +unsaved	Enter	ops-off flow.maker.picker(line 0) +unsaved	
-ops-off flow.maker(line 4) +unsaved	Esc	ops-off flow(parts template) +unsaved	
-ops-off flow.maker(line 4) +unsaved	Home	ops-off flow.maker(line 0) +unsaved	
-ops-off flow.maker(line 4) +unsaved	PgUp	ops-off flow.maker(line 0) +unsaved	
-ops-off flow.maker(line 4) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off flow.maker(line 4) +unsaved	Up	ops-off flow.maker(line 3) +unsaved	
-ops-off flow.maker(line 4) +unsaved	Wheel up	ops-off flow.maker(line 3) +unsaved	
-ops-off flow.maker(line 4) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off flow.maker(line 4) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker(line 4) +unsaved +pending	Enter	ops-off flow.maker.picker(line 0) +unsaved +pending	
-ops-off flow.maker(line 4) +unsaved +pending	Esc	ops-off flow(parts template) +unsaved +pending	
-ops-off flow.maker(line 4) +unsaved +pending	Home	ops-off flow.maker(line 0) +unsaved +pending	
-ops-off flow.maker(line 4) +unsaved +pending	PgUp	ops-off flow.maker(line 0) +unsaved +pending	
-ops-off flow.maker(line 4) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off flow.maker(line 4) +unsaved +pending	Up	ops-off flow.maker(line 3) +unsaved +pending	
-ops-off flow.maker(line 4) +unsaved +pending	Wheel up	ops-off flow.maker(line 3) +unsaved +pending	
-ops-off flow.maker(line 4) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker.picker(line 0)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker(line 0)	Down	ops-off flow.maker.picker(line 1)	
 ops-off flow.maker.picker(line 0)	End	ops-off flow.maker.picker(line 1)	
@@ -2822,24 +2740,6 @@ ops-off flow.maker.picker(line 0) +pending	PgDn	ops-off flow.maker.picker(line 1
 ops-off flow.maker.picker(line 0) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow.maker.picker(line 0) +pending	Wheel down	ops-off flow.maker.picker(line 1) +pending	
 ops-off flow.maker.picker(line 0) +pending	q	ops-off any.question.leave +pending	
-ops-off flow.maker.picker(line 0) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker.picker(line 0) +unsaved	Down	ops-off flow.maker.picker(line 1) +unsaved	
-ops-off flow.maker.picker(line 0) +unsaved	End	ops-off flow.maker.picker(line 1) +unsaved	
-ops-off flow.maker.picker(line 0) +unsaved	Enter	ops-off flow(parts display) +unsaved	
-ops-off flow.maker.picker(line 0) +unsaved	Esc	ops-off flow.maker(line 1) +unsaved	
-ops-off flow.maker.picker(line 0) +unsaved	PgDn	ops-off flow.maker.picker(line 1) +unsaved	
-ops-off flow.maker.picker(line 0) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off flow.maker.picker(line 0) +unsaved	Wheel down	ops-off flow.maker.picker(line 1) +unsaved	
-ops-off flow.maker.picker(line 0) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off flow.maker.picker(line 0) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker.picker(line 0) +unsaved +pending	Down	ops-off flow.maker.picker(line 1) +unsaved +pending	
-ops-off flow.maker.picker(line 0) +unsaved +pending	End	ops-off flow.maker.picker(line 1) +unsaved +pending	
-ops-off flow.maker.picker(line 0) +unsaved +pending	Enter	ops-off flow(parts display) +unsaved +pending	
-ops-off flow.maker.picker(line 0) +unsaved +pending	Esc	ops-off flow.maker(line 1) +unsaved +pending	
-ops-off flow.maker.picker(line 0) +unsaved +pending	PgDn	ops-off flow.maker.picker(line 1) +unsaved +pending	
-ops-off flow.maker.picker(line 0) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off flow.maker.picker(line 0) +unsaved +pending	Wheel down	ops-off flow.maker.picker(line 1) +unsaved +pending	
-ops-off flow.maker.picker(line 0) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker.picker(line 1)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker(line 1)	Enter	ops-off flow.maker.picker.typing	
 ops-off flow.maker.picker(line 1)	Esc	ops-off flow.maker(line 1)	
@@ -2858,36 +2758,12 @@ ops-off flow.maker.picker(line 1) +pending	Shrink	ops-off any.too-small +pending
 ops-off flow.maker.picker(line 1) +pending	Up	ops-off flow.maker.picker(line 0) +pending	
 ops-off flow.maker.picker(line 1) +pending	Wheel up	ops-off flow.maker.picker(line 0) +pending	
 ops-off flow.maker.picker(line 1) +pending	q	ops-off any.question.leave +pending	
-ops-off flow.maker.picker(line 1) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker.picker(line 1) +unsaved	Enter	ops-off flow.maker.picker.typing +unsaved	
-ops-off flow.maker.picker(line 1) +unsaved	Esc	ops-off flow.maker(line 1) +unsaved	
-ops-off flow.maker.picker(line 1) +unsaved	Home	ops-off flow.maker.picker(line 0) +unsaved	
-ops-off flow.maker.picker(line 1) +unsaved	PgUp	ops-off flow.maker.picker(line 0) +unsaved	
-ops-off flow.maker.picker(line 1) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off flow.maker.picker(line 1) +unsaved	Up	ops-off flow.maker.picker(line 0) +unsaved	
-ops-off flow.maker.picker(line 1) +unsaved	Wheel up	ops-off flow.maker.picker(line 0) +unsaved	
-ops-off flow.maker.picker(line 1) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off flow.maker.picker(line 1) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker.picker(line 1) +unsaved +pending	Enter	ops-off flow.maker.picker.typing +unsaved +pending	
-ops-off flow.maker.picker(line 1) +unsaved +pending	Esc	ops-off flow.maker(line 1) +unsaved +pending	
-ops-off flow.maker.picker(line 1) +unsaved +pending	Home	ops-off flow.maker.picker(line 0) +unsaved +pending	
-ops-off flow.maker.picker(line 1) +unsaved +pending	PgUp	ops-off flow.maker.picker(line 0) +unsaved +pending	
-ops-off flow.maker.picker(line 1) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off flow.maker.picker(line 1) +unsaved +pending	Up	ops-off flow.maker.picker(line 0) +unsaved +pending	
-ops-off flow.maker.picker(line 1) +unsaved +pending	Wheel up	ops-off flow.maker.picker(line 0) +unsaved +pending	
-ops-off flow.maker.picker(line 1) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker.picker.typing	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker.typing	Esc	ops-off flow.maker.picker(line 1)	
 ops-off flow.maker.picker.typing	Shrink	ops-off any.too-small	
 ops-off flow.maker.picker.typing +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker.typing +pending	Esc	ops-off flow.maker.picker(line 1) +pending	
 ops-off flow.maker.picker.typing +pending	Shrink	ops-off any.too-small +pending	
-ops-off flow.maker.picker.typing +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker.picker.typing +unsaved	Esc	ops-off flow.maker.picker(line 1) +unsaved	
-ops-off flow.maker.picker.typing +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off flow.maker.picker.typing +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.maker.picker.typing +unsaved +pending	Esc	ops-off flow.maker.picker(line 1) +unsaved +pending	
-ops-off flow.maker.picker.typing +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.new-card	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.new-card	Enter	ops-off flow.card.typing	
 ops-off flow.new-card	Esc	ops-off flow(new terminal)	
@@ -2936,12 +2812,12 @@ ops-off flow.restore +pending	Shrink	ops-off any.too-small +pending
 ops-off flow.restore +pending	q	ops-off any.question.leave +pending	
 ops-off flow.restore +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.restore +unsaved	Enter	ops-off any.question.confirm +unsaved	
-ops-off flow.restore +unsaved	Esc	ops-off flow(doc display) +unsaved	
+ops-off flow.restore +unsaved	Esc	ops-off flow(doc terminal) +unsaved	
 ops-off flow.restore +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.restore +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.restore +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.restore +unsaved +pending	Enter	ops-off any.question.confirm +unsaved +pending	
-ops-off flow.restore +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pending	
+ops-off flow.restore +unsaved +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow.restore +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.restore +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(filter)	2	ops-off effects(filter)	
@@ -2975,7 +2851,7 @@ ops-off fonts(filter) +pending	Tab	ops-off effects(filter) +pending
 ops-off fonts(filter) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(filter) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(filter) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off fonts(filter) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off fonts(filter) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off fonts(filter) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(filter) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off fonts(filter) +unsaved	6	ops-off help(help) +unsaved	
@@ -3045,7 +2921,7 @@ ops-off fonts(font: activates on install, trusted) +pending	Up	ops-off fonts(fon
 ops-off fonts(font: activates on install, trusted) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(font: activates on install, trusted) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(font: activates on install, trusted) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off fonts(font: activates on install, trusted) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off fonts(font: activates on install, trusted) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off fonts(font: activates on install, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(font: activates on install, trusted) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off fonts(font: activates on install, trusted) +unsaved	6	ops-off help(help) +unsaved	
@@ -3123,7 +2999,7 @@ ops-off fonts(font: active, trusted) +pending	Up	ops-off fonts(filter) +pending
 ops-off fonts(font: active, trusted) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(font: active, trusted) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(font: active, trusted) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off fonts(font: active, trusted) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off fonts(font: active, trusted) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off fonts(font: active, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(font: active, trusted) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off fonts(font: active, trusted) +unsaved	6	ops-off help(help) +unsaved	
@@ -3201,7 +3077,7 @@ ops-off fonts(font: deactivates on install, trusted) +pending	Up	ops-off fonts(f
 ops-off fonts(font: deactivates on install, trusted) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(font: deactivates on install, trusted) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(font: deactivates on install, trusted) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off fonts(font: deactivates on install, trusted) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off fonts(font: deactivates on install, trusted) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off fonts(font: deactivates on install, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(font: deactivates on install, trusted) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off fonts(font: deactivates on install, trusted) +unsaved	6	ops-off help(help) +unsaved	
@@ -3277,7 +3153,7 @@ ops-off fonts(font: not active, fails the trust rule) +pending	Up	ops-off fonts(
 ops-off fonts(font: not active, fails the trust rule) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(font: not active, fails the trust rule) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(font: not active, fails the trust rule) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off fonts(font: not active, fails the trust rule) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off fonts(font: not active, fails the trust rule) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off fonts(font: not active, fails the trust rule) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(font: not active, fails the trust rule) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off fonts(font: not active, fails the trust rule) +unsaved	6	ops-off help(help) +unsaved	
@@ -3353,7 +3229,7 @@ ops-off fonts(font: not active, trusted) +pending	Up	ops-off fonts(font: active,
 ops-off fonts(font: not active, trusted) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(font: not active, trusted) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(font: not active, trusted) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off fonts(font: not active, trusted) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off fonts(font: not active, trusted) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off fonts(font: not active, trusted) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(font: not active, trusted) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off fonts(font: not active, trusted) +unsaved	6	ops-off help(help) +unsaved	
@@ -3423,7 +3299,7 @@ ops-off fonts(font: not usable) +pending	Up	ops-off fonts(font: active, trusted)
 ops-off fonts(font: not usable) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off fonts(font: not usable) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(font: not usable) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off fonts(font: not usable) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off fonts(font: not usable) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off fonts(font: not usable) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off fonts(font: not usable) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off fonts(font: not usable) +unsaved	6	ops-off help(help) +unsaved	
@@ -3521,7 +3397,6 @@ ops-off help(about)	Right	ops-off help(help)
 ops-off help(about)	Shift-Tab	ops-off settings(first)	
 ops-off help(about)	Shrink	ops-off any.too-small	
 ops-off help(about)	Tab	ops-off fonts(filter)	
-ops-off help(about)	o	ops-off help(about) +unsaved	check
 ops-off help(about)	q	ops-off left	exit 0
 ops-off help(about) +pending	1	ops-off fonts(filter) +pending	
 ops-off help(about) +pending	2	ops-off effects(filter) +pending	
@@ -3534,11 +3409,10 @@ ops-off help(about) +pending	Right	ops-off help(help) +pending
 ops-off help(about) +pending	Shift-Tab	ops-off settings(first) +pending	
 ops-off help(about) +pending	Shrink	ops-off any.too-small +pending	
 ops-off help(about) +pending	Tab	ops-off fonts(filter) +pending	
-ops-off help(about) +pending	o	ops-off help(about) +unsaved +pending	check
 ops-off help(about) +pending	q	ops-off any.question.leave +pending	
 ops-off help(about) +unsaved	1	ops-off fonts(filter) +unsaved	
 ops-off help(about) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off help(about) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off help(about) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off help(about) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off help(about) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off help(about) +unsaved	Ctrl-C	ops-off left	save, exit 130
@@ -3547,7 +3421,6 @@ ops-off help(about) +unsaved	Right	ops-off help(help) +unsaved
 ops-off help(about) +unsaved	Shift-Tab	ops-off settings(first) +unsaved	
 ops-off help(about) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off help(about) +unsaved	Tab	ops-off fonts(filter) +unsaved	
-ops-off help(about) +unsaved	o	ops-off help(about) +unsaved	check
 ops-off help(about) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off help(about) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
 ops-off help(about) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
@@ -3560,7 +3433,6 @@ ops-off help(about) +unsaved +pending	Right	ops-off help(help) +unsaved +pending
 ops-off help(about) +unsaved +pending	Shift-Tab	ops-off settings(first) +unsaved +pending	
 ops-off help(about) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off help(about) +unsaved +pending	Tab	ops-off fonts(filter) +unsaved +pending	
-ops-off help(about) +unsaved +pending	o	ops-off help(about) +unsaved +pending	check
 ops-off help(about) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off help(help)	1	ops-off fonts(filter)	
 ops-off help(help)	2	ops-off effects(filter)	
@@ -3573,7 +3445,6 @@ ops-off help(help)	Right	ops-off help(about)
 ops-off help(help)	Shift-Tab	ops-off settings(first)	
 ops-off help(help)	Shrink	ops-off any.too-small	
 ops-off help(help)	Tab	ops-off fonts(filter)	
-ops-off help(help)	o	ops-off help(help) +unsaved	check
 ops-off help(help)	q	ops-off left	exit 0
 ops-off help(help) +pending	1	ops-off fonts(filter) +pending	
 ops-off help(help) +pending	2	ops-off effects(filter) +pending	
@@ -3586,11 +3457,10 @@ ops-off help(help) +pending	Right	ops-off help(about) +pending
 ops-off help(help) +pending	Shift-Tab	ops-off settings(first) +pending	
 ops-off help(help) +pending	Shrink	ops-off any.too-small +pending	
 ops-off help(help) +pending	Tab	ops-off fonts(filter) +pending	
-ops-off help(help) +pending	o	ops-off help(help) +unsaved +pending	check
 ops-off help(help) +pending	q	ops-off any.question.leave +pending	
 ops-off help(help) +unsaved	1	ops-off fonts(filter) +unsaved	
 ops-off help(help) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off help(help) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off help(help) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off help(help) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off help(help) +unsaved	5	ops-off settings(first) +unsaved	
 ops-off help(help) +unsaved	Ctrl-C	ops-off left	save, exit 130
@@ -3599,7 +3469,6 @@ ops-off help(help) +unsaved	Right	ops-off help(about) +unsaved
 ops-off help(help) +unsaved	Shift-Tab	ops-off settings(first) +unsaved	
 ops-off help(help) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off help(help) +unsaved	Tab	ops-off fonts(filter) +unsaved	
-ops-off help(help) +unsaved	o	ops-off help(help) +unsaved	check
 ops-off help(help) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off help(help) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
 ops-off help(help) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
@@ -3612,7 +3481,6 @@ ops-off help(help) +unsaved +pending	Right	ops-off help(about) +unsaved +pending
 ops-off help(help) +unsaved +pending	Shift-Tab	ops-off settings(first) +unsaved +pending	
 ops-off help(help) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off help(help) +unsaved +pending	Tab	ops-off fonts(filter) +unsaved +pending	
-ops-off help(help) +unsaved +pending	o	ops-off help(help) +unsaved +pending	check
 ops-off help(help) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off looks(frit)	1	ops-off fonts(filter)	
 ops-off looks(frit)	2	ops-off effects(filter)	
@@ -3630,7 +3498,7 @@ ops-off looks(frit)	Shrink	ops-off any.too-small
 ops-off looks(frit)	Tab	ops-off flow(doc display)	mouse on
 ops-off looks(frit)	Up	ops-off looks(refused)	
 ops-off looks(frit)	i	ops-off looks(frit)	prepare
-ops-off looks(frit)	n	ops-off looks.new-frit.typing(row 0)	
+ops-off looks(frit)	n	ops-off looks.new-frit(row 0)	
 ops-off looks(frit)	q	ops-off left	exit 0
 ops-off looks(frit)	r	ops-off looks(marked) +pending	
 ops-off looks(frit)	w	ops-off any.question.window-ops	
@@ -3650,7 +3518,7 @@ ops-off looks(frit) +pending	Shrink	ops-off any.too-small +pending
 ops-off looks(frit) +pending	Tab	ops-off flow(doc display) +pending	mouse on
 ops-off looks(frit) +pending	Up	ops-off looks(marked) +pending	
 ops-off looks(frit) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off looks(frit) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
+ops-off looks(frit) +pending	n	ops-off looks.new-frit(row 0) +pending	
 ops-off looks(frit) +pending	q	ops-off any.question.leave +pending	
 ops-off looks(frit) +pending	r	ops-off looks(marked) +pending	
 ops-off looks(frit) +pending	w	ops-off any.question.window-ops +pending	
@@ -3662,15 +3530,15 @@ ops-off looks(frit) +unsaved	6	ops-off help(help) +unsaved
 ops-off looks(frit) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off looks(frit) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks(frit) +unsaved	Enter	ops-off looks.font-set +unsaved	
-ops-off looks(frit) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks(frit) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks(frit) +unsaved	PgDn	ops-off looks-resources(built-in scheme) +unsaved	
-ops-off looks(frit) +unsaved	PgUp	ops-off looks(look) +unsaved	
+ops-off looks(frit) +unsaved	PgUp	ops-off looks(no looks) +unsaved	
 ops-off looks(frit) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
 ops-off looks(frit) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off looks(frit) +unsaved	Tab	ops-off flow(doc display) +unsaved	mouse on
 ops-off looks(frit) +unsaved	Up	ops-off looks(refused) +unsaved	
 ops-off looks(frit) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off looks(frit) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
+ops-off looks(frit) +unsaved	n	ops-off looks.new-frit(row 0) +unsaved	
 ops-off looks(frit) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off looks(frit) +unsaved	r	ops-off looks(marked) +unsaved +pending	
 ops-off looks(frit) +unsaved	s	ops-off looks(frit)	save
@@ -3691,7 +3559,7 @@ ops-off looks(frit) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pen
 ops-off looks(frit) +unsaved +pending	Tab	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off looks(frit) +unsaved +pending	Up	ops-off looks(marked) +unsaved +pending	
 ops-off looks(frit) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off looks(frit) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
+ops-off looks(frit) +unsaved +pending	n	ops-off looks.new-frit(row 0) +unsaved +pending	
 ops-off looks(frit) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off looks(frit) +unsaved +pending	r	ops-off looks(marked) +unsaved +pending	
 ops-off looks(frit) +unsaved +pending	s	ops-off looks(frit) +pending	save
@@ -3787,7 +3655,7 @@ ops-off looks(marked) +pending	Shrink	ops-off any.too-small +pending
 ops-off looks(marked) +pending	Tab	ops-off flow(doc display) +pending	mouse on
 ops-off looks(marked) +pending	Up	ops-off looks(look) +pending	
 ops-off looks(marked) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off looks(marked) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
+ops-off looks(marked) +pending	n	ops-off looks.new-frit(row 0) +pending	
 ops-off looks(marked) +pending	q	ops-off any.question.leave +pending	
 ops-off looks(marked) +pending	r	ops-off looks(refused)	
 ops-off looks(marked) +pending	w	ops-off any.question.window-ops +pending	
@@ -3808,7 +3676,7 @@ ops-off looks(marked) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +p
 ops-off looks(marked) +unsaved +pending	Tab	ops-off flow(doc display) +unsaved +pending	mouse on
 ops-off looks(marked) +unsaved +pending	Up	ops-off looks(look) +unsaved +pending	
 ops-off looks(marked) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off looks(marked) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
+ops-off looks(marked) +unsaved +pending	n	ops-off looks.new-frit(row 0) +unsaved +pending	
 ops-off looks(marked) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off looks(marked) +unsaved +pending	r	ops-off looks(refused) +unsaved	
 ops-off looks(marked) +unsaved +pending	s	ops-off looks(marked) +pending	save
@@ -3896,7 +3764,7 @@ ops-off looks(refused)	Shrink	ops-off any.too-small
 ops-off looks(refused)	Tab	ops-off flow(doc display)	mouse on
 ops-off looks(refused)	Up	ops-off looks(look)	
 ops-off looks(refused)	i	ops-off looks(refused)	prepare
-ops-off looks(refused)	n	ops-off looks.new-frit.typing(row 0)	
+ops-off looks(refused)	n	ops-off looks.new-frit(row 0)	
 ops-off looks(refused)	q	ops-off left	exit 0
 ops-off looks(refused)	r	ops-off looks(marked) +pending	
 ops-off looks(refused)	w	ops-off any.question.window-ops	
@@ -3909,15 +3777,15 @@ ops-off looks(refused) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off looks(refused) +unsaved	Down	ops-off looks(frit) +unsaved	
 ops-off looks(refused) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks(refused) +unsaved	Enter	ops-off looks.font-set +unsaved	
-ops-off looks(refused) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks(refused) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks(refused) +unsaved	PgDn	ops-off looks-resources(built-in scheme) +unsaved	
-ops-off looks(refused) +unsaved	PgUp	ops-off looks(look) +unsaved	
+ops-off looks(refused) +unsaved	PgUp	ops-off looks(no looks) +unsaved	
 ops-off looks(refused) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
 ops-off looks(refused) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off looks(refused) +unsaved	Tab	ops-off flow(doc display) +unsaved	mouse on
-ops-off looks(refused) +unsaved	Up	ops-off looks(look) +unsaved	
+ops-off looks(refused) +unsaved	Up	ops-off looks(no looks) +unsaved	
 ops-off looks(refused) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off looks(refused) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
+ops-off looks(refused) +unsaved	n	ops-off looks.new-frit(row 0) +unsaved	
 ops-off looks(refused) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off looks(refused) +unsaved	r	ops-off looks(marked) +unsaved +pending	
 ops-off looks(refused) +unsaved	s	ops-off looks(refused)	save
@@ -3962,9 +3830,9 @@ ops-off looks-resources(built-in scheme) +unsaved	6	ops-off help(help) +unsaved
 ops-off looks-resources(built-in scheme) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off looks-resources(built-in scheme) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(built-in scheme) +unsaved	Enter	ops-off looks.palette +unsaved	
-ops-off looks-resources(built-in scheme) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(built-in scheme) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(built-in scheme) +unsaved	PgDn	ops-off looks-resources(color scheme: not active, trusted) +unsaved	
-ops-off looks-resources(built-in scheme) +unsaved	PgUp	ops-off looks(look) +unsaved	
+ops-off looks-resources(built-in scheme) +unsaved	PgUp	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(built-in scheme) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
 ops-off looks-resources(built-in scheme) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off looks-resources(built-in scheme) +unsaved	Tab	ops-off flow(doc display) +unsaved	mouse on
@@ -4035,7 +3903,7 @@ ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	Ct
 ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	Down	ops-off looks-resources(pointer theme: active, trusted) +unsaved	
 ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	Enter	ops-off looks.palette +unsaved	
-ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(color scheme: activates on install, trusted) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4111,7 +3979,7 @@ ops-off looks-resources(color scheme: active, trusted) +unsaved	Ctrl-C	ops-off l
 ops-off looks-resources(color scheme: active, trusted) +unsaved	Down	ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: active, trusted) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: active, trusted) +unsaved	Enter	ops-off looks.palette +unsaved	
-ops-off looks-resources(color scheme: active, trusted) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(color scheme: active, trusted) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(color scheme: active, trusted) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: active, trusted) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(color scheme: active, trusted) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4187,7 +4055,7 @@ ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	
 ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	Down	ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	Enter	ops-off looks.palette +unsaved	
-ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(color scheme: deactivates on install, trusted) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4263,7 +4131,7 @@ ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved
 ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	Down	ops-off looks-resources(color scheme: not active, trusted) +unsaved	
 ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	Enter	ops-off looks.palette +unsaved	
-ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(color scheme: not active, fails the trust rule) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4339,7 +4207,7 @@ ops-off looks-resources(color scheme: not active, trusted) +unsaved	Ctrl-C	ops-o
 ops-off looks-resources(color scheme: not active, trusted) +unsaved	Down	ops-off looks-resources(pointer theme: active, trusted) +unsaved	
 ops-off looks-resources(color scheme: not active, trusted) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: not active, trusted) +unsaved	Enter	ops-off looks.palette +unsaved	
-ops-off looks-resources(color scheme: not active, trusted) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(color scheme: not active, trusted) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(color scheme: not active, trusted) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(color scheme: not active, trusted) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(color scheme: not active, trusted) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4417,7 +4285,7 @@ ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	C
 ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	Down	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	Enter	ops-off looks.pointer +unsaved	
-ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(pointer theme: activates on install, trusted) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4495,7 +4363,7 @@ ops-off looks-resources(pointer theme: active, trusted) +unsaved	Ctrl-C	ops-off 
 ops-off looks-resources(pointer theme: active, trusted) +unsaved	Down	ops-off looks-resources(pointer theme: not active, trusted) +unsaved	
 ops-off looks-resources(pointer theme: active, trusted) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: active, trusted) +unsaved	Enter	ops-off looks.pointer +unsaved	
-ops-off looks-resources(pointer theme: active, trusted) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(pointer theme: active, trusted) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(pointer theme: active, trusted) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: active, trusted) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(pointer theme: active, trusted) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4573,7 +4441,7 @@ ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved
 ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved	Down	ops-off looks-resources(pointer theme: not active, trusted) +unsaved	
 ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved	Enter	ops-off looks.pointer +unsaved	
-ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(pointer theme: deactivates on install, trusted) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4641,7 +4509,7 @@ ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsave
 ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	6	ops-off help(help) +unsaved	
 ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	Ctrl-C	ops-off left	save, exit 130
 ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	Enter	ops-off looks.pointer +unsaved	
-ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
 ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	Shrink	ops-off any.too-small +unsaved	
@@ -4713,7 +4581,7 @@ ops-off looks-resources(pointer theme: not active, trusted) +unsaved	Ctrl-C	ops-
 ops-off looks-resources(pointer theme: not active, trusted) +unsaved	Down	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: not active, trusted) +unsaved	End	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: not active, trusted) +unsaved	Enter	ops-off looks.pointer +unsaved	
-ops-off looks-resources(pointer theme: not active, trusted) +unsaved	Home	ops-off looks(look) +unsaved	
+ops-off looks-resources(pointer theme: not active, trusted) +unsaved	Home	ops-off looks(no looks) +unsaved	
 ops-off looks-resources(pointer theme: not active, trusted) +unsaved	PgDn	ops-off looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 ops-off looks-resources(pointer theme: not active, trusted) +unsaved	PgUp	ops-off looks-resources(built-in scheme) +unsaved	
 ops-off looks-resources(pointer theme: not active, trusted) +unsaved	Shift-Tab	ops-off effects(filter) +unsaved	
@@ -4986,130 +4854,466 @@ ops-off looks.look.typing +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off looks.look.typing +unsaved +pending	Enter	ops-off looks.look(name) +unsaved +pending	
 ops-off looks.look.typing +unsaved +pending	Esc	ops-off looks.look(name) +unsaved +pending	
 ops-off looks.look.typing +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 0)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 0)	Down	ops-off looks.new-frit(row 1)	
+ops-off looks.new-frit(row 0)	End	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 0)	Enter	ops-off looks.new-frit.list(row 0)	
+ops-off looks.new-frit(row 0)	Esc	ops-off looks(refused)	
+ops-off looks.new-frit(row 0)	PgDn	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 0)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit(row 0)	q	ops-off left	exit 0
+ops-off looks.new-frit(row 0) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 0) +pending	Down	ops-off looks.new-frit(row 1) +pending	
+ops-off looks.new-frit(row 0) +pending	End	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 0) +pending	Enter	ops-off looks.new-frit.list(row 0) +pending	
+ops-off looks.new-frit(row 0) +pending	Esc	ops-off looks(marked) +pending	
+ops-off looks.new-frit(row 0) +pending	PgDn	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 0) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit(row 0) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit(row 0) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 0) +unsaved	Down	ops-off looks.new-frit(row 1) +unsaved	
+ops-off looks.new-frit(row 0) +unsaved	End	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 0) +unsaved	Enter	ops-off looks.new-frit.list(row 0) +unsaved	
+ops-off looks.new-frit(row 0) +unsaved	Esc	ops-off looks(refused) +unsaved	
+ops-off looks.new-frit(row 0) +unsaved	PgDn	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 0) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit(row 0) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit(row 0) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 0) +unsaved +pending	Down	ops-off looks.new-frit(row 1) +unsaved +pending	
+ops-off looks.new-frit(row 0) +unsaved +pending	End	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 0) +unsaved +pending	Enter	ops-off looks.new-frit.list(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 0) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
+ops-off looks.new-frit(row 0) +unsaved +pending	PgDn	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 0) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 0) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit(row 1)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 1)	Down	ops-off looks.new-frit(row 2)	
+ops-off looks.new-frit(row 1)	End	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 1)	Enter	ops-off looks.new-frit.list(row 1)	
+ops-off looks.new-frit(row 1)	Esc	ops-off looks(refused)	
+ops-off looks.new-frit(row 1)	Home	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 1)	PgDn	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 1)	PgUp	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 1)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit(row 1)	Up	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 1)	q	ops-off left	exit 0
+ops-off looks.new-frit(row 1) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 1) +pending	Down	ops-off looks.new-frit(row 2) +pending	
+ops-off looks.new-frit(row 1) +pending	End	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 1) +pending	Enter	ops-off looks.new-frit.list(row 1) +pending	
+ops-off looks.new-frit(row 1) +pending	Esc	ops-off looks(marked) +pending	
+ops-off looks.new-frit(row 1) +pending	Home	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 1) +pending	PgDn	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 1) +pending	PgUp	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 1) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit(row 1) +pending	Up	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 1) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit(row 1) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 1) +unsaved	Down	ops-off looks.new-frit(row 2) +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	End	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	Enter	ops-off looks.new-frit.list(row 1) +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	Esc	ops-off looks(refused) +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	Home	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	PgDn	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	PgUp	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	Up	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 1) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit(row 1) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 1) +unsaved +pending	Down	ops-off looks.new-frit(row 2) +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	End	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	Enter	ops-off looks.new-frit.list(row 1) +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	Home	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	PgDn	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	PgUp	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	Up	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 1) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit(row 2)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 2)	Down	ops-off looks.new-frit(row 3)	
+ops-off looks.new-frit(row 2)	End	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 2)	Enter	ops-off looks.new-frit.list(row 2)	
+ops-off looks.new-frit(row 2)	Esc	ops-off looks(refused)	
+ops-off looks.new-frit(row 2)	Home	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 2)	PgDn	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 2)	PgUp	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 2)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit(row 2)	Up	ops-off looks.new-frit(row 1)	
+ops-off looks.new-frit(row 2)	q	ops-off left	exit 0
+ops-off looks.new-frit(row 2) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 2) +pending	Down	ops-off looks.new-frit(row 3) +pending	
+ops-off looks.new-frit(row 2) +pending	End	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 2) +pending	Enter	ops-off looks.new-frit.list(row 2) +pending	
+ops-off looks.new-frit(row 2) +pending	Esc	ops-off looks(marked) +pending	
+ops-off looks.new-frit(row 2) +pending	Home	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 2) +pending	PgDn	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 2) +pending	PgUp	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 2) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit(row 2) +pending	Up	ops-off looks.new-frit(row 1) +pending	
+ops-off looks.new-frit(row 2) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit(row 2) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 2) +unsaved	Down	ops-off looks.new-frit(row 3) +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	End	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	Enter	ops-off looks.new-frit.list(row 2) +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	Esc	ops-off looks(refused) +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	Home	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	PgDn	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	PgUp	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	Up	ops-off looks.new-frit(row 1) +unsaved	
+ops-off looks.new-frit(row 2) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit(row 2) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 2) +unsaved +pending	Down	ops-off looks.new-frit(row 3) +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	End	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	Enter	ops-off looks.new-frit.list(row 2) +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	Home	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	PgDn	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	PgUp	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	Up	ops-off looks.new-frit(row 1) +unsaved +pending	
+ops-off looks.new-frit(row 2) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit(row 3)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 3)	Down	ops-off looks.new-frit(row 4)	
+ops-off looks.new-frit(row 3)	End	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 3)	Enter	ops-off looks.new-frit.list(row 3)	
+ops-off looks.new-frit(row 3)	Esc	ops-off looks(refused)	
+ops-off looks.new-frit(row 3)	Home	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 3)	PgDn	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 3)	PgUp	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 3)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit(row 3)	Up	ops-off looks.new-frit(row 2)	
+ops-off looks.new-frit(row 3)	q	ops-off left	exit 0
+ops-off looks.new-frit(row 3) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 3) +pending	Down	ops-off looks.new-frit(row 4) +pending	
+ops-off looks.new-frit(row 3) +pending	End	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 3) +pending	Enter	ops-off looks.new-frit.list(row 3) +pending	
+ops-off looks.new-frit(row 3) +pending	Esc	ops-off looks(marked) +pending	
+ops-off looks.new-frit(row 3) +pending	Home	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 3) +pending	PgDn	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 3) +pending	PgUp	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 3) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit(row 3) +pending	Up	ops-off looks.new-frit(row 2) +pending	
+ops-off looks.new-frit(row 3) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit(row 3) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 3) +unsaved	Down	ops-off looks.new-frit(row 4) +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	End	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	Enter	ops-off looks.new-frit.list(row 3) +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	Esc	ops-off looks(refused) +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	Home	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	PgDn	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	PgUp	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	Up	ops-off looks.new-frit(row 2) +unsaved	
+ops-off looks.new-frit(row 3) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit(row 3) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 3) +unsaved +pending	Down	ops-off looks.new-frit(row 4) +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	End	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	Enter	ops-off looks.new-frit.list(row 3) +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	Home	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	PgDn	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	PgUp	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	Up	ops-off looks.new-frit(row 2) +unsaved +pending	
+ops-off looks.new-frit(row 3) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit(row 4)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 4)	Down	ops-off looks.new-frit(row 5)	
+ops-off looks.new-frit(row 4)	End	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 4)	Enter	ops-off looks.new-frit.list(row 4)	
+ops-off looks.new-frit(row 4)	Esc	ops-off looks(refused)	
+ops-off looks.new-frit(row 4)	Home	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 4)	PgDn	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 4)	PgUp	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 4)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit(row 4)	Up	ops-off looks.new-frit(row 3)	
+ops-off looks.new-frit(row 4)	q	ops-off left	exit 0
+ops-off looks.new-frit(row 4) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 4) +pending	Down	ops-off looks.new-frit(row 5) +pending	
+ops-off looks.new-frit(row 4) +pending	End	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 4) +pending	Enter	ops-off looks.new-frit.list(row 4) +pending	
+ops-off looks.new-frit(row 4) +pending	Esc	ops-off looks(marked) +pending	
+ops-off looks.new-frit(row 4) +pending	Home	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 4) +pending	PgDn	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 4) +pending	PgUp	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 4) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit(row 4) +pending	Up	ops-off looks.new-frit(row 3) +pending	
+ops-off looks.new-frit(row 4) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit(row 4) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 4) +unsaved	Down	ops-off looks.new-frit(row 5) +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	End	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	Enter	ops-off looks.new-frit.list(row 4) +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	Esc	ops-off looks(refused) +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	Home	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	PgDn	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	PgUp	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	Up	ops-off looks.new-frit(row 3) +unsaved	
+ops-off looks.new-frit(row 4) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit(row 4) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 4) +unsaved +pending	Down	ops-off looks.new-frit(row 5) +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	End	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	Enter	ops-off looks.new-frit.list(row 4) +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	Home	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	PgDn	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	PgUp	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	Up	ops-off looks.new-frit(row 3) +unsaved +pending	
+ops-off looks.new-frit(row 4) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit(row 5)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 5)	Down	ops-off looks.new-frit(row 6)	
+ops-off looks.new-frit(row 5)	End	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 5)	Enter	ops-off looks.new-frit.list(row 5)	
+ops-off looks.new-frit(row 5)	Esc	ops-off looks(refused)	
+ops-off looks.new-frit(row 5)	Home	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 5)	PgDn	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 5)	PgUp	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 5)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit(row 5)	Up	ops-off looks.new-frit(row 4)	
+ops-off looks.new-frit(row 5)	q	ops-off left	exit 0
+ops-off looks.new-frit(row 5) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 5) +pending	Down	ops-off looks.new-frit(row 6) +pending	
+ops-off looks.new-frit(row 5) +pending	End	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 5) +pending	Enter	ops-off looks.new-frit.list(row 5) +pending	
+ops-off looks.new-frit(row 5) +pending	Esc	ops-off looks(marked) +pending	
+ops-off looks.new-frit(row 5) +pending	Home	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 5) +pending	PgDn	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 5) +pending	PgUp	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 5) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit(row 5) +pending	Up	ops-off looks.new-frit(row 4) +pending	
+ops-off looks.new-frit(row 5) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit(row 5) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 5) +unsaved	Down	ops-off looks.new-frit(row 6) +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	End	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	Enter	ops-off looks.new-frit.list(row 5) +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	Esc	ops-off looks(refused) +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	Home	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	PgDn	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	PgUp	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	Up	ops-off looks.new-frit(row 4) +unsaved	
+ops-off looks.new-frit(row 5) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit(row 5) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 5) +unsaved +pending	Down	ops-off looks.new-frit(row 6) +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	End	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	Enter	ops-off looks.new-frit.list(row 5) +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	Home	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	PgDn	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	PgUp	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	Up	ops-off looks.new-frit(row 4) +unsaved +pending	
+ops-off looks.new-frit(row 5) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off looks.new-frit(row 6)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 6)	Down	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 6)	End	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 6)	Enter	ops-off looks.new-frit.typing(row 6)	
 ops-off looks.new-frit(row 6)	Esc	ops-off looks(refused)	
-ops-off looks.new-frit(row 6)	Home	ops-off looks.new-frit.typing(row 0)	
-ops-off looks.new-frit(row 6)	PgUp	ops-off looks.new-frit.typing(row 0)	
+ops-off looks.new-frit(row 6)	Home	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 6)	PgDn	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit(row 6)	PgUp	ops-off looks.new-frit(row 0)	
 ops-off looks.new-frit(row 6)	Shrink	ops-off any.too-small	
-ops-off looks.new-frit(row 6)	Up	ops-off looks.new-frit.typing(row 5)	
+ops-off looks.new-frit(row 6)	Up	ops-off looks.new-frit(row 5)	
 ops-off looks.new-frit(row 6)	q	ops-off left	exit 0
 ops-off looks.new-frit(row 6) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 6) +pending	Down	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 6) +pending	End	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 6) +pending	Enter	ops-off looks.new-frit.typing(row 6) +pending	
 ops-off looks.new-frit(row 6) +pending	Esc	ops-off looks(marked) +pending	
-ops-off looks.new-frit(row 6) +pending	Home	ops-off looks.new-frit.typing(row 0) +pending	
-ops-off looks.new-frit(row 6) +pending	PgUp	ops-off looks.new-frit.typing(row 0) +pending	
+ops-off looks.new-frit(row 6) +pending	Home	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 6) +pending	PgDn	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit(row 6) +pending	PgUp	ops-off looks.new-frit(row 0) +pending	
 ops-off looks.new-frit(row 6) +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit(row 6) +pending	Up	ops-off looks.new-frit.typing(row 5) +pending	
+ops-off looks.new-frit(row 6) +pending	Up	ops-off looks.new-frit(row 5) +pending	
 ops-off looks.new-frit(row 6) +pending	q	ops-off any.question.leave +pending	
 ops-off looks.new-frit(row 6) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 6) +unsaved	Down	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	End	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	Enter	ops-off looks.new-frit.typing(row 6) +unsaved	
 ops-off looks.new-frit(row 6) +unsaved	Esc	ops-off looks(refused) +unsaved	
-ops-off looks.new-frit(row 6) +unsaved	Home	ops-off looks.new-frit.typing(row 0) +unsaved	
-ops-off looks.new-frit(row 6) +unsaved	PgUp	ops-off looks.new-frit.typing(row 0) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	Home	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	PgDn	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	PgUp	ops-off looks.new-frit(row 0) +unsaved	
 ops-off looks.new-frit(row 6) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit(row 6) +unsaved	Up	ops-off looks.new-frit.typing(row 5) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	Up	ops-off looks.new-frit(row 5) +unsaved	
 ops-off looks.new-frit(row 6) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off looks.new-frit(row 6) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 6) +unsaved +pending	Down	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	End	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 6) +unsaved +pending	
 ops-off looks.new-frit(row 6) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
-ops-off looks.new-frit(row 6) +unsaved +pending	Home	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
-ops-off looks.new-frit(row 6) +unsaved +pending	PgUp	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	Home	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	PgDn	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	PgUp	ops-off looks.new-frit(row 0) +unsaved +pending	
 ops-off looks.new-frit(row 6) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off looks.new-frit(row 6) +unsaved +pending	Up	ops-off looks.new-frit.typing(row 5) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	Up	ops-off looks.new-frit(row 5) +unsaved +pending	
 ops-off looks.new-frit(row 6) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off looks.new-frit.typing(row 0)	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 0)	Enter	ops-off looks.new-frit.typing(row 1)	
-ops-off looks.new-frit.typing(row 0)	Esc	ops-off looks(refused)	
-ops-off looks.new-frit.typing(row 0)	Shrink	ops-off any.too-small	
-ops-off looks.new-frit.typing(row 0) +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 0) +pending	Enter	ops-off looks.new-frit.typing(row 1) +pending	
-ops-off looks.new-frit.typing(row 0) +pending	Esc	ops-off looks(marked) +pending	
-ops-off looks.new-frit.typing(row 0) +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit.typing(row 0) +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 0) +unsaved	Enter	ops-off looks.new-frit.typing(row 1) +unsaved	
-ops-off looks.new-frit.typing(row 0) +unsaved	Esc	ops-off looks(refused) +unsaved	
-ops-off looks.new-frit.typing(row 0) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit.typing(row 0) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 0) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 1) +unsaved +pending	
-ops-off looks.new-frit.typing(row 0) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
-ops-off looks.new-frit.typing(row 0) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off looks.new-frit.typing(row 1)	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 1)	Enter	ops-off looks.new-frit.typing(row 2)	
-ops-off looks.new-frit.typing(row 1)	Esc	ops-off looks(refused)	
-ops-off looks.new-frit.typing(row 1)	Shrink	ops-off any.too-small	
-ops-off looks.new-frit.typing(row 1) +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 1) +pending	Enter	ops-off looks.new-frit.typing(row 2) +pending	
-ops-off looks.new-frit.typing(row 1) +pending	Esc	ops-off looks(marked) +pending	
-ops-off looks.new-frit.typing(row 1) +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit.typing(row 1) +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 1) +unsaved	Enter	ops-off looks.new-frit.typing(row 2) +unsaved	
-ops-off looks.new-frit.typing(row 1) +unsaved	Esc	ops-off looks(refused) +unsaved	
-ops-off looks.new-frit.typing(row 1) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit.typing(row 1) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 1) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 2) +unsaved +pending	
-ops-off looks.new-frit.typing(row 1) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
-ops-off looks.new-frit.typing(row 1) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off looks.new-frit.typing(row 2)	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 2)	Enter	ops-off looks.new-frit.typing(row 3)	
-ops-off looks.new-frit.typing(row 2)	Esc	ops-off looks(refused)	
-ops-off looks.new-frit.typing(row 2)	Shrink	ops-off any.too-small	
-ops-off looks.new-frit.typing(row 2) +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 2) +pending	Enter	ops-off looks.new-frit.typing(row 3) +pending	
-ops-off looks.new-frit.typing(row 2) +pending	Esc	ops-off looks(marked) +pending	
-ops-off looks.new-frit.typing(row 2) +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit.typing(row 2) +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 2) +unsaved	Enter	ops-off looks.new-frit.typing(row 3) +unsaved	
-ops-off looks.new-frit.typing(row 2) +unsaved	Esc	ops-off looks(refused) +unsaved	
-ops-off looks.new-frit.typing(row 2) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit.typing(row 2) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 2) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 3) +unsaved +pending	
-ops-off looks.new-frit.typing(row 2) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
-ops-off looks.new-frit.typing(row 2) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off looks.new-frit.typing(row 3)	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 3)	Enter	ops-off looks.new-frit.typing(row 4)	
-ops-off looks.new-frit.typing(row 3)	Esc	ops-off looks(refused)	
-ops-off looks.new-frit.typing(row 3)	Shrink	ops-off any.too-small	
-ops-off looks.new-frit.typing(row 3) +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 3) +pending	Enter	ops-off looks.new-frit.typing(row 4) +pending	
-ops-off looks.new-frit.typing(row 3) +pending	Esc	ops-off looks(marked) +pending	
-ops-off looks.new-frit.typing(row 3) +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit.typing(row 3) +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 3) +unsaved	Enter	ops-off looks.new-frit.typing(row 4) +unsaved	
-ops-off looks.new-frit.typing(row 3) +unsaved	Esc	ops-off looks(refused) +unsaved	
-ops-off looks.new-frit.typing(row 3) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit.typing(row 3) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 3) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 4) +unsaved +pending	
-ops-off looks.new-frit.typing(row 3) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
-ops-off looks.new-frit.typing(row 3) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off looks.new-frit.typing(row 4)	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 4)	Enter	ops-off looks.new-frit.typing(row 5)	
-ops-off looks.new-frit.typing(row 4)	Esc	ops-off looks(refused)	
-ops-off looks.new-frit.typing(row 4)	Shrink	ops-off any.too-small	
-ops-off looks.new-frit.typing(row 4) +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 4) +pending	Enter	ops-off looks.new-frit.typing(row 5) +pending	
-ops-off looks.new-frit.typing(row 4) +pending	Esc	ops-off looks(marked) +pending	
-ops-off looks.new-frit.typing(row 4) +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit.typing(row 4) +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 4) +unsaved	Enter	ops-off looks.new-frit.typing(row 5) +unsaved	
-ops-off looks.new-frit.typing(row 4) +unsaved	Esc	ops-off looks(refused) +unsaved	
-ops-off looks.new-frit.typing(row 4) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit.typing(row 4) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 4) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 5) +unsaved +pending	
-ops-off looks.new-frit.typing(row 4) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
-ops-off looks.new-frit.typing(row 4) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off looks.new-frit.typing(row 5)	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 5)	Enter	ops-off looks.new-frit(row 6)	
-ops-off looks.new-frit.typing(row 5)	Esc	ops-off looks(refused)	
-ops-off looks.new-frit.typing(row 5)	Shrink	ops-off any.too-small	
-ops-off looks.new-frit.typing(row 5) +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing(row 5) +pending	Enter	ops-off looks.new-frit(row 6) +pending	
-ops-off looks.new-frit.typing(row 5) +pending	Esc	ops-off looks(marked) +pending	
-ops-off looks.new-frit.typing(row 5) +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit.typing(row 5) +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 5) +unsaved	Enter	ops-off looks.new-frit(row 6) +unsaved	
-ops-off looks.new-frit.typing(row 5) +unsaved	Esc	ops-off looks(refused) +unsaved	
-ops-off looks.new-frit.typing(row 5) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit.typing(row 5) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing(row 5) +unsaved +pending	Enter	ops-off looks.new-frit(row 6) +unsaved +pending	
-ops-off looks.new-frit.typing(row 5) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
-ops-off looks.new-frit.typing(row 5) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 7)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 7)	Esc	ops-off looks(refused)	
+ops-off looks.new-frit(row 7)	Home	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 7)	PgUp	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit(row 7)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit(row 7)	Up	ops-off looks.new-frit(row 6)	
+ops-off looks.new-frit(row 7)	q	ops-off left	exit 0
+ops-off looks.new-frit(row 7) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 7) +pending	Esc	ops-off looks(marked) +pending	
+ops-off looks.new-frit(row 7) +pending	Home	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 7) +pending	PgUp	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit(row 7) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit(row 7) +pending	Up	ops-off looks.new-frit(row 6) +pending	
+ops-off looks.new-frit(row 7) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit(row 7) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 7) +unsaved	Esc	ops-off looks(refused) +unsaved	
+ops-off looks.new-frit(row 7) +unsaved	Home	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 7) +unsaved	PgUp	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit(row 7) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit(row 7) +unsaved	Up	ops-off looks.new-frit(row 6) +unsaved	
+ops-off looks.new-frit(row 7) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit(row 7) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 7) +unsaved +pending	Esc	ops-off looks(marked) +unsaved +pending	
+ops-off looks.new-frit(row 7) +unsaved +pending	Home	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 7) +unsaved +pending	PgUp	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 7) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 7) +unsaved +pending	Up	ops-off looks.new-frit(row 6) +unsaved +pending	
+ops-off looks.new-frit(row 7) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit.list(row 0)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 0)	Enter	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit.list(row 0)	Esc	ops-off looks.new-frit(row 0)	
+ops-off looks.new-frit.list(row 0)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.list(row 0)	q	ops-off left	exit 0
+ops-off looks.new-frit.list(row 0) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 0) +pending	Enter	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit.list(row 0) +pending	Esc	ops-off looks.new-frit(row 0) +pending	
+ops-off looks.new-frit.list(row 0) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.list(row 0) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit.list(row 0) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 0) +unsaved	Enter	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit.list(row 0) +unsaved	Esc	ops-off looks.new-frit(row 0) +unsaved	
+ops-off looks.new-frit.list(row 0) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.list(row 0) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit.list(row 0) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 0) +unsaved +pending	Enter	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit.list(row 0) +unsaved +pending	Esc	ops-off looks.new-frit(row 0) +unsaved +pending	
+ops-off looks.new-frit.list(row 0) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.list(row 0) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit.list(row 1)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 1)	Enter	ops-off looks.new-frit(row 1)	
+ops-off looks.new-frit.list(row 1)	Esc	ops-off looks.new-frit(row 1)	
+ops-off looks.new-frit.list(row 1)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.list(row 1)	q	ops-off left	exit 0
+ops-off looks.new-frit.list(row 1) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 1) +pending	Enter	ops-off looks.new-frit(row 1) +pending	
+ops-off looks.new-frit.list(row 1) +pending	Esc	ops-off looks.new-frit(row 1) +pending	
+ops-off looks.new-frit.list(row 1) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.list(row 1) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit.list(row 1) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 1) +unsaved	Enter	ops-off looks.new-frit(row 1) +unsaved	
+ops-off looks.new-frit.list(row 1) +unsaved	Esc	ops-off looks.new-frit(row 1) +unsaved	
+ops-off looks.new-frit.list(row 1) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.list(row 1) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit.list(row 1) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 1) +unsaved +pending	Enter	ops-off looks.new-frit(row 1) +unsaved +pending	
+ops-off looks.new-frit.list(row 1) +unsaved +pending	Esc	ops-off looks.new-frit(row 1) +unsaved +pending	
+ops-off looks.new-frit.list(row 1) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.list(row 1) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit.list(row 2)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 2)	Enter	ops-off looks.new-frit(row 2)	
+ops-off looks.new-frit.list(row 2)	Esc	ops-off looks.new-frit(row 2)	
+ops-off looks.new-frit.list(row 2)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.list(row 2)	q	ops-off left	exit 0
+ops-off looks.new-frit.list(row 2) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 2) +pending	Enter	ops-off looks.new-frit(row 2) +pending	
+ops-off looks.new-frit.list(row 2) +pending	Esc	ops-off looks.new-frit(row 2) +pending	
+ops-off looks.new-frit.list(row 2) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.list(row 2) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit.list(row 2) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 2) +unsaved	Enter	ops-off looks.new-frit(row 2) +unsaved	
+ops-off looks.new-frit.list(row 2) +unsaved	Esc	ops-off looks.new-frit(row 2) +unsaved	
+ops-off looks.new-frit.list(row 2) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.list(row 2) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit.list(row 2) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 2) +unsaved +pending	Enter	ops-off looks.new-frit(row 2) +unsaved +pending	
+ops-off looks.new-frit.list(row 2) +unsaved +pending	Esc	ops-off looks.new-frit(row 2) +unsaved +pending	
+ops-off looks.new-frit.list(row 2) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.list(row 2) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit.list(row 3)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 3)	Enter	ops-off looks.new-frit(row 3)	
+ops-off looks.new-frit.list(row 3)	Esc	ops-off looks.new-frit(row 3)	
+ops-off looks.new-frit.list(row 3)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.list(row 3)	q	ops-off left	exit 0
+ops-off looks.new-frit.list(row 3) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 3) +pending	Enter	ops-off looks.new-frit(row 3) +pending	
+ops-off looks.new-frit.list(row 3) +pending	Esc	ops-off looks.new-frit(row 3) +pending	
+ops-off looks.new-frit.list(row 3) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.list(row 3) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit.list(row 3) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 3) +unsaved	Enter	ops-off looks.new-frit(row 3) +unsaved	
+ops-off looks.new-frit.list(row 3) +unsaved	Esc	ops-off looks.new-frit(row 3) +unsaved	
+ops-off looks.new-frit.list(row 3) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.list(row 3) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit.list(row 3) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 3) +unsaved +pending	Enter	ops-off looks.new-frit(row 3) +unsaved +pending	
+ops-off looks.new-frit.list(row 3) +unsaved +pending	Esc	ops-off looks.new-frit(row 3) +unsaved +pending	
+ops-off looks.new-frit.list(row 3) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.list(row 3) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit.list(row 4)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 4)	Enter	ops-off looks.new-frit(row 4)	
+ops-off looks.new-frit.list(row 4)	Esc	ops-off looks.new-frit(row 4)	
+ops-off looks.new-frit.list(row 4)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.list(row 4)	q	ops-off left	exit 0
+ops-off looks.new-frit.list(row 4) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 4) +pending	Enter	ops-off looks.new-frit(row 4) +pending	
+ops-off looks.new-frit.list(row 4) +pending	Esc	ops-off looks.new-frit(row 4) +pending	
+ops-off looks.new-frit.list(row 4) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.list(row 4) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit.list(row 4) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 4) +unsaved	Enter	ops-off looks.new-frit(row 4) +unsaved	
+ops-off looks.new-frit.list(row 4) +unsaved	Esc	ops-off looks.new-frit(row 4) +unsaved	
+ops-off looks.new-frit.list(row 4) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.list(row 4) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit.list(row 4) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 4) +unsaved +pending	Enter	ops-off looks.new-frit(row 4) +unsaved +pending	
+ops-off looks.new-frit.list(row 4) +unsaved +pending	Esc	ops-off looks.new-frit(row 4) +unsaved +pending	
+ops-off looks.new-frit.list(row 4) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.list(row 4) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit.list(row 5)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 5)	Enter	ops-off looks.new-frit(row 5)	
+ops-off looks.new-frit.list(row 5)	Esc	ops-off looks.new-frit(row 5)	
+ops-off looks.new-frit.list(row 5)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.list(row 5)	q	ops-off left	exit 0
+ops-off looks.new-frit.list(row 5) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.list(row 5) +pending	Enter	ops-off looks.new-frit(row 5) +pending	
+ops-off looks.new-frit.list(row 5) +pending	Esc	ops-off looks.new-frit(row 5) +pending	
+ops-off looks.new-frit.list(row 5) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.list(row 5) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit.list(row 5) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 5) +unsaved	Enter	ops-off looks.new-frit(row 5) +unsaved	
+ops-off looks.new-frit.list(row 5) +unsaved	Esc	ops-off looks.new-frit(row 5) +unsaved	
+ops-off looks.new-frit.list(row 5) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.list(row 5) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit.list(row 5) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.list(row 5) +unsaved +pending	Enter	ops-off looks.new-frit(row 5) +unsaved +pending	
+ops-off looks.new-frit.list(row 5) +unsaved +pending	Esc	ops-off looks.new-frit(row 5) +unsaved +pending	
+ops-off looks.new-frit.list(row 5) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.list(row 5) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit.typing(row 6)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 6)	Enter	ops-off looks.new-frit(row 7)	
+ops-off looks.new-frit.typing(row 6)	Esc	ops-off looks.new-frit(row 6)	
+ops-off looks.new-frit.typing(row 6)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.typing(row 6) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 6) +pending	Enter	ops-off looks.new-frit(row 7) +pending	
+ops-off looks.new-frit.typing(row 6) +pending	Esc	ops-off looks.new-frit(row 6) +pending	
+ops-off looks.new-frit.typing(row 6) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.typing(row 6) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 6) +unsaved	Enter	ops-off looks.new-frit(row 7) +unsaved	
+ops-off looks.new-frit.typing(row 6) +unsaved	Esc	ops-off looks.new-frit(row 6) +unsaved	
+ops-off looks.new-frit.typing(row 6) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.typing(row 6) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 6) +unsaved +pending	Enter	ops-off looks.new-frit(row 7) +unsaved +pending	
+ops-off looks.new-frit.typing(row 6) +unsaved +pending	Esc	ops-off looks.new-frit(row 6) +unsaved +pending	
+ops-off looks.new-frit.typing(row 6) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off looks.palette	Ctrl-C	ops-off left	exit 130
 ops-off looks.palette	Esc	ops-off looks-resources(built-in scheme)	
 ops-off looks.palette	Shrink	ops-off any.too-small	
@@ -5156,7 +5360,6 @@ ops-off settings(first)	Shift-Tab	ops-off flow(doc display)	mouse on
 ops-off settings(first)	Shrink	ops-off any.too-small	
 ops-off settings(first)	Tab	ops-off help(help)	
 ops-off settings(first)	i	ops-off settings(first)	prepare
-ops-off settings(first)	o	ops-off settings(first) +unsaved	check
 ops-off settings(first)	q	ops-off left	exit 0
 ops-off settings(first) +pending	1	ops-off fonts(filter) +pending	
 ops-off settings(first) +pending	2	ops-off effects(filter) +pending	
@@ -5172,11 +5375,10 @@ ops-off settings(first) +pending	Shift-Tab	ops-off flow(doc display) +pending	mo
 ops-off settings(first) +pending	Shrink	ops-off any.too-small +pending	
 ops-off settings(first) +pending	Tab	ops-off help(help) +pending	
 ops-off settings(first) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off settings(first) +pending	o	ops-off settings(first) +unsaved +pending	check
 ops-off settings(first) +pending	q	ops-off any.question.leave +pending	
 ops-off settings(first) +unsaved	1	ops-off fonts(filter) +unsaved	
 ops-off settings(first) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off settings(first) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off settings(first) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off settings(first) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off settings(first) +unsaved	6	ops-off help(help) +unsaved	
 ops-off settings(first) +unsaved	Ctrl-C	ops-off left	save, exit 130
@@ -5188,7 +5390,6 @@ ops-off settings(first) +unsaved	Shift-Tab	ops-off flow(doc display) +unsaved	mo
 ops-off settings(first) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off settings(first) +unsaved	Tab	ops-off help(help) +unsaved	
 ops-off settings(first) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off settings(first) +unsaved	o	ops-off settings(first) +unsaved	check
 ops-off settings(first) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off settings(first) +unsaved	s	ops-off settings(first)	save
 ops-off settings(first) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
@@ -5205,7 +5406,6 @@ ops-off settings(first) +unsaved +pending	Shift-Tab	ops-off flow(doc display) +u
 ops-off settings(first) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off settings(first) +unsaved +pending	Tab	ops-off help(help) +unsaved +pending	
 ops-off settings(first) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off settings(first) +unsaved +pending	o	ops-off settings(first) +unsaved +pending	check
 ops-off settings(first) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off settings(first) +unsaved +pending	s	ops-off settings(first) +pending	save
 ops-off settings(later)	1	ops-off fonts(filter)	
@@ -5222,7 +5422,6 @@ ops-off settings(later)	Shrink	ops-off any.too-small
 ops-off settings(later)	Tab	ops-off help(help)	
 ops-off settings(later)	Up	ops-off settings(first)	
 ops-off settings(later)	i	ops-off settings(later)	prepare
-ops-off settings(later)	o	ops-off settings(later) +unsaved	check
 ops-off settings(later)	q	ops-off left	exit 0
 ops-off settings(later) +pending	1	ops-off fonts(filter) +pending	
 ops-off settings(later) +pending	2	ops-off effects(filter) +pending	
@@ -5238,11 +5437,10 @@ ops-off settings(later) +pending	Shrink	ops-off any.too-small +pending
 ops-off settings(later) +pending	Tab	ops-off help(help) +pending	
 ops-off settings(later) +pending	Up	ops-off settings(first) +pending	
 ops-off settings(later) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off settings(later) +pending	o	ops-off settings(later) +unsaved +pending	check
 ops-off settings(later) +pending	q	ops-off any.question.leave +pending	
 ops-off settings(later) +unsaved	1	ops-off fonts(filter) +unsaved	
 ops-off settings(later) +unsaved	2	ops-off effects(filter) +unsaved	
-ops-off settings(later) +unsaved	3	ops-off looks(look) +unsaved	
+ops-off settings(later) +unsaved	3	ops-off looks(no looks) +unsaved	
 ops-off settings(later) +unsaved	4	ops-off flow(doc display) +unsaved	mouse on
 ops-off settings(later) +unsaved	6	ops-off help(help) +unsaved	
 ops-off settings(later) +unsaved	Ctrl-C	ops-off left	save, exit 130
@@ -5254,7 +5452,6 @@ ops-off settings(later) +unsaved	Shrink	ops-off any.too-small +unsaved
 ops-off settings(later) +unsaved	Tab	ops-off help(help) +unsaved	
 ops-off settings(later) +unsaved	Up	ops-off settings(first) +unsaved	
 ops-off settings(later) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off settings(later) +unsaved	o	ops-off settings(later) +unsaved	check
 ops-off settings(later) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off settings(later) +unsaved	s	ops-off settings(later)	save
 ops-off settings(later) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
@@ -5271,7 +5468,6 @@ ops-off settings(later) +unsaved +pending	Shrink	ops-off any.too-small +unsaved 
 ops-off settings(later) +unsaved +pending	Tab	ops-off help(help) +unsaved +pending	
 ops-off settings(later) +unsaved +pending	Up	ops-off settings(first) +unsaved +pending	
 ops-off settings(later) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off settings(later) +unsaved +pending	o	ops-off settings(later) +unsaved +pending	check
 ops-off settings(later) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off settings(later) +unsaved +pending	s	ops-off settings(later) +pending	save
 ops-off settings.section(choice)	Ctrl-C	ops-off left	exit 130

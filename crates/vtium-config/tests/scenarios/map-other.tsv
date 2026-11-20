@@ -123,14 +123,14 @@ other any.question.leave +pending	Ctrl-C	other flow(doc display) +pending
 other any.question.leave +pending	Ctrl-C	other fonts(filter) +pending	
 other any.question.leave +pending	Ctrl-C	other help(help) +pending	
 other any.question.leave +pending	Ctrl-C	other looks(marked) +pending	
-other any.question.leave +pending	Ctrl-C	other looks.new-frit(row 6) +pending	
+other any.question.leave +pending	Ctrl-C	other looks.new-frit(row 0) +pending	
 other any.question.leave +pending	Ctrl-C	other settings(first) +pending	
 other any.question.leave +pending	Esc	other effects(filter) +pending	
 other any.question.leave +pending	Esc	other flow(doc display) +pending	
 other any.question.leave +pending	Esc	other fonts(filter) +pending	
 other any.question.leave +pending	Esc	other help(help) +pending	
 other any.question.leave +pending	Esc	other looks(marked) +pending	
-other any.question.leave +pending	Esc	other looks.new-frit(row 6) +pending	
+other any.question.leave +pending	Esc	other looks.new-frit(row 0) +pending	
 other any.question.leave +pending	Esc	other settings(first) +pending	
 other any.question.leave +pending	Shrink	other any.question.leave below 80×25 +pending	
 other any.question.leave +pending	n	other left	exit 0
@@ -142,14 +142,14 @@ other any.question.leave +unsaved +pending	Ctrl-C	other flow(doc terminal) +unsa
 other any.question.leave +unsaved +pending	Ctrl-C	other fonts(filter) +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other help(help) +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other looks(marked) +unsaved +pending	
-other any.question.leave +unsaved +pending	Ctrl-C	other looks.new-frit(row 6) +unsaved +pending	
+other any.question.leave +unsaved +pending	Ctrl-C	other looks.new-frit(row 0) +unsaved +pending	
 other any.question.leave +unsaved +pending	Ctrl-C	other settings(first) +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other effects(filter) +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other flow(doc terminal) +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other fonts(filter) +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other help(help) +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other any.question.leave +unsaved +pending	Esc	other looks.new-frit(row 6) +unsaved +pending	
+other any.question.leave +unsaved +pending	Esc	other looks.new-frit(row 0) +unsaved +pending	
 other any.question.leave +unsaved +pending	Esc	other settings(first) +unsaved +pending	
 other any.question.leave +unsaved +pending	Shrink	other any.question.leave below 80×25 +unsaved +pending	
 other any.question.leave +unsaved +pending	n	other left	save, exit 0
@@ -171,14 +171,14 @@ other any.question.quit +unsaved	Ctrl-C	other flow(doc terminal) +unsaved
 other any.question.quit +unsaved	Ctrl-C	other fonts(filter) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other help(help) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other looks.look(name) +unsaved	
-other any.question.quit +unsaved	Ctrl-C	other looks.new-frit(row 6) +unsaved	
+other any.question.quit +unsaved	Ctrl-C	other looks.new-frit(row 0) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other settings(first) +unsaved	
 other any.question.quit +unsaved	Esc	other effects(filter) +unsaved	
 other any.question.quit +unsaved	Esc	other flow(doc terminal) +unsaved	
 other any.question.quit +unsaved	Esc	other fonts(filter) +unsaved	
 other any.question.quit +unsaved	Esc	other help(help) +unsaved	
 other any.question.quit +unsaved	Esc	other looks.look(name) +unsaved	
-other any.question.quit +unsaved	Esc	other looks.new-frit(row 6) +unsaved	
+other any.question.quit +unsaved	Esc	other looks.new-frit(row 0) +unsaved	
 other any.question.quit +unsaved	Esc	other settings(first) +unsaved	
 other any.question.quit +unsaved	Shrink	other any.question.quit below 80×25 +unsaved	
 other any.question.quit +unsaved	n	other left	exit 0
@@ -3498,7 +3498,7 @@ other looks(frit)	Shrink	other any.too-small
 other looks(frit)	Tab	other flow(doc display)	mouse on
 other looks(frit)	Up	other looks(refused)	
 other looks(frit)	i	other looks(frit)	prepare
-other looks(frit)	n	other looks.new-frit.typing(row 0)	
+other looks(frit)	n	other looks.new-frit(row 0)	
 other looks(frit)	q	other left	exit 0
 other looks(frit)	r	other looks(marked) +pending	
 other looks(frit)	w	other any.question.window-ops	
@@ -3518,7 +3518,7 @@ other looks(frit) +pending	Shrink	other any.too-small +pending
 other looks(frit) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks(frit) +pending	Up	other looks(marked) +pending	
 other looks(frit) +pending	i	other any.question.confirm +pending	prepare
-other looks(frit) +pending	n	other looks.new-frit.typing(row 0) +pending	
+other looks(frit) +pending	n	other looks.new-frit(row 0) +pending	
 other looks(frit) +pending	q	other any.question.leave +pending	
 other looks(frit) +pending	r	other looks(marked) +pending	
 other looks(frit) +pending	w	other any.question.window-ops +pending	
@@ -3538,7 +3538,7 @@ other looks(frit) +unsaved	Shrink	other any.too-small +unsaved
 other looks(frit) +unsaved	Tab	other flow(doc display) +unsaved	mouse on
 other looks(frit) +unsaved	Up	other looks(refused) +unsaved	
 other looks(frit) +unsaved	i	other any.question.confirm	save, prepare
-other looks(frit) +unsaved	n	other looks.new-frit.typing(row 0) +unsaved	
+other looks(frit) +unsaved	n	other looks.new-frit(row 0) +unsaved	
 other looks(frit) +unsaved	q	other any.question.quit +unsaved	
 other looks(frit) +unsaved	r	other looks(marked) +unsaved +pending	
 other looks(frit) +unsaved	s	other looks(frit)	save
@@ -3559,7 +3559,7 @@ other looks(frit) +unsaved +pending	Shrink	other any.too-small +unsaved +pending
 other looks(frit) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks(frit) +unsaved +pending	Up	other looks(marked) +unsaved +pending	
 other looks(frit) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks(frit) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
+other looks(frit) +unsaved +pending	n	other looks.new-frit(row 0) +unsaved +pending	
 other looks(frit) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other looks(frit) +unsaved +pending	r	other looks(marked) +unsaved +pending	
 other looks(frit) +unsaved +pending	s	other looks(frit) +pending	save
@@ -3655,7 +3655,7 @@ other looks(marked) +pending	Shrink	other any.too-small +pending
 other looks(marked) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks(marked) +pending	Up	other looks(look) +pending	
 other looks(marked) +pending	i	other any.question.confirm +pending	prepare
-other looks(marked) +pending	n	other looks.new-frit.typing(row 0) +pending	
+other looks(marked) +pending	n	other looks.new-frit(row 0) +pending	
 other looks(marked) +pending	q	other any.question.leave +pending	
 other looks(marked) +pending	r	other looks(refused)	
 other looks(marked) +pending	w	other any.question.window-ops +pending	
@@ -3676,7 +3676,7 @@ other looks(marked) +unsaved +pending	Shrink	other any.too-small +unsaved +pendi
 other looks(marked) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks(marked) +unsaved +pending	Up	other looks(look) +unsaved +pending	
 other looks(marked) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks(marked) +unsaved +pending	n	other looks.new-frit.typing(row 0) +unsaved +pending	
+other looks(marked) +unsaved +pending	n	other looks.new-frit(row 0) +unsaved +pending	
 other looks(marked) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other looks(marked) +unsaved +pending	r	other looks(refused) +unsaved	
 other looks(marked) +unsaved +pending	s	other looks(marked) +pending	save
@@ -3764,7 +3764,7 @@ other looks(refused)	Shrink	other any.too-small
 other looks(refused)	Tab	other flow(doc display)	mouse on
 other looks(refused)	Up	other looks(look)	
 other looks(refused)	i	other looks(refused)	prepare
-other looks(refused)	n	other looks.new-frit.typing(row 0)	
+other looks(refused)	n	other looks.new-frit(row 0)	
 other looks(refused)	q	other left	exit 0
 other looks(refused)	r	other looks(marked) +pending	
 other looks(refused)	w	other any.question.window-ops	
@@ -3785,7 +3785,7 @@ other looks(refused) +unsaved	Shrink	other any.too-small +unsaved
 other looks(refused) +unsaved	Tab	other flow(doc display) +unsaved	mouse on
 other looks(refused) +unsaved	Up	other looks(no looks) +unsaved	
 other looks(refused) +unsaved	i	other any.question.confirm	save, prepare
-other looks(refused) +unsaved	n	other looks.new-frit.typing(row 0) +unsaved	
+other looks(refused) +unsaved	n	other looks.new-frit(row 0) +unsaved	
 other looks(refused) +unsaved	q	other any.question.quit +unsaved	
 other looks(refused) +unsaved	r	other looks(marked) +unsaved +pending	
 other looks(refused) +unsaved	s	other looks(refused)	save
@@ -4854,130 +4854,466 @@ other looks.look.typing +unsaved +pending	Ctrl-C	other left	save, exit 130
 other looks.look.typing +unsaved +pending	Enter	other looks.look(name) +unsaved +pending	
 other looks.look.typing +unsaved +pending	Esc	other looks.look(name) +unsaved +pending	
 other looks.look.typing +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 0)	Ctrl-C	other left	exit 130
+other looks.new-frit(row 0)	Down	other looks.new-frit(row 1)	
+other looks.new-frit(row 0)	End	other looks.new-frit(row 7)	
+other looks.new-frit(row 0)	Enter	other looks.new-frit.list(row 0)	
+other looks.new-frit(row 0)	Esc	other looks(refused)	
+other looks.new-frit(row 0)	PgDn	other looks.new-frit(row 7)	
+other looks.new-frit(row 0)	Shrink	other any.too-small	
+other looks.new-frit(row 0)	q	other left	exit 0
+other looks.new-frit(row 0) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit(row 0) +pending	Down	other looks.new-frit(row 1) +pending	
+other looks.new-frit(row 0) +pending	End	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 0) +pending	Enter	other looks.new-frit.list(row 0) +pending	
+other looks.new-frit(row 0) +pending	Esc	other looks(marked) +pending	
+other looks.new-frit(row 0) +pending	PgDn	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 0) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit(row 0) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 0) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 0) +unsaved	Down	other looks.new-frit(row 1) +unsaved	
+other looks.new-frit(row 0) +unsaved	End	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 0) +unsaved	Enter	other looks.new-frit.list(row 0) +unsaved	
+other looks.new-frit(row 0) +unsaved	Esc	other looks(refused) +unsaved	
+other looks.new-frit(row 0) +unsaved	PgDn	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 0) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit(row 0) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit(row 0) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 0) +unsaved +pending	Down	other looks.new-frit(row 1) +unsaved +pending	
+other looks.new-frit(row 0) +unsaved +pending	End	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 0) +unsaved +pending	Enter	other looks.new-frit.list(row 0) +unsaved +pending	
+other looks.new-frit(row 0) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other looks.new-frit(row 0) +unsaved +pending	PgDn	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 0) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 0) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 1)	Ctrl-C	other left	exit 130
+other looks.new-frit(row 1)	Down	other looks.new-frit(row 2)	
+other looks.new-frit(row 1)	End	other looks.new-frit(row 7)	
+other looks.new-frit(row 1)	Enter	other looks.new-frit.list(row 1)	
+other looks.new-frit(row 1)	Esc	other looks(refused)	
+other looks.new-frit(row 1)	Home	other looks.new-frit(row 0)	
+other looks.new-frit(row 1)	PgDn	other looks.new-frit(row 7)	
+other looks.new-frit(row 1)	PgUp	other looks.new-frit(row 0)	
+other looks.new-frit(row 1)	Shrink	other any.too-small	
+other looks.new-frit(row 1)	Up	other looks.new-frit(row 0)	
+other looks.new-frit(row 1)	q	other left	exit 0
+other looks.new-frit(row 1) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit(row 1) +pending	Down	other looks.new-frit(row 2) +pending	
+other looks.new-frit(row 1) +pending	End	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 1) +pending	Enter	other looks.new-frit.list(row 1) +pending	
+other looks.new-frit(row 1) +pending	Esc	other looks(marked) +pending	
+other looks.new-frit(row 1) +pending	Home	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 1) +pending	PgDn	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 1) +pending	PgUp	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 1) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit(row 1) +pending	Up	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 1) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 1) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 1) +unsaved	Down	other looks.new-frit(row 2) +unsaved	
+other looks.new-frit(row 1) +unsaved	End	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 1) +unsaved	Enter	other looks.new-frit.list(row 1) +unsaved	
+other looks.new-frit(row 1) +unsaved	Esc	other looks(refused) +unsaved	
+other looks.new-frit(row 1) +unsaved	Home	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 1) +unsaved	PgDn	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 1) +unsaved	PgUp	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 1) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit(row 1) +unsaved	Up	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 1) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit(row 1) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 1) +unsaved +pending	Down	other looks.new-frit(row 2) +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	End	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	Enter	other looks.new-frit.list(row 1) +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	Home	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	PgDn	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	Up	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 2)	Ctrl-C	other left	exit 130
+other looks.new-frit(row 2)	Down	other looks.new-frit(row 3)	
+other looks.new-frit(row 2)	End	other looks.new-frit(row 7)	
+other looks.new-frit(row 2)	Enter	other looks.new-frit.list(row 2)	
+other looks.new-frit(row 2)	Esc	other looks(refused)	
+other looks.new-frit(row 2)	Home	other looks.new-frit(row 0)	
+other looks.new-frit(row 2)	PgDn	other looks.new-frit(row 7)	
+other looks.new-frit(row 2)	PgUp	other looks.new-frit(row 0)	
+other looks.new-frit(row 2)	Shrink	other any.too-small	
+other looks.new-frit(row 2)	Up	other looks.new-frit(row 1)	
+other looks.new-frit(row 2)	q	other left	exit 0
+other looks.new-frit(row 2) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit(row 2) +pending	Down	other looks.new-frit(row 3) +pending	
+other looks.new-frit(row 2) +pending	End	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 2) +pending	Enter	other looks.new-frit.list(row 2) +pending	
+other looks.new-frit(row 2) +pending	Esc	other looks(marked) +pending	
+other looks.new-frit(row 2) +pending	Home	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 2) +pending	PgDn	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 2) +pending	PgUp	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 2) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit(row 2) +pending	Up	other looks.new-frit(row 1) +pending	
+other looks.new-frit(row 2) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 2) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 2) +unsaved	Down	other looks.new-frit(row 3) +unsaved	
+other looks.new-frit(row 2) +unsaved	End	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 2) +unsaved	Enter	other looks.new-frit.list(row 2) +unsaved	
+other looks.new-frit(row 2) +unsaved	Esc	other looks(refused) +unsaved	
+other looks.new-frit(row 2) +unsaved	Home	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 2) +unsaved	PgDn	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 2) +unsaved	PgUp	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 2) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit(row 2) +unsaved	Up	other looks.new-frit(row 1) +unsaved	
+other looks.new-frit(row 2) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit(row 2) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 2) +unsaved +pending	Down	other looks.new-frit(row 3) +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	End	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	Enter	other looks.new-frit.list(row 2) +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	Home	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	PgDn	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	Up	other looks.new-frit(row 1) +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 3)	Ctrl-C	other left	exit 130
+other looks.new-frit(row 3)	Down	other looks.new-frit(row 4)	
+other looks.new-frit(row 3)	End	other looks.new-frit(row 7)	
+other looks.new-frit(row 3)	Enter	other looks.new-frit.list(row 3)	
+other looks.new-frit(row 3)	Esc	other looks(refused)	
+other looks.new-frit(row 3)	Home	other looks.new-frit(row 0)	
+other looks.new-frit(row 3)	PgDn	other looks.new-frit(row 7)	
+other looks.new-frit(row 3)	PgUp	other looks.new-frit(row 0)	
+other looks.new-frit(row 3)	Shrink	other any.too-small	
+other looks.new-frit(row 3)	Up	other looks.new-frit(row 2)	
+other looks.new-frit(row 3)	q	other left	exit 0
+other looks.new-frit(row 3) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit(row 3) +pending	Down	other looks.new-frit(row 4) +pending	
+other looks.new-frit(row 3) +pending	End	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 3) +pending	Enter	other looks.new-frit.list(row 3) +pending	
+other looks.new-frit(row 3) +pending	Esc	other looks(marked) +pending	
+other looks.new-frit(row 3) +pending	Home	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 3) +pending	PgDn	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 3) +pending	PgUp	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 3) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit(row 3) +pending	Up	other looks.new-frit(row 2) +pending	
+other looks.new-frit(row 3) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 3) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 3) +unsaved	Down	other looks.new-frit(row 4) +unsaved	
+other looks.new-frit(row 3) +unsaved	End	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 3) +unsaved	Enter	other looks.new-frit.list(row 3) +unsaved	
+other looks.new-frit(row 3) +unsaved	Esc	other looks(refused) +unsaved	
+other looks.new-frit(row 3) +unsaved	Home	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 3) +unsaved	PgDn	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 3) +unsaved	PgUp	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 3) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit(row 3) +unsaved	Up	other looks.new-frit(row 2) +unsaved	
+other looks.new-frit(row 3) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit(row 3) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 3) +unsaved +pending	Down	other looks.new-frit(row 4) +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	End	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	Enter	other looks.new-frit.list(row 3) +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	Home	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	PgDn	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	Up	other looks.new-frit(row 2) +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 4)	Ctrl-C	other left	exit 130
+other looks.new-frit(row 4)	Down	other looks.new-frit(row 5)	
+other looks.new-frit(row 4)	End	other looks.new-frit(row 7)	
+other looks.new-frit(row 4)	Enter	other looks.new-frit.list(row 4)	
+other looks.new-frit(row 4)	Esc	other looks(refused)	
+other looks.new-frit(row 4)	Home	other looks.new-frit(row 0)	
+other looks.new-frit(row 4)	PgDn	other looks.new-frit(row 7)	
+other looks.new-frit(row 4)	PgUp	other looks.new-frit(row 0)	
+other looks.new-frit(row 4)	Shrink	other any.too-small	
+other looks.new-frit(row 4)	Up	other looks.new-frit(row 3)	
+other looks.new-frit(row 4)	q	other left	exit 0
+other looks.new-frit(row 4) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit(row 4) +pending	Down	other looks.new-frit(row 5) +pending	
+other looks.new-frit(row 4) +pending	End	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 4) +pending	Enter	other looks.new-frit.list(row 4) +pending	
+other looks.new-frit(row 4) +pending	Esc	other looks(marked) +pending	
+other looks.new-frit(row 4) +pending	Home	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 4) +pending	PgDn	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 4) +pending	PgUp	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 4) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit(row 4) +pending	Up	other looks.new-frit(row 3) +pending	
+other looks.new-frit(row 4) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 4) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 4) +unsaved	Down	other looks.new-frit(row 5) +unsaved	
+other looks.new-frit(row 4) +unsaved	End	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 4) +unsaved	Enter	other looks.new-frit.list(row 4) +unsaved	
+other looks.new-frit(row 4) +unsaved	Esc	other looks(refused) +unsaved	
+other looks.new-frit(row 4) +unsaved	Home	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 4) +unsaved	PgDn	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 4) +unsaved	PgUp	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 4) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit(row 4) +unsaved	Up	other looks.new-frit(row 3) +unsaved	
+other looks.new-frit(row 4) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit(row 4) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 4) +unsaved +pending	Down	other looks.new-frit(row 5) +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	End	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	Enter	other looks.new-frit.list(row 4) +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	Home	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	PgDn	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	Up	other looks.new-frit(row 3) +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 5)	Ctrl-C	other left	exit 130
+other looks.new-frit(row 5)	Down	other looks.new-frit(row 6)	
+other looks.new-frit(row 5)	End	other looks.new-frit(row 7)	
+other looks.new-frit(row 5)	Enter	other looks.new-frit.list(row 5)	
+other looks.new-frit(row 5)	Esc	other looks(refused)	
+other looks.new-frit(row 5)	Home	other looks.new-frit(row 0)	
+other looks.new-frit(row 5)	PgDn	other looks.new-frit(row 7)	
+other looks.new-frit(row 5)	PgUp	other looks.new-frit(row 0)	
+other looks.new-frit(row 5)	Shrink	other any.too-small	
+other looks.new-frit(row 5)	Up	other looks.new-frit(row 4)	
+other looks.new-frit(row 5)	q	other left	exit 0
+other looks.new-frit(row 5) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit(row 5) +pending	Down	other looks.new-frit(row 6) +pending	
+other looks.new-frit(row 5) +pending	End	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 5) +pending	Enter	other looks.new-frit.list(row 5) +pending	
+other looks.new-frit(row 5) +pending	Esc	other looks(marked) +pending	
+other looks.new-frit(row 5) +pending	Home	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 5) +pending	PgDn	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 5) +pending	PgUp	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 5) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit(row 5) +pending	Up	other looks.new-frit(row 4) +pending	
+other looks.new-frit(row 5) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 5) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 5) +unsaved	Down	other looks.new-frit(row 6) +unsaved	
+other looks.new-frit(row 5) +unsaved	End	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 5) +unsaved	Enter	other looks.new-frit.list(row 5) +unsaved	
+other looks.new-frit(row 5) +unsaved	Esc	other looks(refused) +unsaved	
+other looks.new-frit(row 5) +unsaved	Home	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 5) +unsaved	PgDn	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 5) +unsaved	PgUp	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 5) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit(row 5) +unsaved	Up	other looks.new-frit(row 4) +unsaved	
+other looks.new-frit(row 5) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit(row 5) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 5) +unsaved +pending	Down	other looks.new-frit(row 6) +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	End	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	Enter	other looks.new-frit.list(row 5) +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	Home	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	PgDn	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	Up	other looks.new-frit(row 4) +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	q	other any.question.leave +unsaved +pending	
 other looks.new-frit(row 6)	Ctrl-C	other left	exit 130
+other looks.new-frit(row 6)	Down	other looks.new-frit(row 7)	
+other looks.new-frit(row 6)	End	other looks.new-frit(row 7)	
+other looks.new-frit(row 6)	Enter	other looks.new-frit.typing(row 6)	
 other looks.new-frit(row 6)	Esc	other looks(refused)	
-other looks.new-frit(row 6)	Home	other looks.new-frit.typing(row 0)	
-other looks.new-frit(row 6)	PgUp	other looks.new-frit.typing(row 0)	
+other looks.new-frit(row 6)	Home	other looks.new-frit(row 0)	
+other looks.new-frit(row 6)	PgDn	other looks.new-frit(row 7)	
+other looks.new-frit(row 6)	PgUp	other looks.new-frit(row 0)	
 other looks.new-frit(row 6)	Shrink	other any.too-small	
-other looks.new-frit(row 6)	Up	other looks.new-frit.typing(row 5)	
+other looks.new-frit(row 6)	Up	other looks.new-frit(row 5)	
 other looks.new-frit(row 6)	q	other left	exit 0
 other looks.new-frit(row 6) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit(row 6) +pending	Down	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 6) +pending	End	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 6) +pending	Enter	other looks.new-frit.typing(row 6) +pending	
 other looks.new-frit(row 6) +pending	Esc	other looks(marked) +pending	
-other looks.new-frit(row 6) +pending	Home	other looks.new-frit.typing(row 0) +pending	
-other looks.new-frit(row 6) +pending	PgUp	other looks.new-frit.typing(row 0) +pending	
+other looks.new-frit(row 6) +pending	Home	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 6) +pending	PgDn	other looks.new-frit(row 7) +pending	
+other looks.new-frit(row 6) +pending	PgUp	other looks.new-frit(row 0) +pending	
 other looks.new-frit(row 6) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit(row 6) +pending	Up	other looks.new-frit.typing(row 5) +pending	
+other looks.new-frit(row 6) +pending	Up	other looks.new-frit(row 5) +pending	
 other looks.new-frit(row 6) +pending	q	other any.question.leave +pending	
 other looks.new-frit(row 6) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 6) +unsaved	Down	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 6) +unsaved	End	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 6) +unsaved	Enter	other looks.new-frit.typing(row 6) +unsaved	
 other looks.new-frit(row 6) +unsaved	Esc	other looks(refused) +unsaved	
-other looks.new-frit(row 6) +unsaved	Home	other looks.new-frit.typing(row 0) +unsaved	
-other looks.new-frit(row 6) +unsaved	PgUp	other looks.new-frit.typing(row 0) +unsaved	
+other looks.new-frit(row 6) +unsaved	Home	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 6) +unsaved	PgDn	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit(row 6) +unsaved	PgUp	other looks.new-frit(row 0) +unsaved	
 other looks.new-frit(row 6) +unsaved	Shrink	other any.too-small +unsaved	
-other looks.new-frit(row 6) +unsaved	Up	other looks.new-frit.typing(row 5) +unsaved	
+other looks.new-frit(row 6) +unsaved	Up	other looks.new-frit(row 5) +unsaved	
 other looks.new-frit(row 6) +unsaved	q	other any.question.quit +unsaved	
 other looks.new-frit(row 6) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 6) +unsaved +pending	Down	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 6) +unsaved +pending	End	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 6) +unsaved +pending	Enter	other looks.new-frit.typing(row 6) +unsaved +pending	
 other looks.new-frit(row 6) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other looks.new-frit(row 6) +unsaved +pending	Home	other looks.new-frit.typing(row 0) +unsaved +pending	
-other looks.new-frit(row 6) +unsaved +pending	PgUp	other looks.new-frit.typing(row 0) +unsaved +pending	
+other looks.new-frit(row 6) +unsaved +pending	Home	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 6) +unsaved +pending	PgDn	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit(row 6) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit(row 6) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit(row 6) +unsaved +pending	Up	other looks.new-frit.typing(row 5) +unsaved +pending	
+other looks.new-frit(row 6) +unsaved +pending	Up	other looks.new-frit(row 5) +unsaved +pending	
 other looks.new-frit(row 6) +unsaved +pending	q	other any.question.leave +unsaved +pending	
-other looks.new-frit.typing(row 0)	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 0)	Enter	other looks.new-frit.typing(row 1)	
-other looks.new-frit.typing(row 0)	Esc	other looks(refused)	
-other looks.new-frit.typing(row 0)	Shrink	other any.too-small	
-other looks.new-frit.typing(row 0) +pending	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 0) +pending	Enter	other looks.new-frit.typing(row 1) +pending	
-other looks.new-frit.typing(row 0) +pending	Esc	other looks(marked) +pending	
-other looks.new-frit.typing(row 0) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.typing(row 0) +unsaved	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 0) +unsaved	Enter	other looks.new-frit.typing(row 1) +unsaved	
-other looks.new-frit.typing(row 0) +unsaved	Esc	other looks(refused) +unsaved	
-other looks.new-frit.typing(row 0) +unsaved	Shrink	other any.too-small +unsaved	
-other looks.new-frit.typing(row 0) +unsaved +pending	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 0) +unsaved +pending	Enter	other looks.new-frit.typing(row 1) +unsaved +pending	
-other looks.new-frit.typing(row 0) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other looks.new-frit.typing(row 0) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.typing(row 1)	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 1)	Enter	other looks.new-frit.typing(row 2)	
-other looks.new-frit.typing(row 1)	Esc	other looks(refused)	
-other looks.new-frit.typing(row 1)	Shrink	other any.too-small	
-other looks.new-frit.typing(row 1) +pending	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 1) +pending	Enter	other looks.new-frit.typing(row 2) +pending	
-other looks.new-frit.typing(row 1) +pending	Esc	other looks(marked) +pending	
-other looks.new-frit.typing(row 1) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.typing(row 1) +unsaved	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 1) +unsaved	Enter	other looks.new-frit.typing(row 2) +unsaved	
-other looks.new-frit.typing(row 1) +unsaved	Esc	other looks(refused) +unsaved	
-other looks.new-frit.typing(row 1) +unsaved	Shrink	other any.too-small +unsaved	
-other looks.new-frit.typing(row 1) +unsaved +pending	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 1) +unsaved +pending	Enter	other looks.new-frit.typing(row 2) +unsaved +pending	
-other looks.new-frit.typing(row 1) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other looks.new-frit.typing(row 1) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.typing(row 2)	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 2)	Enter	other looks.new-frit.typing(row 3)	
-other looks.new-frit.typing(row 2)	Esc	other looks(refused)	
-other looks.new-frit.typing(row 2)	Shrink	other any.too-small	
-other looks.new-frit.typing(row 2) +pending	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 2) +pending	Enter	other looks.new-frit.typing(row 3) +pending	
-other looks.new-frit.typing(row 2) +pending	Esc	other looks(marked) +pending	
-other looks.new-frit.typing(row 2) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.typing(row 2) +unsaved	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 2) +unsaved	Enter	other looks.new-frit.typing(row 3) +unsaved	
-other looks.new-frit.typing(row 2) +unsaved	Esc	other looks(refused) +unsaved	
-other looks.new-frit.typing(row 2) +unsaved	Shrink	other any.too-small +unsaved	
-other looks.new-frit.typing(row 2) +unsaved +pending	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 2) +unsaved +pending	Enter	other looks.new-frit.typing(row 3) +unsaved +pending	
-other looks.new-frit.typing(row 2) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other looks.new-frit.typing(row 2) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.typing(row 3)	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 3)	Enter	other looks.new-frit.typing(row 4)	
-other looks.new-frit.typing(row 3)	Esc	other looks(refused)	
-other looks.new-frit.typing(row 3)	Shrink	other any.too-small	
-other looks.new-frit.typing(row 3) +pending	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 3) +pending	Enter	other looks.new-frit.typing(row 4) +pending	
-other looks.new-frit.typing(row 3) +pending	Esc	other looks(marked) +pending	
-other looks.new-frit.typing(row 3) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.typing(row 3) +unsaved	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 3) +unsaved	Enter	other looks.new-frit.typing(row 4) +unsaved	
-other looks.new-frit.typing(row 3) +unsaved	Esc	other looks(refused) +unsaved	
-other looks.new-frit.typing(row 3) +unsaved	Shrink	other any.too-small +unsaved	
-other looks.new-frit.typing(row 3) +unsaved +pending	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 3) +unsaved +pending	Enter	other looks.new-frit.typing(row 4) +unsaved +pending	
-other looks.new-frit.typing(row 3) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other looks.new-frit.typing(row 3) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.typing(row 4)	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 4)	Enter	other looks.new-frit.typing(row 5)	
-other looks.new-frit.typing(row 4)	Esc	other looks(refused)	
-other looks.new-frit.typing(row 4)	Shrink	other any.too-small	
-other looks.new-frit.typing(row 4) +pending	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 4) +pending	Enter	other looks.new-frit.typing(row 5) +pending	
-other looks.new-frit.typing(row 4) +pending	Esc	other looks(marked) +pending	
-other looks.new-frit.typing(row 4) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.typing(row 4) +unsaved	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 4) +unsaved	Enter	other looks.new-frit.typing(row 5) +unsaved	
-other looks.new-frit.typing(row 4) +unsaved	Esc	other looks(refused) +unsaved	
-other looks.new-frit.typing(row 4) +unsaved	Shrink	other any.too-small +unsaved	
-other looks.new-frit.typing(row 4) +unsaved +pending	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 4) +unsaved +pending	Enter	other looks.new-frit.typing(row 5) +unsaved +pending	
-other looks.new-frit.typing(row 4) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other looks.new-frit.typing(row 4) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.typing(row 5)	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 5)	Enter	other looks.new-frit(row 6)	
-other looks.new-frit.typing(row 5)	Esc	other looks(refused)	
-other looks.new-frit.typing(row 5)	Shrink	other any.too-small	
-other looks.new-frit.typing(row 5) +pending	Ctrl-C	other left	exit 130
-other looks.new-frit.typing(row 5) +pending	Enter	other looks.new-frit(row 6) +pending	
-other looks.new-frit.typing(row 5) +pending	Esc	other looks(marked) +pending	
-other looks.new-frit.typing(row 5) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.typing(row 5) +unsaved	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 5) +unsaved	Enter	other looks.new-frit(row 6) +unsaved	
-other looks.new-frit.typing(row 5) +unsaved	Esc	other looks(refused) +unsaved	
-other looks.new-frit.typing(row 5) +unsaved	Shrink	other any.too-small +unsaved	
-other looks.new-frit.typing(row 5) +unsaved +pending	Ctrl-C	other left	save, exit 130
-other looks.new-frit.typing(row 5) +unsaved +pending	Enter	other looks.new-frit(row 6) +unsaved +pending	
-other looks.new-frit.typing(row 5) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other looks.new-frit.typing(row 5) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 7)	Ctrl-C	other left	exit 130
+other looks.new-frit(row 7)	Esc	other looks(refused)	
+other looks.new-frit(row 7)	Home	other looks.new-frit(row 0)	
+other looks.new-frit(row 7)	PgUp	other looks.new-frit(row 0)	
+other looks.new-frit(row 7)	Shrink	other any.too-small	
+other looks.new-frit(row 7)	Up	other looks.new-frit(row 6)	
+other looks.new-frit(row 7)	q	other left	exit 0
+other looks.new-frit(row 7) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit(row 7) +pending	Esc	other looks(marked) +pending	
+other looks.new-frit(row 7) +pending	Home	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 7) +pending	PgUp	other looks.new-frit(row 0) +pending	
+other looks.new-frit(row 7) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit(row 7) +pending	Up	other looks.new-frit(row 6) +pending	
+other looks.new-frit(row 7) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 7) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 7) +unsaved	Esc	other looks(refused) +unsaved	
+other looks.new-frit(row 7) +unsaved	Home	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 7) +unsaved	PgUp	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit(row 7) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit(row 7) +unsaved	Up	other looks.new-frit(row 6) +unsaved	
+other looks.new-frit(row 7) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit(row 7) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit(row 7) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other looks.new-frit(row 7) +unsaved +pending	Home	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 7) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit(row 7) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit(row 7) +unsaved +pending	Up	other looks.new-frit(row 6) +unsaved +pending	
+other looks.new-frit(row 7) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 0)	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 0)	Enter	other looks.new-frit(row 0)	
+other looks.new-frit.list(row 0)	Esc	other looks.new-frit(row 0)	
+other looks.new-frit.list(row 0)	Shrink	other any.too-small	
+other looks.new-frit.list(row 0)	q	other left	exit 0
+other looks.new-frit.list(row 0) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 0) +pending	Enter	other looks.new-frit(row 0) +pending	
+other looks.new-frit.list(row 0) +pending	Esc	other looks.new-frit(row 0) +pending	
+other looks.new-frit.list(row 0) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit.list(row 0) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 0) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 0) +unsaved	Enter	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit.list(row 0) +unsaved	Esc	other looks.new-frit(row 0) +unsaved	
+other looks.new-frit.list(row 0) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit.list(row 0) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit.list(row 0) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 0) +unsaved +pending	Enter	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit.list(row 0) +unsaved +pending	Esc	other looks.new-frit(row 0) +unsaved +pending	
+other looks.new-frit.list(row 0) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit.list(row 0) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 1)	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 1)	Enter	other looks.new-frit(row 1)	
+other looks.new-frit.list(row 1)	Esc	other looks.new-frit(row 1)	
+other looks.new-frit.list(row 1)	Shrink	other any.too-small	
+other looks.new-frit.list(row 1)	q	other left	exit 0
+other looks.new-frit.list(row 1) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 1) +pending	Enter	other looks.new-frit(row 1) +pending	
+other looks.new-frit.list(row 1) +pending	Esc	other looks.new-frit(row 1) +pending	
+other looks.new-frit.list(row 1) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit.list(row 1) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 1) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 1) +unsaved	Enter	other looks.new-frit(row 1) +unsaved	
+other looks.new-frit.list(row 1) +unsaved	Esc	other looks.new-frit(row 1) +unsaved	
+other looks.new-frit.list(row 1) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit.list(row 1) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit.list(row 1) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 1) +unsaved +pending	Enter	other looks.new-frit(row 1) +unsaved +pending	
+other looks.new-frit.list(row 1) +unsaved +pending	Esc	other looks.new-frit(row 1) +unsaved +pending	
+other looks.new-frit.list(row 1) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit.list(row 1) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 2)	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 2)	Enter	other looks.new-frit(row 2)	
+other looks.new-frit.list(row 2)	Esc	other looks.new-frit(row 2)	
+other looks.new-frit.list(row 2)	Shrink	other any.too-small	
+other looks.new-frit.list(row 2)	q	other left	exit 0
+other looks.new-frit.list(row 2) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 2) +pending	Enter	other looks.new-frit(row 2) +pending	
+other looks.new-frit.list(row 2) +pending	Esc	other looks.new-frit(row 2) +pending	
+other looks.new-frit.list(row 2) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit.list(row 2) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 2) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 2) +unsaved	Enter	other looks.new-frit(row 2) +unsaved	
+other looks.new-frit.list(row 2) +unsaved	Esc	other looks.new-frit(row 2) +unsaved	
+other looks.new-frit.list(row 2) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit.list(row 2) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit.list(row 2) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 2) +unsaved +pending	Enter	other looks.new-frit(row 2) +unsaved +pending	
+other looks.new-frit.list(row 2) +unsaved +pending	Esc	other looks.new-frit(row 2) +unsaved +pending	
+other looks.new-frit.list(row 2) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit.list(row 2) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 3)	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 3)	Enter	other looks.new-frit(row 3)	
+other looks.new-frit.list(row 3)	Esc	other looks.new-frit(row 3)	
+other looks.new-frit.list(row 3)	Shrink	other any.too-small	
+other looks.new-frit.list(row 3)	q	other left	exit 0
+other looks.new-frit.list(row 3) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 3) +pending	Enter	other looks.new-frit(row 3) +pending	
+other looks.new-frit.list(row 3) +pending	Esc	other looks.new-frit(row 3) +pending	
+other looks.new-frit.list(row 3) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit.list(row 3) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 3) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 3) +unsaved	Enter	other looks.new-frit(row 3) +unsaved	
+other looks.new-frit.list(row 3) +unsaved	Esc	other looks.new-frit(row 3) +unsaved	
+other looks.new-frit.list(row 3) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit.list(row 3) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit.list(row 3) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 3) +unsaved +pending	Enter	other looks.new-frit(row 3) +unsaved +pending	
+other looks.new-frit.list(row 3) +unsaved +pending	Esc	other looks.new-frit(row 3) +unsaved +pending	
+other looks.new-frit.list(row 3) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit.list(row 3) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 4)	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 4)	Enter	other looks.new-frit(row 4)	
+other looks.new-frit.list(row 4)	Esc	other looks.new-frit(row 4)	
+other looks.new-frit.list(row 4)	Shrink	other any.too-small	
+other looks.new-frit.list(row 4)	q	other left	exit 0
+other looks.new-frit.list(row 4) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 4) +pending	Enter	other looks.new-frit(row 4) +pending	
+other looks.new-frit.list(row 4) +pending	Esc	other looks.new-frit(row 4) +pending	
+other looks.new-frit.list(row 4) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit.list(row 4) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 4) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 4) +unsaved	Enter	other looks.new-frit(row 4) +unsaved	
+other looks.new-frit.list(row 4) +unsaved	Esc	other looks.new-frit(row 4) +unsaved	
+other looks.new-frit.list(row 4) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit.list(row 4) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit.list(row 4) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 4) +unsaved +pending	Enter	other looks.new-frit(row 4) +unsaved +pending	
+other looks.new-frit.list(row 4) +unsaved +pending	Esc	other looks.new-frit(row 4) +unsaved +pending	
+other looks.new-frit.list(row 4) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit.list(row 4) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 5)	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 5)	Enter	other looks.new-frit(row 5)	
+other looks.new-frit.list(row 5)	Esc	other looks.new-frit(row 5)	
+other looks.new-frit.list(row 5)	Shrink	other any.too-small	
+other looks.new-frit.list(row 5)	q	other left	exit 0
+other looks.new-frit.list(row 5) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit.list(row 5) +pending	Enter	other looks.new-frit(row 5) +pending	
+other looks.new-frit.list(row 5) +pending	Esc	other looks.new-frit(row 5) +pending	
+other looks.new-frit.list(row 5) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit.list(row 5) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 5) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 5) +unsaved	Enter	other looks.new-frit(row 5) +unsaved	
+other looks.new-frit.list(row 5) +unsaved	Esc	other looks.new-frit(row 5) +unsaved	
+other looks.new-frit.list(row 5) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit.list(row 5) +unsaved	q	other any.question.quit +unsaved	
+other looks.new-frit.list(row 5) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit.list(row 5) +unsaved +pending	Enter	other looks.new-frit(row 5) +unsaved +pending	
+other looks.new-frit.list(row 5) +unsaved +pending	Esc	other looks.new-frit(row 5) +unsaved +pending	
+other looks.new-frit.list(row 5) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
+other looks.new-frit.list(row 5) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.typing(row 6)	Ctrl-C	other left	exit 130
+other looks.new-frit.typing(row 6)	Enter	other looks.new-frit(row 7)	
+other looks.new-frit.typing(row 6)	Esc	other looks.new-frit(row 6)	
+other looks.new-frit.typing(row 6)	Shrink	other any.too-small	
+other looks.new-frit.typing(row 6) +pending	Ctrl-C	other left	exit 130
+other looks.new-frit.typing(row 6) +pending	Enter	other looks.new-frit(row 7) +pending	
+other looks.new-frit.typing(row 6) +pending	Esc	other looks.new-frit(row 6) +pending	
+other looks.new-frit.typing(row 6) +pending	Shrink	other any.too-small +pending	
+other looks.new-frit.typing(row 6) +unsaved	Ctrl-C	other left	save, exit 130
+other looks.new-frit.typing(row 6) +unsaved	Enter	other looks.new-frit(row 7) +unsaved	
+other looks.new-frit.typing(row 6) +unsaved	Esc	other looks.new-frit(row 6) +unsaved	
+other looks.new-frit.typing(row 6) +unsaved	Shrink	other any.too-small +unsaved	
+other looks.new-frit.typing(row 6) +unsaved +pending	Ctrl-C	other left	save, exit 130
+other looks.new-frit.typing(row 6) +unsaved +pending	Enter	other looks.new-frit(row 7) +unsaved +pending	
+other looks.new-frit.typing(row 6) +unsaved +pending	Esc	other looks.new-frit(row 6) +unsaved +pending	
+other looks.new-frit.typing(row 6) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.palette	Ctrl-C	other left	exit 130
 other looks.palette	Esc	other looks-resources(built-in scheme)	
 other looks.palette	Shrink	other any.too-small	
