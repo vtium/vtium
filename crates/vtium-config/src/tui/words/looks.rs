@@ -103,7 +103,7 @@ pub fn look_delete_question(name: &str, heads: &[String]) -> String {
         [one] => format!(" Terminal {one} uses it, and {after_one}."),
         _ => format!(" Terminals {} use it, and {after_many}.", and_list(heads)),
     };
-    format!("Delete the look {name}?{users} y deletes it, and any other key keeps it.")
+    format!("Delete the look {name}?{users} y deletes it, and Esc goes back.")
 }
 
 /// What the message line says when `t` finds no font set to try: the

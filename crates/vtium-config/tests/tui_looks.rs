@@ -408,11 +408,26 @@ fn r_deletes_a_look_after_the_question() {
     run_desk(&mut c, &mut d);
     assert!(!d.draft.contains("[look proof]"), "{}", d.draft);
     assert!(!d.draft.contains("look = proof"), "{}", d.draft);
-    // any other answer keeps it
-    let mut d = desk();
-    let mut c = console().keys(&[TO_LOOKS, b"r", b"x", b"s"]);
-    run_desk(&mut c, &mut d);
-    assert!(d.draft.contains("[look proof]"), "{}", d.draft);
+    // the question says what its keys do: any other key leaves it open,
+    // and Esc goes back with the look kept
+    use vtium_config::tui::input::Key;
+    let mut a = looks_app(inputs(), 100, 30);
+    press(&mut a, Key::Char('r'));
+    let question = flat(&text(&a));
+    assert!(
+        question.contains("y deletes it, and Esc goes back."),
+        "{question}"
+    );
+    press(&mut a, Key::Char('x'));
+    assert_eq!(vtium_config::tui::nav::node(&a), "any.question.confirm");
+    assert!(flat(&text(&a)).contains("Delete the look proof?"), "{}", text(&a));
+    press(&mut a, Key::Escape);
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks");
+    assert!(
+        a.shared.conf_text().is_some_and(|t| t.contains("[look proof]")),
+        "{:?}",
+        a.shared.conf_text()
+    );
 }
 
 /// Enter on a font set opens its detail: its fonts by role, what it
