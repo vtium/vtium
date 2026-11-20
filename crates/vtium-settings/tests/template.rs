@@ -100,3 +100,17 @@ fn the_user_guides_default_and_reference_files_state_the_compiled_in_configurati
         assert_eq!(unlined(parsed.config), unlined(Config::builtin()), "{name}");
     }
 }
+
+// The template is a file people read, which the crate compiles in as it is,
+// so its sentence about a head's name cannot be formatted from NAME_MAX. This
+// test keeps the sentence and the bound in step: it fails when either moves.
+#[test]
+fn the_template_states_the_name_bound() {
+    let said = format!("A name has 1 to {} of", vtium_settings::NAME_MAX);
+    let prose: String = TEMPLATE
+        .lines()
+        .map(|l| l.trim_start_matches('#').trim())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(prose.contains(&said), "the template does not say {said:?}");
+}

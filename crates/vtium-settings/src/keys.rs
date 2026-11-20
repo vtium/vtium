@@ -129,7 +129,11 @@ pub fn name(words: &[&str], text: &str) -> bool {
 /// words nor a file's name, as the console's reading and vtium-config say
 /// it. `palette` is the one key of that kind, so the reason names its
 /// words, which `the_name_refusal_names_each_word_of_a_name_key` holds.
-pub const NOT_A_NAME: &str = "the value is a built-in color scheme (legacy, nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light or vga), custom, or a color scheme file's name, which has 1 to 64 of the characters A-Z a-z 0-9 . _ + - and no path";
+pub const NOT_A_NAME: &str = concat!(
+    "the value is a built-in color scheme (legacy, nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light or vga), custom, or a color scheme file's name, which has 1 to ",
+    crate::bounds::name_max!(),
+    " of the characters A-Z a-z 0-9 . _ + - and no path"
+);
 
 /// The smallest and largest side of a cell that a frit's `cell=` line
 /// and a look's `cell` state, in pixels: from minspec's 8 pixels to an 8K
@@ -1362,7 +1366,7 @@ pub const FONT_PATHS: Key = Key {
     what: "The folders where vtium looks, in order, for installed fonts that a font set's `font:` lines name.\n\n\
            Separate the folders with `:`, as in `PATH`. Each folder must be an absolute path. The list replaces the built-in list. vtium skips a folder that is not an absolute path, logs why, and uses the rest.\n\n\
            [docs] The list can reorder or leave out the system's folders.\n\n\
-           When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. vtium searches a user's own folder, such as `~/.local/share/fonts`, only when the list names it. The font helper cannot read such a folder before someone logs in, because the helper then runs as `nobody`.",
+           When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. A font in a folder you own, such as `~/.local/share/fonts`, never renders, even when the list names the folder. Root does not own the font, so it fails the trust rule. Install it as a system font instead.",
 };
 
 pub const FONT_HELPER: Key = Key {
