@@ -181,7 +181,7 @@ pub const TINY5: Pinned = Pinned {
 pub const TINY5_FRIT: &str = include_str!("../../../crates/vtium-config/frits/small/tiny5.vtfrit");
 
 /// The path the shipped frit `tiny5` names its BDF file at.
-const TINY5_SOURCE: &str = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
+const TINY5_SOURCE: &str = "source=bdf:/usr/share/fonts/vtium/Tiny5Mono.bdf";
 
 /// Every font `fetch` keeps in the cache.
 fn pinned() -> impl Iterator<Item = &'static Pinned> {

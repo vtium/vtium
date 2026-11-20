@@ -1,8 +1,8 @@
 # tiny5: the smallest font vtium draws, Tiny5 Mono at its own 6x9 cell, 6
 # pixels wide being the narrowest cell a font set may state, with the small
 # panels' chosen icons and emoji. It is never a default, and vtium names it
-# nowhere: a person who wants it installs the font by hand. The sizes below
-# were measured for vtium/vtium#197.
+# nowhere, so a person who wants it names it in font-name or in a look. The
+# sizes below were measured for vtium/vtium#197.
 # Tiny5 Mono is a pixel font whose capitals are 5 pixels tall, drawn on a
 # 6-pixel advance with 7 rows above the baseline and 2 below. At 6x9 a
 # 320x240 panel holds 53x26 cells and a 640x480 one 106x53, where the
@@ -10,8 +10,8 @@
 # Latin-1, code page 437, Greek, Armenian, box drawing, blocks and
 # Braille, most of Cyrillic and of Symbols for Legacy Computing, 4,882
 # characters in all, each one cell wide. vtium ships this frit, never the
-# font: the helper draws from the BDF file the machine holds, and leaves
-# the source out when the file is missing.
+# font. The vtium-fonts package brings the BDF file, and the font helper
+# leaves the source out when the file is missing.
 #
 # The two small layers add Nerd Fonts' icons and color emoji, drawn to fit
 # the 6x9 cell. GNU Unifont, the last layer, holds 8x16 glyphs, which do
@@ -44,16 +44,20 @@ license=OFL-1.1 AND MIT
 # github.com/Gissio/font_Tiny5Mono at 7d30f9e887fdb29e0b951e92493822afba5f70a7
 # (version 3.000), file fonts/bdf/Tiny5Mono.bdf, SHA-256
 # 33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3.
-# No Arch or AUR package installs it: download that file from the
-# repository at that commit, check its SHA-256, and copy it to the path
-# below, readable by every account, since the helper reads it as nobody
-# before login. vtium-config reads the file as published: it takes the
-# character set from the XLFD name, as the file has no CHARSET_REGISTRY
-# property, and leaves out the 73 small capitals of ENCODING -1, which the
-# file's CHARS line does not count.
+# No distribution packages Tiny5 Mono, so the vtium-fonts package carries
+# that file and installs it at the path below. On a distribution without
+# vtium-fonts, download the file from the repository at that commit, check
+# its SHA-256, and copy it to the path below as root. The file and each
+# folder above it must belong to root, and the file must be readable by
+# every account, since the helper reads it as nobody before login. Either
+# way, vtium draws the font only once the font is active.
+# vtium-config reads the file as published: it takes the character set
+# from the XLFD name, as the file has no CHARSET_REGISTRY property, and
+# leaves out the 73 small capitals of ENCODING -1, which the file's CHARS
+# line does not count.
 # No cover= line: every glyph the file holds is one cell wide and drawn in
 # the cell.
-source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf
+source=bdf:/usr/share/fonts/vtium/Tiny5Mono.bdf
 version=3.000
 sha256=33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3
 url=https://github.com/Gissio/font_Tiny5Mono/tree/7d30f9e887fdb29e0b951e92493822afba5f70a7
