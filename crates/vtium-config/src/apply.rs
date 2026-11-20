@@ -324,7 +324,7 @@ impl SystemFont {
             .filter(|n| valid_font_name(n))
             .ok_or_else(|| {
                 format!(
-                    "{}: this file's name is not one of a font file that vtium reads, which ends in .ttf, .otf, .ttc, .otc, .otb, .psf, .psfu, .bdf or .hex, perhaps compressed",
+                    "{}: this file's name does not end like a font file's. vtium-config installs a file whose name ends in .ttf, .otf, .ttc, .otc, .otb, .psf, .psfu, .bdf or .hex, perhaps followed by .gz, .bz2, .xz or .zst.",
                     source.display()
                 )
             })?;

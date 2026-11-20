@@ -405,7 +405,10 @@ pub fn describe(bytes: &[u8], name: &str) -> Result<Description, String> {
             faces: vec![face],
         });
     }
-    Err("this file is not a font that vtium reads: not OpenType, PSF, BDF or .hex".to_owned())
+    Err(
+        "this file is not a font that vtium reads. vtium reads OpenType, PSF, BDF and .hex fonts."
+            .to_owned(),
+    )
 }
 
 /// The file's name less its directory, its compression's suffix and its
