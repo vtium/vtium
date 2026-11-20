@@ -72,7 +72,7 @@ Once vtium is installed, it reads its settings from `/etc/vtium/vtium.conf`. Rul
 
 ## Contributing
 
-vtium is written in Rust. Its code began as a port of two programs written in C, a history that [Provenance](docs/vtium-in-depth.md#provenance) tells in full.
+vtium is written in Rust. Its code began as a port of kmscon and libtsm which were written in C, a history that [Provenance](docs/vtium-in-depth.md#provenance) tells in full.
 
 The maintainer uses large language models to write code for vtium, reviews the results, and evaluates them with the project's tests. The [decision records](docs/architecture/INDEX.md) give the reasoning behind each decision in the maintainer's own words.
 
