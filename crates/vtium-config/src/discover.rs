@@ -430,10 +430,33 @@ pub fn describe(helper: &Helper, paths: &[PathBuf]) -> Vec<Described> {
 /// helper describes the files after it, so one bad file costs only its
 /// own description. When the helper cannot start, every file is unknown.
 pub fn describe_each(helper: &Helper, paths: &[PathBuf], each: &mut dyn FnMut(Described)) {
+    describe_each_as(helper, None, paths, each);
+}
+
+/// [`describe`], with each helper run as `account`, a uid and a gid, when
+/// one is given, as `apply` runs it as `nobody` when it runs as root
+/// ([`crate::specimen::start_as`]).
+pub fn describe_as(
+    helper: &Helper,
+    account: Option<(u32, u32)>,
+    paths: &[PathBuf],
+) -> Vec<Described> {
+    let mut out = Vec::with_capacity(paths.len());
+    describe_each_as(helper, account, paths, &mut |d| out.push(d));
+    out
+}
+
+/// [`describe_each`], with each helper run as `account` when one is given.
+fn describe_each_as(
+    helper: &Helper,
+    account: Option<(u32, u32)>,
+    paths: &[PathBuf],
+    each: &mut dyn FnMut(Described),
+) {
     let mut rest = paths;
     while !rest.is_empty() {
         let chunk = rest.get(..DESCRIBED_PER_HELPER).unwrap_or(rest);
-        match describe_in_one(helper, chunk, each) {
+        match describe_in_one(helper, account, chunk, each) {
             // a helper answers at least the file it failed on
             Ok(answered) => rest = rest.get(answered.max(1)..).unwrap_or_default(),
             Err(why) => {
@@ -475,12 +498,13 @@ fn answer(from: &mut dyn Read) -> Result<Described, String> {
 /// the helper failed on as answered, or why the helper did not start.
 fn describe_in_one(
     helper: &Helper,
+    account: Option<(u32, u32)>,
     paths: &[PathBuf],
     each: &mut dyn FnMut(Described),
 ) -> Result<usize, String> {
     let count = paths.len();
     let paths = paths.to_vec();
-    let (mut child, mut stdin, mut stdout) = crate::specimen::start(helper)?;
+    let (mut child, mut stdin, mut stdout) = crate::specimen::start_as(helper, account)?;
     let (arrived, answers) = mpsc::channel();
     // every request is written first, from a thread of its own, so a
     // helper that answers while the requests are still going in never

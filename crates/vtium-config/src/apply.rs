@@ -1,24 +1,28 @@
-//! Saving (ADR-1201 D5): the draft a user's save becomes, and `apply DIR`,
-//! the privileged step that checks a draft and installs it.
+//! Saving: the draft a user's save becomes, and `apply DIR`, the
+//! privileged step that checks a draft and installs it.
 //!
-//! A draft is a directory the user owns, under `$XDG_STATE_HOME/vtium/drafts`:
-//! the whole edited `vtium.conf`, each frit to write under `fonts/`, the
-//! whole edited `batch.conf`, the list of the active resources
-//! ([`crate::batch`]), and `MANIFEST`, one line a file, tab-separated: `write` or
+//! A draft is a directory the user owns, under `$XDG_STATE_HOME/vtium/drafts`.
+//! It holds the whole edited `vtium.conf`, each frit to write under
+//! `fonts/`, and the whole edited `batch.conf`, the list of the active
+//! resources ([`crate::batch`]). A draft that installs a font as a system
+//! font holds that one file, `system-font/NAME`, and nothing else.
+//! `MANIFEST` lists the files, one line a file, tab-separated: `write` or
 //! `remove`, the file's name in the draft, and the SHA-256 of the installed
 //! file it replaces as it was when the draft was made, or `new`. A last
 //! line, `accept` and `no-complete-route`, records that the person
 //! confirmed a vtium.conf that wires no complete route, or ran `install
-//! --force` (ADR-1403 D8).
+//! --force`.
 //!
-//! `apply`, run as root through `sudo vtium-config apply DIR`, takes no
-//! option that names a path or a program ([`crate::cli::root_refusal`]),
-//! so it writes only `/etc/vtium/vtium.conf`, the batch file vtium reads,
-//! and the frits in the frits'
-//! directory the installed vtium.conf names in `font-frits`, else the one
-//! the build names, read as the console reads it
-//! ([`crate::switch::frits_dir`]), and checks them with the console the
-//! build names, [`VTIUM`]:
+//! `apply` runs as root through `sudo vtium-config apply DIR`, and takes
+//! no option that names a path or a program ([`crate::cli::root_refusal`]).
+//! So it writes only these files: `/etc/vtium/vtium.conf`; the batch file
+//! vtium reads; the frits, in the frits' directory that the installed
+//! vtium.conf names in `font-frits`, else the one the build names, read as
+//! the console reads it ([`crate::switch::frits_dir`]); and one font file
+//! in `/usr/local/share/fonts`, a folder it creates with mode 0755 when it
+//! is missing. It checks vtium.conf with the console the build names,
+//! [`VTIUM`], and reads fonts only through the font helper, which runs as
+//! `nobody` when `apply` runs as root. `apply`:
 //!
 //! 1. reads the draft without following a link, takes only regular files
 //!    with names it knows, and bounds each file's size, since root is
@@ -29,23 +33,32 @@
 //!    frit reader, strictly; the batch file with vtium's own reader, every
 //!    line that the installed batch file does not already hold, and each
 //!    resource it activates against the trust rule, as the user `apply`
-//!    runs as; and the edited vtium.conf, both its parts in
-//!    one run, with the console's own `vtium check-config`, so the verdict
-//!    before writing is the verdict at the next start;
+//!    runs as; the edited vtium.conf, both its parts in one run, with the
+//!    console's own `vtium check-config`, so the verdict before writing is
+//!    the verdict at the next start; and a system font with the font
+//!    helper, which must describe a copy root made of the font's bytes
+//!    ([`SystemFont`]). A system font's draft that holds any other file
+//!    is refused, so that draft runs no `check-config`;
 //! 4. writes the frits, then the batch file, then vtium.conf, so
 //!    vtium.conf never names a frit or a resource that is not yet there,
-//!    and removes frits last; each file goes in
-//!    through
-//!    [`vtium_settings::install_file`], in one rename, mode 0644, the old
-//!    one kept as `NAME.bak`;
+//!    and removes frits last. Each file goes in through
+//!    [`vtium_settings::install_file`], in one rename, mode 0644, with the
+//!    old one kept as `NAME.bak`. A system font is written the same way,
+//!    but the file it replaces is not kept, because fontconfig would read
+//!    the copy as one more font;
 //! 5. prints one line a file, `wrote PATH`, `removed PATH`, `failed PATH`
 //!    with the reason, or `not written PATH` after a failure, and exits 0
-//!    when it wrote them all.
+//!    when it wrote them all. After it writes a system font, it checks the
+//!    font against the trust rule and prints `untrusted PATH` with the
+//!    reason when it fails, and exits 1.
 //!
 //! The draft stays after `apply`, so a user can run it again.
 //!
 //! References:
+//! - ADR-1201 D5: the draft a save becomes, and `apply` as the privileged step.
+//! - ADR-1205 D5: the system font's draft, its folder, and the trust check after the write.
 //! - ADR-1403 D3: the console's own check judges vtium.conf before `apply` writes it.
+//! - ADR-1403 D8: the manifest line that accepts a vtium.conf with no complete route.
 
 use std::ffi::OsString;
 use std::fs::File;
@@ -60,6 +73,7 @@ use vtium_font::{Sha256, sha256_hex};
 use crate::draft::Plan;
 use crate::drafts::Verdict;
 use crate::frit::{FRIT_BYTES_MAX, Frit, valid_name};
+use crate::specimen::Helper;
 use crate::tui::{CONF_MAX, Paths};
 
 /// What `apply` says of a file that changed after the draft was made.
@@ -461,32 +475,6 @@ fn read_regular(path: &Path, limit: u64) -> Result<Option<Vec<u8>>, String> {
     Ok(Some(bytes))
 }
 
-/// Whether `bytes` start as a font file vtium reads, judged by their
-/// first bytes alone, since root never parses a font: a TrueType or
-/// OpenType font or collection, a PSF font, a BDF font, a compressed
-/// file, or for a `.hex` file, a code point and its colon. The font
-/// helper parsed the font in its sandbox before the draft was made.
-fn looks_like_font(name: &str, bytes: &[u8]) -> bool {
-    let magic = [
-        &[0u8, 1, 0, 0][..],
-        b"OTTO",
-        b"ttcf",
-        b"true",
-        &[0x36, 0x04],
-        &[0x72, 0xb5, 0x4a, 0x86],
-        b"STARTFONT",
-        &[0x1f, 0x8b],
-        b"BZh",
-        &[0xfd, b'7', b'z', b'X', b'Z'],
-        &[0x28, 0xb5, 0x2f, 0xfd],
-    ];
-    if magic.iter().any(|m| bytes.starts_with(m)) {
-        return true;
-    }
-    let head = bytes.iter().take_while(|b| b.is_ascii_hexdigit()).count();
-    name.ends_with(".hex") && (1..=6).contains(&head) && bytes.get(head) == Some(&b':')
-}
-
 /// A new directory under `root`, named for the time it was made.
 fn new_dir(root: &Path) -> io::Result<PathBuf> {
     #[expect(
@@ -810,6 +798,7 @@ fn check_config(
 pub fn command(
     words: &[String],
     targets: &Targets,
+    helper: &Helper,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
@@ -820,7 +809,7 @@ pub fn command(
         );
         return 2;
     };
-    match apply(Path::new(dir), targets, out) {
+    match apply(Path::new(dir), targets, helper, out) {
         Ok(true) => 0,
         Ok(false) => 1,
         Err(why) => {
@@ -843,7 +832,7 @@ pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write
     }
     let targets = paths.targets();
     if rustix::process::geteuid().is_root() {
-        return match install_now(plan, &targets, out) {
+        return match install_now(plan, &targets, &paths.helper, out) {
             Ok(true) => 0,
             Ok(false) => 1,
             Err(why) => {
@@ -883,8 +872,13 @@ pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write
 /// Installs `plan` at once, as root: the draft written into a directory of
 /// root's own under `/tmp`, then applied, so every file goes through the
 /// checks `apply` makes.
-pub fn install_now(plan: &Plan, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
-    install_under(Scratch::system()?, plan, targets, out)
+pub fn install_now(
+    plan: &Plan,
+    targets: &Targets,
+    helper: &Helper,
+    out: &mut dyn Write,
+) -> Result<bool, String> {
+    install_under(Scratch::system()?, plan, targets, helper, out)
 }
 
 /// [`install_now`] with its draft in `scratch`, which goes when it is
@@ -893,11 +887,12 @@ fn install_under(
     scratch: Scratch,
     plan: &Plan,
     targets: &Targets,
+    helper: &Helper,
     out: &mut dyn Write,
 ) -> Result<bool, String> {
     let draft = write_draft(&scratch.path, plan, targets)
         .map_err(|e| format!("the draft under {}: {e}", scratch.path.display()))?;
-    apply(&draft, targets, out)
+    apply(&draft, targets, helper, out)
 }
 
 /// A copy of `bytes`, named `name`, in a directory of this process's own
@@ -959,7 +954,12 @@ struct Staged {
 /// Checks the draft in `dir` and installs it: `Ok(true)` when every file
 /// was written, `Ok(false)` when a write failed after the checks, and the
 /// reason when the draft was refused before anything was written.
-fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, String> {
+fn apply(
+    dir: &Path,
+    targets: &Targets,
+    helper: &Helper,
+    out: &mut dyn Write,
+) -> Result<bool, String> {
     // a trailing slash makes the kernel follow a link whatever O_NOFOLLOW
     // says, so the draft's own name is opened, without one
     let named = dir.as_os_str().as_encoded_bytes();
@@ -1027,11 +1027,7 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
             owned(&folder, SYSTEM_FONT, &owners)?;
             let bytes = read_at(&folder, font, crate::outline::OUTLINE_BYTES_MAX, &owners)
                 .map_err(|e| format!("{SYSTEM_FONT}/{e}"))?;
-            if !looks_like_font(font, &bytes) {
-                return Err(format!(
-                    "{name}: this file does not start as a font file that vtium reads"
-                ));
-            }
+            described(helper, name, font, &bytes)?;
             system_font = Some(Staged {
                 target: path,
                 bytes: Some(bytes),
@@ -1248,6 +1244,75 @@ fn install_system_font(font: &Staged, out: &mut dyn Write) -> Result<bool, Strin
     }
 }
 
+/// Checks the font a draft installs as a system font, the draft's file
+/// `name` holding `bytes`, with the font helper, which reads fonts in its
+/// sandbox, as the console reads them. The helper reads a copy root made
+/// of the bytes `apply` read, named `font` as in the draft, so the file
+/// the helper judges is the file that is installed. As root, `apply` runs
+/// the helper as `nobody`, as the console does. `Err` says why the font is
+/// refused: the helper has no description of the file, gave none, or
+/// found no character the file maps to a glyph.
+///
+/// The user's own check before the draft was made proves nothing here.
+/// The user owns the draft and can change its copy after that check, and
+/// a sudo rule may let a user run `apply` alone. Root then writes the
+/// file into a folder that every user's fontconfig reads, as a font that
+/// passes vtium's trust rule, so `apply` judges the bytes it writes.
+///
+/// References:
+/// - ADR-1200 D15: the font helper never runs as root, and the console runs it as `nobody`.
+/// - ADR-1205 D5: the install step copies one font file into `/usr/local/share/fonts`.
+fn described(helper: &Helper, name: &str, font: &str, bytes: &[u8]) -> Result<(), String> {
+    use crate::discover::Described;
+    let account = if rustix::process::geteuid().is_root() {
+        let passwd = std::fs::read_to_string("/etc/passwd")
+            .map_err(|e| format!("{name}: vtium-config cannot read /etc/passwd to find the account the font helper runs as: {e}"))?;
+        Some(nobody(&passwd).ok_or_else(|| {
+            format!("{name}: /etc/passwd has no user nobody for the font helper to run as, and the font helper never runs as root")
+        })?)
+    } else {
+        None
+    };
+    let scratch = Scratch::system()?;
+    let copy = scratch.write(font, bytes)?;
+    scratch.share(font)?;
+    let said = crate::discover::describe_as(helper, account, &[copy]);
+    drop(scratch);
+    // a file that starts like an OpenType font, and holds nothing else of
+    // one, reads as a face that maps no character
+    let empty = "the file maps no character to a glyph, so vtium could draw nothing from it";
+    match said.first() {
+        Some(Described::Font(d)) if d.faces.iter().any(|f| f.codepoints > 0) => Ok(()),
+        Some(Described::Font(_)) => Err(format!(
+            "{name}: vtium-config does not install this file as a system font, because the font helper cannot read it as a font: {empty}"
+        )),
+        Some(Described::NotAFont(why)) => Err(format!(
+            "{name}: vtium-config does not install this file as a system font, because the font helper cannot read it as a font: {why}"
+        )),
+        Some(Described::Unknown(why)) => Err(format!(
+            "{name}: vtium-config does not install this file as a system font, because the font helper gave no description of it: {why}"
+        )),
+        None => Err(format!(
+            "{name}: vtium-config does not install this file as a system font, because the font helper gave no description of it"
+        )),
+    }
+}
+
+/// The uid and gid of the user `nobody` in `passwd`, the text of
+/// `/etc/passwd`, which the font helper runs as when `apply` runs as root.
+/// A `nobody` with uid or gid 0 is no account to drop to, so it counts as
+/// missing.
+fn nobody(passwd: &str) -> Option<(u32, u32)> {
+    passwd.lines().find_map(|line| {
+        let mut fields = line.split(':');
+        (fields.next() == Some("nobody")).then_some(())?;
+        let _password = fields.next()?;
+        let uid = fields.next()?.parse().ok()?;
+        let gid = fields.next()?.parse().ok()?;
+        (uid != 0 && gid != 0).then_some((uid, gid))
+    })
+}
+
 /// Makes `folder` and each missing folder above it, each with mode 0755.
 /// `sudo` keeps the person's umask, and a umask of 077 would leave a new
 /// folder readable by root alone, so neither the font helper, which
@@ -1398,6 +1463,22 @@ impl Scratch {
         Ok(dir)
     }
 
+    /// Lets the font helper, which runs as `nobody` when this process is
+    /// root, read the copy `name`: the copy becomes mode 0644, and the
+    /// directory 0711, so other users can pass through it to a name they
+    /// know but cannot list it. No one but this process can write either.
+    fn share(&self, name: &str) -> Result<(), String> {
+        rustix::fs::chmodat(
+            &self.dir,
+            name,
+            Mode::from_raw_mode(0o644),
+            rustix::fs::AtFlags::empty(),
+        )
+        .map_err(|e| format!("{name}: {e}"))?;
+        rustix::fs::fchmod(&self.dir, Mode::from_raw_mode(0o711))
+            .map_err(|e| format!("{}: {e}", self.path.display()))
+    }
+
     /// Writes `bytes` as the new file `name` in the directory.
     fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
         let fd = rustix::fs::openat(
@@ -1439,7 +1520,7 @@ impl Drop for Scratch {
 )]
 mod tests {
     use super::*;
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::fs::DirBuilderExt;
 
     /// A fresh directory of a test's own under the system's temporary
     /// directory, standing in for `/tmp`. The test removes it when it drops
@@ -1606,14 +1687,14 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::os::unix::fs::symlink(&elsewhere, dir.join("system-font")).unwrap();
         std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
-        let why = apply(&dir, &targets_in(&base), &mut Vec::new()).unwrap_err();
+        let why = apply(&dir, &targets_in(&base), &no_helper(), &mut Vec::new()).unwrap_err();
         assert!(why.starts_with("system-font: "), "{why}");
         // the font is a link
         let dir = base.join("draft-file");
         std::fs::create_dir_all(dir.join("system-font")).unwrap();
         std::os::unix::fs::symlink(elsewhere.join("A.ttf"), dir.join("system-font/A.ttf")).unwrap();
         std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
-        let why = apply(&dir, &targets_in(&base), &mut Vec::new()).unwrap_err();
+        let why = apply(&dir, &targets_in(&base), &no_helper(), &mut Vec::new()).unwrap_err();
         assert!(why.starts_with("system-font/A.ttf"), "{why}");
         assert!(!base.join("local-fonts").exists());
     }
@@ -1632,7 +1713,7 @@ mod tests {
             "write\tsystem-font/A.ttf\tnew\nwrite\tvtium.conf\tnew\n",
         )
         .unwrap();
-        let why = apply(&dir, &targets_in(&base), &mut Vec::new()).unwrap_err();
+        let why = apply(&dir, &targets_in(&base), &no_helper(), &mut Vec::new()).unwrap_err();
         assert!(
             why.contains("holds that one font and nothing else"),
             "{why}"
@@ -1640,44 +1721,41 @@ mod tests {
         assert!(!base.join("local-fonts").exists());
     }
 
-    /// root never parses a font, so `apply` judges the bytes by how they
-    /// start, and refuses a file that starts as no font vtium reads.
-    #[test]
-    fn a_system_font_that_starts_as_no_font_is_refused() {
-        let base = base("system-font-text");
-        let dir = base.join("draft");
-        std::fs::create_dir_all(dir.join("system-font")).unwrap();
-        std::fs::write(dir.join("system-font/A.ttf"), b"#!/bin/sh\n").unwrap();
-        std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
-        let why = apply(&dir, &targets_in(&base), &mut Vec::new()).unwrap_err();
-        assert!(why.contains("does not start as a font file"), "{why}");
-        assert!(looks_like_font("u.hex", b"0041:00ff"));
-        assert!(!looks_like_font("u.ttf", b"0041:00ff"));
+    /// A font helper that cannot start, for the checks that refuse a draft
+    /// before any font is read.
+    fn no_helper() -> Helper {
+        Helper::at("/nonexistent/vtium-config")
     }
 
-    /// A font written into a folder that fails the trust rule, as the
-    /// temporary directory does, is written and then reported as one that
-    /// vtium cannot activate, and the apply fails.
+    /// `apply` installs only a font the font helper describes, so a font
+    /// whose helper cannot start is refused, and nothing is written. The
+    /// integration tests drive the real helper.
     #[test]
-    fn a_system_font_that_fails_the_trust_rule_is_reported() {
-        let base = base("system-font-untrusted");
-        std::fs::set_permissions(&*base, std::fs::Permissions::from_mode(0o777)).unwrap();
+    fn a_system_font_the_font_helper_cannot_describe_is_refused() {
+        let base = base("system-font-text");
         let dir = base.join("draft");
         std::fs::create_dir_all(dir.join("system-font")).unwrap();
         std::fs::write(dir.join("system-font/A.ttf"), b"OTTO").unwrap();
         std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
-        let mut out = Vec::new();
-        assert_eq!(apply(&dir, &targets_in(&base), &mut out), Ok(false));
-        let said = String::from_utf8(out).unwrap();
-        let path = base.join("local-fonts/A.ttf");
+        let why = apply(&dir, &targets_in(&base), &no_helper(), &mut Vec::new()).unwrap_err();
         assert!(
-            said.starts_with(&format!(
-                "wrote\t{}\nuntrusted\t{}\t",
-                path.display(),
-                path.display()
-            )),
-            "{said}"
+            why.starts_with("system-font/A.ttf: vtium-config does not install this file as a system font, because the font helper gave no description of it: cannot start the font helper /nonexistent/vtium-config: "),
+            "{why}"
         );
+        assert!(!base.join("local-fonts").exists());
+    }
+
+    /// The font helper runs as `nobody` when `apply` runs as root, as
+    /// `/etc/passwd` names it, and never as an account with uid or gid 0.
+    #[test]
+    fn the_font_helper_runs_as_nobody_from_passwd() {
+        let passwd =
+            "root:x:0:0::/root:/bin/bash\nnobody:x:65534:65534:Nobody:/:/usr/bin/nologin\n";
+        assert_eq!(nobody(passwd), Some((65534, 65534)));
+        assert_eq!(nobody("root:x:0:0::/root:/bin/bash\n"), None);
+        assert_eq!(nobody("nobody:x:0:65534::/:/bin/false\n"), None);
+        assert_eq!(nobody("nobody:x:65534:0::/:/bin/false\n"), None);
+        assert_eq!(nobody("nobody:x:many:65534::/:/bin/false\n"), None);
     }
 
     /// The names a test's name source gives, in turn, and then `last`.
@@ -1788,6 +1866,7 @@ mod tests {
             scratch(),
             &plan("source=builtin:unifont\n", "font-size=13\n"),
             &targets("/bin/false"),
+            &no_helper(),
             &mut out,
         );
         assert!(refused.is_err(), "{refused:?}");
@@ -1795,6 +1874,7 @@ mod tests {
             scratch(),
             &plan("colour=red\n", "font-size=13\n"),
             &targets("/bin/true"),
+            &no_helper(),
             &mut out,
         );
         assert!(refused.is_err(), "{refused:?}");
@@ -1814,6 +1894,7 @@ mod tests {
             scratch(),
             &plan("source=builtin:unifont\n", "font-size=13\n"),
             &targets("/bin/true"),
+            &no_helper(),
             &mut out,
         );
         let why = refused.unwrap_err();
@@ -1825,6 +1906,7 @@ mod tests {
             scratch(),
             &plan("source=builtin:unifont\n", "font-size=13\n"),
             &targets("/bin/true"),
+            &no_helper(),
             &mut out,
         );
         assert_eq!(written, Ok(true), "{}", String::from_utf8_lossy(&out));

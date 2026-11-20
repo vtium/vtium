@@ -1136,6 +1136,81 @@ fn the_fonts_folder_apply_makes_is_readable_under_any_umask() {
     assert_eq!(mode(&folder.join("MyMono.ttf")), 0o644);
 }
 
+/// `apply` describes the draft's font through the font helper before it
+/// installs it, so a file swapped into the draft after the user's own
+/// check never reaches the system fonts folder, even when it starts like
+/// a font. A user who may run only `sudo vtium-config apply DIR` could
+/// otherwise place any bytes there as root's.
+#[test]
+fn apply_installs_only_a_font_the_font_helper_describes() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    let f = fixture("system-font-swapped", None);
+    let mine = f.root.join("home/.fonts/MyMono.ttf");
+    test_font(&mine, "Version 1.0");
+    let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    let draft = ran
+        .out
+        .lines()
+        .find_map(|l| l.strip_prefix("draft\t"))
+        .expect("the draft's line");
+    // the copy the helper read is replaced with bytes that start like an
+    // OpenType font and are none
+    let copy = Path::new(draft).join("system-font/MyMono.ttf");
+    std::fs::write(&copy, b"OTTO and then anything at all").expect("the swap");
+    let applied = f.apply_printed(&ran);
+    assert_eq!(applied.status, 1, "{}{}", applied.out, applied.err);
+    assert!(
+        applied.err.starts_with(
+            "vtium-config: system-font/MyMono.ttf: vtium-config does not install this file as a system font, because the font helper cannot read it as a font: "
+        ),
+        "{}",
+        applied.err
+    );
+    assert!(
+        applied.err.ends_with("\nNothing was installed.\n"),
+        "{}",
+        applied.err
+    );
+    assert!(!f.etc().join("local-fonts/MyMono.ttf").exists());
+}
+
+/// A font written into a folder that fails the trust rule, as a folder
+/// any user can write does, is written and then reported as one that
+/// vtium cannot activate, and the apply fails.
+#[test]
+fn a_system_font_that_fails_the_trust_rule_is_reported() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("system-font-untrusted", None);
+    let draft = f.root.join("draft");
+    std::fs::create_dir_all(draft.join("system-font")).expect("the draft");
+    test_font(&draft.join("system-font/A.ttf"), "Version 1.0");
+    std::fs::write(draft.join("MANIFEST"), "write\tsystem-font/A.ttf\tnew\n")
+        .expect("the manifest");
+    std::fs::set_permissions(f.etc(), std::fs::Permissions::from_mode(0o777)).expect("its mode");
+    let ran = f.run(&["apply", draft.to_str().expect("a path")]);
+    std::fs::set_permissions(f.etc(), std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    let path = f.etc().join("local-fonts/A.ttf");
+    assert!(
+        ran.out.starts_with(&format!(
+            "wrote\t{}\nuntrusted\t{}\t",
+            path.display(),
+            path.display()
+        )),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+}
+
 /// A file whose name holds an escape sequence is refused, and the refusal
 /// prints the sequence as text, so the terminal never acts on it.
 #[test]

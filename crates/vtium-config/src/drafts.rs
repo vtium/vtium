@@ -554,7 +554,8 @@ impl Session<'_> {
     pub fn put(&self, plan: &Plan, run: Runner<'_>, out: &mut dyn Write) -> Result<(), Fail> {
         let targets = self.paths.targets();
         if rustix::process::geteuid().is_root() {
-            let wrote = crate::apply::install_now(plan, &targets, out).map_err(Fail::Check)?;
+            let wrote = crate::apply::install_now(plan, &targets, &self.paths.helper, out)
+                .map_err(Fail::Check)?;
             if !wrote {
                 return Err(Fail::File(format!(
                     "{} could not be written",
