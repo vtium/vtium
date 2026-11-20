@@ -45,7 +45,11 @@ pub enum Op {
     /// densities.
     Devices,
     /// Activates or deactivates the resource at `path` in the draft,
-    /// which keeps the change beside it until the install (ADR-1205 D4).
+    /// which keeps the change beside it until the install.
+    ///
+    /// References:
+    /// - ADR-1205 D4: a draft's changes to the active resources wait
+    ///   beside it until the install.
     Resource {
         path: std::path::PathBuf,
         change: crate::batch::Change,
