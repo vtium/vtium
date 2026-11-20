@@ -10,7 +10,9 @@
 //! deactivates a color scheme file or a pointer theme, with the controls
 //! the resource tabs share, and asks first when a look uses it. Among the
 //! color schemes and the pointer themes, `n`, `r`, `t` and `p` do nothing,
-//! and Space does nothing on a scheme built into vtium.
+//! so the tab is in a node of its own there, `looks-resources`, whose key
+//! line leaves them out and offers Space. Space on a scheme built into
+//! vtium says that the scheme is always active.
 //!
 //! The tab is made of groups, each in a module of its own: the looks, the
 //! look card, the font sets, the new-font-set form, the color schemes and
@@ -28,6 +30,8 @@
 //!   down a level while Esc comes back up.
 //! - ADR-1403 D10, its notes of 2026-11-19: what each key does among the
 //!   color schemes and the pointer themes.
+//! - ADR-1403 D7, its note of 2026-11-18: each key line names only keys
+//!   that act where it is shown.
 
 pub mod card;
 pub mod fontsets;
@@ -80,6 +84,16 @@ enum Open {
     Pointer { at: usize, top: usize },
 }
 
+/// Where the Looks tab's highlight and an open font set's detail are, with
+/// each font set by its name, which [`Looks::spot`] takes before the list
+/// of font sets changes and [`Looks::restore`] puts back after.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Spot {
+    entry: Option<Entry>,
+    font_set: Option<String>,
+    open: Option<String>,
+}
+
 /// Where the Looks tab stands: the highlighted item and the window of the
 /// list, whether the preview shows a picture of the console or sample
 /// characters, what is open over the list, and the form for a new font
@@ -90,6 +104,10 @@ pub struct Looks {
     picture: bool,
     open: Option<Open>,
     form: newfrit::Form,
+    /// The highlight is on a color scheme or a pointer theme, which puts
+    /// the list in the node `looks-resources`. [`Looks::follow`] sets it
+    /// each time the highlight or the list can have moved.
+    resources: bool,
 }
 
 impl Looks {
@@ -138,7 +156,66 @@ impl Looks {
         {
             self.open = None;
             self.list.at = at;
+            self.follow(shared);
         }
+    }
+
+    /// Records whether the highlight is on a color scheme or a pointer
+    /// theme, which decides the list's node. The tab's node is read
+    /// without the shared state, so the tab records the highlight's kind
+    /// after each key it takes and each change of the list it hears of: a
+    /// key, a font set shown from the Flow tab, and an install that adds
+    /// or removes a font set. A look deleted after its question leaves the
+    /// highlight among the looks and the font sets, because the list
+    /// always holds the built-in font set between the looks and the
+    /// color schemes.
+    pub fn follow(&mut self, shared: &Shared) {
+        self.resources = matches!(
+            self.highlighted(shared),
+            Some(Entry::Palette(_) | Entry::Pointer(_))
+        );
+    }
+
+    /// Where the highlight and an open font set's detail are. The list
+    /// holds each font set by its place among the fonts, which an install
+    /// that adds or removes a font set moves, so the spot names the font
+    /// set instead.
+    pub fn spot(&self, shared: &Shared) -> Spot {
+        let name = |at: usize| shared.inputs.fonts.get(at).map(|f| f.name.clone());
+        let entry = self.highlighted(shared);
+        Spot {
+            font_set: match entry {
+                Some(Entry::FontSet(at)) => name(at),
+                _ => None,
+            },
+            entry,
+            open: match self.open {
+                Some(Open::FontSet { at, .. }) => name(at),
+                _ => None,
+            },
+        }
+    }
+
+    /// Puts the highlight back on the item of `spot`, and an open font
+    /// set's detail back on its font set, once the list has changed. A
+    /// font set that left the list closes its detail, and a highlight
+    /// whose item left the list stays at its place.
+    pub fn restore(&mut self, shared: &Shared, spot: Spot) {
+        let place = |name: &str| shared.inputs.fonts.iter().position(|f| f.name == name);
+        let entry = match (spot.entry, spot.font_set) {
+            (Some(Entry::FontSet(_)), Some(name)) => place(&name).map(Entry::FontSet),
+            (entry, _) => entry,
+        };
+        if let Some(at) = entry.and_then(|e| Self::entries(shared).iter().position(|x| *x == e)) {
+            self.list.at = at;
+        }
+        if let Some(Open::FontSet { at, .. }) = &mut self.open {
+            match spot.open.as_deref().and_then(place) {
+                Some(now) => *at = now,
+                None => self.open = None,
+            }
+        }
+        self.follow(shared);
     }
 
     /// The highlighted item.
@@ -406,10 +483,18 @@ impl Looks {
                 self.open = Some(Open::Pointer { at, top: 0 });
                 Vec::new()
             }
+            (Key::Char(' '), Some(Entry::Palette(palettes::Scheme::BuiltIn(_)))) => {
+                vec![Command::Change(Change::Say(
+                    words::BUILT_IN_SCHEME_SPACE.to_owned(),
+                ))]
+            }
             (Key::Char(' '), Some(e @ (Entry::Palette(_) | Entry::Pointer(_)))) => {
                 Self::resource(shared, &e)
                     .map(|(r, uses)| resources::space(&r, &uses))
                     .unwrap_or_default()
+            }
+            (Key::Enter | Key::Char('r'), Some(Entry::NoLooks)) => {
+                vec![Command::Change(Change::Say(words::NO_LOOK_YET.to_owned()))]
             }
             // the keys that act on a look or a font set do nothing among
             // the color schemes and the pointer themes
@@ -440,9 +525,24 @@ impl Looks {
             (Key::Char('t'), Some(Entry::FontSet(at))) => {
                 Self::try_font(shared, shared.inputs.fonts.get(at).map(|f| f.name.clone()))
             }
-            (Key::Char('p'), _) => {
+            (Key::Char('p'), entry) => {
                 self.picture = !self.picture;
-                Vec::new()
+                // a font set vtium cannot read has no preview, so the
+                // switch would show nothing new; the tab says so
+                match entry {
+                    Some(Entry::FontSet(at))
+                        if shared
+                            .inputs
+                            .fonts
+                            .get(at)
+                            .is_some_and(|f| !fontsets::usable(shared, f)) =>
+                    {
+                        vec![Command::Change(Change::Say(
+                            words::NO_PREVIEW_TO_SWITCH.to_owned(),
+                        ))]
+                    }
+                    _ => Vec::new(),
+                }
             }
             _ => {
                 let n = Self::entries(shared).len();
@@ -458,8 +558,13 @@ impl Tab for Looks {
         words::LOOKS
     }
 
+    /// The list's node is `looks` on a look or a font set, and
+    /// `looks-resources` on a color scheme or a pointer theme, where `n`,
+    /// `r`, `t` and `p` do nothing and Space acts. Both are the tab with
+    /// nothing open over it, so the node's id has no dot.
     fn node(&self) -> &'static str {
         match &self.open {
+            None if self.resources => "looks-resources",
             None => "looks",
             Some(Open::Card(c)) => c.node(),
             Some(Open::FontSet { .. }) => "looks.font-set",
@@ -577,6 +682,15 @@ impl Tab for Looks {
     }
 
     fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
+        let commands = self.update_open(shared, room, key);
+        self.follow(shared);
+        commands
+    }
+}
+
+impl Looks {
+    /// A key, to the list or to what is open over it.
+    fn update_open(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
         match self.open.take() {
             None => self.list_key(shared, key),
             Some(Open::Card(mut c)) => {

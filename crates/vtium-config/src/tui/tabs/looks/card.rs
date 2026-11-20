@@ -635,6 +635,11 @@ impl Card {
                     self.open = Some(Open::Typing(self.name.clone()));
                     Step::Stay(Vec::new())
                 }
+                // the pointer theme line offers no choices yet, so Enter
+                // says why
+                Key::Enter if line == Line::Pointer => Step::Stay(vec![Command::Change(
+                    Change::Say(words::LOOK_POINTER_NOT_YET.to_owned()),
+                )]),
                 Key::Enter if !choices(shared, &look, line).is_empty() => {
                     let at = chosen(shared, &look, line).unwrap_or(0);
                     self.open = Some(Open::List(ListBox::at(at)));

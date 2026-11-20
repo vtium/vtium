@@ -38,7 +38,7 @@ use super::super::model::{Font, FontState, Shared, Size};
 use super::super::resources::{self, Resource};
 use super::super::shot::{Applied, Preview, Source};
 use super::super::words;
-use super::{Command, Room, Tab};
+use super::{Change, Command, Room, Tab};
 use crate::batch::Use;
 
 /// Which groups the list shows: all three, or one of
@@ -481,12 +481,17 @@ impl Tab for Effects {
                     });
                     Vec::new()
                 }
-                Key::Char(' ') => match self
-                    .highlighted(shared)
-                    .and_then(|item| Self::resource(shared, item))
-                {
-                    Some(r) => resources::space(r, &Self::uses(shared, r)),
-                    None => Vec::new(),
+                Key::Char(' ') => match self.highlighted(shared) {
+                    Some(item) => match Self::resource(shared, item) {
+                        Some(r) => resources::space(r, &Self::uses(shared, r)),
+                        // a vtlook is no file to activate: a look names it
+                        None => vec![Command::Change(Change::Say(
+                            words::SPACE_ON_VTLOOK.to_owned(),
+                        ))],
+                    },
+                    None => vec![Command::Change(Change::Say(
+                        words::SPACE_ON_EFFECT_FILTER.to_owned(),
+                    ))],
                 },
                 _ => {
                     let n = self.items(shared).len().saturating_add(1);

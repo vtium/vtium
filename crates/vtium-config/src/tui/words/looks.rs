@@ -430,3 +430,17 @@ pub fn pointer_users(named: bool) -> String {
         "No look uses it. Every look uses the pointer theme that vtium.conf's pointer-theme names, because a look cannot pick one of its own yet.".to_owned()
     }
 }
+
+/// Space on a color scheme built into vtium.
+pub const BUILT_IN_SCHEME_SPACE: &str =
+    "A color scheme built into vtium is always active, so Space has nothing to change.";
+
+/// Enter or `r` on the looks group's row while the draft has no look.
+pub const NO_LOOK_YET: &str = "The draft has no look yet. Press n to make one.";
+
+/// `p` on a font set vtium cannot read, whose preview stays empty.
+pub const NO_PREVIEW_TO_SWITCH: &str =
+    "vtium cannot read this font set, so it has no preview to switch.";
+
+/// Enter on the pointer theme line of a look's card.
+pub const LOOK_POINTER_NOT_YET: &str = "A look cannot pick a pointer theme of its own yet.";

@@ -450,3 +450,7 @@ pub fn system_font_not_a_font(source: &str, why: &str) -> String {
         "{source}: vtium-config cannot install this file as a system font, because the font helper cannot read it as a font: {why}"
     )
 }
+
+/// Space on the Fonts tab's filter line.
+pub const SPACE_ON_FONT_FILTER: &str =
+    "Space activates the highlighted font. Move down to a font first.";
