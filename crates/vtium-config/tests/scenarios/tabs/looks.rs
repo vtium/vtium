@@ -1,11 +1,13 @@
-//! The Looks tab's part of the scenario walk: the tab's list of looks and
-//! font sets, a look's card with its shared list and its typed name, a
-//! font set's detail, and the form for a new font set, which opens over
-//! the tab.
+//! The Looks tab's part of the scenario walk: the tab's list of looks,
+//! font sets, color schemes and pointer themes, a look's card with its
+//! shared list and its typed name, the detail of a font set, a color
+//! scheme or a pointer theme, and the form for a new font set, which opens
+//! over the tab.
 
 use vtium_config::tui::model::{App, FontState, View};
-use vtium_config::tui::tabs::looks::Entry;
 use vtium_config::tui::tabs::looks::card::Line;
+use vtium_config::tui::tabs::looks::palettes::Scheme;
+use vtium_config::tui::tabs::looks::{Entry, Looks};
 
 use super::super::state::Shown;
 use super::Tab;
@@ -17,6 +19,8 @@ pub const TAB: Tab = Tab {
         ("looks.look", "look"),
         ("looks.look.list", "list"),
         ("looks.font-set", "detail"),
+        ("looks.palette", "detail"),
+        ("looks.pointer", "detail"),
         ("looks.new-frit.typing", "new-frit"),
         ("looks.new-frit", "new-frit"),
     ],
@@ -43,9 +47,11 @@ const TODAY: &[(&str, &str, &str)] = &[
 /// tables yet.
 pub const FORM_FIELDS: usize = 6;
 
-/// What the highlight is on in the list decides what Enter, `n`, `r` and
-/// `t` do: a look, the row that says there is none, or a font set of each
-/// kind. The row the form for a new font set is on decides where `n`
+/// What the highlight is on in the list decides what Enter, `n`, `r`,
+/// `t` and Space do: a look, the row that says there is none, a font set
+/// of each kind, a built-in color scheme, or a scheme file or a pointer
+/// theme by its marks, which decide whether Space activates it,
+/// deactivates it, asks first, or only says why it cannot. The row the form for a new font set is on decides where `n`
 /// opens it, so a form left on another row than the first is a state of
 /// its own.
 fn focus(app: &App) -> String {
@@ -66,6 +72,14 @@ fn focus(app: &App) -> String {
                 FontState::Refused(_) => "refused",
             }
             .to_owned(),
+        },
+        Some(Entry::Palette(Scheme::BuiltIn(_))) => "built-in scheme".to_owned(),
+        Some(e @ (Entry::Palette(_) | Entry::Pointer(_))) => match Looks::resource(shared, &e) {
+            None => "none".to_owned(),
+            Some((r, uses)) => {
+                let used = if uses.is_empty() { "" } else { ", used" };
+                format!("{}: {}{used}", r.kind, r.row())
+            }
         },
     };
     match app.looks.form().at {
@@ -116,6 +130,10 @@ fn shown(s: &Shown) -> &'static [&'static str] {
         &["looks.look"]
     } else if s.top(" Font set ") {
         &["looks.font-set"]
+    } else if s.top(" Color scheme ") {
+        &["looks.palette"]
+    } else if s.top(" Pointer theme ") {
+        &["looks.pointer"]
     } else {
         &["looks"]
     }

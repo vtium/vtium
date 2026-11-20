@@ -243,12 +243,7 @@ impl Sim {
                 ],
                 writes: 0,
                 no_route: false,
-                resources: vtium_config::tui::fixture::effects()
-                    .maps
-                    .iter()
-                    .filter(|m| m.active())
-                    .map(|m| (m.path.clone(), m.state))
-                    .collect(),
+                resources: vtium_config::tui::fixture::active(),
             },
             console_font: START_FONT.to_owned(),
             mouse: false,

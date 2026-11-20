@@ -1,32 +1,40 @@
-//! The Looks tab: one list in groups, the looks of the draft and then the
-//! font sets, with a preview of the highlighted look or font set. Enter on
-//! a look opens its card, and Enter on a font set opens its detail. `n`
+//! The Looks tab: one list in four groups, the looks of the draft, the
+//! font sets, the color schemes and the installed pointer themes, with a
+//! preview of the highlighted look, font set or color scheme. Enter on a
+//! look opens its card, and Enter on any other item opens its detail. `n`
 //! makes a new look among the looks and opens the form for a new font set
 //! among the font sets. `r` deletes a look after a question and marks a
 //! font set for removal at the next install. `t` tries the look's font set
 //! or the font set on the console, and `p` switches the preview between
-//! sample characters and a picture of the console.
+//! sample characters and a picture of the console. Space activates or
+//! deactivates a color scheme file or a pointer theme, with the controls
+//! the resource tabs share, and asks first when a look uses it. Among the
+//! color schemes and the pointer themes, `n`, `r`, `t` and `p` do nothing,
+//! and Space does nothing on a scheme built into vtium.
 //!
 //! The tab is made of groups, each in a module of its own: the looks, the
 //! look card, the font sets, the new-font-set form, the color schemes and
 //! the pointer themes. This module holds the tab's state and composes the
 //! groups. [`Entry`] and [`Looks::entries`] list the groups in the list's
-//! order, and the color schemes and pointer themes join them there, after
-//! the font sets, once their modules fill.
+//! order.
 //!
 //! References:
 //! - ADR-1205 D1: the Looks tab assembles each look and keeps the form
 //!   for a new font set.
 //! - ADR-1206 D2: a tab's state and its update live in the tab's module.
+//! - ADR-1205 D6, D10: the Looks tab lists the pointer themes and the
+//!   color schemes, and activates them.
 //! - ADR-1403 D10: the tab's list in groups, its keys, and Enter going
 //!   down a level while Esc comes back up.
+//! - ADR-1403 D10, its notes of 2026-11-19: what each key does among the
+//!   color schemes and the pointer themes.
 
 pub mod card;
 pub mod fontsets;
 pub mod list;
 pub mod newfrit;
-mod palettes;
-mod pointers;
+pub mod palettes;
+pub mod pointers;
 
 use super::super::color::Style;
 use super::super::edit::Change as DraftChange;
@@ -34,9 +42,12 @@ use super::super::input::Key;
 use super::super::layout::{PICTURE_COL, PICTURE_ROW};
 use super::super::listbox::{Body, Item, ListBox, Marks, plain, prose, rows, step, tail};
 use super::super::model::{DpiFrom, Font, FontState, Shared, Size, Then, View};
+use super::super::resources;
 use super::super::shot::{Preview, Source};
 use super::super::words;
 use super::{Change, Command, Request, Room, Tab};
+use crate::batch::Use;
+use resources::Resource;
 
 /// One item of the tab's list.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,6 +58,10 @@ pub enum Entry {
     NoLooks,
     /// A font set, by its place in the list of fonts.
     FontSet(usize),
+    /// A color scheme, built in or a file.
+    Palette(palettes::Scheme),
+    /// A pointer theme, by its place in the list of pointer themes.
+    Pointer(usize),
 }
 
 /// What is open over the list.
@@ -56,6 +71,13 @@ enum Open {
     Card(card::Card),
     /// A font set's detail, with its first row under the title in sight.
     FontSet { at: usize, top: usize },
+    /// A color scheme's detail, scrolled the same way.
+    Palette {
+        scheme: palettes::Scheme,
+        top: usize,
+    },
+    /// A pointer theme's detail, scrolled the same way.
+    Pointer { at: usize, top: usize },
 }
 
 /// Where the Looks tab stands: the highlighted item and the window of the
@@ -71,7 +93,8 @@ pub struct Looks {
 }
 
 impl Looks {
-    /// The items of the list, in its order: the looks, then the font sets.
+    /// The items of the list, in its order: the looks, the font sets, the
+    /// color schemes, then the pointer themes.
     pub fn entries(shared: &Shared) -> Vec<Entry> {
         let mut out: Vec<Entry> = list::looks(shared)
             .into_iter()
@@ -81,7 +104,25 @@ impl Looks {
             out.push(Entry::NoLooks);
         }
         out.extend((0..shared.inputs.fonts.len()).map(Entry::FontSet));
+        out.extend(palettes::entries(shared).into_iter().map(Entry::Palette));
+        out.extend((0..shared.inputs.effects.pointers.len()).map(Entry::Pointer));
         out
+    }
+
+    /// The resource of `entry` that Space acts on, with the looks that
+    /// use it: a color scheme file or a pointer theme. A scheme built
+    /// into vtium is always active, and the other items are no resource.
+    pub fn resource(shared: &Shared, entry: &Entry) -> Option<(Resource, Vec<Use>)> {
+        match entry {
+            Entry::Palette(palettes::Scheme::File(at)) => palettes::file(shared, *at).map(|f| {
+                let uses = palettes::uses(shared, &f.resource.path);
+                (f.resource.clone(), uses)
+            }),
+            // no look can pick a pointer theme yet, so the rule that names
+            // the looks using a resource names none for a pointer theme
+            Entry::Pointer(at) => pointers::theme(shared, *at).map(|r| (r.clone(), Vec::new())),
+            _ => None,
+        }
     }
 
     /// The highlighted item.
@@ -182,6 +223,8 @@ impl Looks {
                         .unwrap_or_default(),
                     Entry::NoLooks => Item::new(words::NO_LOOKS, words::NO_LOOKS_NOTE),
                     Entry::FontSet(at) => fontsets::item(shared, *at),
+                    Entry::Palette(scheme) => palettes::item(shared, *scheme),
+                    Entry::Pointer(at) => pointers::item(shared, *at),
                 };
                 if i == at {
                     about = match e {
@@ -191,18 +234,46 @@ impl Looks {
                     };
                 }
                 let mut item = Item::new(full.name, "");
-                let first_font_set = matches!(e, Entry::FontSet(_))
-                    && !matches!(entries.get(i.wrapping_sub(1)), Some(Entry::FontSet(_)));
-                if i == 0 {
-                    item.heading = Some(words::LOOKS_GROUP.to_owned());
-                } else if first_font_set {
-                    item.heading = Some(words::FONT_SETS_GROUP.to_owned());
+                let group = |e: Option<&Entry>| match e {
+                    Some(Entry::Look(_) | Entry::NoLooks) => Some(words::LOOKS_GROUP),
+                    Some(Entry::FontSet(_)) => Some(words::FONT_SETS_GROUP),
+                    Some(Entry::Palette(_)) => Some(words::COLOR_SCHEMES_GROUP),
+                    Some(Entry::Pointer(_)) => Some(words::POINTERS_GROUP),
+                    None => None,
+                };
+                let heading = group(Some(e));
+                if i == 0 || group(entries.get(i.wrapping_sub(1))) != heading {
+                    item.heading = heading.map(str::to_owned);
                 }
                 item
             })
             .collect();
         let (list, keep) = rows(&items, at, Marks::None, size.cols);
         let mut sentence = about;
+        // a color scheme's preview is its colors under the list, and a
+        // pointer theme has none
+        let highlighted = entries.get(at);
+        if let Some(Entry::Palette(scheme)) = highlighted {
+            let swatches = palettes::preview(shared, *scheme);
+            if !swatches.is_empty() && !palettes::truecolor(shared) {
+                sentence.push(' ');
+                sentence.push_str(words::PALETTE_NO_TRUECOLOR);
+            }
+            let mut tail = vec![plain("")];
+            if !swatches.is_empty() {
+                tail.extend(swatches);
+                tail.push(plain(""));
+            }
+            tail.extend(prose(&sentence, size.cols));
+            return Body { list, keep, tail };
+        }
+        if let Some(Entry::Pointer(_)) = highlighted {
+            return Body {
+                list,
+                keep,
+                tail: tail(&sentence, size.cols),
+            };
+        }
         let preview = Tab::preview(self, shared, size);
         let line = preview.preview_line();
         // a picture says the density it is drawn at, and automatic has
@@ -311,6 +382,24 @@ impl Looks {
                 self.open = Some(Open::FontSet { at, top: 0 });
                 Vec::new()
             }
+            (Key::Enter, Some(Entry::Palette(scheme))) => {
+                self.open = Some(Open::Palette { scheme, top: 0 });
+                Vec::new()
+            }
+            (Key::Enter, Some(Entry::Pointer(at))) => {
+                self.open = Some(Open::Pointer { at, top: 0 });
+                Vec::new()
+            }
+            (Key::Char(' '), Some(e @ (Entry::Palette(_) | Entry::Pointer(_)))) => {
+                Self::resource(shared, &e)
+                    .map(|(r, uses)| resources::space(&r, &uses))
+                    .unwrap_or_default()
+            }
+            // the keys that act on a look or a font set do nothing among
+            // the color schemes and the pointer themes
+            (Key::Char('n' | 'r' | 't' | 'p'), Some(Entry::Palette(_) | Entry::Pointer(_))) => {
+                Vec::new()
+            }
             (Key::Char('n'), Some(Entry::Look(_) | Entry::NoLooks)) => self.new_look(shared),
             (Key::Char('n'), Some(Entry::FontSet(_))) => {
                 vec![Command::Request(Request::Go(View::New))]
@@ -358,6 +447,8 @@ impl Tab for Looks {
             None => "looks",
             Some(Open::Card(c)) => c.node(),
             Some(Open::FontSet { .. }) => "looks.font-set",
+            Some(Open::Palette { .. }) => "looks.palette",
+            Some(Open::Pointer { .. }) => "looks.pointer",
         }
     }
 
@@ -366,21 +457,14 @@ impl Tab for Looks {
             None => self.list_body(shared, size),
             Some(Open::Card(c)) => c.body(shared, size),
             Some(Open::FontSet { at, top }) => {
-                // the title stays at the top, so the detail always says
-                // what it describes, and the lines under it scroll
-                let lines = fontsets::detail(shared, *at);
-                let mut list = Vec::new();
-                for line in lines.iter().take(1).chain(lines.iter().skip(1).skip(*top)) {
-                    list.extend(prose(line, size.cols));
-                }
-                if list.is_empty() {
-                    list.push(plain(""));
-                }
-                Body {
-                    list,
-                    keep: 0,
-                    tail: tail(words::FONT_SET_HINT, size.cols),
-                }
+                detail_body(&fontsets::detail(shared, *at), Vec::new(), *top, size)
+            }
+            Some(Open::Palette { scheme, top }) => {
+                let (lines, colors) = palettes::detail(shared, *scheme);
+                detail_body(&lines, colors, *top, size)
+            }
+            Some(Open::Pointer { at, top }) => {
+                detail_body(&pointers::detail(shared, *at), Vec::new(), *top, size)
             }
         }
     }
@@ -410,7 +494,12 @@ impl Tab for Looks {
     /// picture of the console in it. A card or a detail fills the screen
     /// with its lines, so the preview waits for the list.
     fn preview<'a>(&self, shared: &'a Shared, size: Size) -> Preview<'a> {
-        if self.open.is_some() {
+        if self.open.is_some()
+            || matches!(
+                self.highlighted(shared),
+                Some(Entry::Palette(_) | Entry::Pointer(_))
+            )
+        {
             return Preview::nothing(shared, size);
         }
         let font = self
@@ -434,7 +523,12 @@ impl Tab for Looks {
     /// detailed specimen's lines for the locale; none while a card or a
     /// detail is open.
     fn console_lines(&self, shared: &Shared) -> Vec<Vec<(&'static str, Style)>> {
-        if self.open.is_some() {
+        if self.open.is_some()
+            || matches!(
+                self.highlighted(shared),
+                Some(Entry::Palette(_) | Entry::Pointer(_))
+            )
+        {
             return Vec::new();
         }
         if !self.picture {
@@ -493,22 +587,61 @@ impl Tab for Looks {
                     }
                 }
             }
-            Some(Open::FontSet { at, top }) => {
-                let last = fontsets::detail(shared, at).len().saturating_sub(2);
-                self.open = match key {
-                    Key::Escape => None,
-                    Key::Up => Some(Open::FontSet {
-                        at,
-                        top: top.saturating_sub(1),
-                    }),
-                    Key::Down => Some(Open::FontSet {
-                        at,
-                        top: top.saturating_add(1).min(last),
-                    }),
-                    _ => Some(Open::FontSet { at, top }),
+            Some(open) => {
+                // the last line under the title the detail can scroll to
+                let (last, top) = match &open {
+                    Open::FontSet { at, top } => (fontsets::detail(shared, *at).len(), *top),
+                    Open::Palette { scheme, top } => {
+                        let (lines, colors) = palettes::detail(shared, *scheme);
+                        (lines.len().saturating_add(colors.len()), *top)
+                    }
+                    Open::Pointer { at, top } => (pointers::detail(shared, *at).len(), *top),
+                    Open::Card(_) => (0, 0),
                 };
+                let last = last.saturating_sub(2);
+                let top = match key {
+                    Key::Escape => return Vec::new(),
+                    Key::Up => top.saturating_sub(1),
+                    Key::Down => top.saturating_add(1).min(last),
+                    _ => top,
+                };
+                self.open = Some(match open {
+                    Open::FontSet { at, .. } => Open::FontSet { at, top },
+                    Open::Palette { scheme, .. } => Open::Palette { scheme, top },
+                    Open::Pointer { at, .. } => Open::Pointer { at, top },
+                    card @ Open::Card(_) => card,
+                });
                 Vec::new()
             }
         }
+    }
+}
+
+/// The body of a detail of `lines`, one paragraph each, with `extra` rows
+/// after them, scrolled `top` rows down. The title stays at the top, so
+/// the detail always says what it describes, and the rest scrolls.
+fn detail_body(
+    lines: &[String],
+    extra: Vec<super::super::canvas::Row>,
+    top: usize,
+    size: Size,
+) -> Body {
+    let mut rest: Vec<super::super::canvas::Row> = Vec::new();
+    for line in lines.iter().skip(1) {
+        rest.extend(prose(line, size.cols));
+    }
+    rest.extend(extra);
+    let mut list = Vec::new();
+    for line in lines.iter().take(1) {
+        list.extend(prose(line, size.cols));
+    }
+    list.extend(rest.into_iter().skip(top));
+    if list.is_empty() {
+        list.push(plain(""));
+    }
+    Body {
+        list,
+        keep: 0,
+        tail: tail(words::FONT_SET_HINT, size.cols),
     }
 }

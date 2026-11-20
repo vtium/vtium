@@ -6,6 +6,12 @@
 //! shader is a [`Resource`], so the Effects tab shows its marks and takes
 //! Space on it with the controls the resource tabs share.
 //!
+//! The same module finds the resources the Looks tab lists:
+//! [`find_palettes`] reads the color scheme files, colors included, and
+//! [`find_pointers`] lists the installed pointer themes. [`Effects`]
+//! carries them beside the color maps and shaders, so one answer of the
+//! desk sets the marks of every resource tab.
+//!
 //! References:
 //! - ADR-1205 D3: where the Effects tab finds color maps and shaders, and
 //!   that one in the person's own folder is listed as not usable.
@@ -13,8 +19,13 @@
 //!   presets, then the administrator's vtlooks, which win on a name.
 //! - ADR-1304 D15: a shader is a `NAME.vtshader` file in the package's
 //!   or the administrator's shader folder.
+//! - ADR-1205 D10: the color scheme folders, the administrator's file
+//!   winning on a name, and the strict reader vtium uses.
+//! - ADR-1205 D6: the installed pointer themes and their folders.
 
 use std::path::{Path, PathBuf};
+
+use vtium_settings::palette::{Fault, Reason, SUFFIX as PALETTE_SUFFIX};
 
 use crate::batch::{Places, State, Use};
 
@@ -50,13 +61,18 @@ pub struct Vtlook {
 
 /// What the Effects tab lists: the vtlooks, No filter first, then the
 /// presets, then the administrator's; the color maps; and the shaders.
-/// `note` says why the marks may be wrong, when vtium-config could not
-/// read the draft's active resources.
+/// Beside them, the resources the Looks tab lists: the color scheme files
+/// and the folders they were found in, the administrator's first, and the
+/// installed pointer themes. `note` says why the marks may be wrong, when
+/// vtium-config could not read the draft's active resources.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Effects {
     pub vtlooks: Vec<Vtlook>,
     pub maps: Vec<Resource>,
     pub shaders: Vec<Resource>,
+    pub palettes: Vec<SchemeFile>,
+    pub palette_folders: Vec<PathBuf>,
+    pub pointers: Vec<Resource>,
     pub note: Option<String>,
 }
 
@@ -75,11 +91,15 @@ impl Effects {
             .find(|r| r.path == path)
     }
 
-    /// Gives each color map and shader its state from `states`, as
-    /// [`super::resources::set_states`] does.
+    /// Gives each color map, shader, color scheme file and pointer theme
+    /// its state from `states`, as [`super::resources::set_states`] does.
     pub fn set_states(&mut self, states: &[(PathBuf, State)]) {
         super::resources::set_states(&mut self.maps, states);
         super::resources::set_states(&mut self.shaders, states);
+        super::resources::set_states(&mut self.pointers, states);
+        for f in &mut self.palettes {
+            super::resources::set_states(std::slice::from_mut(&mut f.resource), states);
+        }
     }
 
     /// The looks of vtium.conf's text `conf` that use the color map or
@@ -101,6 +121,172 @@ impl Effects {
             },
         )
     }
+}
+
+/// A scheme file the group lists: its name, which a look's `palette`
+/// names, the file as a resource with its marks, and its colors, or the
+/// first error that makes vtium treat the file as missing.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SchemeFile {
+    pub name: String,
+    pub resource: Resource,
+    pub colors: Result<vtium_term::Palette, String>,
+}
+
+/// What a person calls a scheme file.
+pub const PALETTE_KIND: &str = "color scheme";
+
+/// The files whose names end in the scheme suffix in `dir`, sorted by
+/// name. A folder is not listed, whatever its name.
+fn palette_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| !t.is_dir()))
+        .map(|e| e.path())
+        .filter(|p| p.to_string_lossy().ends_with(PALETTE_SUFFIX))
+        .collect();
+    out.sort();
+    out
+}
+
+/// The colors of the scheme file `file`, named `name`, read as vtium reads
+/// them; or the first error, its file and line first. A file that takes a
+/// built-in scheme's name is never read. The read stops one byte past the
+/// size bound, so a large file never fills memory, and the reader then
+/// refuses the file as too large.
+pub fn palette_colors(name: &str, file: &Path) -> Result<vtium_term::Palette, String> {
+    use std::io::Read;
+    let failed = |line: Option<usize>, reason: Reason| {
+        let at = match line {
+            Some(line) => format!("{}:{line}", file.display()),
+            None => file.display().to_string(),
+        };
+        format!("{at}: {reason}")
+    };
+    if let Some(built_in) = vtium_term::PALETTE_NAMES
+        .iter()
+        .chain(std::iter::once(&vtium_settings::palette::CUSTOM))
+        .find(|n| **n == name)
+    {
+        return Err(failed(None, Reason::Shadows(built_in)));
+    }
+    let max = vtium_settings::PALETTE_FILE_MAX;
+    let mut bytes = Vec::new();
+    std::fs::File::open(file)
+        .and_then(|f| {
+            f.take(u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1))
+                .read_to_end(&mut bytes)
+        })
+        .map_err(|e| failed(None, Reason::Unreadable(e.kind())))?;
+    match vtium_settings::palette::parse(&bytes) {
+        Ok((palette, _, _)) => Ok(palette),
+        Err((faults, _)) => {
+            let Some(Fault { line, reason }) = faults.into_iter().next() else {
+                return Err(failed(None, Reason::NotKeyValue));
+            };
+            Err(failed(line, reason))
+        }
+    }
+}
+
+/// The scheme files in `folders`, the folders in the order vtium looks a
+/// name up in, the administrator's first: each with its state from
+/// `state`, its trust mark from `trusted`, and its colors. The list holds
+/// the package's files first and then the administrator's, as the Effects
+/// tab lists presets before the administrator's vtlooks, and a file that
+/// an earlier folder's file of the same name hides is marked so.
+///
+/// References:
+/// - ADR-1205 D10: `/etc/vtium/palettes` wins over `/usr/share/vtium/palettes`.
+pub fn find_palettes(
+    folders: &[PathBuf],
+    state: &dyn Fn(&Path) -> State,
+    trusted: &dyn Fn(&Path) -> Result<(), String>,
+) -> Vec<SchemeFile> {
+    let stem = |p: &Path| {
+        p.file_name()
+            .map(|n| {
+                n.to_string_lossy()
+                    .trim_end_matches(PALETTE_SUFFIX)
+                    .to_owned()
+            })
+            .unwrap_or_default()
+    };
+    let mut out = Vec::new();
+    for (at, dir) in folders.iter().enumerate().rev() {
+        for file in palette_files(dir) {
+            let name = stem(&file);
+            let hidden = folders.get(..at).unwrap_or_default().iter().any(|d| {
+                d.join(format!("{name}{PALETTE_SUFFIX}"))
+                    .symlink_metadata()
+                    .is_ok()
+            });
+            out.push(SchemeFile {
+                colors: palette_colors(&name, &file),
+                resource: Resource {
+                    state: state(&file),
+                    trust: trusted(&file),
+                    path: file,
+                    kind: PALETTE_KIND,
+                    own: false,
+                    hidden,
+                },
+                name,
+            });
+        }
+    }
+    out
+}
+
+/// What a person calls a pointer theme.
+pub const POINTER_KIND: &str = "pointer theme";
+
+/// The system's icon folders, where the desktop's cursor themes are
+/// installed.
+pub const ICONS: [&str; 2] = ["/usr/share/icons", "/usr/local/share/icons"];
+
+/// The cursor themes in `dir`, by name: each folder in it that holds a
+/// `cursors` folder.
+fn pointer_themes(dir: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            std::fs::symlink_metadata(p).is_ok_and(|m| m.is_dir()) && p.join("cursors").is_dir()
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// The installed pointer themes: `svg`, vtium's own pictures, where it is
+/// installed, then the cursor themes of each of `icons`, each with its
+/// state from `state` and its trust mark from `trusted`.
+pub fn find_pointers(
+    svg: &Path,
+    icons: &[PathBuf],
+    state: &dyn Fn(&Path) -> State,
+    trusted: &dyn Fn(&Path) -> Result<(), String>,
+) -> Vec<Resource> {
+    let own = svg
+        .symlink_metadata()
+        .is_ok()
+        .then(|| svg.to_path_buf())
+        .into_iter();
+    own.chain(icons.iter().flat_map(|d| pointer_themes(d)))
+        .map(|path| Resource {
+            state: state(&path),
+            trust: trusted(&path),
+            path,
+            kind: POINTER_KIND,
+            own: false,
+            hidden: false,
+        })
+        .collect()
 }
 
 /// The folders [`find`] reads.
@@ -309,7 +495,7 @@ pub fn find(
             "color map",
         ),
         shaders,
-        note: None,
+        ..Effects::default()
     }
 }
 
@@ -406,6 +592,165 @@ mod tests {
                 (pkg_shaders.join("glow.vtshader"), false),
                 (etc_shaders.join("crt.vtshader"), false),
             ]
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+mod palette_tests {
+    use super::*;
+
+    // the package's files come first, a packaged file that the
+    // administrator's folder also holds is hidden, a file that takes a
+    // built-in scheme's name is listed with the error that says so, and a
+    // file with an error names its file and line
+    #[test]
+    fn find_lists_the_package_s_files_then_the_administrator_s() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("vtium-config-palettes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (etc, pkg) = (root.join("etc"), root.join("pkg"));
+        for d in [&etc, &pkg, &pkg.join("folder.palette")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let good = "background = #101010\nforeground = #e0e0e0\npalette = 1=#ff0000\n";
+        std::fs::write(pkg.join("dusk.palette"), good).unwrap();
+        std::fs::write(pkg.join("paper.palette"), good).unwrap();
+        std::fs::write(
+            etc.join("dusk.palette"),
+            "background = #101010\nnot a line\n",
+        )
+        .unwrap();
+        std::fs::write(etc.join("nord.palette"), good).unwrap();
+        std::fs::write(etc.join("notes.txt"), good).unwrap();
+        let found = find_palettes(
+            &[etc.clone(), pkg.clone()],
+            &|p| {
+                if p.starts_with(&pkg) {
+                    State::Active
+                } else {
+                    State::Inactive
+                }
+            },
+            &|_| Ok(()),
+        );
+        let listed: Vec<(PathBuf, State, bool, bool)> = found
+            .iter()
+            .map(|f| {
+                (
+                    f.resource.path.clone(),
+                    f.resource.state,
+                    f.resource.hidden,
+                    f.colors.is_ok(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (pkg.join("dusk.palette"), State::Active, true, true),
+                (pkg.join("paper.palette"), State::Active, false, true),
+                (etc.join("dusk.palette"), State::Inactive, false, false),
+                (etc.join("nord.palette"), State::Inactive, false, false),
+            ]
+        );
+        let paper = found.get(1).unwrap().colors.clone().unwrap();
+        assert_eq!(
+            (paper.bg(), paper.fg(), paper.color(1)),
+            (
+                vtium_term::Rgb::new(0x10, 0x10, 0x10),
+                vtium_term::Rgb::new(0xe0, 0xe0, 0xe0),
+                vtium_term::Rgb::new(0xff, 0, 0)
+            )
+        );
+        let broken = found.get(2).unwrap().colors.clone().unwrap_err();
+        assert!(
+            broken.starts_with(&format!("{}:2: ", etc.join("dusk.palette").display())),
+            "{broken}"
+        );
+        let nord = found.get(3).unwrap().colors.clone().unwrap_err();
+        assert!(nord.contains("built-in color scheme nord"), "{nord}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // a file past the size bound is refused without reading all of it
+    #[test]
+    fn a_scheme_file_past_the_bound_is_an_error() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("vtium-config-palette-big-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let file = root.join("big.palette");
+        let line = "background = #101010\n";
+        let n = vtium_settings::PALETTE_FILE_MAX / line.len() + 1;
+        std::fs::write(&file, line.repeat(n)).unwrap();
+        let why = palette_colors("big", &file).unwrap_err();
+        assert!(why.contains("larger than"), "{why}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+mod pointer_tests {
+    use super::*;
+
+    // vtium's own pictures come first, then each folder that holds a
+    // cursors folder, and a folder without one is not a pointer theme
+    #[test]
+    fn find_lists_vtium_s_pictures_then_the_cursor_themes() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("vtium-config-pointers-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (share, local) = (root.join("share"), root.join("local"));
+        for d in [
+            share.join("Adwaita/cursors"),
+            share.join("hicolor/48x48"),
+            local.join("mine/cursors"),
+        ] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(share.join("loose"), "").unwrap();
+        let svg = root.join("pointers.svg");
+        std::fs::write(&svg, "<svg/>").unwrap();
+        let found = find_pointers(
+            &svg,
+            &[share.clone(), local.clone()],
+            &|p| {
+                if p == svg {
+                    State::Active
+                } else {
+                    State::Inactive
+                }
+            },
+            &|_| Ok(()),
+        );
+        let listed: Vec<(PathBuf, State)> =
+            found.iter().map(|r| (r.path.clone(), r.state)).collect();
+        assert_eq!(
+            listed,
+            [
+                (svg.clone(), State::Active),
+                (share.join("Adwaita"), State::Inactive),
+                (local.join("mine"), State::Inactive),
+            ]
+        );
+        // without vtium's own pictures installed, the list starts with the
+        // cursor themes
+        std::fs::remove_file(&svg).unwrap();
+        let found = find_pointers(
+            &svg,
+            std::slice::from_ref(&share),
+            &|_| State::Inactive,
+            &|_| Ok(()),
+        );
+        assert_eq!(
+            found.iter().map(|r| r.path.clone()).collect::<Vec<_>>(),
+            [share.join("Adwaita")]
         );
         let _ = std::fs::remove_dir_all(&root);
     }

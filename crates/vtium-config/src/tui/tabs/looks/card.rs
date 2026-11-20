@@ -30,6 +30,8 @@
 //! - ADR-1205 D8: within a look, what it still misses, by role.
 //! - ADR-1205 D10: a look picks its own color scheme, the built-in schemes
 //!   or an active scheme file, and vtium.conf's `palette` stays the default.
+//! - ADR-1403 D10, the row `list.palettes`: the scheme vtium.conf sets,
+//!   then the built-in schemes, then the active scheme files.
 //! - ADR-1304 D4, its note of 2026-11-19: No filter first and chosen for a
 //!   new look, and a vtlook that does not read may still be picked.
 //! - ADR-1304 D5: the look's vtlook wins, then the top level's, then the
@@ -227,8 +229,20 @@ pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
                 Some(words::PALETTE_CUSTOM.to_owned()),
                 words::PALETTE_CUSTOM_NOTE,
             ));
-            // the active scheme files follow; they join the list with the
-            // color schemes group, which finds them
+            // then the active scheme files, each once by the name a look
+            // gives it: a packaged file that the administrator's file
+            // hides is the same name, and a file that takes a built-in
+            // scheme's name is never read
+            for f in &shared.inputs.effects.palettes {
+                let r = &f.resource;
+                if r.active() && !r.hidden && !vtium_settings::palette::built_in(&f.name) {
+                    let note = match &f.colors {
+                        Ok(_) => words::PALETTE_FILE_NOTE.to_owned(),
+                        Err(why) => words::palette_unread(why),
+                    };
+                    out.push(Choice::new(f.name.clone(), Some(f.name.clone()), note));
+                }
+            }
             out
         }
         Line::Vtlook => {
