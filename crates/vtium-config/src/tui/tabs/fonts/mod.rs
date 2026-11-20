@@ -30,7 +30,7 @@
 //! - ADR-1403 D10: the tab's filter line, its list, its detail and its
 //!   keys.
 
-mod detail;
+pub mod detail;
 
 use std::path::PathBuf;
 
@@ -48,8 +48,6 @@ use super::super::words;
 use super::{Change, Command, Room, Tab};
 use crate::discover::Described;
 use crate::onscreen::{path as shown, text};
-
-pub use detail::uses;
 
 /// What is open over the list.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -274,7 +272,7 @@ impl Fonts {
                 // the Fonts tab says how a font of the person's becomes
                 // usable: installing it from its detail
                 Some(f) if f.resource.own => say(words::own_font(&shown(f.path()))),
-                Some(f) => resources::space(&f.resource, &uses(shared, f.path())),
+                Some(f) => resources::space(&f.resource, &detail::uses(shared, f.path())),
                 None => Vec::new(),
             },
             Key::Char('p') => {

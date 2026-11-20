@@ -3,7 +3,7 @@
 //! detail.
 
 use vtium_config::tui::model::{App, View};
-use vtium_config::tui::tabs::fonts::uses;
+use vtium_config::tui::tabs::fonts::detail::uses;
 
 use super::super::state::Shown;
 use super::Tab;

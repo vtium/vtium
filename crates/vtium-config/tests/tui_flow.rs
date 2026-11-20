@@ -1178,6 +1178,9 @@ mod draft_flow {
             .takes("proof", (100, 30))
             .takes("unifont", (100, 30))
             .keys(&[
+                // the Looks tab's first font set, where n opens the form
+                TO_LOOKS,
+                DOWN,
                 b"n",
                 b"quiet",
                 b"\r",
