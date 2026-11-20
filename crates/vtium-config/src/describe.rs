@@ -344,6 +344,41 @@ pub fn clean(text: &str) -> String {
     out
 }
 
+/// The codepoints `charmap` maps, each once, in order, with the glyph the
+/// character map gives it first, and only those `keep` takes. A codepoint
+/// mapped to glyph 0, a control character and a surrogate are left out,
+/// as the rasteriser leaves them out.
+///
+/// A character map can list the same codepoints many times over: a format
+/// 12 table of a few kilobytes can hold hundreds of groups, each from
+/// U+0020 to U+10FFFF. The codepoints seen are therefore kept in a set of
+/// one bit for each codepoint, 136 KiB, so the list never holds a
+/// codepoint twice and never grows past one entry for each codepoint.
+pub(crate) fn mapped(
+    charmap: swash::Charmap<'_>,
+    mut keep: impl FnMut(u32) -> bool,
+) -> Vec<(u32, u16)> {
+    const WORDS: usize = 0x11_0000 / 64;
+    let mut seen = vec![0u64; WORDS];
+    let mut out = Vec::new();
+    charmap.enumerate(|c, g| {
+        let control = c < 0x20 || (0x7f..0xa0).contains(&c);
+        if g == 0 || control || char::from_u32(c).is_none() {
+            return;
+        }
+        let (word, bit) = ((c / 64) as usize, 1u64 << (c % 64));
+        let Some(w) = seen.get_mut(word) else {
+            return;
+        };
+        if *w & bit == 0 && keep(c) {
+            *w |= bit;
+            out.push((c, g));
+        }
+    });
+    out.sort_unstable_by_key(|&(c, _)| c);
+    out
+}
+
 /// A face as the helper describes it, from what it read.
 struct Read<'a> {
     family: &'a str,
@@ -592,17 +627,9 @@ fn opentype_face(bytes: &[u8], index: usize, font: swash::FontRef<'_>) -> Face {
     let family = text(&[StringId::TypographicFamily, StringId::Family]);
     let style = text(&[StringId::TypographicSubFamily, StringId::SubFamily]);
     let version = text(&[StringId::Version]);
-    let mut mapped = Vec::new();
-    let mut glyphs = Vec::new();
-    font.charmap().enumerate(|c, g| {
-        let control = c < 0x20 || (0x7f..0xa0).contains(&c);
-        if g != 0 && !control && char::from_u32(c).is_some() {
-            mapped.push(c);
-            if glyphs.len() < OUTLINE_PROBES {
-                glyphs.push(g);
-            }
-        }
-    });
+    let pairs = self::mapped(font.charmap(), |_| true);
+    let glyphs: Vec<u16> = pairs.iter().take(OUTLINE_PROBES).map(|&(_, g)| g).collect();
+    let mapped: Vec<u32> = pairs.into_iter().map(|(c, _)| c).collect();
     let charmap = font.charmap();
     let advances = font.glyph_metrics(&[]);
     let mut widths = (0x21u32..0x7f)
@@ -887,6 +914,34 @@ mod tests {
         assert!(face.scripts.is_empty(), "{:?}", face.scripts);
         assert_eq!(face.codepoints, 6 + 128 + 4);
         assert!(face.coverage.contains(&(0x2500, 0x257f)));
+    }
+
+    /// A format 12 character map whose groups overlap lists a codepoint
+    /// more than once. Each codepoint is kept once, with the glyph its
+    /// first group gives it, and glyph 0, controls and what `keep` refuses
+    /// are left out.
+    #[test]
+    fn a_character_map_of_overlapping_groups_gives_each_codepoint_once() {
+        let mut font = ttf::test_mono();
+        font.cmap
+            .extend([(0x41, 7), (0x41, 6), (0x20, 3), (0x7f, 3), (0x42, 0)]);
+        let bytes = font.build();
+        let face = swash::FontRef::from_index(&bytes, 0).unwrap();
+        assert_eq!(
+            mapped(face.charmap(), |_| true),
+            [
+                (0x20, 1),
+                (0x41, 2),
+                (0x57, 3),
+                (0x4e00, 4),
+                (0xe0a0, 2),
+                (0x1f600, 5)
+            ]
+        );
+        assert_eq!(
+            mapped(face.charmap(), |c| c != 0x41 && c < 0x4e00),
+            [(0x20, 1), (0x57, 3)]
+        );
     }
 
     /// A font whose glyphs are all empty and whose pictures are bitmap

@@ -1669,16 +1669,10 @@ pub fn outline_version(font: &[u8], family: &str) -> Option<String> {
 /// and no glyph 0.
 fn outline_coverage(font: &[u8], family: &str) -> Result<Vec<u32>, String> {
     let face = outline_face(font, family)?;
-    let mut out = Vec::new();
-    face.charmap().enumerate(|c, g| {
-        let control = c < 0x20 || (0x7f..0xa0).contains(&c);
-        if g != 0 && !control && char::from_u32(c).is_some() {
-            out.push(c);
-        }
-    });
-    out.sort_unstable();
-    out.dedup();
-    Ok(out)
+    Ok(crate::describe::mapped(face.charmap(), |_| true)
+        .into_iter()
+        .map(|(c, _)| c)
+        .collect())
 }
 
 /// Whether `key` is the key of one piece of a run of ASCII symbols that
