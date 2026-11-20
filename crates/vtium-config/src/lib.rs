@@ -41,6 +41,8 @@ pub mod cli;
 pub mod commands;
 pub mod cover;
 pub mod decode;
+pub mod describe;
+pub mod discover;
 pub mod display;
 pub mod draft;
 pub mod drafts;
