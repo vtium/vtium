@@ -1753,7 +1753,11 @@ impl Checks {
             }
             if let Some(wrote) = self.found.writes.get(v.id.as_str()) {
                 for part in wrote {
-                    if !v.writes.contains(part) {
+                    // `top:KEY` is one top-level key, which a row's `top`
+                    // allows with every other
+                    let allowed = v.writes.contains(part)
+                        || part.starts_with("top:") && v.writes.iter().any(|w| w == "top");
+                    if !allowed {
                         self.found.failures.push(format!(
                             "{} writes {part}, which the views table does not list",
                             v.id
@@ -1766,7 +1770,8 @@ impl Checks {
 }
 
 /// The parts of vtium.conf that differ between `before` and `after`, by
-/// the views table's names: `top`, `look`, `head`, `rules` and `labels`.
+/// the views table's names: `top:KEY` for each top-level key, `look`,
+/// `head`, `rules` and `labels`.
 /// The `version = 1` line that the first change to a draft with no
 /// sections writes is left out, as the views table's note says.
 fn written(before: &str, after: &str) -> BTreeSet<String> {
@@ -1794,7 +1799,16 @@ fn written(before: &str, after: &str) -> BTreeSet<String> {
     a.keys()
         .chain(b.keys())
         .filter(|k| a.get(*k) != b.get(*k))
-        .map(|(part, _)| part.clone())
+        .map(|(part, line)| {
+            if part != "top" {
+                return part.clone();
+            }
+            // a top-level line names its key before `=`, or is the bare
+            // key of a switch that is on, or `no-KEY` for one that is off
+            let key = line.split('=').next().unwrap_or("").trim();
+            let key = key.strip_prefix("no-").unwrap_or(key);
+            format!("top:{key}")
+        })
         .collect()
 }
 

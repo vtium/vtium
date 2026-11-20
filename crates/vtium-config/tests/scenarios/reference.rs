@@ -327,10 +327,32 @@ pub fn expect(from: &str, key: &str) -> Option<Expect> {
     // a question of its own names the key and the node it is asked from
     // in its reach, as `w in looks` does; any other is the confirm question
     if means("Asks whether") {
+        let named = rows.iter().any(|r| r.key.split(", ").any(|k| k == key));
+        // the moving keys can take the tab to a node of the same tab with
+        // no dot in its id, as looks-resources is for looks, and the
+        // reference cannot tell which; a key that only one of them lists
+        // is not predicted
+        let ids: Vec<&String> = node
+            .keys
+            .iter()
+            .filter(|id| {
+                tables()
+                    .rows
+                    .get(*id)
+                    .is_some_and(|r| r.key.split(", ").any(|k| k == key))
+            })
+            .collect();
+        let elsewhere = tables().tree.iter().any(|n| {
+            n.parent == node.id && !n.id.contains('.') && !ids.iter().all(|id| n.keys.contains(id))
+        });
+        if named && elsewhere {
+            return None;
+        }
         let own = tables().tree.iter().find(|n| {
-            n.id.starts_with("any.question.")
+            named
+                && n.id.starts_with("any.question.")
                 && n.status == "supported"
-                && n.reach.starts_with(&format!("{key} in {from} "))
+                && n.reach.starts_with(&format!("{key} in {} ", node.id))
         });
         let to = own.map_or("any.question.confirm", |n| n.id.as_str());
         return Some(Expect::At(to.to_owned()));
