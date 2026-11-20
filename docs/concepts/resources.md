@@ -79,12 +79,12 @@ vtium reads `batch.conf` when it starts, and again each time a session ends, bef
 - The head chooses its vtlook again, so a color map you activated or deactivated takes effect.
 - The pointer pictures load again when the pointer theme's place in the list changed.
 
-So a resource you activate or deactivate takes effect at the next login, with no restart of vtium. Each head catches up at its own next login. A change to vtium.conf itself, such as the color scheme a look names, still waits until vtium next starts on the VT. See [The file](../configure.md#the-file) for details.
+So a resource you activate or deactivate takes effect at the next login, with no restart of vtium. Each head catches up at its own next login. Most changes to vtium.conf itself, such as the color scheme a look names, wait until vtium next starts on the VT. [The file](../configure.md#the-file) says what vtium reads when.
 
 ## Activating a resource
 
 You change the list with vtium-config, which keeps the change in your draft beside vtium.conf and installs both together through sudo. The commands are `vtium config activate`, `vtium config deactivate` and `vtium config active`. vtium-config's Fonts tab activates fonts, its Effects tab activates color maps and shaders, and its Looks tab activates color schemes and pointer themes. [Choosing what vtium may use](../install.md#choosing-what-vtium-may-use) gives the steps.
 
-A font in your home folder cannot be activated, because root does not own it. vtium-config can install it as a system font first, with `vtium config fonts --install-system FILE`, which copies it into `/usr/local/share/fonts` as root.
+A font in your home folder cannot be activated, because root does not own it. vtium-config can install it as a system font first, which copies it into `/usr/local/share/fonts` as root. [Choosing a font with vtium config](../fonts.md#choosing-a-font-with-vtium-config) gives the steps in order.
 
 See [the trust rule issue](https://github.com/vtium/vtium/issues/438) for the work on the list and the rule.
