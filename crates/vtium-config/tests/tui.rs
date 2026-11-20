@@ -428,7 +428,7 @@ fn each_view_at_80x25_and_100x30() {
         ("fonts", Fonts, &[]),
         ("settings", Fonts, &[b"\t"]),
         ("help", Fonts, &[b"\t", b"\t"]),
-        ("new", Fonts, &[b"n"]),
+        ("new", Fonts, &[TO_LOOKS, DOWN, b"n"]),
     ];
     for (cols, rows) in [(80, 25), (100, 30)] {
         for (name, view, keys) in scripts {
