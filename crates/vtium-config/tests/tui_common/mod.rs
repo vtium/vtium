@@ -622,7 +622,10 @@ impl vtium_config::tui::desk::Desk for Desk {
                 removals: Vec::new(),
                 no_route: false,
             })),
-            Op::Devices => Ok(Done::Present(Default::default())),
+            Op::Devices => Ok(Done::Present {
+                present: Default::default(),
+                densities: inputs().densities,
+            }),
             Op::Resource { path, change } => {
                 vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)
             }

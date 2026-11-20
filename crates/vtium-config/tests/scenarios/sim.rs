@@ -140,7 +140,10 @@ impl Desk {
                 self.draft = text;
                 self.draft()
             }
-            Op::Devices => Done::Present(present()),
+            Op::Devices => Done::Present {
+                present: present(),
+                densities: vtium_config::tui::fixture::inputs().densities,
+            },
             Op::Resource { path, change } => {
                 vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)?
             }

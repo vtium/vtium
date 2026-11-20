@@ -344,7 +344,10 @@ impl App {
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.flow.show_history(kept),
-            Done::Present(present) => self.set_present(present),
+            Done::Present { present, densities } => {
+                self.shared.inputs.densities = densities;
+                self.set_present(present);
+            }
             Done::Resources {
                 states,
                 said,

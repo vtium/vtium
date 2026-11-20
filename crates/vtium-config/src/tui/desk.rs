@@ -41,7 +41,8 @@ pub enum Op {
     /// Copies the history's file of this number, counted from 1, newest
     /// first, into the draft.
     Restore(usize),
-    /// Reads the devices present again.
+    /// Reads the devices present again, and the connected displays'
+    /// densities.
     Devices,
     /// Activates or deactivates the resource at `path` in the draft,
     /// which keeps the change beside it until the install (ADR-1205 D4).
@@ -102,7 +103,13 @@ pub enum Done {
     /// The install is refused: why, and what the check printed.
     Refused(String, Vec<String>),
     History(Vec<Kept>),
-    Present(Present),
+    /// The devices present after [`Op::Devices`], and the density of each
+    /// connected display, read again with them, as
+    /// [`crate::tui::model::Inputs::densities`] holds it.
+    Present {
+        present: Present,
+        densities: Vec<u32>,
+    },
     /// The draft's view of the active resources after [`Op::Resource`]:
     /// each resource that is active or that the draft changes, with its
     /// state; what the change says, its warnings included; and how many
@@ -341,7 +348,18 @@ impl Store {
 
     fn step(&mut self, op: &Op) -> Result<Done, Fail> {
         match op {
-            Op::Devices => return Ok(Done::Present((self.devices)())),
+            Op::Devices => {
+                // a display connected since the TUI started counts toward
+                // a look's point sizes, so its density is read again here
+                let conf = crate::tui::read_conf(&self.paths.configdir.join("vtium.conf"))
+                    .ok()
+                    .flatten();
+                let displays = crate::display::displays(&self.paths.sys);
+                return Ok(Done::Present {
+                    present: (self.devices)(),
+                    densities: crate::tui::densities(conf.as_deref(), &displays),
+                });
+            }
             Op::SystemFont(source) => return self.system_font(source),
             Op::Open => {
                 let present = (self.devices)();
