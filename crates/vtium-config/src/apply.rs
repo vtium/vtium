@@ -1637,7 +1637,10 @@ mod tests {
         // under the world-writable temporary folder does not
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../target")
-            .join(format!("vtium-config-check-batch-more-{}", std::process::id()));
+            .join(format!(
+                "vtium-config-check-batch-more-{}",
+                std::process::id()
+            ));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         let path = root.canonicalize().unwrap().join("batch.conf");
