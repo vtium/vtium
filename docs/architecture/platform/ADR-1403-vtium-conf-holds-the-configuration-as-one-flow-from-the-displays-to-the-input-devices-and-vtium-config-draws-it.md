@@ -525,6 +525,9 @@ considered:
     said: "Accept D10, keep both [flow.info and flow.new-card stay as nodes of their own]"
     via: the steering session, 2026-11-18, the maintainer's answer on accepting D10 with the two parked nodes kept
     paraphrase: true
+  - operator: aaronsb
+    said: "1. yes, for your reason plus it doesn't break the flow or completely block the user which is frustrating, and it pushes towards a sane fix 2. agree"
+    via: "the steering session's chat, 2026-11-19, answering card R's two probes on the Looks and Effects rows: (1) a look may pick a vtlook that does not read, with the reason shown; (2) p does nothing on a color scheme"
 status: accepted
 date: 2026-11-04
 deciders:
@@ -1463,6 +1466,8 @@ Tab steps through six tabs, and vtium-config opens on Flow, the fourth. So the d
 
 The key table has a row for each digit. Each tab lists the rows of the five other tabs' digits, so its key line never offers its own digit, which does nothing there. The rows for `1`, `3`, `4`, `5` and `6` are supported, since vtium-config has those tabs. The row for `2` stays planned until the Effects tab exists. The scenario walk presses every digit and checks each row.
 
+> Note 2026-11-19: the Effects tab now exists as a tab of the bar, so the row for `2` is supported and `2` opens it. The tab's own rows, its list of color maps and shaders, its detail and its keys, stay planned until the work that builds the Effects tab.
+
 > Edited 2026-11-18: the work that builds the navigation module made the digits work for the tabs vtium-config has, and the steering session decided that each tab lists only the other tabs' digits, by the rule that a key line never offers a key that does nothing there. The paragraph read: "The key table has a planned row for each digit, and each of the six tabs lists the six rows. The TUI does not read the digits yet, so the scenario walk's alphabet leaves them out and the walk skips their rows. The digits join the alphabet when the TUI reads them."
 
 > Edited 2026-11-18: the maintainer answered the section's four probes the same day (`considered`), each as the draft leaned. The digits go to a tab, Space activates, Esc keeps a card's changes, and the pointer themes are the Looks list's third group. This subsection read: "Tab steps through six tabs, and vtium-config opens on Flow, the fourth. This section's agent proposes that the keys 1 to 6 go straight to a tab while nothing is open. The probe in the Summary asks the maintainer. Until the maintainer answers, the key table has no rows for them. Once the maintainer agrees, the key table gains a row for each, and the scenario walk's alphabet gains the digits." The card paragraph under **The tree of use** ended "which wait to be saved as every change does.", and neither table named the digits.
@@ -1482,6 +1487,17 @@ The tables changed in these ways:
 - The new-frit form's fields are the roles of ADR-1205 D6, and its list offers the active fonts that can fill a role.
 
 The two nodes that the code review of the generated key lines split out of the Flow view stay as they are. `flow.info` is the read-only detail of a box of a path, where only Esc and `e` act. `flow.new-card` is NEW PATH's terminal card, which offers no `e` because the path is already in NEW PATH. Each split keeps a key line from offering a key that does nothing.
+
+> Note 2026-11-19: the two tables follow three decisions of this date. ADR-1205 D10 makes a color scheme a resource of its own, which the Looks tab lists, activates and previews, and which each look picks. ADR-1304 D4's note has the Effects tab list the vtlooks: the built-in vtlook first as "No filter", then the presets, then the administrator's vtlooks. ADR-1205 D4's note has a pointer theme activated by its folder. The rows changed in these ways, and every row they touch stays planned.
+>
+> - The Looks tab's list has four groups: the looks, the font sets, the color schemes and the pointer themes. A new node, `looks.palette`, is a color scheme's read-only detail, which Enter opens. Space activates or deactivates a scheme file, and does nothing on a built-in scheme, which is always active. `n`, `r`, `t` and `p` do nothing among the color schemes, and the deactivate question covers a scheme that a look uses.
+> - A look's card names one vtlook where it named a color map and a shader. A look section names its effects only through `vtlook =` (D5), and ADR-1205 D6 has a look take the color maps and shaders that its vtlook names. The row `list.look-effects` keeps its id and lists the vtlooks in the Effects tab's order, and a new look starts on No filter. The card gains a color scheme line before the vtlook, since a look's palette comes before its filters. That line's list is the new row `list.palettes`: first the scheme vtium.conf sets, which leaves the look's own unset, then the built-in schemes, then the active scheme files.
+> - The Effects tab shows one list in three groups, as every tab shows one list: the vtlooks, the color maps and the shaders. Its filter line shows one group or all three. Enter on a vtlook opens its detail in `effects.effect`. Space does nothing on a vtlook, because the batch lists the color maps and shaders that a vtlook names, not the vtlook. When an administrator's vtlook takes a preset's name, the tab marks the preset as hidden, as ADR-1304 D11 lists a packaged shader that a local one hides.
+> - Space activates a pointer theme by its folder, with every file in it.
+>
+> Two points wait for the maintainer, and the rows follow the lean of each until the maintainer answers. First, a look can pick a vtlook that does not read, such as one that names a color map that is not active, and the list shows why it does not read. The lean is yes, because the person can activate the color map afterwards, and until then the look draws the built-in vtlook, as any vtlook that fails does. Second, `p` does nothing on a color scheme, because a scheme's preview is its 16 colors beside text, which has no second form. The lean is to keep it so until someone asks for a picture of the console in the scheme's colors.
+
+> Note 2026-11-19, later the same day: the maintainer answered the two questions the rows left open (`considered`). A look may pick a vtlook that has an error: the card shows the reason beside the choice, and the head draws "No filter" until the file is fixed, because blocking the pick would stop the person mid-task, and showing the reason points to the fix. The key `p` does nothing on a color scheme, since a scheme's preview is already its 16 colors beside text.
 
 ## The maintainer's answers
 

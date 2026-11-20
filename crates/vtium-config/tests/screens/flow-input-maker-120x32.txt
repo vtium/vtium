@@ -1,4 +1,4 @@
- Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ Fonts  Effects  Looks  Flow  Settings  Help                            v View file  s Save  i Install  r Revert  n New
  draft bench  ›  Input   All devices are in a path · no changes · no problems
 
  ADD AN INPUT
@@ -29,4 +29,4 @@
 
 
 
- ↑↓ move  Enter choose  Esc back  q quit
+ ↑↓ move  Enter choose  Esc back  q quit  . more 1/3

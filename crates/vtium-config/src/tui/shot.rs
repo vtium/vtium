@@ -12,15 +12,31 @@
 //! screen goes in the request itself ([`Effect::Picture`]). Where the
 //! terminal draws no kitty graphics, it asks for a line of text instead
 //! ([`Effect::Summary`]).
+//!
+//! The Effects tab's preview is the Looks view's sample screen drawn
+//! through the highlighted effect ([`Source::Effect`]). The state machine
+//! decides from what the tab lists whether vtium can use the effect: a
+//! color map that is not active, or a shader, leaves the picture as it is,
+//! and the line beside the picture says why. Otherwise the request carries
+//! the effect, and the loop draws the picture through it as the console's
+//! CPU path draws a frame ([`crate::specimen::through`]). The loop answers
+//! with [`super::model::Event::Filtered`], which says whether the effect
+//! was applied. The Effects tab asks for a picture in a vtium console too,
+//! since the console's own text cannot show an effect.
+//!
+//! References:
+//! - ADR-1205 D8: the Effects tab previews an effect as a picture of the console with the effect applied, and the preview leaves the live console alone.
 
 use std::time::Duration;
 
 use vtium_font::Cell;
 
+use super::effects_found::{Effects, Vtlook};
 use super::input::Key;
-use super::model::{App, Effect, Font, FontState, Live, Shared, Size, View};
+use super::model::{App, Effect, Font, FontState, Live, Shared, Size};
+use super::resources::Resource;
 use super::words;
-use crate::specimen::Shot;
+use crate::specimen::{Filter, Filtered, Outcome, Shot};
 
 /// How many ticks the live trial counts down before it puts the font
 /// back, one a second (the agent's call, ADR-1201 D4).
@@ -35,7 +51,7 @@ pub const ASSUMED_DISPLAY: (u32, u32) = (640, 480);
 
 /// The screen the Looks view's preview draws, in pixels, whatever the real
 /// display's size: a nominal screen of sample content from its top left.
-/// The preview shows it as the Fonts view shows the detailed specimen: one
+/// The preview shows it as the Fonts tab shows the detailed specimen: one
 /// pixel of the console to one pixel of the picture, as many whole
 /// character cells of the sample content as the preview area holds, so a
 /// bigger size gives a bigger picture. The glyphs keep the cell the look
@@ -168,8 +184,11 @@ pub struct Wanted {
     pub points: u32,
     pub cell: Option<Cell>,
     /// The detailed specimen of the font in place of the picture of the
-    /// console, which `s` chooses in the Fonts view.
+    /// console.
     pub detail: bool,
+    /// The effect the picture is drawn through, which the Effects tab
+    /// previews.
+    pub filter: Option<Filtered>,
 }
 
 /// The picture or line asked for last, and the terminal it was asked
@@ -192,6 +211,20 @@ pub struct Caption {
     pub assumed: bool,
     pub cell: Cell,
     pub grid: (usize, usize),
+    /// What became of the effect the picture is drawn through, once the
+    /// picture has come, with the preview it answers, so the line never
+    /// gives one item's outcome beside another.
+    pub outcome: Option<(Wanted, Outcome)>,
+}
+
+/// Why no picture is on the screen for the preview asked for last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unpictured {
+    /// The view leaves no room for it.
+    NoRoom,
+    /// Measuring the font or painting the picture failed, and the
+    /// message line says why.
+    Failed,
 }
 
 /// The cells under a picture on the screen: the picture's first row and
@@ -229,58 +262,182 @@ impl Covered {
     }
 }
 
-/// The parts of the model that a view's preview reads: the open view, the
-/// shared part and the terminal's size, whether the Fonts tab shows the
-/// font's detailed specimen, and the size the Looks tab highlights. The
-/// font the preview shows comes from the shared part, which the Fonts tab
-/// keeps on its highlight. Update and the layout both read the preview
-/// through this, and neither changes it.
+/// What a tab previews, and in which font. A tab that previews chooses its
+/// own font, so no tab reads another tab's highlight.
+#[derive(Clone, Copy, Debug)]
+pub enum Source<'a> {
+    /// The tab previews nothing.
+    Nothing,
+    /// `font` at the draft's size: its detailed specimen where `detail` is
+    /// set, and otherwise the picture of the TUI's screen drawn in it.
+    Font {
+        font: Option<&'a Font>,
+        detail: bool,
+    },
+    /// `font` at `points` on the sample screen of [`PREVIEW_SCREEN`]
+    /// pixels. A size of 0 is automatic, which has no preview.
+    Size { font: Option<&'a Font>, points: u32 },
+    /// `font` at the draft's size on the sample screen, drawn through
+    /// `effect`.
+    Effect {
+        font: Option<&'a Font>,
+        effect: Applied<'a>,
+    },
+}
+
+/// The item the Effects tab highlights, as its preview applies it.
+#[derive(Clone, Copy, Debug)]
+pub enum Applied<'a> {
+    /// The filter line, which applies no effect.
+    Nothing,
+    Vtlook(&'a Vtlook),
+    Map(&'a Resource),
+    Shader(&'a Resource),
+}
+
+impl Applied<'_> {
+    /// The effect the picture is drawn through, with the color maps
+    /// active in the draft; `Ok(None)` for one that changes no color; or
+    /// why vtium cannot use it, so the picture shows the console without
+    /// it. The reasons are the ones the list's marks show: a color map
+    /// that is not active or fails the trust rule counts as missing, and
+    /// a vtlook that does not read, or names such a color map, gives way
+    /// to the built-in vtlook.
+    ///
+    /// References:
+    /// - ADR-1205 D4: a resource the batch does not list, or that fails the trust rule, counts as missing.
+    /// - ADR-1304 D6: a vtlook that fails at any stage gives way to the built-in vtlook.
+    pub fn filter(&self, effects: &Effects) -> Result<Option<Filtered>, String> {
+        let filtered = |filter| {
+            Ok(Some(Filtered {
+                filter,
+                active: effects
+                    .maps
+                    .iter()
+                    .filter(|r| r.active() && !r.own)
+                    .map(|r| r.path.clone())
+                    .collect(),
+            }))
+        };
+        match *self {
+            Applied::Nothing => Ok(None),
+            Applied::Shader(_) => Err(words::effect_without("shader", words::EFFECT_SHADER)),
+            Applied::Map(r) => match unusable(r) {
+                Some(why) => Err(words::effect_without(
+                    "color map",
+                    &words::map_unusable(why),
+                )),
+                None => filtered(Filter::Cube(r.path.clone())),
+            },
+            Applied::Vtlook(v) => {
+                let Some(file) = &v.file else {
+                    return Ok(None);
+                };
+                if let Err(error) = &v.read {
+                    return Err(words::effect_without(
+                        "vtlook",
+                        &words::effect_vtlook_broken(error),
+                    ));
+                }
+                for named in v
+                    .files
+                    .iter()
+                    .filter(|f| f.extension().is_some_and(|e| e == "cube"))
+                {
+                    let why = match effects.resource(named) {
+                        None => Some(words::MAP_MISSING),
+                        Some(r) => unusable(r),
+                    };
+                    if let Some(why) = why {
+                        let name = named.file_name().map_or_else(
+                            || named.display().to_string(),
+                            |n| n.to_string_lossy().into_owned(),
+                        );
+                        return Err(words::effect_without(
+                            "vtlook",
+                            &words::vtlook_map_unusable(&name, why),
+                        ));
+                    }
+                }
+                filtered(Filter::Vtlook {
+                    name: v.name.clone(),
+                    file: file.clone(),
+                })
+            }
+        }
+    }
+}
+
+/// Why vtium cannot use the color map `r`, in the words of its marks, or
+/// `None` when it can. Failing the trust rule comes before not being
+/// active, since a file that fails the rule cannot be activated.
+fn unusable(r: &Resource) -> Option<&'static str> {
+    if r.own {
+        Some(words::MAP_OWN)
+    } else if r.trust.is_err() {
+        Some(words::MAP_UNTRUSTED)
+    } else if !r.active() {
+        Some(words::MAP_INACTIVE)
+    } else {
+        None
+    }
+}
+
+/// The parts of the model that the open tab's preview reads: the shared
+/// part, the terminal's size, and what the tab previews. Update and the
+/// layout both read the preview through this, and neither changes it.
 #[derive(Clone, Copy, Debug)]
 pub struct Preview<'a> {
-    pub view: View,
     pub shared: &'a Shared,
     pub size: Size,
-    /// The Fonts view shows the detailed specimen of the font.
-    pub detail: bool,
-    /// The size the Looks view highlights, in points, 0 for automatic.
-    pub points: u32,
+    pub source: Source<'a>,
 }
 
 impl<'a> Preview<'a> {
-    /// The Fonts view's preview: the font the previews show, at the
-    /// draft's size, as its detailed specimen where `detail` says so.
-    pub fn fonts(shared: &'a Shared, size: Size, detail: bool) -> Preview<'a> {
+    /// The preview of `source`, on the shared part and a screen of `size`.
+    pub fn of(shared: &'a Shared, size: Size, source: Source<'a>) -> Preview<'a> {
         Preview {
-            view: View::Fonts,
             shared,
             size,
-            detail,
-            points: 0,
+            source,
         }
     }
 
-    /// The Looks view's preview: the font the previews show, at `points`,
-    /// 0 for automatic.
-    pub fn looks(shared: &'a Shared, size: Size, points: u32) -> Preview<'a> {
-        Preview {
-            view: View::Looks,
-            shared,
-            size,
-            detail: false,
-            points,
-        }
+    /// The preview of a tab that previews nothing.
+    pub fn nothing(shared: &'a Shared, size: Size) -> Preview<'a> {
+        Preview::of(shared, size, Source::Nothing)
     }
 
     /// The font the preview shows.
     pub fn font(&self) -> Option<&'a Font> {
-        self.shared.preview_font()
+        match self.source {
+            Source::Font { font, .. } | Source::Size { font, .. } | Source::Effect { font, .. } => {
+                font
+            }
+            Source::Nothing => None,
+        }
     }
 
-    /// The change the view previews now, if any: the highlighted font in
-    /// the Fonts view at the draft's size; the highlighted size of the
-    /// highlighted font in the Looks view, automatic having none; and on a
-    /// look's card in the Flow view, the look with the value under the
-    /// cursor of its frit, size or cell.
+    /// Whether the tab previews as a picture in a vtium console as well,
+    /// where the other tabs preview as the console's own text: the
+    /// Effects tab does, since the console's text cannot show an effect,
+    /// and so does a font file of the Fonts tab, which the console cannot
+    /// draw its own text in.
+    pub fn pictured_in_console(&self) -> bool {
+        matches!(self.source, Source::Effect { .. })
+            || self
+                .font()
+                .is_some_and(|f| super::fonts_found::is_file_name(&f.name))
+    }
+
+    /// Whether the picture shows the sample screen, which the Looks tab
+    /// draws at a size's cell, in place of the TUI's own screen.
+    pub fn sample(&self) -> bool {
+        matches!(self.source, Source::Size { .. } | Source::Effect { .. })
+    }
+
+    /// The change the tab previews now, if any: a font at the draft's
+    /// size, or a font at a size, automatic having none.
     pub fn wanted(&self) -> Option<Wanted> {
         if super::layout::too_small(self.size) {
             return None;
@@ -292,40 +449,127 @@ impl<'a> Preview<'a> {
                 .iter()
                 .find(|f| f.name == name)
                 .is_some_and(|f| !matches!(f.state, FontState::Refused(_)))
+                || (super::fonts_found::is_file_name(name)
+                    && self
+                        .shared
+                        .inputs
+                        .font_files
+                        .file(std::path::Path::new(name))
+                        .is_some())
         };
-        match self.view {
-            View::Fonts => {
+        match self.source {
+            Source::Font { detail, .. } => {
                 let font = self.font()?.name.clone();
                 readable(&font).then(|| Wanted {
                     font,
                     points: draft_points(self.shared),
                     cell: None,
-                    detail: self.detail,
+                    detail,
+                    filter: None,
                 })
             }
-            View::Looks => {
+            Source::Size { points, .. } => {
                 let font = self.font()?.name.clone();
-                (readable(&font) && self.points > 0).then_some(Wanted {
+                (readable(&font) && points > 0).then_some(Wanted {
                     font,
-                    points: self.points,
+                    points,
                     cell: None,
                     detail: false,
+                    filter: None,
                 })
             }
-            _ => None,
+            Source::Effect { effect, .. } => {
+                let font = self.font()?.name.clone();
+                readable(&font).then(|| Wanted {
+                    font,
+                    points: draft_points(self.shared),
+                    cell: None,
+                    detail: false,
+                    // an effect vtium cannot use leaves the picture plain
+                    filter: effect.filter(&self.shared.inputs.effects).ok().flatten(),
+                })
+            }
+            Source::Nothing => None,
         }
+    }
+
+    /// The line beside the Effects tab's picture: what it shows, and why
+    /// it shows the console without the effect, where it does. The line
+    /// speaks of the picture only while one is on the screen or on its
+    /// way, and gives the outcome of the effect only for the preview that
+    /// outcome answers. In a vtium console that draws a vtlook of its own,
+    /// the line adds that the console draws the picture through that
+    /// vtlook too.
+    fn effect_line(&self, effect: Applied<'_>) -> Option<String> {
+        if super::layout::too_small(self.size) {
+            return None;
+        }
+        if !self.shared.graphics {
+            return Some(words::EFFECT_NO_PICTURES.to_owned());
+        }
+        let Some(wanted) = self.wanted() else {
+            return Some(words::EFFECT_NO_FONT.to_owned());
+        };
+        let asked_now = self
+            .shared
+            .asked
+            .as_ref()
+            .is_some_and(|a| a.wanted == wanted);
+        if asked_now {
+            match self.shared.unpictured {
+                Some(Unpictured::NoRoom) => return Some(words::EFFECT_NO_ROOM.to_owned()),
+                Some(Unpictured::Failed) => return Some(words::EFFECT_NOT_DRAWN.to_owned()),
+                None => {}
+            }
+        }
+        let outcome = self
+            .shared
+            .shot
+            .as_ref()
+            .and_then(|c| c.outcome.as_ref())
+            .filter(|(answers, _)| *answers == wanted)
+            .map(|(_, outcome)| outcome);
+        let mut line = match effect.filter(&self.shared.inputs.effects) {
+            Err(why) => why,
+            Ok(None) => words::EFFECT_PLAIN.to_owned(),
+            Ok(Some(_)) => {
+                let (shown, what) = match effect {
+                    Applied::Vtlook(v) => (words::effect_vtlook(&v.name), "vtlook"),
+                    Applied::Map(r) => (words::effect_map(&r.name()), "color map"),
+                    Applied::Nothing | Applied::Shader(_) => {
+                        (words::EFFECT_PLAIN.to_owned(), "effect")
+                    }
+                };
+                match outcome {
+                    Some(Outcome::Failed(why)) => words::effect_failed(what, why),
+                    Some(Outcome::ColorOnly) => format!("{shown} {}", words::EFFECT_COLOR_ONLY),
+                    Some(Outcome::Applied) | None => shown,
+                }
+            }
+        };
+        if let Some(own) = self.shared.console_vtlook() {
+            line.push(' ');
+            line.push_str(&words::effect_console_vtlook(&own));
+        }
+        Some(line)
     }
 
     /// The line that describes the preview: beside a picture, what the
     /// picture shows; with no pictures, the summary of the change.
     pub fn preview_line(&self) -> Option<String> {
-        if self.shared.text_preview() && !super::layout::too_small(self.size) {
-            return match self.view {
-                View::Fonts => Some(words::console_font_caption(
+        if let Source::Effect { effect, .. } = self.source {
+            return self.effect_line(effect);
+        }
+        if self.shared.text_preview()
+            && !self.pictured_in_console()
+            && !super::layout::too_small(self.size)
+        {
+            return match self.source {
+                Source::Font { .. } => Some(words::console_font_caption(
                     self.shared.shown_font.as_deref(),
                 )),
-                View::Looks => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
-                _ => None,
+                Source::Size { .. } => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
+                Source::Effect { .. } | Source::Nothing => None,
             };
         }
         let wanted = self.wanted()?;
@@ -363,6 +607,38 @@ impl<'a> Preview<'a> {
             Some(s) => format!("{} {s}", words::NO_PICTURES),
             None => words::NO_PICTURES.to_owned(),
         })
+    }
+}
+
+impl Shared {
+    /// The vtlook this vtium console draws with, when it is not the
+    /// built-in one: the installed vtium.conf's vtlook for the console's
+    /// head, from the head's look, else the top level. The console draws
+    /// its whole frame through that vtlook, so a picture shown in it is
+    /// filtered a second time. `None` outside a vtium console.
+    ///
+    /// References:
+    /// - ADR-1304 D5: a head's vtlook comes from its look, else the top level, else the built-in one.
+    pub fn console_vtlook(&self) -> Option<String> {
+        if !matches!(
+            self.live,
+            super::model::Live::On | super::model::Live::OpsOff
+        ) {
+            return None;
+        }
+        let conf = self.inputs.conf.as_deref()?;
+        let top = vtium_settings::setting(conf, "vtlook");
+        let own = self.inputs.head.as_deref().and_then(|head| {
+            let config = vtium_settings::sections(conf.as_bytes())?.parsed.config;
+            let look = config.heads.iter().find(|h| h.name == head)?.look.clone();
+            config
+                .looks
+                .into_iter()
+                .find(|l| l.name == look)
+                .and_then(|l| l.vtlook)
+        });
+        own.or(top)
+            .filter(|v| v != vtium_settings::vtlook::DEFAULT && !v.is_empty())
     }
 }
 
@@ -410,15 +686,10 @@ fn picture_max((cols, rows): (usize, usize), size: Size) -> (u32, u32) {
 }
 
 impl App {
-    /// The parts of the model that the open view's preview reads.
+    /// The parts of the model that the open tab's preview reads, with
+    /// what the tab previews.
     pub fn preview(&self) -> Preview<'_> {
-        Preview {
-            view: self.nav.view,
-            shared: &self.shared,
-            size: self.size,
-            detail: self.fonts.detail(),
-            points: self.looks.points(),
-        }
+        self.tab().preview(&self.shared, self.size)
     }
 
     /// The most pixels the picture takes in the open view.
@@ -438,8 +709,8 @@ impl App {
             return Vec::new();
         }
         // in a vtium console the console draws the preview as text, so the
-        // helper draws nothing
-        if self.shared.text_preview() {
+        // helper draws nothing; an effect still needs a picture
+        if self.shared.text_preview() && !self.preview().pictured_in_console() {
             self.shared.asked = None;
             self.shared.shot = None;
             return self.drop_picture();
@@ -454,6 +725,7 @@ impl App {
             return Vec::new();
         }
         self.shared.asked = asked.clone();
+        self.shared.unpictured = None;
         let Some(asked) = asked else {
             self.shared.shot = None;
             return self.drop_picture();
@@ -464,14 +736,22 @@ impl App {
             points,
             cell,
             detail,
+            ..
         } = asked.wanted;
         if !self.shared.graphics {
+            // an effect has no written description: its line says that
+            // this terminal shows no pictures
+            if matches!(self.preview().source, Source::Effect { .. }) {
+                self.shared.shot = None;
+                return self.drop_picture();
+            }
             self.shared.drawing = true;
             return vec![Effect::Summary { font, height }];
         }
         let max = self.picture_room();
         if max.0 == 0 || max.1 == 0 {
             self.shared.shot = None;
+            self.shared.unpictured = Some(Unpictured::NoRoom);
             return self.drop_picture();
         }
         self.shared.drawing = true;
@@ -519,6 +799,7 @@ impl App {
             Err(why) => {
                 self.shared.drawing = false;
                 self.shared.shot = None;
+                self.shared.unpictured = Some(Unpictured::Failed);
                 self.say_unless_trial(words::no_picture(why));
                 self.drop_picture()
             }
@@ -548,11 +829,12 @@ impl App {
             assumed,
             cell,
             grid,
+            outcome: None,
         });
         // the Looks view draws a nominal screen of sample content at the
         // look's cell; the caption still counts the real display's grid.
         // Elsewhere the loop draws the TUI's own screen at the grid.
-        let looks = self.nav.view == View::Looks;
+        let looks = self.preview().sample();
         let (display, grid, screen) = if looks {
             let shown = (
                 across(PREVIEW_SCREEN.0, cell.width).min(GRID_MAX.0),
@@ -577,6 +859,11 @@ impl App {
             palette,
             color: self.shared.inputs.color,
             max: self.picture_room(),
+            filter: self
+                .shared
+                .asked
+                .as_ref()
+                .and_then(|a| a.wanted.filter.clone()),
         };
         vec![if looks {
             Effect::Picture(shot)
@@ -609,10 +896,7 @@ impl App {
             .asked
             .as_ref()
             .is_some_and(|a| self.preview().wanted().as_ref() == Some(&a.wanted));
-        if !matches!(self.nav.view, View::Looks | View::Fonts | View::Flow)
-            || self.shared.leaving.is_some()
-            || !current
-        {
+        if self.shared.leaving.is_some() || !current {
             return out;
         }
         match result {
@@ -635,10 +919,33 @@ impl App {
             }
             Err(why) => {
                 self.shared.shot = None;
+                self.shared.unpictured = Some(Unpictured::Failed);
                 self.say_unless_trial(words::no_picture(why));
             }
         }
         out
+    }
+
+    /// The picture drawn through an effect has come, with what became of
+    /// the effect, which the line beside the picture says. It is shown as
+    /// any picture is.
+    pub(crate) fn filtered(
+        &mut self,
+        picture: crate::specimen::Picture,
+        outcome: Outcome,
+    ) -> Vec<Effect> {
+        // the outcome is kept only for the preview it answers: a picture
+        // that comes after the highlight moved on says nothing
+        let current = self
+            .shared
+            .asked
+            .as_ref()
+            .map(|a| a.wanted.clone())
+            .filter(|w| self.preview().wanted().as_ref() == Some(w));
+        if let (Some(wanted), Some(caption)) = (current, self.shared.shot.as_mut()) {
+            caption.outcome = Some((wanted, outcome));
+        }
+        self.pictured(Ok(picture))
     }
 
     /// Puts `line` on the message line, unless the live trial's countdown

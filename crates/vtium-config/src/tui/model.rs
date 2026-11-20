@@ -1,17 +1,23 @@
-//! The TUI as a state machine apart from its terminal (ADR-1201 D7): its
-//! state takes [`Event`]s, a key, a mouse click, a reply, a resize, a
-//! signal or the end of a wait, and returns [`Effect`]s, bytes to write, a
-//! wait to start, a save to run or the status to leave with. The loop
-//! around it ([`super::port`]) does the reading and the writing, and draws
+//! The TUI as a state machine apart from its terminal: its state takes
+//! [`Event`]s, a key, a mouse click, a reply, a resize, a signal or the
+//! end of a wait, and returns [`Effect`]s, bytes to write, a wait to
+//! start, a save to run or the status to leave with. The loop around it
+//! ([`super::port`]) does the reading and the writing, and draws
 //! [`super::view`]'s screen after each event.
 //!
-//! The views are Flow, Looks, Fonts, Settings and Help (ADR-1201 D3), and
-//! the TUI opens on the one its caller names. The Flow view draws the
-//! configuration as paths of parts (ADR-1403 D7, [`super::flowview`]), and
-//! its keys are in the Flow tab's module, [`super::tabs::flow`].
+//! The tabs are Fonts, Effects, Looks, Flow, Settings and Help, in the
+//! order of [`View::TABS`], and the TUI opens on the one its caller names.
+//! The Flow view draws the configuration as paths of parts
+//! ([`super::flowview`]), and its keys are in the Flow tab's module,
+//! [`super::tabs::flow`].
+//!
+//! References:
+//! - ADR-1201 D7: the TUI is a state machine apart from its terminal.
+//! - ADR-1205 D1: the six tabs and their order.
+//! - ADR-1403 D7: the Flow view draws the configuration as paths.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use vtium_settings::keys;
@@ -23,6 +29,7 @@ use super::flow::Flow;
 use super::input::{Button, Input, Key, Mouse, Reply};
 use super::replies::{Answer, Asker, Batch, Query, Queue};
 use crate::draft::{FileEdit, Plan, Removal};
+use crate::frit::Frit;
 
 /// How long the TUI waits for the terminal's answers at start, and for
 /// the console's font to come back when it leaves: `set`'s wait.
@@ -105,6 +112,14 @@ pub struct Inputs {
     pub conf: Option<String>,
     /// The density size pictures are drawn at, and where it came from.
     pub dpi: (u32, DpiFrom),
+    /// The density of each connected display as the console finds it:
+    /// `display-dpi` where vtium.conf sets it, else the display's own,
+    /// else 96. A look's card converts its sizes at the lowest of them.
+    pub densities: Vec<u32>,
+    /// The font vconsole names, by `vconsole.font=` on the kernel command
+    /// line or `FONT=` in vconsole.conf, which the console draws where
+    /// vtium.conf and the look name no font set.
+    pub vconsole_font: Option<String>,
     /// The frits' directory, where a new frit is installed.
     pub frits: PathBuf,
     /// The view the TUI opens at: the fonts, or the new-frit view for
@@ -136,12 +151,21 @@ pub struct Inputs {
     /// wrote it, or a line of it that it skipped.
     pub colors_note: Option<String>,
     /// The head of the console the TUI runs in, from `VTIUM_HEAD`, which
-    /// vtium sets in each console's session (ADR-1401 D5): where `s` in
-    /// the Fonts view of a vtium console saves the font the console shows.
+    /// vtium sets in each console's session: the head whose font the
+    /// preview names and a trial puts back.
+    ///
+    /// References:
+    /// - ADR-1401 D5: vtium sets `VTIUM_HEAD` in each console's session.
     pub head: Option<String>,
     /// The locale the specimen's line follows, as [`super::locale`] reads
     /// it, for the preview a vtium console draws as text.
     pub locale: String,
+    /// The vtlooks, color maps and shaders the Effects tab lists, with each
+    /// resource's marks, which an activation through the desk updates.
+    pub effects: super::effects_found::Effects,
+    /// The font files the Fonts tab lists, with each file's marks and what
+    /// the font helper has said of it so far.
+    pub font_files: super::fonts_found::Fonts,
 }
 
 /// One thing that happened.
@@ -166,6 +190,12 @@ pub enum Event {
     },
     /// The picture [`Effect::Picture`] asked for, or why there is none.
     Pictured(Result<crate::specimen::Picture, String>),
+    /// A picture drawn through the effect the Effects tab previews, and
+    /// what became of the effect.
+    Filtered {
+        picture: crate::specimen::Picture,
+        outcome: crate::specimen::Outcome,
+    },
     /// The detailed specimen [`Effect::Specimen`] asked for, and what it
     /// gives, or why there is none.
     Detailed {
@@ -181,6 +211,9 @@ pub enum Event {
     },
     /// The sources each frit [`Effect::Sources`] named lacks.
     Sourced(Vec<(String, SourcesFound)>),
+    /// What the font helper said of some of the files
+    /// [`Effect::Describe`] named, as the answers came.
+    Described(Vec<(PathBuf, crate::discover::Described)>),
     /// The desk did the op [`Effect::Desk`] asked for, or says why not.
     Desked(Op, Result<Done, String>),
     /// udev reported that a device came or went.
@@ -232,8 +265,19 @@ pub enum Effect {
     /// Asks the glyph helper which sources each frit named lacks, then
     /// sends [`Event::Sourced`].
     Sources(Vec<String>),
+    /// Asks the font helper what each of these font files is, then sends
+    /// [`Event::Described`] as the answers come, while the loop goes on
+    /// reading keys.
+    Describe(Vec<PathBuf>),
     /// Hands the op to the desk, then sends [`Event::Desked`].
     Desk(Op),
+    /// Runs the privileged step that installs the font file the desk
+    /// prepared as a system font, then sends [`Event::Installed`].
+    ///
+    /// References:
+    /// - ADR-1205 D5: the install step for a system font runs through the
+    ///   same privileged step as an install, on its own.
+    InstallFont,
     /// Leaves, with this exit status.
     Exit(u8),
 }
@@ -242,33 +286,44 @@ pub enum Effect {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     Flow,
-    /// The looks; until looks are built, the sizes the console's font
-    /// takes.
+    /// The Looks tab: the looks, their font sets and their color schemes.
     Looks,
     Fonts,
     Settings,
     /// Help and About.
     Help,
-    /// `new`'s guided flow: a frit made from fonts, installed like any
-    /// change (ADR-1201 D9). It belongs to the Fonts view.
+    /// `new`'s guided flow: a font set (a frit) made from fonts, installed
+    /// like any change. It belongs to the Looks tab.
+    ///
+    /// References:
+    /// - ADR-1201 D9: `new`'s guided flow is the Looks tab's form for a new
+    ///   font set, and it ends in an install.
     New,
+    /// The Effects tab: the vtlooks, color maps and shaders.
+    Effects,
 }
 
 impl View {
-    /// The views Tab steps through, in order.
-    pub const TABS: [View; 5] = [
-        View::Flow,
-        View::Looks,
+    /// The tabs in the tab bar's order, which Tab steps through and the
+    /// digits 1 to 6 name. vtium-config opens on Flow, the fourth.
+    ///
+    /// References:
+    /// - ADR-1205 D1: the six tabs and their order.
+    /// - ADR-1403 D10, "The number keys": the digits follow this order.
+    pub const TABS: [View; 6] = [
         View::Fonts,
+        View::Effects,
+        View::Looks,
+        View::Flow,
         View::Settings,
         View::Help,
     ];
 
-    /// The tab the view shows under: its own, or the Fonts view's for the
+    /// The tab the view shows under: its own, or the Looks tab's for the
     /// new-frit view.
     pub const fn tab(self) -> View {
         match self {
-            View::New => View::Fonts,
+            View::New => View::Looks,
             v => v,
         }
     }
@@ -297,7 +352,7 @@ pub enum Live {
 /// pixels: the console's 8x16 at 640x480.
 pub const ASSUMED_CELL: (u32, u32) = (8, 16);
 
-/// The sizes the size view offers, in points, after automatic (0): within
+/// The sizes a look's card offers, in points, after automatic (0): within
 /// the bounds the console reads `font-size` and a frit's `size=` in.
 pub const SIZES: [u32; 15] = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32];
 
@@ -365,18 +420,14 @@ pub struct Shared {
     pub drawing: bool,
     /// What the picture on the screen shows: the line beside it.
     pub shot: Option<super::shot::Caption>,
+    /// Why no picture shows for the preview asked for last, if none does.
+    pub unpictured: Option<super::shot::Unpictured>,
     /// The font the console last said it draws.
     pub shown_font: Option<String>,
     /// The switch sent whose reply has not come.
     pub in_flight: Option<String>,
     /// Fonts the console refused, each marked in the list.
     pub refused: BTreeSet<String>,
-    /// The font the console's previews show, counted from 0 in the list
-    /// of fonts: the font the Fonts tab highlights. The Fonts tab sets it
-    /// through [`super::tabs::Change::Preview`] whenever its highlight
-    /// moves, and every tab that shows a preview reads it here, so no tab
-    /// reads another tab's highlight.
-    pub preview_font: usize,
     /// Mouse reporting is on.
     pub mouse: bool,
     pub pending: Pending,
@@ -398,6 +449,10 @@ pub struct Shared {
     pub present: crate::flowmodel::Present,
     /// The privileged step is installing the draft.
     pub installing: bool,
+    /// The install of a font of the person's as a system font that the
+    /// desk readied and the question asks about: the font's detail shows
+    /// both files' facts and the exact command while the question is open.
+    pub font_install: Option<super::desk::FontReady>,
     /// The install that waits for the replies still due, which
     /// [`App::event`] hands the loop once no query is outstanding.
     install_waits: Option<Plan>,
@@ -406,9 +461,6 @@ pub struct Shared {
     pub came: Option<String>,
     /// The notice that the live trial is off has been shown.
     live_said: bool,
-    /// What the message line says once the draft holds the font the
-    /// console shows, which `s` in a vtium console's Fonts view wrote.
-    pub saving_tried: Option<String>,
     /// The TUI leaves with this status once the install that `y` at the
     /// leave question started ends well.
     pub quit_after_install: Option<u8>,
@@ -464,11 +516,6 @@ impl Shared {
     /// file.
     pub fn changed(&self, key: &str) -> bool {
         self.draft.is_some() && self.drafted(key) != self.configured(key)
-    }
-
-    /// The font the previews show, as [`Shared::preview_font`] counts it.
-    pub fn preview_font(&self) -> Option<&Font> {
-        self.inputs.fonts.get(self.preview_font)
     }
 
     /// Whether the draft leaves `allow-font-ops` on, its default.
@@ -561,6 +608,8 @@ pub struct App {
     pub size: Size,
     /// The Fonts tab's state.
     pub fonts: super::tabs::fonts::Fonts,
+    /// The Effects tab's state.
+    pub effects: super::tabs::effects::Effects,
     /// The Looks tab's state.
     pub looks: super::tabs::looks::Looks,
     /// The Settings tab's state.
@@ -591,6 +640,8 @@ pub enum Then {
     /// Leaves with this status: `y` saves the unsaved changes first, `n`
     /// leaves without them.
     Quit(u8),
+    /// Installs the font file the desk prepared as a system font.
+    InstallFont,
 }
 
 /// The pager's place in the draft: its first line in sight and how far it
@@ -620,11 +671,6 @@ impl App {
     /// The TUI at its start in a terminal of `size`, and what it does
     /// first: the four requests, and the wait for their answers.
     pub fn start(inputs: Inputs, size: Size) -> (App, Vec<Effect>) {
-        let configured = inputs.conf.as_deref().and_then(|c| setting(c, "font-name"));
-        let font_at = configured
-            .as_deref()
-            .and_then(|n| inputs.fonts.iter().position(|f| f.name == n))
-            .unwrap_or(0);
         let view = inputs.view;
         let flow = super::tabs::flow::Flow::new(&inputs.flow);
         let cluster_width = match inputs
@@ -656,10 +702,10 @@ impl App {
                 asked: None,
                 drawing: false,
                 shot: None,
+                unpictured: None,
                 shown_font: None,
                 in_flight: None,
                 refused: BTreeSet::new(),
-                preview_font: font_at,
                 mouse: false,
                 pending: Pending::default(),
                 message: None,
@@ -671,15 +717,16 @@ impl App {
                 draft: None,
                 present: crate::flowmodel::Present::default(),
                 installing: false,
+                font_install: None,
                 install_waits: None,
                 came: None,
                 live_said: false,
-                saving_tried: None,
                 quit_after_install: None,
                 unsaved: 0,
             },
             size,
-            fonts: super::tabs::fonts::Fonts::new(font_at),
+            fonts: super::tabs::fonts::Fonts::default(),
+            effects: super::tabs::effects::Effects::default(),
             looks: super::tabs::looks::Looks::default(),
             settings: super::tabs::settings::Settings::default(),
             flow,
@@ -758,9 +805,44 @@ impl App {
         self.set_view(view)
     }
 
-    /// The font the previews show, which the Fonts tab highlights.
-    pub fn font(&self) -> Option<&Font> {
-        self.shared.preview_font()
+    /// The font file the Fonts tab highlights.
+    pub fn font(&self) -> Option<&super::fonts_found::FontFile> {
+        self.fonts.highlighted(&self.shared)
+    }
+
+    /// The state of the open tab, as every tab answers the parts of the
+    /// TUI they share.
+    pub fn tab(&self) -> &dyn super::tabs::Tab {
+        self.tab_of(self.nav.view)
+    }
+
+    /// The state of the tab that `view` shows. This and `App::tab_mut`
+    /// are the one place that names each tab's state, so a new tab adds a
+    /// line to each.
+    pub fn tab_of(&self, view: View) -> &dyn super::tabs::Tab {
+        match view {
+            View::Flow => &self.flow,
+            View::Fonts => &self.fonts,
+            View::New => self.looks.new_frit(),
+            View::Effects => &self.effects,
+            View::Looks => &self.looks,
+            View::Settings => &self.settings,
+            View::Help => &self.help,
+        }
+    }
+
+    /// The open tab's state to change, beside the shared part to read.
+    fn tab_mut(&mut self) -> (&mut dyn super::tabs::Tab, &Shared) {
+        let tab: &mut dyn super::tabs::Tab = match self.nav.view {
+            View::Flow => &mut self.flow,
+            View::Fonts => &mut self.fonts,
+            View::New => self.looks.new_frit_mut(),
+            View::Effects => &mut self.effects,
+            View::Looks => &mut self.looks,
+            View::Settings => &mut self.settings,
+            View::Help => &mut self.help,
+        };
+        (tab, &self.shared)
     }
 
     /// The installed vtium.conf's value of `key`.
@@ -819,25 +901,13 @@ impl App {
             return;
         }
         let row = super::layout::list_offset(self);
-        match self.nav.view {
-            View::Settings => self.settings.show_from(row),
-            View::Fonts => self.fonts.show_from(row),
-            View::New => self.fonts.form_show_from(row),
-            View::Looks => self.looks.show_from(row),
-            View::Flow | View::Help => {}
-        }
+        self.tab_mut().0.show_from(row);
     }
 
     /// The first row of the open tab's list that its window shows, as
     /// update last settled it.
     pub fn list_offset(&self) -> usize {
-        match self.nav.view {
-            View::Settings => self.settings.offset(),
-            View::Fonts => self.fonts.offset(),
-            View::New => self.fonts.form_offset(),
-            View::Looks => self.looks.offset(),
-            View::Flow | View::Help => 0,
-        }
+        self.tab().offset()
     }
 
     /// Takes `event`, and returns what the loop does.
@@ -854,13 +924,6 @@ impl App {
         if super::nav::node(self) != node {
             self.nav.key_page = 0;
         }
-        // the Fonts tab tells the shared part each move of its highlight,
-        // so the previews show the font it highlights after every event
-        debug_assert_eq!(
-            self.shared.preview_font,
-            self.fonts.at(),
-            "the previews show the font the Fonts tab highlights"
-        );
         out
     }
 
@@ -908,6 +971,7 @@ impl App {
             Event::Installed(result) => self.installed(result),
             Event::Celled { font, height, cell } => self.celled(&font, height, cell),
             Event::Pictured(result) => self.pictured(result),
+            Event::Filtered { picture, outcome } => self.filtered(picture, outcome),
             Event::Detailed {
                 font,
                 height,
@@ -926,14 +990,20 @@ impl App {
                 self.shared.sources.extend(found);
                 Vec::new()
             }
+            Event::Described(answers) => {
+                let highlighted = self.fonts.highlighted_path(&self.shared);
+                self.shared.inputs.font_files.describe(answers);
+                self.fonts.keep(&self.shared, highlighted.as_deref());
+                Vec::new()
+            }
             Event::Desked(op, done) => self.desked(&op, done),
             Event::Hotplug => vec![Effect::Desk(Op::Devices)],
         }
     }
 
-    /// The size the size view highlights, in points, 0 for automatic.
+    /// The size the Looks tab previews, in points, 0 for automatic.
     pub fn size(&self) -> u32 {
-        self.looks.points()
+        self.looks.points(&self.shared)
     }
 
     /// Whether a query the TUI sent is still outstanding, so the reader
@@ -1023,8 +1093,8 @@ impl App {
     }
 
     /// What follows once the terminal is known: the sources each frit that
-    /// reads lacks, found once, and the highlighted font's picture where
-    /// one shows.
+    /// reads lacks, found once, a description of each font file the Fonts
+    /// tab lists, and the highlighted font's picture where one shows.
     fn started(&mut self) -> Vec<Effect> {
         let frits: Vec<String> = self
             .shared
@@ -1037,6 +1107,10 @@ impl App {
         let mut out = Vec::new();
         if !frits.is_empty() {
             out.push(Effect::Sources(frits));
+        }
+        let waiting = self.shared.inputs.font_files.ask();
+        if !waiting.is_empty() {
+            out.push(Effect::Describe(waiting));
         }
         out
     }
@@ -1054,8 +1128,6 @@ impl App {
             (true, Some(font)) => {
                 self.shared.start_font = Some(font.clone());
                 self.shared.shown_font = Some(font.clone());
-                let moved = self.fonts.highlight(&self.shared, &font);
-                self.perform(vec![moved]);
                 Live::On
             }
             (true, None) => Live::OpsOff,
@@ -1169,11 +1241,7 @@ impl App {
     /// on a field, and in the settings view while a value is edited. Esc
     /// drops what is typed in the settings view.
     fn typing(&self) -> bool {
-        match self.nav.view {
-            View::New => self.fonts.form_typing(),
-            View::Settings => self.settings.editing().is_some(),
-            _ => false,
-        }
+        self.tab().typing()
     }
 
     /// A key, as the navigation module routes it: to the question, the
@@ -1202,64 +1270,21 @@ impl App {
 
     /// A key that the open view acts on itself.
     fn view_key(&mut self, key: Key) -> Vec<Effect> {
-        if self.nav.view == View::Flow {
-            let keys = super::layout::key_rows(self).len();
-            let commands = self.flow.update(&self.shared, self.size, keys, key);
-            return self.perform(commands);
-        }
-        // the action keys do nothing while a Settings section is open
-        // over the list of sections, as in every layer (ADR-1403 D7)
-        let layer = self.nav.view == View::Settings && self.settings.open().is_some();
+        // the open tab says whether each action key acts there: not while
+        // a level is open over it, nor where its own keys use the letter
+        let takes = |action: char| self.tab().takes_action(action);
         match key {
-            // Install acts where the tab bar shows it: not in Help, whose
-            // tab bar shows no action, nor in the new-frit form, which is
-            // open over the Fonts view
-            Key::Char('i')
-                if !layer && !self.typing() && !matches!(self.nav.view, View::Help | View::New) =>
-            {
-                return self.action('i');
-            }
-            // Save in the views whose own keys leave `s` free (ADR-1403 D7)
-            Key::Char('s')
-                if !layer
-                    && matches!(self.nav.view, View::Looks | View::Settings)
-                    && !self.typing() =>
-            {
-                return self.save();
-            }
-            Key::Char('o')
-                if !layer && self.shared.live == Live::OpsOff && self.nav.view != View::New =>
-            {
+            Key::Char('i') if takes('i') && !self.typing() => return self.action('i'),
+            Key::Char('s') if takes('s') && !self.typing() => return self.save(),
+            Key::Char('o') if takes('o') && self.shared.live == Live::OpsOff => {
                 return self.top("allow-font-ops", Some("on"));
             }
             _ => {}
         }
-        match self.nav.view {
-            View::Flow => Vec::new(),
-            View::Fonts => {
-                let commands = self.fonts.update(&self.shared, key);
-                self.perform(commands)
-            }
-            View::Looks => {
-                let commands = self.looks.update(key);
-                self.perform(commands)
-            }
-            View::Settings => {
-                let commands = self.settings.update(&self.shared, key);
-                self.perform(commands)
-            }
-            View::Help => {
-                let (rows, room) = super::layout::help_window(self);
-                let commands = self
-                    .help
-                    .update(key, super::tabs::help::Page { rows, room });
-                self.perform(commands)
-            }
-            View::New => {
-                let commands = self.fonts.form_update(&self.shared, key);
-                self.perform(commands)
-            }
-        }
+        let room = super::layout::room(self);
+        let (tab, shared) = self.tab_mut();
+        let commands = tab.update(shared, room, key);
+        self.perform(commands)
     }
 
     /// Performs the commands a tab's update returned: the changes to the
@@ -1280,10 +1305,8 @@ impl App {
                 }
                 Command::Change(Change::Say(line)) => self.shared.message = Some(line),
                 Command::Change(Change::Pending(pending)) => self.shared.pending = pending,
-                Command::Change(Change::SaveTried) => effects.extend(self.save_tried()),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
                 Command::Change(Change::Quiet) => self.shared.message = None,
-                Command::Change(Change::Preview(at)) => self.shared.preview_font = at,
                 Command::Change(Change::Make { changes, select }) => {
                     effects.extend(self.make(changes, select));
                 }
@@ -1297,12 +1320,11 @@ impl App {
             match request {
                 Request::Go(view) => effects.extend(self.set_view(view)),
                 Request::Ask { question, then } => self.ask(question, then),
-                // the Fonts tab highlights the font before it opens, in
-                // that order, so its first frame shows the font
+                // font sets are listed in the Looks tab, which highlights
+                // the one asked for
                 Request::ShowFont(name) => {
-                    let moved = self.fonts.highlight(&self.shared, &name);
-                    effects.extend(self.perform(vec![moved]));
-                    effects.extend(self.set_view(View::Fonts));
+                    effects.extend(self.set_view(View::Looks));
+                    self.looks.show_font_set(&self.shared, &name);
                 }
             }
         }
@@ -1325,11 +1347,8 @@ impl App {
                 let Some(start) = self.shared.start_font.clone() else {
                     return Vec::new();
                 };
-                let moved = self.fonts.highlight(&self.shared, &start);
-                let mut out = self.perform(vec![moved]);
                 self.shared.want = Some(start);
-                out.extend(self.follow());
-                out
+                self.follow()
             }
             _ => Vec::new(),
         }
@@ -1380,10 +1399,7 @@ impl App {
 
     /// A character or Backspace typed into the field being edited.
     fn type_key(&mut self, key: Key) -> Vec<Effect> {
-        match self.nav.view {
-            View::New => self.fonts.type_key(key),
-            _ => self.settings.type_key(key),
-        }
+        self.tab_mut().0.type_key(key);
         Vec::new()
     }
 
@@ -1412,6 +1428,10 @@ impl App {
     /// pending, and on a live console the font the draft gives the
     /// console's head is the one leaving gives back (ADR-1201 D4).
     pub(crate) fn frits_installed(&mut self) {
+        // the Looks tab holds each font set by its place in the list,
+        // which the changes below move, so its highlight and an open
+        // detail are kept by the font set's name
+        let spot = self.looks.spot(&self.shared);
         let removed = std::mem::take(&mut self.shared.pending.removals);
         self.shared
             .inputs
@@ -1421,11 +1441,26 @@ impl App {
             self.shared.inputs.installed.remove(name);
             self.shared.sources.remove(name);
         }
+        // each new font set joins the list the Looks tab offers at once,
+        // as the next start would list it, in place of an installed set of
+        // its name
         for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
+            let state = match Frit::parse(text.as_bytes(), Path::new(&name), &name) {
+                Ok(_) => FontState::Reads,
+                Err(e) if e.line == 0 => FontState::Refused(e.why.clone()),
+                Err(e) => FontState::Refused(format!("line {}: {}", e.line, e.why)),
+            };
+            let fonts = &mut self.shared.inputs.fonts;
+            fonts.retain(|f| f.name != name);
+            fonts.push(Font {
+                name: name.clone(),
+                state,
+            });
+            fonts.sort_by(|a, b| a.name.cmp(&b.name));
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
-        let moved = self.fonts.fit(&self.shared);
-        self.perform(vec![moved]);
+        self.fonts.keep(&self.shared, None);
+        self.looks.restore(&self.shared, spot);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one
@@ -1462,7 +1497,16 @@ mod tests {
         ] {
             app.event(Event::Input(Input::Reply(reply)));
         }
-        for key in [Key::Up, Key::Char('t'), Key::Escape] {
+        // tiny5 is the fourth font set below the Looks tab's one look
+        for key in [
+            Key::Char('3'),
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Down,
+            Key::Char('t'),
+            Key::Escape,
+        ] {
             app.event(Event::Input(Input::Key(key)));
         }
         assert!(app.nav.trial.is_none(), "the key ended the trial");

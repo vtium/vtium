@@ -136,6 +136,24 @@ considered:
   - operator: aaronsb
     said: "1 accept both [ADR-1205 D10 and ADR-1304 D21, as written]"
     via: steering session chat, 2026-11-19, after the steering session quoted both sections in full
+  - operator: aaronsb
+    said: "2a yes, 2b yes. I think this pattern is kind of similar to trusting paths"
+    via: the steering session's chat, 2026-11-19, answering whether a pointer theme is activated by its folder (2a) and whether /usr/share/vtium/pointers.svg joins the fresh-install list (2b)
+  - operator: aaronsb
+    said: "I think we keep one convention"
+    via: the steering session's chat, 2026-11-19, after the maintainer said pointers not following the same trust conventions would be 'a rake in the yard to step on', answering the proposal of one gate for every resource kind
+  - operator: aaronsb
+    said: "can we add one more profile, a sun workstation (the horrifying white background on dark text) … later it can be composed with an actual sun workstation serifed font for those who wax nostalgic for java and sparc … maybe we call it 'sunny'"
+    via: the steering session's chat, 2026-11-19, after the maintainer saw the twelve shipped schemes' pictures
+  - operator: aaronsb
+    said: "yes a"
+    via: "the steering session's chat, 2026-11-19, choosing (a): vtium rereads the batch at each new login, with the font settings, over (b) reading it only when vtium starts"
+  - operator: aaronsb
+    said: "i agree on 2 and 3 [2: the Effects tab keeps its preview picture in a vtium console that draws its own vtlook, and the line beside it says the console draws the picture through that vtlook as well; 3: the vtium packages build the filters feature from 0.1.0-alpha.10 on]"
+    via: steering session, 2026-11-20, on the wave 4 candidate
+  - operator: aaronsb
+    said: "I'd say we aim for the lowest physical attached monitor, without complicating the code required to determine it. [the DPI vtium-config uses to turn a bitmap font's strikes into a look's point sizes]"
+    via: steering session, 2026-11-20, on the Fonts tab review's C1
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -263,13 +281,25 @@ A path that the person writes by hand is always allowed, in the batch or in a fr
 
 **Pointer themes.** A pointer theme (ADR-1309) is a resource too, and a desktop cursor theme's folder holds symbolic links, such as Adwaita's `xterm` to `text`. A pointer theme's links pass the rule while every link stays inside the same root-owned theme folder. A link that leaves the theme's folder fails the rule, and the file it names counts as missing. The theme's folder and its files pass every other check.
 
+> Note 2026-11-19: the maintainer decided two things about pointer themes and the batch (`considered`). A pointer theme is activated by its folder: the batch lists the theme's folder, such as `/usr/share/icons/Adwaita`, and every file inside the folder counts as active while the folder is listed, the same way the trust rule judges a theme as one folder. vtium's own pictures, `/usr/share/vtium/pointers.svg`, join the list of a fresh install, so vtium's own pointer pictures stay active on every machine.
+
+> Note 2026-11-19: the maintainer decided that every kind of resource follows one convention (`considered`). Fonts, color schemes, color maps, shaders and pointer themes pass through the same gate: the trust rule on the file vtium opened, and the batch listing the resource. The batch lists what a person activates, a file, or a pointer theme's folder. The rule that a theme's links stay inside its folder is part of that gate, and it is the only difference between the kinds.
+
+> Note 2026-11-19, later the same day: the maintainer decided when a change to the batch takes effect (`considered`). vtium reads the batch again where it rereads the font settings, at each new login, so activating or deactivating a resource takes effect at the next login, as a change to a font setting does, with no restart of vtium.
+
+> Note 2026-11-20: the maintainer decided what a running session sees when a login changes the batch (`considered`). A console whose session still runs keeps the colors it draws, including the colors its program set with OSC 4. The new color scheme becomes what that console's color resets and its next session return to, and a console with no running session draws it at once. Fonts and the pointer pictures change at once on every display, because a display draws all its consoles through one font store and one font helper, and vtium reads one pointer file for the seat. So a deactivated font stops drawing in sessions that are still running, and its characters fall to the next font that has them.
+
 The program that reads a resource checks the rule on the file it opened, so the file cannot be swapped between the check and the read. When vtium runs unprivileged, as the tests and a run by hand do, it accepts its own effective user as the owner, as ADR-1401 D10 does for vtium.conf. These two points are this record's agent's calls. How vtium tells a filesystem that stays mounted from one that does not is left to the work that builds the rule, which reads the system's mount table.
+
+> Note 2026-11-19: the work that builds the rule decides how vtium tells a filesystem that stays mounted. vtium finds the mount that holds the opened file in the kernel's mount table, `/proc/self/mountinfo`, by the mount ID that `statx` reports for the file's descriptor. The device number alone does not do, because on btrfs it names the subvolume and the mount table names the whole filesystem. A kernel older than 5.8 reports no mount ID, so vtium then matches the device number. Failing that, it takes the longest mount point above the file's path, but only when that mount point's own folder has the file's device number. vtium refuses a network filesystem, such as nfs, cifs, ceph, 9p, afs or virtiofs, because a server elsewhere can change or withdraw its files. It refuses every FUSE filesystem, `fuse.*` and `fuseblk`, because a program serves it. It refuses an automount point, and any filesystem mounted below one, because the system mounts those only on demand. It refuses a filesystem on a removable disk, which vtium finds in the device's folder in sysfs. btrfs gives the mount table an anonymous device number, so for btrfs vtium finds the device by the path in the mount's source. A partition is judged by its disk. A device-mapper or md device, such as an encrypted volume or a RAID array, is judged by every device that its `slaves` folder lists, down to the disks. A loop device is judged by the filesystem that holds its backing file, which the whole rule judges in turn. A disk counts as removable when its `removable` attribute is 1, or when its sysfs path lies below a USB host controller, because many USB disks report themselves as fixed. The maintainer decided on 2026-11-19 that a disk on the USB bus counts as removable, unless it is the disk that holds the root filesystem. When vtium cannot read a disk's folder in sysfs, as inside a sandbox that hides `/sys`, the file fails the rule. The filesystem mounted on `/` stays mounted for the system's life whatever disk holds it, as on a system that boots from a USB stick. So vtium finds the disks beneath `/`, through device-mapper and md devices and from a partition to its disk. A filesystem whose disks all lie beneath `/` is exempt from the removable rules, such as `/home` or `/boot` on the boot stick, while a second USB disk still fails. When vtium cannot find the disks beneath `/`, only the filesystem mounted on `/` itself is exempt. A file whose mount vtium cannot find in the mount table fails the rule. vtium reads the table again once before it decides this, because the mount may be newer than the table.
 
 **What is active from the start.** The built-in font (ADR-1204 D1) is always active, and the person cannot deactivate it. On a fresh install, the batch also lists Cullet Mono, Terminus, Unifont, and the console font that the system's console configuration names in vconsole.conf's `FONT=`. So the default set `terminus` draws with no setup, as it did before this rule. The person can deactivate each of these. Every other font, those of vtium-fonts included, waits until the person activates it.
 
 **Where the batch lives.** The batch is a root-owned file under `/etc/vtium`. The name `/etc/vtium/batch.conf`, with one path to a resource on each line, is this record's agent's call. vtium-config writes the batch through its sudo-backed install, as it writes vtium.conf (ADR-1201 D5). A draft keeps its changes to the batch beside the draft, as it keeps its font set changes (ADR-1403 D8), so the changes install with the draft.
 
 > Note 2026-11-18: the maintainer decided what vtium does when the batch file is missing (`considered`, 2026-11-18). A machine upgraded from an earlier vtium has no `/etc/vtium/batch.conf`. vtium then treats the batch as the list of a fresh install: the built-in font, Cullet Mono, Terminus, Unifont, and the console font that vconsole.conf's `FONT=` names. So the default set `terminus` still draws after the upgrade. `vtium check-config` says that the file is missing and how to create it.
+
+> Note 2026-11-19: the work that builds the batch decides where vtium finds the console font of a fresh install. vconsole.conf's `FONT=` names the font by an absolute path or by kbd's name, such as `ter-v16n`. vtium looks for a font named by kbd's name only in kbd's font folders: `/usr/share/kbd/consolefonts`, `/usr/lib/kbd/consolefonts`, `/lib/kbd/consolefonts` and `/usr/share/consolefonts`. The list of a fresh install holds each file there whose name is the font's name with or without one of kbd's suffixes, such as `.psf.gz`. A file of that name in any other folder is not active. The same work decides what vtium does with a batch file it cannot use. When the file is not a regular file, fails the owner and mode check, is larger than 64 KiB, or cannot be read, vtium uses the list of a fresh install, as for a missing file. A batch that someone other than root could have written says nothing about what root chose. `vtium check-config` names the file and says why vtium ignores it.
 
 **This rule sits beside ADR-1401 D10.** D10 keeps its scope: vtium.conf and the frits, which route input and choose login commands. This rule covers the resources a look draws from.
 
@@ -314,6 +344,8 @@ A look offers only the sizes its fonts supply. A bitmap font supplies its strike
 
 A `font-size` written in vtium.conf still works, and vtium draws it as ADR-1200 D17 decides. `vtium check-config` warns when the look's fonts cannot supply that size.
 
+> Note 2026-11-20: the maintainer decided which display's density turns a bitmap font's sizes into a look's point sizes (`considered`, 2026-11-20). vtium-config uses the lowest density among the monitors physically attached, as `display-dpi` or the displays' EDIDs give it, and does not work out which displays each look's terminals draw on. When the displays' densities differ, the Size line says the sizes are for the lowest-density display.
+
 ### D8: viewing a resource shows what works
 
 The Fonts tab shows what a font covers and the sizes it supplies. Within a look, it shows what the look would still be missing, by role.
@@ -321,6 +353,8 @@ The Fonts tab shows what a font covers and the sizes it supplies. Within a look,
 The Effects tab previews an effect as a picture of the console with the effect applied, as ADR-1201 D4 previews other changes. The preview leaves the live console alone.
 
 Deactivating a font or an effect warns, and the warning lists the looks that use it. Those looks then draw without it: a font as a missing font (ADR-1204 D7), and an effect as a file that does not exist (D4).
+
+> Note 2026-11-20: the maintainer decided what the Effects tab's preview does when vtium-config runs in a vtium console that draws a vtlook of its own (`considered`, 2026-11-20). The console draws its whole frame through its own vtlook, the preview picture included, so the person sees the highlighted effect and the console's own effect together. The tab keeps the picture, and the line beside it says the console draws the picture through its own vtlook as well, naming that vtlook. With No filter highlighted, the picture then shows exactly what the console's own vtlook does.
 
 ### D9: what this record changes in other records
 
@@ -429,6 +463,8 @@ Here a head that takes the look `evening` draws Catppuccin Mocha's colors, and t
 | Kiln, an original scheme in Monokai's spirit | `kiln`, the maintainer's working name of 2026-11-19, settled when the maintainer judges its colors | vtium's own, its colors chosen independently: a warm near-black background, saturated accents and a light warm foreground | vtium's license. The file claims no lineage from Monokai and names no Monokai. |
 
 Nord and Solarized are already built-in palettes. vtium does not ship Monokai. Wimer Hazenberg's TextMate theme of 2006 carries no license from its author, who now sells Monokai Pro, and a port's license, such as the MIT of github.com/ku1ik/vim-monokai, cannot grant more than the port's author holds. The maintainer decided on 2026-11-19 that vtium ships an original scheme in the same spirit instead (`considered`). The slice that builds palettes chooses its colors without sampling Monokai's, and the maintainer judges them by eye on the picture page, as with the green and white presets. The maintainer named it Kiln, a warm dark chamber with glowing glazes, as a working name: "I like kiln … something like that" (`considered`). The name does not pun on Monokai, since a name that calls the mark to mind is what trademark law guards against, and a search on 2026-11-19 found no color scheme named Kiln. A person can still import Monokai as a file of their own.
+
+> Note 2026-11-19: the maintainer asked for one more original scheme, Sunny (`considered`): dark text on a white background, in the spirit of the white consoles of 1990s Unix workstations. vtium ships it as `sunny`, its colors chosen by vtium for legibility on white and judged by the maintainer on the picture page, as with Kiln. A later look can pair Sunny with a serifed workstation console font, once a font with a license vtium can ship is found.
 
 **What D10 changes in other records.**
 

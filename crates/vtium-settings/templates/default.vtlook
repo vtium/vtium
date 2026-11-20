@@ -32,9 +32,14 @@ gpu = any           # any; yes for the GPU path only; no for the CPU path only
 # Turns the screen toward one color, as a single-color phosphor.
 # color = 255,176,0 # color, r,g,b: the phosphor's color
 # amount = 1.0      # number, 0 to 1: how far toward it
+# floor = 0.0       # number, 0 to 1: how far dark colors rise above black
 
 # [color color-blind]
 # Simulates a color vision deficiency, or corrects for it.
 # kind = deuteranopia # protanopia, deuteranopia or tritanopia: the deficiency
 # mode = correct      # simulate or correct: show it, or correct for it
 # amount = 1.0        # number, 0 to 1: how much of the result to show
+
+# [color cube]
+# Maps each color through a table read from a .cube file.
+# file =            # file, a .cube file, no path: the color table it reads

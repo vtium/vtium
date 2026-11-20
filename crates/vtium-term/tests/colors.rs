@@ -174,6 +174,29 @@ fn osc_104_resets_palette_colors_to_the_configured_palette() {
     assert_eq!(t.palette(), &nord);
 }
 
+// A palette the host configures for the resets alone leaves the colors
+// drawn as they are, including those the program set with OSC 4. OSC 104
+// and RIS then return to the new palette.
+#[test]
+fn a_palette_for_the_resets_leaves_the_colors_drawn() {
+    let (vga, nord) = (
+        Palette::named("vga").unwrap(),
+        Palette::named("nord").unwrap(),
+    );
+    let mut t = term(4, 1, b"");
+    t.set_palette(vga.clone());
+    t.input(b"\x1b]4;1;#010101\x07");
+    t.set_reset_palette(nord.clone());
+    assert_eq!(t.palette().color(1), Rgb::new(1, 1, 1));
+    assert_eq!(t.palette().color(2), vga.color(2));
+    assert_eq!(t.palette().bg(), vga.bg());
+    t.input(b"\x1b]104;1\x07");
+    assert_eq!(t.palette().color(1), nord.color(1));
+    assert_eq!(t.palette().color(2), vga.color(2));
+    t.input(b"\x1bc");
+    assert_eq!(t.palette(), &nord);
+}
+
 // ctlseqs, OSC 10, 11 and 12: the default foreground and background and
 // the cursor color, each set and queried; a list goes on to the next
 // number. The cursor color unset answers the foreground, as xterm's

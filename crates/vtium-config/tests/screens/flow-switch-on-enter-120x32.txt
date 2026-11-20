@@ -1,4 +1,4 @@
- Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ Fonts  Effects  Looks  Flow  Settings  Help                            v View file  s Save  i Install  r Revert  n New
  draft bench  ›  desk   All devices are in a path · no changes · no problems
 
  TERMINAL desk · every VT
@@ -29,4 +29,4 @@
 
 
 
- ↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit
+ ↑↓ move  ←→ choose  Enter set  Esc back  q quit  . more 1/2

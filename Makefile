@@ -86,7 +86,7 @@ RELR_LINK := -C link-arg=-Wl,-z,pack-relative-relocs
 # linker keeps one copy of each set of functions whose machine code and
 # relocations are the same, and points every caller at that copy. Generic
 # code instantiated for types of the same layout folds this way, and the
-# binary shrinks by about 42 KB, which keeps it under the 4,259,840-byte
+# binary shrinks by about 42 KB, which keeps it under the 4,325,376-byte
 # budget that tier 3 holds the minspec binary to. The mode is all, not safe:
 # safe folds only functions whose address no code takes, and rustc emits no
 # address-significance table to tell the linker which those are, so safe
@@ -113,7 +113,7 @@ ICF_LINK := -C link-arg=-Wl,--icf=all
 # on, as calloop-0.14.4/src/sys.rs. rustc applies the last prefix that
 # matches a path, so the crates.io prefix, the more specific one, comes
 # last and wins over the cargo home's. The binary shrinks
-# by about 2.6 KB, which counts against the 4,259,840-byte budget that tier
+# by about 2.6 KB, which counts against the 4,325,376-byte budget that tier
 # 3 holds the minspec binary to, and its size no longer depends on where
 # the cargo home is. vtium's own sources already appear as paths relative
 # to the workspace, such as crates/vtium/src/main.rs. The flags go to every
@@ -231,8 +231,10 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # D4), with images in
 # FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8), and with
 # libseat and logind in FEATURES seat mode's unit vtium-seat@.service and the
-# PAM file /etc/pam.d/vtium (ADR-1400 D3), and the man pages in
-# /usr/share/man. Tier 3 installs this tree in its guest.
+# PAM file /etc/pam.d/vtium (ADR-1400 D3), the man pages in /usr/share/man,
+# and the package data install-package-data names: the color schemes, their
+# license texts and the preset vtlooks. Tier 3 installs this tree in its
+# guest.
 # DESTDIR's default is install-tree's alone: make install refuses it below.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
@@ -343,6 +345,27 @@ clipboard-release: ## Build vtium-clipboard, the program that copies text to the
 	cargo build --release -p vtium-clipboard --target $(X86_TARGET)
 	$(call check-glibc,$(CLIPBOARD_RELEASE))
 
+# The color schemes every build ships, each NAME.palette in Ghostty's theme
+# format, the license text of each scheme's family, and the preset vtlooks.
+# install-package-data,SHARE,LICENSES stages the schemes in SHARE/palettes,
+# the presets in SHARE/looks and the license texts in LICENSES/palettes, where
+# SHARE is the package's data folder, /usr/share/vtium for a system. The
+# presets are taken by wildcard, and an empty folder of presets stages none.
+#
+# References:
+# - ADR-1205 D10: the package's color schemes in /usr/share/vtium/palettes,
+#   each scheme's license text installed with the package's other notices.
+# - ADR-1304 D4, its note of 2026-11-19: the package's preset vtlooks in
+#   /usr/share/vtium/looks.
+PACKAGE_PALETTES := $(sort $(wildcard $(VTIUM_INSTALL)/palettes/*.palette))
+PALETTE_LICENSES := $(sort $(wildcard $(VTIUM_INSTALL)/palettes/licenses/*))
+PACKAGE_LOOKS := $(sort $(wildcard $(VTIUM_INSTALL)/looks/*.vtlook))
+define install-package-data
+install -Dm644 -t $(1)/palettes $(PACKAGE_PALETTES)
+install -Dm644 -t $(2)/palettes $(PALETTE_LICENSES)
+$(if $(PACKAGE_LOOKS),install -Dm644 -t $(1)/looks $(PACKAGE_LOOKS))
+endef
+
 # install-man,DIR installs the man pages every build ships under DIR, the
 # man directory, with vticlip.1 a link to vtium-clipboard.1 as vticlip is to
 # vtium-clipboard. The gallery's page goes with the gallery.
@@ -372,6 +395,7 @@ install-tree: font-files-check minspec config-release clipboard-release $(if $(I
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
 	$(call install-font-files,$(DESTDIR)/usr/share/vtium/fonts,$(DESTDIR)/usr/share/licenses/vtium)
+	$(call install-package-data,$(DESTDIR)/usr/share/vtium,$(DESTDIR)/usr/share/licenses/vtium)
 	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
 	$(call install-man,$(DESTDIR)/usr/share/man)
 ifneq ($(IMAGES),)
@@ -405,9 +429,11 @@ endif
 # whatever PREFIX is, because vtium reads its configuration and its font
 # sets from /etc/vtium alone (ADR-1204 D9, ADR-1500 D3, D4, D8), the example
 # udev rules and hwdb fragment as documentation,
-# LICENSE_FILES under PKGNAME's name, the man pages in PREFIX/share/man, and
-# with libseat and logind in FEATURES seat mode's unit vtium-seat@.service and
-# the PAM file /etc/pam.d/vtium (ADR-1400 D3).
+# LICENSE_FILES under PKGNAME's name, the man pages in PREFIX/share/man, the
+# color schemes and preset vtlooks in PREFIX/share/vtium with the schemes'
+# license texts in PKGNAME's license folder, and with libseat and logind in
+# FEATURES seat mode's unit vtium-seat@.service and the PAM file
+# /etc/pam.d/vtium (ADR-1400 D3).
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
@@ -432,6 +458,12 @@ PKGNAME := vtium
 LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt crates/vtium-config/licenses/tiny-skia-LICENSE
 INSTALL_TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)/install
 CARGO_BUILD_FLAGS :=
+# make install stages the package's font files, color schemes, preset
+# vtlooks and pointer file under PREFIX/share/vtium, so make install-build builds the console
+# and vtium-config to read them from there, and the list of a fresh install
+# names the folder the fonts really are in. At PREFIX=/usr these are the
+# folders both read when the variables are unset.
+package_folders = VTIUM_PACKAGE_FONTS=$(PREFIX)/share/vtium/fonts VTIUM_PACKAGE_PALETTES=$(PREFIX)/share/vtium/palettes VTIUM_PACKAGE_LOOKS=$(PREFIX)/share/vtium/looks VTIUM_PACKAGE_POINTERS=$(PREFIX)/share/vtium/pointers.svg
 UNITDIR := $(PREFIX)/lib/systemd/system
 TERMINFO_SRC := $(VTIUM_INSTALL)/xterm-vtium.ti
 # The build settings a package names for two defaults (ADR-1500 D8):
@@ -502,7 +534,7 @@ endif
 
 .PHONY: install-build
 install-build: ## Build what make install stages, for PREFIX (default /usr/local), with FEATURES='...', HWACCEL=on|off, DISPLAY_BUFFERS=1|2|3 and CARGO_BUILD_FLAGS='...' when named
-	$(build_settings)VTIUM_FONT_HELPER=$(PREFIX)/bin/vtium-config $(if $(IMAGES),VTIUM_IMAGE=$(PREFIX)/bin/vtium-image) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc $(CARGO_BUILD_FLAGS) --profile minspec -p vtium --bin vtium --target-dir $(INSTALL_TARGET_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
+	$(build_settings)$(package_folders) VTIUM_FONT_HELPER=$(PREFIX)/bin/vtium-config $(if $(IMAGES),VTIUM_IMAGE=$(PREFIX)/bin/vtium-image) VTIUM_REVISION=$(or $(shell git describe --always --dirty 2>/dev/null),unknown) cargo rustc $(CARGO_BUILD_FLAGS) --profile minspec -p vtium --bin vtium --target-dir $(INSTALL_TARGET_DIR) $(if $(strip $(FEATURES)),--features '$(strip $(FEATURES))') -- $(RELR_LINK)
 	$(call check-relr,$(INSTALL_TARGET_DIR)/minspec/vtium)
 	grep -qaF '$(PREFIX)/bin/vtium-config' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its helper at $(PREFIX)/bin/vtium-config" >&2; exit 1; }
 # At PREFIX=/usr this path is also the one vtium is built with when
@@ -512,7 +544,7 @@ install-build: ## Build what make install stages, for PREFIX (default /usr/local
 ifneq ($(IMAGES),)
 	grep -qaF '$(PREFIX)/bin/vtium-image' $(INSTALL_TARGET_DIR)/minspec/vtium || { echo "$(INSTALL_TARGET_DIR)/minspec/vtium does not start its image helper at $(PREFIX)/bin/vtium-image" >&2; exit 1; }
 endif
-	$(build_settings)cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
+	$(build_settings)$(package_folders) cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config -p vtium-clipboard $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
 install: font-files-check install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default terminus cullet-mono jetbrains-mono unifont-icons unscii-icons), with the font files make font-files and make cullet-mono stage: make install DESTDIR=DIR PREFIX=/usr
@@ -542,6 +574,7 @@ endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)$(PREFIX)/share/vtium/pointers.svg
 	$(call install-font-files,$(DESTDIR)$(PREFIX)/share/vtium/fonts,$(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME))
+	$(call install-package-data,$(DESTDIR)$(PREFIX)/share/vtium,$(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
@@ -989,7 +1022,7 @@ TUI_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tui-shots)
 .PHONY: tui-shots tui-demo
 tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in unifont, into OUT=DIR (default target/tui-shots), the provisional ones included and marked
 	rm -rf $(TUI_SHOTS)/bytes
-	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 the_flow_view_s_states_at_80x25_and_120x32
+	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui --test tui_flow --test tui_effects --test tui_fonts --test tui_looks --test tui_settings -- each_view_at_80x25_and_100x30 the_flow_view_s_states_at_80x25_and_120x32 the_effects_tab_previews_a_preset_at_80x25_and_100x30 the_fonts_tab_s_screens the_color_schemes_and_the_pointer_themes_at_80x25_and_100x30 a_settings_section_and_a_list_of_values_at_80x25_and_100x30
 	cargo build --release -p vtium-tui-review --bin tui-shots
 	$(or $(CARGO_TARGET_DIR),target)/release/tui-shots crates/vtium-config/tests/screens $(TUI_SHOTS)/bytes $(TUI_SHOTS)
 

@@ -133,6 +133,9 @@ fn status(app: &App) -> String {
     // the right side, in its long or its short words
     // a vtium console draws the preview as text, pictures or not
     let pictures = app.shared.graphics && !app.shared.text_preview();
+    // the open tab's own node, under any question over it, since the
+    // status line says what t does in the tab
+    let trial_node = app.tab().node();
     let live_with = |short: bool| match (&app.shared.live, pictures) {
         (Live::Asking, _) => words::PREVIEW_ASKING.to_owned(),
         (live, graphics) => format!(
@@ -143,10 +146,16 @@ fn status(app: &App) -> String {
                 (false, false) => words::PREVIEW_TEXT,
                 (false, true) => words::PREVIEW_TEXT_SHORT,
             },
-            if *live == Live::On {
-                words::TRIAL_KEY
-            } else {
-                words::TRIAL_NONE
+            // t tries a font set on a look or a font set of the Looks tab
+            // and in a look's card; elsewhere in the Looks tab t does
+            // nothing, and the other tabs say where the trial is
+            match (*live == Live::On, app.nav.view) {
+                (true, View::Looks) if matches!(trial_node, "looks" | "looks.look") => {
+                    words::TRIAL_KEY
+                }
+                (true, View::Looks) => words::TRIAL_ON_FONT_SETS,
+                (true, _) => words::TRIAL_IN_LOOKS,
+                (false, _) => words::TRIAL_NONE,
             }
         ),
     };
@@ -479,10 +488,9 @@ fn view(app: &App, colors: Colors, buf: &mut Buffer) {
         .saturating_sub(message.len())
         .saturating_sub(keys.len());
     let body_area = band(area, 3, foot.saturating_sub(3));
-    if app.nav.view == View::Help {
-        let page = app.help.page(&app.shared, app.size);
+    if let Some((page, top)) = app.tab().page(&app.shared, app.size) {
         let (room, _) = list_window(app, page.len(), 0);
-        let first = app.help.top().min(page.len().saturating_sub(room));
+        let first = top.min(page.len().saturating_sub(room));
         Paragraph::new(page)
             .scroll((u16::try_from(first).unwrap_or(u16::MAX), 0))
             .render(band(area, 3, room), buf);
@@ -1013,27 +1021,31 @@ mod tests {
 
     #[test]
     fn under_cluster_width_single_update_keeps_the_list_window_the_view_draws() {
-        // each font's name holds a space with a vowel sign after it: 25
-        // cells under `double`, more than the column of 24 the Fonts tab
-        // gives names, so its note goes on the row below; 24 cells under
-        // `single`, so the note shares its row. The twelve fonts take
-        // twelve rows under `single`, which the screen has room for, so
-        // the list's window starts at the first font wherever the TUI lays
-        // the list out: at start, after a key, and in a picture of the TUI
-        let name = |c: char| format!("{c}{} \u{BCA}", "x".repeat(22));
+        // each font file's name holds a space with a vowel sign after it,
+        // which takes one cell more under `double` than under `single`;
+        // the five fonts fill the Fonts tab's window, and under `single`
+        // the list's window starts at the filter line wherever the TUI
+        // lays the list out: at start, after a key, and in a picture of
+        // the TUI
+        let name = |c: char| format!("{c}{} \u{BCA}.ttf", "x".repeat(18));
         let mut inputs = super::super::fixture::inputs();
-        inputs.conf = Some(format!(
-            "cluster-width = single\nfont-name = {}\n",
-            name('l')
-        ));
-        inputs.fonts = ('a'..='l')
-            .map(|c| super::super::model::Font {
-                name: name(c),
-                state: super::super::model::FontState::Reads,
-            })
-            .collect();
+        inputs.conf = Some("cluster-width = single\n".to_owned());
+        inputs.font_files = super::super::fonts_found::Fonts::new(
+            ('a'..='e')
+                .map(|c| crate::discover::Found {
+                    path: std::path::PathBuf::from(format!("/usr/share/fonts/{}", name(c))),
+                    folder: crate::discover::Folder {
+                        path: "/usr/share/fonts".into(),
+                        place: crate::discover::Place::System,
+                    },
+                    trust: Ok(()),
+                    state: crate::batch::State::Inactive,
+                    duplicate: None,
+                })
+                .collect(),
+        );
         let all_shown = |shown: &[String], when: &str| {
-            for c in 'a'..='l' {
+            for c in 'a'..='e' {
                 assert!(
                     shown.iter().any(|r| r.contains(&name(c))),
                     "{when}: {}: {shown:#?}",
@@ -1041,13 +1053,12 @@ mod tests {
                 );
             }
         };
-        // the configured font, the last, is highlighted from the start
         let (mut app, _) = App::new(inputs, 80, 25);
         all_shown(&texts(&app), "at start");
         app.event(super::super::model::Event::Input(
             super::super::input::Input::Key(super::super::input::Key::End),
         ));
-        assert_eq!(app.fonts.offset(), 0);
+        assert_eq!(super::super::tabs::Tab::offset(&app.fonts), 0);
         all_shown(&texts(&app), "after End");
         let shot: Vec<String> = screen_at(&app, app.size)
             .iter()

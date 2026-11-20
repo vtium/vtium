@@ -1,0 +1,25 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft workstation · 1 change · no problems      text · live trial on font sets
+--------------------------------------------------------------------------------
+   vga
+   nord
+   solarized
+   solarized-black
+   solarized-white
+   soft-black
+   base16-dark
+   base16-light
+   dusk
+   paper
+   dusk
+   loose
+   broken
+
+ Pointer themes
+   pointers.svg
+   Adwaita
+
+ Adwaita: not active, trusted.
+
+--------------------------------------------------------------------------------
+ ↑↓ move  Enter open  Space activate  q quit  . more 1/4

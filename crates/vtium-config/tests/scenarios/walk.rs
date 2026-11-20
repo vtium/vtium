@@ -34,9 +34,10 @@ use proptest::test_runner::FileFailurePersistence;
 use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 
 use super::explore::ALPHABET;
-use super::reference::{self, Expect, FORM_FIELDS};
+use super::reference::{self, Expect};
 use super::sim::{Sim, Term};
 use super::state;
+use super::tabs::looks::FORM_FIELDS;
 
 /// How many random sequences each run tries.
 const CASES: u32 = 64;
@@ -85,10 +86,22 @@ impl RefState {
                 if over && id != self.node {
                     next.under.push(self.node.clone());
                 }
+                // a node belongs to the tab its id starts with, as the form
+                // for a new font set belongs to the Looks tab when `n`
+                // opens it from the Fonts tab
+                let root = id.split('.').next().unwrap_or("");
                 if reference::kind(&id) == "view" {
                     next.tab.clone_from(&id);
+                } else if !over && !id.starts_with("any.") && reference::kind(root) == "view" {
+                    root.clone_into(&mut next.tab);
                 }
                 next.node = id;
+            }
+            // the tab's list, in the node of whichever item the highlight
+            // is then on, which the reference does not follow
+            Expect::InTab(tab) => {
+                next.tab.clone_from(&tab);
+                next.node = tab;
             }
             Expect::Exits(status) => next.left = Some(status),
             // the keys this test presses change nothing the person made,
@@ -182,7 +195,10 @@ fn compare(sim: &Sim, want: &RefState) -> Result<(), String> {
         return Err("the TUI left, and the tables say it stays".to_owned());
     }
     let node = state::of(sim).node();
-    if node != want.node {
+    // the reference names a tab's list by the tab, and the list is in one
+    // of its nodes by what the highlight is on
+    let listed = reference::kind(&node) == "view" && reference::tab_of(&node) == want.node;
+    if node != want.node && !listed {
         return Err(format!(
             "the TUI is in {node}, and the tables say {}",
             want.node
@@ -201,14 +217,33 @@ fn compare(sim: &Sim, want: &RefState) -> Result<(), String> {
     shown.agrees(&want.node)
 }
 
+/// The keys that open the new-frit form from the start: the Looks tab,
+/// Down to its first font set, and `n`. In the Looks tab, `n` makes a new
+/// look among the looks and opens the form among the font sets. The
+/// reference does not follow the tab's highlight, so it cannot tell the
+/// two apart, and [`replay`] starts the reference in the form when a
+/// sequence begins with these keys.
+pub const TO_FORM: [&str; 3] = ["3", "Down", "n"];
+
 /// Presses `keys`, by the alphabet's names, in a TUI started in `term`,
 /// and compares it with the reference after each key. It fails where the
 /// tables do not decide a key, so a sequence that no longer means what it
-/// meant fails instead of testing something else.
+/// meant fails instead of testing something else. A sequence that begins
+/// with [`TO_FORM`] starts the reference in the new-frit form.
 pub fn replay(term: Term, keys: &[&str]) -> Result<(), String> {
     let mut want = RefState::start(term);
     let mut sim = Sim::start(term, 80, 25);
-    for (i, key) in keys.iter().enumerate() {
+    let mut from = 0;
+    if keys.starts_with(&TO_FORM) {
+        for key in TO_FORM {
+            sim.press(super::press_of(key));
+        }
+        "looks.new-frit.typing".clone_into(&mut want.node);
+        "looks".clone_into(&mut want.tab);
+        compare(&sim, &want).map_err(|e| format!("{}: {}: {e}", term.name(), TO_FORM.join(" ")))?;
+        from = TO_FORM.len();
+    }
+    for (i, key) in keys.iter().enumerate().skip(from) {
         let done = keys.get(..=i).unwrap_or_default().join(" ");
         want = want.step(key).ok_or_else(|| {
             format!(
@@ -324,15 +359,39 @@ fn the_sequences_proptest_found_replay_as_the_tables_say() {
 /// The new-frit form opens on its first field each time `n` opens it,
 /// after Esc left it on its add row or on a field in the middle. The
 /// reference counts the six fields, so it knows on which Enter the form
-/// reaches its add row.
+/// reaches its add row. [`TO_FORM`] opens the form from the Looks tab's
+/// first font set, and Esc goes back to that font set, where `n` opens the
+/// form again. The reference cannot decide that second `n`, so the test
+/// replays the keys after it from the form, as a sequence of its own, once
+/// it has checked that the second `n` opens the form on its first field.
 #[test]
 fn the_new_frit_form_opens_on_its_first_field_after_esc() {
     let fields = ["Enter"; FORM_FIELDS];
-    let from_the_add_row = [&["n"][..], &fields, &["Esc", "n"], &fields, &["Esc"]].concat();
-    let from_a_field = [&["n", "Enter", "Enter", "Esc", "n"][..], &fields, &["Esc"]].concat();
     for term in Term::ALL {
-        for keys in [&from_the_add_row, &from_a_field] {
-            replay(term, keys).unwrap_or_else(|e| panic!("{e}"));
+        for before in [&fields[..], &fields[..2]] {
+            let first = [&TO_FORM[..], before, &["Esc"]].concat();
+            replay(term, &first).unwrap_or_else(|e| panic!("{e}"));
+            let mut sim = Sim::start(term, 80, 25);
+            for key in &first {
+                sim.press(super::press_of(key));
+            }
+            sim.press(super::press_of("n"));
+            assert_eq!(
+                state::of(&sim).node(),
+                "looks.new-frit.typing",
+                "{}: {} n",
+                term.name(),
+                first.join(" ")
+            );
+            assert_eq!(
+                sim.app.looks.form().at,
+                0,
+                "{}: {}",
+                term.name(),
+                first.join(" ")
+            );
+            let again = [&TO_FORM[..], &fields, &["Esc"]].concat();
+            replay(term, &again).unwrap_or_else(|e| panic!("{e}"));
         }
     }
 }

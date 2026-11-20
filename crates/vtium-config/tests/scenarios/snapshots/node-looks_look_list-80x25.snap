@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "looks.look.list at 80×25, keys: 3 Enter Down Enter"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems   text preview · live trial on font sets
+--------------------------------------------------------------------------------
+   ○ The font set vtium.conf sets (unifont)
+   ○ minspec-16
+   ● proof
+   ○ tiny5
+   ○ unifont
+   ○ unscii-8
+
+ Enter picks the highlighted choice, and Esc goes back to the card without a
+ change.
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ ↑↓ move  Enter pick  Esc back  q quit  . more 1/3

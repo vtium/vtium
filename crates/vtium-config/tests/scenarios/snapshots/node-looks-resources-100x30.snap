@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "looks-resources at 100×30, keys: 3 PgDn"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft mine · no changes · no problems                       text preview · live trial on font sets
+----------------------------------------------------------------------------------------------------
+ Looks
+   proof
+
+ Font sets
+   broken
+   minspec-16
+   proof
+   tiny5
+   unifont
+   unscii-8
+
+ Color schemes
+   legacy
+   vga
+   nord
+   solarized
+
+ 0-7
+ 8-15
+ Text    ~/notes $ ls -l todo.txt error done
+
+ solarized: built in, always active. This terminal does not report 24-bit color, so the preview
+ shows the terminal's own eight colors in place of the scheme's. Enter opens the scheme's detail,
+ which gives each color's value.
+
+----------------------------------------------------------------------------------------------------
+ ↑↓ move  Enter open  Space activate  q quit  . more 1/4

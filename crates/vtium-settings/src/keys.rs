@@ -119,6 +119,22 @@ pub fn absolute(text: &str) -> bool {
     std::path::Path::new(text).is_absolute()
 }
 
+/// Whether `text` is a [`Kind::Name`] value of `words`: one of them, or
+/// a file's name by the rule for a head's name.
+pub fn name(words: &[&str], text: &str) -> bool {
+    words.contains(&text) || crate::parse::good_name(text)
+}
+
+/// Why vtium refuses a [`Kind::Name`] value that is neither one of its
+/// words nor a file's name, as the console's reading and vtium-config say
+/// it. `palette` is the one key of that kind, so the reason names its
+/// words, which `the_name_refusal_names_each_word_of_a_name_key` holds.
+pub const NOT_A_NAME: &str = concat!(
+    "the value is a built-in color scheme (legacy, nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light or vga), custom, or a color scheme file's name, which has 1 to ",
+    crate::bounds::name_max!(),
+    " of the characters A-Z a-z 0-9 . _ + - and no path"
+);
+
 /// The smallest and largest side of a cell that a frit's `cell=` line
 /// and a look's `cell` state, in pixels: from minspec's 8 pixels to an 8K
 /// display's large sizes, as far as a glyph two cells wide still fits a
@@ -176,6 +192,12 @@ pub enum Kind {
     Paths,
     /// One of a fixed set of words.
     Choice(&'static [&'static str]),
+    /// A name: one of the listed words, which name things that need no
+    /// file, or the name of a file in a folder vtium reads, by the rule for
+    /// a head's name, 1 to 64 of `A-Z a-z 0-9 . _ + -` ([`name`]), so it
+    /// never holds a path. Whether such a file exists is not the key
+    /// table's to say: the reader of the file does.
+    Name(&'static [&'static str]),
     /// A color, `r,g,b`, each 0 to 255.
     Rgb,
     /// A display mode, `[GPU][CONNECTOR]WxH[@RATE]`. Each line adds one,
@@ -829,7 +851,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     levels: TOP,
     what: "How many frame buffers each DRM display keeps, the same number for every display.\n\n\
            `3` is triple buffering. No frame waits for the previous one to reach the screen, and each display needs one more frame of memory. `2` is double buffering. `1` is single buffering, which uses the least memory. vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
-           A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number it was built with, `VTIUM_DISPLAY_BUFFERS`. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
+           A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number that `make DISPLAY_BUFFERS=N` built it with. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
            [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`. When the draft sets none, it prints the build's default followed by `default`. That default is `unset` when the build sets no number, and the rule above then decides.",
 };
 
@@ -841,7 +863,7 @@ pub const HWACCEL: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     what: "Draw with the GPU, in a build that supports it.\n\n\
-           It is off unless vtium was built with it on (`VTIUM_HWACCEL`).\n\n\
+           It is off unless vtium was built with `make HWACCEL=on`.\n\n\
            [docs] `vtium config get hwaccel` prints the draft's value followed by `draft`, or the build's default followed by `default`. `vtium config set hwaccel on` turns it on in the draft.",
 };
 
@@ -869,7 +891,7 @@ pub const MODE: Key = Key {
 pub const PALETTE: Key = Key {
     name: "palette",
     short: None,
-    kind: Kind::Choice(&[
+    kind: Kind::Name(&[
         "legacy",
         "custom",
         "nord",
@@ -883,9 +905,10 @@ pub const PALETTE: Key = Key {
     ]),
     default: Default::Text("legacy"),
     scope: Scope::Anywhere,
-    levels: TOP,
-    what: "The sixteen basic colors, and the default text and background colors.\n\n\
-           The value is the name of a palette, or `custom`, which takes the colors from the `palette-*` keys. Colors 16 to 255 are xterm's in every palette.",
+    levels: TOP_LOOK,
+    what: "The color scheme: the 16 basic colors, the default text and background colors, and the cursor and selection colors.\n\n\
+           The value names a built-in palette, `custom`, which takes the colors from the `palette-*` keys, or a file `NAME.palette` in `/etc/vtium/palettes` or `/usr/share/vtium/palettes`. A look's own `palette` wins.\n\n\
+           [docs] A palette file uses Ghostty's theme format. When a palette file is missing or has an error, vtium logs one line and draws the color scheme below it: the top level's in place of a look's, and `legacy` in place of the top level's. See [Color schemes](palettes.md).",
 };
 
 pub const PALETTE_BLACK: Key = Key {
@@ -1343,7 +1366,7 @@ pub const FONT_PATHS: Key = Key {
     what: "The folders where vtium looks, in order, for installed fonts that a font set's `font:` lines name.\n\n\
            Separate the folders with `:`, as in `PATH`. Each folder must be an absolute path. The list replaces the built-in list. vtium skips a folder that is not an absolute path, logs why, and uses the rest.\n\n\
            [docs] The list can reorder or leave out the system's folders.\n\n\
-           When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. vtium searches a user's own folder, such as `~/.local/share/fonts`, only when the list names it. The font helper cannot read such a folder before someone logs in, because the helper then runs as `nobody`.",
+           When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. A font in a folder you own, such as `~/.local/share/fonts`, never renders, even when the list names the folder. Root does not own the font, so it fails the trust rule. Install it as a system font instead.",
 };
 
 pub const FONT_HELPER: Key = Key {
@@ -1630,9 +1653,9 @@ pub const VTLOOK: Key = Key {
     // a look sets its own vtlook with its `vtlook =` line, which the
     // section reader takes beside the key table, as a head takes `look`
     levels: TOP,
-    what: "The vtlook, a file of frame filters that change the picture before the display shows it, such as a CRT effect.\n\n\
-           The value names a file `NAME.vtlook` in `/etc/vtium/looks`. A look's own `vtlook` wins over this one. Unset or `default` is the built-in vtlook, which changes no pixel.\n\n\
-           [docs] When the vtlook has an error, the head draws the built-in vtlook, and vtium logs where the vtlook failed. A build without frame filters accepts this key, logs one line, and draws the built-in vtlook.",
+    what: "The vtlook, a file of frame filters that change the picture before the display shows it, such as an amber tint.\n\n\
+           The value names `NAME.vtlook` in `/etc/vtium/looks` or a preset such as `amber`. A look's own `vtlook` wins over this one. Unset or `default` is the built-in vtlook, which changes no pixel.\n\n\
+           [docs] vtium looks for the file in `/etc/vtium/looks` and then in `/usr/share/vtium/looks`, where the package installs its presets, so a file in `/etc/vtium/looks` takes the place of a preset of the same name. When the vtlook has an error, the head draws the built-in vtlook, and vtium logs where the vtlook failed. A build without frame filters accepts this key, logs one line, and draws the built-in vtlook.",
 };
 
 pub const RENDER_TIMER: Key = Key {
@@ -2770,8 +2793,8 @@ mod tests {
         assert_eq!(MOUSE.what_line(), MOUSE.what);
     }
 
-    // A look takes the font and display keys, its cell and the login
-    // picture's keys. A head takes `login`, every other key is the top
+    // A look takes the font and display keys, its cell, the login
+    // picture's keys and its palette. A head takes `login`, every other key is the top
     // level's alone, and a key the command line alone sets has no level.
     // `cell` is the one key only a section sets.
     //
@@ -2779,12 +2802,14 @@ mod tests {
     // - ADR-1403 D5: the three levels of a key.
     // - ADR-1200 D16: the font and display keys a look takes.
     // - ADR-1100 D17, "The keys": the login picture's keys are look keys.
+    // - ADR-1205 D10: `palette` is a look key.
     #[test]
     fn each_key_names_the_levels_that_may_set_it() {
         let names = |level| at(level).map(|k| k.name).collect::<Vec<_>>();
         assert_eq!(
             names(Level::Look),
             [
+                "palette",
                 "font-engine",
                 "font-name",
                 "font-size",
@@ -2852,6 +2877,7 @@ mod tests {
                         | Kind::Command
                         | Kind::Path
                         | Kind::Choice(_)
+                        | Kind::Name(_)
                         | Kind::Number { .. }
                         | Kind::Cell
                 ),
@@ -2920,6 +2946,45 @@ mod tests {
         for value in ["", "0", "4", "two", "3 "] {
             let refused = std::panic::catch_unwind(|| build_display_buffers(Some(value)));
             assert!(refused.is_err(), "{value:?}");
+        }
+    }
+
+    // `palette` lists the palettes that need no file, vtium-term's and
+    // `custom`, and takes a palette file's name besides, at the top level
+    // and in a look.
+    // covers: color.palette.named
+    #[test]
+    fn palette_names_a_built_in_palette_or_a_file() {
+        let words = match PALETTE.kind {
+            Kind::Name(words) => words,
+            _ => &[],
+        };
+        let mut words = words.to_vec();
+        words.sort_unstable();
+        let mut want: Vec<&str> = vtium_term::PALETTE_NAMES.to_vec();
+        want.push("custom");
+        want.sort_unstable();
+        assert_eq!(words, want);
+        assert!(name(&words, "legacy"));
+        assert!(name(&words, "catppuccin-mocha"));
+        for refused in ["", "../x", "a b", "/etc/passwd", &"x".repeat(65)] {
+            assert!(!name(&words, refused), "{refused:?}");
+        }
+        assert_eq!(PALETTE.levels, Levels::TOP_LOOK);
+    }
+
+    // The reason vtium gives for a refused name value names each word the
+    // key takes, so the screen says what the value can be.
+    #[test]
+    fn the_name_refusal_names_each_word_of_a_name_key() {
+        let said: Vec<&str> = NOT_A_NAME.split([' ', '(', ')', ',']).collect();
+        for key in KEYS.iter() {
+            if let Kind::Name(words) = key.kind {
+                assert_eq!(key.name, PALETTE.name, "a second key of the name kind");
+                for word in words {
+                    assert!(said.contains(word), "{word}");
+                }
+            }
         }
     }
 }

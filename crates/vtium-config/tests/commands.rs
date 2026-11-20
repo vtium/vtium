@@ -1030,3 +1030,300 @@ fn fonts_keeps_the_answers_that_came_and_marks_the_rest_unknown() {
         );
     }
 }
+
+/// The drafts left in the fixture's state directory.
+fn drafts_left(f: &Fixture) -> Vec<PathBuf> {
+    std::fs::read_dir(f.root.join("state/vtium/drafts"))
+        .map(|dir| dir.map(|e| e.expect("an entry").path()).collect())
+        .unwrap_or_default()
+}
+
+/// A font file of the test's own: `Test Mono` at `version`.
+fn test_font(path: &Path, version: &str) {
+    std::fs::create_dir_all(path.parent().expect("a folder")).expect("the font's folder");
+    std::fs::write(
+        path,
+        vtium_testfont::ttf::test_mono().build_with_version(version),
+    )
+    .expect("the font");
+}
+
+/// "Install as a system font" copies a font of the user's into the system
+/// fonts folder, `local-fonts` beside the fixture's vtium.conf in place
+/// of `/usr/local/share/fonts`, through a draft that `apply` installs:
+/// mode 0644, checked against the trust rule afterwards. The same file
+/// again changes nothing, and nothing outside that folder is written.
+#[test]
+fn a_font_of_yours_installs_as_a_system_font_once() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("system-font", None);
+    let mine = f.root.join("home/.local/share/fonts/MyMono.ttf");
+    test_font(&mine, "Version 1.0");
+    let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    let target = f.etc().join("local-fonts/MyMono.ttf");
+    assert!(
+        ran.out.contains(&format!("write\t{}", target.display())),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    let applied = f.apply_printed(&ran);
+    assert_eq!(applied.status, 0, "{}{}", applied.out, applied.err);
+    assert_eq!(applied.out, format!("wrote\t{}\n", target.display()));
+    assert_eq!(
+        std::fs::read(&target).expect("the copy"),
+        std::fs::read(&mine).expect("the font")
+    );
+    let mode = std::fs::metadata(&target)
+        .expect("the copy")
+        .permissions()
+        .mode()
+        & 0o7777;
+    assert_eq!(mode, 0o644);
+    // the same file a second time is already installed
+    let again = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    assert_eq!(again.status, 0, "{}{}", again.out, again.err);
+    assert!(again.out.contains("already installed"), "{}", again.out);
+    assert!(!again.out.contains("draft\t"), "{}", again.out);
+    // the helper read a draft's copy, and the draft is gone again
+    assert_eq!(drafts_left(&f).len(), 1, "{:?}", drafts_left(&f));
+}
+
+/// The system fonts folder that `apply` makes, and every folder above it
+/// that it makes, can be read by every user, whatever umask `apply` runs
+/// under: `sudo` keeps the person's umask, and with 077 neither the font
+/// helper nor another user's fontconfig could reach the font.
+#[test]
+fn the_fonts_folder_apply_makes_is_readable_under_any_umask() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("system-font-umask", None);
+    let mine = f.root.join("home/.fonts/MyMono.ttf");
+    test_font(&mine, "Version 1.0");
+    let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    let draft = ran
+        .out
+        .lines()
+        .find_map(|l| l.strip_prefix("draft\t"))
+        .expect("the draft's line");
+    let o = home::command("/bin/sh")
+        .arg("-c")
+        .arg("umask 077 && exec \"$0\" \"$@\"")
+        .arg(BIN)
+        .args(f.options())
+        .args(["apply", draft])
+        .env("XDG_STATE_HOME", f.root.join("state"))
+        .env("XDG_CONFIG_HOME", f.root.join("config"))
+        .output()
+        .expect("the binary runs");
+    let said = String::from_utf8_lossy(&o.stdout);
+    assert!(
+        said.starts_with("wrote\t"),
+        "{said}{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let mode = |p: &Path| std::fs::metadata(p).expect("the path").permissions().mode() & 0o7777;
+    let folder = f.etc().join("local-fonts");
+    assert_eq!(mode(&folder), 0o755);
+    assert_eq!(mode(&folder.join("MyMono.ttf")), 0o644);
+}
+
+/// `apply` describes the draft's font through the font helper before it
+/// installs it, so a file swapped into the draft after the user's own
+/// check never reaches the system fonts folder, even when it starts like
+/// a font. A user who may run only `sudo vtium-config apply DIR` could
+/// otherwise place any bytes there as root's.
+#[test]
+fn apply_installs_only_a_font_the_font_helper_describes() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    let f = fixture("system-font-swapped", None);
+    let mine = f.root.join("home/.fonts/MyMono.ttf");
+    test_font(&mine, "Version 1.0");
+    let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    let draft = ran
+        .out
+        .lines()
+        .find_map(|l| l.strip_prefix("draft\t"))
+        .expect("the draft's line");
+    // the copy the helper read is replaced with bytes that start like an
+    // OpenType font and are none
+    let copy = Path::new(draft).join("system-font/MyMono.ttf");
+    std::fs::write(&copy, b"OTTO and then anything at all").expect("the swap");
+    let applied = f.apply_printed(&ran);
+    assert_eq!(applied.status, 1, "{}{}", applied.out, applied.err);
+    assert!(
+        applied.err.starts_with(
+            "vtium-config: system-font/MyMono.ttf: vtium-config does not install this file as a system font, because the font helper cannot read it as a font: "
+        ),
+        "{}",
+        applied.err
+    );
+    assert!(
+        applied.err.ends_with("\nNothing was installed.\n"),
+        "{}",
+        applied.err
+    );
+    assert!(!f.etc().join("local-fonts/MyMono.ttf").exists());
+}
+
+/// A font written into a folder that fails the trust rule, as a folder
+/// any user can write does, is written and then reported as one that
+/// vtium cannot activate, and the apply fails.
+#[test]
+fn a_system_font_that_fails_the_trust_rule_is_reported() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("system-font-untrusted", None);
+    let draft = f.root.join("draft");
+    std::fs::create_dir_all(draft.join("system-font")).expect("the draft");
+    test_font(&draft.join("system-font/A.ttf"), "Version 1.0");
+    std::fs::write(draft.join("MANIFEST"), "write\tsystem-font/A.ttf\tnew\n")
+        .expect("the manifest");
+    std::fs::set_permissions(f.etc(), std::fs::Permissions::from_mode(0o777)).expect("its mode");
+    let ran = f.run(&["apply", draft.to_str().expect("a path")]);
+    std::fs::set_permissions(f.etc(), std::fs::Permissions::from_mode(0o755)).expect("its mode");
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    let path = f.etc().join("local-fonts/A.ttf");
+    assert!(
+        ran.out.starts_with(&format!(
+            "wrote\t{}\nuntrusted\t{}\t",
+            path.display(),
+            path.display()
+        )),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+}
+
+/// A file whose name holds an escape sequence is refused, and the refusal
+/// prints the sequence as text, so the terminal never acts on it.
+#[test]
+fn a_name_with_an_escape_sequence_is_refused_as_text() {
+    let f = fixture("system-font-escape", None);
+    let mine = f.root.join("home/.fonts/\u{1b}[31mred\u{1b}[0m.ttf");
+    test_font(&mine, "Version 1.0");
+    let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(!ran.err.contains('\u{1b}'), "{:?}", ran.err);
+    assert!(
+        ran.err
+            .contains("\u{fffd}[31mred\u{fffd}[0m.ttf: this file's name holds a control character"),
+        "{:?}",
+        ran.err
+    );
+    assert!(drafts_left(&f).is_empty());
+}
+
+/// A font that a package installed is a system font already, and is not
+/// installed a second time.
+#[test]
+fn a_packages_font_is_not_installed_again() {
+    let f = fixture("system-font-packaged", None);
+    let theirs = f.etc().join("package-fonts/TTF/Theirs.ttf");
+    test_font(&theirs, "Version 1.0");
+    let ran = f.run(&[
+        "fonts",
+        "--install-system",
+        theirs.to_str().expect("a path"),
+    ]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(ran.err.contains("a system font already"), "{}", ran.err);
+    assert!(!f.etc().join("local-fonts").exists());
+}
+
+/// A different file of the same name in the system fonts folder is shown
+/// beside the person's, each with its size, date, family and version, and
+/// replaced only when the person says so. The replaced file is not kept
+/// in the fonts folder, where fontconfig would read it as one more font.
+#[test]
+fn a_clash_shows_both_files_and_replaces_only_when_asked() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    let f = fixture("system-font-clash", None);
+    let installed = f.etc().join("local-fonts/MyMono.ttf");
+    test_font(&installed, "Version 1.0");
+    let mine = f.root.join("home/.fonts/MyMono.ttf");
+    test_font(&mine, "Version 2.0");
+    let path = mine.to_str().expect("a path");
+    let ran = f.run(&["fonts", "--install-system", path]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    for said in [
+        "A different file of this name is already installed.",
+        "Installed: ",
+        "Test Mono, version 1.0",
+        "Yours: ",
+        "Test Mono, version 2.0",
+        "Nothing changed.",
+    ] {
+        assert!(ran.out.contains(said), "{said}: {}", ran.out);
+    }
+    assert!(!ran.out.contains("draft\t"), "{}", ran.out);
+    assert!(drafts_left(&f).is_empty(), "{:?}", drafts_left(&f));
+    let replaced = f.run(&["fonts", "--install-system", path, "--replace"]);
+    let applied = f.apply_printed(&replaced);
+    assert_eq!(applied.status, 0, "{}{}", applied.out, applied.err);
+    assert_eq!(
+        std::fs::read(&installed).expect("the copy"),
+        std::fs::read(&mine).expect("the font")
+    );
+    let left: Vec<String> = std::fs::read_dir(installed.parent().expect("the folder"))
+        .expect("the folder")
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    assert_eq!(left, ["MyMono.ttf"]);
+}
+
+/// A file the font helper cannot read as a font is never installed, and
+/// a draft whose target changed after it was made is refused.
+#[test]
+fn a_file_that_is_no_font_or_a_target_changed_since_installs_nothing() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    let f = fixture("system-font-refused", None);
+    let notes = f.root.join("home/.fonts/Notes.ttf");
+    std::fs::create_dir_all(notes.parent().expect("a folder")).expect("the folder");
+    std::fs::write(&notes, "just text").expect("the file");
+    let ran = f.run(&["fonts", "--install-system", notes.to_str().expect("a path")]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(ran.err.contains("cannot read it as a font"), "{}", ran.err);
+    assert!(!f.etc().join("local-fonts").exists());
+    // the draft the helper read the copy from is removed
+    assert!(drafts_left(&f).is_empty(), "{:?}", drafts_left(&f));
+    let mine = f.root.join("home/.fonts/MyMono.ttf");
+    test_font(&mine, "Version 1.0");
+    let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    // someone installs a file of that name before the draft is applied
+    test_font(&f.etc().join("local-fonts/MyMono.ttf"), "Version 0.9");
+    let applied = f.apply_printed(&ran);
+    assert_eq!(applied.status, 1, "{}{}", applied.out, applied.err);
+    assert!(
+        applied.err.contains("changed after the draft was made"),
+        "{}",
+        applied.err
+    );
+}

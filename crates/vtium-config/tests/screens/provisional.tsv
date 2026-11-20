@@ -1,8 +1,4 @@
 # The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
-settings-section-80x25	the Settings view with its first section, Fonts and text, open: the section's keys under the titles of their groups
-settings-section-100x30	the same at 100×30
-settings-values-80x25	the values of the first section's last key, cluster-width, open as the shared list over the section
-settings-values-100x30	the same at 100×30
 flow-default-120x32	the Flow view, state default, at 120×32, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
 flow-default-80x25	the Flow view, state default, at 80×25, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
 flow-input-maker-120x32	the Flow view, state input maker, at 120×32, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
@@ -29,10 +25,6 @@ flow-terminal-card-120x32	the Flow view, state terminal card, at 120×32, with t
 flow-terminal-card-80x25	the Flow view, state terminal card, at 80×25, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
 flow-vt-clash-120x32	the Flow view, state vt clash, at 120×32, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
 flow-vt-clash-80x25	the Flow view, state vt clash, at 80×25, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
-help-100x30	the Help view, at 100×30, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
-help-80x25	the Help view, at 80×25, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
-settings-100x30	the Settings view, its sections listed, at 100×30, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
-settings-80x25	the Settings view, its sections listed, at 80×25, with the key line paged by '.'; provisional while the maintainer writes the spec for moving through consoles and looks (2026-11-18)
 node-any_question_confirm-100x30	the frame the view draws into ratatui's TestBackend at node any.question.confirm of the interface tree, at 100×30, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
 node-any_question_confirm-79x24	the frame the view draws into ratatui's TestBackend at node any.question.confirm of the interface tree, below the minimum, where the TUI asks for a larger terminal, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
 node-any_question_confirm-80x25	the frame the view draws into ratatui's TestBackend at node any.question.confirm of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
@@ -117,3 +109,12 @@ node-settings_section_list-80x25	the frame the view draws into ratatui's TestBac
 node-settings_section_typing-100x30	the frame the view draws into ratatui's TestBackend at node settings.section.typing of the interface tree, at 100×30, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
 node-settings_section_typing-79x24	the frame the view draws into ratatui's TestBackend at node settings.section.typing of the interface tree, below the minimum, where the TUI asks for a larger terminal, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
 node-settings_section_typing-80x25	the frame the view draws into ratatui's TestBackend at node settings.section.typing of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-effects-100x30	the frame the view draws into ratatui's TestBackend at node effects of the interface tree, at 100×30, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-effects-79x24	the frame the view draws into ratatui's TestBackend at node effects of the interface tree, below the minimum, where the TUI asks for a larger terminal, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-effects-80x25	the frame the view draws into ratatui's TestBackend at node effects of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_palette-100x30	the frame the view draws into ratatui's TestBackend at node looks.palette of the interface tree, at 100×30, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_palette-79x24	the frame the view draws into ratatui's TestBackend at node looks.palette of the interface tree, below the minimum, where the TUI asks for a larger terminal, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_palette-80x25	the frame the view draws into ratatui's TestBackend at node looks.palette of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_pointer-100x30	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, at 100×30, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_pointer-79x24	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, below the minimum, where the TUI asks for a larger terminal, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_pointer-80x25	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)

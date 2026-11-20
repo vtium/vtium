@@ -85,7 +85,7 @@ done
 magick $O/diff/small-320x240.ppm -strip docs/figures/concepts-judged-diff.png
 ```
 
-The four pictures of the Flow view are vtium-config's own screen goldens in `crates/vtium-config/tests/screens/`, drawn through vtium's renderer in unifont by `make tui-shots` (crates/vtium-config's README, "Reviewing the screens"). The test `the_flow_view_s_states_at_80x25_and_120x32` in `crates/vtium-config/tests/tui.rs` reaches each screen. The kiosk and the stations draw the files under `docs/heads/` themselves, so a change to one of those files moves its golden. `crates/vtium-config/tests/screens/provisional.tsv` lists the goldens the maintainer has not yet reviewed. From the repository's root:
+The four pictures of the Flow view are vtium-config's own screen goldens in `crates/vtium-config/tests/screens/`, drawn through vtium's renderer in unifont by `make tui-shots` (crates/vtium-config's README, "Reviewing the screens"). The test `the_flow_view_s_states_at_80x25_and_120x32` in `crates/vtium-config/tests/tui_flow.rs` reaches each screen. The kiosk and the stations draw the files under `docs/heads/` themselves, so a change to one of those files moves its golden. `crates/vtium-config/tests/screens/provisional.tsv` lists the goldens the maintainer has not yet reviewed. From the repository's root:
 
 ```sh
 make tui-shots OUT=DIR

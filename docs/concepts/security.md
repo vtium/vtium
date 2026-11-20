@@ -61,6 +61,14 @@ Read more:
 
 - [Configure vtium](../configure.md) describes the check, the draft, and the step that asks for sudo.
 
+## Fonts and colors that root chose
+
+vtium also reads files that hold no settings: fonts, color schemes, color maps, shaders and pointer themes. vtium calls them resources, and it reads only the active ones, which `/etc/vtium/batch.conf` lists. Each resource must also pass a trust rule like vtium.conf's check. Root owns the file and every folder above it, nobody else can write them, and none of them is a symbolic link. The file must also sit on a filesystem that stays mounted, so a USB stick or a network share fails. So a font in your home folder, which any program you run could change, never reaches the font helper's parser.
+
+Read more:
+
+- [Active resources and the trust rule](resources.md) explains the list, what a fresh install activates, and when a change takes effect.
+
 ## Heads and stations
 
 vtium can drive several displays from one VT. vtium.conf can divide those displays into heads. A head is a terminal on one display, or on a group of displays, with its own keyboards and its own sessions. For example, one display could run a kiosk program while another gives an operator a shell. Or several people could each work at a station of their own on one machine.

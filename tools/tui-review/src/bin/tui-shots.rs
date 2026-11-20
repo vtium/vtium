@@ -22,7 +22,9 @@
 //! its committed text says. The maintainer reviews those pictures, so each
 //! one is marked provisional in the tool's output, with a note where the
 //! screen differs from its committed golden. The tool also fails when
-//! BYTES holds no screen.
+//! BYTES holds no screen, and names each golden in SCREENS that BYTES
+//! holds no bytes for, because a golden test that `make tui-shots` does
+//! not run would otherwise leave its screens out of the review unseen.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -78,6 +80,28 @@ fn provisional(screens: &Path) -> Vec<String> {
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
         .filter_map(|l| l.split('\t').next())
         .map(str::to_owned)
+        .collect()
+}
+
+/// The goldens in `screens`: the name of each `NAME-COLSxROWS.txt` file,
+/// sorted.
+fn goldens(screens: &Path) -> std::io::Result<Vec<String>> {
+    let mut names: Vec<String> = std::fs::read_dir(screens)?
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter_map(|n| n.strip_suffix(".txt").map(str::to_owned))
+        .filter(|n| grid(n).is_some())
+        .collect();
+    names.sort();
+    Ok(names)
+}
+
+/// The goldens that have no bytes among `drawn`, the names BYTES holds.
+fn without_bytes<'a>(goldens: &'a [String], drawn: &[String]) -> Vec<&'a str> {
+    goldens
+        .iter()
+        .filter(|g| !drawn.contains(g))
+        .map(String::as_str)
         .collect()
 }
 
@@ -166,6 +190,13 @@ fn main() -> ExitCode {
         eprintln!("tui-shots: {}: {e}", out.display());
         return ExitCode::FAILURE;
     }
+    let committed = match goldens(screens) {
+        Ok(committed) => committed,
+        Err(e) => {
+            eprintln!("tui-shots: {}: {e}", screens.display());
+            return ExitCode::FAILURE;
+        }
+    };
     let listed = provisional(screens);
     let (mut failed, mut drawn_provisional) = (0usize, 0usize);
     for name in &names {
@@ -189,11 +220,18 @@ fn main() -> ExitCode {
             }
         }
     }
+    let missing = without_bytes(&committed, &names);
+    for name in &missing {
+        eprintln!(
+            "tui-shots: {name}: the bytes directory holds no bytes for this golden, so it is not drawn. Its golden test may be one that make tui-shots does not run."
+        );
+    }
     println!(
         "{} of {} screens drawn, {drawn_provisional} of them provisional",
         names.len().saturating_sub(failed),
-        names.len()
+        names.len().saturating_add(missing.len())
     );
+    let failed = failed.saturating_add(missing.len());
     if failed == 0 {
         ExitCode::SUCCESS
     } else {
@@ -229,6 +267,29 @@ mod tests {
     #[test]
     fn a_provisional_screen_that_drifted_from_its_committed_golden_is_drawn() {
         assert_eq!(check(BYTES, SCREEN, "ab c\n\n", true, 4, 2), Ok(()));
+    }
+
+    #[test]
+    fn a_golden_without_bytes_is_named() {
+        let dir = std::env::temp_dir().join(format!("tui-shots-goldens-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory");
+        for file in [
+            "help-80x25.txt",
+            "help-100x30.txt",
+            "provisional.tsv",
+            "notes.txt",
+        ] {
+            std::fs::write(dir.join(file), "").expect("a file");
+        }
+        let committed = goldens(&dir);
+        std::fs::remove_dir_all(&dir).expect("the directory removed");
+        let committed = committed.expect("the goldens");
+        assert_eq!(committed, ["help-100x30", "help-80x25"]);
+        assert_eq!(
+            without_bytes(&committed, &["help-80x25".to_owned()]),
+            ["help-100x30"]
+        );
+        assert!(without_bytes(&committed, &committed).is_empty());
     }
 
     #[test]

@@ -1,0 +1,34 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "effects at 100×30, keys: Tab"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft mine · no changes · no problems                           text preview · live trial in Looks
+----------------------------------------------------------------------------------------------------
+ Show: All effects
+ vtlooks (filter files)
+   No filter   built in, changes no color
+   amber       preset
+   green       preset, hidden by the administrator's vtlook of this name
+   green       administrator's, has an error
+   sepia       administrator's
+
+ Color maps
+   sepia.cube  active, trusted
+   warm.cube   not active, trusted
+   loose.cube  not active, fails the trust rule
+   mine.cube   not usable
+
+ No shaders are installed. Space activates or deactivates the highlighted color map or shader.
+ Enter opens its detail, or the groups on the filter line.
+ This terminal does not support images, so vtium-config cannot show effects.
+
+
+
+
+
+
+
+
+----------------------------------------------------------------------------------------------------
+ ↑↓ move  Space activate  q quit  . more 1/4

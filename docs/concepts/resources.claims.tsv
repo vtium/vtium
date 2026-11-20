@@ -1,0 +1,21 @@
+# Claims of docs/concepts/resources.md.
+element	file	symbol
+the list of active resources is /etc/vtium/batch.conf	crates/vtium-settings/src/batch.rs	BATCH_FILE
+a line holds one absolute path, and # starts a comment	crates/vtium-settings/src/batch.rs	Batch::parse
+the five kinds of resource, and a folder or .svg is a pointer theme	crates/vtium-config/src/batch.rs	kind
+a missing, refused or too large list means the list of a fresh install	crates/vtium-settings/src/batch.rs	Batch::read
+the list holds at most 64 KiB	crates/vtium-settings/src/bounds.rs	BATCH
+what a fresh install activates	crates/vtium-settings/src/batch.rs	Batch::fresh_install
+the font files vtium ships that a fresh install activates	crates/vtium-settings/src/batch.rs	FRESH_FONTS
+the console font is found in kbd's console-font folders	crates/vtium-settings/src/batch.rs	CONSOLE_FONT_FOLDERS
+check-config says the list is missing, or why vtium ignores it	crates/vtium-settings/src/batch.rs	Finding
+the trust rule, and your own files count as root's when vtium runs as you	crates/vtium-settings/src/cullet.rs	Rule::running_as
+the checks a resource can fail, and a file not on the list	crates/vtium-settings/src/cullet.rs	Check
+a refused file counts as missing, and the refusal names the file and the check	crates/vtium-settings/src/cullet.rs	Refused
+network filesystems fail the rule	crates/vtium-settings/src/mounts.rs	NETWORK
+a USB disk counts as removable unless it holds the root filesystem	crates/vtium-settings/src/mounts.rs	USB_IS_REMOVABLE
+a family search through the list finds only active files, and a font not listed is never parsed	crates/vtium-config/src/sources.rs	family_missing
+vtium reads the list again before each new login, and brings the fonts, color schemes and pointer up to it	crates/vtium/src/app/batch.rs	App::reread_batch
+each head chooses its vtlook again at its own next login	crates/vtium/src/app/batch.rs	App::catch_up
+a color scheme read once is read again when a login finds the list changed	crates/vtium/src/config/palette.rs	Config::forget_palettes
+vtium-config installs a font as a system font in /usr/local/share/fonts	crates/vtium-config/src/apply.rs	install_system_font

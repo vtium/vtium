@@ -8,7 +8,7 @@ q.question	q	question	Does nothing. The question stays until you answer it or ca
 q.trial	q	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-	
 q.too-small	q	too-small	Quits vtium-config. If changes are not saved, it asks first, on one row.	supported		ADR-1201 D3	#412	quit	
 esc.view	Esc	view	Does nothing here.	supported		ADR-1403 D7		-	
-esc.view.flow	Esc	view:flow	Clears NEW PATH. If you were revising a path, the path leaves the configuration.	supported	the one view where Esc acts with nothing open	ADR-1403 D7		clear	
+esc.view.flow	Esc	view:flow	Clears NEW PATH. If you were revising a path, the path leaves the configuration. While NEW PATH is empty, says that there is nothing to clear.	supported	the one view where Esc acts with nothing open	ADR-1403 D7		clear	
 esc.layer	Esc	layer	Goes back, with the same item highlighted.	supported	the file view and Restore's list included	ADR-1403 D7		back	1
 esc.typing	Esc	typing	Cancels what you typed and goes back.	supported	on a field of the new-frit form, Esc closes the form	ADR-1403 D7		cancel	
 esc.question	Esc	question	Cancels the question. Nothing changes.	supported		ADR-1403 D7		cancel	
@@ -27,7 +27,7 @@ shift-tab.question	Shift-Tab	question	Does nothing. The question stays until you
 shift-tab.trial	Shift-Tab	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-	
 shift-tab.too-small	Shift-Tab	too-small	Does nothing here.	supported		ADR-1201 D3		-	
 1.view	1	view	Goes straight to the Fonts tab.	supported		ADR-1403 D10	#412	go to tab	
-2.view	2	view	Goes straight to the Effects tab.	planned	today a digit does nothing with nothing open	ADR-1403 D10	#412	go to tab	
+2.view	2	view	Goes straight to the Effects tab.	supported		ADR-1403 D10	#412	go to tab	
 3.view	3	view	Goes straight to the Looks tab.	supported		ADR-1403 D10	#412	go to tab	
 4.view	4	view	Goes straight to the Flow tab.	supported		ADR-1403 D10	#412	go to tab	
 5.view	5	view	Goes straight to the Settings tab.	supported		ADR-1403 D10	#412	go to tab	
@@ -45,11 +45,11 @@ n.question	n	question	Answers no. Nothing changes.	supported		ADR-1403 D7	#412	n
 i.question.leave	i	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 l.question.leave	l	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 other.question	any other key	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-	
-s.view	s	view	Saves the changes that are not saved into the draft.	supported	it acts in Flow, Looks and Settings, whose tab bars show Save	ADR-1403 D7		save	
-s.view.fonts	s	view:fonts	Saves the changes that are not saved into the draft.	planned	today the Fonts view's tab bar shows Save, but outside a vtium console s switches the preview between the specimen and the picture of the console	ADR-1205 D1; ADR-1403 D10	#375	save	
+s.view	s	view	Saves the changes that are not saved into the draft.	supported	it acts in Fonts, Effects, Looks, Flow and Settings, whose tab bars show Save	ADR-1403 D7		save	
+s.view.fonts	s	view:fonts	Saves the changes that are not saved into the draft.	supported		ADR-1205 D1; ADR-1403 D10	#375	save	
 s.view.help	s	view:help	Does nothing here.	supported	Help's tab bar shows no action	ADR-1403 D7		-	
 s.layer.file-view	s	layer:file-view	Saves the changes that are not saved into the draft. The file view stays open and shows the file as it now stands.	supported		ADR-1403 D7		save	
-i.view	i	view	Saves, then asks whether to install the draft.	supported	it acts in Flow, Looks and Settings, whose tab bars show Install	ADR-1403 D7		install	
+i.view	i	view	Saves, then asks whether to install the draft.	supported	it acts in Fonts, Effects, Looks, Flow and Settings, whose tab bars show Install	ADR-1403 D7		install	
 i.view.help	i	view:help	Does nothing here.	supported		ADR-1403 D7	#412	-	
 i.layer.file-view	i	layer:file-view	Saves, then asks whether to install the draft. The file view stays open.	supported		ADR-1403 D7		install	
 action.layer	s i r n v o	layer	Do nothing until you close what is open with Esc.	supported	the file view is the exception, where s and i act	ADR-1403 D7	#412	-	
@@ -57,14 +57,15 @@ r.view.flow	r	view:flow	Asks whether to throw away the draft's changes and copy 
 n.view.flow	n	view:flow	Asks whether to start a new configuration.	supported		ADR-1403 D7		new	
 v.view.flow	v	view:flow	Shows the draft's vtium.conf as text.	supported		ADR-1403 D7		view file	
 o.view.flow	o	view:flow	Lists the files installed before, newest first, to copy one into the draft.	supported	Restore is on o and in the key line, not in the tab bar	ADR-1201 D3; ADR-1403 D7		restore	
-r.view.looks	r	view:looks	On a look, asks whether to delete it. On a font set, marks it for removal at the next install, or takes the mark back.	planned	today in the Fonts view	ADR-1201 D3; ADR-1403 D10	#379	remove	
-n.view.looks	n	view:looks	Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set. Among the pointer themes, does nothing.	planned	today in the Fonts view, n opens the form for a new font set	ADR-1201 D3; ADR-1205 D1; ADR-1403 D10	#379	new font set	
-t.view.looks	t	view:looks	Tries the highlighted look or font set on this console for 10 seconds.	planned	today in the Fonts view	ADR-1201 D4; ADR-1403 D10	#379	try live	
-enter.view.looks	Enter	view:looks	On a look, opens its card. On a font set or a pointer theme, opens its detail.	planned	today Enter on a size writes the top-level font-size	ADR-1205 D1, D6; ADR-1403 D10	#379	open	
-p.view.looks	p	view:looks	Switches the preview between the sample characters and the picture of the console.	planned	today s does this in the Fonts view; the label names the preview p switches to, picture or sample	ADR-1201 D4	#379	picture | sample	
+r.view.looks	r	view:looks	On a look, asks whether to delete it. On a font set, marks it for removal at the next install, or takes the mark back.	supported		ADR-1201 D3; ADR-1403 D10	#379	remove	
+n.view.looks	n	view:looks	Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set.	supported		ADR-1201 D3; ADR-1205 D1; ADR-1403 D10	#379	new	1
+t.view.looks	t	view:looks	Tries the highlighted look or font set on this console for 10 seconds.	supported	today t tries the look's font set alone; the look's size, color scheme, and vtlook take effect when vtium starts with them	ADR-1201 D4; ADR-1403 D10	#379	try live	1
+enter.view.looks	Enter	view:looks	On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail.	supported		ADR-1205 D1, D6, D10; ADR-1403 D10	#379	open	1
+p.view.looks	p	view:looks	On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview.	supported	the label names the preview p switches to, picture or sample	ADR-1201 D4	#379	picture | sample	
 window-ops.view.looks	w	view:looks	Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing.	planned	the notice line shows w	ADR-1201 D4	#379	resize grid	
 t.layer.flow-card	t	layer:flow-card	Tries the card's look on this console for 10 seconds.	planned	today t does nothing on a card	ADR-1201 D4; ADR-1205 D1; ADR-1403 D10	#379	try live	
-o.view.looks	o	view:looks	Does nothing here.	planned	the notice that the live trial is off names allow-font-ops in the Settings view; today o turns on allow-font-ops in every view but Flow	ADR-1201 D4; ADR-1403 D7	#412	-	
+o.view.looks	o	view:looks	Does nothing here.	supported		ADR-1201 D4; ADR-1403 D7	#412	-	
+looks-keys.view.resources	n, r, t, p	view:resources	Does nothing here, because these keys act on a look or a font set.	supported		ADR-1403 D7, D10	#379	-	
 o.view	o	view	Does nothing here.	planned	o opens Restore in the Flow view alone; today o turns on allow-font-ops in Help and Settings too	ADR-1403 D7	#412	-	
 up.layer.list	Up	layer:list	Moves to the item above.	supported	the Flow view's picker does this today	ADR-1403 D7		move	1
 down.layer.list	Down	layer:list	Moves to the item below.	supported	the Flow view's picker does this today	ADR-1403 D7		move	1
@@ -82,8 +83,9 @@ list.flow-card	Enter	layer:flow-card	Shows the card's displays, devices or VTs a
 list.filter-picker	Enter	layer:picker	Shows the devices that each value matches as a list.	planned	today the filter picker joins each value's devices with commas	ADR-1403 D7	#412	choose	
 list.font-set-files	Enter	layer:flow-card	On the card's look, shows the looks to choose from as a list.	planned	today the card has a font set and a size in place of a look, and Left and Right step each through its choices	ADR-1205 D1; ADR-1403 D10	#379	choose	
 list.terminals	Enter	layer:flow-card	Shows the terminals this configuration defines as a list.	planned		ADR-1403 D7	#412	choose	
-list.font-sets	Enter	layer:look	On the look's font set, shows the font sets to choose from as a list.	planned		ADR-1403 D10	#379	choose	
-list.font-sizes	Enter	layer:look	On the look's size, shows the sizes that the look's fonts supply as a list.	planned		ADR-1205 D7; ADR-1403 D10	#379	choose	
+list.font-sets	Enter	layer:look	On the look's font set, shows the font sets to choose from as a list.	supported		ADR-1403 D10	#379	choose	
+list.font-sizes	Enter	layer:look	On the look's size, shows the sizes that the look's fonts supply as a list.	supported	a bitmap text font offers the point sizes that draw the bitmap sizes of the files the console draws, at the lowest density of the connected displays; any other text font offers vtium-config's usual sizes, and the line says why	ADR-1205 D7; ADR-1403 D10	#379	choose	
+list.palettes	Enter	layer:look	On the look's color scheme, shows the color schemes as a list: first the one vtium.conf sets, which leaves the look's own unset, then the built-in schemes, then the active scheme files.	supported		ADR-1205 D10; ADR-1403 D5, D10	#379	choose	1
 k.trial	k	trial	Keeps the font or size you are trying.	supported		ADR-1201 D4		keep	
 other.trial	any other key	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		put back	
 u.too-small	u	too-small	Puts back the font and size the console had when vtium-config started.	planned	today u puts back the start font; the start grid comes with the live size control	ADR-1201 D3	#379	undo	
@@ -119,24 +121,24 @@ pgup.view.help	PgUp	view:help	Scrolls the page up by a window.	supported		ADR-14
 pgdn.view.help	PgDn	view:help	Scrolls the page down by a window.	supported		ADR-1403 D7		page down	
 left.view.help	Left	view:help	Switches between the Help and About pages.	supported		ADR-1403 D7		Help, About	1
 right.view.help	Right	view:help	Switches between the Help and About pages.	supported		ADR-1403 D7		Help, About	1
-enter.view.fonts	Enter	view:fonts	On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it.	planned	today Enter chooses the highlighted font set	ADR-1205 D3, D8; ADR-1403 D10	#375	open	
-t.view.fonts	t	view:fonts	Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why.	planned	today t tries the highlighted font set	ADR-1201 D4; ADR-1205 D3; ADR-1403 D10	#375	try live	
-n.view.fonts	n	view:fonts	Does nothing here. New font sets are made in the Looks tab.	planned	today n opens the form for a new font set	ADR-1205 D1; ADR-1403 D10	#375	-	
-r.view.fonts	r	view:fonts	Does nothing here. Font sets are removed in the Looks tab.	planned	today r marks the highlighted font set for removal at the next install	ADR-1205 D1; ADR-1403 D10	#375	-	
-space.view.resources	Space	view:resources	On a font, an effect or a pointer theme, activates it, or deactivates it when it is active. Deactivating asks first when a look uses it.	planned	the Fonts and Effects tabs, and the pointer themes of the Looks tab; today Space does nothing there	ADR-1205 D1, D2, D6, D8; ADR-1403 D10	#375, #439, #379	activate	1
-p.view.fonts	p	view:fonts	Switches the preview between the sample characters and the picture of the console.	planned		ADR-1201 D4; ADR-1205 D3; ADR-1403 D10	#375	preview	
-enter.view.effects	Enter	view:effects	On the filter line, shows the filters as a list. On a color map or a shader, opens its detail: its file, its trust mark and the looks that use it.	planned		ADR-1205 D3, D8; ADR-1403 D10	#439	open	
-up.layer.detail	Up	layer:detail	Scrolls the detail up by a line.	planned		ADR-1403 D10	#375, #439, #379	scroll	
-down.layer.detail	Down	layer:detail	Scrolls the detail down by a line.	planned		ADR-1403 D10	#375, #439, #379	scroll	
-enter.layer.font	Enter	layer:font	On a font from your own folders, asks whether to install it as a system font. The question shows the exact command first.	planned		ADR-1205 D5; ADR-1403 D10	#375	install as system font	
-up.layer.look	Up	layer:look	Moves to the line above.	planned		ADR-1403 D10	#379	move	1
-down.layer.look	Down	layer:look	Moves to the line below.	planned		ADR-1403 D10	#379	move	1
-left.layer.look	Left	layer:look	Steps the highlighted line to its choice before.	planned		ADR-1403 D10	#379	change	1
-right.layer.look	Right	layer:look	Steps the highlighted line to its next choice.	planned		ADR-1403 D10	#379	change	1
-enter.layer.look	Enter	layer:look	On the look's name, lets you type a new name.	planned		ADR-1403 D10	#379	choose	1
-t.layer.look	t	layer:look	Tries this look on this console for 10 seconds.	planned		ADR-1201 D4; ADR-1403 D10	#379	try live	
-list.look-effects	Enter	layer:look	On the look's color map or shader, shows the active ones as a list, with none first.	planned		ADR-1205 D6; ADR-1403 D10	#379	choose	1
-list.pointer-themes	Enter	layer:look	On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first.	planned		ADR-1205 D6; ADR-1403 D10	#379	choose	1
+enter.view.fonts	Enter	view:fonts	On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it.	supported		ADR-1205 D3, D8; ADR-1403 D10	#375	open	
+t.view.fonts	t	view:fonts	Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why.	planned	vtium's OSC 50 switches to a font set by its name, not to a single font file, so today t in the Fonts tab says that a font set made from the font can be tried in the Looks tab	ADR-1201 D4; ADR-1205 D3; ADR-1403 D10	#375	try live	
+n.view.fonts	n	view:fonts	Does nothing here. New font sets are made in the Looks tab.	supported		ADR-1205 D1; ADR-1403 D10	#375	-	
+r.view.fonts	r	view:fonts	Does nothing here. Font sets are removed in the Looks tab.	supported		ADR-1205 D1; ADR-1403 D10	#375	-	
+space.view.resources	Space	view:resources	On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On the built-in font or a built-in color scheme, does nothing. On a vtlook or a filter line, says why it does nothing there.	supported	the Fonts tab's fonts, the Effects tab's color maps and shaders, and the Looks tab's color schemes and pointer themes	ADR-1205 D1, D2, D4, D6, D8, D10; ADR-1403 D10	#375, #439, #379	activate	1
+p.view.fonts	p	view:fonts	Switches the preview between the sample characters and the picture of the console. In a terminal that does not support images, says that it cannot show the picture.	supported		ADR-1201 D4; ADR-1205 D3; ADR-1403 D10	#375	preview	
+enter.view.effects	Enter	view:effects	On the filter line, shows the filters as a list. On a vtlook, a color map or a shader, opens its detail.	supported		ADR-1205 D3, D8; ADR-1304 D4, D11; ADR-1403 D10	#439	open	
+up.layer.detail	Up	layer:detail	Scrolls the detail up by a line.	supported		ADR-1403 D10	#375, #439, #379	scroll	
+down.layer.detail	Down	layer:detail	Scrolls the detail down by a line.	supported		ADR-1403 D10	#375, #439, #379	scroll	
+enter.layer.font	Enter	layer:font	On a font from your own folders, asks whether to install it as a system font. The question shows the exact command first.	supported		ADR-1205 D5; ADR-1403 D10	#375	install as system font	
+up.layer.look	Up	layer:look	Moves to the line above.	supported		ADR-1403 D10	#379	move	1
+down.layer.look	Down	layer:look	Moves to the line below.	supported		ADR-1403 D10	#379	move	1
+left.layer.look	Left	layer:look	Steps the highlighted line to its choice before.	supported		ADR-1403 D10	#379	change	1
+right.layer.look	Right	layer:look	Steps the highlighted line to its next choice.	supported		ADR-1403 D10	#379	change	1
+enter.layer.look	Enter	layer:look	On the look's name, lets you type a new name.	supported		ADR-1403 D10	#379	choose	1
+t.layer.look	t	layer:look	Tries this look on this console for 10 seconds.	supported	today t tries the look's font set alone; the look's size, color scheme, and vtlook take effect when vtium starts with them	ADR-1201 D4; ADR-1403 D10	#379	try live	
+list.look-effects	Enter	layer:look	On the look's vtlook, shows the vtlooks as a list in the Effects tab's order: No filter first, then the presets, then the administrator's vtlooks. A vtlook that does not read, such as one that names a color map that is not active, shows why, and the look can still pick it. A new look starts on No filter.	supported		ADR-1205 D6; ADR-1304 D4; ADR-1403 D5, D10	#379	choose	1
+list.pointer-themes	Enter	layer:look	On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first.	planned	today a look cannot pick a pointer theme of its own, and Enter on the line says so	ADR-1205 D6; ADR-1403 D10	#379	choose	1
 up.layer.flow-detail	Up	layer:flow-detail	Does nothing on the label line, which is the first line of the detail.	supported		ADR-1403 D7		-	
 down.layer.flow-detail	Down	layer:flow-detail	Moves from the label line to the part's first choice.	supported		ADR-1403 D7		choices	
 end.layer.flow-detail	End	layer:flow-detail	Moves from the label line to the last choice.	supported		ADR-1403 D7		choices	

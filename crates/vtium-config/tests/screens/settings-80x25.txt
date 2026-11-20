@@ -1,25 +1,25 @@
- Flow  Looks  Fonts  Settings  Help                               Save  Install
- draft workstation · 1 change · no problems          text preview · t: try live
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft workstation · 1 change · no problems  text preview · live trial in Looks
 --------------------------------------------------------------------------------
- > font-name                unifont
-   font-size                0 (default)
-   font-frits               /etc/vtium/fonts (default)
-   font-hinting             unset (default)
-   font-line-spacing        unset (default)
-   allow-font-ops           on (default)
-   display-dpi              unset (default)
-   glyph-source             unset (default)
-   glyph-source-box         unset (default)
-   glyph-source-block       unset (default)
-   glyph-source-braille     unset (default)
-   glyph-source-sextants    unset (default)
+   Fonts and text                 24 settings
+   Colors                         22 settings
+   Keyboard and mouse             18 settings
+   Key bindings                   18 settings
+   Session and terminal           10 settings
+   Consoles and the VT            4 settings
+   On-screen display and notices  10 settings
+   Displays                       9 settings
+   Power and blanking             5 settings
+   Images                         12 settings
+   Running vtium                  3 settings
 
- Press Enter to turn a setting on or off, pick the next choice, or type a
- value. Leave a value empty to use the default.
- The console's font. The value is the name of a font set (a frit file,
- `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console
- font, or with `font-engine = psf` the path of a PSF font; vtium then uses that
- one font. When unset, vtium uses the font from vconsole.conf. If there is …
+ Press Enter to open a section and change its settings.
+ The console's font and its size, who draws box-drawing and block characters,
+ how blinking text looks, and which way text runs.
+
+
+
+
 
 --------------------------------------------------------------------------------
- Enter change  Tab next view  i install  q quit without installing
+ ↑↓ move  Enter open  q quit  . more 1/4

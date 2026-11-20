@@ -1,4 +1,4 @@
- Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ Fonts  Effects  Looks  Flow  Settings  Help   View file Save Install Revert New
  draft bench  ›  desk   All devices are in a path · no changes · no problems
 
  TERMINAL desk · every VT
@@ -22,4 +22,4 @@
    yet, so this card names the look and shows no filters.
 
 
- ↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit
+ ↑↓ move  ←→ choose  Enter set  Esc back  q quit  . more 1/2

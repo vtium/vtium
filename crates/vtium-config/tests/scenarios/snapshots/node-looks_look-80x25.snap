@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "looks.look at 80×25, keys: 3 Enter"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems               text preview · t: try live
+--------------------------------------------------------------------------------
+   Name           proof
+   Font set       proof
+   Size           automatic, from vtium.conf. vtium-config offers its usual
+                  sizes, because it found no font file for the text font
+                  JetBrains Mono.
+   Color scheme   legacy, from vtium.conf
+   vtlook         sepia
+   Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a
+                  pointer theme of its own yet.
+
+ Enter on a line shows its choices or lets you type the name, and Left and
+ Right step through the choices. Esc keeps the changes for Save.
+ Its fonts, by role:
+ Text: the font family JetBrains Mono
+ Box drawing: vtium's own lines, unless the text font has them all
+ What it still misses:
+ Not known yet: the font helper has not checked its fonts.
+
+
+
+--------------------------------------------------------------------------------
+ ↑↓ move  ←→ change  Enter choose  Esc back  q quit  . more 1/2

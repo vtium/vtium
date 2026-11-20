@@ -48,6 +48,9 @@ pub enum Command {
     NewFrit,
     Tui,
     RemoveFrit,
+    Activate,
+    Deactivate,
+    Active,
     Preview,
     UseFrit,
     Apply,
@@ -57,7 +60,7 @@ pub enum Command {
 
 impl Command {
     /// Every command, in the order the usage lists them.
-    pub const ALL: [Command; 25] = [
+    pub const ALL: [Command; 28] = [
         Command::Flow,
         Command::Diff,
         Command::Install,
@@ -78,6 +81,9 @@ impl Command {
         Command::NewFrit,
         Command::Tui,
         Command::RemoveFrit,
+        Command::Activate,
+        Command::Deactivate,
+        Command::Active,
         Command::Preview,
         Command::UseFrit,
         Command::Apply,
@@ -98,6 +104,9 @@ impl Command {
             Command::Rule => "rule",
             Command::Head => "head",
             Command::Look => "look",
+            Command::Activate => "activate",
+            Command::Deactivate => "deactivate",
+            Command::Active => "active",
             Command::Draft => "draft",
             Command::History => "history",
             Command::Restore => "restore",
@@ -116,8 +125,12 @@ impl Command {
         }
     }
 
-    /// Whether the command is one of the flow's (ADR-1403 D8), which work
-    /// on the draft.
+    /// Whether the command is one of the flow's commands, which work on
+    /// the draft. `activate`, `deactivate` and `active` work on the draft
+    /// too, through [`crate::batch`].
+    ///
+    /// References:
+    /// - ADR-1403 D8: the flow's commands, and the draft they work on.
     pub const fn flow(self) -> bool {
         matches!(
             self,
@@ -169,7 +182,7 @@ const TOPICS: &[Topic] = &[
             "diff",
             "show how the draft differs from the installed vtium.conf",
         )],
-        detail: "Shows each line the current draft changes from the installed /etc/vtium/vtium.conf, with its line number in the draft. It changes nothing.",
+        detail: "Shows each line the current draft changes from the installed /etc/vtium/vtium.conf, with its line number in the draft. When the draft changes the active resources, diff then shows each line that installing the draft changes in /etc/vtium/batch.conf. It changes nothing.",
         example: "vtium-config diff",
     },
     Topic {
@@ -251,12 +264,12 @@ const TOPICS: &[Topic] = &[
                 "add a look",
             ),
             form(
-                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P] [--login-image-scale PCT]",
+                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P] [--login-image-scale PCT] [--palette NAME]",
                 "change a look's settings",
             ),
             form("look rm NAME [--force]", "delete a look"),
         ],
-        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows, --login-image-position and --login-image-scale set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
+        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows, --login-image-position, --login-image-scale and --palette set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
         example: "vtium-config look add big --frit monoid --size 14",
     },
     Topic {
@@ -319,12 +332,21 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         command: Command::Fonts,
-        forms: &[form(
-            "fonts",
-            "list the font sets and built-in fonts, and the font files each is missing",
-        )],
-        detail: "Lists every font set (frit) and built-in font, one per line: its name, whether vtium can read it, and the font files it needs that are not on this machine. It changes nothing and needs no root.",
-        example: "vtium-config fonts",
+        forms: &[
+            form(
+                "fonts",
+                "list the font sets and built-in fonts, and the font files each is missing",
+            ),
+            form("fonts --files", "list the font files found on this machine"),
+            form(
+                "fonts --install-system FILE [--replace]",
+                "install a font file of yours as a system font",
+            ),
+        ],
+        detail: "fonts lists every font set (frit) and built-in font, one per line: its name, whether vtium can read it, and the font files it needs that are not on this machine. It changes nothing and needs no root. \
+                 fonts --files lists every font file that vtium-config finds. vtium-config looks in the system's font folders, in vtium's own, in kbd's console-font folders, in the folders that font-paths names, and in your own ~/.local/share/fonts and ~/.fonts. Each line has ten tab-separated columns. The first four are the file, the kind of folder, its state in your current draft as active prints it, and whether it passes the trust rule. The next five describe the font: its family and style, the sizes it supplies, monospaced or proportional, the scripts it covers, and its groups, such as Nerd Fonts, Powerline, color emoji or box drawing. The last column notes a file that a package installed too. The trust rule decides which files vtium may draw from. The file and each folder above it must belong to root, and no one else may write to them. None of them may be a symbolic link, and the file's filesystem must stay mounted. The font helper reads each file in its sandbox, and each line prints as soon as its file is read. When you have no draft yet, fonts --files makes one from the installed vtium.conf, as active does. A font in your own folder is not usable, because vtium draws only from fonts that root owns. Install it as a system font first. \
+                 fonts --install-system FILE copies FILE into /usr/local/share/fonts, owned by root with mode 0644. vtium-config reads FILE once into a draft, and the font helper checks that the draft's copy is a font. apply checks the font through the font helper again before it writes it. A font that a package installed under /usr/share/fonts is refused, because it is a system font already, and so is a font in vtium's own fonts folder or in one of kbd's console-font folders. When /usr/local/share/fonts already holds the same file, nothing changes. When it holds a different file of the same name, the command shows both files. The command replaces the installed file only after you answer y, or with --replace. The draft is installed through sudo vtium-config apply DIR. At a terminal the command shows that command and asks before it runs it. Away from a terminal it prints the draft and the command, and runs nothing. After the copy, apply checks the font against the trust rule. Installing a font does not activate it: run activate afterwards.",
+        example: "vtium-config fonts --install-system ~/.local/share/fonts/MyMono.ttf",
     },
     Topic {
         command: Command::Check,
@@ -372,6 +394,33 @@ const TOPICS: &[Topic] = &[
         )],
         detail: "Removes the font set NAME.vtfrit. It does not remove a built-in font, a name with no font set, or a font set that font-name names, at the top of vtium.conf or in a look. When the removal is installed, the file is kept as NAME.vtfrit.bak.",
         example: "vtium-config remove-frit my-font",
+    },
+    Topic {
+        command: Command::Activate,
+        forms: &[form(
+            "activate PATH... [--dry-run] [--install]",
+            "let vtium use a font, color scheme, color map, shader or pointer theme",
+        )],
+        detail: "Activates, in the draft, each resource that a PATH names. A resource is a font, color scheme, color map, shader or pointer theme, given by its absolute path. vtium uses only the active resources, which /etc/vtium/batch.conf lists. activate first checks that root owns the file and each folder above it, and that nobody else can write them. None of them may be a symbolic link. The file must be on a filesystem that stays mounted, so a file on removable media or a network filesystem fails. If any PATH fails, activate changes nothing. The change waits in the draft until you install it, and revert drops it. When no batch.conf is installed yet, the install writes one from the resources of a fresh install, with your change. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
+        example: "vtium-config activate /usr/share/fonts/TTF/Hack-Regular.ttf",
+    },
+    Topic {
+        command: Command::Deactivate,
+        forms: &[form(
+            "deactivate PATH... [--dry-run] [--install]",
+            "stop vtium using a resource",
+        )],
+        detail: "Deactivates, in the draft, each resource that a PATH names. From the next login after you install the change, vtium no longer uses the resource: it treats a font as a missing font, and any other resource as a file that does not exist. When a look uses the resource, deactivate names the look. It can tell this for a font that a font set names by its path, for a color scheme, and for a color map or shader that the look's vtlook names. It cannot tell this for a font that a font set names by its family. The built-in font is always active, and deactivate refuses it. The change waits in the draft until you install it, and revert drops it. --dry-run shows the change without saving it, and --install installs the draft afterwards.",
+        example: "vtium-config deactivate /usr/share/vtium/fonts/CulletMono-Bold.ttf",
+    },
+    Topic {
+        command: Command::Active,
+        forms: &[form(
+            "active",
+            "list the resources vtium may use, with the draft's changes",
+        )],
+        detail: "Lists the active resources, one per line, tab-separated: the kind (font, color scheme, color map, shader or pointer theme), the path, and the state. The built-in font comes first and is always active. A resource the draft activates says activates on install, and one it deactivates says deactivates on install. When no /etc/vtium/batch.conf is installed, the list is the resources of a fresh install, and a last line says so. It changes nothing.",
+        example: "vtium-config active",
     },
     Topic {
         command: Command::Preview,
@@ -433,7 +482,7 @@ pub const DESCRIPTION: [&str; 2] = [
 ];
 
 /// What the commands change, after the list of commands.
-pub const DRAFTS: &str = "The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. The font set commands (new-frit, remove-frit) write a draft and print the command that installs it.";
+pub const DRAFTS: &str = "The commands from flow to edit change your draft, a copy of vtium.conf in ~/.config/vtium/drafts/NAME.conf; only install writes /etc/vtium/vtium.conf. activate and deactivate keep their changes beside the draft, in NAME.batch, and install writes them to /etc/vtium/batch.conf. The font set commands (new-frit, remove-frit) write a draft and print the command that installs it.";
 
 /// The statuses vtium-config exits with, and what each means.
 pub const EXIT_STATUS: [(u8, &str); 7] = [

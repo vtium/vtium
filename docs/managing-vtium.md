@@ -5,6 +5,8 @@ vtium is a terminal that runs on the Linux console. It runs on a Linux virtual t
 - [Install vtium and give it VTs](install.md) covers installing on Arch Linux or from a checkout, and giving vtium one VT or every VT. It also covers upgrading and removing vtium, moving from another terminal that renders on a VT through KMS/DRM, and sharing VTs with `kmscon`, one such terminal.
 - [Configure vtium](configure.md) covers vtium.conf and checking it. It shows how to change the file through a draft with `vtium config`, and how to install the draft. It also covers blanking a VT from a script.
 - [Choose a font](fonts.md) covers an outline font or a console font, and its size. It shows how to choose one with `vtium config`, and how to switch fonts and zoom for a session.
+- [Choosing what vtium may use](install.md#choosing-what-vtium-may-use) covers the list of active fonts, color schemes, color maps, shaders and pointer themes. It shows how to activate and deactivate each one with `vtium config`, and how to install a font of your own as a system font. A change to the list takes effect at the next login.
+- [Color schemes](palettes.md) and [Vtlook files](looks.md) cover a head's colors and its effects, such as an amber tint or a correction for color blindness.
 - [Set up heads](heads.md) gives the sections of vtium.conf for each common setup.
 - [Find out what went wrong](troubleshooting.md) shows how to get out of a VT where vtium misbehaves, and how to read what each VT runs. It also shows how to collect a report for an issue.
 

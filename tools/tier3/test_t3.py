@@ -42,6 +42,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import t3  # noqa: E402
+import t3_batch  # noqa: E402
 import t3_bench  # noqa: E402
 import t3_builtin  # noqa: E402
 import t3_devices  # noqa: E402
@@ -419,11 +420,11 @@ class ImplementationTest(unittest.TestCase):
             "budget": {"binary_bytes": t3_impl.BINARY_BUDGET, "met": True}})
 
     def test_budget(self):
-        # The operator's budget is the minspec binary's bytes, 4 MiB + 64 KiB
+        # The operator's budget is the minspec binary's bytes, 4 MiB + 128 KiB
         # (ADR-1200 D19): at it the run passes, one byte past it fails. The
         # rest of the tree does not count.
         budget = t3_impl.BINARY_BUDGET
-        self.assertEqual(budget, 4259840)
+        self.assertEqual(budget, 4325376)
         impl = t3_impl.tree(self.tree, self.tar)
         for size, met in ((budget, True), (budget + 1, False)):
             impl["binary_bytes"] = size
@@ -534,10 +535,12 @@ class ImplementationTest(unittest.TestCase):
         # The tree goes on the disc as tree.tar, with the variant's config,
         # the pointer variant's carries the `pointer` file, on which
         # guest/setup lets the screens read the DRM state, and a PSF
-        # variant's its frits, which guest/setup builds into the store.
+        # variant's its frits, which guest/setup builds into the store, and
+        # the batch file that activates its font (t3_batch).
         impl = t3_impl.tree(self.tree, self.tar)
         disc = os.path.join(self.dir.name, "disc")
-        for variant, extra in (("2d-potato-min", ["pointer"]), ("2d-potato-min-psf", ["frits"])):
+        for variant, extra in (("2d-potato-min", ["pointer"]),
+                               ("2d-potato-min-psf", ["frits", "batch.conf"])):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
@@ -588,7 +591,8 @@ class ImplementationTest(unittest.TestCase):
                 t3_scenario.build_disc(name, self.dir.name, impl)
                 self.assertEqual(sorted(os.listdir(disc)),
                                  sorted(["vtium.conf", "screens", "setup", "t3", "tree.tar",
-                                         "deferred-frits"] + (["helper-held"] if held else [])))
+                                         "deferred-frits", "batch.conf"]
+                                        + (["helper-held"] if held else [])))
                 self.assertEqual(os.listdir(os.path.join(disc, "deferred-frits")),
                                  [font + ".vtfrit"])
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
@@ -948,6 +952,152 @@ class ImplementationTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "make install-tree failed with exit code 2"):
                 t3.build_tree("install-tree", tree, [], lambda msg: None)
 
+
+
+class BatchTest(unittest.TestCase):
+    """The batch file a variant installs (t3_batch.py): none when the list
+    of a fresh install holds every font it draws, else that list followed
+    by its own fonts (ADR-1205 D4)."""
+
+    # The list of a fresh install, spelled out: Terminus in each size and
+    # weight, GNU Unifont and Cullet Mono's two faces in the package's font
+    # folder, then the tree's color schemes, then its pointer file.
+    FRESH = (["/usr/share/vtium/fonts/ter-u%d%s.bdf.gz" % (size, weight)
+              for size in (12, 14, 16, 18, 20, 22, 24, 28, 32) for weight in "nb"]
+             + ["/usr/share/vtium/fonts/unifont_all-17.0.03.hex",
+                "/usr/share/vtium/fonts/CulletMono-Regular.ttf",
+                "/usr/share/vtium/fonts/CulletMono-Bold.ttf",
+                "/usr/share/vtium/palettes/amber.palette",
+                "/usr/share/vtium/palettes/zenith.palette",
+                "/usr/share/vtium/pointers.svg"])
+    # The fonts beyond that list that each variant draws, as its
+    # configuration and its frits name them.
+    EXTRA = {
+        "2d-potato-min-psf": ["/usr/share/kbd/consolefonts/default8x16.psfu.gz"],
+        "2d-320x240-psf8": ["/usr/local/share/tier3-fonts/vtium-test-8x8.psf"],
+        "2d-640x480-psf16": ["/usr/local/share/tier3-fonts/vtium-test-8x16.psf"],
+        "2d-640x480-frit": ["/usr/share/fonts/TTF/DejaVuSansMono.ttf"],
+        "2d-640x480-frit-held": ["/usr/share/fonts/TTF/DejaVuSansMono.ttf"],
+        "cullet-mono-16": ["/usr/share/fonts/noto/NotoColorEmoji.ttf"],
+        "cullet-mono-24": ["/usr/share/fonts/noto/NotoColorEmoji.ttf"],
+        "cullet-mono-40": ["/usr/share/fonts/noto/NotoColorEmoji.ttf"],
+        "2d-1366x768-potato": ["/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+                               "/usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf",
+                               "/usr/share/fonts/TTF/DejaVuSansMono-Oblique.ttf",
+                               "/usr/share/fonts/TTF/DejaVuSansMono-BoldOblique.ttf",
+                               "/usr/local/share/fonts/vtium-tier3/NotoSansCJKsc-Regular.otf",
+                               "/usr/share/fonts/noto/NotoColorEmoji.ttf"],
+        "heads-two-heads": ["/usr/local/share/tier3-fonts/vtium-test-8x16.psf",
+                            "/usr/local/share/tier3-fonts/vtium-test-8x8.psf"],
+        "sysvinit-640x480": ["/usr/local/share/tier3-fonts/vtium-test-8x16.psf"],
+    }
+    # Variants that draw only fonts of the fresh-install list: the default
+    # set, the built-in font, or Cullet Mono's reference set.
+    NONE = ["2d-potato-min", "default-font-16", "default-font-40", "builtin-font", "power-off",
+            "seat-seatd", "boot-claim", "heads-open-nodisplay"]
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        tree = os.path.join(self.dir.name, "tree")
+        write_tree(tree, dict(ImplementationTest.TREE, **{
+            "usr/share/vtium/palettes/zenith.palette": "p",
+            "usr/share/vtium/palettes/amber.palette": "p",
+            # a license beside the schemes is no scheme of the folder's own
+            "usr/share/vtium/palettes/licenses/amber.txt": "l",
+            "usr/share/vtium/pointers.svg": "<svg/>",
+            "usr/share/vtium/fonts/ter-u16n.bdf.gz": "f"}))
+        self.impl = t3_impl.tree(tree, os.path.join(self.dir.name, "out", "tree.tar"))
+        self.disc = os.path.join(self.dir.name, "disc")
+
+    def batch(self, variant):
+        """The batch file `variant` installs, or None."""
+        v = t3_scenario.VARIANTS[variant]
+        return t3_batch.batch(v, t3_heads.guest_conf(v), self.impl["tar"])
+
+    def test_fresh_list(self):
+        # The list of a fresh install as the run's tree holds it: the font
+        # names of vtium-settings's FRESH_FONTS, every color scheme directly
+        # in the tree's palette folder, and the pointer file.
+        self.assertEqual(t3_batch.fresh_list(self.impl["tar"]), self.FRESH)
+
+    def test_a_variant_of_the_fresh_fonts_writes_no_batch(self):
+        # tier 3 keeps checking how vtium starts with no batch file.
+        for variant in self.NONE:
+            with self.subTest(variant):
+                self.assertIsNone(self.batch(variant))
+
+    def test_a_variant_lists_its_own_fonts_after_the_fresh_list(self):
+        for variant, extra in self.EXTRA.items():
+            with self.subTest(variant):
+                text = self.batch(variant)
+                self.assertIsNotNone(text)
+                lines = [line for line in text.splitlines() if not line.startswith("#")]
+                self.assertEqual(lines, self.FRESH + extra)
+        # the disc carries the file guest/setup installs
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("2d-640x480-frit", self.dir.name, self.impl)
+        with open(os.path.join(self.disc, "batch.conf")) as f:
+            self.assertEqual(f.read(), self.batch("2d-640x480-frit"))
+
+    def test_a_frit_the_disc_carries_counts_too(self):
+        # The showcase's configuration names showcase-iosevka, and its scenes
+        # switch to the other frits its disc carries with OSC 50, so their
+        # fonts are in its batch: JetBrains Mono and Terminus's PSF only
+        # there. cullet-alone, Cullet Mono's reference set, names only a
+        # fresh-install font.
+        lines = self.batch("showcase-1920x1080").splitlines()
+        for font in ("JetBrainsMono-Regular.ttf", "ter-v32n.psf.gz"):
+            self.assertIn("/usr/local/share/fonts/vtium-showcase/" + font, lines)
+        self.assertIn("cullet-alone.vtfrit",
+                      t3_scenario.VARIANTS["cullet-mono-16"]["deferred_frits"])
+
+    def test_every_variant_is_placed(self):
+        # Each variant's fonts can be placed in the guest, so none stops the
+        # run, and each batch file starts with the whole fresh-install list.
+        for variant in t3_scenario.VARIANTS:
+            with self.subTest(variant):
+                text = self.batch(variant)
+                if text is not None:
+                    lines = [line for line in text.splitlines() if not line.startswith("#")]
+                    self.assertEqual(lines[:len(self.FRESH)], self.FRESH)
+                    self.assertGreater(len(lines), len(self.FRESH))
+
+    def test_a_font_tier_3_cannot_place_stops_the_run(self):
+        # A family the guest's table lacks, a kbd font found by name, a frit
+        # nobody ships and a relative path each stop the run, so a new
+        # variant cannot leave its font out of the batch.
+        frits = os.path.join(self.dir.name, "frits")
+        cases = {
+            "family.vtfrit": ("source=font:Some Family\n", "names the family Some Family"),
+            "kbd.vtfrit": ("source=kbd:ter-v16n\n", "cannot place in the guest"),
+            "relative.vtfrit": ("source=outline:fonts/a.ttf\n", "cannot place in the guest"),
+            "layer.vtfrit": ("layer=no-such-layer\n", "no layer no-such-layer"),
+        }
+        for name, (text, error) in cases.items():
+            write_tree(frits, {name: text})
+            with self.subTest(name), mock.patch.object(t3_batch, "GUEST", self.dir.name):
+                with self.assertRaisesRegex(SystemExit, error):
+                    t3_batch.variant_fonts({"frits": [name]}, "")
+        with self.assertRaisesRegex(SystemExit, "no frit no-such-frit"):
+            t3_batch.variant_fonts({}, "font-name=no-such-frit\n")
+        # a family named under the freetype engine is looked up the same way
+        with self.assertRaisesRegex(SystemExit, "names the family Monoid"):
+            t3_batch.variant_fonts({}, "font-engine=freetype\nfont-name = Monoid  # mine\n")
+        self.assertEqual(t3_batch.variant_fonts({}, "font-engine=unifont\nfont-name=x\n"), [])
+
+    def test_setup_installs_the_batch(self):
+        # Each guest installs the disc's batch file where vtium reads it, as
+        # root's, which vtium's owner and mode check trusts, and refuses a
+        # guest whose console font the batch file would leave out.
+        for guest in (t3_common.GUEST, t3_common.GUEST_SYSVINIT):
+            with self.subTest(guest), open(os.path.join(guest, "setup")) as f:
+                setup = f.read()
+                self.assertIn('if [ -f "$disc"/batch.conf ]; then', setup)
+                self.assertIn('install -Dm644 -o root -g root "$disc"/batch.conf '
+                              '/etc/vtium/batch.conf\n', setup)
+                self.assertIn("grep -qs '^[[:space:]]*FONT=' /etc/vconsole.conf", setup)
+                self.assertIn("TIER3-INSTALL-FAIL the guest names a console font", setup)
 
 class PreflightTest(unittest.TestCase):
     """The checks a run makes before it builds or boots anything, the
@@ -2163,8 +2313,9 @@ class SysvinitTest(unittest.TestCase):
 
     def test_disc(self):
         # The guest's own setup and t3-console, which its inittab runs, the
-        # frit of the test font the drawing variants draw, and the no-udev
-        # file only for the variant without udev.
+        # frit of the test font the drawing variants draw with the batch
+        # file that activates the font, and the no-udev file only for the
+        # variant without udev.
         tree = os.path.join(self.dir.name, "tree")
         write_tree(tree, ImplementationTest.TREE)
         impl = t3_impl.tree(tree, os.path.join(self.dir.name, "out", "tree.tar"))
@@ -2172,9 +2323,9 @@ class SysvinitTest(unittest.TestCase):
         write_tree(fonts, {"vtium-test-8x16.psf": "font"})
         impl["fonts"] = fonts
         disc = os.path.join(self.dir.name, "disc")
-        for variant, extra in (("sysvinit-640x480", ["fonts", "frits"]),
-                               ("sysvinit-no-udev", ["fonts", "frits", "no-udev"]),
-                               ("sysvinit-two-vts", ["fonts", "frits", "two-vts"]),
+        for variant, extra in (("sysvinit-640x480", ["fonts", "frits", "batch.conf"]),
+                               ("sysvinit-no-udev", ["fonts", "frits", "no-udev", "batch.conf"]),
+                               ("sysvinit-two-vts", ["fonts", "frits", "two-vts", "batch.conf"]),
                                ("sysvinit-reboot", [])):
             with self.subTest(variant), mock.patch.object(t3_scenario, "make_iso"):
                 t3_scenario.build_disc(variant, self.dir.name, impl)
@@ -3637,13 +3788,17 @@ class DevicesTest(unittest.TestCase):
         # that its notice go with every copy, and Unifont, whose license, the
         # SIL Open Font License, asks that its text go with the font. The
         # font helper builds in tiny-skia, whose BSD-3-Clause license asks
-        # that its text go with the binary.
+        # that its text go with the binary. The license text of each color
+        # scheme's family goes in its palettes folder (ADR-1205 D10).
         r = subprocess.run(["make", "-n", "--no-print-directory", "install-tree", "DESTDIR=/D"],
                            cwd=t3_common.ROOT, capture_output=True, text=True, check=True)
         lines = [l for l in r.stdout.splitlines() if "/D/usr/share/licenses" in l]
         notices = sorted(os.listdir(os.path.join(t3_common.ROOT, "tools", "cullet-mono", "notices")))
         self.assertEqual(lines, ["install -Dm644 -t /D/usr/share/licenses/vtium/cullet-mono "
                                  + " ".join(f"tools/cullet-mono/notices/{n}" for n in notices),
+                                 "install -Dm644 -t /D/usr/share/licenses/vtium/palettes "
+                                 + " ".join(f"crates/vtium/install/palettes/licenses/{n}-LICENSE"
+                                            for n in ("catppuccin", "dracula", "gruvbox", "tokyo-night")),
                                  "install -Dm644 -t /D/usr/share/licenses/vtium LICENSE COPYING "
                                  "crates/vtium-font/data/OFL-1.1.txt "
                                  "crates/vtium-term/gen-color-names/src/rgb-license.txt "

@@ -45,6 +45,19 @@
 //! (ADR-1201 D2, D3), so they learn it without parsing a font in their own
 //! process. It is answered at once, like a cell query.
 //!
+//! The console sends one more request first to each helper it starts: the
+//! active fonts, which the helper's sources read alone from then on
+//! ([`ActiveAsk`]). It names the paths the batch lists and the account
+//! whose files pass the trust rule beside root's. vtium-config's own
+//! previews send none, so they read any font a frit names, in
+//! vtium-config's window, through the same sandbox.
+//!
+//! A description is vtium-config's own as well ([`DescribeAsk`]). It names
+//! one font file, which the helper reads through its gate and answers at
+//! once with what the file holds: its faces, their names, sizes and
+//! coverage. The Fonts tab, `fonts --files` and `apply` learn what a font
+//! is this way, without parsing it in their own process.
+//!
 //! An ask that says how its glyphs were made is vtium-config's own too, and
 //! the console never sends it. It is answered as an ask is, and before its
 //! done frame the helper sends how it made each superscript or subscript
@@ -55,7 +68,8 @@
 //! request  magic "VTVSREQA", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
 //!          says how its glyphs were made, 8 coverage query; 9, the pointer
-//!          ask, has a layout of its own, below), frit name length u32, the name (ADR-1200 D1's
+//!          ask, 10, the active fonts, and 11, a description, have layouts
+//!          of their own, below), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a query), cell height u32 (for a sources or
 //!          coverage query 0, for a cell query
@@ -115,7 +129,9 @@
 //!          installed font that covers the most of the rest (UTF-8, empty
 //!          when none does); kind 16 a pointer picture and 17 a pointer
 //!          shape the helper draws nothing for, both answers to a pointer
-//!          ask (below); kind 3 a failure (UTF-8
+//!          ask (below); kind 18 a font file's description and 19 no
+//!          description, the answers to a description (below); kind 3 a
+//!          failure (UTF-8
 //!          reason), the helper's own, as when it fails as it starts
 //! pointer  magic "VTVSREQA", kind u32 9, file kind u32 (1 SVG, 2 a cursor
 //!   ask    theme's Xcursor file), shape u32 (its place in vtium-term's
@@ -131,6 +147,17 @@
 //!          u32 (0 the file has no picture of the shape, 1 the helper
 //!          cannot draw it), then the reason (UTF-8, empty for 0); then
 //!          kind 2, done, as every ask ends
+//! active   magic "VTVSREQA", kind u32 10, the account u32 whose files
+//!  fonts   pass the trust rule beside root's (0, or the helper's own),
+//!          path count u32, each path's length u32 (1 to ACTIVE_PATH_MAX)
+//!          and the path (absolute, UTF-8, no NUL), the paths' lengths
+//!          together at most ACTIVE_BYTES_MAX; no answer
+//! describe magic "VTVSREQA", kind u32 11, the font file's path length
+//!          u32 (1 to ACTIVE_PATH_MAX) and the path (absolute, UTF-8, no
+//!          NUL)
+//! describe kind 18, once: the file's description
+//!  answer  ([`crate::describe::Description::encode`]); or kind 19, once:
+//!          why there is none (UTF-8)
 //! ```
 //!
 //! The console reads each pointer file itself, under the ownership check a
@@ -237,8 +264,12 @@ use crate::frit::{Render, RenderLine};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
-use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve_hashed};
+use crate::sources::{
+    Consoles, FONT_DIRS, Gate, Host, Input, KBD_DIRS, SourceError, resolve_hashed,
+};
 use vtium_render::{POINTER_SIDE_MAX, POINTER_SVG_BYTES_MAX, XCURSOR_FILE_MAX};
+use vtium_settings::batch::{Batch, Entry};
+use vtium_settings::cullet::{self, Rule};
 use vtium_term::{ClusterWidth, PointerShape};
 
 /// The command that makes the binary the helper.
@@ -329,6 +360,25 @@ pub const POINTER_XCURSOR: u32 = 2;
 /// The most cell heights one pointer ask names: the displays of one head
 /// draw at few cell heights.
 pub const POINTER_HEIGHTS_MAX: usize = 16;
+/// The active fonts ([`ActiveAsk`]), read with a layout of its own.
+pub const ACTIVE: u32 = 10;
+/// A description of one font file ([`DescribeAsk`]), which only
+/// vtium-config sends.
+pub const DESCRIBE: u32 = 11;
+/// The answer to a [`DescribeAsk`]: the font file's
+/// [`crate::describe::Description`].
+pub const FRAME_DESCRIPTION: u32 = 18;
+/// The answer to a [`DescribeAsk`] when the helper has no description:
+/// why, as text. The file is missing, the helper's gate refuses it, or it
+/// is not a font that vtium reads.
+pub const FRAME_NO_DESCRIPTION: u32 = 19;
+/// The most bytes the paths of an [`ActiveAsk`] hold together: the batch
+/// file's own bound, since the paths come from it or from the shorter list
+/// of a fresh install.
+pub const ACTIVE_BYTES_MAX: usize = vtium_settings::batch::BATCH_MAX;
+/// The longest path an [`ActiveAsk`] names: `PATH_MAX`, the longest path
+/// the kernel takes, with its terminating zero.
+pub const ACTIVE_PATH_MAX: usize = 4096;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// An ask from a console that also takes the part of a cluster the font
@@ -754,12 +804,153 @@ fn read_magic(r: &mut impl Read) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Any request the helper reads: one of the glyph requests, or a pointer
-/// ask.
+/// Any request the helper reads: one of the glyph requests, a pointer
+/// ask, or the active fonts.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     Serve(ServeRequest),
     Pointer(PointerAsk),
+    Active(ActiveAsk),
+    Describe(DescribeAsk),
+}
+
+/// A description of one font file, for vtium-config's Fonts tab and its
+/// listing of the fonts found: the helper opens the file at `path` through
+/// its gate, reads it in its sandbox, and answers at once with a
+/// [`FRAME_DESCRIPTION`] or a [`FRAME_NO_DESCRIPTION`]. The console never
+/// sends it. A helper that vtium-config starts holds the open gate, so it
+/// describes a font in a user's folder too, which vtium-config shows but
+/// never activates. A helper that holds the active fonts describes only
+/// those.
+///
+/// References:
+/// - ADR-1205 D3: vtium-config reads a font's family, coverage and sizes
+///   only through the sandboxed helper, and may preview a user's font.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DescribeAsk {
+    /// The font file, an absolute path.
+    pub path: PathBuf,
+}
+
+impl DescribeAsk {
+    /// The request's bytes.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = REQUEST_MAGIC.to_vec();
+        put32(&mut out, DESCRIBE);
+        let bytes = self.path.as_os_str().as_encoded_bytes();
+        put32(&mut out, len32(bytes.len()));
+        out.extend_from_slice(bytes);
+        out
+    }
+
+    /// Reads the path that follows the kind: 1 to [`ACTIVE_PATH_MAX`]
+    /// bytes, UTF-8, absolute and with no NUL, checked before it is
+    /// allocated.
+    fn read_body<R: Read>(f: &mut Fields<'_, R>) -> Result<DescribeAsk, String> {
+        let len = f.count(ACTIVE_PATH_MAX, "a font file's path")?;
+        let path = String::from_utf8(f.bytes(len)?)
+            .ok()
+            .filter(|p| p.starts_with('/') && !p.contains('\0'))
+            .ok_or("a font file's path that is not an absolute UTF-8 path")?;
+        Ok(DescribeAsk {
+            path: PathBuf::from(path),
+        })
+    }
+
+    /// Opens the file through `gate`, reads at most
+    /// [`crate::outline::OUTLINE_BYTES_MAX`] bytes of it, and writes its description, or
+    /// why there is none.
+    fn answer(&self, gate: &Gate, out: &mut dyn Write) -> io::Result<()> {
+        let described = gate
+            .read(&self.path, crate::outline::OUTLINE_BYTES_MAX)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| crate::describe::describe(&bytes, &self.path.to_string_lossy()));
+        match described {
+            Ok(d) => write_frame(out, FRAME_DESCRIPTION, &d.encode()),
+            Err(why) => reason(out, FRAME_NO_DESCRIPTION, &why),
+        }
+    }
+}
+
+/// The active fonts, which the console sends first to each helper it
+/// starts: the paths the batch lists, and the account whose files pass the
+/// trust rule beside root's. The console reads the batch, because it runs
+/// as root and reads root's configuration, and it knows whose files count,
+/// which a helper dropped to `nobody` cannot tell.
+///
+/// References:
+/// - ADR-1205 D4: vtium draws only from the active resources, under the
+///   trust rule, and accepts its own account's files when it runs
+///   unprivileged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ActiveAsk {
+    /// The account whose files pass the trust rule beside root's: 0 when
+    /// the console runs as root, else the console's own account, which
+    /// the helper then runs as too.
+    pub owner: u32,
+    /// The paths the batch lists, each absolute.
+    pub paths: Vec<PathBuf>,
+}
+
+impl ActiveAsk {
+    /// The request's bytes.
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = REQUEST_MAGIC.to_vec();
+        put32(&mut out, ACTIVE);
+        put32(&mut out, self.owner);
+        put32(&mut out, len32(self.paths.len()));
+        for path in &self.paths {
+            let bytes = path.as_os_str().as_encoded_bytes();
+            put32(&mut out, len32(bytes.len()));
+            out.extend_from_slice(bytes);
+        }
+        out
+    }
+
+    /// Reads the fields that follow the kind. Each path is checked: 1 to
+    /// [`ACTIVE_PATH_MAX`] bytes, UTF-8, absolute and with no NUL, and the
+    /// paths together within [`ACTIVE_BYTES_MAX`], checked before each is
+    /// allocated.
+    fn read_body<R: Read>(f: &mut Fields<'_, R>) -> Result<ActiveAsk, String> {
+        let owner = f.u32()?;
+        let n = f.count(ACTIVE_BYTES_MAX, "the active fonts")?;
+        let mut paths = Vec::with_capacity(n.min(1024));
+        let mut total = 0usize;
+        for _ in 0..n {
+            let len = f.count(ACTIVE_PATH_MAX, "an active font's path")?;
+            total = total.saturating_add(len);
+            if total > ACTIVE_BYTES_MAX {
+                return Err(format!(
+                    "active fonts' paths past their bound of {ACTIVE_BYTES_MAX} bytes"
+                ));
+            }
+            let path = String::from_utf8(f.bytes(len)?)
+                .ok()
+                .filter(|p| p.starts_with('/') && !p.contains('\0'))
+                .ok_or("an active font's path that is not an absolute UTF-8 path")?;
+            paths.push(PathBuf::from(path));
+        }
+        Ok(ActiveAsk { owner, paths })
+    }
+
+    /// The gate this request opens in a helper that runs as `euid`: the
+    /// batch of its paths, under the rule of root's files and the owner's.
+    /// An owner other than root or the helper's own account is refused,
+    /// since the console starts the helper either as `nobody`, from root,
+    /// or as its own account.
+    pub fn gate(&self, euid: u32) -> Result<Gate, String> {
+        if self.owner != 0 && self.owner != euid {
+            return Err(format!(
+                "active fonts whose files belong to uid {}, which is neither root nor the font helper's own account",
+                self.owner
+            ));
+        }
+        Ok(Gate::Active(cullet::Gate::new(
+            Rule::running_as(self.owner),
+            None,
+            Batch::new(self.paths.iter().cloned().map(Entry::Path).collect()),
+        )))
+    }
 }
 
 /// Reads one request of any kind from `r`, as [`ServeRequest::read`] and
@@ -773,6 +964,10 @@ pub fn read_request(r: &mut impl Read) -> Result<Option<Request>, String> {
     let kind = f.u32()?;
     if kind == POINTER {
         PointerAsk::read_body(&mut f).map(|a| Some(Request::Pointer(a)))
+    } else if kind == ACTIVE {
+        ActiveAsk::read_body(&mut f).map(|a| Some(Request::Active(a)))
+    } else if kind == DESCRIBE {
+        DescribeAsk::read_body(&mut f).map(|a| Some(Request::Describe(a)))
     } else {
         ServeRequest::read_body(kind, &mut f).map(|r| Some(Request::Serve(r)))
     }
@@ -847,7 +1042,7 @@ impl PointerAsk {
         match read_request(r)? {
             None => Ok(None),
             Some(Request::Pointer(a)) => Ok(Some(a)),
-            Some(Request::Serve(_)) => {
+            Some(Request::Serve(_) | Request::Active(_) | Request::Describe(_)) => {
                 Err("a glyph request where a pointer ask was expected".to_owned())
             }
         }
@@ -1488,16 +1683,10 @@ pub fn outline_version(font: &[u8], family: &str) -> Option<String> {
 /// and no glyph 0.
 fn outline_coverage(font: &[u8], family: &str) -> Result<Vec<u32>, String> {
     let face = outline_face(font, family)?;
-    let mut out = Vec::new();
-    face.charmap().enumerate(|c, g| {
-        let control = c < 0x20 || (0x7f..0xa0).contains(&c);
-        if g != 0 && !control && char::from_u32(c).is_some() {
-            out.push(c);
-        }
-    });
-    out.sort_unstable();
-    out.dedup();
-    Ok(out)
+    Ok(crate::describe::mapped(face.charmap(), |_| true)
+        .into_iter()
+        .map(|(c, _)| c)
+        .collect())
 }
 
 /// Whether `key` is the key of one piece of a run of ASCII symbols that
@@ -1746,6 +1935,31 @@ struct SmallerGlyph<'a> {
     rows: &'a [u8],
 }
 
+/// The line the console logs, once a boot, for a font file that the set
+/// `set` names in `source` and that the font helper refuses: the set, the
+/// file, the layer the source came from when it came from one, and why
+/// vtium treats the file as missing. The font's characters then draw from
+/// the next font that has them.
+///
+/// References:
+/// - ADR-1205 D4: a refused file counts as missing, and vtium logs one
+///   line for it, naming the file and the check it failed.
+/// - ADR-1204 D7: a missing font's characters draw from the next source.
+fn refused_line(set: &str, source: &Source, refused: &SourceError) -> String {
+    let from = source
+        .layer
+        .as_ref()
+        .map(|layer| format!(" from the layer {layer}"))
+        .unwrap_or_default();
+    match refused {
+        SourceError::Refused { path, because } => format!(
+            "{set} needs the font file {}{from}, which vtium treats as missing, because {because} vtium draws the font's characters from the next font that has them.",
+            path.display()
+        ),
+        other => format!("{set}: {other}"),
+    }
+}
+
 /// The smaller sizes of the bitmap source `source` (ADR-1202 D3, D12),
 /// read and parsed as [`crate::sources::smaller`] names them. A font this
 /// machine does not have is left out quietly, as a source is. A font that
@@ -1770,6 +1984,10 @@ fn smaller_fonts(
                 "{}: script-source={spelling}: {e}; the font is left out",
                 frit.at(*line)
             )),
+            // a font the gate refuses is logged, as a source's is
+            (Err(refused @ SourceError::Refused { .. }), _) => {
+                warnings.push(refused_line(&frit.name, source, &refused));
+            }
             // a font this machine lacks, and a CPI height that does not
             // decode, are left out quietly
             (Err(_), _) => {}
@@ -1884,6 +2102,18 @@ fn strike_fonts(
                     why,
                 });
             }
+            Err(refused @ SourceError::Refused { .. }) => {
+                // the console logs this line once a boot
+                report
+                    .warnings
+                    .push(refused_line(&frit.name, &file, &refused));
+                report.left_out.push(LeftOut {
+                    missing: true,
+                    line: own_line,
+                    spelling: strike.spelling.clone(),
+                    why: refused.to_string(),
+                });
+            }
         }
     }
     fonts
@@ -1919,7 +2149,18 @@ impl Engine {
         paths: &Paths,
         console: Option<ConsoleFont>,
     ) -> Result<Engine, String> {
-        Engine::read(frit, paths, console).map_err(|nothing| nothing.why)
+        Engine::load_through(frit, paths, console, &Gate::Open)
+    }
+
+    /// [`Engine::load`], its sources reading only the font files `gate`
+    /// lets through, as the console's font helper reads them.
+    pub fn load_through(
+        frit: &FritText,
+        paths: &Paths,
+        console: Option<ConsoleFont>,
+        gate: &Gate,
+    ) -> Result<Engine, String> {
+        Engine::read(frit, paths, console, gate).map_err(|nothing| nothing.why)
     }
 
     /// [`Engine::load`], which for a frit it draws nothing from keeps what
@@ -1934,6 +2175,7 @@ impl Engine {
         frit: &FritText,
         paths: &Paths,
         console: Option<ConsoleFont>,
+        gate: &Gate,
     ) -> Result<Engine, DrawsNothing> {
         let file = Path::new(&frit.name);
         // the console hands the frit with its layers in place, so each
@@ -1956,6 +2198,7 @@ impl Engine {
             vconsole_conf: paths.vconsole_conf.clone(),
             kernel_cmdline: paths.kernel_cmdline.clone(),
             consoles: &handed,
+            gate,
         };
         let mut sources = Vec::new();
         let mut smaller = Vec::new();
@@ -2065,6 +2308,18 @@ impl Engine {
                     };
                     sources.push((source.clone(), l));
                     smaller.push(small);
+                }
+                Err(refused @ SourceError::Refused { .. }) => {
+                    let e = refused.to_string();
+                    why.push(format!("source={}: {e}", source.spelling));
+                    // the console logs this line once a boot
+                    warnings.push(refused_line(&frit.name, source, &refused));
+                    left_out.push(LeftOut {
+                        missing: true,
+                        line: own_line,
+                        spelling: source.spelling.clone(),
+                        why: e,
+                    });
                 }
                 Err(SourceError::Missing(e)) => {
                     why.push(format!("source={}: {e}", source.spelling));
@@ -4026,13 +4281,13 @@ fn halved_ink(glyph: &Glyph) -> Option<HalvedInk> {
 
 /// A coverage query's answer ([`FRAME_COVERAGE`]): which of `letters` the
 /// frit's sorted `coverage` holds, and the family of an installed font
-/// under `dirs` that covers the most of the rest.
-fn coverage_payload(coverage: &[u32], letters: &[u32], dirs: &[PathBuf]) -> Vec<u8> {
+/// under `dirs` that `gate` lets through that covers the most of the rest.
+fn coverage_payload(coverage: &[u32], letters: &[u32], dirs: &[PathBuf], gate: &Gate) -> Vec<u8> {
     let (covered, rest): (Vec<u32>, Vec<u32>) = letters
         .iter()
         .partition(|c| coverage.binary_search(c).is_ok());
     let rest: Vec<char> = rest.into_iter().filter_map(char::from_u32).collect();
-    let font = crate::sources::font_covering(&rest, dirs).unwrap_or_default();
+    let font = crate::sources::font_covering_in(&rest, dirs, gate).unwrap_or_default();
     let mut out = Vec::new();
     put32(&mut out, len32(covered.len()));
     for c in covered {
@@ -4300,12 +4555,15 @@ pub fn serve(
     paths: &Paths,
     idle: Duration,
 ) -> u8 {
-    answer_requests(&read_requests(input), out, paths, idle, None)
+    answer_requests(&read_requests(input), out, paths, idle, None, Gate::Open)
 }
 
 /// The helper's work: the asks waiting, in order, and the fills.
 struct Work<'p> {
     paths: &'p Paths,
+    /// Which font files the frits' sources may read: those the console's
+    /// last [`ActiveAsk`] names.
+    gate: Gate,
     /// Each frit's engine, by its name and text, so a frit whose text
     /// changes is read again.
     engines: BTreeMap<FritText, Result<Engine, DrawsNothing>>,
@@ -4332,10 +4590,19 @@ impl Work<'_> {
     /// The engine of `frit`, read the first time it is asked for, or why
     /// it draws nothing and what its read found.
     fn read(&mut self, frit: &FritText) -> &Result<Engine, DrawsNothing> {
-        let (paths, console) = (self.paths, self.console.clone());
+        let (paths, console, gate) = (self.paths, self.console.clone(), &self.gate);
         self.engines
             .entry(frit.clone())
-            .or_insert_with(|| Engine::read(frit, paths, console))
+            .or_insert_with(|| Engine::read(frit, paths, console, gate))
+    }
+
+    /// Takes the active fonts the console names, the gate every frit is
+    /// read through from now on. A frit already read is read again at its
+    /// next request, through the new gate.
+    fn activate(&mut self, active: &ActiveAsk) -> Result<(), String> {
+        self.gate = active.gate(rustix::process::geteuid().as_raw())?;
+        self.engines.clear();
+        Ok(())
     }
 
     /// Reads `frit` when it is not read yet, and sends each warning its
@@ -4399,10 +4666,11 @@ impl Work<'_> {
             }
             COVERAGE => {
                 let dirs = self.paths.font_dirs.clone();
+                let gate = self.gate.clone();
                 return match self.engine(&request.frit) {
                     Ok(engine) => {
                         let payload =
-                            coverage_payload(engine.coverage(), &request.codepoints, &dirs);
+                            coverage_payload(engine.coverage(), &request.codepoints, &dirs, &gate);
                         write_frame(out, FRAME_COVERAGE, &payload)
                     }
                     Err(why) => reason(out, FRAME_DRAWS_NOTHING, &why.clone()),
@@ -4558,9 +4826,11 @@ fn answer_requests(
     paths: &Paths,
     idle: Duration,
     mut report: Option<u32>,
+    gate: Gate,
 ) -> u8 {
     let mut work = Work {
         paths,
+        gate,
         engines: BTreeMap::new(),
         console: None,
         asks: VecDeque::new(),
@@ -4599,6 +4869,14 @@ fn answer_requests(
                             work.asks.push_back(Queued::Pointer(a));
                             Ok(())
                         }
+                        Request::Describe(a) => a.answer(&work.gate, out),
+                        Request::Active(a) => match work.activate(&a) {
+                            Ok(()) => Ok(()),
+                            Err(why) => {
+                                let _ = failed(out, &format!("a malformed request: {why}"));
+                                return 1;
+                            }
+                        },
                     };
                     if taken.is_err() {
                         return 1;
@@ -4692,10 +4970,12 @@ const LANDLOCK_NEWEST: ABI = ABI::V9;
 /// file and grants none, refuses binding and connecting TCP sockets, and
 /// is scoped, so the helper connects to no abstract Unix socket made
 /// outside it and signals no process outside it, each as far as the
-/// kernel's landlock version knows it. It leaves reads open, since a frit
-/// may name a font by an absolute path anywhere. Returns whether the
-/// domain is in force; on a kernel without landlock the helper runs as
-/// before, with none.
+/// kernel's landlock version knows it. The domain leaves reads open,
+/// because a helper that vtium-config starts reads a font in a user's
+/// folder to preview it ([`DescribeAsk`]). The console's helper opens a
+/// font only through its gate, which takes only the active fonts. Returns
+/// whether the domain is in force; on a kernel without landlock the helper
+/// runs as before, with none.
 fn lock_out() -> Result<bool, String> {
     let status = Ruleset::default()
         .set_compatibility(CompatLevel::BestEffort)
@@ -4826,6 +5106,7 @@ pub fn command(paths: &Paths) -> u8 {
         paths,
         Duration::from_millis(HELPER_IDLE_MS),
         Some(parts),
+        Gate::Open,
     )
 }
 
@@ -8036,6 +8317,7 @@ mod tests {
         let paths = Paths::default();
         let mut work = Work {
             paths: &paths,
+            gate: Gate::Open,
             engines: BTreeMap::new(),
             console: None,
             asks: VecDeque::new(),
@@ -8349,6 +8631,251 @@ mod tests {
             "{took:?}"
         );
         assert_eq!(HELPER_IDLE_MS, 60_000);
+    }
+
+    /// The outline font in the crate's test fixtures, in the checkout,
+    /// whose folders the test's own account owns and nobody else can
+    /// write, on the filesystem the checkout is on.
+    fn fixture_font() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/DejaVuSansMono-W-M-0.ttf")
+    }
+
+    fn me() -> u32 {
+        rustix::process::geteuid().as_raw()
+    }
+
+    // The active fonts read back as they were encoded, and
+    // each field is checked before it is trusted
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
+    #[test]
+    fn an_active_ask_reads_back_and_refuses_each_field_out_of_bounds() {
+        let ask = ActiveAsk {
+            owner: 0,
+            paths: vec![PathBuf::from("/usr/share/vtium/fonts/ter-u16n.bdf.gz")],
+        };
+        let bytes = ask.encode();
+        assert_eq!(
+            read_request(&mut &bytes[..]),
+            Ok(Some(Request::Active(ask.clone())))
+        );
+        assert!(PointerAsk::read(&mut &bytes[..]).is_err());
+        assert!(ServeRequest::read(&mut &bytes[..]).is_err());
+        let refused = |paths: Vec<PathBuf>| {
+            let bytes = ActiveAsk { owner: 0, paths }.encode();
+            read_request(&mut &bytes[..]).unwrap_err()
+        };
+        assert!(refused(vec![PathBuf::from("fonts/x.ttf")]).contains("absolute"));
+        assert!(refused(vec![PathBuf::from("/a\0b")]).contains("absolute"));
+        assert!(refused(vec![PathBuf::from("")]).contains("absolute"));
+        let long = format!("/{}", "x".repeat(ACTIVE_PATH_MAX));
+        assert!(refused(vec![PathBuf::from(long)]).contains("past its bound"));
+        let many =
+            vec![PathBuf::from(format!("/{}", "x".repeat(1023))); ACTIVE_BYTES_MAX / 1024 + 1];
+        assert!(refused(many).contains("past their bound"));
+        let mut odd = ActiveAsk {
+            owner: 0,
+            paths: vec![PathBuf::from("/ab")],
+        }
+        .encode();
+        let at = odd.len() - 2;
+        odd[at] = 0xff;
+        assert!(read_request(&mut &odd[..]).unwrap_err().contains("UTF-8"));
+    }
+
+    /// What the helper answers a sources query for the frit `text`, each
+    /// request read in turn, starting from `gate`, with `active` sent first
+    /// when it is given.
+    fn sources_through(
+        gate: Gate,
+        active: Option<ActiveAsk>,
+        text: &str,
+    ) -> (u8, Vec<(u32, Vec<u8>)>) {
+        let mut bytes = active.map(|a| a.encode()).unwrap_or_default();
+        bytes.extend(sources_query(frit(text)).encode());
+        let mut out = Vec::new();
+        let status = answer_requests(
+            &read_requests(std::io::Cursor::new(bytes)),
+            &mut out,
+            &Paths::default(),
+            Duration::from_secs(5),
+            None,
+            gate,
+        );
+        (status, frames(&out))
+    }
+
+    // Once the console names the active fonts, the helper
+    // reads only the font files they list, and logs one line for each it
+    // refuses; vtium-config's own previews, which name none, read any
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
+    #[test]
+    fn the_console_s_active_fonts_gate_every_font_file_the_helper_reads() {
+        let font = fixture_font();
+        let text = format!(
+            "source=outline:{}\nsource=builtin:unscii-8\n",
+            font.display()
+        );
+        let (status, open) = sources_through(Gate::Open, None, &text);
+        assert_eq!(status, 0);
+        assert_eq!(open.len(), 1, "{open:?}");
+        assert_eq!((open[0].0, open[0].1.as_slice()), (FRAME_SOURCES, &b""[..]));
+        let none = ActiveAsk {
+            owner: me(),
+            paths: Vec::new(),
+        };
+        let (status, closed) = sources_through(Gate::Open, Some(none), &text);
+        assert_eq!(status, 0);
+        let kinds: Vec<u32> = closed.iter().map(|f| f.0).collect();
+        assert_eq!(kinds, [FRAME_WARNING, FRAME_SOURCES]);
+        // the line the console logs once a boot names the file and why
+        assert_eq!(
+            String::from_utf8_lossy(&closed[0].1),
+            format!(
+                "t needs the font file {}, which vtium treats as missing, because it is not among the active fonts. vtium draws the font's characters from the next font that has them.",
+                font.display()
+            )
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&closed[1].1),
+            format!(
+                "missing\t1\toutline:{0}\t{0}: vtium treats this file as missing, because it is not among the active fonts.",
+                font.display()
+            )
+        );
+        let named = ActiveAsk {
+            owner: me(),
+            paths: vec![font.clone()],
+        };
+        let (status, listed) = sources_through(Gate::Open, Some(named), &text);
+        assert_eq!(status, 0);
+        assert_eq!(listed.len(), 1, "{listed:?}");
+        assert_eq!(
+            (listed[0].0, listed[0].1.as_slice()),
+            (FRAME_SOURCES, &b""[..])
+        );
+        // a font from a layer is logged with its layer's name
+        let symbols = format!("role=symbols\nsource=outline:{}\n", font.display());
+        let spliced = layered("source=builtin:unscii-8\nlayer=sym\n", "sym", &symbols);
+        let none = ActiveAsk {
+            owner: me(),
+            paths: Vec::new(),
+        };
+        let (_, layer) = sources_through(Gate::Open, Some(none), &spliced.text);
+        assert_eq!(layer[0].0, FRAME_WARNING);
+        assert!(
+            String::from_utf8_lossy(&layer[0].1).starts_with(&format!(
+                "t needs the font file {} from the layer sym, which vtium treats as missing",
+                font.display()
+            )),
+            "{layer:?}"
+        );
+    }
+
+    // The console names root's account, or its own, which
+    // the helper then runs as; any other account is refused
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
+    #[test]
+    fn active_fonts_of_another_account_end_the_helper() {
+        let ask = ActiveAsk {
+            owner: me().wrapping_add(1).max(1),
+            paths: Vec::new(),
+        };
+        let (status, frames) = sources_through(Gate::Open, Some(ask), "source=builtin:unscii-8\n");
+        assert_eq!(status, 1);
+        assert_eq!(frames.len(), 1);
+        assert_eq!(frames[0].0, FRAME_FAILED);
+        let why = String::from_utf8_lossy(&frames[0].1);
+        assert!(
+            why.contains("neither root nor the font helper's own account"),
+            "{why}"
+        );
+    }
+
+    /// Opens the fixture font through an active gate on a thread that
+    /// `enter` sandboxes first, as the helper's main thread is sandboxed,
+    /// and says whether the mount table read and the font opened; `None`
+    /// when `enter` puts no sandbox in force on this kernel or machine.
+    fn opened_in_sandbox(
+        enter: fn() -> Result<bool, String>,
+    ) -> Option<(bool, Result<(), SourceError>)> {
+        let font = fixture_font();
+        std::thread::spawn(move || {
+            if !enter().ok()? {
+                return None;
+            }
+            let table =
+                vtium_settings::mounts::Mounts::system().is_ok_and(|m| !m.list().is_empty());
+            let gate = Gate::Active(cullet::Gate::new(
+                Rule::running_as(me()),
+                None,
+                Batch::new(vec![Entry::Path(font.clone())]),
+            ));
+            let opened = crate::sources::resolve(
+                &crate::frit::Frit::parse(
+                    format!("source=outline:{}\n", font.display()).as_bytes(),
+                    Path::new("t"),
+                    "t",
+                )
+                .unwrap()
+                .sources[0],
+                &Host {
+                    kbd_dirs: Vec::new(),
+                    font_dirs: Vec::new(),
+                    vconsole_conf: PathBuf::from("/nonexistent"),
+                    kernel_cmdline: PathBuf::from("/nonexistent"),
+                    consoles: &Handed(None),
+                    gate: &gate,
+                },
+            )
+            .map(drop);
+            Some((table, opened))
+        })
+        .join()
+        .unwrap()
+    }
+
+    // Inside the helper's real sandbox, the
+    // trust rule reads the mount table and sysfs, so an active font on a
+    // filesystem that stays mounted opens; were the sandbox to hide them,
+    // the rule would refuse every font. Under the landlock domain, and
+    // under the fallback filter that stands in for it
+    //
+    // References:
+    // - ADR-1205 D4: a font draws only while the batch lists it and it passes the trust rule.
+    // - ADR-1200 D15: the font helper runs in a sandbox.
+    #[test]
+    fn the_trust_rule_reads_the_mount_table_and_sysfs_inside_the_sandbox() {
+        fn fallback() -> Result<bool, String> {
+            Ok(refuse_sockets()? && fall_back()?)
+        }
+        let mut judged = 0;
+        for (name, enter) in [
+            ("landlock", sandbox_with_domain as fn() -> _),
+            ("fallback", fallback),
+        ] {
+            match opened_in_sandbox(enter) {
+                None => eprintln!("skipped: no {name} sandbox on this kernel or machine"),
+                Some((table, opened)) => {
+                    assert!(table, "{name}: the mount table did not read");
+                    assert_eq!(opened, Ok(()), "{name}");
+                    judged += 1;
+                }
+            }
+        }
+        if std::env::var_os("VTIUM_QEMU_USER").is_none() {
+            assert!(judged > 0, "neither sandbox was in force");
+        }
+    }
+
+    /// The helper's sandbox, when its landlock domain is in force.
+    fn sandbox_with_domain() -> Result<bool, String> {
+        Ok(sandbox()? & SANDBOX_DOMAIN != 0)
     }
 
     // the helper's landlock domain refuses every file write and every TCP

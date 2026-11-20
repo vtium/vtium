@@ -1,4 +1,14 @@
-//! The vtlook a head draws with: the one its configuration names, read
+//! What a head's look gives it beyond its font: its palette and its
+//! vtlook.
+//!
+//! The palette comes first. A head's palette is the one its look's
+//! `palette` names, else the top level's, else `legacy`. A palette file
+//! the look names that fails, or that no folder holds, leaves the head on
+//! the top level's palette, and vtium logs one line for the file. The
+//! palette is the head's configured palette: each console of the head
+//! starts with it, and the color resets return to it.
+//!
+//! The vtlook a head draws with is the one its configuration names, read
 //! when the head is made, or the built-in vtlook.
 //!
 //! A head's configuration gives `vtlook` from the head's look section,
@@ -29,6 +39,7 @@
 //! vtlook, as the build is meant to.
 //!
 //! References:
+//! - ADR-1205 D10: a look's palette, the top level's in place of a file that fails, and the head's configured palette.
 //! - ADR-1304 D5: a head's vtlook comes from its look, else the top level, else the built-in one.
 //! - ADR-1304 D2: the table is built on the CPU once for each head.
 //! - ADR-1304 D6: any error drops the head to the built-in vtlook, with one log line, and no retry.
@@ -37,7 +48,71 @@
 //! - ADR-1304 D12: the built-in vtlook reads no file.
 
 use crate::config::{Config, keys};
+use crate::term::Term;
 use vtium_settings::vtlook;
+use vtium_term::Palette;
+
+/// The configured palette of a head whose configuration is `config`: the
+/// palette its look names, else the top level's. `term` is the head's
+/// first console, made from the top level's configuration, so it holds
+/// the top level's palette, which takes the place of a palette file of
+/// the look's that fails or that no folder holds. `term` takes the
+/// head's palette as the one it is configured with.
+pub(crate) fn palette(config: &Config, term: &mut Term) -> Palette {
+    palette_with(config, term, &mut Config::palette_file)
+}
+
+/// [`palette`], with `file` giving a palette file's palette, or `None`
+/// for one that fails or that no folder holds.
+pub(crate) fn palette_with(
+    config: &Config,
+    term: &mut Term,
+    file: &mut dyn FnMut(&str) -> Option<Palette>,
+) -> Palette {
+    let top = term.terminal.palette().clone();
+    let palette = config.palette_with(|| top, file);
+    term.terminal.set_palette(palette.clone());
+    palette
+}
+
+impl super::Head {
+    /// The head's palette, read again from `config`, the head's
+    /// configuration, with `top`, the top level's palette, in place of a
+    /// palette file of the look's that fails or that no folder holds. vtium
+    /// calls this for every head when a login finds the batch changed.
+    /// When the palette differs from the one the head had, it becomes the
+    /// palette each console of the head is configured with, and the palette
+    /// of each console the head opens from now on. A console that runs no
+    /// session draws in it at once. A console whose session still runs
+    /// keeps the colors it draws, including those its program set, so the
+    /// batch never recolors a program under it. Its color resets and its
+    /// next session return to the new palette.
+    ///
+    /// References:
+    /// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
+    /// - ADR-1205 D10: the look's palette is the head's configured palette.
+    pub(crate) fn repalette(&mut self, config: &Config, top: Palette) {
+        let palette = config.palette_or(|| top);
+        if palette == self.palette {
+            return;
+        }
+        self.palette = palette;
+        let palette = self.palette.clone();
+        for console in self.consoles_mut() {
+            if console.running() {
+                console.term.terminal.set_reset_palette(palette.clone());
+            } else {
+                console.term.terminal.set_palette(palette.clone());
+            }
+        }
+    }
+
+    /// The head's configured palette: the one its look's `palette` names,
+    /// else the top level's.
+    pub fn palette(&self) -> &Palette {
+        &self.palette
+    }
+}
 
 /// The vtlook a head draws with.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -194,16 +269,57 @@ pub(crate) fn choose(head: &str, config: &Config) -> Chosen {
     chosen
 }
 
-/// Reads the vtlook `name` for head `head` from the looks folder, as the
-/// account vtium runs as reads it, with the line to log, if any.
+/// Reads the vtlook `name` for head `head`, as the account vtium runs as
+/// reads it, with the line to log, if any. vtium looks in the
+/// administrator's folder first and then in the package's, so a preset
+/// such as `amber` draws with no copy in the administrator's folder, and
+/// a copy there takes its place. A `cube` filter's `.cube` file is in the
+/// administrator's folder, and vtium reads it only when the batch lists it
+/// and it passes the trust rule.
+///
+/// References:
+/// - ADR-1304 D4, its note of 2026-11-19: the two folders, and the administrator's vtlook winning on a name.
+/// - ADR-1304 D9: the `.cube` file sits beside the administrator's vtlooks.
+/// - ADR-1205 D4: the batch and the trust rule a `.cube` file passes.
 #[cfg(feature = "filters")]
 fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
+    let gate = crate::font::gate();
+    #[cfg(test)]
+    if let Some((dir, trust)) = TEST_FOLDER.with_borrow(Clone::clone) {
+        let cubes = vtlook::Cubes {
+            dir: &dir,
+            gate: &gate,
+        };
+        return read_in(head, name, &[dir.as_path()], &trust, &cubes);
+    }
+    let cubes = vtlook::Cubes {
+        dir: std::path::Path::new(vtlook::LOOKS),
+        gate: &gate,
+    };
     read_in(
         head,
         name,
-        std::path::Path::new(vtlook::LOOKS),
+        &vtlook::folders(),
         &crate::font::trust(),
+        &cubes,
     )
+}
+
+#[cfg(all(test, feature = "filters"))]
+thread_local! {
+    /// The folder that holds a test's vtlooks and `.cube` files, with the
+    /// trust rule its vtlooks pass, in place of this machine's folders, on
+    /// the test's thread.
+    static TEST_FOLDER: std::cell::RefCell<Option<(std::path::PathBuf, vtium_settings::Trust)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Makes this thread read its vtlooks and `.cube` files from `folder`, a
+/// test's folder with the trust rule its vtlooks pass, or from this
+/// machine's folders again with `None`.
+#[cfg(all(test, feature = "filters"))]
+pub(crate) fn read_from(folder: Option<(std::path::PathBuf, vtium_settings::Trust)>) {
+    TEST_FOLDER.set(folder);
 }
 
 /// What a build without frame filters does with the vtlook `name`: it
@@ -213,16 +329,18 @@ fn read(head: &str, name: &str) -> (Chosen, Option<String>) {
     (Chosen::default(), Some(vtlook::no_filters(head, name)))
 }
 
-/// Reads the vtlook `name` from the folder `dir` under `trust`: the vtlook
-/// read, or the built-in one with the line that says why.
+/// Reads the vtlook `name` from the first of `folders` that holds it,
+/// under `trust`, and each `cube` filter's file through `cubes`: the
+/// vtlook read, or the built-in one with the line that says why.
 #[cfg(feature = "filters")]
 fn read_in(
     head: &str,
     name: &str,
-    dir: &std::path::Path,
+    folders: &[&std::path::Path],
     trust: &vtium_settings::Trust,
+    cubes: &vtlook::Cubes,
 ) -> (Chosen, Option<String>) {
-    let look = match vtlook::read(name, dir, trust) {
+    let look = match vtlook::find(name, folders, trust) {
         Ok(look) => look,
         Err(failure) => return (Chosen::default(), vtlook::log_line(&failure, head)),
     };
@@ -233,7 +351,7 @@ fn read_in(
         };
         return (chosen, None);
     }
-    match vtlook::table(&look) {
+    match vtlook::table_with(&look, cubes) {
         Ok(table) => {
             let chosen = Chosen {
                 vtlook: Some(look),
@@ -298,6 +416,75 @@ mod tests {
         assert_eq!(vtlooks, [Some("amber".to_owned()), Some("top".to_owned())]);
     }
 
+    // A look's own palette wins over the top level's, and a head whose
+    // look names none takes the top level's. The palette is the head's
+    // configured one: its first console starts with it, and so does each
+    // console the head opens later.
+    // covers: color.palette.named
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_look_s_palette_wins_over_the_top_level_s() {
+        let text = "palette = solarized\nversion = 1\n[look warm]\npalette = nord\n[look plain]\n[head a]\nlook = warm\n[head b]\nlook = plain\n";
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let clock: crate::term::Clock = std::rc::Rc::new(std::time::Instant::now);
+        let caps = crate::head::session::Caps { head: 4, total: 8 };
+        let heads = crate::head::session::heads(&rules, &top, ((100, 100), 1 << 20), caps, &clock);
+        let named = |n: &str| Palette::named(n).unwrap_or_default();
+        let drawn: Vec<Palette> = heads
+            .iter()
+            .map(|h| h.console.term.terminal.palette().clone())
+            .collect();
+        assert_eq!(drawn, [named("nord"), named("solarized")]);
+        let configured: Vec<&Palette> = heads.iter().map(|h| &h.palette).collect();
+        assert_eq!(configured, [&named("nord"), &named("solarized")]);
+        // a console the head opens later starts with the head's palette,
+        // though its terminal is made from the top level's configuration
+        let later = crate::head::terminal(&top, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let opened = heads.first().map(|h| h.fresh_console(9, later));
+        assert_eq!(
+            opened.map(|c| c.term.terminal.palette().clone()),
+            Some(named("nord"))
+        );
+    }
+
+    // A look whose palette file no folder holds draws the top level's
+    // palette, not legacy: the head, its first console and each console it
+    // opens later. config/palette.rs tests a file that fails.
+    // covers: color.palette.named
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn a_look_s_failing_palette_file_draws_the_top_level_s_palette() {
+        let text = "palette = solarized\nversion = 1\n[look odd]\npalette = no-such-scheme-zz\n[head a]\nlook = odd\n";
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let clock: crate::term::Clock = std::rc::Rc::new(std::time::Instant::now);
+        let caps = crate::head::session::Caps { head: 4, total: 8 };
+        let heads = crate::head::session::heads(&rules, &top, ((100, 100), 1 << 20), caps, &clock);
+        let solarized = Palette::named("solarized").unwrap_or_default();
+        assert_eq!(heads.len(), 1);
+        let Some(head) = heads.first() else { return };
+        assert_eq!(head.palette, solarized);
+        assert_eq!(head.console.term.terminal.palette(), &solarized);
+        let later = crate::head::terminal(&top, (0, 0), 0, std::rc::Rc::clone(&clock));
+        assert_eq!(
+            head.fresh_console(9, later).term.terminal.palette(),
+            &solarized
+        );
+    }
+
     // A build without frame filters reads no vtlook and says so once.
     #[cfg(not(feature = "filters"))]
     #[test]
@@ -330,14 +517,26 @@ mod tests {
             let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
         };
         write("plain", "version = 1\n[requires]\nmin-depth = 8\n");
-        let (chosen, said) = read_in("console", "plain", &dir, &trust);
+        let (chosen, said) = read_in(
+            "console",
+            "plain",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!(said, None);
         assert!(chosen.vtlook.is_some_and(|l| !l.holds_filters()));
         write(
             "crt",
             "version = 1\n[requires]\nmin-depth = 12\n[color sepia]\n[spatial scanlines]\nperiod = 12\n",
         );
-        let (chosen, said) = read_in("console", "crt", &dir, &trust);
+        let (chosen, said) = read_in(
+            "console",
+            "crt",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!(chosen, Chosen::default());
         assert_eq!(
             said,
@@ -346,7 +545,13 @@ mod tests {
                 dir.join("crt.vtlook").display()
             ))
         );
-        let (chosen, said) = read_in("desk", "gone", &dir, &trust);
+        let (chosen, said) = read_in(
+            "desk",
+            "gone",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!(chosen, Chosen::default());
         assert!(
             said.as_deref()
@@ -382,9 +587,21 @@ mod tests {
             "version = 1\n[requires]\nmin-depth = 16\nmax-size = 1920x1080\nmin-dpi = 90\nmax-dpi = 200\ngpu = any\n[color tint]\ncolor = 255,176,0\n",
         );
         write("plain", "version = 1\n");
-        let (plain, said) = read_in("console", "plain", &dir, &trust);
+        let (plain, said) = read_in(
+            "console",
+            "plain",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!((plain.table.is_none(), said), (true, None));
-        let (chosen, said) = read_in("console", "amber", &dir, &trust);
+        let (chosen, said) = read_in(
+            "console",
+            "amber",
+            &[dir.as_path()],
+            &trust,
+            &Cubes::active(&dir, &[]).gate(),
+        );
         assert_eq!(said, None);
         let want = chosen
             .vtlook
@@ -468,5 +685,149 @@ mod tests {
         // the built-in vtlook has no table on any display
         assert_eq!(Chosen::default().table_for(&display), (None, None));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The `.cube` files a test's vtlooks may read: those named in
+    /// `active` in the folder `dir`, under a trust rule that takes the
+    /// test's own user's files below `dir`, and this machine's mount table.
+    #[cfg(feature = "filters")]
+    struct Cubes {
+        dir: std::path::PathBuf,
+        active: vtium_settings::cullet::Gate,
+    }
+
+    #[cfg(feature = "filters")]
+    impl Cubes {
+        fn active(dir: &std::path::Path, active: &[&str]) -> Cubes {
+            use std::os::unix::fs::MetadataExt;
+            use vtium_settings::batch::{Batch, Entry};
+            let me = std::fs::metadata(dir).map_or(0, |m| m.uid());
+            Cubes {
+                dir: dir.to_path_buf(),
+                active: vtium_settings::cullet::Gate::new(
+                    vtium_settings::cullet::Rule::new(vtium_settings::Trust::owner(me)).below(dir),
+                    Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
+                    Batch::new(active.iter().map(|n| Entry::Path(dir.join(n))).collect()),
+                ),
+            }
+        }
+
+        fn gate(&self) -> vtlook::Cubes<'_> {
+            vtlook::Cubes {
+                dir: &self.dir,
+                gate: &self.active,
+            }
+        }
+    }
+
+    // A vtlook whose cube filter names an active .cube file that passes
+    // the trust rule draws through the file's table. One that names a
+    // file the batch does not list draws the built-in vtlook, and the line
+    // names the file and says why vtium treats it as missing.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_vtlook_draws_an_active_cube_and_not_an_inactive_one() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vtium-look-cube-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_default();
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let write = |name: &str, text: &str| {
+            let path = dir.join(name);
+            std::fs::write(&path, text).unwrap_or_default();
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+        };
+        write(
+            "warm.cube",
+            "LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 0.95 0\n1 0.95 0\n0 0 0.85\n1 0 0.85\n0 0.95 0.85\n1 0.95 0.85\n",
+        );
+        write(
+            "film.vtlook",
+            "version = 1\n[color cube]\nfile = warm.cube\n",
+        );
+        let cubes = Cubes::active(&dir, &["warm.cube"]);
+        let me = std::fs::metadata(&dir).map_or(0, |m| std::os::unix::fs::MetadataExt::uid(&m));
+        let trust = vtium_settings::Trust::owner(me).below(&dir);
+        let (chosen, said) = read_in("console", "film", &[dir.as_path()], &trust, &cubes.gate());
+        assert_eq!(said, None);
+        let cube = std::fs::read(dir.join("warm.cube")).unwrap_or_default();
+        let want = vtlook::read_cube(&cube).ok().and_then(|cube| {
+            let map = vtium_render::filter::Map::cube(std::sync::Arc::new(cube));
+            vtium_render::filter::Table::build(&[map]).ok()
+        });
+        assert!(want.is_some());
+        assert_eq!(chosen.table.as_deref(), want.as_ref());
+        let inactive = Cubes::active(&dir, &["other.cube"]);
+        let (chosen, said) = read_in(
+            "console",
+            "film",
+            &[dir.as_path()],
+            &trust,
+            &inactive.gate(),
+        );
+        assert_eq!(chosen, Chosen::default());
+        assert_eq!(
+            said,
+            Some(format!(
+                "vtlook film ({}): color filter 1 of 1, cube: reading: vtium treats the file as missing, because it is not active: {} does not list it; head console draws the built-in vtlook instead",
+                dir.join("warm.cube").display(),
+                vtium_settings::batch::BATCH_FILE
+            ))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A head reads a vtlook from the administrator's folder, and failing
+    // that from the package's: a preset with no copy in the
+    // administrator's folder draws, and a copy there takes its place.
+    #[cfg(feature = "filters")]
+    #[test]
+    fn a_preset_draws_with_no_copy_and_the_administrator_s_copy_wins() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let top = std::env::temp_dir().join(format!("vtium-look-presets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let (etc, share) = (top.join("etc"), top.join("share"));
+        for dir in [&top, &etc, &share] {
+            std::fs::create_dir_all(dir).unwrap_or_default();
+            let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o755));
+        }
+        let me = std::fs::metadata(&top).map_or(0, |m| m.uid());
+        let trust = vtium_settings::Trust::owner(me).below(&top);
+        let write = |dir: &std::path::Path, text: &str| {
+            let path = dir.join("amber.vtlook");
+            std::fs::write(&path, text).unwrap_or_default();
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644));
+        };
+        let folders = [etc.as_path(), share.as_path()];
+        let filters = |chosen: &Chosen| {
+            chosen.vtlook.as_ref().map(|l| {
+                l.color
+                    .iter()
+                    .map(|f| f.declaration.name.to_owned())
+                    .collect::<Vec<_>>()
+            })
+        };
+        write(&share, "version = 1\n[color tint]\ncolor = 255,176,0\n");
+        let (chosen, said) = read_in(
+            "console",
+            "amber",
+            &folders,
+            &trust,
+            &Cubes::active(&etc, &[]).gate(),
+        );
+        assert_eq!(said, None);
+        assert_eq!(filters(&chosen), Some(vec!["tint".to_owned()]));
+        assert!(chosen.table.is_some());
+        write(&etc, "version = 1\n[color gamma]\n");
+        let (chosen, said) = read_in(
+            "console",
+            "amber",
+            &folders,
+            &trust,
+            &Cubes::active(&etc, &[]).gate(),
+        );
+        assert_eq!(said, None);
+        assert_eq!(filters(&chosen), Some(vec!["gamma".to_owned()]));
+        let _ = std::fs::remove_dir_all(&top);
     }
 }

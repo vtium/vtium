@@ -498,6 +498,9 @@ pub(crate) fn takes(key: &str) -> Takes {
         // a key of the key table a section sets takes the table's values
         _ => match keys::find(key).map(|k| k.kind) {
             Some(keys::Kind::Choice(words)) => Takes::Words(words),
+            // every word a name key lists is itself a name by the rule, so
+            // the rule alone says what the key takes
+            Some(keys::Kind::Name(_)) => Takes::Name,
             Some(keys::Kind::Number { min, max, .. }) => Takes::Number {
                 min: u32::try_from(min).unwrap_or(u32::MAX),
                 max: Some(u32::try_from(max).unwrap_or(u32::MAX)),
@@ -529,6 +532,7 @@ fn table_value(key: &'static Key, value: &str) -> Result<(), Problem> {
         keys::Kind::Path if !keys::absolute(value) => Err(bad()),
         keys::Kind::Paths if !value.split(':').all(keys::absolute) => Err(bad()),
         keys::Kind::Choice(words) if !words.contains(&value) => Err(bad()),
+        keys::Kind::Name(words) if !keys::name(words, value) => Err(bad()),
         keys::Kind::Cell if keys::parse_cell(value).is_none() => Err(bad()),
         keys::Kind::Number { word, .. } if word == Some(value) => Ok(()),
         keys::Kind::Number { min, max, unit, .. } => {
@@ -1495,5 +1499,32 @@ fn findings(config: Config, mut warnings: Vec<Warning>) -> Parsed {
         notes,
         more_warnings,
         more_notes,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A look's `palette` that cannot name a color scheme file is refused
+    /// with the rule for a name, which says what the value may be, and
+    /// never with the message for an empty value.
+    #[test]
+    fn a_look_s_bad_palette_says_what_a_name_may_be() {
+        for value in ["../evil", "a b"] {
+            let text = format!("version = 1\n[look x]\npalette = {value}\n");
+            let r = super::reading(text.as_bytes());
+            let said: Vec<String> = r
+                .errors
+                .errors
+                .iter()
+                .map(|e| e.problem.to_string())
+                .collect();
+            assert_eq!(
+                said,
+                [format!(
+                    "`palette` cannot be \"{value}\": a name has 1 to 64 characters, each a letter, a digit or one of `. _ + -`. Change the name."
+                )],
+                "{value}"
+            );
+        }
     }
 }

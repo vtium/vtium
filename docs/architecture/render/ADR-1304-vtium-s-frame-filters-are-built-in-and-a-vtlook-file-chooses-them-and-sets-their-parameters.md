@@ -266,6 +266,9 @@ considered:
   - operator: aaronsb
     said: "1 accept both [ADR-1205 D10 and ADR-1304 D21, as written]"
     via: steering session chat, 2026-11-19, after the steering session quoted both sections in full
+  - operator: aaronsb
+    said: "I think yes to all makes sense."
+    via: the steering session's chat, 2026-11-19, answering the three preset proposals of D4's note (the package folder, the /etc copy winning, one section per preset)
 status: accepted
 date: 2026-11-03
 deciders:
@@ -465,6 +468,8 @@ strength = 0.3
 > Edited 2026-11-18: the name `default` always chooses the built-in vtlook, so vtium never opens a file named `default.vtlook`, and the refusal above has its place in `vtium check-config`, which reports such a file in the looks folder as an error of the reading stage. vtium's log names the built-in vtlook "the built-in vtlook" (D6), and vtium-config's listing keeps `default (built in)`. This paragraph read "vtium's log and vtium-config's listing name the default look `default (built in)`".
 
 > Note 2026-11-19: the maintainer decided two things about the vtlooks people start from (`basis`). First, vtium ships preset vtlooks beside the template, to copy and change: amber, green and white phosphor, and a correction for each of protanopia, deuteranopia and tritanopia. Second, no filter is the obvious first choice. vtium-config's Effects tab lists the built-in vtlook `default`, which changes no pixel, first, as "No filter", and a new look starts with it chosen. This record's agent proposes the rest, for the maintainer to read. The package installs the presets in `/usr/share/vtium/looks`, and a vtlook in `/etc/vtium/looks` wins over a preset of the same name, as a local shader wins over a packaged one (D15). The presets are named `amber`, `green`, `white`, `protanopia`, `deuteranopia` and `tritanopia`. Each phosphor is one `[color tint]` section, and each correction is one `[color color-blind]` section in `correct` mode. The amber preset holds the tint's default color, 255,176,0. The slice that writes the green and white presets picks their colors, and the maintainer judges them on the picture page. If the maintainer accepts D21's floor, the phosphor presets carry a floor that the maintainer chooses by eye. The Effects tab lists the presets after "No filter", then the administrator's vtlooks.
+
+> Note 2026-11-19: the maintainer accepted the three proposals above on this date (`considered`). The package installs the presets in `/usr/share/vtium/looks`. A vtlook of the same name in `/etc/vtium/looks` takes the preset's place, and a copy with an error is reported and draws the built-in vtlook, not the preset. Each preset is one section, with one exception: `amber` keeps the tint and the contrast of 1.15 of the accepted tier 2 golden `look-amber`, so that golden goes on judging the preset.
 
 **A vtlook is tied to no frit.** A head names a look section of vtium.conf, and the look section names both its frit, with `font-name`, and its vtlook, with `vtlook =` (ADR-1403 D1, D5). A vtlook names no frit and a frit names no vtlook, so one vtlook can serve looks with any frit.
 

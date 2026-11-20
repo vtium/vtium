@@ -1,0 +1,30 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft mine · no changes · no problems                                 text preview · no live trial
+----------------------------------------------------------------------------------------------------
+ Show: All fonts
+ System fonts
+   DejaVuSansMono.ttf  DejaVu Sans Mono Regular, active, trusted
+   ter-u16n.otb        Terminus Regular, not active, trusted
+   NotoColorEmoji.ttf  Noto Color Emoji Regular, not active, fails the trust rule, duplicate
+
+ vtium's own fonts
+   cullet-mono.otf     Cullet Mono Regular, active, trusted
+
+ Your own fonts, which vtium cannot use until you install them as system fonts
+   Mine-Regular.ttf    Mine Regular, not usable
+
+ Space activates or deactivates the highlighted font. Enter opens a font's detail, or the filters
+ on the filter line.
+ This terminal does not support images, so here is a written description instead. With this font
+ and size, each character cell is 8x16 pixels, the console will be 80x30 characters, and the font
+ can display 40 of the 51 characters in the preview. Superscripts and subscripts are this font's
+ own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the
+ edges stay sharp.
+
+
+
+
+ Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it.
+ To turn it on, change allow-font-ops in the Settings tab, then install.
+----------------------------------------------------------------------------------------------------
+ ↑↓ move  Space activate  q quit  . more 1/4

@@ -1,0 +1,38 @@
+# Kiln, vtium's own color scheme.
+#
+# Kiln pictures a warm dark chamber with glowing glazes: a near-black
+# background with a hint of brown, saturated accent colors, and a light,
+# warm foreground. The cursor glows like an ember.
+#
+# License: MIT, the license of vtium itself. vtium installs the license's
+# text with its other license notices, as LICENSE in vtium's license folder,
+# which is /usr/share/licenses/vtium on most systems.
+#
+# The file is in Ghostty's theme format. Every normal color from 1 to 7, every
+# bright color from 9 to 15 and the foreground have a contrast ratio of at
+# least 4.5:1 against the background, the WCAG level for body text. Color 8,
+# the dim gray that programs use for comments and hints, stays dimmer on
+# purpose, at 3.7:1.
+
+palette = 0=#2e2621
+palette = 1=#e0503c
+palette = 2=#74bf4a
+palette = 3=#e6b030
+palette = 4=#5b9be6
+palette = 5=#c773d6
+palette = 6=#3cc4b0
+palette = 7=#c8b9a4
+palette = 8=#7f7064
+palette = 9=#ff7258
+palette = 10=#a3e070
+palette = 11=#ffd666
+palette = 12=#8fbdff
+palette = 13=#e8a0f2
+palette = 14=#78e6d4
+palette = 15=#fff5e6
+
+background = #1c1714
+foreground = #eee2cf
+cursor-color = #ff9a3c
+selection-background = #4a3a2f
+selection-foreground = #fff5e6

@@ -19,6 +19,7 @@
 use std::ffi::OsString;
 use std::io::{self, Write};
 use std::os::fd::{AsFd, OwnedFd};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -30,12 +31,15 @@ use vtium_platform::event_loop::{Loop, Signal};
 
 use vtium_platform::watch::Watch;
 
+mod kept;
+
 use super::desk::Desk;
 use super::desk::Done;
 use super::input::Decoder;
 use super::model::{self, App, Effect, Event, Inputs, Live};
 use super::view;
 use crate::apply::{Ask, Runner};
+use kept::{Kept, measured, painted};
 
 /// What runs while the terminal is given back: the install, through the
 /// runner it is handed, writing what the person reads to the terminal it
@@ -48,6 +52,9 @@ pub enum Wake {
     Bytes(Vec<u8>),
     /// The sources each frit lacks, which [`Port::sources`] asked for.
     Sourced(Vec<(String, super::model::SourcesFound)>),
+    /// What the font helper said of some of the files [`Port::describe`]
+    /// named, as the answers came.
+    Described(Vec<(PathBuf, crate::discover::Described)>),
     Resize,
     Signal(i32),
     Timeout,
@@ -88,6 +95,11 @@ pub enum Drawn {
         cell: Result<(vtium_font::Cell, u32), String>,
     },
     Pictured(Result<crate::specimen::Picture, String>),
+    /// A picture drawn through an effect, and what became of the effect.
+    Filtered {
+        picture: crate::specimen::Picture,
+        outcome: crate::specimen::Outcome,
+    },
     /// The detailed specimen, and what it gives: the cell, the grid on the
     /// display and how many of its characters the font draws itself.
     Detailed {
@@ -108,6 +120,7 @@ impl Drawn {
         match self {
             Drawn::Celled { font, height, cell } => Event::Celled { font, height, cell },
             Drawn::Pictured(p) => Event::Pictured(p),
+            Drawn::Filtered { picture, outcome } => Event::Filtered { picture, outcome },
             Drawn::Detailed {
                 font,
                 height,
@@ -155,6 +168,10 @@ pub trait Port {
     /// waiting: the answers come later, as [`Wake::Sourced`], and the loop
     /// reads keys meanwhile.
     fn sources(&mut self, fonts: Vec<String>);
+    /// Asks the font helper what each of `paths` is, without waiting: the
+    /// answers come later, a few at a time, as [`Wake::Described`], and
+    /// the loop reads keys meanwhile.
+    fn describe(&mut self, paths: Vec<PathBuf>);
 }
 
 /// Alternate screen, cursor hidden; and back, with mouse reporting off in
@@ -239,7 +256,13 @@ pub fn drive_with(
                     }),
                     Effect::Summary { font, height } => port.draw(Draw::Summary { font, height }),
                     Effect::Sources(fonts) => port.sources(fonts),
+                    Effect::Describe(paths) => port.describe(paths),
                     Effect::Desk(op) => {
+                        // readying a system font waits on the font helper,
+                        // so the screen first shows that it is checking
+                        if matches!(op, super::desk::Op::SystemFont(_)) {
+                            port.write(&painter.frame(&app)?)?;
+                        }
                         let done = match desk.as_deref_mut() {
                             Some(desk) => desk.run(&op),
                             None => Err(super::words::NO_DESK.to_owned()),
@@ -260,6 +283,16 @@ pub fn drive_with(
                         queue.extend(app.event(Event::Resize(size_of(port))));
                         queue.extend(app.event(Event::Installed(result)));
                     }
+                    Effect::InstallFont => {
+                        port.write(&painter.frame(&app)?)?;
+                        let result = match desk.as_deref_mut() {
+                            Some(desk) => port.privileged(&mut |run, _, _| desk.install_font(run)),
+                            None => Err(super::words::NO_DESK.to_owned()),
+                        };
+                        port.write(&painter.forget()?)?;
+                        queue.extend(app.event(Event::Resize(size_of(port))));
+                        queue.extend(app.event(Event::Installed(result)));
+                    }
                 }
             }
         }
@@ -274,6 +307,7 @@ pub fn drive_with(
                 Wake::Resize => vec![Event::Resize(size_of(port))],
                 Wake::Signal(n) => vec![Event::Signal(n)],
                 Wake::Sourced(found) => vec![Event::Sourced(found)],
+                Wake::Described(answers) => vec![Event::Described(answers)],
                 Wake::Timeout => vec![Event::Timeout],
                 Wake::Hotplug => vec![Event::Hotplug],
                 Wake::Drawn(drawn) => vec![drawn.event()],
@@ -343,6 +377,14 @@ pub type Painter = std::sync::Arc<
     dyn Fn(&crate::specimen::Shot) -> Result<crate::specimen::Picture, String> + Send + Sync,
 >;
 
+/// Draws a picture through an effect, on the painter's thread, and says
+/// what became of the effect.
+pub type Filterer = std::sync::Arc<
+    dyn Fn(&mut crate::specimen::Picture, &crate::specimen::Filtered) -> crate::specimen::Outcome
+        + Send
+        + Sync,
+>;
+
 /// Draws a font's detailed specimen at a pixel height in at most so many
 /// pixels, on a thread of its own.
 pub type Detailer = std::sync::Arc<
@@ -367,14 +409,28 @@ pub type Summarizer =
 /// Finds the sources each frit lacks, on a thread of its own.
 pub type Finder = Box<dyn FnOnce(Vec<String>) -> Vec<(String, super::model::SourcesFound)> + Send>;
 
+/// Describes font files through the font helper, on a thread of its own,
+/// passing each answer on in order as it comes.
+pub type Describer =
+    std::sync::Arc<dyn Fn(&[PathBuf], &mut dyn FnMut(crate::discover::Described)) + Send + Sync>;
+
+/// How many descriptions the describing thread sends the loop at once.
+const DESCRIBED_AT_ONCE: usize = 32;
+
+/// How long the describing thread holds descriptions before it sends
+/// those it has.
+const DESCRIBED_WAIT: Duration = Duration::from_millis(250);
+
 /// What the real port asks the glyph helper through.
 pub struct Tools {
     pub painter: Painter,
+    pub filterer: Filterer,
     pub measurer: Measurer,
     pub detailer: Detailer,
     pub summarizer: Summarizer,
     /// Taken by the one sources query a run makes.
     pub finder: Option<Finder>,
+    pub describer: Describer,
 }
 
 /// The terminal on standard input and output.
@@ -383,6 +439,9 @@ pub struct Tty {
     /// Where the source finder's thread sends its answers, which the loop
     /// reads as [`Wake::Sourced`].
     sourced: Sender<Vec<(String, super::model::SourcesFound)>>,
+    /// Where the describing thread sends its answers, which the loop reads
+    /// as [`Wake::Described`].
+    described: Sender<Vec<(PathBuf, crate::discover::Described)>>,
     /// Where each preview's thread sends what it drew, which the loop reads
     /// as [`Wake::Drawn`].
     drawn: Sender<Drawn>,
@@ -395,6 +454,9 @@ pub struct Tty {
     /// device, between waits; `None` when there is none. At each change
     /// the desk reads the devices present again (ADR-1403 D7).
     udev: Option<Watch>,
+    /// The last cell and the last unfiltered picture the preview's threads
+    /// made, which the next preview reuses.
+    kept: std::sync::Arc<Mutex<Kept>>,
 }
 
 #[expect(
@@ -467,6 +529,15 @@ impl Tty {
                 }
             })
             .map_err(|e| io::Error::other(e.to_string()))?;
+        let (described, descriptions) = channel();
+        events
+            .handle()
+            .insert_source(descriptions, |sent, _, w: &mut Woken| {
+                if let Sent::Msg(answers) = sent {
+                    w.wakes.push(Wake::Described(answers));
+                }
+            })
+            .map_err(|e| io::Error::other(e.to_string()))?;
         let (drawn, previews) = channel();
         events
             .handle()
@@ -510,6 +581,7 @@ impl Tty {
         let mut tty = Tty {
             tools,
             sourced,
+            described,
             drawn,
             input,
             raw,
@@ -517,6 +589,7 @@ impl Tty {
             events,
             deadline: None,
             udev,
+            kept: std::sync::Arc::default(),
         };
         tty.write(ENTER)?;
         Ok(tty)
@@ -668,6 +741,11 @@ impl Port for Tty {
     }
 
     fn privileged(&mut self, step: Step<'_>) -> Result<Done, String> {
+        // an install can write font sets, so a kept cell or picture of a
+        // font set by its name may no longer be what the font set draws
+        if let Ok(mut kept) = self.kept.lock() {
+            *kept = Kept::default();
+        }
         self.cooked(true).map_err(|e| e.to_string())?;
         let mut run = |argv: &[OsString]| -> io::Result<(bool, String)> {
             let result = spawn_foreground(argv);
@@ -711,16 +789,18 @@ impl Port for Tty {
             std::sync::Arc::clone(&self.tools.painter),
             std::sync::Arc::clone(&self.tools.summarizer),
             std::sync::Arc::clone(&self.tools.detailer),
+            std::sync::Arc::clone(&self.tools.filterer),
         );
         let drawn = self.drawn.clone();
+        let kept = std::sync::Arc::clone(&self.kept);
         std::thread::spawn(move || {
-            let (measure, paint, summarize, detail) = tools;
+            let (measure, paint, summarize, detail, filter) = tools;
             let answer = match ask {
                 Draw::Cell { font, height } => {
-                    let cell = measure(&font, height);
+                    let cell = measured(&font, height, &measure, &kept);
                     Drawn::Celled { font, height, cell }
                 }
-                Draw::Picture(shot) => Drawn::Pictured(paint(&shot)),
+                Draw::Picture(shot) => painted(&shot, &paint, &filter, &kept),
                 Draw::Specimen {
                     font,
                     height,
@@ -754,6 +834,33 @@ impl Port for Tty {
                 let _ = sourced.send(finder(fonts));
             });
         }
+    }
+
+    /// Describes `paths` on a thread of its own. The answers go to the loop
+    /// `DESCRIBED_AT_ONCE` at a time, or sooner once `DESCRIBED_WAIT` has
+    /// passed since the last went, so the list fills in steps without a
+    /// redraw for each file.
+    fn describe(&mut self, paths: Vec<PathBuf>) {
+        let describer = std::sync::Arc::clone(&self.tools.describer);
+        let described = self.described.clone();
+        std::thread::spawn(move || {
+            let mut names = paths.iter();
+            let mut batch = Vec::new();
+            let mut sent = now();
+            describer(&paths, &mut |answer| {
+                if let Some(path) = names.next() {
+                    batch.push((path.clone(), answer));
+                }
+                if batch.len() >= DESCRIBED_AT_ONCE || now().duration_since(sent) >= DESCRIBED_WAIT
+                {
+                    let _ = described.send(std::mem::take(&mut batch));
+                    sent = now();
+                }
+            });
+            if !batch.is_empty() {
+                let _ = described.send(batch);
+            }
+        });
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {

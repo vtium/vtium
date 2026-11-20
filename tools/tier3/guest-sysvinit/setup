@@ -12,6 +12,21 @@ tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
 # The variant's vtium.conf goes in as root's and written by no one else,
 # which the start's ownership check trusts (ADR-1403 D3).
 install -Dm644 -o root -g root "$disc"/vtium.conf /etc/vtium/vtium.conf
+# A variant that draws a font beyond the list of a fresh install carries the
+# batch file an administrator would write for it: that list, then the
+# variant's own fonts (t3_batch.py). Like vtium.conf, it is root's and
+# written by no one else, which vtium's owner and mode check trusts
+# (ADR-1205 D4). A variant without one keeps the guest with no batch file,
+# where vtium draws from the list of a fresh install. That list holds the
+# console font vconsole.conf names, which the batch file does not, so a
+# guest that names one is refused rather than judged with that font left out.
+if [ -f "$disc"/batch.conf ]; then
+    if grep -qs '^[[:space:]]*FONT=' /etc/vconsole.conf || grep -qs 'vconsole\.font=' /proc/cmdline; then
+        printf 'TIER3-INSTALL-FAIL the guest names a console font, which the batch file tier 3 writes leaves out\n' > /dev/ttyS0
+        exit 1
+    fi
+    install -Dm644 -o root -g root "$disc"/batch.conf /etc/vtium/batch.conf
+fi
 # A variant drawing with the test fonts names them in its config.
 if [ -d "$disc"/fonts ]; then
     install -Dm644 -t /usr/local/share/tier3-fonts "$disc"/fonts/*

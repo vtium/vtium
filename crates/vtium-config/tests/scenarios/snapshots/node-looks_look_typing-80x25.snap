@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "looks.look.typing at 80×25, keys: 3 n"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · 2 changes · 1 not saved · no pro…  text · live trial on font sets
+--------------------------------------------------------------------------------
+   Name           new-look_
+   Font set       unifont, from vtium.conf
+   Size           automatic, from vtium.conf. vtium-config offers its usual
+                  sizes, because the text font is built into vtium or is the
+                  console's own font.
+   Color scheme   legacy, from vtium.conf
+   vtlook         No filter
+   Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a
+                  pointer theme of its own yet.
+
+ Type the look's name, then press Enter. Esc keeps the name it had.
+ Its fonts, by role:
+ Text: the built-in font unifont
+ Box drawing: vtium's own lines, unless the text font has them all
+ What it still misses:
+ Nothing: this machine has every font it names.
+
+
+
+ Made the look new-look. Type its name, then press Enter.
+--------------------------------------------------------------------------------
+ Enter keep  Backspace delete  letters type  Esc cancel  Ctrl-C save and quit

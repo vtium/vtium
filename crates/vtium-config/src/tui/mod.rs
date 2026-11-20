@@ -1,26 +1,34 @@
-//! The TUI that `vtium config` opens at a terminal (ADR-1201 D3, D4, D7):
-//! a full-screen program drawn in the terminal's text cells. Its views are
-//! Flow, which draws the configuration as paths from the displays to the
-//! input devices (ADR-1403 D7), Looks, Fonts, which lists the frits (font
-//! set files) and the built-in fonts, Settings and Help. A change the user
-//! highlights is previewed as a picture of the console with it applied,
-//! and `t` tries a font on the live console through OSC 50 ([`shot`]). It
-//! installs what the user keeps through `apply`.
+//! The TUI that `vtium config` opens at a terminal: a full-screen program
+//! drawn in the terminal's text cells. Its six tabs, in the tab bar's
+//! order, are Fonts, Effects, Looks, Flow, Settings and Help. Fonts lists
+//! the frits (font set files) and the built-in fonts, and Flow draws the
+//! configuration as paths from the displays to the input devices. A change
+//! the user highlights is previewed as a picture of the console with the
+//! change applied, and `t` tries a font on the live console through OSC 50
+//! ([`shot`]). The TUI installs what the user keeps through `apply`.
 //!
 //! [`model`] is the state machine, [`nav`] where the person is in it,
-//! [`tabs`] the Help, Settings, Fonts and Looks tabs, each with its state
-//! and its update, [`view`] its screen, [`flow`] the flow
-//! read from the draft and the devices present, [`paths`] that flow as
-//! paths, [`parts`] the parts a path is made from, [`flowview`] how the
-//! Flow view lays the paths and parts out, [`flowdraw`] how it draws them
-//! and [`flowcolor`] their colors, [`canvas`] the rows of styled text a
-//! screen is written in and the helpers that fit text to them, [`color`]
-//! their colors, [`input`] the decoder of what the terminal
-//! sends, [`replies`] the queue of who asked the terminal what, [`words`]
-//! the catalog of what the TUI says, and [`port`] the loop and the
-//! terminal it runs on. [`gather`] reads what the TUI starts
-//! from: the frits as text, never a font file (D3), and vtium.conf, which
-//! holds the heads, looks and rules too.
+//! [`tabs`] the Fonts, Effects, Looks, Settings and Help tabs, each with
+//! its state and its update, [`view`] its screen, [`flow`] the flow read
+//! from the draft and the devices present, [`paths`] that flow as paths,
+//! [`parts`] the parts a path is made from, [`flowview`] how the Flow view
+//! lays the paths and parts out, [`flowdraw`] how it draws them and
+//! [`flowcolor`] their colors, [`canvas`] the rows of styled text a screen
+//! is written in and the helpers that fit text to them, [`color`] their
+//! colors, [`input`] the decoder of what the terminal sends, [`replies`]
+//! the queue of who asked the terminal what, [`words`] the catalog of what
+//! the TUI says, and [`port`] the loop and the terminal it runs on.
+//! [`gather`] reads what the TUI starts from: the frits as text, never a
+//! font file, and vtium.conf, which holds the heads, looks and rules too.
+//!
+//! References:
+//! - ADR-1201 D3: the TUI, the views it opens and the frits it reads as
+//!   text.
+//! - ADR-1201 D4: the preview as a picture of the console, and the live
+//!   trial.
+//! - ADR-1201 D7: the TUI as a state machine apart from its terminal.
+//! - ADR-1205 D1: the six tabs and their order.
+//! - ADR-1403 D7: the Flow view and the paths it draws.
 
 pub mod backend;
 pub mod canvas;
@@ -30,6 +38,7 @@ pub mod contract;
 mod contract_text;
 pub mod desk;
 pub mod edit;
+pub mod effects_found;
 #[doc(hidden)]
 pub mod fixture;
 pub mod flow;
@@ -38,6 +47,7 @@ pub mod flowdraw;
 mod flowedit;
 pub mod flowlayout;
 pub mod flowview;
+pub mod fonts_found;
 pub mod input;
 pub mod layout;
 pub mod listbox;
@@ -47,6 +57,7 @@ pub mod parts;
 pub mod paths;
 pub mod port;
 pub mod replies;
+pub mod resources;
 pub mod shot;
 pub mod tabs;
 pub mod view;
@@ -197,6 +208,34 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
     (assumed, DpiFrom::Assumed)
 }
 
+/// The density of each of `displays` as the console converts points at
+/// it: `display-dpi` where `conf` sets it within the bounds the console
+/// believes, else the display's own, else 96. With no display connected,
+/// the one density [`density`] gives.
+///
+/// References:
+/// - ADR-1200 D17: the density, and the lowest density among the
+///   displays that share a grid.
+pub fn densities(conf: Option<&str>, displays: &[crate::display::Display]) -> Vec<u32> {
+    let (dpi, from) = density(conf, displays);
+    if from == DpiFrom::Conf || displays.is_empty() {
+        return vec![dpi];
+    }
+    let assumed = density(None, &[]).0;
+    displays
+        .iter()
+        .map(|d| d.dpi().unwrap_or(assumed))
+        .collect()
+}
+
+/// The font vconsole names, read as the console reads it: the kernel
+/// command line's `vconsole.font=` over vconsole.conf's `FONT=`.
+fn vconsole_font() -> Option<String> {
+    let places = vtium_settings::batch::Places::system();
+    let text = |path: &Path| read_conf(path).ok().flatten().unwrap_or_default();
+    vtium_settings::batch::vconsole(&text(&places.vconsole_conf), &text(&places.cmdline)).font
+}
+
 /// What the TUI starts from, read from `paths`, opening at `view`.
 pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
@@ -210,6 +249,8 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     Ok(Inputs {
         fonts: fonts(&frits),
         conf_path,
+        densities: densities(conf.as_deref(), &displays),
+        vconsole_font: vconsole_font(),
         conf,
         dpi,
         installed: installed(&frits),
@@ -225,18 +266,145 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         colors_note,
         head: std::env::var("VTIUM_HEAD").ok().filter(|h| !h.is_empty()),
         locale: locale(),
+        // the loop reads them once the store is open, since each color
+        // map's and shader's mark needs the draft's batch
+        effects: effects_found::Effects::default(),
+        font_files: fonts_found::Fonts::default(),
     })
+}
+
+/// The folders the Effects tab lists from and its preview reads color
+/// maps from: the system's, and the person's own under
+/// `$XDG_CONFIG_HOME`, else `~/.config`.
+fn effect_folders() -> effects_found::Folders {
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|c| !c.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")));
+    effects_found::Folders::system(config)
+}
+
+/// What the Effects tab and the Looks tab list among the resources, read
+/// from `folders`, the system's color scheme folders and the system's
+/// pointer themes: each color map, shader, color scheme file and pointer
+/// theme marked as the current draft's batch and the trust rule judge it
+/// for an install through `paths`. When vtium-config cannot read the
+/// draft's batch, every file shows as not active, and the Effects tab's
+/// note says why.
+fn effects(
+    store: &crate::store::Store,
+    paths: &Paths,
+    folders: &effects_found::Folders,
+) -> effects_found::Effects {
+    let session = crate::drafts::Session {
+        store: store.clone(),
+        paths,
+    };
+    let active = crate::batch::Resources::open(&session);
+    let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
+    let state = |path: &Path| {
+        active
+            .as_ref()
+            .map_or(crate::batch::State::Inactive, |a| a.state(path))
+    };
+    let trusted = |path: &Path| crate::batch::trusted(path, euid);
+    let mut found = effects_found::find(
+        folders,
+        &vtium_settings::Trust::running_as(euid),
+        &state,
+        &trusted,
+    );
+    found.palette_folders = vtium_settings::palette::FOLDERS
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    found.palettes = effects_found::find_palettes(&found.palette_folders, &state, &trusted, euid);
+    let icons: Vec<PathBuf> = effects_found::ICONS.iter().map(PathBuf::from).collect();
+    found.pointers = effects_found::find_pointers(
+        Path::new(vtium_settings::batch::PACKAGE_POINTERS),
+        &icons,
+        &state,
+        &trusted,
+    );
+    if let Err(fail) = &active {
+        found.note = Some(words::effects_unread(fail.text()));
+    }
+    found
+}
+
+/// The font files the Fonts tab lists, found as `fonts --files` finds
+/// them: in the folders that the installed vtium.conf's text `conf` and
+/// the person's own folders give, each marked as the current draft's
+/// batch and the trust rule judge it for an install through `paths`.
+/// When vtium-config cannot read the draft's batch, every file shows as
+/// not active, and the second value says why. `Err` says why vtium-config
+/// cannot judge the files at all.
+///
+/// References:
+/// - ADR-1205 D3: the folders, and a user's font listed as not usable.
+/// - ADR-1205 D4: each font's trust mark and its state in the batch.
+pub fn scan_fonts(
+    store: &crate::store::Store,
+    paths: &Paths,
+    conf: Option<&str>,
+) -> Result<(Vec<crate::discover::Found>, Option<String>), String> {
+    let session = crate::drafts::Session {
+        store: store.clone(),
+        paths,
+    };
+    let active = crate::batch::Resources::open(&session);
+    let mounts = vtium_settings::mounts::Mounts::system()
+        .map_err(|e| words::fonts_unjudged(&e.to_string()))?;
+    let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
+    let found = crate::discover::scan(
+        &crate::discover::Folders::of_user(conf),
+        &vtium_settings::cullet::Rule::running_as(euid),
+        &mounts,
+        &|path| {
+            active
+                .as_ref()
+                .map_or(crate::batch::State::Inactive, |a| a.state(path))
+        },
+    );
+    let note = active.err().map(|fail| words::fonts_unread(fail.text()));
+    Ok((found, note))
+}
+
+/// What the Fonts tab lists at start, from [`scan_fonts`], with the
+/// tab's note when vtium-config cannot read the draft's batch or the
+/// mount table. The font helper describes the files once the loop runs.
+fn font_files(
+    store: &crate::store::Store,
+    paths: &Paths,
+    conf: Option<&str>,
+) -> fonts_found::Fonts {
+    let (mut fonts, note) = match scan_fonts(store, paths, conf) {
+        Ok((found, note)) => (fonts_found::Fonts::new(found), note),
+        Err(why) => (fonts_found::Fonts::default(), Some(why)),
+    };
+    fonts.note = note;
+    fonts
 }
 
 /// The name the specimen's frit takes: a frit's name, never a built-in
 /// set's.
 const SPECIMEN_FRIT: &str = "vtium-config-specimen";
 
-/// The frit `font` names, as the helper takes it: the frit in `frits`, or
-/// a frit of the one built-in font of that name. The helper refuses a frit
-/// named for a built-in set, so a built-in font's frit takes a name of its
-/// own.
+/// The frit `font` names, as the helper takes it: a frit that draws the
+/// font file at that path alone, for the Fonts tab's preview; the frit in
+/// `frits`; or a frit of the one built-in font of that name. The helper
+/// refuses a frit named for a built-in set, so a built-in font's frit and
+/// a font file's take a name of their own.
 pub fn frit_text(frits: &Path, font: &str) -> Result<crate::serve::FritText, String> {
+    // a font file the Fonts tab previews, drawn alone
+    if fonts_found::is_file_name(font) {
+        let source = fonts_found::source_of(Path::new(font))
+            .ok_or_else(|| words::font_file_unpreviewable(&crate::onscreen::text(font)))?;
+        return Ok(crate::serve::FritText {
+            name: SPECIMEN_FRIT.to_owned(),
+            text: format!("source={source}\n"),
+        });
+    }
     if RESERVED.contains(&font) {
         return Ok(crate::serve::FritText {
             name: SPECIMEN_FRIT.to_owned(),
@@ -270,6 +438,28 @@ pub fn painter(frits: PathBuf, helper: crate::specimen::Helper, locale: String) 
     std::sync::Arc::new(move |shot| {
         let frit = frit_text(&frits, &shot.font)?;
         crate::specimen::screen(&helper, &frit, shot, &locale)
+    })
+}
+
+/// The TUI's filterer: draws a picture of the console through an effect,
+/// as the console's CPU path draws a frame. The vtlook is read under the
+/// trust rule of the user `euid`, whose files an install trusts, and its
+/// `.cube` files from `looks` through the gate every resource passes.
+/// `looks` is the folder the Effects tab lists color maps from, so the
+/// list and the preview agree on where they live.
+///
+/// References:
+/// - ADR-1205 D4: the gate, the batch and the trust rule.
+/// - ADR-1205 D8: the preview leaves the live console alone.
+pub fn filterer(looks: PathBuf, euid: u32) -> port::Filterer {
+    std::sync::Arc::new(move |picture, filtered| {
+        crate::specimen::through(
+            picture,
+            filtered,
+            &looks,
+            &vtium_settings::Trust::running_as(euid),
+            vtium_settings::cullet::Rule::running_as(euid),
+        )
     })
 }
 
@@ -344,6 +534,16 @@ pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
     Box::new(move |names| find_sources(&frits, &helper, &names))
 }
 
+/// The TUI's describer: what each font file is, as `helper` describes it,
+/// on a thread of its own while the TUI goes on reading keys.
+///
+/// References:
+/// - ADR-1205 D3: vtium-config reads a font only through the sandboxed
+///   helper.
+pub fn describer(helper: crate::specimen::Helper) -> port::Describer {
+    std::sync::Arc::new(move |paths, each| crate::discover::describe_each(&helper, paths, each))
+}
+
 /// Opens the TUI on the terminal at `view`, the devices present read from
 /// `devices`, and runs it until the user leaves; returns the exit status.
 pub fn run(
@@ -375,9 +575,16 @@ pub fn run(
             return fail.code();
         }
     };
+    let folders = effect_folders();
+    inputs.effects = effects(&store, paths, &folders);
+    inputs.font_files = font_files(&store, paths, inputs.conf.as_deref());
     let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
+        filterer: filterer(
+            folders.looks.clone(),
+            crate::batch::rule_user(&paths.targets(), &paths.sudo),
+        ),
         measurer: measurer(inputs.frits.clone(), paths.helper.clone()),
         detailer: detailer(inputs.frits.clone(), paths.helper.clone(), locale()),
         summarizer: summarizer(
@@ -387,6 +594,7 @@ pub fn run(
             Some(inputs.display.unwrap_or(shot::ASSUMED_DISPLAY)),
         ),
         finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
+        describer: describer(paths.helper.clone()),
     };
     let mut tty = match port::Tty::open(tools) {
         Ok(tty) => tty,

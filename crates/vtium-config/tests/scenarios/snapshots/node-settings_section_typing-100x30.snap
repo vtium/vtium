@@ -1,9 +1,9 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-description: "settings.section.typing at 100×30, keys: Tab Enter Enter"
+description: "settings.section.typing at 100×30, keys: 5 Enter Enter"
 ---
- Flow  Looks  Fonts  Settings  Help                                                   Save  Install
- draft mine · no changes · no problems                                   text preview · t: try live
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft mine · no changes · no problems                           text preview · live trial in Looks
 ----------------------------------------------------------------------------------------------------
  Settings › Fonts and text
 

@@ -1,0 +1,29 @@
+---
+source: crates/vtium-config/tests/scenarios/snapshots.rs
+description: "fonts.font at 80×25, keys: PgDn Enter"
+---
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems       text preview · live trial in Looks
+--------------------------------------------------------------------------------
+ Font Mine-Regular.ttf
+ File: /home/user/.local/share/fonts/Mine-Regular.ttf
+ Folder: your folder
+ Face: Mine Regular, version 2.37
+ OpenType, outline, proportional
+ Covers 3000 characters: Latin.
+ Sizes: any size, since it has outlines.
+ This font is in your own folder, so vtium cannot use it. Install it as a
+ system font, then activate it.
+ No look uses it.
+
+ Press Enter to install this font as a system font. vtium-config shows the
+ command and asks before it runs it. Esc goes back to the list.
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
+ Esc back  q quit  . more 1/2

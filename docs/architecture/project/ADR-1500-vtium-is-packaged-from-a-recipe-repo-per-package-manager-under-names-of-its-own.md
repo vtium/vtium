@@ -233,6 +233,9 @@ considered:
   - operator: aaronsb
     said: "One set per region"
     via: the maintainer, through the steering session's question tool, 2026-11-13, asked how vtium-fonts ships CJK font sets given that Noto Sans CJK draws some Han characters differently by region
+  - operator: aaronsb
+    said: "i agree on 2 and 3 [2: the Effects tab keeps its preview picture in a vtium console that draws its own vtlook, and the line beside it says the console draws the picture through that vtlook as well; 3: the vtium packages build the filters feature from 0.1.0-alpha.10 on]"
+    via: steering session, 2026-11-20, on the wave 4 candidate
 observable:
   - "Installing vtium-git on this machine beside kmscon and kmscon-terminfo reports no conflicting file, and `pacman -Qo` on each file the package lists names vtium-git alone"
   - "Following vtium-arch's README for every VT on a machine with no C reference console gives vtium on VT 1 and on each VT logind spawns, and its way back leaves autovt@.service linked to getty@.service and getty@tty1 enabled, as the preset made them"
@@ -588,6 +591,8 @@ The minspec build is vtium's smallest console, the one tier 3 judges. It draws n
   So one frit finds the same font on every distribution that installs it under `/usr/share/fonts`, whatever the distribution names the file, a variable font such as `JetBrainsMono[wght].ttf` included. On Arch the shipped frits' fonts are `/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf`, `/usr/share/fonts/TTF/SymbolsNerdFontMono-Regular.ttf` and `/usr/share/fonts/noto/NotoColorEmoji.ttf` (measured with `pacman -Fl`). Only the Terminus frit names a console font, by the name the distribution's package gives it: on Arch `ter-v16n`, in `/usr/share/kbd/consolefonts/ter-v16n.psf.gz` (measured). Each distribution's recipe repository carries the Terminus frit with its own source name. A font installed outside those directories, as on NixOS, is not found.
 - **The picture gallery tool.** `vtium` and `vtium-git` install `tools/gallery/gallery` as `/usr/bin/vtium-gallery`, a bash script that shows PNG pictures as a grid of thumbnails, each named under it, through the kitty graphics protocol (the maintainer, 2026-11-04). It needs bash and the base tools `stty`, `od`, `base64`, `tr`, `fold` and `sort`, and no image library, since the terminal scales each picture (the script's header). The four minspec packages do not ship it, since their console draws no pictures: `make install` stages it when `FEATURES` names `images`.
 - **More than one display.** Every build drives every display the console can see: with no head file vtium shows one grid on all of them, and a head file, the sections of vtium.conf, gives each display a terminal of its own (ADR-1401, ADR-1403 D3). Every console package ships the head file's template as the sections of the example configuration, `/etc/vtium/vtium.conf.example` (D3), for a user to copy into `/etc/vtium/vtium.conf` and edit.
+
+> Note 2026-11-20: the maintainer decided that the main package builds `filters` too, from 0.1.0-alpha.10 on (`considered`, 2026-11-20). `filters` is the feature that draws a look's vtlook: its filters, the presets and the `.cube` color maps (ADR-1304). Without it, the packaged console draws no effect, while vtium-config's Effects tab lists effects it cannot show. The `vtium` and `vtium-git` recipes in vtium-arch add `filters` to their default features with the release that first has the feature, because an earlier tag has no feature of that name. The minspec builds still leave it out (ADR-1304 D10).
 
 ### The maintainer's answers
 

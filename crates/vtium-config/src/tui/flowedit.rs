@@ -49,6 +49,7 @@ impl App {
             Key::Char('n') if leaves => {}
             Key::Escape | Key::Interrupt => {
                 self.nav.confirm = None;
+                self.shared.font_install = None;
                 // going back from the install the leave question started
                 // leaves no install waiting
                 self.shared.quit_after_install = None;
@@ -82,6 +83,12 @@ impl App {
                 self.shared.installing = true;
                 self.shared.message = Some(words::INSTALLING.to_owned());
                 vec![Effect::Install(plan)]
+            }
+            Then::InstallFont => {
+                self.shared.font_install = None;
+                self.shared.installing = true;
+                self.shared.message = Some(words::INSTALLING.to_owned());
+                vec![Effect::InstallFont]
             }
         }
     }
@@ -234,11 +241,6 @@ impl App {
 
     /// What the desk answered `op` with.
     pub(crate) fn desked(&mut self, op: &Op, done: Result<Done, String>) -> Vec<Effect> {
-        let tried = if matches!(op, Op::WriteChecked(_)) {
-            self.shared.saving_tried.take()
-        } else {
-            None
-        };
         let done = match done {
             Ok(done) => done,
             Err(why) => {
@@ -262,10 +264,6 @@ impl App {
                             Some(words::saved_draft(self.shared.unsaved, &opened.name));
                         self.shared.unsaved = 0;
                     }
-                    Op::WriteChecked(_) => {
-                        self.shared.message = tried;
-                        self.shared.unsaved = 0;
-                    }
                     _ => self.shared.unsaved = 0,
                 }
                 match op {
@@ -275,6 +273,10 @@ impl App {
                     Op::Restore(_) => self.shared.message = Some(words::RESTORED.to_owned()),
                     _ => {}
                 }
+                // the marks follow the draft the desk left open, its
+                // batch included, after every op that answers with it
+                self.shared.inputs.effects.set_states(&opened.resources);
+                self.shared.inputs.font_files.set_states(&opened.resources);
                 self.shared.draft = Some(opened);
                 let select = self.flow.take_select();
                 self.rebuild(select);
@@ -338,19 +340,54 @@ impl App {
                 self.shared.quit_after_install = None;
                 let mut lines = vec![why];
                 lines.extend(problems);
-                // the views beside the flow show one paragraph
-                let sep = if matches!(op, Op::WriteChecked(_)) {
-                    " "
-                } else {
-                    "\n"
-                };
-                self.shared.message = Some(lines.join(sep));
+                self.shared.message = Some(lines.join("\n"));
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.flow.show_history(kept),
-            Done::Present(present) => self.set_present(present),
-            // only an install answers with this, as [`App::installed`]
-            Done::Installed(..) => {}
+            Done::Present { present, densities } => {
+                self.shared.inputs.densities = densities;
+                self.set_present(present);
+            }
+            Done::Resources {
+                states,
+                said,
+                changes,
+            } => {
+                self.shared.inputs.effects.set_states(&states);
+                self.shared.inputs.font_files.set_states(&states);
+                // the draft keeps the desk's answer, so a later step that
+                // brings the marks back from the draft, such as a system
+                // font's install, keeps this change, and the status line
+                // counts it at once
+                if let Some(draft) = self.shared.draft.as_mut() {
+                    draft.batch = changes;
+                    draft.resources = states;
+                }
+                self.rebuild(None);
+                return self.say(&said);
+            }
+            // a font of the person's readied as a system font: the
+            // question shows the command before anything runs, and an
+            // identical file needs nothing
+            //
+            // References:
+            // - ADR-1205 D5: the exact command, asked each time; both files
+            //   on a clash; nothing when they are identical.
+            Done::SystemFont(ready) => {
+                let question = match (ready.placement, &ready.facts) {
+                    (crate::apply::Placement::Identical, _) => {
+                        return self.say(&words::system_font_identical(&ready.target));
+                    }
+                    (_, Some(_)) => words::system_font_replace_question(&ready.target),
+                    (_, None) => words::system_font_question(&ready.target),
+                };
+                // the font's detail shows the files and the command while
+                // the question is open, since the message line is short
+                self.shared.font_install = Some(ready);
+                self.ask(question, Then::InstallFont);
+            }
+            // only an install answers with these, as [`App::installed`]
+            Done::Installed(..) | Done::FontInstalled { .. } => {}
         }
         Vec::new()
     }
@@ -363,6 +400,12 @@ impl App {
         let (opened, outcome) = match result {
             Ok(Done::Draft(opened, _)) => (opened, None),
             Ok(Done::Installed(opened, outcome)) => (opened, Some(outcome)),
+            Ok(Done::FontInstalled {
+                target,
+                said,
+                untrusted,
+                found,
+            }) => return self.font_installed(&target, &said, untrusted.as_deref(), found),
             Ok(_) => return Vec::new(),
             Err(why) => {
                 self.shared.quit_after_install = None;
@@ -373,6 +416,8 @@ impl App {
             Some(outcome) => crate::vts::message(&opened.name, outcome),
             None => words::installed(&opened.name),
         };
+        self.shared.inputs.effects.set_states(&opened.resources);
+        self.shared.inputs.font_files.set_states(&opened.resources);
         self.shared.draft = Some(opened);
         self.frits_installed();
         self.rebuild(None);
@@ -381,6 +426,44 @@ impl App {
             return self.leave(status);
         }
         self.say(&message)
+    }
+
+    /// The privileged step installed a font of the person's as the system
+    /// font `target`: the Fonts tab lists the fonts found after it, the
+    /// new system font among them, and the font helper describes the
+    /// files it has not described yet. When the scan fails, the list stays
+    /// as it was with the new system font added, and its note says why.
+    /// Installing never activates the font, so the message line says how
+    /// to, or, when the copy fails the trust rule, why vtium cannot use it.
+    fn font_installed(
+        &mut self,
+        target: &std::path::Path,
+        said: &str,
+        untrusted: Option<&str>,
+        found: Result<Vec<crate::discover::Found>, String>,
+    ) -> Vec<Effect> {
+        let highlighted = self.fonts.highlighted_path(&self.shared);
+        match found {
+            Ok(found) => self.shared.inputs.font_files.rescanned(found),
+            Err(why) => self.shared.inputs.font_files.added_unscanned(target, &why),
+        }
+        // the install may have replaced a file of the same name, so the
+        // helper describes the file at `target` again
+        self.shared.inputs.font_files.forget(target);
+        if let Some(draft) = &self.shared.draft {
+            self.shared.inputs.font_files.set_states(&draft.resources);
+        }
+        self.fonts.keep(&self.shared, highlighted.as_deref());
+        let target = crate::onscreen::path(target);
+        let mut out = self.say(&match untrusted {
+            Some(why) => words::system_font_untrusted(&target, why),
+            None => format!("{} {said}", words::system_font_installed(&target)),
+        });
+        let waiting = self.shared.inputs.font_files.ask();
+        if !waiting.is_empty() {
+            out.push(Effect::Describe(waiting));
+        }
+        out
     }
 
     /// Takes the devices present, says what came and went, and redraws
@@ -420,7 +503,7 @@ impl App {
         };
         let draft = Draft {
             name: d.name.clone(),
-            changes: d.added.max(d.removed),
+            changes: d.added.max(d.removed).saturating_add(d.batch),
             problems: d.count,
         };
         let new = crate::flowmodel::build(&d.text, &self.shared.present, Some(draft));
