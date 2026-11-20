@@ -125,6 +125,22 @@ impl Looks {
         }
     }
 
+    /// Highlights the font set `name` in the list of font sets, with
+    /// nothing open over the list, as Enter on a font set in the Flow tab
+    /// asks. A name the list does not hold leaves the highlight as it was.
+    pub fn show_font_set(&mut self, shared: &Shared, name: &str) {
+        let Some(font) = shared.inputs.fonts.iter().position(|f| f.name == name) else {
+            return;
+        };
+        if let Some(at) = Self::entries(shared)
+            .iter()
+            .position(|e| *e == Entry::FontSet(font))
+        {
+            self.open = None;
+            self.list.at = at;
+        }
+    }
+
     /// The highlighted item.
     pub fn highlighted(&self, shared: &Shared) -> Option<Entry> {
         let entries = Self::entries(shared);

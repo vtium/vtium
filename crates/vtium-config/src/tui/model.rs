@@ -17,7 +17,7 @@
 //! - ADR-1403 D7: the Flow view draws the configuration as paths.
 
 use std::collections::BTreeSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use vtium_settings::keys;
@@ -29,6 +29,7 @@ use super::flow::Flow;
 use super::input::{Button, Input, Key, Mouse, Reply};
 use super::replies::{Answer, Asker, Batch, Query, Queue};
 use crate::draft::{FileEdit, Plan, Removal};
+use crate::frit::Frit;
 
 /// How long the TUI waits for the terminal's answers at start, and for
 /// the console's font to come back when it leaves: `set`'s wait.
@@ -111,6 +112,14 @@ pub struct Inputs {
     pub conf: Option<String>,
     /// The density size pictures are drawn at, and where it came from.
     pub dpi: (u32, DpiFrom),
+    /// The density of each connected display as the console finds it:
+    /// `display-dpi` where vtium.conf sets it, else the display's own,
+    /// else 96. A look's card converts its sizes at the lowest of them.
+    pub densities: Vec<u32>,
+    /// The font vconsole names, by `vconsole.font=` on the kernel command
+    /// line or `FONT=` in vconsole.conf, which the console draws where
+    /// vtium.conf and the look name no font set.
+    pub vconsole_font: Option<String>,
     /// The frits' directory, where a new frit is installed.
     pub frits: PathBuf,
     /// The view the TUI opens at: the fonts, or the new-frit view for
@@ -142,8 +151,11 @@ pub struct Inputs {
     /// wrote it, or a line of it that it skipped.
     pub colors_note: Option<String>,
     /// The head of the console the TUI runs in, from `VTIUM_HEAD`, which
-    /// vtium sets in each console's session (ADR-1401 D5): where `s` in
-    /// the Fonts view of a vtium console saves the font the console shows.
+    /// vtium sets in each console's session: the head whose font the
+    /// preview names and a trial puts back.
+    ///
+    /// References:
+    /// - ADR-1401 D5: vtium sets `VTIUM_HEAD` in each console's session.
     pub head: Option<String>,
     /// The locale the specimen's line follows, as [`super::locale`] reads
     /// it, for the preview a vtium console draws as text.
@@ -274,8 +286,7 @@ pub enum Effect {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     Flow,
-    /// The looks; until looks are built, the sizes the console's font
-    /// takes.
+    /// The Looks tab: the looks, their font sets and their color schemes.
     Looks,
     Fonts,
     Settings,
@@ -284,7 +295,7 @@ pub enum View {
     /// `new`'s guided flow: a frit made from fonts, installed like any
     /// change (ADR-1201 D9). It belongs to the Looks tab.
     New,
-    /// The Effects tab, which says only that it is coming.
+    /// The Effects tab: the vtlooks, color maps and shaders.
     Effects,
 }
 
@@ -446,9 +457,6 @@ pub struct Shared {
     pub came: Option<String>,
     /// The notice that the live trial is off has been shown.
     live_said: bool,
-    /// What the message line says once the draft holds the font the
-    /// console shows, which `s` in a vtium console's Fonts view wrote.
-    pub saving_tried: Option<String>,
     /// The TUI leaves with this status once the install that `y` at the
     /// leave question started ends well.
     pub quit_after_install: Option<u8>,
@@ -709,7 +717,6 @@ impl App {
                 install_waits: None,
                 came: None,
                 live_said: false,
-                saving_tried: None,
                 quit_after_install: None,
                 unsaved: 0,
             },
@@ -980,7 +987,9 @@ impl App {
                 Vec::new()
             }
             Event::Described(answers) => {
+                let highlighted = self.fonts.highlighted_path(&self.shared);
                 self.shared.inputs.font_files.describe(answers);
+                self.fonts.keep(&self.shared, highlighted.as_deref());
                 Vec::new()
             }
             Event::Desked(op, done) => self.desked(&op, done),
@@ -1095,7 +1104,7 @@ impl App {
         if !frits.is_empty() {
             out.push(Effect::Sources(frits));
         }
-        let waiting = self.shared.inputs.font_files.waiting();
+        let waiting = self.shared.inputs.font_files.ask();
         if !waiting.is_empty() {
             out.push(Effect::Describe(waiting));
         }
@@ -1307,8 +1316,12 @@ impl App {
             match request {
                 Request::Go(view) => effects.extend(self.set_view(view)),
                 Request::Ask { question, then } => self.ask(question, then),
-                // font sets are listed in the Looks tab
-                Request::ShowFont(_) => effects.extend(self.set_view(View::Looks)),
+                // font sets are listed in the Looks tab, which highlights
+                // the one asked for
+                Request::ShowFont(name) => {
+                    effects.extend(self.set_view(View::Looks));
+                    self.looks.show_font_set(&self.shared, &name);
+                }
             }
         }
         effects
@@ -1420,10 +1433,25 @@ impl App {
             self.shared.inputs.installed.remove(name);
             self.shared.sources.remove(name);
         }
+        // each new font set joins the list the Looks tab offers at once,
+        // as the next start would list it, in place of an installed set of
+        // its name
         for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
+            let state = match Frit::parse(text.as_bytes(), Path::new(&name), &name) {
+                Ok(_) => FontState::Reads,
+                Err(e) if e.line == 0 => FontState::Refused(e.why.clone()),
+                Err(e) => FontState::Refused(format!("line {}: {}", e.line, e.why)),
+            };
+            let fonts = &mut self.shared.inputs.fonts;
+            fonts.retain(|f| f.name != name);
+            fonts.push(Font {
+                name: name.clone(),
+                state,
+            });
+            fonts.sort_by(|a, b| a.name.cmp(&b.name));
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
-        self.fonts.fit(&self.shared);
+        self.fonts.keep(&self.shared, None);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one

@@ -341,7 +341,7 @@ $ vtium config activate /usr/local/share/fonts/MyMono.ttf --install
 
 The first command copies the file into `/usr/local/share/fonts`, owned by root with mode 0644, through `sudo vtium-config apply`. It shows that command and asks before it runs it. When `/usr/local/share/fonts` already holds a different file of that name, it shows both files and asks before it replaces the old one.
 
-In `vtium config tui`, the Effects tab activates color maps and shaders, and the Looks tab activates color schemes and pointer themes. In both tabs, Space activates or deactivates the highlighted item. [Active fonts](fonts.md#active-fonts) shows how to write `batch.conf` by hand.
+In `vtium config tui`, the Fonts tab activates fonts, the Effects tab activates color maps and shaders, and the Looks tab activates color schemes and pointer themes. In each of these tabs, Space activates or deactivates the highlighted item. [Active fonts](fonts.md#active-fonts) shows how to write `batch.conf` by hand.
 
 ## Upgrading and removing
 

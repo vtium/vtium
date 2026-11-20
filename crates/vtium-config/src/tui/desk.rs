@@ -23,12 +23,6 @@ pub enum Op {
     /// Writes `text` as the current draft, whatever the check says, and
     /// checks it: Save (ADR-1403 D7).
     Write(String),
-    /// Writes `text` as the current draft only where `vtium check-config`
-    /// passes it, or fails it only because it wires no complete route,
-    /// which Install asks about (ADR-1403 D8); otherwise writes nothing
-    /// and gives what the check printed. The save of the font a vtium
-    /// console shows (ADR-1201 D4).
-    WriteChecked(String),
     /// Checks `text`, the current draft with the TUI's unsaved changes,
     /// and counts it against the installed file, and writes nothing.
     Check(String),
@@ -121,12 +115,15 @@ pub enum Done {
     /// The install of a font file as a system font, readied by
     /// [`Op::SystemFont`].
     SystemFont(FontReady),
-    /// The font file installed as a system font at `target`, what the
-    /// privileged step printed, and the font files found after it.
+    /// The font file installed as a system font at `target`; what the
+    /// privileged step printed, its check against the trust rule apart;
+    /// why the copy fails the trust rule, where it does; and the font
+    /// files found after it, or why the scan failed.
     FontInstalled {
         target: std::path::PathBuf,
         said: String,
-        found: Vec<crate::discover::Found>,
+        untrusted: Option<String>,
+        found: Result<Vec<crate::discover::Found>, String>,
     },
 }
 
@@ -235,7 +232,7 @@ impl Store {
 
     /// Removes the draft of a font readied earlier and not installed, so a
     /// question answered with Esc leaves no draft behind once another font
-    /// is readied.
+    /// is readied or the TUI ends.
     fn drop_font(&mut self) {
         if let Some(old) = self.font.take() {
             let _ = std::fs::remove_dir_all(&old.draft);
@@ -357,18 +354,6 @@ impl Store {
         let session = self.session();
         match op {
             Op::Write(text) => self.write(text),
-            Op::WriteChecked(text) => {
-                let (name, _) = session.current()?;
-                let shown = self.store.draft_path(&name)?;
-                let checked = session.check(text, &shown)?;
-                if !checked.clears() && !checked.no_route_only(&shown.to_string_lossy()) {
-                    return Ok(Done::Refused(
-                        crate::tui::words::TRIED_REFUSED.to_owned(),
-                        checked.problems,
-                    ));
-                }
-                self.write(text)
-            }
             Op::Check(text) => {
                 let (name, _) = session.current()?;
                 Ok(Done::Draft(self.opened(&name, text)?, None))
@@ -484,6 +469,14 @@ impl Store {
     }
 }
 
+/// A font readied and never installed, because the person answered its
+/// question with Esc, leaves no draft once the TUI ends.
+impl Drop for Store {
+    fn drop(&mut self) {
+        self.drop_font();
+    }
+}
+
 impl Desk for Store {
     fn run(&mut self, op: &Op) -> Result<Done, String> {
         if *op == Op::Prepare {
@@ -541,24 +534,30 @@ impl Desk for Store {
             return Err(crate::tui::words::NO_FONT_READY.to_owned());
         };
         let (ok, said) = run(&font.argv).map_err(|e| text(&e.to_string()))?;
-        let said: Vec<String> = said
-            .lines()
-            .map(|line| line.split('\t').map(text).collect::<Vec<_>>().join(" "))
-            .collect();
-        let said = said.join(" ");
+        let mut untrusted = None;
+        let mut lines = Vec::new();
+        for line in said.lines() {
+            let columns: Vec<String> = line.split('\t').map(text).collect();
+            match columns.split_first() {
+                Some((first, rest)) if first == "untrusted" => {
+                    untrusted = Some(rest.get(1..).unwrap_or_default().join(" "));
+                }
+                _ => lines.push(columns.join(" ")),
+            }
+        }
+        let said = lines.join(" ");
         if !ok {
             return Err(said);
         }
+        let found = crate::tui::read_conf(&self.paths.configdir.join("vtium.conf"))
+            .and_then(|conf| crate::tui::scan_fonts(&self.store, &self.paths, conf.as_deref()))
+            .map(|(found, _)| found)
+            .map_err(|why| text(&why));
         Ok(Done::FontInstalled {
             target: font.target,
             said,
-            found: crate::tui::read_conf(&self.paths.configdir.join("vtium.conf"))
-                .ok()
-                .and_then(|conf| {
-                    crate::tui::scan_fonts(&self.store, &self.paths, conf.as_deref()).ok()
-                })
-                .map(|(found, _)| found)
-                .unwrap_or_default(),
+            untrusted,
+            found,
         })
     }
 }

@@ -422,8 +422,8 @@ impl Flow {
         })
     }
 
-    /// Enter on the document: opens the highlighted box's layer, or a font
-    /// set's preview in the Fonts view.
+    /// Enter on the document: opens the highlighted box's layer, or shows
+    /// a font set in the Looks tab's font sets.
     fn open(&mut self, shared: &Shared, at: Option<Obj>) -> Vec<Command> {
         let Some(obj) = at else {
             return Vec::new();

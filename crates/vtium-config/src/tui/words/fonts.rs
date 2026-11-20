@@ -13,17 +13,19 @@ use crate::tui::fonts_found::{Filter, Supplied, Unknown};
 /// The Fonts tab's name in the tab bar.
 pub const FONTS: &str = "Fonts";
 
-/// The line above the preview in a vtium console, where the console draws
-/// the preview's characters itself (ADR-1201 D4): in the Fonts view, the
-/// font it draws them in, which `t` changes; in the Looks view, the size,
-/// which the TUI cannot change on the console.
+/// The line above a font set's preview in a vtium console, where the
+/// console draws the preview's characters itself: the font it draws them
+/// in, which `t` in the Looks tab changes.
+///
+/// References:
+/// - ADR-1201 D4: a vtium console draws the preview's characters itself.
 pub fn console_font_caption(font: Option<&str>) -> String {
     let font = match font {
         Some(f) => format!("{f}, the font it uses now"),
         None => "the font it uses now".to_owned(),
     };
     format!(
-        "The console draws these characters in {font}. Press t to try the highlighted font on the console, k to keep it, and s to save it in the draft."
+        "The console draws these characters in {font}. Press t to try the highlighted font set on the console."
     )
 }
 
@@ -85,7 +87,7 @@ pub const NEW_HINT: &str = "A font set (frit) combines up to three fonts. Name e
 pub const NEW_BAD_NAME: &str = "A name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot be a built-in font's name.";
 
 pub fn new_added(name: impl Display) -> String {
-    format!("{name} is added to the install. Press Enter to install it.")
+    format!("{name} is added to the install. Press i to install it.")
 }
 
 pub fn new_replaces_binary(name: impl Display) -> String {
@@ -199,7 +201,7 @@ pub const FONTS_OWN_HINT: &str = "Press Enter to install this font as a system f
 /// What Space says on a font in the person's own folder.
 pub fn own_font(path: &str) -> String {
     format!(
-        "This font is in your own folder, so vtium cannot use it. Press Enter to open its detail, then Enter again to install it as a system font. {path}"
+        "This font is in your own folder, so vtium cannot use it. Press Enter to open its detail, then Enter again to install it as a system font. File: {path}"
     )
 }
 
@@ -208,7 +210,7 @@ pub const TRY_A_FONT_SET: &str = "vtium can try a font set on this console, but 
 
 /// The lines of a font's detail.
 pub fn font_title(name: &str) -> String {
-    format!("font {name}")
+    format!("Font {name}")
 }
 
 pub fn font_folder(place: Place) -> String {
@@ -320,22 +322,57 @@ pub fn system_font_installed(target: &str) -> String {
     )
 }
 
+/// What the message line says when the font was copied but fails the
+/// trust rule, which `apply` checks after the copy.
+pub fn system_font_untrusted(target: &str, why: &str) -> String {
+    format!(
+        "The font was copied to {target}, but it fails the trust rule, so vtium cannot use it: {why}"
+    )
+}
+
+/// What the message line says while the font helper checks a font of the
+/// person's before its install as a system font.
+pub const CHECKING_FONT: &str = "Checking the font before the install…";
+
+/// What the Fonts tab says when its window shows only part of the list.
+pub fn fonts_window(first: usize, last: usize, of: usize) -> String {
+    format!("The list shows fonts {first} to {last} of {of}. Up and Down scroll it.")
+}
+
+/// The Fonts tab's note when the scan after an install fails.
+pub fn fonts_rescan_failed(why: &str) -> String {
+    format!(
+        "vtium-config cannot look for the fonts again after the install, so this list may be out of date. {why}"
+    )
+}
+
+/// The trust mark of a font vtium-config has not checked against the
+/// trust rule.
+pub const FONT_UNCHECKED: &str = "vtium-config has not checked this font against the trust rule.";
+
 pub fn system_font_failed(why: &str) -> String {
     format!("The font was not installed: {why}")
 }
 
-pub const SYSTEM_FONT_NOT_YOURS: &str = "Only a font in your own folder is installed as a system font. This font is a system font already.";
+pub const SYSTEM_FONT_NOT_YOURS: &str =
+    "This font is a system font already. Only a font in your own folder can be installed as one.";
 
-/// What a look's card says beside its size, from its text font.
-pub fn sizes_note(supplied: &Supplied) -> String {
-    match supplied {
+/// What a look's card says beside its size, from its text font: for a
+/// bitmap font, the strikes that the card offers a point size for, as
+/// `offered` gives them. `mixed` says that the displays' densities
+/// differ, so the sizes are for the display of the lowest density.
+pub fn sizes_note(supplied: &Supplied, offered: &[(u32, Strike)], mixed: bool) -> String {
+    let note = match supplied {
         Supplied::Any { family } => format!(
             "The text font, {family}, has outlines, so the look can take any size."
         ),
-        Supplied::Strikes { family, strikes } => {
-            let shown: Vec<String> = strikes.iter().map(strike_cell).collect();
+        Supplied::Strikes { family, .. } if offered.is_empty() => format!(
+            "The text font, {family}, is a bitmap font, and no point size draws any of its bitmap sizes, so vtium-config offers only Automatic."
+        ),
+        Supplied::Strikes { family, .. } => {
+            let shown: Vec<String> = offered.iter().map(|(_, s)| strike_cell(s)).collect();
             format!(
-                "The text font, {family}, is a bitmap font, so the look offers its sizes: {}.",
+                "The text font, {family}, is a bitmap font, so the look offers the point sizes that draw its bitmap sizes: {}.",
                 shown.join(", ")
             )
         }
@@ -344,6 +381,9 @@ pub fn sizes_note(supplied: &Supplied) -> String {
                 "vtium-config offers its usual sizes, because the font set names no text font."
                     .to_owned()
             }
+            Unknown::NoSet(name) => format!(
+                "vtium-config offers its usual sizes, because no font set named {name} is installed."
+            ),
             Unknown::BuiltIn => {
                 "vtium-config offers its usual sizes, because the text font is built into vtium or is the console's own font."
                     .to_owned()
@@ -359,8 +399,17 @@ pub fn sizes_note(supplied: &Supplied) -> String {
                 "vtium-config offers its usual sizes, because the font helper cannot read the text font {spelling}."
             ),
         },
+    };
+    if mixed && !matches!(supplied, Supplied::Unknown(_)) {
+        format!("{note} {SIZES_LOWEST_DENSITY}")
+    } else {
+        note
     }
 }
+
+/// What the card adds to its size note when the displays' densities
+/// differ.
+pub const SIZES_LOWEST_DENSITY: &str = "Your displays have different densities, so these sizes are for the display with the lowest density. On a denser display, a size may draw a larger bitmap size.";
 
 /// A bitmap strike as the card and a font's detail show it: its cell in
 /// pixels.
@@ -370,20 +419,20 @@ pub fn strike_cell(strike: &Strike) -> String {
 
 /// A size of the card's list that draws a bitmap strike.
 pub fn strike_size(points: u32, drawn: &Strike) -> String {
-    format!("{} pt, the {} strike", points, strike_cell(drawn))
+    format!("{} pt, bitmap size {}", points, strike_cell(drawn))
 }
 
 /// The Fonts tab's note when vtium-config cannot read the draft's batch.
 pub fn fonts_unread(why: &str) -> String {
     format!(
-        "vtium-config cannot read which resources the draft keeps active, so every font shows as not active. {why}"
+        "vtium-config cannot read which fonts the draft keeps active, so every font shows as not active. {why}"
     )
 }
 
 /// The Fonts tab's note when vtium-config cannot read the mount table.
 pub fn fonts_unjudged(why: &str) -> String {
     format!(
-        "vtium-config cannot read the mount table, so it cannot judge the fonts it finds and lists none. {why}"
+        "vtium-config cannot read the mount table, so it cannot check the fonts it finds against the trust rule, and it lists none. {why}"
     )
 }
 

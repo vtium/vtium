@@ -130,10 +130,37 @@ impl Fonts {
         }
     }
 
-    /// Keeps the highlight on the list once fonts have left it, as after
-    /// a scan that follows an install.
-    pub fn fit(&mut self, shared: &Shared) {
-        self.list.at = self.list.at.min(self.items(shared).len());
+    /// The highlighted font's file, `None` on the filter line.
+    pub fn highlighted_path(&self, shared: &Shared) -> Option<PathBuf> {
+        self.highlighted(shared).map(|f| f.path().to_path_buf())
+    }
+
+    /// Puts the highlight back on the font at `path`, the font that was
+    /// highlighted before the list changed under it: when descriptions
+    /// arrive and a filter lets more fonts in, or when a scan after an
+    /// install adds a font. The window moves with the highlight, so the
+    /// font stays on the same row. A font the list no longer shows leaves
+    /// the highlight where it was, kept within the list.
+    pub fn keep(&mut self, shared: &Shared, path: Option<&std::path::Path>) {
+        let items = self.items(shared);
+        let found = &shared.inputs.font_files.files;
+        let at = path.and_then(|path| {
+            items
+                .iter()
+                .position(|i| found.get(*i).is_some_and(|f| f.path() == path))
+        });
+        match at.map(|at| at.saturating_add(1)) {
+            Some(new) => {
+                let old = self.list.at;
+                self.top = if new >= old {
+                    self.top.saturating_add(new - old)
+                } else {
+                    self.top.saturating_sub(old - new)
+                };
+                self.list.at = new;
+            }
+            None => self.list.at = self.list.at.min(items.len()),
+        }
         self.top = self.top.min(self.list.at.saturating_sub(1));
     }
 
@@ -220,6 +247,16 @@ impl Fonts {
             sentence.push(words::FONTS_EMPTY.to_owned());
         } else if shown.is_empty() {
             sentence.push(words::FONTS_NONE.to_owned());
+        }
+        // a window that holds fewer fonts than the list says which it
+        // shows, so the person knows the list goes on
+        if shown.len() > n {
+            let last = top.saturating_add(n).min(shown.len());
+            sentence.push(words::fonts_window(
+                top.saturating_add(1),
+                last,
+                shown.len(),
+            ));
         }
         let waiting = found.waiting().len();
         if waiting > 0 {
@@ -313,8 +350,23 @@ impl Fonts {
                     top: top.saturating_add(1).min(last),
                 });
             }
+            // the detail goes back to its first line, where the files and
+            // the command show while the question before the install is
+            // open
+            //
+            // References:
+            // - ADR-1205 D5: the exact command is shown before it runs.
             Key::Enter if file.resource.own => {
-                return vec![Command::Effect(Effect::Desk(Op::SystemFont(path)))];
+                self.open = Some(Open::Detail {
+                    path: path.clone(),
+                    top: 0,
+                });
+                // the font helper's check can take seconds, so the message
+                // line says what is happening while it runs
+                return vec![
+                    Command::Change(Change::Say(words::CHECKING_FONT.to_owned())),
+                    Command::Effect(Effect::Desk(Op::SystemFont(path))),
+                ];
             }
             Key::Enter => {
                 return vec![Command::Change(Change::Say(

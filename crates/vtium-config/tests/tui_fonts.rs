@@ -112,7 +112,7 @@ fn each_font_shows_describing_until_the_helper_answers_and_keys_go_on() {
     // Enter reached the TUI and opened the first font's detail
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        flat(&screen).contains("font DejaVuSansMono.ttf"),
+        flat(&screen).contains("Font DejaVuSansMono.ttf"),
         "{screen}"
     );
     assert!(flat(&screen).contains(words::FONT_DESCRIBING), "{screen}");
@@ -189,6 +189,97 @@ fn a_filter_shows_the_fonts_that_pass_it() {
         .collect::<Vec<_>>()
         .join(" ");
     assert!(flat(&screen).contains(words::FONTS_NONE), "{screen}");
+}
+
+/// The highlight stays on its font while descriptions arrive: under a
+/// filter, a font described later can join the list above the highlighted
+/// one, and the highlight follows its font rather than its row, so Space
+/// acts on the font the person chose.
+#[test]
+fn the_highlight_stays_on_its_font_as_descriptions_arrive() {
+    use vtium_config::tui::fixture::described;
+    use vtium_config::tui::fonts_found::Filter;
+    let (mut app, _) = App::new(inputs(), 100, 30);
+    let path = |name: &str| {
+        app.shared
+            .inputs
+            .font_files
+            .files
+            .iter()
+            .map(|f| f.path().to_path_buf())
+            .find(|p| p.ends_with(name))
+            .expect("the fixture's font")
+    };
+    let (dejavu, cullet) = (path("DejaVuSansMono.ttf"), path("cullet-mono.otf"));
+    // only cullet-mono.otf is described, so only it is an outline font yet
+    app.event(Event::Described(vec![(cullet.clone(), described(&cullet))]));
+    let at = Filter::choices()
+        .iter()
+        .position(|f| *f == Filter::Outline)
+        .expect("a filter");
+    let mut keys = vec![Key::Enter, Key::Home];
+    keys.extend(std::iter::repeat_n(Key::Down, at));
+    keys.extend([Key::Enter, Key::Down]);
+    for key in keys {
+        app.event(Event::Input(Input::Key(key)));
+    }
+    let highlighted = |app: &App| {
+        app.fonts
+            .highlighted(&app.shared)
+            .map(|f| f.path().to_path_buf())
+    };
+    assert_eq!(highlighted(&app).as_ref(), Some(&cullet));
+    // DejaVu Sans Mono, earlier in the list, is described as an outline
+    // font and joins the list above it
+    app.event(Event::Described(vec![(dejavu.clone(), described(&dejavu))]));
+    assert_eq!(app.fonts.items(&app.shared).len(), 2);
+    assert_eq!(highlighted(&app).as_ref(), Some(&cullet));
+}
+
+/// A screen whose window holds fewer fonts than the list says which fonts
+/// it shows, so the person knows the list goes on.
+#[test]
+fn a_window_shorter_than_the_list_says_the_list_goes_on() {
+    let mut i = inputs();
+    let mut files: Vec<vtium_config::discover::Found> = (0..3)
+        .map(|n| vtium_config::discover::Found {
+            path: PathBuf::from(format!("/usr/share/fonts/TTF/Extra{n}.ttf")),
+            folder: vtium_config::discover::Folder {
+                path: PathBuf::from("/usr/share/fonts"),
+                place: vtium_config::discover::Place::System,
+            },
+            trust: Ok(()),
+            state: vtium_config::batch::State::Inactive,
+            duplicate: None,
+        })
+        .collect();
+    let mut all: Vec<vtium_config::discover::Found> = i
+        .font_files
+        .files
+        .iter()
+        .map(|f| vtium_config::discover::Found {
+            path: f.path().to_path_buf(),
+            folder: vtium_config::discover::Folder {
+                path: PathBuf::from("/"),
+                place: f.place,
+            },
+            trust: f.resource.trust.clone(),
+            state: f.resource.state,
+            duplicate: f.duplicate.clone(),
+        })
+        .collect();
+    all.splice(0..0, files.drain(..));
+    i.font_files = vtium_config::tui::fonts_found::Fonts::new(all);
+    let (app, _) = App::new(i, 80, 25);
+    let screen = vtium_config::tui::view::screen_at(&app, app.size)
+        .iter()
+        .map(|r| r.iter().map(|s| s.text.as_str()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        flat(&screen).contains(&words::fonts_window(1, 5, 8)),
+        "{screen}"
+    );
 }
 
 /// Space activates a font that is not active and deactivates one that is,
@@ -288,6 +379,45 @@ fn deactivating_a_font_a_look_uses_asks_first_and_names_the_look() {
     );
 }
 
+/// Space on an active font that a look's font set names by its family
+/// asks first too, once the font helper has described the file, and the
+/// detail names the look among the font's users.
+///
+/// References:
+/// - ADR-1205 D8: deactivating warns and lists the looks that use it.
+#[test]
+fn deactivating_a_font_a_look_names_by_its_family_asks_first() {
+    let mut i = inputs();
+    i.installed.insert(
+        "proof".to_owned(),
+        b"source=font:dejavu sans mono\n".to_vec(),
+    );
+    let (mut app, _) = App::new(i, 100, 30);
+    let answers = app
+        .shared
+        .inputs
+        .font_files
+        .waiting()
+        .into_iter()
+        .map(|p| {
+            let d = vtium_config::tui::fixture::described(&p);
+            (p, d)
+        })
+        .collect();
+    app.event(Event::Described(answers));
+    for key in [Key::Down, Key::Char(' ')] {
+        app.event(Event::Input(Input::Key(key)));
+    }
+    let question = app.nav.confirm.as_ref().expect("a question");
+    assert!(
+        question
+            .question
+            .contains("Look proof uses it through the font set proof"),
+        "{}",
+        question.question
+    );
+}
+
 /// Enter on a font opens its detail: its file and folder, each face with
 /// what it covers and its sizes, whether it is active, its trust mark,
 /// a duplicate's mark and the looks that use it. Esc goes back to the
@@ -301,7 +431,7 @@ fn enter_opens_a_font_s_detail_and_esc_goes_back() {
     let screen = reach(100, 30, &on_font(3, &[b"\r"]));
     let text = flat(&screen);
     for line in [
-        "font NotoColorEmoji.ttf",
+        "Font NotoColorEmoji.ttf",
         "File: /usr/local/share/fonts/NotoColorEmoji.ttf",
         "Folder: system",
         "Face: Noto Color Emoji Regular, version 2.37",
@@ -339,6 +469,19 @@ fn enter_opens_a_font_s_detail_and_esc_goes_back() {
 #[test]
 fn enter_in_the_detail_of_a_font_of_yours_asks_then_installs_it_as_a_system_font() {
     let ask = on_font(5, &[b"\r", b"\r"]);
+    // the message line says the font is being checked when the desk is
+    // asked to ready it, and the loop draws that before the desk runs
+    let mut app = app_after(&[Key::Down; 5]);
+    app.event(Event::Input(Input::Key(Key::Enter)));
+    let effects = app.event(Event::Input(Input::Key(Key::Enter)));
+    assert!(
+        effects.iter().any(|e| matches!(
+            e,
+            vtium_config::tui::model::Effect::Desk(vtium_config::tui::desk::Op::SystemFont(_))
+        )),
+        "{effects:?}"
+    );
+    assert_eq!(app.shared.message.as_deref(), Some(words::CHECKING_FONT));
     let screen = reach_desk(&ask);
     let text = flat(&screen);
     for line in [
@@ -381,6 +524,124 @@ fn enter_in_the_detail_of_a_font_of_yours_asks_then_installs_it_as_a_system_font
     assert!(
         screen.contains("Mine-Regular.ttf    Mine Regular, not active, trusted"),
         "{screen}"
+    );
+}
+
+/// A different file of the same name is installed already: the detail
+/// shows both files' facts and the command while the question asks
+/// whether to replace the installed file, and only `y` installs.
+///
+/// References:
+/// - ADR-1205 D5, its note of 2026-11-18: both files on a clash.
+#[test]
+fn enter_on_a_font_that_replaces_an_installed_file_shows_both_files() {
+    use vtium_config::tui::fixture::{OWN_FONT_FACTS, OWN_FONT_INSTALLED_FACTS};
+    let ask = on_font(5, &[b"\r", b"\r"]);
+    let replacing = || Desk {
+        placement: vtium_config::apply::Placement::Replaces,
+        ..desk()
+    };
+    let mut c = console().keys(&ask);
+    let mut d = replacing();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let text = flat(&screen);
+    for line in [
+        words::SYSTEM_FONT_CLASH.to_owned(),
+        flat(&words::system_font_installed_file(OWN_FONT_INSTALLED_FACTS)),
+        flat(&words::system_font_yours(OWN_FONT_FACTS)),
+        OWN_FONT_COMMAND.to_owned(),
+        flat(&words::system_font_replace_question(OWN_FONT_INSTALLED)),
+    ] {
+        assert!(text.contains(&line), "{line:?}:\n{screen}");
+    }
+    // a detail scrolled down goes back to its first line, so the files
+    // and the command show while the question is open
+    let scrolled = on_font(5, &[b"\r", DOWN, DOWN, DOWN, DOWN, b"\r"]);
+    let mut c = console().keys(&scrolled);
+    let mut d = replacing();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    for line in [
+        words::SYSTEM_FONT_CLASH.to_owned(),
+        flat(&words::system_font_installed_file(OWN_FONT_INSTALLED_FACTS)),
+        OWN_FONT_COMMAND.to_owned(),
+    ] {
+        assert!(flat(&screen).contains(&line), "{line:?}:\n{screen}");
+    }
+    let mut keys = ask.clone();
+    keys.push(b"n");
+    let mut c = console().keys(&keys);
+    let mut d = replacing();
+    run_desk(&mut c, &mut d);
+    assert!(c.saves.is_empty(), "{:?}", c.saves);
+    let mut keys = ask;
+    keys.push(b"y");
+    let mut c = console().keys(&keys);
+    let mut d = replacing();
+    run_desk(&mut c, &mut d);
+    assert_eq!(d.fonts_installed, [PathBuf::from(OWN_FONT_INSTALLED)]);
+}
+
+/// The same file is installed already: the message line says nothing
+/// changed, no question opens, and `y` installs nothing.
+///
+/// References:
+/// - ADR-1205 D5, its note of 2026-11-18: nothing when the files are
+///   identical.
+#[test]
+fn enter_on_a_font_installed_already_says_nothing_changed() {
+    let mut c = console().keys(&on_font(5, &[b"\r", b"\r", b"y"]));
+    let mut d = Desk {
+        placement: vtium_config::apply::Placement::Identical,
+        ..desk()
+    };
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        flat(&screen).contains(&flat(&words::system_font_identical(OWN_FONT_INSTALLED))),
+        "{screen}"
+    );
+    assert!(
+        !flat(&screen).contains(&flat(&words::system_font_question(OWN_FONT_INSTALLED))),
+        "{screen}"
+    );
+    assert!(c.saves.is_empty(), "{:?}", c.saves);
+    assert!(d.fonts_installed.is_empty());
+}
+
+/// When the copy fails the trust rule, the message line says so and why,
+/// not that the font is installed. When the scan after the install fails,
+/// the list keeps its fonts, the new system font joins them unchecked,
+/// and the note says why the list may be out of date.
+#[test]
+fn an_install_that_fails_the_trust_rule_or_the_scan_says_so_and_keeps_the_list() {
+    use vtium_config::tui::desk::Done;
+    let (mut app, _) = App::new(inputs(), 100, 30);
+    let before = app.shared.inputs.font_files.files.len();
+    app.event(Event::Installed(Ok(Done::FontInstalled {
+        target: PathBuf::from(OWN_FONT_INSTALLED),
+        said: format!("wrote {OWN_FONT_INSTALLED}"),
+        untrusted: Some("the file belongs to user 1000, and only root may own it.".into()),
+        found: Err("cannot read the mount table".into()),
+    })));
+    let message = app.shared.message.clone().unwrap_or_default();
+    assert_eq!(
+        message,
+        words::system_font_untrusted(
+            OWN_FONT_INSTALLED,
+            "the file belongs to user 1000, and only root may own it."
+        )
+    );
+    let files = &app.shared.inputs.font_files;
+    assert_eq!(files.files.len(), before + 1);
+    let new = files
+        .file(std::path::Path::new(OWN_FONT_INSTALLED))
+        .expect("the new system font");
+    assert_eq!(new.resource.trust, Err(words::FONT_UNCHECKED.to_owned()));
+    assert_eq!(
+        files.note,
+        Some(words::fonts_rescan_failed("cannot read the mount table"))
     );
 }
 

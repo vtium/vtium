@@ -241,7 +241,7 @@ To render text in a font you have not used yet, take these steps:
 3. Press `i` to install the draft. The install writes the new font set, and adds the font to the list of active fonts.
 4. Log out and back in, because the console reads the list of active fonts again at the next login. Then run `vtium config tui` again.
 5. In the Looks tab, highlight the new font set and press `t` to try it on the console.
-6. Highlight a look and press Enter to open its card. Choose the new font set on its Font set line, and a size on its Size line.
+6. Highlight a look and press Enter to open its card. Choose the new font set on its Font set line, and a size on its Size line. For a bitmap font, the Size line offers only the point sizes that draw the font's bitmap sizes. When your displays have different densities, these sizes are for the display with the lowest density.
 7. Press `s` to save the draft and `i` to install it.
 
 A font in your own folder, such as `~/.local/share/fonts`, cannot be activated, because root does not own it. In the Fonts tab, press Enter on such a font to open its detail, and Enter again to install it as a system font. vtium-config shows the command, which copies the file into `/usr/local/share/fonts` through sudo, and asks before it runs it. Then activate the installed copy with Space.

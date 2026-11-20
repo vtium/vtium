@@ -757,15 +757,25 @@ fn a_look_s_size_line_offers_the_sizes_its_text_font_supplies() {
     let card = reach_inputs(i.clone(), &[TO_LOOKS, b"\r"]);
     assert!(
         flat(&card).contains(
-            "The text font, Terminus, is a bitmap font, so the look offers its sizes: 8×16."
+            "The text font, Terminus, is a bitmap font, so the look offers the point sizes that draw its bitmap sizes: 8×16."
         ),
         "{card}"
     );
+    assert!(!flat(&card).contains(words::SIZES_LOWEST_DENSITY), "{card}");
     // the size line's list: vtium.conf's size, automatic, then 12 points,
-    // which draw the 8×16 strike at 96 DPI
-    let list = reach_inputs(i, &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r"]);
-    assert!(flat(&list).contains("12 pt, the 8×16 strike"), "{list}");
+    // which draw the 8×16 strike at 96 DPI; the console draws only the
+    // file the source names, so no other Terminus file adds a size
+    let list = reach_inputs(i.clone(), &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r"]);
+    assert!(flat(&list).contains("12 pt, bitmap size 8×16"), "{list}");
     assert!(!flat(&list).contains("14 pt"), "{list}");
+    assert!(!flat(&list).contains("9 pt"), "{list}");
+    // with displays of 96 and 192 DPI, the sizes are for the lowest
+    // density, and the size line says so
+    i.densities = vec![192, 96];
+    let card = reach_inputs(i.clone(), &[TO_LOOKS, b"\r"]);
+    assert!(flat(&card).contains(words::SIZES_LOWEST_DENSITY), "{card}");
+    let list = reach_inputs(i, &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r"]);
+    assert!(flat(&list).contains("12 pt, bitmap size 8×16"), "{list}");
     let mut i = with_conf(&conf.replace("term", "dejavu"));
     i.installed.insert(
         "dejavu".to_owned(),
@@ -776,6 +786,40 @@ fn a_look_s_size_line_offers_the_sizes_its_text_font_supplies() {
         flat(&card).contains(
             "The text font, DejaVu Sans Mono, has outlines, so the look can take any size."
         ),
+        "{card}"
+    );
+}
+
+/// A look with no font set, under a vtium.conf that names none, draws
+/// vconsole's font, here a kbd font, else the default set `terminus`, and
+/// its size line offers that font's sizes. It never says the text font is
+/// built in.
+///
+/// References:
+/// - ADR-1204 D2: the default set comes after vconsole's font.
+/// - ADR-1205 D7: a look offers the sizes its fonts supply.
+#[test]
+fn a_look_with_no_font_set_offers_the_sizes_of_the_font_the_console_draws() {
+    let conf = "version = 1\n[look proof]\n[head desk]\nlook = proof\n";
+    let bitmap = "The text font, Terminus, is a bitmap font, so the look offers the point sizes that draw its bitmap sizes: 8×16.";
+    let mut i = with_conf(conf);
+    i.installed.insert(
+        "terminus".to_owned(),
+        b"source=outline:/usr/share/fonts/misc/ter-u16n.otb\n".to_vec(),
+    );
+    let card = reach_inputs(i.clone(), &[TO_LOOKS, b"\r"]);
+    assert!(flat(&card).contains(bitmap), "{card}");
+    assert!(!flat(&card).contains("built into vtium"), "{card}");
+    // vconsole names a kbd font, which no font set is named after
+    i.installed.clear();
+    i.vconsole_font = Some("ter-u16n".to_owned());
+    let card = reach_inputs(i.clone(), &[TO_LOOKS, b"\r"]);
+    assert!(flat(&card).contains(bitmap), "{card}");
+    // with neither, the card says no default set is installed
+    i.vconsole_font = None;
+    let card = reach_inputs(i, &[TO_LOOKS, b"\r"]);
+    assert!(
+        flat(&card).contains("because no font set named terminus is installed"),
         "{card}"
     );
 }
@@ -1577,4 +1621,24 @@ fn the_color_schemes_and_the_pointer_themes_at_80x25_and_100x30() {
             golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
         }
     }
+}
+
+/// The Looks tab highlights a font set it is asked to show, as Enter on a
+/// font set in the Flow tab asks, and a name it does not list moves
+/// nothing.
+#[test]
+fn the_looks_tab_highlights_the_font_set_it_is_asked_to_show() {
+    use vtium_config::tui::tabs::looks::Entry;
+    let mut a = looks_app(inputs(), 100, 30);
+    let at = a
+        .shared
+        .inputs
+        .fonts
+        .iter()
+        .position(|f| f.name == "proof")
+        .expect("the font set proof");
+    a.looks.show_font_set(&a.shared, "proof");
+    assert_eq!(a.looks.highlighted(&a.shared), Some(Entry::FontSet(at)));
+    a.looks.show_font_set(&a.shared, "nowhere");
+    assert_eq!(a.looks.highlighted(&a.shared), Some(Entry::FontSet(at)));
 }

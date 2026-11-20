@@ -448,3 +448,25 @@ fn column(screen: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
+
+/// A font set made with the form joins the Looks tab's font sets once the
+/// install puts it in place, without a restart of vtium-config.
+#[test]
+fn a_font_set_installed_joins_the_font_sets_at_once() {
+    use vtium_config::tui::desk::{Done, Opened};
+    use vtium_config::tui::model::{App, Event};
+    let (mut app, _) = App::new(inputs(), 100, 30);
+    app.shared
+        .pending
+        .frits
+        .push(("fresh".to_owned(), "source=builtin:unifont\n".to_owned()));
+    app.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
+    let fresh = app
+        .shared
+        .inputs
+        .fonts
+        .iter()
+        .find(|f| f.name == "fresh")
+        .expect("the new font set among the font sets");
+    assert_eq!(fresh.state, vtium_config::tui::model::FontState::Reads);
+}

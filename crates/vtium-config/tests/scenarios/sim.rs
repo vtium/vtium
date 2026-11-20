@@ -92,7 +92,7 @@ impl Desk {
     fn run(&mut self, op: &Op) -> Result<Done, String> {
         Ok(match op {
             Op::Open => Done::Draft(self.opened(&self.draft), Some(present())),
-            Op::Write(text) | Op::WriteChecked(text) => {
+            Op::Write(text) => {
                 self.draft.clone_from(text);
                 self.writes = self.writes.saturating_add(1);
                 self.draft()
@@ -144,7 +144,10 @@ impl Desk {
             Op::Resource { path, change } => {
                 vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)?
             }
-            Op::SystemFont(path) => vtium_config::tui::fixture::system_font_op(path)?,
+            Op::SystemFont(path) => vtium_config::tui::fixture::system_font_op(
+                path,
+                vtium_config::apply::Placement::New,
+            )?,
         })
     }
 }
@@ -423,7 +426,6 @@ fn op_word(op: &Op) -> &'static str {
     match op {
         Op::Open => "open",
         Op::Write(_) => "save",
-        Op::WriteChecked(_) => "save checked",
         Op::Check(_) => "check",
         Op::Prepare => "prepare",
         Op::Revert => "revert",

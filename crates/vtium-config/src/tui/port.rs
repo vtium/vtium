@@ -255,6 +255,11 @@ pub fn drive_with(
                     Effect::Sources(fonts) => port.sources(fonts),
                     Effect::Describe(paths) => port.describe(paths),
                     Effect::Desk(op) => {
+                        // readying a system font waits on the font helper,
+                        // so the screen first shows that it is checking
+                        if matches!(op, super::desk::Op::SystemFont(_)) {
+                            port.write(&painter.frame(&app)?)?;
+                        }
                         let done = match desk.as_deref_mut() {
                             Some(desk) => desk.run(&op),
                             None => Err(super::words::NO_DESK.to_owned()),
@@ -904,9 +909,9 @@ impl Port for Tty {
     }
 
     /// Describes `paths` on a thread of its own. The answers go to the loop
-    /// [`DESCRIBED_AT_ONCE`] at a time, or sooner once
-    /// [`DESCRIBED_WAIT`] has passed since the last went, so the list fills
-    /// in steps without a redraw for each file.
+    /// `DESCRIBED_AT_ONCE` at a time, or sooner once `DESCRIBED_WAIT` has
+    /// passed since the last went, so the list fills in steps without a
+    /// redraw for each file.
     fn describe(&mut self, paths: Vec<PathBuf>) {
         let describer = std::sync::Arc::clone(&self.tools.describer);
         let described = self.described.clone();

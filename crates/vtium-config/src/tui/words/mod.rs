@@ -52,6 +52,10 @@ pub const TRIAL_KEY: &str = "t: try live";
 
 pub const TRIAL_NONE: &str = "no live trial";
 
+/// The status line's trial words on a tab other than the Looks tab, which
+/// is where `t` tries a font set.
+pub const TRIAL_IN_LOOKS: &str = "live trial in Looks";
+
 /// Why the live trial does not work, on the message line.
 pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, change allow-font-ops in the Settings tab, then install.";
 
@@ -83,10 +87,6 @@ pub fn trial_same(font: impl Display) -> String {
 pub fn trial_refused(font: impl Display) -> String {
     format!("The console refused {font}. Its log says why.")
 }
-
-/// Why the desk's checked save wrote nothing, before what the check
-/// printed.
-pub const TRIED_REFUSED: &str = "Nothing saved, because vtium check-config found problems:";
 
 /// The line beside the detailed specimen (ADR-1201 D4).
 pub fn detail_caption(

@@ -120,14 +120,14 @@ fn section(node: &Node, cols: usize, page: &mut Laid) {
     page.entry([Line::default()]);
 }
 
-/// The node of the interface tree that a tab of the bar shows: `fonts`
-/// for the Fonts tab, and the same for the form for a new font set, which
+/// The node of the interface tree that a tab of the bar shows: `looks`
+/// for the Looks tab, and the same for the form for a new font set, which
 /// belongs to it.
 fn tab_node(view: View) -> &'static str {
     match view {
-        View::Fonts | View::New => "fonts",
+        View::Fonts => "fonts",
         View::Effects => "effects",
-        View::Looks => "looks",
+        View::Looks | View::New => "looks",
         View::Flow => "flow",
         View::Settings => "settings",
         View::Help => "help",
@@ -193,14 +193,14 @@ impl Help {
     /// commands, from the contract and the catalog the command line's
     /// help draws on. The About page is what `vtium-config --help about`
     /// prints, from the same source.
-    pub fn page(&self, shared: &Shared, size: Size) -> Vec<Line<'static>> {
-        self.laid(shared, size).lines
+    pub fn page(&self, _shared: &Shared, size: Size) -> Vec<Line<'static>> {
+        self.laid(size).lines
     }
 
     /// How many rows the page has at `size`, and where each of its entries
     /// starts.
-    pub fn rows(&self, shared: &Shared, size: Size) -> Rows {
-        let laid = self.laid(shared, size);
+    pub fn rows(&self, _shared: &Shared, size: Size) -> Rows {
+        let laid = self.laid(size);
         Rows {
             len: laid.lines.len(),
             starts: laid.starts,
@@ -209,7 +209,7 @@ impl Help {
 
     /// The page the tab shows at `size`, with the row where each entry
     /// starts.
-    fn laid(&self, _shared: &Shared, size: Size) -> Laid {
+    fn laid(&self, size: Size) -> Laid {
         let cols = size.cols;
         let mut page = Laid::default();
         if self.about {

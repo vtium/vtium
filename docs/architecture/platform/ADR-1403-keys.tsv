@@ -83,7 +83,7 @@ list.filter-picker	Enter	layer:picker	Shows the devices that each value matches 
 list.font-set-files	Enter	layer:flow-card	On the card's look, shows the looks to choose from as a list.	planned	today the card has a font set and a size in place of a look, and Left and Right step each through its choices	ADR-1205 D1; ADR-1403 D10	#379	choose	
 list.terminals	Enter	layer:flow-card	Shows the terminals this configuration defines as a list.	planned		ADR-1403 D7	#412	choose	
 list.font-sets	Enter	layer:look	On the look's font set, shows the font sets to choose from as a list.	supported		ADR-1403 D10	#379	choose	
-list.font-sizes	Enter	layer:look	On the look's size, shows the sizes that the look's fonts supply as a list.	supported	until the font helper reports the sizes a font set supplies, the list offers vtium-config's usual sizes, and the line says so	ADR-1205 D7; ADR-1403 D10	#379	choose	
+list.font-sizes	Enter	layer:look	On the look's size, shows the sizes that the look's fonts supply as a list.	supported	a bitmap text font offers the point sizes that draw the bitmap sizes of the files the console draws, at the lowest density of the connected displays; any other text font offers vtium-config's usual sizes, and the line says why	ADR-1205 D7; ADR-1403 D10	#379	choose	
 list.palettes	Enter	layer:look	On the look's color scheme, shows the color schemes as a list: first the one vtium.conf sets, which leaves the look's own unset, then the built-in schemes, then the active scheme files.	supported		ADR-1205 D10; ADR-1403 D5, D10	#379	choose	1
 k.trial	k	trial	Keeps the font or size you are trying.	supported		ADR-1201 D4		keep	
 other.trial	any other key	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		put back	

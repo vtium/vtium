@@ -208,6 +208,34 @@ pub fn density(conf: Option<&str>, displays: &[crate::display::Display]) -> (u32
     (assumed, DpiFrom::Assumed)
 }
 
+/// The density of each of `displays` as the console converts points at
+/// it: `display-dpi` where `conf` sets it within the bounds the console
+/// believes, else the display's own, else 96. With no display connected,
+/// the one density [`density`] gives.
+///
+/// References:
+/// - ADR-1200 D17: the density, and the lowest density among the
+///   displays that share a grid.
+pub fn densities(conf: Option<&str>, displays: &[crate::display::Display]) -> Vec<u32> {
+    let (dpi, from) = density(conf, displays);
+    if from == DpiFrom::Conf || displays.is_empty() {
+        return vec![dpi];
+    }
+    let assumed = density(None, &[]).0;
+    displays
+        .iter()
+        .map(|d| d.dpi().unwrap_or(assumed))
+        .collect()
+}
+
+/// The font vconsole names, read as the console reads it: the kernel
+/// command line's `vconsole.font=` over vconsole.conf's `FONT=`.
+fn vconsole_font() -> Option<String> {
+    let places = vtium_settings::batch::Places::system();
+    let text = |path: &Path| read_conf(path).ok().flatten().unwrap_or_default();
+    vtium_settings::batch::vconsole(&text(&places.vconsole_conf), &text(&places.cmdline)).font
+}
+
 /// What the TUI starts from, read from `paths`, opening at `view`.
 pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
@@ -221,6 +249,8 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     Ok(Inputs {
         fonts: fonts(&frits),
         conf_path,
+        densities: densities(conf.as_deref(), &displays),
+        vconsole_font: vconsole_font(),
         conf,
         dpi,
         installed: installed(&frits),

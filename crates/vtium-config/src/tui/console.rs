@@ -1,8 +1,8 @@
 //! What the TUI does in a vtium console it can switch, `Live::On`: the
-//! preview of the Fonts and Looks views is text the console draws itself.
+//! preview of the Looks tab is text the console draws itself.
 //!
 //! The preview's text is the content the pictures show elsewhere, taken
-//! from where the pictures take it: the Fonts view prints the detailed
+//! from where the pictures take it: a font set's preview prints the detailed
 //! specimen's lines ([`crate::specimen::detail_lines`] and
 //! [`crate::specimen::SCRIPT_LINE`]), and the Looks view prints the sample
 //! screen ([`super::shot::sample_rows`]). The console draws them in the
