@@ -248,6 +248,16 @@ impl Fonts {
         } else if shown.is_empty() {
             sentence.push(words::FONTS_NONE.to_owned());
         }
+        // a window that holds fewer fonts than the list says which it
+        // shows, so the person knows the list goes on
+        if shown.len() > n {
+            let last = top.saturating_add(n).min(shown.len());
+            sentence.push(words::fonts_window(
+                top.saturating_add(1),
+                last,
+                shown.len(),
+            ));
+        }
         let waiting = found.waiting().len();
         if waiting > 0 {
             sentence.push(words::fonts_waiting(waiting));

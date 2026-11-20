@@ -236,6 +236,52 @@ fn the_highlight_stays_on_its_font_as_descriptions_arrive() {
     assert_eq!(highlighted(&app).as_ref(), Some(&cullet));
 }
 
+/// A screen whose window holds fewer fonts than the list says which fonts
+/// it shows, so the person knows the list goes on.
+#[test]
+fn a_window_shorter_than_the_list_says_the_list_goes_on() {
+    let mut i = inputs();
+    let mut files: Vec<vtium_config::discover::Found> = (0..3)
+        .map(|n| vtium_config::discover::Found {
+            path: PathBuf::from(format!("/usr/share/fonts/TTF/Extra{n}.ttf")),
+            folder: vtium_config::discover::Folder {
+                path: PathBuf::from("/usr/share/fonts"),
+                place: vtium_config::discover::Place::System,
+            },
+            trust: Ok(()),
+            state: vtium_config::batch::State::Inactive,
+            duplicate: None,
+        })
+        .collect();
+    let mut all: Vec<vtium_config::discover::Found> = i
+        .font_files
+        .files
+        .iter()
+        .map(|f| vtium_config::discover::Found {
+            path: f.path().to_path_buf(),
+            folder: vtium_config::discover::Folder {
+                path: PathBuf::from("/"),
+                place: f.place,
+            },
+            trust: f.resource.trust.clone(),
+            state: f.resource.state,
+            duplicate: f.duplicate.clone(),
+        })
+        .collect();
+    all.splice(0..0, files.drain(..));
+    i.font_files = vtium_config::tui::fonts_found::Fonts::new(all);
+    let (app, _) = App::new(i, 80, 25);
+    let screen = vtium_config::tui::view::screen_at(&app, app.size)
+        .iter()
+        .map(|r| r.iter().map(|s| s.text.as_str()).collect::<String>())
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        flat(&screen).contains(&words::fonts_window(1, 5, 8)),
+        "{screen}"
+    );
+}
+
 /// Space activates a font that is not active and deactivates one that is,
 /// through the desk, and the marks follow the draft.
 ///

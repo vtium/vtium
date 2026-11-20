@@ -1622,3 +1622,23 @@ fn the_color_schemes_and_the_pointer_themes_at_80x25_and_100x30() {
         }
     }
 }
+
+/// The Looks tab highlights a font set it is asked to show, as Enter on a
+/// font set in the Flow tab asks, and a name it does not list moves
+/// nothing.
+#[test]
+fn the_looks_tab_highlights_the_font_set_it_is_asked_to_show() {
+    use vtium_config::tui::tabs::looks::Entry;
+    let mut a = looks_app(inputs(), 100, 30);
+    let at = a
+        .shared
+        .inputs
+        .fonts
+        .iter()
+        .position(|f| f.name == "proof")
+        .expect("the font set proof");
+    a.looks.show_font_set(&a.shared, "proof");
+    assert_eq!(a.looks.highlighted(&a.shared), Some(Entry::FontSet(at)));
+    a.looks.show_font_set(&a.shared, "nowhere");
+    assert_eq!(a.looks.highlighted(&a.shared), Some(Entry::FontSet(at)));
+}

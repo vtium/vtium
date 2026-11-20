@@ -1316,8 +1316,12 @@ impl App {
             match request {
                 Request::Go(view) => effects.extend(self.set_view(view)),
                 Request::Ask { question, then } => self.ask(question, then),
-                // font sets are listed in the Looks tab
-                Request::ShowFont(_) => effects.extend(self.set_view(View::Looks)),
+                // font sets are listed in the Looks tab, which highlights
+                // the one asked for
+                Request::ShowFont(name) => {
+                    effects.extend(self.set_view(View::Looks));
+                    self.looks.show_font_set(&self.shared, &name);
+                }
             }
         }
         effects

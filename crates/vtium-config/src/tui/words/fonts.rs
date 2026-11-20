@@ -330,6 +330,11 @@ pub fn system_font_untrusted(target: &str, why: &str) -> String {
     )
 }
 
+/// What the Fonts tab says when its window shows only part of the list.
+pub fn fonts_window(first: usize, last: usize, of: usize) -> String {
+    format!("The list shows fonts {first} to {last} of {of}. Up and Down scroll it.")
+}
+
 /// The Fonts tab's note when the scan after an install fails.
 pub fn fonts_rescan_failed(why: &str) -> String {
     format!(
