@@ -909,9 +909,9 @@ impl Port for Tty {
     }
 
     /// Describes `paths` on a thread of its own. The answers go to the loop
-    /// [`DESCRIBED_AT_ONCE`] at a time, or sooner once
-    /// [`DESCRIBED_WAIT`] has passed since the last went, so the list fills
-    /// in steps without a redraw for each file.
+    /// `DESCRIBED_AT_ONCE` at a time, or sooner once `DESCRIBED_WAIT` has
+    /// passed since the last went, so the list fills in steps without a
+    /// redraw for each file.
     fn describe(&mut self, paths: Vec<PathBuf>) {
         let describer = std::sync::Arc::clone(&self.tools.describer);
         let described = self.described.clone();
