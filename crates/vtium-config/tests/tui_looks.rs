@@ -993,11 +993,12 @@ fn enter_on_a_color_scheme_opens_its_detail() {
     }
     press(&mut a, Key::Escape);
     assert_eq!(vtium_config::tui::nav::node(&a), "looks");
-    // a look with no palette draws legacy, the default
+    // a look with no palette draws legacy, the default, and so does the
+    // top level, which the console draws since the text has no heads
     to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("legacy")));
     press(&mut a, Key::Enter);
     assert!(
-        flat(&text(&a)).contains("Used by look plain."),
+        flat(&text(&a)).contains("Used by the top level of vtium.conf, look plain."),
         "{}",
         text(&a)
     );
@@ -1038,6 +1039,37 @@ fn enter_on_a_color_scheme_opens_its_detail() {
         screen.contains("The administrator's folder holds a color scheme named dusk too, so vtium reads that file in place of this one."),
         "{screen}"
     );
+}
+
+/// A built-in scheme that vtium.conf's top level names is used by the top
+/// level, which every head draws when the draft has no look of its own,
+/// as a scheme file named there is.
+///
+/// References:
+/// - ADR-1205 D10: a look that names no palette takes the top level's,
+///   and with neither set a head draws `legacy`.
+#[test]
+fn a_built_in_scheme_the_top_level_names_is_used_by_the_top_level() {
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::tabs::looks::{Entry, palettes::Scheme};
+    for conf in [
+        "# mine\nfont-name=unifont\npalette = nord\n",
+        "# mine\nfont-name=unifont\npalette = nord\nversion = 1\n[head desk]\nlook = big\n",
+    ] {
+        let mut a = looks_app(with_conf(conf), 100, 30);
+        to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("nord")));
+        press(&mut a, Key::Enter);
+        let screen = flat(&text(&a));
+        assert!(
+            screen.contains("Used by the top level of vtium.conf."),
+            "{conf}: {screen}"
+        );
+        press(&mut a, Key::Escape);
+        to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("legacy")));
+        press(&mut a, Key::Enter);
+        let screen = flat(&text(&a));
+        assert!(screen.contains("No look uses it."), "{conf}: {screen}");
+    }
 }
 
 /// A folder of scheme files on the disk, with the package's dusk and the

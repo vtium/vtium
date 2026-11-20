@@ -598,6 +598,26 @@ pub fn drawing_vtlook(conf: &str, name: &str) -> Vec<Option<String>> {
         .collect()
 }
 
+/// The looks of vtium.conf's text `conf` that draw with the color scheme
+/// `name`, the top level first, as [`uses`] counts them. A look that
+/// names no scheme takes the top level's, and with neither set it draws
+/// `legacy`, the first built-in scheme. This names the users of a scheme
+/// built into vtium, which has no file for [`uses`] to match.
+///
+/// References:
+/// - ADR-1205 D10: a look that names no palette takes the top level's, and with neither set a head draws `legacy`.
+pub fn drawing_palette(conf: &str, name: &str) -> Vec<Option<String>> {
+    let fallback = vtium_term::PALETTE_NAMES
+        .first()
+        .copied()
+        .unwrap_or_default();
+    looks_of(conf)
+        .into_iter()
+        .filter(|d| d.palette.as_deref().unwrap_or(fallback) == name)
+        .map(|d| d.look)
+        .collect()
+}
+
 /// The color maps and shaders that `vtlook` names, each in `looks`, the
 /// folder vtium reads them from.
 pub fn named_files(vtlook: &vtium_settings::vtlook::Vtlook, looks: &Path) -> Vec<PathBuf> {

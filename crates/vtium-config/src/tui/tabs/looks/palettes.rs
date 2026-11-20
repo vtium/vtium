@@ -116,27 +116,13 @@ pub fn uses(shared: &Shared, path: &Path) -> Vec<Use> {
     )
 }
 
-/// The looks of the draft that draw the built-in scheme `name`: those
-/// whose `palette` names it, and those that name none while vtium.conf's
-/// top level sets it, or sets none and `name` is the default, `legacy`.
-/// A built-in scheme has no file, so the rule that names the looks using
-/// a file does not reach it.
-///
-/// References:
-/// - ADR-1205 D10: a look that names no palette takes the top level's,
-///   and with neither set a head draws `legacy`.
+/// The looks of the draft that draw the built-in scheme `name`, the top
+/// level of vtium.conf first, as the command line's warning counts the
+/// users of a file.
 fn built_in_users(shared: &Shared, name: &str) -> Vec<String> {
-    let top = shared.drafted("palette").unwrap_or_else(|| {
-        PALETTE_NAMES
-            .first()
-            .copied()
-            .unwrap_or_default()
-            .to_owned()
-    });
-    super::list::looks(shared)
-        .into_iter()
-        .filter(|l| l.palette.as_deref().unwrap_or(&top) == name)
-        .map(|l| words::look_name(Some(&l.name)))
+    crate::batch::drawing_palette(shared.conf_text().unwrap_or_default(), name)
+        .iter()
+        .map(|look| words::look_name(look.as_deref()))
         .collect()
 }
 
