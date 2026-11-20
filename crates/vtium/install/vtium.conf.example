@@ -38,9 +38,9 @@
 ## that is not an absolute path, logs why, and uses the rest.
 ##
 ## When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`.
-## vtium searches a user's own folder, such as `~/.local/share/fonts`, only
-## when the list names it. The font helper cannot read such a folder before
-## someone logs in, because the helper then runs as `nobody`.
+## A font in a folder you own, such as `~/.local/share/fonts`, never renders,
+## even when the list names the folder. Root does not own the font, so it
+## fails the trust rule. Install it as a system font instead.
 #
 ## font-engine: Which kind of font to use. When unset, vtium tries each kind
 ## the build supports, in the order listed.
@@ -801,10 +801,10 @@
 ## draws into the buffer on screen, so a half-drawn frame can show.
 ##
 ## A framebuffer device (fbdev) always keeps one buffer. When the key is
-## unset, the build decides. A build uses the number it was built with,
-## `VTIUM_DISPLAY_BUFFERS`. Without one, it uses 3 in a build with optional
-## features, 2 in the smallest build (minspec), and 1 only in a build smaller
-## than that.
+## unset, the build decides. A build uses the number that
+## `make DISPLAY_BUFFERS=N` built it with. Without one, it uses 3 in a build
+## with optional features, 2 in the smallest build (minspec), and 1 only in a
+## build smaller than that.
 
 #display-buffers=
 
@@ -812,14 +812,14 @@
 
 ## Draw with the GPU, in a build that supports it.
 ##
-## It is off unless vtium was built with it on (`VTIUM_HWACCEL`).
+## It is off unless vtium was built with `make HWACCEL=on`.
 
 #no-hwaccel
 
 # -- Frame filters -----------------------------------------------------------
 
 ## The vtlook, a file of frame filters that change the picture before the
-## display shows it, such as a CRT effect.
+## display shows it, such as an amber tint.
 ##
 ## The value names `NAME.vtlook` in `/etc/vtium/looks` or a preset such as
 ## `amber`. A look's own `vtlook` wins over this one. Unset or `default` is

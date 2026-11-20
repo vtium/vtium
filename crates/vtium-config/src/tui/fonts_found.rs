@@ -107,6 +107,15 @@ impl Fonts {
         self.described.retain(|p, _| paths.contains(p.as_path()));
     }
 
+    /// Forgets what the helper said of the file at `path`, and that it was
+    /// asked, so the next [`Fonts::ask`] asks for the file again. An
+    /// install that replaces a file keeps the file's path, so the list
+    /// would otherwise show the replaced file's description.
+    pub fn forget(&mut self, path: &Path) {
+        self.described.remove(path);
+        self.asked.remove(path);
+    }
+
     /// Adds the system font `target`, just installed, to the list when the
     /// scan after the install failed with `why`: the list keeps the files
     /// it had, the new font joins the system's group, and the note says
@@ -457,11 +466,14 @@ pub fn is_file_name(name: &str) -> bool {
 /// The `source=` value of a font set that draws the file at `path` alone,
 /// by its extension: `bdf:` for a BDF font, `hex:` for a `.hex` font,
 /// `file:` for a PSF font and `outline:` for an OpenType file. `None` for
-/// a path that is not UTF-8 or that holds a control character, which
-/// would end the `source=` line and start another.
+/// a path that a font set's `source=` line cannot hold: one that is not
+/// UTF-8; one that holds a control character, which would end the line and
+/// start another; one that holds a `#`, which a font set reads as the
+/// start of a comment; and one that starts or ends with a blank, which a
+/// font set drops from the line.
 pub fn source_of(path: &Path) -> Option<String> {
     let text = path.to_str()?;
-    if text.chars().any(char::is_control) {
+    if text.chars().any(|c| c.is_control() || c == '#') || text.trim() != text {
         return None;
     }
     let name = path.file_name()?.to_str()?.to_ascii_lowercase();

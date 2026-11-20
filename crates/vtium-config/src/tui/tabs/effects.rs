@@ -38,8 +38,9 @@ use super::super::model::{Font, FontState, Shared, Size};
 use super::super::resources::{self, Resource};
 use super::super::shot::{Applied, Preview, Source};
 use super::super::words;
-use super::{Command, Room, Tab};
+use super::{Change, Command, Room, Tab, list_window};
 use crate::batch::Use;
+use crate::onscreen::text;
 
 /// Which groups the list shows: all three, or one of
 /// [`words::EFFECTS_GROUPS`] by its place.
@@ -86,11 +87,12 @@ enum Open {
 }
 
 /// The Effects tab's state: the highlighted row, where row 0 is the filter
-/// line and each item follows; the window of the list; the groups shown;
-/// and what is open over the list.
+/// line and each item follows; the first item the window of the list
+/// shows; the groups shown; and what is open over the list.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Effects {
     list: ListBox,
+    top: usize,
     show: Show,
     open: Option<Open>,
 }
@@ -116,6 +118,20 @@ impl Effects {
     pub fn highlighted(&self, shared: &Shared) -> Option<Effect> {
         let at = self.list.at.checked_sub(1)?;
         self.items(shared).get(at).copied()
+    }
+
+    /// Moves the window of the list so it shows the highlighted item, a
+    /// window of `n` items.
+    fn follow(&mut self, n: usize) {
+        let Some(at) = self.list.at.checked_sub(1) else {
+            self.top = 0;
+            return;
+        };
+        if at < self.top {
+            self.top = at;
+        } else if at >= self.top.saturating_add(n) {
+            self.top = at.saturating_add(1).saturating_sub(n);
+        }
     }
 
     /// The color map or shader `item` is, if it is one.
@@ -175,8 +191,7 @@ impl Effects {
             .collect()
     }
 
-    /// `item` as an item of the list: its name and its marks, and the
-    /// heading of its group when it is the group's first.
+    /// `item` as an item of the list: its name and its marks.
     fn item(shared: &Shared, item: Effect) -> Item {
         let found = &shared.inputs.effects;
         let (name, detail) = match item {
@@ -194,25 +209,26 @@ impl Effects {
                 }
                 let name = match v.from {
                     From::BuiltIn => words::NO_FILTER.to_owned(),
-                    _ => v.name.clone(),
+                    // a file's name is the administrator's text, which
+                    // the screen shows with its control and direction
+                    // characters replaced
+                    _ => text(&v.name),
                 };
                 (name, marks.join(", "))
             }),
-            Effect::Map(_) | Effect::Shader(_) => {
-                Self::resource(shared, item).map_or_else(Default::default, |r| (r.name(), r.row()))
-            }
+            Effect::Map(_) | Effect::Shader(_) => Self::resource(shared, item)
+                .map_or_else(Default::default, |r| (text(&r.name()), r.row())),
         };
-        let mut out = Item::new(name, detail);
-        let first = matches!(item, Effect::Vtlook(0) | Effect::Map(0) | Effect::Shader(0));
-        if first {
-            let group = match item {
-                Effect::Vtlook(_) => 0,
-                Effect::Map(_) => 1,
-                Effect::Shader(_) => 2,
-            };
-            out.heading = words::EFFECTS_GROUPS.get(group).map(|g| (*g).to_owned());
+        Item::new(name, detail)
+    }
+
+    /// The place of `item`'s group in [`words::EFFECTS_GROUPS`].
+    fn group(item: Effect) -> usize {
+        match item {
+            Effect::Vtlook(_) => 0,
+            Effect::Map(_) => 1,
+            Effect::Shader(_) => 2,
         }
-        out
     }
 
     /// The detail of `item`, one line a paragraph.
@@ -224,12 +240,12 @@ impl Effects {
                 return Vec::new();
             };
             let name = match v.from {
-                From::BuiltIn => words::NO_FILTER,
-                _ => &v.name,
+                From::BuiltIn => words::NO_FILTER.to_owned(),
+                _ => text(&v.name),
             };
-            let file = v.file.as_ref().map(|f| f.display().to_string());
+            let file = v.file.as_deref().map(crate::onscreen::path);
             let mut out = vec![
-                words::vtlook_title(name),
+                words::vtlook_title(&name),
                 words::detail_file(file.as_deref()),
                 words::vtlook_reads(v.read.as_ref().err().map(String::as_str)),
             ];
@@ -250,7 +266,7 @@ impl Effects {
                         Some(r) if r.trust.is_err() => words::Named::Untrusted,
                         Some(_) => words::Named::Usable,
                     };
-                    format!("  {}", words::vtlook_file(&f.display().to_string(), named))
+                    format!("  {}", words::vtlook_file(&crate::onscreen::path(f), named))
                 }));
             }
             let users: Vec<String> = crate::batch::drawing_vtlook(conf, &v.name)
@@ -264,8 +280,8 @@ impl Effects {
             return Vec::new();
         };
         let mut out = vec![
-            words::resource_title(r.kind, &r.name()),
-            words::detail_file(Some(&r.path.display().to_string())),
+            words::resource_title(r.kind, &text(&r.name())),
+            words::detail_file(Some(&crate::onscreen::path(&r.path))),
         ];
         if r.own {
             out.push(words::detail_own(r.kind));
@@ -280,8 +296,8 @@ impl Effects {
         out
     }
 
-    /// The tab's body while nothing is open: the filter line, the list in
-    /// its groups, and the sentences under it.
+    /// The tab's body while nothing is open: the filter line, the window
+    /// of the list in its groups, and the sentences under it.
     fn list_body(&self, shared: &Shared, size: Size) -> Body {
         let cols = size.cols;
         let filter = format!(" {}", words::effects_filter(self.show.name()));
@@ -291,14 +307,35 @@ impl Effects {
             Style::PLAIN
         };
         let mut list: Vec<Row> = vec![vec![span(filter, style)]];
-        let items: Vec<Item> = self
-            .items(shared)
-            .into_iter()
-            .map(|i| Self::item(shared, i))
+        let shown = self.items(shared);
+        // the window of the list, which starts each group it shows with
+        // the group's heading, so the heading shows even when the group's
+        // first item is above the window
+        let n = list_window(size);
+        let top = self.top.min(shown.len().saturating_sub(n));
+        let mut group = None;
+        let items: Vec<Item> = shown
+            .iter()
+            .skip(top)
+            .take(n)
+            .map(|i| {
+                let mut item = Self::item(shared, *i);
+                let g = Self::group(*i);
+                if group != Some(g) {
+                    item.heading = words::EFFECTS_GROUPS.get(g).map(|g| (*g).to_owned());
+                    group = Some(g);
+                }
+                item
+            })
             .collect();
-        let at = self.list.at.checked_sub(1).unwrap_or(usize::MAX);
-        let (shown, keep) = rows(&items, at, Marks::None, cols);
-        list.extend(shown);
+        let at = self
+            .list
+            .at
+            .checked_sub(1)
+            .and_then(|at| at.checked_sub(top))
+            .unwrap_or(usize::MAX);
+        let (rows_shown, keep) = rows(&items, at, Marks::None, cols);
+        list.extend(rows_shown);
         let mut sentence = String::new();
         if let Some(note) = &shared.inputs.effects.note {
             sentence.push_str(note);
@@ -315,6 +352,17 @@ impl Effects {
                 sentence.push_str(&words::effects_none(group));
                 sentence.push(' ');
             }
+        }
+        // a window that holds fewer items than the list says which it
+        // shows, so the person knows the list goes on
+        if shown.len() > n {
+            let last = top.saturating_add(n).min(shown.len());
+            sentence.push_str(&words::effects_window(
+                top.saturating_add(1),
+                last,
+                shown.len(),
+            ));
+            sentence.push(' ');
         }
         sentence.push_str(words::EFFECTS_HINT);
         let mut under = tail(&sentence, cols);
@@ -436,13 +484,14 @@ impl Tab for Effects {
         self.open.is_none() && action != 'o'
     }
 
-    fn update(&mut self, shared: &Shared, _room: Room, key: Key) -> Vec<Command> {
+    fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
         match self.open {
             Some(Open::Filter(mut lb)) => {
                 match lb.key(key, Show::CHOICES.len()) {
                     super::super::listbox::Act::Picked(i) => {
                         self.show = Show::CHOICES.get(i).copied().unwrap_or_default();
                         self.list = ListBox::default();
+                        self.top = 0;
                         self.open = None;
                     }
                     super::super::listbox::Act::Closed => self.open = None,
@@ -481,16 +530,22 @@ impl Tab for Effects {
                     });
                     Vec::new()
                 }
-                Key::Char(' ') => match self
-                    .highlighted(shared)
-                    .and_then(|item| Self::resource(shared, item))
-                {
-                    Some(r) => resources::space(r, &Self::uses(shared, r)),
-                    None => Vec::new(),
+                Key::Char(' ') => match self.highlighted(shared) {
+                    Some(item) => match Self::resource(shared, item) {
+                        Some(r) => resources::space(r, &Self::uses(shared, r)),
+                        // a vtlook is no file to activate: a look names it
+                        None => vec![Command::Change(Change::Say(
+                            words::SPACE_ON_VTLOOK.to_owned(),
+                        ))],
+                    },
+                    None => vec![Command::Change(Change::Say(
+                        words::SPACE_ON_EFFECT_FILTER.to_owned(),
+                    ))],
                 },
                 _ => {
                     let n = self.items(shared).len().saturating_add(1);
                     self.list.at = step(self.list.at, n, key);
+                    self.follow(list_window(room.size));
                     Vec::new()
                 }
             },

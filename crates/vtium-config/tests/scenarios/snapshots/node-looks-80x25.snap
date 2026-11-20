@@ -19,11 +19,11 @@ description: "looks at 80×25, keys: 3"
  vtium.conf's size.      │ name     │ size     │
  Terminal desk uses it.  ├──────────┼──────────┤
  The console draws this  │ plan.txt │ 1.8 KiB  │
- in its current font,    └──────────┴──────────┘
- so t shows a font set   Accents: café, naïve, Ångström, Straße, žluťoučký
- here. A size takes      user@desk:~/notes$
+ in its current font.    └──────────┴──────────┘
+ Press t to try the      Accents: café, naïve, Ångström, Straße, žluťoučký
+ font set. A size takes  user@desk:~/notes$
  effect when vtium
  starts again.
 
 --------------------------------------------------------------------------------
- ↑↓ move  Enter open  Space activate  n new  t try live  q quit  . more 1/5
+ ↑↓ move  Enter open  n new  t try live  q quit  . more 1/5

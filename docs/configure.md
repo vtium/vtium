@@ -25,7 +25,7 @@ no-mouse
 
 The sections come below the settings. Each section starts with a heading in brackets:
 
-- A `[look NAME]` section says what a head renders with: its frit (a font set file), its size, and its other font settings.
+- A `[look NAME]` section says what a head renders with: its frit (a font set file) and font settings, its color scheme, and its vtlook (a file of frame filters).
 - A `[head NAME]` section declares a head and names its look.
 - One `[rules]` section lists the rules that send each display and each input device to a head.
 
@@ -41,7 +41,12 @@ vtium reads the file only when root owns it. Neither the file's group nor other 
 
 `vtium check-config` names the file or directory that fails the check. It also gives the `chown` or `chmod` command that fixes it.
 
-vtium reads the file once, when it starts. It reads the frits that the file names at the same time. So a change to the file reaches a VT only when vtium next starts on that VT. To apply a change, log out of the VT and restart its vtium, as [Upgrading and removing](install.md#upgrading-and-removing) shows. `vtium config install` offers to do that restart for you. See [How an install reaches the VTs](#how-an-install-reaches-the-vts) for details.
+vtium reads the file when it starts on a VT, together with the frits that the file names. So most changes to the file reach a VT when vtium next starts there. Two things are read again sooner, at the end of each session, before the next login prompt:
+
+- The four font keys at the top of the file: `font-name`, `font-size`, `font-engine` and `font-line-spacing`. They apply to each head whose look does not set the same key. [Switching and zooming](fonts.md#switching-and-zooming) describes this. A key that a `[look NAME]` section sets waits for the next start, like every other key.
+- The list of active resources, `/etc/vtium/batch.conf`. So a font, color scheme or color map that you activate takes effect at the next login. See [When a change takes effect](concepts/resources.md#when-a-change-takes-effect) for details.
+
+To apply any other change at once, restart vtium on the VT, for example with `systemctl restart vtium@tty3.service`. `vtium config install` offers to do that restart for you, as [How an install reaches the VTs](#how-an-install-reaches-the-vts) describes. A restart keeps every session on the VT running. vtium draws each screen again, and the scrollback is lost. See [Keeping sessions through a restart](concepts/how-vtium-works.md#keeping-sessions-through-a-restart) for how.
 
 vtium reads no other configuration file. An earlier version of vtium may have left a `heads.conf` or a `seat0.seat.conf` in `/etc/vtium`. Such a file does nothing, and vtium says nothing about it. Move what it held into vtium.conf by hand.
 
@@ -204,12 +209,12 @@ Root needs no sudo. When root runs `vtium config`, it keeps root's own drafts un
 
 ## How an install reaches the VTs
 
-vtium reads vtium.conf only when it starts on a VT. So an install changes nothing on your screens until vtium starts again. A head with a `vt` line also appears only on the VTs that the line names, and only where vtium runs. For example, a head with `vt = 12` needs vtium running on VT 12. But logind, the systemd service that manages logins, starts vtium by itself only on VTs 1 to 6.
+vtium reads vtium.conf when it starts on a VT, as [The file](#the-file) explains. So an install changes most settings only once vtium starts again. A head with a `vt` line also appears only on the VTs that the line names, and only where vtium runs. For example, a head with `vt = 12` needs vtium running on VT 12. But logind, the systemd service that manages logins, starts vtium by itself only on VTs 1 to 6.
 
 So after `vtium config install` or the TUI's Install writes `/etc/vtium/vtium.conf`, vtium-config takes two more steps:
 
 1. **It enables vtium on the VTs your heads name.** vtium-config runs `vtium console status` to see where vtium is enabled. Some VTs that a head's `vt` line names may not have vtium enabled. For each of those VTs, vtium-config runs `sudo vtium console enable --direct N`. It uses seat mode, `--seat N`, instead, when the VTs where vtium is already enabled use seat mode. When they use both modes, or vtium is not enabled on any VT yet, it uses direct mode and says why. See [Direct mode and seat mode](install.md#direct-mode-and-seat-mode) for what the two modes mean. `vtium console` decides whether vtium can have the VT, and vtium-config shows what `vtium console` prints. For example, `vtium console` refuses a VT that a display manager or a graphical session holds. The install stays in place after a refusal. But that head does not appear until the VT is free and you run the `vtium console enable` command that vtium-config shows.
-2. **It offers to start and restart vtium.** vtium-config asks, for example, `Start vtium on VT 12, and restart it on VTs 2 and 3? [y/N]`. When you answer y, it runs `sudo systemctl start vtium@tty12` and `sudo systemctl restart vtium@tty2 vtium@tty3`. The new file then applies at once. A restart keeps each session on those VTs running, because systemd holds the session's terminal open while vtium starts again. vtium clears the screen and draws it again, and the scrollback is lost. Starting vtium on a VT where a login prompt runs stops that login prompt, and the question says so. When you answer anything else, vtium-config starts and restarts nothing, and prints the commands to run later. The new file then applies on each VT when vtium next starts there, for example at the next boot.
+2. **It offers to start and restart vtium.** vtium-config asks, for example, `Start vtium on VT 12, and restart it on VTs 2 and 3? [y/N]`. When you answer y, it runs `sudo systemctl start vtium@tty12` and `sudo systemctl restart vtium@tty2 vtium@tty3`. The new file then applies at once. A restart keeps each session on those VTs running, as [The file](#the-file) says. Starting vtium on a VT where a login prompt runs stops that login prompt, and the question says so. When you answer anything else, vtium-config starts and restarts nothing, and prints the commands to run later. The new file then applies on each VT when vtium next starts there, for example at the next boot.
 
 `vtium config install` asks this question only when it runs in a terminal. Without a terminal, it asks nothing and prints the commands instead. The `--install` option of the other commands also asks nothing and prints the commands. The TUI asks on the terminal that it hands over to sudo. Its message line then says where vtium runs with the new file. An install into another directory, named with `--configdir`, takes neither step, because the vtium on each VT reads only `/etc/vtium`.
 
@@ -226,10 +231,10 @@ The line above the list is a filter. Enter on the filter line lists the filters:
 - Space activates the highlighted font, or deactivates it when it is active. vtium-config refuses to activate a font that fails the trust rule. Before it deactivates a font that a look uses, it asks, and names those looks.
 - Enter opens the font's detail: its file and folder, its face and version, the characters and scripts it covers, its sizes, its trust mark, and the looks that use it.
 - `p` switches the preview under the list between the sample characters and a picture of the console in the font.
-- `t` tries nothing here, because vtium can try a font set on the console but not a single font file. Make a font set from the font in the Looks tab, and try the set there.
+- `t` does not try a single font yet. See [the Fonts tab issue](https://github.com/vtium/vtium/issues/375). Until then, make a font set from the font in the Looks tab, and try the set there.
 - `n` and `r` do nothing here. You make and remove font sets in the Looks tab.
 
-vtium cannot use a font in your own folder, because root does not own the file. Enter in that font's detail offers to install it as a system font. vtium-config shows the exact command, which copies the file into `/usr/local/share/fonts` through sudo, and asks before it runs the command. Installing the font does not activate it, so press Space on the installed font afterwards.
+vtium cannot use a font in your own folder, because root does not own the file. Enter in that font's detail offers to install it as a system font. vtium-config shows the exact command, which copies the file into `/usr/local/share/fonts` through sudo, and asks before it runs the command. Installing the font does not activate it, so press Space on the installed font afterwards. [Choosing a font with vtium config](fonts.md#choosing-a-font-with-vtium-config) gives every step in order, from a font in your own folder to a look that renders in it.
 
 A font in `/usr/local/share/fonts` that a package also installed in `/usr/share/fonts` is marked as a duplicate. While the package's file is active, vtium uses that file.
 
@@ -256,7 +261,7 @@ Enter on a look opens its card, with one line each for the look's name, font set
 - The size line offers the sizes that the look's text font supplies. A bitmap font offers the point sizes that draw each of its bitmap sizes. An outline font offers vtium-config's usual sizes, since it can take any size.
 - The color scheme line offers the scheme that vtium.conf sets first, then the schemes built into vtium, then the active scheme files.
 - The vtlook line offers No filter, the presets and the vtlooks in `/etc/vtium/looks`, in the Effects tab's order. A vtlook with an error shows the error, and the look can still choose it.
-- The pointer theme line shows the theme that vtium.conf sets. A look cannot choose its own pointer theme yet.
+- The pointer theme line shows the theme that vtium.conf sets. A look cannot choose its own pointer theme yet. See [the pointer theme issue](https://github.com/vtium/vtium/issues/442).
 
 Under its lines, the card shows the fonts of the look's font set by role, such as the text font and box drawing, and the fonts this machine lacks. Esc closes the card and keeps its changes for Save. Among the looks, `n` makes a new look and lets you type its name, and `r` deletes a look after a question.
 
@@ -268,7 +273,7 @@ Enter on a color scheme or a pointer theme opens its detail. Space activates or 
 
 A change to a look is a change to vtium.conf, so it takes effect when vtium next starts on the VT. An activation or a deactivation takes effect sooner, at the next login after you install the draft. [When a change takes effect](concepts/looks.md#when-a-change-takes-effect) says more.
 
-### The Flow view
+### The Flow tab
 
 The Flow view shows the draft as paths. A path is how vtium joins things when it runs. One or more displays show a terminal. The terminal renders with a font set. Inputs, such as keyboards and mice, type into the terminal. In vtium.conf, a path is one head with its rules.
 

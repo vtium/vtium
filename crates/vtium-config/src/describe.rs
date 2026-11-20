@@ -152,8 +152,10 @@ pub struct Face {
     /// Whether the face has outlines, so it draws at any size. A face
     /// without them draws only at its strikes.
     pub outline: bool,
-    /// Whether every printable ASCII character advances by the same width,
-    /// as a terminal's text font needs.
+    /// Whether the face is monospaced, as a terminal's text font needs: its
+    /// font says so, or it maps every printable ASCII character and each
+    /// advances by the same width. A bitmap font is monospaced unless it
+    /// says it is proportional.
     pub monospaced: bool,
     /// The scripts the face covers, by their names in Unicode's
     /// Scripts.txt, in [`SCRIPTS`]' order.
@@ -443,7 +445,7 @@ pub fn describe(bytes: &[u8], name: &str) -> Result<Description, String> {
     if plain.starts_with(&[0x36, 0x04]) || plain.starts_with(&[0x72, 0xb5, 0x4a, 0x86]) {
         return psf(&plain, stem);
     }
-    if name.ends_with(".hex") {
+    if ends_with_ignoring_case(name, ".hex") {
         let font = crate::hex::font(&plain)?;
         let face = bitmap_face(&font, stem, "", None, true);
         return Ok(Description {
@@ -459,15 +461,35 @@ pub fn describe(bytes: &[u8], name: &str) -> Result<Description, String> {
 
 /// The file's name less its directory, its compression's suffix and its
 /// format's suffix: `ter-v16n` for `/x/ter-v16n.psf.gz`.
+/// The suffixes are matched without case, as the scan that lists font
+/// files matches them ([`crate::discover::is_font_file`]).
 fn stem(name: &str) -> &str {
     let mut stem = name.rsplit('/').next().unwrap_or(name);
     for suffix in [".gz", ".bz2", ".xz", ".zst"] {
-        stem = stem.strip_suffix(suffix).unwrap_or(stem);
+        stem = strip_suffix_ignoring_case(stem, suffix);
     }
     for suffix in [".psfu", ".psf", ".bdf", ".hex"] {
-        stem = stem.strip_suffix(suffix).unwrap_or(stem);
+        stem = strip_suffix_ignoring_case(stem, suffix);
     }
     stem
+}
+
+/// Whether `name` ends with `suffix`, an ASCII suffix, in any case.
+fn ends_with_ignoring_case(name: &str, suffix: &str) -> bool {
+    name.len() >= suffix.len()
+        && name
+            .get(name.len() - suffix.len()..)
+            .is_some_and(|end| end.eq_ignore_ascii_case(suffix))
+}
+
+/// `name` without `suffix`, an ASCII suffix matched in any case, or
+/// `name` as it is when it does not end with it.
+fn strip_suffix_ignoring_case<'a>(name: &'a str, suffix: &str) -> &'a str {
+    if ends_with_ignoring_case(name, suffix) {
+        name.get(..name.len() - suffix.len()).unwrap_or(name)
+    } else {
+        name
+    }
 }
 
 /// Whether `bytes` start as a TrueType or OpenType font or collection.
@@ -641,14 +663,19 @@ fn opentype_face(bytes: &[u8], index: usize, font: swash::FontRef<'_>) -> Face {
     let pairs = self::mapped(font.charmap(), |_| true);
     let glyphs: Vec<u16> = pairs.iter().take(OUTLINE_PROBES).map(|&(_, g)| g).collect();
     let mapped: Vec<u32> = pairs.into_iter().map(|(c, _)| c).collect();
+    // the widths judge a face only when it maps every printable ASCII
+    // character: a script or symbol font maps a few digits or marks, often
+    // of one width, and is no text font for a terminal
     let charmap = font.charmap();
     let advances = font.glyph_metrics(&[]);
-    let mut widths = (0x21u32..0x7f)
-        .map(|c| charmap.map(c))
-        .filter(|&g| g != 0)
-        .map(|g| advances.advance_width(g).to_bits());
-    let first = widths.next();
-    let even = first.is_some() && widths.all(|w| Some(w) == first);
+    let width = |g: u16| advances.advance_width(g).to_bits();
+    let ascii: Vec<u16> = (0x21u32..0x7f).map(|c| charmap.map(c)).collect();
+    let even = match ascii.first() {
+        Some(&first) if ascii.iter().all(|&g| g != 0) => {
+            ascii.iter().all(|&g| width(g) == width(first))
+        }
+        _ => false,
+    };
     Read {
         family: &family,
         style: &style,
@@ -921,7 +948,8 @@ mod tests {
         let bare = describe(&font.build_with_version("Version"), "/f/t.ttf").unwrap();
         assert_eq!(bare.faces[0].version.as_deref(), Some("Version"));
         assert!(face.outline);
-        assert!(face.monospaced, "A and W both advance 600");
+        // A and W both advance 600, but two letters do not make a text font
+        assert!(!face.monospaced);
         assert_eq!(
             face.groups,
             [Group::Powerline, Group::ColorEmoji, Group::BoxDrawing]
@@ -997,6 +1025,29 @@ mod tests {
         assert!(groups_of(&[0xf000], "Plain", false).is_empty());
     }
 
+    /// A face is monospaced when the font says so, or when it maps every
+    /// printable ASCII character and each advances by the same width. A
+    /// script or symbol font that maps only digits or punctuation, often
+    /// of one width, is not called monospaced for that.
+    #[test]
+    fn only_a_face_that_maps_all_printable_ascii_is_judged_by_its_widths() {
+        let mut digits = ttf::test_mono();
+        digits.cmap.extend((0x30..=0x39).map(|c| (c, 2)));
+        let d = describe(&digits.build(), "digits.ttf").unwrap();
+        assert!(
+            !d.faces[0].monospaced,
+            "ten digits and two letters of one width"
+        );
+        let mut all = ttf::test_mono();
+        all.cmap.extend(
+            (0x21..=0x7e)
+                .filter(|&c| c != 0x41 && c != 0x57)
+                .map(|c| (c, 2)),
+        );
+        let d = describe(&all.build(), "all.ttf").unwrap();
+        assert!(d.faces[0].monospaced, "all 94 advance 600");
+    }
+
     #[test]
     fn a_psf_font_is_one_strike_named_by_its_file() {
         let psf = crate::decode::tests::psf2(8, 16, 256, Some(&[(65, 'A')]));
@@ -1044,6 +1095,21 @@ mod tests {
                 height: 8
             }]
         );
+    }
+
+    /// A `.hex` font's suffix is matched without case, as the scan that
+    /// lists font files matches it, so a file the Fonts tab lists as
+    /// `MyFont.HEX` is described too, by its name less the suffix.
+    #[test]
+    fn a_hex_font_s_suffix_is_matched_without_case() {
+        for name in ["/f/MyFont.hex", "/f/MyFont.HEX", "/f/MyFont.Hex"] {
+            let d = describe(b"0041:00000000000000000000000000000000\n", name).unwrap();
+            assert_eq!(d.format, Format::Hex, "{name}");
+            assert_eq!(d.faces[0].family, "MyFont", "{name}");
+        }
+        let psf = crate::decode::tests::psf2(8, 16, 256, None);
+        let d = describe(&psf, "/f/Ter-V16N.PSF").unwrap();
+        assert_eq!(d.faces[0].family, "Ter-V16N");
     }
 
     #[test]

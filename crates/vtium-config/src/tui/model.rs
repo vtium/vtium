@@ -292,8 +292,12 @@ pub enum View {
     Settings,
     /// Help and About.
     Help,
-    /// `new`'s guided flow: a frit made from fonts, installed like any
-    /// change (ADR-1201 D9). It belongs to the Looks tab.
+    /// `new`'s guided flow: a font set (a frit) made from fonts, installed
+    /// like any change. It belongs to the Looks tab.
+    ///
+    /// References:
+    /// - ADR-1201 D9: `new`'s guided flow is the Looks tab's form for a new
+    ///   font set, and it ends in an install.
     New,
     /// The Effects tab: the vtlooks, color maps and shaders.
     Effects,
@@ -1424,6 +1428,10 @@ impl App {
     /// pending, and on a live console the font the draft gives the
     /// console's head is the one leaving gives back (ADR-1201 D4).
     pub(crate) fn frits_installed(&mut self) {
+        // the Looks tab holds each font set by its place in the list,
+        // which the changes below move, so its highlight and an open
+        // detail are kept by the font set's name
+        let spot = self.looks.spot(&self.shared);
         let removed = std::mem::take(&mut self.shared.pending.removals);
         self.shared
             .inputs
@@ -1452,6 +1460,7 @@ impl App {
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
         self.fonts.keep(&self.shared, None);
+        self.looks.restore(&self.shared, spot);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one

@@ -33,7 +33,7 @@ A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's
 - The `filters` feature builds in the frame filters, the effects that a vtlook chooses, such as an amber tint. See [Looks and effects](concepts/looks.md) for details.
 - The `libseat` feature lets vtium get the screen, the keyboards and VT switching through libseat, the seat management library. In direct mode, vtium gets them from seatd where seatd runs. Seat mode, which gets them from logind, needs both `libseat` and `logind`. [Direct mode and seat mode](#direct-mode-and-seat-mode) describes both modes.
 
-When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build `images logind gpu bidi libseat`, for an ordinary desktop or laptop. These are the features of the packages that the AUR carries. They leave out `filters`, so those packages draw every head without effects. To build the effects in, name all six features: `VTIUM_FEATURES='images logind gpu bidi libseat filters' makepkg -si`. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
+When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build the features of the packages that the AUR carries, for an ordinary desktop or laptop. These are all six features. The packages build `filters`, and so draw effects, from 0.1.0-alpha.10 on, the first release that has the feature. To build another set of features, name them in `VTIUM_FEATURES`, as in `VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si` for a build without effects. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
 
 From v0.1.0-alpha.6 on, the `vtium` and `vtium-git` recipes build with `HWACCEL=on DISPLAY_BUFFERS=3`. These settings compile in two defaults: `hwaccel` is on, and each display gets three buffers. See [config.md](config.md) for both keys. vtium therefore renders through the GPU path. vtium renders a head on the CPU when the GPU set-up for that head fails. A head is a terminal for one or more displays. A line `no-hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path off.
 
@@ -41,7 +41,7 @@ v0.1.0-alpha.5 built with `HWACCEL=off`. Its vtium rendered on the CPU until a l
 
 `vtium` and `vtium-git` depend on `libglvnd` and `mesa`. These two packages hold the two libraries that the GPU path loads, `libEGL.so.1` and `libgbm.so.1`. They also depend on `seatd`, which holds `libseat.so`, the library that seat mode links. Installing `seatd` enables no seatd daemon.
 
-No package sets `font-name`. vtium renders text in the font that vconsole.conf names. When vconsole.conf names none, vtium renders in its default font set, `terminus`. Every build installs the font files of `terminus` and of the outline set `cullet-mono`, with GNU Unifont for the characters that Terminus lacks. `vtium` and `vtium-git` install four frits (font set files): `terminus`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, with the layers they share. Each frit names the fonts it needs. A frit leaves out any font that the machine lacks, so a frit with none of its fonts installed renders in the built-in fonts. On Arch, most of their fonts are in `kbd`, `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`. `vtium config fonts` names each font that a frit still lacks, and where to get it.
+No package sets `font-name`. vtium renders text in the font that vconsole.conf names. When vconsole.conf names none, vtium renders in its default font set, `terminus`. Every build installs the font files of `terminus` and of the outline set `cullet-mono`, with GNU Unifont for the characters that Terminus lacks. Each of the six packages that hold vtium installs five frits (font set files): `terminus`, `cullet-mono`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, with the layers they share. These are the frits that `make install` stages by default, as [From a checkout](#from-a-checkout) says. Each frit names the fonts it needs. A frit leaves out any font that the machine lacks, so a frit with none of its fonts installed renders in the built-in fonts. On Arch, most of their fonts are in `kbd`, `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`. `vtium config fonts` names each font that a frit still lacks, and where to get it.
 
 makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key. Import it once from there, then build and install. With `VTIUM_FEATURES` unset, makepkg builds the recipe's default features, as above:
 
@@ -59,7 +59,7 @@ The packages install these files:
 | File | What it is |
 |---|---|
 | `/usr/bin/vtium` | vtium itself, with its subcommands `vtium console`, `vtium check-config`, `vtium config`, `vtium blank` and `vtium wake` |
-| `/usr/bin/vtium-config` | the configuration tool, which `vtium config` runs. It keeps your changes in a draft, and installs the draft as `/etc/vtium/vtium.conf`. `vtium config tui` opens its full-screen view, where you can also try each font on the live console. `vtium config use-frit` switches the font. See [Configure vtium](configure.md) for details. The same program is also the font helper, which renders a font's glyphs for vtium. |
+| `/usr/bin/vtium-config` | the configuration tool, which `vtium config` runs. It keeps your changes in a draft, and installs the draft as `/etc/vtium/vtium.conf`. `vtium config tui` opens its full-screen view, where you can also try a font set on the live console. `vtium config use-frit` switches the font. See [Configure vtium](configure.md) for details. The same program is also the font helper, which renders a font's glyphs for vtium. |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
 | `/usr/bin/vtium-clipboard` and `/usr/bin/vticlip` | the clipboard tool. `vtium-clipboard copy` copies text from a file or a pipe to vtium's clipboard through OSC 52, and `vticlip` is a short name for it. |
@@ -68,7 +68,7 @@ The packages install these files:
 | `/usr/bin/vtium-gallery` | the image gallery tool, in a build with `images`. It shows PNG images as a grid of thumbnails. |
 | `/etc/vtium/vtium.conf.example` | the example configuration. It lists every key at its default, commented out. Then it lists the heads and rules that vtium runs with when there is no configuration. |
 | `/usr/share/vtium/` | vtium's own data. `fonts/` holds the font files of Terminus, Cullet Mono and GNU Unifont, `palettes/` the color schemes, and `looks/` the preset vtlooks. `pointers.svg` holds vtium's pointer pictures. vtium uses these fonts, color schemes and pointer pictures from the first start. See [Choosing what vtium may use](#choosing-what-vtium-may-use) for details. |
-| `/etc/vtium/fonts/` | the frits `terminus`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, and in `layers/` the layers they share. You can choose each one with `vtium config` or with vtium.conf's `font-name`. A frit that nothing names changes nothing. |
+| `/etc/vtium/fonts/` | the frits `terminus`, `cullet-mono`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, and in `layers/` the layers they share. You can choose each one with `vtium config` or with vtium.conf's `font-name`. A frit that nothing names changes nothing. |
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment. They are documentation, and they are never active. |
 | `/usr/share/terminfo/x/xterm-vtium`, `/usr/share/terminfo/v/vtium` | the terminfo entry, under its name and its alias `vtium`, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
@@ -97,8 +97,6 @@ The repository `vtium/vtium-arch` also keeps four minspec recipes: `vtium-minspe
 ### What the next publish adds
 
 `vtium-fonts` reaches the AUR with the next publish. It is a curated set of fonts chosen to go with the frits (font set files) that vtium ships. It grows as new frits are added. It installs no font file itself. Instead, it depends on the distribution's package for each font that the frits name. On Arch these are `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`. The packages that hold vtium list `vtium-fonts` as an optional dependency, so you install it only if you want those fonts.
-
-The `vtium` and `vtium-git` recipes in `vtium/vtium-arch` also ship a fourth frit, `terminus`, for the Terminus console font. The packages that the AUR carries today do not have it yet.
 
 From the next publish, `vtium-fonts` also installs five frits for scripts whose marks need room above and below the letters. They are `noto-arabic`, `noto-hebrew`, `noto-indic`, `noto-thai-lao` and `noto-vietnamese`. It also installs four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters: `noto-cjk-sc`, `noto-cjk-tc`, `noto-cjk-jp` and `noto-cjk-kr`. It then depends on `noto-fonts` and `noto-fonts-cjk` too, which hold every font these frits name. See [Fonts for other scripts](fonts-for-scripts.md) for details.
 
@@ -243,7 +241,7 @@ vtium is then VT 3's console from the VT's next start. systemd starts `vtium@tty
 # systemctl start vtium@tty3.service
 ```
 
-**Note:** `vtium console` starts and stops nothing. Starting or stopping a console on a VT ends every session there, including the one you type in. Each verb prints the `systemctl` command that makes its change now.
+**Note:** `vtium console` starts and stops nothing. Starting vtium on a VT stops the getty there, and stopping vtium ends every session on its VT, including the one you type in. Each verb prints the `systemctl` command that makes its change now. A restart of vtium, unlike a stop, keeps the sessions running.
 
 To give vtium every free VT again, as the install does:
 
@@ -345,7 +343,7 @@ In `vtium config tui`, the Fonts tab activates fonts, the Effects tab activates 
 
 ## Upgrading and removing
 
-An upgrade restarts no running vtium, because a restart ends every session on its VT. Each VT runs the new build from its next start. To restart vtium on VT 3 now, log out there. Then run this from another VT or over ssh:
+An upgrade restarts no running vtium. Each VT runs the new build from vtium's next start there. To run the new build on VT 3 now, restart vtium there, from any VT or over ssh. The restart keeps each session on VT 3 running, and vtium draws its screens again. See [Keeping sessions through a restart](concepts/how-vtium-works.md#keeping-sessions-through-a-restart) for how.
 
 ```
 # systemctl restart vtium@tty3.service

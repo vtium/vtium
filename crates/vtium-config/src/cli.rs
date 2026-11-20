@@ -407,7 +407,10 @@ impl Cli<'_> {
                     1
                 }
             },
-            Command::Apply => crate::apply::command(rest, &o.paths().targets(), self.out, self.err),
+            Command::Apply => {
+                let paths = o.paths();
+                crate::apply::command(rest, &paths.targets(), &paths.helper, self.out, self.err)
+            }
             Command::Serve => self.serve(rest),
             Command::Report => crate::report::command(
                 rest,

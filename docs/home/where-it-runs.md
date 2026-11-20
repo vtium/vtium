@@ -10,7 +10,17 @@ The processors are x86_64, aarch64, and armv7. Rendering goes through [KMS/DRM](
 
 ## The GPU path
 
-A build with the GPU path can also render on the machine's GPU, through OpenGL ES 3.0, using EGL and GBM from Mesa. The `vtium` and `vtium-git` packages include the GPU path and turn it on, and a line `no-hwaccel` in vtium.conf turns it off. When the GPU setup fails for a head, that head renders on the CPU instead. The GPU path draws the same pixels as the CPU path. vtium's pixel tests check this by rendering each test screen both ways on Mesa's software renderer, and they require identical results.
+A build with the GPU path can also render on the machine's GPU, through OpenGL ES 3.0. vtium reaches the GPU through two libraries from [Mesa](https://www.mesa3d.org/), the open-source graphics stack: EGL, which sets up the drawing context, and GBM, which allocates the buffers that the displays show. So the GPU path needs a graphics driver that works with Mesa's EGL and GBM and supports OpenGL ES 3.0. Mesa's own drivers for AMD and Intel graphics are such drivers. vtium's tests run the GPU path on AMD graphics with the `amdgpu` driver, on a virtual machine's GPU through virgl, and on llvmpipe, Mesa's software renderer. vtium is not tested with NVIDIA's own driver.
+
+The `vtium` and `vtium-git` packages include the GPU path and turn it on, and a line `no-hwaccel` in vtium.conf turns it off. When the GPU setup fails for a head, that head renders on the CPU instead, and vtium's log gives the reason in a line that ends `so it draws without the GPU`. A display with 1 bit a pixel always renders on the CPU.
+
+To see which renderer draws each display, read vtium's log. For each display, vtium logs a line that names its renderer, `gpu` or `cpu`, such as `Display DP-1 with backend [drm2d] text renderer [gpu], cell size 10x20`. On VT 2, this command prints those lines:
+
+```
+# journalctl -b -u vtium@tty2.service --grep 'text renderer'
+```
+
+The GPU path draws the same pixels as the CPU path. vtium's pixel tests check this by rendering each test screen both ways on Mesa's software renderer, and they require identical results.
 
 ## How vtium starts
 

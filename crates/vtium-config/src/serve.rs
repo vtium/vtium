@@ -52,6 +52,12 @@
 //! previews send none, so they read any font a frit names, in
 //! vtium-config's window, through the same sandbox.
 //!
+//! A description is vtium-config's own as well ([`DescribeAsk`]). It names
+//! one font file, which the helper reads through its gate and answers at
+//! once with what the file holds: its faces, their names, sizes and
+//! coverage. The Fonts tab, `fonts --files` and `apply` learn what a font
+//! is this way, without parsing it in their own process.
+//!
 //! An ask that says how its glyphs were made is vtium-config's own too, and
 //! the console never sends it. It is answered as an ask is, and before its
 //! done frame the helper sends how it made each superscript or subscript
@@ -62,8 +68,8 @@
 //! request  magic "VTVSREQA", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
 //!          says how its glyphs were made, 8 coverage query; 9, the pointer
-//!          ask, and 10, the active fonts, have layouts of their own,
-//!          below), frit name length u32, the name (ADR-1200 D1's
+//!          ask, 10, the active fonts, and 11, a description, have layouts
+//!          of their own, below), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a query), cell height u32 (for a sources or
 //!          coverage query 0, for a cell query
@@ -123,7 +129,9 @@
 //!          installed font that covers the most of the rest (UTF-8, empty
 //!          when none does); kind 16 a pointer picture and 17 a pointer
 //!          shape the helper draws nothing for, both answers to a pointer
-//!          ask (below); kind 3 a failure (UTF-8
+//!          ask (below); kind 18 a font file's description and 19 no
+//!          description, the answers to a description (below); kind 3 a
+//!          failure (UTF-8
 //!          reason), the helper's own, as when it fails as it starts
 //! pointer  magic "VTVSREQA", kind u32 9, file kind u32 (1 SVG, 2 a cursor
 //!   ask    theme's Xcursor file), shape u32 (its place in vtium-term's
@@ -144,6 +152,12 @@
 //!          path count u32, each path's length u32 (1 to ACTIVE_PATH_MAX)
 //!          and the path (absolute, UTF-8, no NUL), the paths' lengths
 //!          together at most ACTIVE_BYTES_MAX; no answer
+//! describe magic "VTVSREQA", kind u32 11, the font file's path length
+//!          u32 (1 to ACTIVE_PATH_MAX) and the path (absolute, UTF-8, no
+//!          NUL)
+//! describe kind 18, once: the file's description
+//!  answer  ([`crate::describe::Description::encode`]); or kind 19, once:
+//!          why there is none (UTF-8)
 //! ```
 //!
 //! The console reads each pointer file itself, under the ownership check a
@@ -4956,10 +4970,12 @@ const LANDLOCK_NEWEST: ABI = ABI::V9;
 /// file and grants none, refuses binding and connecting TCP sockets, and
 /// is scoped, so the helper connects to no abstract Unix socket made
 /// outside it and signals no process outside it, each as far as the
-/// kernel's landlock version knows it. It leaves reads open, since a frit
-/// may name a font by an absolute path anywhere. Returns whether the
-/// domain is in force; on a kernel without landlock the helper runs as
-/// before, with none.
+/// kernel's landlock version knows it. The domain leaves reads open,
+/// because a helper that vtium-config starts reads a font in a user's
+/// folder to preview it ([`DescribeAsk`]). The console's helper opens a
+/// font only through its gate, which takes only the active fonts. Returns
+/// whether the domain is in force; on a kernel without landlock the helper
+/// runs as before, with none.
 fn lock_out() -> Result<bool, String> {
     let status = Ruleset::default()
         .set_compatibility(CompatLevel::BestEffort)

@@ -25,6 +25,7 @@ flowchart LR
     flow_file["flow.file"]
     flow_restore["flow.restore"]
     looks["looks"]
+    looks_resources["looks-resources"]
     looks_look["looks.look"]
     looks_look_list["looks.look.list"]
     looks_look_typing["looks.look.typing"]
@@ -70,12 +71,13 @@ flowchart LR
     flow --> flow_file
     flow --> flow_restore
     tui --> looks
+    looks --> looks_resources
     looks --> looks_look
     looks_look --> looks_look_list
     looks_look --> looks_look_typing
     looks --> looks_font_set
-    looks --> looks_palette
-    looks --> looks_pointer
+    looks_resources --> looks_palette
+    looks_resources --> looks_pointer
     looks --> looks_new_frit
     looks_new_frit --> looks_new_frit_typing
     looks_new_frit --> looks_new_frit_list
@@ -128,7 +130,7 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 | Key | Shown as | What it does |
 |---|---|---|
 | q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
-| Esc | clear | Clears NEW PATH. If you were revising a path, the path leaves the configuration. |
+| Esc | clear | Clears NEW PATH. If you were revising a path, the path leaves the configuration. While NEW PATH is empty, says that there is nothing to clear. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
 | 1 | go to tab | Goes straight to the Fonts tab. |
@@ -549,7 +551,7 @@ Restore's list of the installed history, newest first.
 
 ## `looks`
 
-The Looks tab: the looks, the font sets, the color schemes and the installed pointer themes, as four groups of one list, with a preview of the highlighted look, font set or color scheme.
+The Looks tab: the looks, the font sets, the color schemes and the installed pointer themes, as four groups of one list, with a preview of the highlighted look, font set or color scheme. This node is the list while a look or a font set is highlighted.
 
 **Open it:** Tab from effects, Shift-Tab from flow; 3 from any tab with nothing open.
 
@@ -569,13 +571,47 @@ The Looks tab: the looks, the font sets, the color schemes and the installed poi
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | save | Saves the changes that are not saved into the draft. |
 | i | install | Saves, then asks whether to install the draft. |
-| r | remove | On a look, asks whether to delete it. On a font set, marks it for removal at the next install, or takes the mark back. Among the color schemes and the pointer themes, does nothing. |
-| n | new | Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set. Among the color schemes and the pointer themes, does nothing. |
-| t | try live | Tries the highlighted look or font set on this console for 10 seconds. Among the color schemes and the pointer themes, does nothing. |
+| r | remove | On a look, asks whether to delete it. On a font set, marks it for removal at the next install, or takes the mark back. |
+| n | new | Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set. |
+| t | try live | Tries the highlighted look or font set on this console for 10 seconds. |
 | Enter | open | On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail. |
-| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
-| p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. Among the color schemes and the pointer themes, does nothing, because a color scheme's preview is its 16 colors beside text in its foreground on its background. |
+| p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview. |
 | w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| o | - | Does nothing here. |
+| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
+| . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
+| Up | move | Moves to the item above. |
+| Down | move | Moves to the item below. |
+| Home | first | Goes to the first item. |
+| End | last | Goes to the last item. |
+| PgUp | page up | Moves up by a page. |
+| PgDn | page down | Moves down by a page. |
+
+## `looks-resources`
+
+The Looks tab's list while a color scheme or a pointer theme is highlighted. Space activates or deactivates it, and n, r, t and p, which act on a look or a font set, do nothing. Its id has no dot because it is the Looks tab with nothing open, not a level open over it.
+
+**Open it:** Up, Down, Home, End, PgUp or PgDn in looks onto a color scheme or a pointer theme.
+
+**Leave it:** The same keys onto a look or a font set go to looks; Tab to flow, Shift-Tab to effects; a digit to another tab.
+
+| Key | Shown as | What it does |
+|---|---|---|
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| Esc | - | Does nothing here. |
+| Tab | next view | Moves to the next view. |
+| Shift-Tab | view before | Moves to the view before. |
+| 1 | go to tab | Goes straight to the Fonts tab. |
+| 2 | go to tab | Goes straight to the Effects tab. |
+| 4 | go to tab | Goes straight to the Flow tab. |
+| 5 | go to tab | Goes straight to the Settings tab. |
+| 6 | go to tab | Goes straight to the Help tab. |
+| Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
+| s | save | Saves the changes that are not saved into the draft. |
+| i | install | Saves, then asks whether to install the draft. |
+| Enter | open | On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail. |
+| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On the built-in font or a built-in color scheme, does nothing. On a vtlook or a filter line, says why it does nothing there. |
+| n, r, t, p | - | Does nothing here, because these keys act on a look or a font set. |
 | o | - | Does nothing here. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
@@ -687,7 +723,7 @@ A color scheme's detail, read-only: its file, or built in; whether it is active,
 
 **Open it:** Enter on a color scheme.
 
-**Leave it:** Esc to looks.
+**Leave it:** Esc to looks-resources.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -708,7 +744,7 @@ A pointer theme's detail, read-only: its folder, whether the folder is active, i
 
 **Open it:** Enter on a pointer theme.
 
-**Leave it:** Esc to looks.
+**Leave it:** Esc to looks-resources.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -832,10 +868,10 @@ The Fonts tab: a line of filters, then the fonts found on this system, each with
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
+| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On the built-in font or a built-in color scheme, does nothing. On a vtlook or a filter line, says why it does nothing there. |
 | Enter | open | On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it. |
 | t | try live | Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
-| p | preview | Switches the preview between the sample characters and the picture of the console. |
+| p | preview | Switches the preview between the sample characters and the picture of the console. In a terminal that does not support images, says that it cannot show the picture. |
 | n | - | Does nothing here. New font sets are made in the Looks tab. |
 | r | - | Does nothing here. Font sets are removed in the Looks tab. |
 
@@ -917,7 +953,7 @@ The Effects tab: a line of filters, then one list in three groups, with a previe
 | End | last | Goes to the last item. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
+| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On the built-in font or a built-in color scheme, does nothing. On a vtlook or a filter line, says why it does nothing there. |
 | Enter | open | On the filter line, shows the filters as a list. On a vtlook, a color map or a shader, opens its detail. |
 
 ## `effects.filter`

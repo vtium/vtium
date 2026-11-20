@@ -666,3 +666,126 @@ fn activating_takes_a_pending_deactivation_back_without_the_trust_rule() {
     f.ok(&["activate", &gone]);
     assert!(!f.changes("desk").exists(), "the draft makes no change");
 }
+
+/// Font files of the fixture's own, `res/many/NNNN.ttf`, enough of them
+/// that their paths together pass the most bytes vtium reads of the batch
+/// file.
+fn many_fonts(f: &Fixture) -> Vec<String> {
+    std::fs::create_dir_all(f.path("res/many")).expect("the folder");
+    let one = f.arg("res/many/0000.ttf").len().saturating_add(1);
+    let n = vtium_settings::batch::BATCH_MAX / one + 2;
+    (0..n)
+        .map(|i| {
+            let path = f.path(&format!("res/many/{i:04}.ttf"));
+            std::fs::write(&path, "a font\n").expect("a font");
+            path.to_string_lossy().into_owned()
+        })
+        .collect()
+}
+
+/// An activation that would make the batch file longer than vtium reads
+/// is refused at once, with the bound in the reader's words, and nothing
+/// is kept. Without the check, `activate` kept them all and only
+/// `install` refused, naming the draft's file.
+#[test]
+fn activating_more_than_the_batch_file_holds_is_refused_and_nothing_is_kept() {
+    let f = fixture("too-many");
+    f.desk();
+    let fonts = many_fonts(&f);
+    let mut args = vec!["activate"];
+    args.extend(fonts.iter().map(String::as_str));
+    let ran = f.run(&args);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.err.starts_with(
+            "vtium-config: These changes would make the list of active resources too long. vtium reads at most 64 KiB of the list, about a thousand paths,"
+        ),
+        "{}",
+        ran.err
+    );
+    assert!(
+        ran.err
+            .contains("Nothing was changed: draft desk keeps the active resources it had."),
+        "{}",
+        ran.err
+    );
+    assert_eq!(ran.err.lines().count(), 2, "said once: {}", ran.err);
+    assert!(!f.changes("desk").exists(), "nothing is kept");
+    // half of them fit
+    let mut args = vec!["activate"];
+    args.extend(fonts.iter().take(fonts.len() / 2).map(String::as_str));
+    f.ok(&args);
+    let install = f.ok(&["install"]);
+    assert!(
+        install.out.contains("wrote\tROOT/etc/batch.conf"),
+        "{}",
+        install.out
+    );
+}
+
+/// The TUI's Space changes one resource through `Resources::set`, which
+/// refuses an activation the batch file has no room for and keeps the
+/// draft's other changes. A deactivation always passes, so a draft that
+/// holds too many activations can be brought back within the bound.
+#[test]
+fn one_activation_past_the_bound_is_refused_and_the_draft_keeps_the_rest() {
+    use vtium_config::batch::{Change, Done, Resources, State};
+    let f = fixture("one-too-many");
+    f.desk();
+    let fonts = many_fonts(&f);
+    let root = f.root.clone();
+    let store = vtium_config::store::Store::locate(
+        rustix::process::geteuid().as_raw(),
+        move |name: &str| match name {
+            "HOME" => Some(root.join("home").into()),
+            "XDG_CONFIG_HOME" => Some(root.join("home/config").into()),
+            "XDG_STATE_HOME" => Some(root.join("home/state").into()),
+            _ => None,
+        },
+        |_| None,
+    )
+    .expect("the store");
+    let paths = vtium_config::tui::Paths {
+        configdir: f.path("etc"),
+        frits: Ok(f.path("etc/fonts")),
+        drafts: f.path("home/drafts"),
+        sudo: "sudo".into(),
+        vtium: f.path("vtium").into(),
+        helper: vtium_config::specimen::Helper::at(BIN),
+        sys: f.path("sys"),
+    };
+    let session = vtium_config::drafts::Session {
+        store,
+        paths: &paths,
+    };
+    let mut resources = Resources::open(&session).expect("the draft's resources");
+    let mut refused = None;
+    for font in &fonts {
+        match resources.set(Path::new(font), Change::Activate) {
+            Ok(Done::Changed { .. }) => {}
+            Ok(other) => panic!("{font}: {other:?}"),
+            Err(why) => {
+                refused = Some((font.clone(), why));
+                break;
+            }
+        }
+    }
+    let (font, why) = refused.expect("an activation past the bound is refused");
+    assert_eq!(
+        why,
+        "The list of active resources is full. vtium reads at most 64 KiB of the list, about a thousand paths, so vtium-config did not activate this font. Deactivate resources you do not use to make room."
+    );
+    assert_eq!(resources.state(Path::new(&font)), State::Inactive);
+    let kept = resources.list().len();
+    assert!(kept > fonts.len() / 2, "{kept}");
+    // a deactivation always passes
+    let first = Path::new(&fonts[0]);
+    assert!(matches!(
+        resources.set(first, Change::Deactivate),
+        Ok(Done::Changed { .. })
+    ));
+    assert_eq!(resources.state(first), State::Inactive);
+    resources.save().expect("the draft keeps its changes");
+    let active = f.ok(&["active"]);
+    assert!(!active.out.contains(&font), "{}", active.out);
+}

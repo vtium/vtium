@@ -16,14 +16,14 @@ description: "help at 80×25, keys: Shift-Tab"
    Space      On a font, a color map, a shader, a color scheme file or a pointer
               theme, activates it, or deactivates it when it is active. A
               pointer theme is activated by its folder, with every file in it.
-              Deactivating asks first when a look uses it. On a vtlook, the
-              built-in font or a built-in color scheme, does nothing.
+              Deactivating asks first when a look uses it. On the built-in font
+              or a built-in color scheme, does nothing. On a vtlook or a filter
+              line, says why it does nothing there.
    Enter      On the filter line, shows the filters as a list. On a font, opens
               its detail: its files, what it covers, its sizes, its trust mark
               and the looks that use it.
    2          Goes straight to the Effects tab.
    3          Goes straight to the Looks tab.
-   4          Goes straight to the Flow tab.
 
 --------------------------------------------------------------------------------
  ↑↓ scroll  ←→ Help, About  q quit  . more 1/4

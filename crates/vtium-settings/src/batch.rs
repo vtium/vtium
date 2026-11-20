@@ -11,7 +11,7 @@
 //! A line holds one absolute path. A line that starts with `#` is a
 //! comment, blank lines are allowed, and spaces around a path are
 //! dropped. vtium ignores a line that does not hold an absolute path
-//! without `..`, and reports it.
+//! without `..` and without a NUL byte, and reports it.
 //!
 //! When the batch file is missing, as on a machine upgraded from an
 //! earlier vtium, the batch is the list of a fresh install:
@@ -26,10 +26,12 @@
 //! - ADR-1205 D10: the palettes the package ships are active from the first start.
 //! - ADR-1401 D10: the owner and mode check the batch file passes, as vtium.conf does.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
 use crate::Trust;
+use crate::bounds::ERRORS_MAX;
 use crate::error::{Problem, Untrusted};
 
 pub use crate::bounds::BATCH_MAX;
@@ -133,15 +135,20 @@ pub enum LineFault {
     TooLong,
     /// The line is not UTF-8.
     NotUtf8,
+    /// The line holds a NUL byte, which no file's path can hold.
+    Nul,
 }
 
 impl fmt::Display for LineFault {
+    /// The fault as a sentence that starts with a capital letter and has
+    /// no closing period, which [`Finding::Line`] adds.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            LineFault::NotAbsolute => "this line does not hold an absolute path, one that starts with /",
-            LineFault::ParentStep => "this path holds `..`, so vtium cannot tell which folder it names without following it",
-            LineFault::TooLong => "this line is longer than the longest path Linux takes",
-            LineFault::NotUtf8 => "this line is not UTF-8 text",
+            LineFault::NotAbsolute => "This line does not hold an absolute path, one that starts with /",
+            LineFault::ParentStep => "This path holds `..`, so vtium cannot tell which folder it names without following it",
+            LineFault::TooLong => "This line is longer than the longest path Linux takes",
+            LineFault::NotUtf8 => "This line is not UTF-8 text",
+            LineFault::Nul => "This line holds a NUL byte, which no file's path can hold",
         })
     }
 }
@@ -172,7 +179,7 @@ impl fmt::Display for Finding {
         match self {
             Finding::Missing { path } => write!(
                 f,
-                "{}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line.",
+                "{}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. To activate a resource, press Space on it in vtium-config's Fonts, Effects or Looks tab, or run vtium-config activate PATH, then install the change. vtium-config then writes this file with the fresh-install list and your change. If you write the file by hand instead, it replaces the fresh-install list, so list every path that stays active, vtium's own fonts, color schemes and pointer file included.",
                 path.display()
             ),
             Finding::Refused { path, why } => write!(
@@ -241,9 +248,15 @@ pub enum Entry {
 }
 
 /// The batch: the resources vtium may draw from.
+///
+/// Beside the entries in their order, the batch keeps a set of their
+/// paths, so [`Batch::holds`] answers without walking the whole list. The
+/// console, `vtium check-config` and vtium-config ask it once for each
+/// font file they find, and a batch can list thousands of files.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Batch {
     entries: Vec<Entry>,
+    paths: BTreeSet<PathBuf>,
 }
 
 /// The batch file's verdict: the batch, and what vtium found reading it.
@@ -253,11 +266,37 @@ pub struct Read {
     pub batch: Batch,
     /// The findings, in the file's order.
     pub findings: Vec<Finding>,
+    /// The count of the lines vtium ignores past the first [`ERRORS_MAX`],
+    /// which `findings` does not list.
+    pub more: usize,
 }
 
-/// A path as a batch line gives it: absolute, with no `..`, and with `.`
-/// and doubled slashes dropped.
+impl Read {
+    /// The line `vtium check-config` shows after the findings when vtium
+    /// ignores more lines than it lists, or `None` when it lists them all.
+    pub fn more_line(&self) -> Option<String> {
+        if self.more == 0 {
+            return None;
+        }
+        let Some(Finding::Line { path, .. }) = self.findings.last() else {
+            return None;
+        };
+        Some(format!(
+            "{}: vtium also ignores {} more lines of this file. Only the first {ERRORS_MAX} are listed.",
+            path.display(),
+            self.more
+        ))
+    }
+}
+
+/// A path as a batch line gives it: absolute, with no `..` and no NUL
+/// byte, and with `.` and doubled slashes dropped. A NUL byte ends a path
+/// where the kernel takes it, so no file's path holds one, and the font
+/// helper refuses a request of active fonts that carries one.
 fn plain(text: &str) -> Result<PathBuf, LineFault> {
+    if text.contains('\0') {
+        return Err(LineFault::Nul);
+    }
     let path = Path::new(text);
     if !path.is_absolute() {
         return Err(LineFault::NotAbsolute);
@@ -271,7 +310,11 @@ fn plain(text: &str) -> Result<PathBuf, LineFault> {
 impl Batch {
     /// The batch listing `entries`.
     pub fn new(entries: Vec<Entry>) -> Batch {
-        Batch { entries }
+        let mut paths = BTreeSet::new();
+        for Entry::Path(path) in &entries {
+            paths.insert(path.clone());
+        }
+        Batch { entries, paths }
     }
 
     /// The entries, in order.
@@ -280,17 +323,27 @@ impl Batch {
     }
 
     /// Reads a batch file's bytes. `path` names the file in the findings.
+    /// A byte-order mark at the start is dropped, as every other file
+    /// vtium reads drops one. vtium keeps the first [`ERRORS_MAX`] lines it
+    /// ignores as findings and counts the rest in [`Read::more`], so a
+    /// file of nothing but bad lines costs a bounded list.
     pub fn parse(bytes: &[u8], path: &Path) -> Read {
+        let bytes = bytes.strip_prefix(crate::split::BOM).unwrap_or(bytes);
         let mut entries = Vec::new();
         let mut findings = Vec::new();
+        let mut more = 0_usize;
         for (n, raw) in bytes.split(|&b| b == b'\n').enumerate() {
             let line = n.saturating_add(1);
             let mut fault = |fault| {
-                findings.push(Finding::Line {
-                    path: path.to_path_buf(),
-                    line,
-                    fault,
-                });
+                if findings.len() < ERRORS_MAX {
+                    findings.push(Finding::Line {
+                        path: path.to_path_buf(),
+                        line,
+                        fault,
+                    });
+                } else {
+                    more = more.saturating_add(1);
+                }
             };
             if raw.len() > PATH_MAX {
                 fault(LineFault::TooLong);
@@ -310,8 +363,9 @@ impl Batch {
             }
         }
         Read {
-            batch: Batch { entries },
+            batch: Batch::new(entries),
             findings,
+            more,
         }
     }
 
@@ -358,7 +412,7 @@ impl Batch {
         }
         shipped.sort();
         entries.extend(shipped.into_iter().map(Entry::Path));
-        Batch { entries }
+        Batch::new(entries)
     }
 
     /// Reads the batch file at `path` under `trust`, the check vtium.conf
@@ -374,6 +428,7 @@ impl Batch {
                 findings: vec![Finding::Missing {
                     path: path.to_path_buf(),
                 }],
+                more: 0,
             },
             Err(rejected) => Read {
                 batch: fresh,
@@ -385,6 +440,7 @@ impl Batch {
                         .next()
                         .map_or(Unread::NotAFile, |e| e.problem.into()),
                 }],
+                more: 0,
             },
         }
     }
@@ -397,7 +453,7 @@ impl Batch {
         let Some(Ok(path)) = path.to_str().map(plain) else {
             return false;
         };
-        self.entries.iter().any(|Entry::Path(p)| *p == path)
+        self.paths.contains(&path)
     }
 }
 

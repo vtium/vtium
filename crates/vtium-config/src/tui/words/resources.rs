@@ -103,7 +103,7 @@ pub fn deactivate_question(kind: &str, path: &str, uses: &[Use]) -> String {
         };
         let (who, verb) = match names.as_slice() {
             [one] => (one.clone(), "uses"),
-            [rest @ .., last] => (format!("{} and {last}", rest.join(", ")), "use"),
+            [_, _, ..] => (super::looks::and_list(&names), "use"),
             [] => continue,
         };
         said.push(format!(

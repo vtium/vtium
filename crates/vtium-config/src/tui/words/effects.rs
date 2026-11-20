@@ -48,6 +48,12 @@ pub const EFFECTS_FILTER_HINT: &str = "Press Enter to show the highlighted group
 /// What the tab says under a detail.
 pub const EFFECTS_DETAIL_HINT: &str = "This detail changes nothing. Esc goes back to the list.";
 
+/// What the tab says when the window of its list shows only part of the
+/// list.
+pub fn effects_window(first: usize, last: usize, of: usize) -> String {
+    format!("The list shows effects {first} to {last} of {of}. Up and Down scroll it.")
+}
+
 /// What the tab says when a group holds nothing.
 pub fn effects_none(group: &str) -> String {
     format!("No {} are installed.", group.to_lowercase())
@@ -242,3 +248,11 @@ pub fn vtlook_map_unusable(map: &str, why: &str) -> String {
         "The vtlook names the color map {map}, which {why}, so vtium renders the built-in vtlook in its place."
     )
 }
+
+/// Space on the Effects tab's filter line.
+pub const SPACE_ON_EFFECT_FILTER: &str =
+    "Space activates the highlighted color map or shader. Move down to one first.";
+
+/// Space on a vtlook, which is no file to activate.
+pub const SPACE_ON_VTLOOK: &str =
+    "A vtlook needs no activating. A look uses a vtlook by naming it on the look's card.";

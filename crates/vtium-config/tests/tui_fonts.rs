@@ -316,6 +316,45 @@ fn space_activates_or_deactivates_the_highlighted_font() {
     );
 }
 
+/// The status line counts an activation made with Space among the draft's
+/// changes as soon as the desk answers, and the stand-in desk's check
+/// counts it as the real desk's does, so the next check keeps the count.
+#[test]
+fn the_status_line_counts_an_activation_made_with_space() {
+    use vtium_config::tui::desk::{Desk as _, Op};
+    let mut c = console().keys(&on_font(2, &[b" "]));
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        flat(&screen).contains("· 1 change · no problems"),
+        "{screen}"
+    );
+    let Ok(Done::Draft(checked, _)) = d.run(&Op::Check(d.draft.clone())) else {
+        panic!("the stand-in desk's check");
+    };
+    assert_eq!(checked.batch, 1);
+}
+
+/// An activation made with Space stays marked after a font of the
+/// person's is installed as a system font, since the draft the TUI holds
+/// keeps the activation the desk answered with.
+#[test]
+fn an_activation_made_with_space_stays_marked_after_a_system_font_install() {
+    let mut keys = on_font(2, &[b" "]);
+    // Home brings the list back to its top, where ter-u16n.otb shows
+    keys.extend([DOWN, DOWN, DOWN, b"\r", b"\r", b"y", ESC, b"\x1b[H"]);
+    let mut c = console().keys(&keys);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    assert_eq!(d.fonts_installed, [PathBuf::from(OWN_FONT_INSTALLED)]);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        screen.contains("ter-u16n.otb        Terminus Regular, activates on install, trusted"),
+        "{screen}"
+    );
+}
+
 /// Space on a font in the person's own folder activates nothing and says
 /// how the font becomes usable; on a font that fails the trust rule it
 /// says why and activates nothing.
@@ -645,6 +684,30 @@ fn an_install_that_fails_the_trust_rule_or_the_scan_says_so_and_keeps_the_list()
     );
 }
 
+/// A system font that replaces an installed file of its name is described
+/// again, so the list, the filters and a look's sizes follow the new file
+/// rather than what the font helper said of the file it replaced.
+///
+/// References:
+/// - ADR-1205 D5: an install may replace a different file of the same name.
+#[test]
+fn a_system_font_that_replaces_an_installed_file_is_described_again() {
+    use vtium_config::tui::fixture::{described, font_installed};
+    use vtium_config::tui::model::Effect;
+    let target = PathBuf::from(OWN_FONT_INSTALLED);
+    let mut app = app_after(&[]);
+    app.event(Event::Installed(Ok(font_installed())));
+    let terminus = described(Path::new("/usr/share/fonts/misc/ter-u16n.otb"));
+    app.event(Event::Described(vec![(target.clone(), terminus)]));
+    assert!(app.shared.inputs.font_files.described(&target).is_some());
+    let out = app.event(Event::Installed(Ok(font_installed())));
+    assert!(
+        out.contains(&Effect::Describe(vec![target.clone()])),
+        "{out:?}"
+    );
+    assert_eq!(app.shared.inputs.font_files.described(&target), None);
+}
+
 /// Enter in the detail of a system font installs nothing and says it is a
 /// system font already.
 #[test]
@@ -694,6 +757,28 @@ fn the_preview_draws_the_highlighted_font_and_p_switches_it() {
     assert_eq!(live.switches(), Vec::<String>::new());
 }
 
+/// In a terminal that does not support images, the Fonts tab previews a
+/// font as a written description, and `p` has no picture to switch to.
+/// The sentences under the list say nothing of `p`, and `p` says why there
+/// is no picture and leaves the description as it was, so vtium-config
+/// asks the font helper for it once.
+///
+/// References:
+/// - ADR-1403 D10: `p` switches the preview.
+#[test]
+fn p_in_a_terminal_without_images_says_why_there_is_no_picture() {
+    let mut c = Console::vtium(100, 40, false, "unifont").keys(&on_font(1, &[b"p"]));
+    run(&mut c);
+    let screen = flat(&c.seen.clone().expect("the screen"));
+    assert!(screen.contains("does not support images"), "{screen}");
+    assert!(screen.contains(words::FONTS_P_NO_IMAGES), "{screen}");
+    assert!(!screen.contains(words::FONTS_P_TO_PICTURE), "{screen}");
+    assert!(!screen.contains(words::FONTS_P_TO_SAMPLE), "{screen}");
+    let described: Vec<&str> = c.summaries.iter().map(|(f, _)| f.as_str()).collect();
+    assert_eq!(described, ["/usr/share/fonts/TTF/DejaVuSansMono.ttf"]);
+    assert!(c.pictures.is_empty() && c.specimens.is_empty());
+}
+
 /// The frit that draws a font file alone for the preview names the file
 /// by its kind, and a file whose name holds a control character is not
 /// previewed, since it would end the source line and start another.
@@ -711,6 +796,29 @@ fn a_font_file_s_preview_frit_names_the_file_alone() {
     }
     let why = vtium_config::tui::frit_text(frits, "/f/x\nsource=kbd:y.ttf").expect_err("refused");
     assert!(why.contains("control character"), "{why}");
+}
+
+/// A font set reads `#` as the start of a comment and drops blanks at a
+/// line's end, so a font file whose name holds a `#` or ends in a blank is
+/// not previewed: its `source=` line would name another file. A blank
+/// inside the name is kept.
+#[test]
+fn a_font_file_whose_name_a_font_set_cannot_hold_is_not_previewed() {
+    let frits = Path::new("/etc/vtium/fonts");
+    for file in [
+        "/home/u/.local/share/fonts/C#Mono.ttf",
+        "/f/a.ttf ",
+        "/f/b.ttf\u{a0}",
+    ] {
+        let why = vtium_config::tui::frit_text(frits, file).expect_err(file);
+        assert_eq!(
+            why,
+            words::font_file_unpreviewable(&vtium_config::onscreen::text(file)),
+            "{file:?}"
+        );
+    }
+    let frit = vtium_config::tui::frit_text(frits, "/f/My Font.ttf").expect("a frit");
+    assert_eq!(frit.text, "source=outline:/f/My Font.ttf\n");
 }
 
 /// `t` in the Fonts tab tries nothing, since vtium can try a font set on
@@ -782,4 +890,46 @@ fn reach_desk(keys: &[&[u8]]) -> String {
     let mut d = desk();
     run_desk(&mut c, &mut d);
     c.seen.clone().expect("the screen")
+}
+
+/// The list of filters is longer than the screen, so it shows a window of
+/// the filters around the highlight, and a sentence under the window says
+/// which filters it shows, so the person knows that the list goes on. End
+/// moves the window to the last filter.
+///
+/// References:
+/// - ADR-1403 D10: the filter line opens the shared list.
+#[test]
+fn the_list_of_filters_says_which_filters_it_shows() {
+    use vtium_config::tui::fonts_found::Filter;
+    let choices = Filter::choices();
+    let of = choices.len();
+    let first = words::filter_name(choices[0]);
+    let last = words::filter_name(*choices.last().expect("a filter"));
+    for (cols, rows) in [(80, 25), (100, 30)] {
+        let (mut app, _) = App::new(inputs(), cols, rows);
+        app.event(Event::Input(Input::Key(Key::Enter)));
+        assert_eq!(app.fonts.node(), "fonts.filter");
+        let screen = text(&app);
+        assert!(
+            flat(&screen).contains("The list shows filters 1 to "),
+            "{screen}"
+        );
+        assert!(flat(&screen).contains(&format!(" of {of}.")), "{screen}");
+        assert!(screen.contains(&first), "{screen}");
+        assert!(!screen.contains(&last), "{screen}");
+        app.event(Event::Input(Input::Key(Key::End)));
+        let screen = text(&app);
+        assert!(screen.contains(&last), "{screen}");
+        assert!(
+            flat(&screen).contains(&format!(" to {of} of {of}.")),
+            "{screen}"
+        );
+        // the window holds every row it shows, so the screen never cuts
+        // the sentence under it
+        assert!(
+            flat(&screen).contains(&flat(words::FONTS_FILTER_HINT)),
+            "{screen}"
+        );
+    }
 }

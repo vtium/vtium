@@ -101,8 +101,9 @@ pub fn read(name: &str, dir: &Path, trust: &Trust) -> Result<Vtlook, Failure> {
         return fail(
             dir,
             format!(
-                "The name \"{}\" is not a vtlook's name. A vtlook's name is 1 to 64 of the characters A-Z a-z 0-9 . _ + -, with no path.",
-                quoted(name)
+                "The name \"{}\" is not a vtlook's name. A vtlook's name is 1 to {} of the characters A-Z a-z 0-9 . _ + -, with no path.",
+                quoted(name),
+                crate::NAME_MAX
             ),
         );
     }

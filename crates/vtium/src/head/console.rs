@@ -85,6 +85,12 @@ impl Console {
     pub(crate) fn started(&self) -> bool {
         self.respawn.is_some()
     }
+
+    /// Whether its session runs: its program started and has not exited,
+    /// so its pty is open.
+    pub(crate) fn running(&self) -> bool {
+        self.pty.is_some()
+    }
 }
 
 /// The ring position after `at`, or before it going `back`, of `len`.

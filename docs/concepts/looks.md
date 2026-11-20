@@ -28,7 +28,7 @@ An effect changes the finished picture, after vtium has drawn the text. It reach
 
 ## A vtlook is a chain of filters
 
-A vtlook (a look file) chooses the effects for a head. It is a file, `NAME.vtlook`, and each of its sections names one frame filter, a step that changes the finished frame. vtium has five color filters, which change each pixel's color from that color alone:
+A vtlook (a file of frame filters) chooses the effects for a head. It is a file, `NAME.vtlook`, and each of its sections names one frame filter, a step that changes the finished frame. vtium has five color filters, which change each pixel's color from that color alone:
 
 - `gamma` lightens or darkens the middle tones.
 - `contrast` spreads the tones apart or pulls them together, and shifts their brightness.
@@ -59,8 +59,8 @@ The table applies to the finished frame, after vtium has rotated the frame for a
 
 Both paths read the same table, so a head looks the same on either. While a head's vtlook holds a filter, vtium draws the pointer into the frame instead of on the display's cursor plane, so the effect reaches the pointer too.
 
-Frame filters are a build feature, `filters`. A build without it, such as the smallest build, reads the `vtlook` key and draws every head with the built-in vtlook. `vtium --version` names `filters` on its `features` line when the build has it.
+Frame filters are a build feature, `filters`. The `vtium` and `vtium-git` packages build it from 0.1.0-alpha.10 on, and the minspec builds leave it out. A build without it reads the `vtlook` key and draws every head with the built-in vtlook. `vtium --version` names `filters` on its `features` line when the build has it. See [An effect that does not apply](../troubleshooting.md#an-effect-that-does-not-apply) for what to check.
 
 ## When a change takes effect
 
-vtium reads vtium.conf when it starts on a VT. So a change to which color scheme or vtlook a look names takes effect when vtium next starts there. See [How an install reaches the VTs](../configure.md#how-an-install-reaches-the-vts) for details. Activating or deactivating a color scheme or a color map takes effect sooner, at the head's next login, as [When a change takes effect](resources.md#when-a-change-takes-effect) explains.
+vtium reads vtium.conf when it starts on a VT. So a change to which color scheme or vtlook a look names takes effect when vtium next starts there, and a restart keeps your sessions running. See [The file](../configure.md#the-file) for what vtium reads when. Activating or deactivating a color scheme or a color map takes effect sooner, at the head's next login, as [When a change takes effect](resources.md#when-a-change-takes-effect) explains.

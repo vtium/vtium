@@ -364,6 +364,9 @@ impl Flow {
                 _ => say(words::REVISE_WHERE),
             },
             Key::Escape if !state.new.is_empty() => self.clear(shared, state),
+            // the key line offers Esc to clear NEW PATH, so Esc says why
+            // it has nothing to clear
+            Key::Escape => say(words::NOTHING_TO_CLEAR),
             Key::Char('p') => say(match shared.live {
                 Live::On => words::PREVIEW_PATH_LATER,
                 _ => words::PREVIEW_PATH_NOT_HERE,
@@ -541,6 +544,7 @@ impl Flow {
             Obj::Doc(..) => say(words::IN_DOCUMENT),
             Obj::Roam(Slot::Input(_)) => say(words::IN_ROAMING),
             Obj::Roam(_) | Obj::Nothing(_) => say(words::IN_DOCUMENT),
+            Obj::New(Slot::Terminal) => say(words::NEW_TERMINAL_SPACE),
             _ => Vec::new(),
         }
     }

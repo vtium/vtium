@@ -15,7 +15,7 @@
  /usr/local/share/fonts/NotoColorEmoji.ttf: the file belongs to user 1000, and only root may own
  it.
  Duplicate: a package installed the same file as /usr/share/fonts/noto/NotoColorEmoji.ttf. vtium
- uses the package's file while it is active.
+ uses the package's file while this font is active.
  No look uses it.
 
  Up and Down scroll the detail, and Esc goes back to the list.

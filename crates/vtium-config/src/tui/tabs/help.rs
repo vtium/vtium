@@ -145,7 +145,7 @@ fn tab_node(view: View) -> &'static str {
 /// - ADR-1205 D1: the six tabs and their order.
 fn in_bar_order() -> Vec<&'static Node> {
     let rank = |node: &Node| {
-        let root = node.id.split('.').next().unwrap_or(node.id);
+        let root = node.id.split(['.', '-']).next().unwrap_or(node.id);
         if root == "tui" {
             return 0;
         }

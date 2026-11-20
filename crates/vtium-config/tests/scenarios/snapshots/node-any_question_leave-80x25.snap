@@ -18,9 +18,9 @@ description: "any.question.leave at 80×25, keys: 3 Down r q"
  read: line 2: unknown   ┌──────────┬──────────┐
  key colour, to remove.  │ name     │ size     │
  The console draws this  ├──────────┼──────────┤
- in its current font,    │ plan.txt │ 1.8 KiB  │
- so t shows a font set   └──────────┴──────────┘
- here. A size takes      Accents: café, naïve, Ångström, Straße, žluťoučký
+ in its current font.    │ plan.txt │ 1.8 KiB  │
+ Press t to try the      └──────────┴──────────┘
+ font set. A size takes  Accents: café, naïve, Ångström, Straße, žluťoučký
  effect when vtium       user@desk:~/notes$
  starts again.
  Install before you quit? Quitting without installing loses the removal of

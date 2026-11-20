@@ -14,7 +14,7 @@
    Mine-Regular.ttf    Mine Regular, not usable
 
  Space activates or deactivates the highlighted font. Enter opens a font's detail, or the filters
- on the filter line. p switches the preview to the picture of the console.
+ on the filter line.
 
 
 

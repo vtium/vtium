@@ -51,12 +51,14 @@ impl App {
     /// since the last login takes effect at this one, with no restart.
     /// When the batch changed, the console's launcher takes the new active
     /// fonts before any glyph is asked for again, every color scheme is read
-    /// again at its next use, and every stored glyph is dropped and drawn
-    /// again. When the pointer file's place in the batch changed, the
-    /// pointer file loads again through the new gate. Then head `ended`,
-    /// whose session ended, catches up with the batch in force, whether or
-    /// not this call found it changed: its palette, its vtlook and its font.
-    /// Returns whether head `ended` must resolve its font again.
+    /// again, every stored glyph is dropped and drawn again, and every head
+    /// takes the palette the new batch allows. A console whose session still
+    /// runs keeps the colors it draws until its next session. When the
+    /// pointer file's place in the batch changed, the pointer file loads
+    /// again through the new gate. Then head `ended`, whose session ended,
+    /// catches up with the batch in force, whether or not this call found
+    /// it changed: its vtlook and its font. Returns whether head `ended`
+    /// must resolve its font again.
     ///
     /// References:
     /// - ADR-1205 D4, its note of 2026-11-19: the batch is read again at each new login, where vtium reads the font settings again.
@@ -66,15 +68,15 @@ impl App {
     }
 
     /// Reads the batch again, and when it changed brings the console's
-    /// font helpers, glyphs, color schemes and pointer file up to it.
+    /// font helpers, glyphs, color schemes, heads' palettes and pointer file
+    /// up to it.
     fn batch_changed(&mut self) {
         let before = font::gate();
         let (places, rule) = &self.batch_places;
-        let Some(findings) = font::load_batch(places, &self.font_sources.trust, rule.clone())
-        else {
+        let Some(found) = font::load_batch(places, &self.font_sources.trust, rule.clone()) else {
             return;
         };
-        font::log_batch_findings(&findings);
+        found.log();
         let me = rustix::process::geteuid().as_raw();
         let gate = font::gate();
         // The launcher and the pointer file's helper take the new active
@@ -102,39 +104,49 @@ impl App {
         }
         self.drop_glyphs();
         crate::config::Config::forget_palettes();
+        let top = self.config.palette();
+        for h in 0..self.heads.len() {
+            let config = self.head_config(h);
+            if let Some(head) = self.heads.get_mut(h) {
+                head.repalette(&config, top.clone());
+            }
+        }
     }
 
     /// Brings head `h`, whose session just ended, up to the batch in force,
     /// at every session end of the head, whether or not this session end
-    /// found the batch changed: every console of the head takes the palette
-    /// the batch allows. A head whose next login is the first since another
-    /// head's session end found the change thus catches up at its own.
-    /// When the batch changed since the head last caught up, the head
+    /// found the batch changed. A head whose next login is the first since
+    /// another head's session end found the change thus catches up at its
+    /// own. When the batch changed since the head last caught up, the head
     /// chooses its vtlook again through the gate in force, so a `.cube`
     /// file root activated or deactivated takes effect at this login, and
     /// each display of the head takes the new color table. Returns whether
     /// the batch changed since the head last caught up, in which case the
-    /// caller resolves the head's font again.
+    /// caller resolves the head's font again. The head's palette needs no
+    /// catching up, because every head takes the new palette when the
+    /// batch changes, and the console whose session ended runs none.
     ///
     /// References:
     /// - ADR-1205 D4, its note of 2026-11-19: every resource passes one gate, and an activation or a deactivation takes effect at the next login.
     fn catch_up(&mut self, h: usize) -> bool {
-        let top = self.config.palette();
-        let config = self.head_config(h);
         let changes = self.batch_changes;
-        let Some(head) = self.heads.get_mut(h) else {
+        let Some(head) = self.heads.get(h) else {
             return false;
         };
-        head.repalette(&config, top);
         let behind = head.batch != changes;
-        head.batch = changes;
         #[cfg(feature = "filters")]
         if behind {
+            let config = self.head_config(h);
             let chosen = crate::head::look::choose(head.name(), &config);
-            if chosen != head.vtlook {
+            if let Some(head) = self.heads.get_mut(h)
+                && chosen != head.vtlook
+            {
                 head.vtlook = chosen;
                 self.give_colors_again(h);
             }
+        }
+        if let Some(head) = self.heads.get_mut(h) {
+            head.batch = changes;
         }
         behind
     }

@@ -257,7 +257,7 @@ fn enter_on_a_look_opens_its_card_with_its_lines_and_its_fonts_by_role() {
         "Color scheme legacy, from vtium.conf",
         "vtlook sepia",
         "Pointer theme vtium's own pictures, from vtium.conf.",
-        "vtium-config offers its usual sizes, because it found no font file for the text font font:JetBrains Mono.",
+        "vtium-config offers its usual sizes, because it found no font file for the text font JetBrains Mono.",
         "Its fonts, by role:",
         "Text: the font family JetBrains Mono, not on this machine",
         "Box drawing: vtium's own lines, unless the text font has them all",
@@ -408,11 +408,32 @@ fn r_deletes_a_look_after_the_question() {
     run_desk(&mut c, &mut d);
     assert!(!d.draft.contains("[look proof]"), "{}", d.draft);
     assert!(!d.draft.contains("look = proof"), "{}", d.draft);
-    // any other answer keeps it
-    let mut d = desk();
-    let mut c = console().keys(&[TO_LOOKS, b"r", b"x", b"s"]);
-    run_desk(&mut c, &mut d);
-    assert!(d.draft.contains("[look proof]"), "{}", d.draft);
+    // the question says what its keys do: any other key leaves it open,
+    // and Esc goes back with the look kept
+    use vtium_config::tui::input::Key;
+    let mut a = looks_app(inputs(), 100, 30);
+    press(&mut a, Key::Char('r'));
+    let question = flat(&text(&a));
+    assert!(
+        question.contains("y deletes it, and Esc goes back."),
+        "{question}"
+    );
+    press(&mut a, Key::Char('x'));
+    assert_eq!(vtium_config::tui::nav::node(&a), "any.question.confirm");
+    assert!(
+        flat(&text(&a)).contains("Delete the look proof?"),
+        "{}",
+        text(&a)
+    );
+    press(&mut a, Key::Escape);
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks");
+    assert!(
+        a.shared
+            .conf_text()
+            .is_some_and(|t| t.contains("[look proof]")),
+        "{:?}",
+        a.shared.conf_text()
+    );
 }
 
 /// Enter on a font set opens its detail: its fonts by role, what it
@@ -1105,7 +1126,7 @@ fn enter_on_a_color_scheme_opens_its_detail() {
         assert!(screen.contains(want), "{want}: {screen}");
     }
     press(&mut a, Key::Escape);
-    assert_eq!(vtium_config::tui::nav::node(&a), "looks");
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks-resources");
     // a look with no palette draws legacy, the default, and so does the
     // top level, which the console draws since the text has no heads
     to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("legacy")));
@@ -1409,14 +1430,22 @@ fn space_activates_or_deactivates_a_scheme_file_and_asks_when_a_look_uses_it() {
         offered(&a)
     );
     let _ = std::fs::remove_dir_all(&root);
-    // a built-in scheme takes no Space, and the fixture's loose says why
-    // it cannot be activated
+    // a built-in scheme is always active, and Space says so; the
+    // fixture's loose says why it cannot be activated
     let mut a = looks_app(inputs(), 100, 30);
     to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("solarized")));
-    let before = a.shared.message.clone();
+    let draft = a.shared.conf_text().map(str::to_owned);
     assert!(press(&mut a, Key::Char(' ')).is_empty());
-    assert_eq!(a.shared.message, before);
-    assert_eq!(vtium_config::tui::nav::node(&a), "looks");
+    assert!(
+        a.shared
+            .message
+            .as_deref()
+            .is_some_and(|m| m.contains("always active")),
+        "{:?}",
+        a.shared.message
+    );
+    assert_eq!(a.shared.conf_text().map(str::to_owned), draft);
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks-resources");
     let loose = scheme_file(&a, "/etc/vtium/palettes", "loose");
     to_entry(&mut a, &loose);
     assert!(press(&mut a, Key::Char(' ')).is_empty());
@@ -1555,7 +1584,7 @@ fn n_r_t_and_p_do_nothing_among_the_color_schemes_and_the_pointer_themes() {
             );
             assert_eq!(
                 vtium_config::tui::nav::node(&a),
-                "looks",
+                "looks-resources",
                 "{key} on {entry:?}"
             );
             assert_eq!(a.looks.picture(), picture, "{key} on {entry:?}");
@@ -1641,4 +1670,104 @@ fn the_looks_tab_highlights_the_font_set_it_is_asked_to_show() {
     assert_eq!(a.looks.highlighted(&a.shared), Some(Entry::FontSet(at)));
     a.looks.show_font_set(&a.shared, "nowhere");
     assert_eq!(a.looks.highlighted(&a.shared), Some(Entry::FontSet(at)));
+}
+
+/// The Looks tab's list is in the node `looks-resources` while a color
+/// scheme or a pointer theme is highlighted, and in `looks` on a look or a
+/// font set. Each key line names only the keys that act on its items: `n`,
+/// `r`, `t` and `p` among the looks and the font sets, and Space among the
+/// color schemes and the pointer themes. Space on a built-in scheme says
+/// that the scheme is always active.
+///
+/// References:
+/// - ADR-1403 D7, its note of 2026-11-18: each key line names only keys
+///   that act where it is shown.
+#[test]
+fn the_key_line_names_only_the_keys_that_act_on_the_highlighted_item() {
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::tabs::looks::{Entry, palettes::Scheme};
+    let mut a = looks_app(inputs(), 100, 30);
+    let line =
+        |a: &vtium_config::tui::model::App| vtium_config::tui::layout::key_line(a).to_owned();
+    to_entry(&mut a, &Entry::Look("proof".into()));
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks");
+    assert!(line(&a).contains("n new"), "{}", line(&a));
+    assert!(!line(&a).contains("Space"), "{}", line(&a));
+    to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("nord")));
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks-resources");
+    for gone in ["n new", "t try live", "r remove", "p picture"] {
+        assert!(!line(&a).contains(gone), "{gone}: {}", line(&a));
+    }
+    assert!(line(&a).contains("Space activate"), "{}", line(&a));
+    press(&mut a, Key::Char(' '));
+    assert!(
+        flat(&text(&a)).contains("A color scheme built into vtium is always active"),
+        "{}",
+        text(&a)
+    );
+    // Up from the first color scheme goes back to the font sets
+    to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("legacy")));
+    while matches!(a.looks.highlighted(&a.shared), Some(Entry::Palette(_))) {
+        press(&mut a, Key::Up);
+    }
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks");
+}
+
+/// An install that adds a font set before the highlighted one keeps the
+/// highlight, and an open font set's detail, on the same font set, though
+/// the new set moves the others down the list.
+#[test]
+fn an_install_that_adds_a_font_set_keeps_the_highlight_on_its_font_set() {
+    use vtium_config::tui::desk::{Done, Opened};
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::model::Event;
+    use vtium_config::tui::tabs::looks::Entry;
+    let name_of = |a: &vtium_config::tui::model::App| match a.looks.highlighted(&a.shared) {
+        Some(Entry::FontSet(at)) => a.shared.inputs.fonts[at].name.clone(),
+        other => panic!("{other:?}"),
+    };
+    let mut a = looks_app(inputs(), 100, 30);
+    let at = a
+        .shared
+        .inputs
+        .fonts
+        .iter()
+        .position(|f| f.name == "tiny5")
+        .expect("tiny5");
+    to_entry(&mut a, &Entry::FontSet(at));
+    a.shared
+        .pending
+        .frits
+        .push(("aaa".to_owned(), "source=builtin:unifont\n".to_owned()));
+    a.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
+    assert_eq!(name_of(&a), "tiny5");
+    // the detail open over the list stays on its font set too
+    press(&mut a, Key::Enter);
+    a.shared
+        .pending
+        .frits
+        .push(("aab".to_owned(), "source=builtin:unifont\n".to_owned()));
+    a.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
+    assert!(text(&a).contains("tiny5"), "{}", text(&a));
+    press(&mut a, Key::Escape);
+    assert_eq!(name_of(&a), "tiny5");
+}
+
+/// A pointer theme's folder name is the administrator's text, so the list
+/// and the detail show it with a direction override replaced, as the
+/// Fonts tab shows a font's name.
+#[test]
+fn a_pointer_theme_s_name_shows_no_direction_override() {
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::tabs::looks::Entry;
+    let mut a = looks_app(inputs(), 100, 30);
+    let mut theme = a.shared.inputs.effects.pointers[0].clone();
+    theme.path = theme.path.with_file_name("evil\u{202e}txt");
+    a.shared.inputs.effects.pointers.insert(0, theme);
+    to_entry(&mut a, &Entry::Pointer(0));
+    assert!(text(&a).contains("evil"), "{}", text(&a));
+    assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
+    press(&mut a, Key::Enter);
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks.pointer");
+    assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
 }

@@ -20,13 +20,18 @@ pub const SHOWN_BYTES_MAX: usize = 4096;
 pub const REPLACEMENT: char = '\u{fffd}';
 
 /// Whether `c` is a character [`text`] replaces: a control character, a
-/// zero-width space or joiner, a byte-order mark, or a character that
-/// turns the direction of text around.
+/// zero-width space or joiner, a byte-order mark, a character that turns
+/// the direction of text around, the Arabic letter mark among them, or
+/// the line or paragraph separator, which breaks a line.
 pub fn hides(c: char) -> bool {
     c.is_control()
         || matches!(
             c,
-            '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'
+            '\u{061c}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{feff}'
         )
 }
 
@@ -71,6 +76,18 @@ mod tests {
             "/home/u/.fonts/\u{fffd}[31mred\u{fffd}[0m\u{fffd}\u{fffd}.ttf"
         );
         assert_eq!(text("a\u{202e}b\nc\u{9b}d"), "a\u{fffd}b\u{fffd}c\u{fffd}d");
+    }
+
+    /// The Arabic letter mark turns text around as the other direction
+    /// marks do, and the line and paragraph separators break a line, so
+    /// a family name holding one is shown with U+FFFD in its place.
+    #[test]
+    fn a_direction_mark_or_a_line_separator_is_hidden() {
+        for c in ['\u{061c}', '\u{2028}', '\u{2029}', '\u{200e}', '\u{2067}'] {
+            assert!(hides(c), "{:04x}", u32::from(c));
+            assert_eq!(text(&format!("a{c}b")), "a\u{fffd}b");
+        }
+        assert!(!hides('\u{0627}'), "an Arabic letter is text");
     }
 
     #[test]

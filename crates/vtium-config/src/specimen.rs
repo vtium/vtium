@@ -321,7 +321,25 @@ fn failure_sent(stdout: &mut dyn Read) -> Option<String> {
 /// helper sheds any other descriptor it is given as it starts
 /// ([`crate::serve::SHED_VAR`]).
 pub(crate) fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
-    let mut child = Command::new(&helper.program)
+    start_as(helper, None)
+}
+
+/// [`start`], run as `account`, a uid and a gid, when one is given, as the
+/// console runs the helper as `nobody` when it runs as root. std drops the
+/// supplementary groups before it sets the uid, but goes on when the
+/// kernel refuses that, so the helper's ids are read back from its
+/// `/proc/<pid>/status` once it runs, and a helper that holds any id
+/// besides `account`'s is ended and refused.
+pub(crate) fn start_as(
+    helper: &Helper,
+    account: Option<(u32, u32)>,
+) -> Result<(Child, ChildStdin, ChildStdout), String> {
+    use std::os::unix::process::CommandExt;
+    let mut command = Command::new(&helper.program);
+    if let Some((uid, gid)) = account {
+        command.uid(uid).gid(gid);
+    }
+    let mut child = command
         .args(&helper.options)
         .arg(crate::serve::SERVE_ARG)
         .env_clear()
@@ -336,6 +354,16 @@ pub(crate) fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout),
                 helper.program.display()
             )
         })?;
+    if let Some(account) = account {
+        let held = std::fs::read_to_string(format!("/proc/{}/status", child.id()))
+            .map_err(|e| format!("vtium-config cannot read the font helper's ids: {e}"))
+            .and_then(|status| holds_account(&status, account));
+        if let Err(why) = held {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(why);
+        }
+    }
     match (child.stdin.take(), child.stdout.take()) {
         (Some(i), Some(o)) => Ok((child, i, o)),
         _ => {
@@ -344,6 +372,41 @@ pub(crate) fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout),
             Err("vtium-config cannot reach the font helper through its pipes".to_owned())
         }
     }
+}
+
+/// Whether `status`, a helper's `/proc/<pid>/status`, shows it holding
+/// `(uid, gid)` alone: each of its four uids `uid`, each of its four gids
+/// `gid`, and no supplementary group. Says why not.
+fn holds_account(status: &str, (uid, gid): (u32, u32)) -> Result<(), String> {
+    let ids = |key: &str| -> Result<Vec<u32>, String> {
+        let line = status
+            .lines()
+            .find_map(|l| l.strip_prefix(key))
+            .ok_or_else(|| format!("the font helper's status has no {key} line"))?;
+        line.split_whitespace()
+            .map(|id| {
+                id.parse()
+                    .map_err(|_| format!("the font helper's {key} line does not read"))
+            })
+            .collect()
+    };
+    let (uids, gids, groups) = (ids("Uid:")?, ids("Gid:")?, ids("Groups:")?);
+    if uids.len() != 4 || uids.iter().any(|&u| u != uid) {
+        return Err(format!(
+            "the font helper runs as uids {uids:?}, not as {uid} alone, the account vtium-config started it as"
+        ));
+    }
+    if gids.len() != 4 || gids.iter().any(|&g| g != gid) {
+        return Err(format!(
+            "the font helper runs with gids {gids:?}, not with {gid} alone, the account vtium-config started it as"
+        ));
+    }
+    if !groups.is_empty() {
+        return Err(format!(
+            "the font helper holds the supplementary groups {groups:?}, which vtium-config could not drop as it started it as uid {uid}"
+        ));
+    }
+    Ok(())
 }
 
 /// Starts `helper` under its own sandbox, runs `talk` on its pipes, and
@@ -1663,11 +1726,36 @@ fn paint(
 #[expect(
     clippy::indexing_slicing,
     clippy::expect_used,
+    clippy::unwrap_used,
     reason = "a test fails by panicking"
 )]
 mod tests {
     use super::*;
     use crate::scratch::Scratch;
+
+    /// A helper started as an account holds that account's uid and gid in
+    /// all four places and no supplementary group, or vtium-config refuses
+    /// it: a saved uid of 0 would let it take root back, and a group left
+    /// over from root reads what that group may read.
+    #[test]
+    fn a_helper_started_as_an_account_holds_that_account_alone() {
+        let status = |uid: &str, gid: &str, groups: &str| {
+            format!("Name:\tvtium-config\nUid:\t{uid}\nGid:\t{gid}\nGroups:\t{groups}\n")
+        };
+        let nobody = "65534\t65534\t65534\t65534";
+        let account = (65534, 65534);
+        assert_eq!(holds_account(&status(nobody, nobody, ""), account), Ok(()));
+        for (uid, gid, groups, said) in [
+            ("65534\t65534\t0\t65534", nobody, "", "uids"),
+            (nobody, "65534\t0\t65534\t65534", "", "gids"),
+            (nobody, nobody, "0 10", "supplementary groups"),
+            ("65534\t65534", nobody, "", "uids"),
+        ] {
+            let why = holds_account(&status(uid, gid, groups), account).unwrap_err();
+            assert!(why.contains(said), "{why}");
+        }
+        assert!(holds_account("Name:\tx\n", account).is_err());
+    }
 
     // A vtlook with color filters and spatial filters is drawn in its
     // colors and says it leaves the spatial filters out; one with spatial

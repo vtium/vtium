@@ -58,7 +58,7 @@ Separate the folders with \fB:\fR, as in \fBPATH\fR. Each folder must be an abso
 .IP
 The list can reorder or leave out the system's folders.
 .IP
-When unset, vtium searches \fB/usr/share/fonts\fR and \fB/usr/local/share/fonts\fR. vtium searches a user's own folder, such as \fB~/.local/share/fonts\fR, only when the list names it. The font helper cannot read such a folder before someone logs in, because the helper then runs as \fBnobody\fR.
+When unset, vtium searches \fB/usr/share/fonts\fR and \fB/usr/local/share/fonts\fR. A font in a folder you own, such as \fB~/.local/share/fonts\fR, never renders, even when the list names the folder. Root does not own the font, so it fails the trust rule. Install it as a system font instead.
 .IP
 It takes absolute paths, separated by \fB:\fR: at most 4095 bytes in all, with no control character. Default: unset.
 .IP
@@ -1000,7 +1000,7 @@ How many frame buffers each DRM display keeps, the same number for every display
 .IP
 \fB3\fR is triple buffering. No frame waits for the previous one to reach the screen, and each display needs one more frame of memory. \fB2\fR is double buffering. \fB1\fR is single buffering, which uses the least memory. vtium then draws into the buffer on screen, so a half-drawn frame can show.
 .IP
-A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number it was built with, \fBVTIUM_DISPLAY_BUFFERS\fR. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.
+A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number that \fBmake DISPLAY_BUFFERS=N\fR built it with. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.
 .IP
 \fBvtium config get display\-buffers\fR prints the draft's value followed by \fBdraft\fR. When the draft sets none, it prints the build's default followed by \fBdefault\fR. That default is \fBunset\fR when the build sets no number, and the rule above then decides.
 .IP
@@ -1011,7 +1011,7 @@ Set it in the top level, or on vtium's command line with \fB\-\-display\-buffers
 \fBhwaccel\fR
 Draw with the GPU, in a build that supports it.
 .IP
-It is off unless vtium was built with it on (\fBVTIUM_HWACCEL\fR).
+It is off unless vtium was built with \fBmake HWACCEL=on\fR.
 .IP
 \fBvtium config get hwaccel\fR prints the draft's value followed by \fBdraft\fR, or the build's default followed by \fBdefault\fR. \fBvtium config set hwaccel on\fR turns it on in the draft.
 .IP
@@ -1020,7 +1020,7 @@ It takes a switch, on or off. Default: off.
 Set it in the top level, or on vtium's command line with \fB\-\-hwaccel\fR and \fB\-\-no\-hwaccel\fR.
 .TP
 \fBvtlook\fR
-The vtlook, a file of frame filters that change the picture before the display shows it, such as a CRT effect.
+The vtlook, a file of frame filters that change the picture before the display shows it, such as an amber tint.
 .IP
 The value names \fBNAME.vtlook\fR in \fB/etc/vtium/looks\fR or a preset such as \fBamber\fR. A look's own \fBvtlook\fR wins over this one. Unset or \fBdefault\fR is the built-in vtlook, which changes no pixel.
 .IP

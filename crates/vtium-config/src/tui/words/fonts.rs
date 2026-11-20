@@ -119,8 +119,22 @@ pub fn filter_name(filter: Filter) -> String {
         Filter::Outline => "Outline fonts".to_owned(),
         Filter::Monospaced => "Monospaced fonts".to_owned(),
         Filter::Proportional => "Proportional fonts".to_owned(),
-        Filter::Group(g) => format!("{} fonts", g.name()),
+        Filter::Group(g) => group_filter_name(g).to_owned(),
         Filter::Script(s) => format!("Fonts for {}", s.replace('_', " ")),
+    }
+}
+
+/// The filter's name for each well-known group of fonts. A group's own
+/// name reads inside a sentence, as "color emoji", so the filter list
+/// gives each group a capitalized name of its own, and Nerd Fonts, a
+/// name that already says "fonts", keeps it once.
+fn group_filter_name(group: crate::describe::Group) -> &'static str {
+    use crate::describe::Group;
+    match group {
+        Group::NerdFonts => "Nerd Fonts",
+        Group::Powerline => "Powerline fonts",
+        Group::ColorEmoji => "Color emoji fonts",
+        Group::BoxDrawing => "Box-drawing fonts",
     }
 }
 
@@ -180,14 +194,18 @@ pub const FONTS_EMPTY: &str = "vtium-config found no font files in the folders i
 pub const FONTS_HINT: &str = "Space activates or deactivates the highlighted font. Enter opens a font's detail, or the filters on the filter line.";
 
 /// What `p` does next in the Fonts tab, while the preview shows the
-/// sample characters. A terminal without images shows the same written
-/// description for both previews, so this line is how the person sees
-/// which one is on.
+/// sample characters, in a terminal that supports images.
 pub const FONTS_P_TO_PICTURE: &str = "p switches the preview to the picture of the console.";
 
 /// What `p` does next in the Fonts tab, while the preview shows the
 /// picture of the console.
 pub const FONTS_P_TO_SAMPLE: &str = "p switches the preview back to the sample characters.";
+
+/// What `p` says in the Fonts tab in a terminal that does not support
+/// images, where the preview is a written description and has no picture
+/// to switch to.
+pub const FONTS_P_NO_IMAGES: &str =
+    "This terminal does not support images, so p cannot show the picture of the console.";
 
 /// The sentence under the list of filters.
 pub const FONTS_FILTER_HINT: &str = "Enter shows the fonts that pass the highlighted filter. A filter other than All fonts leaves out each font the font helper has not described.";
@@ -269,7 +287,7 @@ pub fn font_not_described(why: &str) -> String {
 pub const FONT_DESCRIBING: &str = "The font helper is still describing this file.";
 
 pub fn font_duplicate(of: &str) -> String {
-    format!("Duplicate: {of}. vtium uses the package's file while it is active.")
+    format!("Duplicate: {of}. vtium uses the package's file while this font is active.")
 }
 
 pub const FONT_OWN: &str = "This font is in your own folder, so vtium cannot use it. Install it as a system font, then activate it.";
@@ -339,6 +357,12 @@ pub fn fonts_window(first: usize, last: usize, of: usize) -> String {
     format!("The list shows fonts {first} to {last} of {of}. Up and Down scroll it.")
 }
 
+/// What the list of filters says when its window shows only part of the
+/// list.
+pub fn filters_window(first: usize, last: usize, of: usize) -> String {
+    format!("The list shows filters {first} to {last} of {of}. Up and Down scroll it.")
+}
+
 /// The Fonts tab's note when the scan after an install fails.
 pub fn fonts_rescan_failed(why: &str) -> String {
     format!(
@@ -393,7 +417,8 @@ pub fn sizes_note(supplied: &Supplied, offered: &[(u32, Strike)], mixed: bool) -
                     .to_owned()
             }
             Unknown::NotFound(spelling) => format!(
-                "vtium-config offers its usual sizes, because it found no font file for the text font {spelling}."
+                "vtium-config offers its usual sizes, because it found no font file for the text font {}.",
+                super::font_name(spelling)
             ),
             Unknown::NotAFont(spelling) => format!(
                 "vtium-config offers its usual sizes, because the font helper cannot read the text font {spelling}."
@@ -450,3 +475,15 @@ pub fn system_font_not_a_font(source: &str, why: &str) -> String {
         "{source}: vtium-config cannot install this file as a system font, because the font helper cannot read it as a font: {why}"
     )
 }
+
+/// Why the Fonts tab cannot preview the font file at `path`: the font set
+/// that draws the file alone cannot name it.
+pub fn font_file_unpreviewable(path: &str) -> String {
+    format!(
+        "{path}: vtium-config cannot preview this font file, because a font set cannot name a file whose name holds a control character or a #, or starts or ends with a space."
+    )
+}
+
+/// Space on the Fonts tab's filter line.
+pub const SPACE_ON_FONT_FILTER: &str =
+    "Space activates the highlighted font. Move down to a font first.";

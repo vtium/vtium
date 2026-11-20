@@ -23,9 +23,9 @@ description: "any.question.leave at 100×30, keys: 3 Down r q"
  read: line 2: unknown   Accents: café, naïve, Ångström, Straße, žluťoučký
  key colour, to remove.  user@desk:~/notes$
  The console draws this
- in its current font,
- so t shows a font set
- here. A size takes
+ in its current font.
+ Press t to try the
+ font set. A size takes
  effect when vtium
  starts again.
  Install before you quit? Quitting without installing loses the removal of broken. y installs and

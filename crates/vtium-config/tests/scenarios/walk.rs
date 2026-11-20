@@ -97,6 +97,12 @@ impl RefState {
                 }
                 next.node = id;
             }
+            // the tab's list, in the node of whichever item the highlight
+            // is then on, which the reference does not follow
+            Expect::InTab(tab) => {
+                next.tab.clone_from(&tab);
+                next.node = tab;
+            }
             Expect::Exits(status) => next.left = Some(status),
             // the keys this test presses change nothing the person made,
             // so `q` quits without asking
@@ -189,7 +195,10 @@ fn compare(sim: &Sim, want: &RefState) -> Result<(), String> {
         return Err("the TUI left, and the tables say it stays".to_owned());
     }
     let node = state::of(sim).node();
-    if node != want.node {
+    // the reference names a tab's list by the tab, and the list is in one
+    // of its nodes by what the highlight is on
+    let listed = reference::kind(&node) == "view" && reference::tab_of(&node) == want.node;
+    if node != want.node && !listed {
         return Err(format!(
             "the TUI is in {node}, and the tables say {}",
             want.node

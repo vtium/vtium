@@ -9,7 +9,7 @@ pub const LOOKS: &str = "Looks";
 
 /// The caption of the console's own preview, which the console draws in
 /// the font and size it uses now.
-pub const CONSOLE_SIZE_CAPTION: &str = "The console draws this in its current font, so t shows a font set here. A size takes effect when vtium starts again.";
+pub const CONSOLE_SIZE_CAPTION: &str = "The console draws this in its current font. Press t to try the font set. A size takes effect when vtium starts again.";
 
 /// The size that lets vtium choose.
 pub const AUTOMATIC: &str = "automatic";
@@ -41,7 +41,7 @@ pub const NO_LOOKS: &str = "No looks yet";
 pub const NO_LOOKS_NOTE: &str = "press n to make one";
 
 /// `items` as a list in a sentence: "a", "a and b", "a, b, and c".
-fn and_list(items: &[String]) -> String {
+pub(super) fn and_list(items: &[String]) -> String {
     match items {
         [] => String::new(),
         [one] => one.clone(),
@@ -103,7 +103,7 @@ pub fn look_delete_question(name: &str, heads: &[String]) -> String {
         [one] => format!(" Terminal {one} uses it, and {after_one}."),
         _ => format!(" Terminals {} use it, and {after_many}.", and_list(heads)),
     };
-    format!("Delete the look {name}?{users} y deletes it, and any other key keeps it.")
+    format!("Delete the look {name}?{users} y deletes it, and Esc goes back.")
 }
 
 /// What the message line says when `t` finds no font set to try: the
@@ -430,3 +430,17 @@ pub fn pointer_users(named: bool) -> String {
         "No look uses it. Every look uses the pointer theme that vtium.conf's pointer-theme names, because a look cannot pick one of its own yet.".to_owned()
     }
 }
+
+/// Space on a color scheme built into vtium.
+pub const BUILT_IN_SCHEME_SPACE: &str =
+    "A color scheme built into vtium is always active, so Space has nothing to change.";
+
+/// Enter or `r` on the looks group's row while the draft has no look.
+pub const NO_LOOK_YET: &str = "The draft has no look yet. Press n to make one.";
+
+/// `p` on a font set vtium cannot read, whose preview stays empty.
+pub const NO_PREVIEW_TO_SWITCH: &str =
+    "vtium cannot read this font set, so it has no preview to switch.";
+
+/// Enter on the pointer theme line of a look's card.
+pub const LOOK_POINTER_NOT_YET: &str = "A look cannot pick a pointer theme of its own yet.";

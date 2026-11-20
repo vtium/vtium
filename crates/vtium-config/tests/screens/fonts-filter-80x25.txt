@@ -6,18 +6,18 @@
    ○ Outline fonts
    ○ Monospaced fonts
    ○ Proportional fonts
-   ○ Nerd Fonts fonts
+   ○ Nerd Fonts
    ○ Powerline fonts
-   ○ color emoji fonts
-   ○ box drawing fonts
+   ○ Color emoji fonts
+   ○ Box-drawing fonts
    ○ Fonts for Latin
    ○ Fonts for Greek
    ○ Fonts for Cyrillic
    ○ Fonts for Armenian
-   ○ Fonts for Hebrew
 
- Enter shows the fonts that pass the highlighted filter. A filter other than
- All fonts leaves out each font the font helper has not described.
+ The list shows filters 1 to 13 of 36. Up and Down scroll it. Enter shows the
+ fonts that pass the highlighted filter. A filter other than All fonts leaves
+ out each font the font helper has not described.
  Live trial is off: this vtium console has allow-font-ops turned off, so t
  cannot try a font on it. To turn it on, change allow-font-ops in the Settings
  tab, then install.

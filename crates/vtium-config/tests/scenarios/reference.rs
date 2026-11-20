@@ -44,6 +44,9 @@ use std::sync::OnceLock;
 pub enum Expect {
     /// The TUI is in this node after the key.
     At(String),
+    /// The TUI is in this tab's list after the key, in whichever of the
+    /// list's nodes the highlight then calls for.
+    InTab(String),
     /// The TUI leaves with this status.
     Exits(u8),
     /// The TUI quits with status 0, or asks the quit question or the leave
@@ -228,6 +231,18 @@ fn esc_target(node: &TreeRow) -> Option<String> {
     tree_row(target).map(|n| n.id.clone())
 }
 
+/// The tab a node of the view kind belongs to: the node itself, or its
+/// parent where the node is the tab's list in another focus, such as
+/// `looks-resources` under `looks`.
+pub fn tab_of(id: &str) -> String {
+    match tree_row(id) {
+        Some(n) if n.parent != "tui" && n.parent != "-" && kind(&n.parent) == "view" => {
+            n.parent.clone()
+        }
+        _ => id.to_owned(),
+    }
+}
+
 /// What `key`, by the alphabet's name, does in the node `from`, as far as
 /// the tables decide it whatever the tab holds; `None` where they do not.
 pub fn expect(from: &str, key: &str) -> Option<Expect> {
@@ -278,7 +293,8 @@ pub fn expect(from: &str, key: &str) -> Option<Expect> {
         return None;
     }
     let order = &tables().order;
-    let at = order.iter().position(|t| t == from);
+    let tab = tab_of(from);
+    let at = order.iter().position(|t| *t == tab);
     match (key, at) {
         ("Tab", Some(i)) => {
             return order.get((i + 1) % order.len()).cloned().map(Expect::At);
@@ -324,7 +340,7 @@ pub fn expect(from: &str, key: &str) -> Option<Expect> {
             .iter()
             .all(|r| moves.iter().any(|m| r.means.starts_with(m)))
     {
-        return Some(Expect::At(from.to_owned()));
+        return Some(Expect::InTab(tab));
     }
     None
 }
@@ -334,6 +350,7 @@ pub fn expect(from: &str, key: &str) -> Option<Expect> {
 pub fn agrees(want: &Expect, to: &str, exit: Option<u8>) -> Result<(), String> {
     let ok = match want {
         Expect::At(id) => exit.is_none() && to == id,
+        Expect::InTab(tab) => exit.is_none() && kind(to) == "view" && tab_of(to) == *tab,
         Expect::Exits(status) => exit == Some(*status),
         Expect::QuitsOrAsks => {
             exit == Some(0) || matches!(to, "any.question.quit" | "any.question.leave")

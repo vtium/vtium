@@ -1,8 +1,10 @@
 # Vtlook files
 
-A vtlook (a look file) chooses the frame filters for a head. A frame filter changes the finished picture before the display shows it, such as a color correction or a CRT effect. This page describes the file: where it lives, its syntax, its display requirements, the built-in vtlook, and the errors vtium reports.
+A vtlook (a file of frame filters) chooses the filters a head applies to its picture. A frame filter changes the finished picture before the display shows it, such as a color correction or an amber tint. This page describes the file: where it lives, its syntax, its display requirements, the built-in vtlook, and the errors vtium reports.
 
 vtium has five color filters, which change the color of each pixel: `gamma`, `contrast`, `tint`, `color-blind`, and `cube`, which reads a color table from a file. Spatial filters, which read the pixels around each pixel, such as scanlines, are not built yet. See [the frame filters issue](https://github.com/vtium/vtium/issues/219) for the filters as they arrive.
+
+vtium draws a vtlook only in a build with the `filters` feature. The `vtium` and `vtium-git` packages build it from 0.1.0-alpha.10 on, and the minspec builds leave it out. `vtium --version` names `filters` on its `features` line when the build has it. See [An effect that does not apply](troubleshooting.md#an-effect-that-does-not-apply) for what a build without it does.
 
 ## Where a vtlook lives
 
@@ -109,6 +111,15 @@ color = 255,176,0
 ```
 
 The file lives in `/etc/vtium/looks`, beside your vtlooks, and holds at most 16 MiB. vtium uses a `.cube` file only while it is active, which means that `/etc/vtium/batch.conf` lists its full path. The file must also pass the rule that vtium applies to every file it uses as a resource. Root owns the file and each folder above it, and neither the group nor other users can write any of them. No symbolic link lies on the path, and the file sits on a filesystem that is mounted at boot and stays mounted. vtium treats a file that fails either check as missing, so the vtlook fails and its heads draw the built-in vtlook. vtium reads `batch.conf` again each time a session ends, and when the list changed, it reads the head's vtlook and its `.cube` file again before the next login. So a `.cube` file you activate or deactivate takes effect at the next login.
+
+To use a `.cube` file that you downloaded, copy it into `/etc/vtium/looks` as root, then activate it. `install` gives the copy root as its owner and mode 0644, so it passes the rule:
+
+```
+# install -D -m 644 -t /etc/vtium/looks warm.cube
+$ vtium config activate /etc/vtium/looks/warm.cube --install
+```
+
+Then name the file in a vtlook's `cube` filter, as above, and name that vtlook in a look. vtium-config's Effects tab activates a color map too, with Space. The color map takes effect at the next login. A change to which vtlook a look names takes effect when vtium next starts on the VT.
 
 A `.cube` file is text. Keyword lines come first, and each keyword appears at most once:
 
@@ -263,7 +274,7 @@ Any error in a vtlook makes the whole vtlook fail. The heads that take it draw t
 vtlook old (/etc/vtium/looks/old.vtlook:2): reading: found [color sepia] before version = 1, needs version = 1 first; 1 more error; head console draws the built-in vtlook instead
 ```
 
-vtium reads the vtlook again only when it reads its configuration again. `vtium check-config` lists the errors of every vtlook that vtium.conf names, one a line. Each line gives the file and line, the section, the stage and what vtium needs there. A vtlook can hold thousands of errors, so the check lists the first 64 and counts the rest. After a vtlook's errors, the check names each line of vtium.conf that chooses it. The examples below show a vtlook and the errors `vtium check-config` prints for it.
+vtium reads the vtlook again when it next starts on the VT, and at a login after the list of active resources changed. `vtium check-config` lists the errors of every vtlook that vtium.conf names, one a line. Each line gives the file and line, the section, the stage and what vtium needs there. A vtlook can hold thousands of errors, so the check lists the first 64 and counts the rest. After a vtlook's errors, the check names each line of vtium.conf that chooses it. The examples below show a vtlook and the errors `vtium check-config` prints for it.
 
 A missing version and a filter vtium does not have are two errors:
 

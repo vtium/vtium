@@ -53,6 +53,38 @@ vtium reads vtium.conf and the palette files when it starts. So a change to vtiu
 
 When a look names a palette file that is missing or has an error, the heads that use the look draw the color scheme that the top level names. When the top-level color scheme fails the same way, those heads draw `legacy`. vtium logs one line for each such file. Run `vtium check-config` to see the file, the line and the reason.
 
+## A color scheme for each display
+
+To give each monitor its own color scheme, give each monitor its own head, and give each head a look with its own `palette`. A head is a terminal on one or more displays, and the rules in the `[rules]` section say which display shows which head. This example puts a light scheme on the left monitor and a dark one on the right:
+
+```ini
+# /etc/vtium/vtium.conf
+version = 1
+policy = open
+
+[look day]
+palette = sunny
+
+[look night]
+palette = tokyo-night
+
+[head left]
+look = day
+
+[head right]
+look = night
+
+[rules]
+display edid:AAA:0x0001:LEFT000001 -> left
+display edid:BBB:0x0002:RIGHT00001 -> right
+display * -> left
+input class:keyboard -> roaming
+input class:mouse -> roaming
+input * -> ignore
+```
+
+Each `edid:` value names one monitor by the identity it reports, and `vtium config flow --json` lists the values of the monitors connected now. The keyboard and the mouse roam: they type into one head at a time, and `Ctrl-Super-Up` and `Ctrl-Super-Down` move them to the other head. Each look can also set its own font and vtlook. [Heads, by scenario](heads.md) gives more setups, such as a keyboard for each head.
+
 ## Programs that change the colors
 
 A program can change the colors in its own console with escape sequences. OSC 4 changes one of the 256 colors, and OSC 10 to 19 change the default colors, the cursor's color and the selection's colors. OSC 104 to 119 reset them to the color scheme's colors. RIS, the full reset, and DECSTR, the soft reset, return the colors to the color scheme's too. See [Escape sequences](sequences/index.md) for each sequence.

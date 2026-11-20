@@ -11,8 +11,9 @@
    PgDn       Moves down by a page.
    Space      On a font, a color map, a shader, a color scheme file or a pointer theme, activates
               it, or deactivates it when it is active. A pointer theme is activated by its folder,
-              with every file in it. Deactivating asks first when a look uses it. On a vtlook, the
-              built-in font or a built-in color scheme, does nothing.
+              with every file in it. Deactivating asks first when a look uses it. On the built-in
+              font or a built-in color scheme, does nothing. On a vtlook or a filter line, says why
+              it does nothing there.
    Enter      On the filter line, shows the filters as a list. On a font, opens its detail: its
               files, what it covers, its sizes, its trust mark and the looks that use it.
    2          Goes straight to the Effects tab.
@@ -24,7 +25,6 @@
    i          Saves, then asks whether to install the draft.
    .          Shows the key line's next page, and the first page again after the last. Does nothing
               where the keys fit on one row.
-   p          Switches the preview between the sample characters and the picture of the console.
 
 ----------------------------------------------------------------------------------------------------
  ↑↓ scroll  ←→ Help, About  q quit  . more 1/4
