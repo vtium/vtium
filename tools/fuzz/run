@@ -19,10 +19,12 @@ For each target, the script builds it with `cargo +nightly fuzz build`, makes a
 fresh corpus directory under the system's temporary directory, copies into it
 the crate's committed seeds for that target (crates/<crate>/fuzz/seeds/<target>/
 and the extra directories SEEDS names), and runs `cargo +nightly fuzz run` with
-libFuzzer's -max_total_time. libFuzzer only ever writes into that temporary
-directory and into target/fuzz-artifacts/<crate>/<target>/, so the repository's
-tracked seeds stay as they are. The script deletes the corpus directory once
-the run ends, because anyone can grow a corpus again by running the target.
+libFuzzer's -max_total_time and -malloc_limit_mb=512, so that one allocation
+larger than the font helper's 512 MiB memory limit counts as a crash.
+libFuzzer only ever writes into that temporary directory and into
+target/fuzz-artifacts/<crate>/<target>/, so the repository's tracked seeds stay
+as they are. The script deletes the corpus directory once the run ends, because
+anyone can grow a corpus again by running the target.
 libFuzzer's full output goes to target/fuzz-logs/<crate>-<target>.log.
 
 The script then reads libFuzzer's final statistics and appends one row to
@@ -61,6 +63,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_SECONDS = 60
+# libFuzzer reports an allocation larger than this many MiB as a crash. vtium's
+# font helper limits its own memory to 512 MiB, so an input that needs more
+# than that kills the helper, and the fuzz run reports it the same way.
+MALLOC_LIMIT_MB = 512
 
 HEADER = (
     "# One row per fuzz run that tools/fuzz/run (make fuzz) appended:"
@@ -265,7 +271,8 @@ def run_target(root, crate, target, seconds, commit, machine):
         with open(log, "wb") as out:
             status = subprocess.run(
                 ["cargo", "+nightly", "fuzz", "run", target, str(corpus), "--",
-                 f"-max_total_time={seconds}", "-print_final_stats=1", f"-artifact_prefix={artifacts}/"],
+                 f"-max_total_time={seconds}", f"-malloc_limit_mb={MALLOC_LIMIT_MB}",
+                 "-print_final_stats=1", f"-artifact_prefix={artifacts}/"],
                 cwd=fuzz_dir, stdout=out, stderr=subprocess.STDOUT,
             ).returncode
         wall = round(time.monotonic() - clock)

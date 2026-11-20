@@ -13,7 +13,8 @@
 //! draft's batch. A font in a user's folder is listed and marked not
 //! usable, because the user installed it and the system did not. A font
 //! in `/usr/local/share/fonts` that a package also installed in
-//! `/usr/share/fonts` is marked as a duplicate the person can remove.
+//! `/usr/share/fonts` is marked as a duplicate, with whether the two
+//! files hold the same bytes, so the person removes only a true copy.
 //! The scan opens no font. [`describe`] asks the sandboxed font helper
 //! what each font is, so the Fonts tab can show a font's family, sizes
 //! and scripts without vtium-config parsing it.
@@ -55,13 +56,16 @@ pub const ENTRIES_MAX: usize = 65_536;
 /// The most font files one helper describes before vtium-config starts
 /// another, so that no helper reaches its limit of CPU time.
 pub const DESCRIBED_PER_HELPER: usize = 256;
-/// The extensions of the font files vtium reads, after a compression's
-/// suffix, case ignored.
+/// The extensions of the font files vtium reads, case ignored.
 pub const FONT_SUFFIXES: [&str; 9] = [
     "ttf", "otf", "ttc", "otc", "otb", "psf", "psfu", "bdf", "hex",
 ];
-/// The compressions a bitmap font file may come in.
-const COMPRESSED: [&str; 4] = ["gz", "bz2", "xz", "zst"];
+/// The extensions of the font files vtium also reads compressed: PSF and
+/// BDF fonts. vtium reads an OpenType font and a `.hex` font only as they
+/// are.
+pub const COMPRESSIBLE_SUFFIXES: [&str; 3] = ["psf", "psfu", "bdf"];
+/// The compressions a PSF or BDF font file may come in, by their suffixes.
+pub const COMPRESSED: [&str; 4] = ["gz", "bz2", "xz", "zst"];
 
 /// What kind of folder a font was found in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -204,9 +208,34 @@ pub struct Found {
     pub trust: Result<(), String>,
     /// Where the file stands in the current draft's batch.
     pub state: State,
-    /// The copy of the same font that a package installed, for a font in
-    /// the administrator's folder, which the person can then remove.
-    pub duplicate_of: Option<PathBuf>,
+    /// The file of the same name, or of the same bytes, that a package
+    /// installed, for a font in the administrator's folder.
+    pub duplicate: Option<Duplicate>,
+}
+
+/// A file a package installed that a font in the administrator's folder
+/// repeats.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Duplicate {
+    /// The package's file, under `/usr/share/fonts`.
+    pub of: PathBuf,
+    /// Whether the two files hold the same bytes. A file that only shares
+    /// its name may be a newer version of the font that the person
+    /// installed on purpose.
+    pub same_bytes: bool,
+}
+
+impl Duplicate {
+    /// The duplicate's note in a listing: the same file, which the person
+    /// can remove, or a file of the same name, which may be newer.
+    pub fn words(&self) -> String {
+        let of = crate::onscreen::path(&self.of);
+        if self.same_bytes {
+            format!("a package installed the same file as {of}")
+        } else {
+            format!("a package installed a font file of the same name, {of}")
+        }
+    }
 }
 
 impl Found {
@@ -218,24 +247,24 @@ impl Found {
     }
 }
 
-/// Whether `path` names a font file vtium reads, by its extension after
-/// any compression's suffix.
+/// Whether `path` names a font file vtium reads, by its extension: one of
+/// [`FONT_SUFFIXES`], or one of [`COMPRESSIBLE_SUFFIXES`] followed by a
+/// compression's suffix.
 pub fn is_font_file(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
         return false;
     };
+    let is = |list: &[&str], ext: &str| list.iter().any(|s| s.eq_ignore_ascii_case(ext));
     let mut parts = name.rsplit('.');
-    let Some(mut ext) = parts.next() else {
+    // a name with no dot has no extension
+    let (Some(ext), Some(inner)) = (parts.next(), parts.next()) else {
         return false;
     };
-    if COMPRESSED.iter().any(|c| c.eq_ignore_ascii_case(ext)) {
-        let Some(inner) = parts.next() else {
-            return false;
-        };
-        ext = inner;
+    if is(&COMPRESSED, ext) {
+        // the inner extension must follow a dot of its own
+        return parts.next().is_some() && is(&COMPRESSIBLE_SUFFIXES, inner);
     }
-    // a name with no dot has no extension
-    name.contains('.') && FONT_SUFFIXES.iter().any(|s| s.eq_ignore_ascii_case(ext))
+    is(&FONT_SUFFIXES, ext)
 }
 
 /// Every font file under `folder`, at most [`DEPTH_MAX`] folders deep,
@@ -300,7 +329,7 @@ pub fn scan(
                 trust,
                 path,
                 folder: folder.clone(),
-                duplicate_of: None,
+                duplicate: None,
             });
         }
     }
@@ -310,7 +339,8 @@ pub fn scan(
 
 /// Marks each font under `folders.local` that a package installed again
 /// under `folders.packages`: a file of the same name, or of the same size
-/// and the same bytes.
+/// and the same bytes. The mark says whether the bytes are the same, and
+/// a file of the same bytes is named first.
 fn mark_duplicates(found: &mut [Found], folders: &Folders) {
     let packaged: Vec<(PathBuf, u64)> = found
         .iter()
@@ -325,12 +355,18 @@ fn mark_duplicates(found: &mut [Found], folders: &Folders) {
         .filter(|f| f.path.starts_with(&folders.local))
     {
         let size = std::fs::metadata(&f.path).map_or(u64::MAX, |m| m.len());
-        f.duplicate_of = packaged
-            .iter()
-            .find(|(p, s)| {
-                p.file_name() == f.path.file_name() || (*s == size && same_bytes(p, &f.path))
-            })
-            .map(|(p, _)| p.clone());
+        let same = |(p, s): &&(PathBuf, u64)| *s == size && same_bytes(p, &f.path);
+        let named = |(p, _): &&(PathBuf, u64)| p.file_name() == f.path.file_name();
+        f.duplicate = match packaged.iter().find(same) {
+            Some((p, _)) => Some(Duplicate {
+                of: p.clone(),
+                same_bytes: true,
+            }),
+            None => packaged.iter().find(named).map(|(p, _)| Duplicate {
+                of: p.clone(),
+                same_bytes: false,
+            }),
+        };
     }
 }
 
@@ -379,15 +415,36 @@ pub enum Described {
     Unknown(String),
 }
 
-/// Asks the font helper at `helper` what each of `paths` is, one helper
-/// for every [`DESCRIBED_PER_HELPER`] files, in order. Each answer is
-/// waited for at most [`HELPER_WAIT`]. Once a helper fails or stalls, every
-/// file it has not answered is [`Described::Unknown`], with why.
+/// Asks the font helper at `helper` what each of `paths` is, in order, as
+/// [`describe_each`] does, and gives every answer at once.
 pub fn describe(helper: &Helper, paths: &[PathBuf]) -> Vec<Described> {
-    paths
-        .chunks(DESCRIBED_PER_HELPER)
-        .flat_map(|chunk| describe_in_one(helper, chunk.to_vec()))
-        .collect()
+    let mut out = Vec::with_capacity(paths.len());
+    describe_each(helper, paths, &mut |d| out.push(d));
+    out
+}
+
+/// Asks the font helper at `helper` what each of `paths` is, and passes
+/// each answer to `each` in order as soon as it arrives. One helper
+/// describes at most [`DESCRIBED_PER_HELPER`] files, and each answer is
+/// waited for at most [`HELPER_WAIT`]. When a helper fails or stalls on a
+/// file, that file is [`Described::Unknown`], with why, and a fresh
+/// helper describes the files after it, so one bad file costs only its
+/// own description. When the helper cannot start, every file is unknown.
+pub fn describe_each(helper: &Helper, paths: &[PathBuf], each: &mut dyn FnMut(Described)) {
+    let mut rest = paths;
+    while !rest.is_empty() {
+        let chunk = rest.get(..DESCRIBED_PER_HELPER).unwrap_or(rest);
+        match describe_in_one(helper, chunk, each) {
+            // a helper answers at least the file it failed on
+            Ok(answered) => rest = rest.get(answered.max(1)..).unwrap_or_default(),
+            Err(why) => {
+                for _ in rest {
+                    each(Described::Unknown(why.clone()));
+                }
+                return;
+            }
+        }
+    }
 }
 
 /// One frame the helper sent.
@@ -408,8 +465,11 @@ fn frame(from: &mut dyn Read) -> Result<(u32, Vec<u8>), String> {
 }
 
 /// The answer to one description from the helper's frames, passing over
-/// its sandbox's report and any warning.
+/// its sandbox's report and any warning. A reason the helper gives is
+/// kept as [`crate::onscreen::bytes`] gives it, cut short and with no
+/// control character, because the helper reads untrusted fonts.
 fn answer(from: &mut dyn Read) -> Result<Described, String> {
+    use crate::onscreen::bytes;
     loop {
         let (kind, payload) = frame(from)?;
         match kind {
@@ -418,25 +478,26 @@ fn answer(from: &mut dyn Read) -> Result<Described, String> {
                 return Description::decode(&payload).map(Described::Font);
             }
             FRAME_NO_DESCRIPTION => {
-                return Ok(Described::NotAFont(
-                    String::from_utf8_lossy(&payload).into_owned(),
-                ));
+                return Ok(Described::NotAFont(bytes(&payload)));
             }
             FRAME_FAILED => {
-                return Err(format!(
-                    "the font helper failed: {}",
-                    String::from_utf8_lossy(&payload)
-                ));
+                return Err(format!("the font helper failed: {}", bytes(&payload)));
             }
             other => return Err(format!("the font helper sent a frame of kind {other}")),
         }
     }
 }
 
-/// [`describe`] of `paths` through one helper.
-fn describe_in_one(helper: &Helper, paths: Vec<PathBuf>) -> Vec<Described> {
+/// [`describe_each`] of `paths` through one helper, until the helper
+/// fails or stalls. Gives how many files it answered, counting the file
+/// the helper failed on as answered, or why the helper did not start.
+fn describe_in_one(
+    helper: &Helper,
+    paths: &[PathBuf],
+    each: &mut dyn FnMut(Described),
+) -> Result<usize, String> {
     let count = paths.len();
-    let mut out = Vec::with_capacity(count);
+    let paths = paths.to_vec();
     let started = Command::new(&helper.program)
         .args(&helper.options)
         .arg(crate::serve::SERVE_ARG)
@@ -449,17 +510,16 @@ fn describe_in_one(helper: &Helper, paths: Vec<PathBuf>) -> Vec<Described> {
     let mut child = match started {
         Ok(child) => child,
         Err(e) => {
-            let why = format!(
+            return Err(format!(
                 "cannot start the font helper {}: {e}",
                 helper.program.display()
-            );
-            return vec![Described::Unknown(why); count];
+            ));
         }
     };
     let (Some(mut stdin), Some(mut stdout)) = (child.stdin.take(), child.stdout.take()) else {
         let _ = child.kill();
         let _ = child.wait();
-        return vec![Described::Unknown("the font helper's pipes".to_owned()); count];
+        return Err("vtium-config cannot reach the font helper through its pipes".to_owned());
     };
     let (arrived, answers) = mpsc::channel();
     // every request is written first, from a thread of its own, so a
@@ -483,22 +543,27 @@ fn describe_in_one(helper: &Helper, paths: Vec<PathBuf>) -> Vec<Described> {
             }
         }
     });
-    while out.len() < count {
+    let mut answered = 0;
+    while answered < count {
+        answered = answered.saturating_add(1);
         match answers.recv_timeout(HELPER_WAIT) {
-            Ok(Ok(d)) => out.push(d),
+            Ok(Ok(d)) => each(d),
             Ok(Err(why)) => {
-                out.resize(count, Described::Unknown(why));
+                each(Described::Unknown(why));
+                break;
             }
             Err(_) => {
-                let why = "the font helper did not answer in time".to_owned();
-                out.resize(count, Described::Unknown(why));
+                each(Described::Unknown(
+                    "the font helper did not answer in time".to_owned(),
+                ));
+                break;
             }
         }
     }
     let _ = child.kill();
     let _ = child.wait();
     let _ = writer.join();
-    out
+    Ok(answered)
 }
 
 /// One file in "install as a system font", as vtium-config shows it
@@ -547,14 +612,15 @@ impl FileFacts {
     /// The facts as one line: `PATH: SIZE bytes, changed DATE, FAMILY
     /// version VERSION`.
     pub fn line(&self) -> String {
+        use crate::onscreen::text;
         let font = match &self.font {
-            Ok((family, Some(version))) => format!("{family}, version {version}"),
-            Ok((family, None)) => format!("{family}, no version stated"),
-            Err(why) => format!("the font helper cannot read it: {why}"),
+            Ok((family, Some(version))) => format!("{}, version {}", text(family), text(version)),
+            Ok((family, None)) => format!("{}, no version stated", text(family)),
+            Err(why) => format!("the font helper cannot read it: {}", text(why)),
         };
         format!(
             "{}: {} bytes, changed {} UTC, {font}",
-            self.path.display(),
+            crate::onscreen::path(&self.path),
             self.size,
             crate::report::utc_text(self.modified)
         )
@@ -566,7 +632,9 @@ impl FileFacts {
 /// its first face with the count of the others, the sizes it supplies,
 /// monospaced or proportional, its scripts, its groups, and a duplicate's
 /// note. A font the helper cannot describe says why in place of the five
-/// columns that describe it.
+/// columns that describe it. Each column is passed through
+/// [`crate::onscreen::text`], so a file's name or a font's own words
+/// print as text and never hold the tab that separates the columns.
 pub fn row(found: &Found, described: &Described) -> String {
     let state = if found.usable() {
         found.state.words().to_owned()
@@ -578,7 +646,7 @@ pub fn row(found: &Found, described: &Described) -> String {
         Err(why) => why.clone(),
     };
     let mut cols = vec![
-        found.path.display().to_string(),
+        found.path.to_string_lossy().into_owned(),
         found.folder.place.words().to_owned(),
         state,
         trust,
@@ -592,12 +660,15 @@ pub fn row(found: &Found, described: &Described) -> String {
     }
     cols.push(
         found
-            .duplicate_of
+            .duplicate
             .as_ref()
-            .map(|p| format!("a package installed the same font as {}", p.display()))
+            .map(Duplicate::words)
             .unwrap_or_default(),
     );
-    cols.join("\t")
+    cols.iter()
+        .map(|c| crate::onscreen::text(c))
+        .collect::<Vec<_>>()
+        .join("\t")
 }
 
 /// The five columns that describe a font's first face.
@@ -720,33 +791,85 @@ mod tests {
         let copied = put(&s, "usr/share/fonts/x/Packaged.ttf", b"bytes");
         put(&s, "usr/local/share/fonts/Renamed.ttf", b"bytes");
         put(&s, "usr/local/share/fonts/Alone.ttf", b"alone");
+        let identical = put(&s, "usr/share/fonts/y/Twin.ttf", b"twin");
+        put(&s, "usr/local/share/fonts/Twin.ttf", b"twin");
         let got = found(&s);
         let dup = |name: &str| {
             got.iter()
                 .find(|f| f.path.ends_with(name) && f.path.starts_with(s.join("usr/local")))
                 .unwrap()
-                .duplicate_of
+                .duplicate
                 .clone()
         };
-        assert_eq!(dup("Same.ttf"), Some(packaged));
-        assert_eq!(dup("Renamed.ttf"), Some(copied));
+        let same = |of: &PathBuf| Duplicate {
+            of: of.clone(),
+            same_bytes: true,
+        };
+        // a file that only shares its name may be a newer version
+        let only_named = dup("Same.ttf").unwrap();
+        assert_eq!(
+            only_named,
+            Duplicate {
+                of: packaged.clone(),
+                same_bytes: false
+            }
+        );
+        assert_eq!(
+            only_named.words(),
+            format!(
+                "a package installed a font file of the same name, {}",
+                packaged.display()
+            )
+        );
+        assert_eq!(dup("Renamed.ttf"), Some(same(&copied)));
+        assert_eq!(dup("Twin.ttf"), Some(same(&identical)));
+        assert_eq!(
+            same(&identical).words(),
+            format!(
+                "a package installed the same file as {}",
+                identical.display()
+            )
+        );
         assert_eq!(dup("Alone.ttf"), None);
         // a package's own file is never the duplicate
         assert!(
             got.iter()
                 .filter(|f| f.path.starts_with(s.join("usr/share")))
-                .all(|f| f.duplicate_of.is_none())
+                .all(|f| f.duplicate.is_none())
         );
     }
 
     #[test]
     fn a_font_file_is_known_by_its_extension() {
         for yes in [
-            "a.ttf", "b.OTF", "c.psf.gz", "d.psfu", "e.bdf.gz", "f.hex", "g.ttc", "h.otb",
+            "a.ttf",
+            "b.OTF",
+            "c.psf.gz",
+            "d.psfu",
+            "e.bdf.gz",
+            "f.hex",
+            "g.ttc",
+            "h.otb",
+            "i.psfu.ZST",
+            "j.bdf.bz2",
+            "k.psf.xz",
         ] {
             assert!(is_font_file(Path::new(yes)), "{yes}");
         }
-        for no in ["fonts.dir", "a.pcf.gz", "ttf", "README", "x.gz", "a.cp.gz"] {
+        // vtium reads an OpenType or .hex font only uncompressed
+        for no in [
+            "fonts.dir",
+            "a.pcf.gz",
+            "ttf",
+            "README",
+            "x.gz",
+            "a.cp.gz",
+            "psf.gz",
+            "b.ttf.gz",
+            "c.otf.zst",
+            "f.hex.gz",
+            "g.ttc.xz",
+        ] {
             assert!(!is_font_file(Path::new(no)), "{no}");
         }
     }
@@ -774,5 +897,79 @@ mod tests {
             ]
         );
         assert_eq!(f.folders[0].path, Path::new(PACKAGE_FONTS));
+    }
+
+    /// A stand-in font helper that answers its first request, that the
+    /// file is no font, and then stops on the second, as a helper that a
+    /// hostile file kills does.
+    fn dying_helper(dir: &Path) -> Helper {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("helper.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nprintf '\\023\\000\\000\\000\\003\\000\\000\\000one'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Helper::at(script)
+    }
+
+    /// One file that kills the helper leaves only that file unknown: a
+    /// fresh helper describes the files after it.
+    #[test]
+    fn a_file_that_stops_the_helper_leaves_the_rest_described() {
+        let s = Scratch::new("discover-dying");
+        let paths: Vec<PathBuf> = ["/a.ttf", "/b.ttf", "/c.ttf", "/d.ttf"]
+            .iter()
+            .map(PathBuf::from)
+            .collect();
+        let got = describe(&dying_helper(&s), &paths);
+        let one = Described::NotAFont("one".to_owned());
+        let stopped = Described::Unknown("the font helper stopped without answering".to_owned());
+        // each fresh helper answers one file and stops on the next
+        assert_eq!(got, [one.clone(), stopped.clone(), one, stopped]);
+    }
+
+    /// The answers reach the caller one at a time, in order, as each
+    /// arrives, so a listing can print a row before the next file is read.
+    #[test]
+    fn each_answer_is_passed_on_as_it_arrives() {
+        let s = Scratch::new("discover-each");
+        let paths = vec![PathBuf::from("/a.ttf"), PathBuf::from("/b.ttf")];
+        let mut seen = Vec::new();
+        describe_each(&dying_helper(&s), &paths, &mut |d| seen.push(d));
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0], Described::NotAFont("one".to_owned()));
+    }
+
+    /// A file's name, the trust rule's verdict and the helper's reason
+    /// print as text: an escape sequence in any of them reaches the
+    /// terminal as U+FFFD and the characters after it, and no column
+    /// holds a tab.
+    #[test]
+    fn a_row_shows_control_characters_as_text() {
+        use std::os::unix::ffi::OsStrExt;
+        let s = Scratch::new("discover-escape");
+        let name = std::ffi::OsStr::from_bytes(b"\x1b[31mred\x1b[0m.ttf");
+        let path = s.join("home/.local/share/fonts").join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"m").unwrap();
+        let mut got = found(&s);
+        assert_eq!(got.len(), 1);
+        got[0].trust = Err(format!(
+            "{} is \x1b]0;title\x07 refused\tnow",
+            path.display()
+        ));
+        let row = row(
+            &got[0],
+            &Described::NotAFont("bad \x1b[2J font\nhere".to_owned()),
+        );
+        assert!(
+            !row.contains('\x1b') && !row.contains('\x07') && !row.contains('\n'),
+            "{row:?}"
+        );
+        assert_eq!(row.matches('\t').count(), 9, "{row:?}");
+        assert!(row.contains("\u{fffd}[31mred\u{fffd}[0m.ttf"), "{row:?}");
+        assert!(row.contains("bad \u{fffd}[2J font\u{fffd}here"), "{row:?}");
     }
 }

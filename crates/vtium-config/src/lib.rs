@@ -58,6 +58,7 @@ pub mod library;
 pub mod made;
 pub mod names;
 pub mod needs;
+pub mod onscreen;
 pub mod ops;
 pub mod outcome;
 pub mod outline;

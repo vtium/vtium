@@ -160,7 +160,7 @@ fn known(name: &str) -> bool {
 }
 
 /// The font file's name in the draft's name `system-font/NAME`, when NAME
-/// is one a system font may have ([`valid_font_name`]).
+/// is one a system font may have ([`font_name_refusal`]).
 fn system_font_name(name: &str) -> Option<&str> {
     name.strip_prefix(SYSTEM_FONT)
         .and_then(|n| n.strip_prefix('/'))
@@ -168,14 +168,48 @@ fn system_font_name(name: &str) -> Option<&str> {
 }
 
 /// Whether `name` may name a font file that "install as a system font"
-/// writes: at most 255 bytes, no `/`, no control character, not hidden
-/// behind a leading `.`, and the extension of a font file vtium reads.
+/// writes, as [`font_name_refusal`] judges it.
 pub fn valid_font_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 255
-        && !name.starts_with('.')
-        && !name.chars().any(|c| c == '/' || c.is_control())
-        && crate::discover::is_font_file(Path::new(name))
+    font_name_refusal(name).is_none()
+}
+
+/// Why `name` may not name a font file that "install as a system font"
+/// writes, or `None` when it may: a file's name of at most 255 bytes,
+/// with no control character, not hidden behind a leading `.`, and with
+/// the extension of a font file vtium reads.
+pub fn font_name_refusal(name: &str) -> Option<&'static str> {
+    if name.is_empty() || name.contains('/') || name == "." || name == ".." {
+        return Some("this is not the name of a file.");
+    }
+    if name.len() > 255 {
+        return Some("this file's name is longer than 255 bytes, the most a file's name may hold.");
+    }
+    if name.starts_with('.') {
+        return Some(
+            "this file's name starts with a dot, which hides a file. Rename the file so that its name starts with another character.",
+        );
+    }
+    if name.chars().any(char::is_control) {
+        return Some("this file's name holds a control character. Rename the file without it.");
+    }
+    if !crate::discover::is_font_file(Path::new(name)) {
+        return Some(
+            "this file's name does not end like a font file's. vtium-config installs a file whose name ends in .ttf, .otf, .ttc, .otc, .otb or .hex. A PSF or BDF font's name ends in .psf, .psfu or .bdf, which may be followed by .gz, .bz2, .xz or .zst.",
+        );
+    }
+    None
+}
+
+/// The packages' fonts folder, which "install as a system font" never
+/// takes a font from: `/usr/share/fonts` for the system's directories,
+/// and `package-fonts` in the configuration directory for any other, such
+/// as a test's.
+pub fn package_fonts(targets: &Targets) -> PathBuf {
+    if targets.configdir == crate::cli::default_configdir() {
+        PathBuf::from(crate::discover::PACKAGE_FONTS)
+    } else {
+        targets.configdir.join("package-fonts")
+    }
 }
 
 /// The folder "install as a system font" copies a font into: fontconfig's
@@ -313,21 +347,36 @@ pub enum Placement {
 impl SystemFont {
     /// The font file at `source` as a font for `targets`' system fonts
     /// folder. `Err` says why it cannot be: the file cannot be read, is
-    /// not a regular file, is larger than an outline font may be, or has
-    /// a name a system font may not have. The file at the target is read
+    /// not a regular file, is larger than an outline font may be, has a
+    /// name a system font may not have, or is a font a package installed,
+    /// which is a system font already. The file at the target is read
     /// too, so [`SystemFont::placement`] can compare the two.
     pub fn read(source: &Path, targets: &Targets) -> Result<SystemFont, String> {
         let limit = crate::outline::OUTLINE_BYTES_MAX;
         let name = source
             .file_name()
-            .and_then(|n| n.to_str())
-            .filter(|n| valid_font_name(n))
+            .ok_or_else(|| format!("{}: this is not the name of a file.", source.display()))?
+            .to_str()
             .ok_or_else(|| {
                 format!(
-                    "{}: this file's name does not end like a font file's. vtium-config installs a file whose name ends in .ttf, .otf, .ttc, .otc, .otb, .psf, .psfu, .bdf or .hex, perhaps followed by .gz, .bz2, .xz or .zst.",
+                    "{}: this file's name is not UTF-8 text. Rename the file.",
                     source.display()
                 )
             })?;
+        if let Some(why) = font_name_refusal(name) {
+            return Err(format!("{}: {why}", source.display()));
+        }
+        // a link to a package's font is the package's font too
+        let packages = package_fonts(targets);
+        let real = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
+        let packages_real = std::fs::canonicalize(&packages).unwrap_or(packages.clone());
+        if real.starts_with(&packages_real) || source.starts_with(&packages) {
+            return Err(format!(
+                "{}: a package installed this font in {}, so it is a system font already. Installing it again would only make a duplicate.",
+                source.display(),
+                packages.display()
+            ));
+        }
         let target = local_fonts(targets).join(name);
         let bytes = read_regular(source, limit)?
             .ok_or_else(|| format!("{}: there is no such file", source.display()))?;
@@ -348,6 +397,13 @@ impl SystemFont {
             Some(old) if *old == self.bytes => Placement::Identical,
             Some(_) => Placement::Replaces,
         }
+    }
+
+    /// Where the draft `draft`, written by [`SystemFont::write_draft`],
+    /// holds its copy of the font.
+    pub fn draft_copy(&self, draft: &Path) -> PathBuf {
+        let name = self.target.file_name().unwrap_or_default();
+        draft.join(SYSTEM_FONT).join(name)
     }
 
     /// Writes the font as a new draft under `root`, a draft that holds this
@@ -378,19 +434,20 @@ impl SystemFont {
 
 /// The regular file at `path`, at most `limit` bytes, or `None` when
 /// nothing is there. A link is followed, since the person reads their own
-/// files; anything but a regular file is refused.
+/// files; anything but a regular file is refused. The file is opened
+/// without blocking, so a FIFO named like a font is refused at once
+/// rather than waited on.
 fn read_regular(path: &Path, limit: u64) -> Result<Option<Vec<u8>>, String> {
-    let file = match File::open(path) {
-        Ok(f) => f,
+    match std::fs::metadata(path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("{}: {e}", path.display())),
-    };
-    let meta = file
-        .metadata()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    if !meta.is_file() {
-        return Err(format!("{}: this is not a regular file", path.display()));
+        Ok(meta) if !meta.is_file() => {
+            return Err(format!("{}: this is not a regular file", path.display()));
+        }
+        Ok(_) => {}
     }
+    let file =
+        crate::sources::open_regular(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut bytes = Vec::new();
     file.take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
@@ -1150,7 +1207,8 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
 }
 
 /// Writes a font that a draft installs as a system font: the system fonts
-/// folder made when it is missing, mode 0755, then the font in one rename,
+/// folder made when it is missing, with each folder made given mode 0755
+/// whatever the umask says, then the font in one rename,
 /// mode 0644, owned by the user `apply` runs as, root through sudo. A
 /// file the font replaces is not kept beside it, because fontconfig would
 /// read a kept copy as one more font. The font is then checked against
@@ -1164,14 +1222,8 @@ fn apply(dir: &Path, targets: &Targets, out: &mut dyn Write) -> Result<bool, Str
 fn install_system_font(font: &Staged, out: &mut dyn Write) -> Result<bool, String> {
     let path = &font.target;
     let written = (|| {
-        if let Some(folder) = path.parent()
-            && !folder.is_dir()
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o755)
-                .create(folder)?;
+        if let Some(folder) = path.parent() {
+            make_readable_folders(folder)?;
         }
         let replaces = path.exists();
         vtium_settings::install_file(path, font.bytes.as_deref().unwrap_or_default(), 0o644)?;
@@ -1194,6 +1246,38 @@ fn install_system_font(font: &Staged, out: &mut dyn Write) -> Result<bool, Strin
             Ok(false)
         }
     }
+}
+
+/// Makes `folder` and each missing folder above it, each with mode 0755.
+/// `sudo` keeps the person's umask, and a umask of 077 would leave a new
+/// folder readable by root alone, so neither the font helper, which
+/// never runs as root, nor another user's fontconfig could read the font.
+/// Each folder is opened without following a link and its mode set on
+/// that descriptor, so the mode lands on the folder just made.
+fn make_readable_folders(folder: &Path) -> io::Result<()> {
+    let mut missing = Vec::new();
+    let mut at = folder;
+    while !at.is_dir() {
+        missing.push(at);
+        match at.parent() {
+            Some(up) => at = up,
+            None => break,
+        }
+    }
+    for dir in missing.into_iter().rev() {
+        match std::fs::create_dir(dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+        let fd = rustix::fs::open(
+            dir,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        rustix::fs::fchmod(&fd, Mode::from_raw_mode(0o755))?;
+    }
+    Ok(())
 }
 
 /// Checks the batch file `bytes` that a draft installs at `path` before
@@ -1443,6 +1527,95 @@ mod tests {
             assert!(!valid_font_name(no), "{no:?}");
         }
         assert!(!known("system-font/../vtium.conf"));
+    }
+
+    /// Each name a system font may not have is refused with its own
+    /// reason.
+    #[test]
+    fn a_name_a_system_font_may_not_have_says_why() {
+        for (name, why) in [
+            (".hidden.ttf", "starts with a dot"),
+            ("a\u{1b}[31m.ttf", "holds a control character"),
+            ("notes.txt", "does not end like a font file's"),
+            ("Font.ttf.gz", "does not end like a font file's"),
+            ("a/b.ttf", "not the name of a file"),
+        ] {
+            let said = font_name_refusal(name).unwrap_or_default();
+            assert!(said.contains(why), "{name:?}: {said}");
+        }
+        let long = format!("{}.ttf", "a".repeat(252));
+        assert!(font_name_refusal(&long).unwrap().contains("255 bytes"));
+        assert_eq!(font_name_refusal("ter-v16n.psf.gz"), None);
+    }
+
+    /// A FIFO named like a font is refused at once: vtium-config never
+    /// waits for a writer that may never come.
+    #[test]
+    fn a_fifo_named_like_a_font_is_refused_at_once() {
+        let base = base("system-font-fifo");
+        let fifo = base.join("Pipe.ttf");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &fifo,
+            rustix::fs::FileType::Fifo,
+            Mode::from_raw_mode(0o600),
+            0,
+        )
+        .unwrap();
+        let targets = targets_in(&base);
+        let (done, read) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(SystemFont::read(&fifo, &targets).map(|_| ()));
+        });
+        let got = read
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("reading a FIFO waited on a writer");
+        assert!(got.unwrap_err().contains("not a regular file"));
+    }
+
+    /// A font that a package installed is a system font already, also
+    /// through a link to it, so it is never installed a second time.
+    #[test]
+    fn a_packages_own_font_is_not_installed_again() {
+        let base = base("system-font-packaged");
+        let packaged = base.join("package-fonts/TTF/Theirs.ttf");
+        std::fs::create_dir_all(packaged.parent().unwrap()).unwrap();
+        std::fs::write(&packaged, b"OTTO").unwrap();
+        let link = base.join("Linked.ttf");
+        std::os::unix::fs::symlink(&packaged, &link).unwrap();
+        for source in [&packaged, &link] {
+            let why = SystemFont::read(source, &targets_in(&base)).unwrap_err();
+            assert!(why.contains("a system font already"), "{why}");
+        }
+        assert_eq!(
+            package_fonts(&Targets::system()),
+            Path::new("/usr/share/fonts")
+        );
+    }
+
+    /// `apply` never follows a link inside the draft: neither a
+    /// `system-font` folder that is a link, nor a font in it that is one.
+    #[test]
+    fn a_system_font_that_is_a_link_is_refused() {
+        let base = base("system-font-link");
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("A.ttf"), b"OTTO").unwrap();
+        // the folder is a link
+        let dir = base.join("draft-folder");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, dir.join("system-font")).unwrap();
+        std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
+        let why = apply(&dir, &targets_in(&base), &mut Vec::new()).unwrap_err();
+        assert!(why.starts_with("system-font: "), "{why}");
+        // the font is a link
+        let dir = base.join("draft-file");
+        std::fs::create_dir_all(dir.join("system-font")).unwrap();
+        std::os::unix::fs::symlink(elsewhere.join("A.ttf"), dir.join("system-font/A.ttf")).unwrap();
+        std::fs::write(dir.join(MANIFEST), "write\tsystem-font/A.ttf\tnew\n").unwrap();
+        let why = apply(&dir, &targets_in(&base), &mut Vec::new()).unwrap_err();
+        assert!(why.starts_with("system-font/A.ttf"), "{why}");
+        assert!(!base.join("local-fonts").exists());
     }
 
     /// A draft that installs a system font holds that font alone, so

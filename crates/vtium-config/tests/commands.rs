@@ -1031,6 +1031,13 @@ fn fonts_keeps_the_answers_that_came_and_marks_the_rest_unknown() {
     }
 }
 
+/// The drafts left in the fixture's state directory.
+fn drafts_left(f: &Fixture) -> Vec<PathBuf> {
+    std::fs::read_dir(f.root.join("state/vtium/drafts"))
+        .map(|dir| dir.map(|e| e.expect("an entry").path()).collect())
+        .unwrap_or_default()
+}
+
 /// A font file of the test's own: `Test Mono` at `version`.
 fn test_font(path: &Path, version: &str) {
     std::fs::create_dir_all(path.parent().expect("a folder")).expect("the font's folder");
@@ -1082,6 +1089,87 @@ fn a_font_of_yours_installs_as_a_system_font_once() {
     assert_eq!(again.status, 0, "{}{}", again.out, again.err);
     assert!(again.out.contains("already installed"), "{}", again.out);
     assert!(!again.out.contains("draft\t"), "{}", again.out);
+    // the helper read a draft's copy, and the draft is gone again
+    assert_eq!(drafts_left(&f).len(), 1, "{:?}", drafts_left(&f));
+}
+
+/// The system fonts folder that `apply` makes, and every folder above it
+/// that it makes, can be read by every user, whatever umask `apply` runs
+/// under: `sudo` keeps the person's umask, and with 077 neither the font
+/// helper nor another user's fontconfig could reach the font.
+#[test]
+fn the_fonts_folder_apply_makes_is_readable_under_any_umask() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("system-font-umask", None);
+    let mine = f.root.join("home/.fonts/MyMono.ttf");
+    test_font(&mine, "Version 1.0");
+    let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    let draft = ran
+        .out
+        .lines()
+        .find_map(|l| l.strip_prefix("draft\t"))
+        .expect("the draft's line");
+    let o = home::command("/bin/sh")
+        .arg("-c")
+        .arg("umask 077 && exec \"$0\" \"$@\"")
+        .arg(BIN)
+        .args(f.options())
+        .args(["apply", draft])
+        .env("XDG_STATE_HOME", f.root.join("state"))
+        .env("XDG_CONFIG_HOME", f.root.join("config"))
+        .output()
+        .expect("the binary runs");
+    let said = String::from_utf8_lossy(&o.stdout);
+    assert!(
+        said.starts_with("wrote\t"),
+        "{said}{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let mode = |p: &Path| std::fs::metadata(p).expect("the path").permissions().mode() & 0o7777;
+    let folder = f.etc().join("local-fonts");
+    assert_eq!(mode(&folder), 0o755);
+    assert_eq!(mode(&folder.join("MyMono.ttf")), 0o644);
+}
+
+/// A file whose name holds an escape sequence is refused, and the refusal
+/// prints the sequence as text, so the terminal never acts on it.
+#[test]
+fn a_name_with_an_escape_sequence_is_refused_as_text() {
+    let f = fixture("system-font-escape", None);
+    let mine = f.root.join("home/.fonts/\u{1b}[31mred\u{1b}[0m.ttf");
+    test_font(&mine, "Version 1.0");
+    let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(!ran.err.contains('\u{1b}'), "{:?}", ran.err);
+    assert!(
+        ran.err
+            .contains("\u{fffd}[31mred\u{fffd}[0m.ttf: this file's name holds a control character"),
+        "{:?}",
+        ran.err
+    );
+    assert!(drafts_left(&f).is_empty());
+}
+
+/// A font that a package installed is a system font already, and is not
+/// installed a second time.
+#[test]
+fn a_packages_font_is_not_installed_again() {
+    let f = fixture("system-font-packaged", None);
+    let theirs = f.etc().join("package-fonts/TTF/Theirs.ttf");
+    test_font(&theirs, "Version 1.0");
+    let ran = f.run(&[
+        "fonts",
+        "--install-system",
+        theirs.to_str().expect("a path"),
+    ]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(ran.err.contains("a system font already"), "{}", ran.err);
+    assert!(!f.etc().join("local-fonts").exists());
 }
 
 /// A different file of the same name in the system fonts folder is shown
@@ -1105,14 +1193,15 @@ fn a_clash_shows_both_files_and_replaces_only_when_asked() {
     for said in [
         "A different file of this name is already installed.",
         "Installed: ",
-        "Test Mono, version Version 1.0",
+        "Test Mono, version 1.0",
         "Yours: ",
-        "Test Mono, version Version 2.0",
+        "Test Mono, version 2.0",
         "Nothing changed.",
     ] {
         assert!(ran.out.contains(said), "{said}: {}", ran.out);
     }
     assert!(!ran.out.contains("draft\t"), "{}", ran.out);
+    assert!(drafts_left(&f).is_empty(), "{:?}", drafts_left(&f));
     let replaced = f.run(&["fonts", "--install-system", path, "--replace"]);
     let applied = f.apply_printed(&replaced);
     assert_eq!(applied.status, 0, "{}{}", applied.out, applied.err);
@@ -1148,6 +1237,8 @@ fn a_file_that_is_no_font_or_a_target_changed_since_installs_nothing() {
     assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
     assert!(ran.err.contains("cannot read it as a font"), "{}", ran.err);
     assert!(!f.etc().join("local-fonts").exists());
+    // the draft the helper read the copy from is removed
+    assert!(drafts_left(&f).is_empty(), "{:?}", drafts_left(&f));
     let mine = f.root.join("home/.fonts/MyMono.ttf");
     test_font(&mine, "Version 1.0");
     let ran = f.run(&["fonts", "--install-system", mine.to_str().expect("a path")]);
