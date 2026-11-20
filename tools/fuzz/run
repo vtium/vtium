@@ -63,9 +63,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_SECONDS = 60
-# libFuzzer reports an allocation larger than this many MiB as a crash. vtium's
-# font helper limits its own memory to 512 MiB, so an input that needs more
-# than that kills the helper, and the fuzz run reports it the same way.
+# libFuzzer reports one allocation larger than this many MiB as a crash.
+# vtium's font helper limits its whole address space to 512 MiB, so an
+# allocation that large fails in the helper too. libFuzzer's limit on the
+# run's total memory stays at its default of 2048 MiB, so an input that needs
+# more than 512 MiB through many smaller allocations passes here, though it
+# would still fail in the helper.
 MALLOC_LIMIT_MB = 512
 
 HEADER = (
