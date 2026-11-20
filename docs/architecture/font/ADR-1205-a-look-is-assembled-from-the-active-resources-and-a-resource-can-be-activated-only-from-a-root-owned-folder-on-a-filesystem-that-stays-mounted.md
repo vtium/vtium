@@ -148,6 +148,9 @@ considered:
   - operator: aaronsb
     said: "yes a"
     via: "the steering session's chat, 2026-11-19, choosing (a): vtium rereads the batch at each new login, with the font settings, over (b) reading it only when vtium starts"
+  - operator: aaronsb
+    said: "i agree on 2 and 3 [2: the Effects tab keeps its preview picture in a vtium console that draws its own vtlook, and the line beside it says the console draws the picture through that vtlook as well; 3: the vtium packages build the filters feature from 0.1.0-alpha.10 on]"
+    via: steering session, 2026-11-20, on the wave 4 candidate
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -343,6 +346,8 @@ The Fonts tab shows what a font covers and the sizes it supplies. Within a look,
 The Effects tab previews an effect as a picture of the console with the effect applied, as ADR-1201 D4 previews other changes. The preview leaves the live console alone.
 
 Deactivating a font or an effect warns, and the warning lists the looks that use it. Those looks then draw without it: a font as a missing font (ADR-1204 D7), and an effect as a file that does not exist (D4).
+
+> Note 2026-11-20: the maintainer decided what the Effects tab's preview does when vtium-config runs in a vtium console that draws a vtlook of its own (`considered`, 2026-11-20). The console draws its whole frame through its own vtlook, the preview picture included, so the person sees the highlighted effect and the console's own effect together. The tab keeps the picture, and the line beside it says the console draws the picture through its own vtlook as well, naming that vtlook. With No filter highlighted, the picture then shows exactly what the console's own vtlook does.
 
 ### D9: what this record changes in other records
 
