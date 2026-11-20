@@ -39,7 +39,7 @@ use super::super::color::Style;
 use super::super::desk::Op;
 use super::super::fonts_found::{Filter, FontFile};
 use super::super::input::Key;
-use super::super::layout::PICTURE_ROW;
+use super::super::layout::{MESSAGE_ROWS, PICTURE_ROW};
 use super::super::listbox::{Act, Body, Item, ListBox, Marks, plain, prose, rows, step, tail};
 use super::super::model::{Effect, Shared, Size};
 use super::super::resources;
@@ -69,6 +69,41 @@ pub struct Fonts {
     filter: Filter,
     open: Option<Open>,
     picture: bool,
+}
+
+/// How many filters the window of the list of filters shows on a screen
+/// of `size`: every filter where they all fit with the sentence under
+/// them, else as many as fit with the sentence that says which filters
+/// the window shows. Each filter takes one row. The window leaves room for
+/// the message at its longest, so the screen never scrolls the list or
+/// drops the sentence under it.
+fn filter_window(size: Size) -> usize {
+    let of = Filter::choices().len();
+    // the tab bar, the status line and the rule under them, the rule over
+    // the key line, the key line, and the message
+    let frame = 5usize.saturating_add(MESSAGE_ROWS);
+    let room = size.rows.saturating_sub(frame);
+    if of.saturating_add(tail(words::FONTS_FILTER_HINT, size.cols).len()) <= room {
+        return of;
+    }
+    let sentence = format!(
+        "{} {}",
+        words::filters_window(of, of, of),
+        words::FONTS_FILTER_HINT
+    );
+    room.saturating_sub(tail(&sentence, size.cols).len()).max(1)
+}
+
+/// `lb`'s window moved so it shows the highlighted filter, a window of
+/// `n` filters. Each filter takes one row, so the list's first row in its
+/// window is its first filter there.
+fn follow_filter(mut lb: ListBox, n: usize) -> ListBox {
+    if lb.at < lb.offset {
+        lb.offset = lb.at;
+    } else if lb.at >= lb.offset.saturating_add(n) {
+        lb.offset = lb.at.saturating_add(1).saturating_sub(n);
+    }
+    lb
 }
 
 impl Fonts {
@@ -287,11 +322,14 @@ impl Fonts {
                         path: f.path().to_path_buf(),
                         top: 0,
                     },
-                    None => Open::Filter(ListBox::at(
-                        Filter::choices()
-                            .iter()
-                            .position(|f| *f == self.filter)
-                            .unwrap_or(0),
+                    None => Open::Filter(follow_filter(
+                        ListBox::at(
+                            Filter::choices()
+                                .iter()
+                                .position(|f| *f == self.filter)
+                                .unwrap_or(0),
+                        ),
+                        filter_window(size),
                     )),
                 });
                 Vec::new()
@@ -388,18 +426,37 @@ impl Tab for Fonts {
         match &self.open {
             None => self.list_body(shared, size),
             Some(Open::Filter(lb)) => {
-                let items: Vec<Item> = Filter::choices()
-                    .into_iter()
+                // the window of the list of filters, and a sentence that
+                // says which filters it shows when it holds fewer than
+                // the list, so the person knows the list goes on
+                let choices = Filter::choices();
+                let n = filter_window(size);
+                let top = lb.offset.min(choices.len().saturating_sub(n));
+                let items: Vec<Item> = choices
+                    .iter()
+                    .skip(top)
+                    .take(n)
                     .map(|f| Item {
-                        on: f == self.filter,
-                        ..Item::new(words::filter_name(f), "")
+                        on: *f == self.filter,
+                        ..Item::new(words::filter_name(*f), "")
                     })
                     .collect();
-                let (list, keep) = rows(&items, lb.at, Marks::Choice, size.cols);
+                let at = lb.at.checked_sub(top).unwrap_or(usize::MAX);
+                let (list, keep) = rows(&items, at, Marks::Choice, size.cols);
+                let sentence = if choices.len() > n {
+                    let last = top.saturating_add(n).min(choices.len());
+                    format!(
+                        "{} {}",
+                        words::filters_window(top.saturating_add(1), last, choices.len()),
+                        words::FONTS_FILTER_HINT
+                    )
+                } else {
+                    words::FONTS_FILTER_HINT.to_owned()
+                };
                 Body {
                     list,
                     keep,
-                    tail: tail(words::FONTS_FILTER_HINT, size.cols),
+                    tail: tail(&sentence, size.cols),
                 }
             }
             Some(Open::Detail { top, .. }) => {
@@ -497,7 +554,9 @@ impl Tab for Fonts {
                         self.open = None;
                     }
                     Act::Closed => self.open = None,
-                    _ => self.open = Some(Open::Filter(lb)),
+                    _ => {
+                        self.open = Some(Open::Filter(follow_filter(lb, filter_window(room.size))));
+                    }
                 }
                 Vec::new()
             }

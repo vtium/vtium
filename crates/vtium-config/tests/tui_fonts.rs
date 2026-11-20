@@ -869,3 +869,45 @@ fn reach_desk(keys: &[&[u8]]) -> String {
     run_desk(&mut c, &mut d);
     c.seen.clone().expect("the screen")
 }
+
+/// The list of filters is longer than the screen, so it shows a window of
+/// the filters around the highlight, and a sentence under the window says
+/// which filters it shows, so the person knows that the list goes on. End
+/// moves the window to the last filter.
+///
+/// References:
+/// - ADR-1403 D10: the filter line opens the shared list.
+#[test]
+fn the_list_of_filters_says_which_filters_it_shows() {
+    use vtium_config::tui::fonts_found::Filter;
+    let choices = Filter::choices();
+    let of = choices.len();
+    let first = words::filter_name(choices[0]);
+    let last = words::filter_name(*choices.last().expect("a filter"));
+    for (cols, rows) in [(80, 25), (100, 30)] {
+        let (mut app, _) = App::new(inputs(), cols, rows);
+        app.event(Event::Input(Input::Key(Key::Enter)));
+        assert_eq!(app.fonts.node(), "fonts.filter");
+        let screen = text(&app);
+        assert!(
+            flat(&screen).contains("The list shows filters 1 to "),
+            "{screen}"
+        );
+        assert!(flat(&screen).contains(&format!(" of {of}.")), "{screen}");
+        assert!(screen.contains(&first), "{screen}");
+        assert!(!screen.contains(&last), "{screen}");
+        app.event(Event::Input(Input::Key(Key::End)));
+        let screen = text(&app);
+        assert!(screen.contains(&last), "{screen}");
+        assert!(
+            flat(&screen).contains(&format!(" to {of} of {of}.")),
+            "{screen}"
+        );
+        // the window holds every row it shows, so the screen never cuts
+        // the sentence under it
+        assert!(
+            flat(&screen).contains(&flat(words::FONTS_FILTER_HINT)),
+            "{screen}"
+        );
+    }
+}
