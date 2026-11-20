@@ -152,42 +152,37 @@ fn palette_files(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// The colors of the scheme file `file`, named `name`, read as vtium reads
-/// them; or the first error, its file and line first. A file that takes a
-/// built-in scheme's name is never read. The read stops one byte past the
-/// size bound, so a large file never fills memory, and the reader then
-/// refuses the file as too large.
-pub fn palette_colors(name: &str, file: &Path) -> Result<vtium_term::Palette, String> {
-    use std::io::Read;
-    let failed = |line: Option<usize>, reason: Reason| {
-        let at = match line {
-            Some(line) => format!("{}:{line}", file.display()),
-            None => file.display().to_string(),
-        };
-        format!("{at}: {reason}")
-    };
-    if let Some(built_in) = vtium_term::PALETTE_NAMES
-        .iter()
-        .chain(std::iter::once(&vtium_settings::palette::CUSTOM))
-        .find(|n| **n == name)
-    {
-        return Err(failed(None, Reason::Shadows(built_in)));
-    }
-    let max = vtium_settings::PALETTE_FILE_MAX;
-    let mut bytes = Vec::new();
-    std::fs::File::open(file)
-        .and_then(|f| {
-            f.take(u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1))
-                .read_to_end(&mut bytes)
-        })
-        .map_err(|e| failed(None, Reason::Unreadable(e.kind())))?;
-    match vtium_settings::palette::parse(&bytes) {
-        Ok((palette, _, _)) => Ok(palette),
-        Err((faults, _)) => {
-            let Some(Fault { line, reason }) = faults.into_iter().next() else {
-                return Err(failed(None, Reason::NotKeyValue));
-            };
-            Err(failed(line, reason))
+/// them: through a gate whose batch lists only this file, under the trust
+/// rule of the user `euid`. So an inactive file still previews, while a
+/// file vtium refuses, such as a symbolic link, a FIFO or a file others
+/// can write, shows the refusal vtium logs. The gate opens the file
+/// without following a link and without waiting on a FIFO, so a file
+/// here can never hang the TUI. `Err` holds the first error, its file and
+/// line first. A file that takes a built-in scheme's name is never read,
+/// and a name that a look cannot name is an error too.
+///
+/// References:
+/// - ADR-1205 D4, its note of 2026-11-19: one gate for every kind of resource.
+pub fn palette_colors(name: &str, file: &Path, euid: u32) -> Result<vtium_term::Palette, String> {
+    use vtium_settings::batch::{Batch, Entry};
+    use vtium_settings::cullet::{Check, Gate, Rule};
+    let at = |why: &dyn std::fmt::Display| format!("{}: {why}", file.display());
+    let gate = Gate::new(
+        Rule::running_as(euid),
+        None,
+        Batch::new(vec![Entry::Path(file.to_path_buf())]),
+    );
+    let folder = file.parent().unwrap_or(Path::new("/"));
+    match vtium_settings::palette::read(name, &[folder], &gate) {
+        Ok(Some(scheme)) => Ok(scheme.palette),
+        Ok(None) if !vtium_settings::palette::named(name) => {
+            Err(at(&super::words::PALETTE_BAD_NAME))
         }
+        Ok(None) => Err(at(&Reason::Refused(Check::Missing))),
+        Err(failure) => Err(match failure.faults.first() {
+            Some(Fault { reason, .. }) => format!("{}: {reason}", failure.at()),
+            None => at(&Reason::NotKeyValue),
+        }),
     }
 }
 
@@ -204,13 +199,15 @@ pub fn find_palettes(
     folders: &[PathBuf],
     state: &dyn Fn(&Path) -> State,
     trusted: &dyn Fn(&Path) -> Result<(), String>,
+    euid: u32,
 ) -> Vec<SchemeFile> {
+    // the name is the file's name without one suffix, as vtium joins a
+    // name and the suffix to find the file
     let stem = |p: &Path| {
         p.file_name()
             .map(|n| {
-                n.to_string_lossy()
-                    .trim_end_matches(PALETTE_SUFFIX)
-                    .to_owned()
+                let n = n.to_string_lossy();
+                n.strip_suffix(PALETTE_SUFFIX).unwrap_or(&n).to_owned()
             })
             .unwrap_or_default()
     };
@@ -224,7 +221,7 @@ pub fn find_palettes(
                     .is_ok()
             });
             out.push(SchemeFile {
-                colors: palette_colors(&name, &file),
+                colors: palette_colors(&name, &file, euid),
                 resource: Resource {
                     state: state(&file),
                     trust: trusted(&file),
@@ -598,9 +595,24 @@ mod tests {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+#[expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
 mod palette_tests {
     use super::*;
+
+    /// A fresh, empty scratch folder under the workspace's target folder,
+    /// by a path with no `..` in it, as vtium's gate asks of a resource.
+    fn scratch(name: &str) -> PathBuf {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("vtium-config-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root.canonicalize().unwrap()
+    }
 
     // the package's files come first, a packaged file that the
     // administrator's folder also holds is hidden, a file that takes a
@@ -608,10 +620,7 @@ mod palette_tests {
     // file with an error names its file and line
     #[test]
     fn find_lists_the_package_s_files_then_the_administrator_s() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target")
-            .join(format!("vtium-config-palettes-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = scratch("palettes");
         let (etc, pkg) = (root.join("etc"), root.join("pkg"));
         for d in [&etc, &pkg, &pkg.join("folder.palette")] {
             std::fs::create_dir_all(d).unwrap();
@@ -636,6 +645,7 @@ mod palette_tests {
                 }
             },
             &|_| Ok(()),
+            rustix::process::geteuid().as_raw(),
         );
         let listed: Vec<(PathBuf, State, bool, bool)> = found
             .iter()
@@ -676,20 +686,203 @@ mod palette_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    // A scheme file passes the same gate vtium opens it through: a FIFO, a
+    // symbolic link and a file others can write are each listed with the
+    // refusal vtium logs, and the FIFO is never opened for reading, so the
+    // TUI cannot hang on it. The read runs in a thread with a bounded wait,
+    // so a regression fails the test instead of hanging it.
+    #[test]
+    fn a_scheme_file_vtium_refuses_is_listed_with_its_refusal() {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let root = scratch("palette-gate");
+        let (etc, elsewhere) = (root.join("etc"), root.join("elsewhere"));
+        for d in [&etc, &elsewhere] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let good = "background = #101010\nforeground = #e0e0e0\n";
+        std::fs::write(etc.join("fine.palette"), good).unwrap();
+        std::fs::write(elsewhere.join("target.palette"), good).unwrap();
+        std::os::unix::fs::symlink(elsewhere.join("target.palette"), etc.join("link.palette"))
+            .unwrap();
+        let open = etc.join("open.palette");
+        std::fs::write(&open, good).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o666)).unwrap();
+        let fifo = etc.join("fifo.palette");
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &fifo,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::from_raw_mode(0o644),
+            0,
+        )
+        .unwrap();
+        let euid = rustix::process::geteuid().as_raw();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let folders = vec![etc.clone()];
+        std::thread::spawn(move || {
+            let _ = tx.send(find_palettes(
+                &folders,
+                &|_| State::Inactive,
+                &|_| Ok(()),
+                euid,
+            ));
+        });
+        let found = match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+            Ok(found) => found,
+            Err(_) => {
+                // a writer releases the blocked open, so the thread ends
+                let _ = std::fs::OpenOptions::new()
+                    .write(true)
+                    .custom_flags(rustix::fs::OFlags::NONBLOCK.bits().cast_signed())
+                    .open(&fifo);
+                panic!("reading the scheme files blocked on the FIFO");
+            }
+        };
+        let colors = |name: &str| {
+            found
+                .iter()
+                .find(|f| f.name == name)
+                .map(|f| f.colors.clone())
+                .unwrap_or_else(|| panic!("no file {name}: {found:?}"))
+        };
+        assert!(colors("fine").is_ok(), "{:?}", colors("fine"));
+        let refused = |name: &str, why: &str| {
+            let err = colors(name).unwrap_err();
+            let file = etc.join(format!("{name}.palette"));
+            assert!(
+                err.starts_with(&format!(
+                    "{}: vtium treats the file as missing, because ",
+                    file.display()
+                )),
+                "{name}: {err}"
+            );
+            assert!(err.contains(why), "{name}: {err}");
+        };
+        refused("fifo", "is not a regular file or folder");
+        refused("link", "is a symbolic link");
+        refused("open", "other users can change");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // A file's name is the part before one `.palette`, and a name that a
+    // look cannot name, one with a space or none at all, is listed with
+    // the error that says which characters a name may hold.
+    #[test]
+    fn a_scheme_file_whose_name_vtium_cannot_use_is_an_error() {
+        let root = scratch("palette-names");
+        let good = "background = #101010\nforeground = #e0e0e0\n";
+        for name in ["Catppuccin Mocha.palette", ".palette", "x.palette.palette"] {
+            std::fs::write(root.join(name), good).unwrap();
+        }
+        let found = find_palettes(
+            std::slice::from_ref(&root),
+            &|_| State::Inactive,
+            &|_| Ok(()),
+            rustix::process::geteuid().as_raw(),
+        );
+        let names: Vec<(&str, bool)> = found
+            .iter()
+            .map(|f| (f.name.as_str(), f.colors.is_ok()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("", false),
+                ("Catppuccin Mocha", false),
+                ("x.palette", true)
+            ]
+        );
+        for f in found.iter().filter(|f| f.colors.is_err()) {
+            let why = f.colors.clone().unwrap_err();
+            assert!(
+                why.starts_with(&format!("{}: ", f.resource.path.display())),
+                "{why}"
+            );
+            assert!(why.contains("A to Z"), "{why}");
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     // a file past the size bound is refused without reading all of it
     #[test]
     fn a_scheme_file_past_the_bound_is_an_error() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target")
-            .join(format!("vtium-config-palette-big-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
+        let root = scratch("palette-big");
         let file = root.join("big.palette");
         let line = "background = #101010\n";
         let n = vtium_settings::PALETTE_FILE_MAX / line.len() + 1;
         std::fs::write(&file, line.repeat(n)).unwrap();
-        let why = palette_colors("big", &file).unwrap_err();
+        let why = palette_colors("big", &file, rustix::process::geteuid().as_raw()).unwrap_err();
         assert!(why.contains("larger than"), "{why}");
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    fn resource(path: &str, kind: &'static str) -> Resource {
+        Resource {
+            path: PathBuf::from(path),
+            kind,
+            state: State::Inactive,
+            trust: Ok(()),
+            own: false,
+            hidden: false,
+        }
+    }
+
+    // one answer of the desk marks every kind of resource the tabs list,
+    // and a resource the answer leaves out is not active
+    #[test]
+    fn set_states_marks_the_color_schemes_and_the_pointer_themes_too() {
+        let mut effects = Effects {
+            maps: vec![resource("/etc/vtium/looks/sepia.cube", "color map")],
+            shaders: vec![resource("/etc/vtium/shaders/crt.vtshader", "shader")],
+            palettes: vec![SchemeFile {
+                name: "dusk".to_owned(),
+                resource: resource("/etc/vtium/palettes/dusk.palette", PALETTE_KIND),
+                colors: Err(String::new()),
+            }],
+            pointers: vec![
+                resource("/usr/share/icons/Adwaita", POINTER_KIND),
+                Resource {
+                    state: State::Active,
+                    ..resource("/usr/share/icons/gone", POINTER_KIND)
+                },
+            ],
+            ..Effects::default()
+        };
+        effects.set_states(&[
+            (PathBuf::from("/etc/vtium/looks/sepia.cube"), State::Active),
+            (
+                PathBuf::from("/etc/vtium/shaders/crt.vtshader"),
+                State::Deactivates,
+            ),
+            (
+                PathBuf::from("/etc/vtium/palettes/dusk.palette"),
+                State::Activates,
+            ),
+            (PathBuf::from("/usr/share/icons/Adwaita"), State::Active),
+        ]);
+        let states: Vec<State> = effects
+            .maps
+            .iter()
+            .chain(&effects.shaders)
+            .chain(effects.palettes.iter().map(|f| &f.resource))
+            .chain(&effects.pointers)
+            .map(|r| r.state)
+            .collect();
+        assert_eq!(
+            states,
+            [
+                State::Active,
+                State::Deactivates,
+                State::Activates,
+                State::Active,
+                State::Inactive,
+            ]
+        );
     }
 }
 

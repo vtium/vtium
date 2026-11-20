@@ -83,11 +83,16 @@ pub fn deactivate_question(kind: &str, path: &str, uses: &[Use]) -> String {
         }
     }
     for (through, group) in groups {
+        if *through == Through::PointerTheme {
+            said.push(POINTER_THEME_NAMED.to_owned());
+            continue;
+        }
         let names: Vec<String> = group.iter().map(|u| look_name(u.look.as_deref())).collect();
         let (via, without) = match through {
             Through::FontSet(frit) => (format!(" through the font set {frit}"), "without it"),
             Through::Palette => (String::new(), "without it"),
             Through::Vtlook(vtlook) => (format!(" through the vtlook {vtlook}"), "with no filter"),
+            Through::PointerTheme => (String::new(), ""),
         };
         let after = match group.as_slice() {
             [one] => match &one.look {
@@ -111,6 +116,12 @@ pub fn deactivate_question(kind: &str, path: &str, uses: &[Use]) -> String {
         said.join(" ")
     )
 }
+
+/// What the deactivate question says of the pointer theme that
+/// vtium.conf's `pointer-theme` names. A look cannot pick a pointer theme
+/// of its own, so every head draws that theme, and draws vtium's own
+/// pictures once the theme is not active.
+const POINTER_THEME_NAMED: &str = "vtium.conf's pointer-theme names it. From the next login after the install, every head shows vtium's own pointer pictures in its place.";
 
 /// `text` with its first letter in upper case, to start a sentence.
 fn capitalized(text: &str) -> String {

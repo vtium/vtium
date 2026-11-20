@@ -955,14 +955,58 @@ fn a_color_scheme_s_preview_shows_its_colors_beside_text_in_its_own_colors() {
     // no picture is asked for while a color scheme is highlighted
     assert!(a.looks.preview(&a.shared, size).font().is_none());
     // without 24-bit color, the sentence says the terminal's own colors
-    // may stand in
+    // stand in
     let mut a = looks_app(inputs(), 100, 30);
     to_entry(&mut a, &paper);
     let screen = flat(&text(&a));
     assert!(
-        screen.contains("This terminal does not say it shows 24-bit color"),
+        screen.contains("This terminal does not report 24-bit color, so the preview shows the terminal's own eight colors in place of the scheme's. Enter opens the scheme's detail, which gives each color's value."),
         "{screen}"
     );
+}
+
+/// With color off in this terminal, as with NO_COLOR, a color scheme's
+/// preview leaves out its blocks of color, which would show blank, and
+/// says why; the detail still gives each color's value.
+///
+/// References:
+/// - ADR-1205 D10: a color scheme's preview is its 16 colors beside text
+///   in its foreground on its background.
+#[test]
+fn with_color_off_a_color_scheme_s_preview_says_so_and_shows_no_blocks() {
+    use vtium_config::tui::input::Key;
+    for truecolor in [false, true] {
+        let mut i = inputs();
+        i.color = false;
+        i.flow_colors.truecolor = truecolor;
+        let mut a = looks_app(i, 100, 30);
+        let paper = scheme_file(&a, "/usr/share/vtium/palettes", "paper");
+        to_entry(&mut a, &paper);
+        let screen = text(&a);
+        let rows = rows_text(&screen);
+        for label in ["0-7", "8-15", "Text"] {
+            assert!(
+                !rows.iter().any(|r| r.trim_start().starts_with(label)),
+                "{label}: {screen}"
+            );
+        }
+        let said = flat(&screen);
+        assert!(
+            said.contains("Colors are off in this terminal, so the preview cannot show the scheme's colors. Enter opens the scheme's detail, which gives each color's value."),
+            "{said}"
+        );
+        assert!(!said.contains("24-bit"), "{said}");
+        press(&mut a, Key::Enter);
+        let said = flat(&text(&a));
+        assert!(said.contains("foreground #"), "{said}");
+        assert!(
+            !rows_text(&text(&a))
+                .iter()
+                .any(|r| r.trim_start().starts_with("0-7")),
+            "{}",
+            text(&a)
+        );
+    }
 }
 
 /// Enter on a color scheme opens its detail: its file, or built in, its
@@ -986,18 +1030,19 @@ fn enter_on_a_color_scheme_opens_its_detail() {
         "File: none, because it is built into vtium",
         "State: always active",
         "Used by look proof.",
-        "Its 16 colors, then its foreground and background:",
+        "The scheme's 16 colors, then its foreground and background:",
         "foreground #",
     ] {
         assert!(screen.contains(want), "{want}: {screen}");
     }
     press(&mut a, Key::Escape);
     assert_eq!(vtium_config::tui::nav::node(&a), "looks");
-    // a look with no palette draws legacy, the default
+    // a look with no palette draws legacy, the default, and so does the
+    // top level, which the console draws since the text has no heads
     to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("legacy")));
     press(&mut a, Key::Enter);
     assert!(
-        flat(&text(&a)).contains("Used by look plain."),
+        flat(&text(&a)).contains("Used by the top level of vtium.conf, look plain."),
         "{}",
         text(&a)
     );
@@ -1024,7 +1069,7 @@ fn enter_on_a_color_scheme_opens_its_detail() {
     press(&mut a, Key::Enter);
     let screen = flat(&text(&a));
     assert!(
-        screen.contains("vtium cannot read this file, so a look that names this color scheme draws with the one vtium.conf names: /etc/vtium/palettes/broken.palette:3:"),
+        screen.contains("vtium cannot use this file, so a look that names this color scheme renders with the one vtium.conf names: /etc/vtium/palettes/broken.palette:3:"),
         "{screen}"
     );
     assert!(!screen.contains("foreground #"), "{screen}");
@@ -1040,9 +1085,81 @@ fn enter_on_a_color_scheme_opens_its_detail() {
     );
 }
 
+/// A built-in scheme that vtium.conf's top level names is used by the top
+/// level, which every head draws when the draft has no look of its own,
+/// as a scheme file named there is.
+///
+/// References:
+/// - ADR-1205 D10: a look that names no palette takes the top level's,
+///   and with neither set a head draws `legacy`.
+#[test]
+fn a_built_in_scheme_the_top_level_names_is_used_by_the_top_level() {
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::tabs::looks::{Entry, palettes::Scheme};
+    for conf in [
+        "# mine\nfont-name=unifont\npalette = nord\n",
+        "# mine\nfont-name=unifont\npalette = nord\nversion = 1\n[head desk]\nlook = big\n",
+    ] {
+        let mut a = looks_app(with_conf(conf), 100, 30);
+        to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("nord")));
+        press(&mut a, Key::Enter);
+        let screen = flat(&text(&a));
+        assert!(
+            screen.contains("Used by the top level of vtium.conf."),
+            "{conf}: {screen}"
+        );
+        press(&mut a, Key::Escape);
+        to_entry(&mut a, &Entry::Palette(Scheme::BuiltIn("legacy")));
+        press(&mut a, Key::Enter);
+        let screen = flat(&text(&a));
+        assert!(screen.contains("No look uses it."), "{conf}: {screen}");
+    }
+}
+
+/// A detail whose paragraphs wrap to many rows scrolls down to its last
+/// row, since the limit counts the rows on the screen, not paragraphs.
+///
+/// References:
+/// - ADR-1403 D10: the color scheme's read-only detail.
+#[test]
+fn a_detail_that_wraps_scrolls_to_its_last_row() {
+    use vtium_config::batch::State;
+    use vtium_config::tui::effects_found::SchemeFile;
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::resources::Resource;
+    // a file whose check and error each wrap to many rows, in a detail of
+    // few paragraphs
+    let mut i = inputs();
+    i.effects.palettes.push(SchemeFile {
+        name: "long".to_owned(),
+        resource: Resource {
+            path: PathBuf::from("/etc/vtium/palettes/long.palette"),
+            kind: "color scheme",
+            state: State::Inactive,
+            trust: Err(format!("{}first-end.", "The check says so. ".repeat(60))),
+            own: false,
+            hidden: false,
+        },
+        colors: Err(format!("{}last-end.", "The error says so. ".repeat(60))),
+    });
+    let mut a = looks_app(i, 80, 25);
+    let long = scheme_file(&a, "/etc/vtium/palettes", "long");
+    to_entry(&mut a, &long);
+    press(&mut a, Key::Enter);
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks.palette");
+    for _ in 0..80 {
+        press(&mut a, Key::Down);
+    }
+    let screen = text(&a);
+    // the last row of the last paragraph is in sight, under the title
+    assert!(flat(&screen).contains("last-end."), "{screen}");
+    assert!(flat(&screen).contains("Color scheme long"), "{screen}");
+}
+
 /// A folder of scheme files on the disk, with the package's dusk and the
-/// administrator's mine, active, and the administrator's spare, not
-/// active, as the Looks tab finds them; and the inputs that list them.
+/// administrator's mine and Catppuccin Mocha, active, and the
+/// administrator's spare, not active, as the Looks tab finds them; and
+/// the inputs that list them.
 fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
     use vtium_config::batch::State;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1053,6 +1170,9 @@ fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
             conf.len()
         ));
     let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("a folder");
+    // vtium's gate takes only a path without `..`
+    let root = root.canonicalize().expect("the folder's path");
     let (etc, pkg) = (root.join("etc"), root.join("pkg"));
     for d in [&etc, &pkg] {
         std::fs::create_dir_all(d).expect("a folder");
@@ -1062,6 +1182,7 @@ fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
         pkg.join("dusk.palette"),
         etc.join("mine.palette"),
         etc.join("spare.palette"),
+        etc.join("Catppuccin Mocha.palette"),
     ] {
         std::fs::write(f, text).expect("a scheme file");
     }
@@ -1077,6 +1198,7 @@ fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
             }
         },
         &|_| Ok(()),
+        rustix::process::geteuid().as_raw(),
     );
     let mut i = with_conf(conf);
     i.effects.palettes = found;
@@ -1096,12 +1218,12 @@ fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
 /// - ADR-1205 D10: the built-in schemes are always active.
 #[test]
 fn space_activates_or_deactivates_a_scheme_file_and_asks_when_a_look_uses_it() {
-    use vtium_config::batch::Change;
+    use vtium_config::batch::{Change, State};
     use vtium_config::tui::desk::Op;
     use vtium_config::tui::input::Key;
-    use vtium_config::tui::model::Effect;
-    use vtium_config::tui::tabs::looks::{Entry, palettes::Scheme};
-    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look proof]\nfont-name = proof\npalette = mine\n[head desk]\nlook = proof\n";
+    use vtium_config::tui::model::{Effect, Event};
+    use vtium_config::tui::tabs::looks::{Entry, card, list, palettes::Scheme};
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look proof]\nfont-name = proof\npalette = mine\n[look other]\n[head desk]\nlook = proof\n";
     let (root, i) = schemes_on_disk(conf);
     let etc = root.join("etc");
     let mut a = looks_app(i, 100, 30);
@@ -1119,16 +1241,66 @@ fn space_activates_or_deactivates_a_scheme_file_and_asks_when_a_look_uses_it() {
         question.contains("Look proof uses it. From the next login after the install, look proof renders without it."),
         "{question}"
     );
-    let out = press(&mut a, Key::Char('y'));
+    let op = Op::Resource {
+        path: etc.join("mine.palette"),
+        change: Change::Deactivate,
+    };
+    assert_eq!(press(&mut a, Key::Char('y')), [Effect::Desk(op.clone())]);
+    // the color schemes the card of a look that names none offers, by the
+    // name a look gives: the active files, but never one whose name a look
+    // cannot name
+    let offered = |a: &vtium_config::tui::model::App| -> Vec<String> {
+        let look = list::look(&a.shared, "other").expect("the look other");
+        card::choices(&a.shared, &look, card::Line::Palette)
+            .into_iter()
+            .filter_map(|c| c.value)
+            .collect()
+    };
+    let offers = offered(&a);
+    assert!(offers.iter().any(|n| n == "mine"), "{offers:?}");
+    assert!(
+        !offers.iter().any(|n| n.contains("Catppuccin")),
+        "{offers:?}"
+    );
+    // the desk's answer marks the file, and the card no longer offers it
+    let mut states = active();
+    states.extend([
+        (etc.join("mine.palette"), State::Active),
+        (etc.join("Catppuccin Mocha.palette"), State::Active),
+        (root.join("pkg/dusk.palette"), State::Active),
+    ]);
+    let done = vtium_config::tui::fixture::resource_op(
+        &mut states,
+        &etc.join("mine.palette"),
+        Change::Deactivate,
+    )
+    .expect("a deactivation");
+    a.event(Event::Desked(op, Ok(done)));
+    let state = |a: &vtium_config::tui::model::App, path: &Path| {
+        a.shared
+            .inputs
+            .effects
+            .palettes
+            .iter()
+            .find(|f| f.resource.path == path)
+            .map(|f| f.resource.state)
+    };
     assert_eq!(
-        out,
-        [Effect::Desk(Op::Resource {
-            path: etc.join("mine.palette"),
-            change: Change::Deactivate,
-        })]
+        state(&a, &etc.join("mine.palette")),
+        Some(State::Deactivates)
+    );
+    let screen = flat(&text(&a));
+    assert!(
+        screen.contains("mine: deactivates on install, trusted."),
+        "{screen}"
+    );
+    assert!(
+        !offered(&a).iter().any(|n| n == "mine"),
+        "{:?}",
+        offered(&a)
     );
     // a file no look uses deactivates at once, and one that is not active
-    // activates
+    // activates, and is offered once the desk answers
     let dusk = scheme_file(&a, &root.join("pkg").display().to_string(), "dusk");
     to_entry(&mut a, &dusk);
     assert_eq!(
@@ -1140,12 +1312,32 @@ fn space_activates_or_deactivates_a_scheme_file_and_asks_when_a_look_uses_it() {
     );
     let spare = scheme_file(&a, &etc.display().to_string(), "spare");
     to_entry(&mut a, &spare);
+    let op = Op::Resource {
+        path: etc.join("spare.palette"),
+        change: Change::Activate,
+    };
+    assert_eq!(press(&mut a, Key::Char(' ')), [Effect::Desk(op.clone())]);
+    assert!(!offered(&a).iter().any(|n| n == "spare"));
+    let done = vtium_config::tui::fixture::resource_op(
+        &mut states,
+        &etc.join("spare.palette"),
+        Change::Activate,
+    )
+    .expect("an activation");
+    a.event(Event::Desked(op, Ok(done)));
     assert_eq!(
-        press(&mut a, Key::Char(' ')),
-        [Effect::Desk(Op::Resource {
-            path: etc.join("spare.palette"),
-            change: Change::Activate,
-        })]
+        state(&a, &etc.join("spare.palette")),
+        Some(State::Activates)
+    );
+    let screen = flat(&text(&a));
+    assert!(
+        screen.contains("spare: activates on install, trusted."),
+        "{screen}"
+    );
+    assert!(
+        offered(&a).iter().any(|n| n == "spare"),
+        "{:?}",
+        offered(&a)
     );
     let _ = std::fs::remove_dir_all(&root);
     // a built-in scheme takes no Space, and the fixture's loose says why
@@ -1228,6 +1420,43 @@ fn space_activates_a_pointer_theme_by_its_folder_and_its_detail_says_who_draws_i
         "{screen}"
     );
     assert!(screen.contains("No look uses it."), "{screen}");
+}
+
+/// Space on the pointer theme that vtium.conf's pointer-theme names asks
+/// first, because every head draws that theme, and says what every head
+/// shows once it is deactivated.
+///
+/// References:
+/// - ADR-1205 D8: deactivating a resource warns and names what uses it.
+#[test]
+fn space_on_the_pointer_theme_vtium_conf_names_asks_first() {
+    use vtium_config::batch::Change;
+    use vtium_config::tui::desk::Op;
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::model::Effect;
+    use vtium_config::tui::tabs::looks::Entry;
+    let conf = "# mine\nfont-name=unifont\npointer-theme = /usr/share/vtium/pointers.svg\nversion = 1\n[look proof]\n";
+    let mut a = looks_app(with_conf(conf), 100, 30);
+    to_entry(&mut a, &Entry::Pointer(0));
+    assert!(press(&mut a, Key::Char(' ')).is_empty());
+    assert_eq!(vtium_config::tui::nav::node(&a), "any.question.deactivate");
+    let question = a
+        .nav
+        .confirm
+        .as_ref()
+        .map(|c| c.question.clone())
+        .unwrap_or_default();
+    assert!(
+        question.contains("vtium.conf's pointer-theme names it. From the next login after the install, every head shows vtium's own pointer pictures in its place."),
+        "{question}"
+    );
+    assert_eq!(
+        press(&mut a, Key::Char('y')),
+        [Effect::Desk(Op::Resource {
+            path: PathBuf::from("/usr/share/vtium/pointers.svg"),
+            change: Change::Deactivate,
+        })]
+    );
 }
 
 /// `n`, `r`, `t` and `p` do nothing among the color schemes and the

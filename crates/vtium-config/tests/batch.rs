@@ -424,6 +424,36 @@ fn deactivating_a_font_that_a_look_uses_warns_and_names_the_look() {
     assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
 }
 
+/// Deactivating the pointer theme that vtium.conf's pointer-theme names
+/// warns that every head shows vtium's own pointer pictures from the next
+/// login, since a look cannot pick a pointer theme of its own. The key's
+/// value matches the theme's folder with or without its last slash.
+///
+/// References:
+/// - ADR-1205 D8: deactivating a resource warns and names what uses it.
+#[test]
+fn deactivating_the_pointer_theme_vtium_conf_names_warns() {
+    let f = fixture("warn-pointer");
+    std::fs::create_dir_all(f.path("res/theme/cursors")).expect("a cursor theme");
+    std::fs::write(f.path("res/theme/cursors/default"), "a cursor\n").expect("a cursor");
+    let theme = f.arg("res/theme");
+    std::fs::write(f.path("etc/batch.conf"), format!("{theme}\n")).expect("a batch file");
+    std::fs::write(
+        f.path("etc/vtium.conf"),
+        format!("pointer-theme = {theme}/\n{INSTALLED}"),
+    )
+    .expect("vtium.conf");
+    f.desk();
+    let ran = f.ok(&["deactivate", &theme]);
+    assert!(
+        ran.out.contains(
+            "vtium.conf's pointer-theme names this pointer theme. From the next login after the install, every head shows vtium's own pointer pictures in its place."
+        ),
+        "{}",
+        ran.out
+    );
+}
+
 /// A batch file that vtium refuses counts as missing: vtium uses the list
 /// of a fresh install, `active` shows that list and says why, and the
 /// install writes the fresh list with the draft's change, carrying none

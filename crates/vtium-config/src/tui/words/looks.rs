@@ -365,15 +365,20 @@ pub fn palette_hidden(name: impl Display) -> String {
 }
 
 /// The line above a color scheme's colors in its detail.
-pub const PALETTE_COLORS: &str = "Its 16 colors, then its foreground and background:";
+pub const PALETTE_COLORS: &str = "The scheme's 16 colors, then its foreground and background:";
 
-/// The line of a color scheme's detail when its file does not read, with
-/// the first error, its file and line first.
+/// The line of a color scheme's detail, and the note of its choice on a
+/// look's card, when vtium cannot use its file, with the first error, its
+/// file and line first.
 pub fn palette_unread(why: impl Display) -> String {
     format!(
-        "vtium cannot read this file, so a look that names this color scheme draws with the one vtium.conf names: {why}"
+        "vtium cannot use this file, so a look that names this color scheme renders with the one vtium.conf names: {why}"
     )
 }
+
+/// Why vtium cannot use a scheme file whose name a look cannot name: the
+/// name is what comes before `.palette`, and a look names a scheme by it.
+pub const PALETTE_BAD_NAME: &str = "The name before .palette is not one a look can name. A color scheme's name holds 1 to 64 of the letters A to Z and a to z, the digits 0 to 9, and the characters . _ + and -.";
 
 /// The labels of the preview's rows: the normal colors 0 to 7, the
 /// bright colors 8 to 15, and the sample text.
@@ -399,8 +404,14 @@ pub const PALETTE_FOREGROUND: &str = "foreground";
 pub const PALETTE_BACKGROUND: &str = "background";
 
 /// The sentence under a color scheme's preview in a terminal that does
-/// not take 24-bit color.
-pub const PALETTE_NO_TRUECOLOR: &str = "This terminal does not say it shows 24-bit color, so its own colors may stand in for the scheme's. Enter opens the scheme's detail, which gives each color's value.";
+/// not report 24-bit color, where the preview fills each block with the
+/// nearest of the terminal's eight basic colors.
+pub const PALETTE_NO_TRUECOLOR: &str = "This terminal does not report 24-bit color, so the preview shows the terminal's own eight colors in place of the scheme's. Enter opens the scheme's detail, which gives each color's value.";
+
+/// The sentence in place of a color scheme's preview while colors are
+/// off in this terminal, as with NO_COLOR, where every block would show
+/// blank.
+pub const PALETTE_NO_COLOR: &str = "Colors are off in this terminal, so the preview cannot show the scheme's colors. Enter opens the scheme's detail, which gives each color's value.";
 
 /// The title of a pointer theme's detail.
 pub fn pointer_title(name: impl Display) -> String {

@@ -454,6 +454,9 @@ pub enum Through {
     Palette,
     /// The look's vtlook, of this name, names the color map or shader.
     Vtlook(String),
+    /// vtium.conf's top-level `pointer-theme` names the pointer theme,
+    /// which every head draws, because a look cannot pick one of its own.
+    PointerTheme,
 }
 
 /// A look that uses a resource, and how. `look` is `None` for the top
@@ -531,11 +534,22 @@ fn looks_of(conf: &str) -> Vec<Drawn> {
 /// The looks of vtium.conf's text `conf` that use the resource at `path`,
 /// the top level first, and how each uses it: a font that its font set
 /// names by its path, its color scheme, or a color map or shader that its
-/// vtlook names. A font that a set names by its family is found only by
-/// the font helper, so no look is named for it here. The command line's
-/// warning and the TUI's question both come from this list.
+/// vtlook names; and the top level when its `pointer-theme` names the
+/// pointer theme at `path`. A font that a set names by its family is
+/// found only by the font helper, so no look is named for it here. The
+/// command line's warning and the TUI's question both come from this
+/// list.
 pub fn uses(path: &Path, conf: &str, places: &Places<'_>) -> Vec<Use> {
     let mut out = Vec::new();
+    // paths compare by their components, so a last slash, a doubled
+    // slash or a `.` in the key's value changes nothing, as in the batch
+    let theme = vtium_settings::setting(conf, vtium_settings::keys::POINTER_THEME.name);
+    if theme.is_some_and(|t| Path::new(&t) == path) {
+        out.push(Use {
+            look: None,
+            through: Through::PointerTheme,
+        });
+    }
     for drawn in looks_of(conf) {
         let mut through = None;
         if let (Some(frit), Some(frits)) = (&drawn.frit, places.frits)
@@ -570,6 +584,26 @@ pub fn drawing_vtlook(conf: &str, name: &str) -> Vec<Option<String>> {
     looks_of(conf)
         .into_iter()
         .filter(|d| d.vtlook.as_deref() == Some(name))
+        .map(|d| d.look)
+        .collect()
+}
+
+/// The looks of vtium.conf's text `conf` that draw with the color scheme
+/// `name`, the top level first, as [`uses`] counts them. A look that
+/// names no scheme takes the top level's, and with neither set it draws
+/// `legacy`, the first built-in scheme. This names the users of a scheme
+/// built into vtium, which has no file for [`uses`] to match.
+///
+/// References:
+/// - ADR-1205 D10: a look that names no palette takes the top level's, and with neither set a head draws `legacy`.
+pub fn drawing_palette(conf: &str, name: &str) -> Vec<Option<String>> {
+    let fallback = vtium_term::PALETTE_NAMES
+        .first()
+        .copied()
+        .unwrap_or_default();
+    looks_of(conf)
+        .into_iter()
+        .filter(|d| d.palette.as_deref().unwrap_or(fallback) == name)
         .map(|d| d.look)
         .collect()
 }
@@ -618,6 +652,9 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
     uses(path, conf, places)
         .into_iter()
         .map(|u| {
+            if u.through == Through::PointerTheme {
+                return "vtium.conf's pointer-theme names this pointer theme. From the next login after the install, every head shows vtium's own pointer pictures in its place.".to_owned();
+            }
             let (who, after) = match &u.look {
                 None => (
                     "The top level of vtium.conf".to_owned(),
@@ -635,6 +672,7 @@ pub fn users(path: &Path, conf: &str, places: &Places<'_>) -> Vec<String> {
                     format!("this {kind} through the vtlook {vtlook}"),
                     "with no filter",
                 ),
+                Through::PointerTheme => (String::new(), ""),
             };
             format!("{who} uses {uses}. From the next login after the install, {after} {without}.")
         })

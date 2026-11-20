@@ -11,8 +11,9 @@
 //! The TUI reads the files when it starts, outside the state machine,
 //! with [`super::super::super::effects_found::find_palettes`]. It reads
 //! each file's colors for the preview, whether or not the file is active,
-//! with the strict reader that vtium itself uses, so the preview and the
-//! detail show the error vtium would log. A color scheme's preview is its
+//! through the gate and the strict reader that vtium itself uses, so the
+//! preview and the detail show the error or the refusal vtium would log.
+//! A color scheme's preview is its
 //! 16 colors beside text in its foreground on its background
 //! ([`preview`]).
 //!
@@ -62,10 +63,27 @@ pub fn file(shared: &Shared, at: usize) -> Option<&SchemeFile> {
     shared.inputs.effects.palettes.get(at)
 }
 
-/// Whether the terminal shows 24-bit color, so the preview draws the
-/// scheme's own colors.
-pub fn truecolor(shared: &Shared) -> bool {
-    shared.inputs.flow_colors.truecolor
+/// How this terminal shows the preview's colors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Shown {
+    /// In the scheme's own 24-bit colors.
+    Truecolor,
+    /// In the terminal's eight basic colors, the nearest by number.
+    Basic,
+    /// Not at all, because colors are off in this terminal, as with
+    /// `NO_COLOR`, so a block of color would show blank.
+    Off,
+}
+
+/// How this terminal shows the preview's colors.
+pub fn shown(shared: &Shared) -> Shown {
+    if !shared.inputs.color {
+        Shown::Off
+    } else if shared.inputs.flow_colors.truecolor {
+        Shown::Truecolor
+    } else {
+        Shown::Basic
+    }
 }
 
 /// The scheme's name and colors.
@@ -115,27 +133,13 @@ pub fn uses(shared: &Shared, path: &Path) -> Vec<Use> {
     )
 }
 
-/// The looks of the draft that draw the built-in scheme `name`: those
-/// whose `palette` names it, and those that name none while vtium.conf's
-/// top level sets it, or sets none and `name` is the default, `legacy`.
-/// A built-in scheme has no file, so the rule that names the looks using
-/// a file does not reach it.
-///
-/// References:
-/// - ADR-1205 D10: a look that names no palette takes the top level's,
-///   and with neither set a head draws `legacy`.
+/// The looks of the draft that draw the built-in scheme `name`, the top
+/// level of vtium.conf first, as the command line's warning counts the
+/// users of a file.
 fn built_in_users(shared: &Shared, name: &str) -> Vec<String> {
-    let top = shared.drafted("palette").unwrap_or_else(|| {
-        PALETTE_NAMES
-            .first()
-            .copied()
-            .unwrap_or_default()
-            .to_owned()
-    });
-    super::list::looks(shared)
-        .into_iter()
-        .filter(|l| l.palette.as_deref().unwrap_or(&top) == name)
-        .map(|l| words::look_name(Some(&l.name)))
+    crate::batch::drawing_palette(shared.conf_text().unwrap_or_default(), name)
+        .iter()
+        .map(|look| words::look_name(look.as_deref()))
         .collect()
 }
 
@@ -177,7 +181,7 @@ pub fn detail(shared: &Shared, scheme: Scheme) -> (Vec<String>, Vec<Row>) {
     let rows = match &colors {
         Ok(palette) => {
             out.push(words::PALETTE_COLORS.to_owned());
-            values(palette, truecolor(shared))
+            values(palette, shown(shared))
         }
         Err(why) => {
             out.push(words::palette_unread(why));
@@ -189,11 +193,26 @@ pub fn detail(shared: &Shared, scheme: Scheme) -> (Vec<String>, Vec<Row>) {
 
 /// The rows of the list's preview of `scheme`: its 16 colors and a line
 /// of text in its foreground on its background; nothing for a scheme
-/// whose file does not read.
+/// whose file does not read, nor while colors are off in this terminal.
 pub fn preview(shared: &Shared, scheme: Scheme) -> Vec<Row> {
-    match named(shared, scheme) {
-        Some((_, Ok(palette))) => swatches(&palette, truecolor(shared)),
+    match (named(shared, scheme), shown(shared)) {
+        (_, Shown::Off) => Vec::new(),
+        (Some((_, Ok(palette))), shown) => swatches(&palette, shown == Shown::Truecolor),
         _ => Vec::new(),
+    }
+}
+
+/// The sentence that says how the preview of `scheme` shows its colors,
+/// when it cannot show the scheme's own: nothing for a scheme whose file
+/// does not read, which has no preview.
+pub fn preview_note(shared: &Shared, scheme: Scheme) -> Option<&'static str> {
+    if !matches!(named(shared, scheme), Some((_, Ok(_)))) {
+        return None;
+    }
+    match shown(shared) {
+        Shown::Truecolor => None,
+        Shown::Basic => Some(words::PALETTE_NO_TRUECOLOR),
+        Shown::Off => Some(words::PALETTE_NO_COLOR),
     }
 }
 
@@ -252,14 +271,18 @@ fn swatches(palette: &Palette, truecolor: bool) -> Vec<Row> {
 
 /// The scheme's colors by value, four to a row, each beside a block of
 /// its color, then its foreground and background, then the preview.
-fn values(palette: &Palette, truecolor: bool) -> Vec<Row> {
+/// While colors are off in this terminal, the values stand alone.
+fn values(palette: &Palette, shown: Shown) -> Vec<Row> {
+    let truecolor = shown == Shown::Truecolor;
     let mut out = Vec::new();
     for first in (0u8..16).step_by(4) {
         let mut row: Row = vec![span(" ", Style::PLAIN)];
         for i in first..first.saturating_add(4) {
             let c = palette.color(i);
             row.push(span(format!(" {i:>2} "), Style::PLAIN));
-            row.push(span("  ", filled(c, c, usize::from(i), truecolor)));
+            if shown != Shown::Off {
+                row.push(span("  ", filled(c, c, usize::from(i), truecolor)));
+            }
             row.push(span(format!(" {} ", hex(c)), Style::PLAIN));
         }
         out.push(row);
@@ -275,8 +298,10 @@ fn values(palette: &Palette, truecolor: bool) -> Vec<Row> {
         ),
         Style::PLAIN,
     )]);
-    out.push(Vec::new());
-    out.extend(swatches(palette, truecolor));
+    if shown != Shown::Off {
+        out.push(Vec::new());
+        out.extend(swatches(palette, truecolor));
+    }
     out
 }
 

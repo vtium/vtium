@@ -286,7 +286,7 @@ fn effects(
         .iter()
         .map(PathBuf::from)
         .collect();
-    found.palettes = effects_found::find_palettes(&found.palette_folders, &state, &trusted);
+    found.palettes = effects_found::find_palettes(&found.palette_folders, &state, &trusted, euid);
     let icons: Vec<PathBuf> = effects_found::ICONS.iter().map(PathBuf::from).collect();
     found.pointers = effects_found::find_pointers(
         Path::new(vtium_settings::batch::PACKAGE_POINTERS),
