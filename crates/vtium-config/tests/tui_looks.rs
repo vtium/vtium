@@ -420,11 +420,17 @@ fn r_deletes_a_look_after_the_question() {
     );
     press(&mut a, Key::Char('x'));
     assert_eq!(vtium_config::tui::nav::node(&a), "any.question.confirm");
-    assert!(flat(&text(&a)).contains("Delete the look proof?"), "{}", text(&a));
+    assert!(
+        flat(&text(&a)).contains("Delete the look proof?"),
+        "{}",
+        text(&a)
+    );
     press(&mut a, Key::Escape);
     assert_eq!(vtium_config::tui::nav::node(&a), "looks");
     assert!(
-        a.shared.conf_text().is_some_and(|t| t.contains("[look proof]")),
+        a.shared
+            .conf_text()
+            .is_some_and(|t| t.contains("[look proof]")),
         "{:?}",
         a.shared.conf_text()
     );
@@ -1745,4 +1751,23 @@ fn an_install_that_adds_a_font_set_keeps_the_highlight_on_its_font_set() {
     assert!(text(&a).contains("tiny5"), "{}", text(&a));
     press(&mut a, Key::Escape);
     assert_eq!(name_of(&a), "tiny5");
+}
+
+/// A pointer theme's folder name is the administrator's text, so the list
+/// and the detail show it with a direction override replaced, as the
+/// Fonts tab shows a font's name.
+#[test]
+fn a_pointer_theme_s_name_shows_no_direction_override() {
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::tabs::looks::Entry;
+    let mut a = looks_app(inputs(), 100, 30);
+    let mut theme = a.shared.inputs.effects.pointers[0].clone();
+    theme.path = theme.path.with_file_name("evil\u{202e}txt");
+    a.shared.inputs.effects.pointers.insert(0, theme);
+    to_entry(&mut a, &Entry::Pointer(0));
+    assert!(text(&a).contains("evil"), "{}", text(&a));
+    assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
+    press(&mut a, Key::Enter);
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks.pointer");
+    assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
 }

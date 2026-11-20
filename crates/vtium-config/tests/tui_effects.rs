@@ -822,3 +822,18 @@ fn the_real_desk_keeps_a_color_map_s_change_beside_the_draft() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// A color map's file name is the administrator's text, so the list and
+// the detail show it with a direction override replaced.
+#[test]
+fn a_color_map_s_name_shows_no_direction_override() {
+    let mut a = effects();
+    let mut map = a.shared.inputs.effects.maps[0].clone();
+    map.path = map.path.with_file_name("evil\u{202e}txt.cube");
+    a.shared.inputs.effects.maps.insert(0, map);
+    to(&mut a, "evil\u{202e}txt.cube");
+    assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
+    press(&mut a, Key::Enter);
+    assert_eq!(nav::node(&a), "effects.effect");
+    assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
+}

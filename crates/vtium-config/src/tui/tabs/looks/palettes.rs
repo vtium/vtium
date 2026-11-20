@@ -162,7 +162,7 @@ pub fn detail(shared: &Shared, scheme: Scheme) -> (Vec<String>, Vec<Row>) {
                 return (Vec::new(), Vec::new());
             };
             let r = &f.resource;
-            out.push(words::detail_file(Some(&r.path.display().to_string())));
+            out.push(words::detail_file(Some(&crate::onscreen::path(&r.path))));
             out.push(words::detail_state(words::active_mark(r.state)));
             out.push(words::detail_trust(
                 r.kind,
