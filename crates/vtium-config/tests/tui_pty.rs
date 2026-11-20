@@ -342,24 +342,66 @@ const TAKES: &[&str] = &[
     "unscii-8",
     "unscii-icons",
 ];
-const UP: &[u8] = b"\x1b[A";
+const DOWN: &[u8] = b"\x1b[B";
 
-/// A click on the Fonts tab, the first name of the tab bar, as mode 1006
-/// reports it: row 1, column 3, counted from 1.
-const FONTS_TAB: &[u8] = b"\x1b[<0;3;1M\x1b[<0;3;1m";
+/// A click on the Looks tab, the third name of the tab bar, as mode 1006
+/// reports it: row 1, column 19, counted from 1.
+const LOOKS_TAB: &[u8] = b"\x1b[<0;19;1M\x1b[<0;19;1m";
 
-/// Clicks the Fonts tab of the Flow view, which the TUI opens on, and
-/// waits for the Fonts view's keys.
-fn to_fonts(c: &mut Console) {
+/// The keys that highlight jetbrains-mono, then tiny5, in the Looks tab.
+/// The fixture has no look, so the tab opens on its empty list of looks,
+/// and its font sets follow in the order of their names: Down once
+/// reaches jetbrains-mono and twice reaches tiny5.
+const TO_JETBRAINS_MONO: &[u8] = DOWN;
+const TO_TINY5: &[u8] = b"\x1b[B\x1b[B";
+
+/// Clicks the Looks tab of the Flow view, which the TUI opens on, and
+/// waits for the Looks tab's font sets.
+fn to_looks(c: &mut Console) {
     c.until("opened on the flow", |s| {
         s.screen.contains("CONFIGURATION") || s.screen.contains("NEW PATH")
     });
-    c.key(FONTS_TAB);
-    c.until("showed the fonts", |s| s.screen.contains("r remove"));
+    c.key(LOOKS_TAB);
+    c.until("showed the looks", |s| s.screen.contains(" Font sets"));
+}
+
+/// Waits until the sentence under the Looks tab's list describes the font
+/// set `name`, which says the highlight is on it.
+fn highlighted(c: &Console, name: &str) {
+    let line = format!(" {name}: ");
+    c.until(&format!("highlighted {name}"), |s| {
+        s.screen.lines().any(|l| l.starts_with(&line))
+    });
+}
+
+/// The keys that set vtium.conf's `font-name` to `name` in the Settings
+/// tab, from vtium.conf's unifont: the section that holds `font-name`,
+/// the key, its value erased and `name` typed and entered.
+fn font_name(name: &str) -> Vec<u8> {
+    use vtium_config::tui::tabs::settings::sections;
+    let (section, key) = sections()
+        .iter()
+        .enumerate()
+        .find_map(|(s, sec)| {
+            sec.keys()
+                .iter()
+                .position(|k| k.name == "font-name")
+                .map(|k| (s, k))
+        })
+        .expect("a section holds font-name");
+    let mut keys = b"5\x1b[H".to_vec();
+    keys.extend(DOWN.repeat(section));
+    keys.push(b'\r');
+    keys.extend(DOWN.repeat(key));
+    keys.push(b'\r');
+    keys.extend(b"\x7f".repeat("unifont".len()));
+    keys.extend(name.as_bytes());
+    keys.push(b'\r');
+    keys
 }
 
 /// Starts the TUI against a console of `kind`, waits for it to have
-/// decided what the terminal is, and goes to the Fonts view.
+/// decided what the terminal is, and goes to the Looks tab.
 fn started(name: &str, kind: Kind, cols: u16, rows: u16) -> (Console, Child, File) {
     let (master, slave) = pair(cols, rows);
     let (root, fonts) = fixture(name);
@@ -367,7 +409,7 @@ fn started(name: &str, kind: Kind, cols: u16, rows: u16) -> (Console, Child, Fil
     let child = tui(&slave, &root, &fonts);
     console.until("drew its keys", |s| s.screen.contains("q quit"));
     console.until("decided", |s| !s.screen.contains("checking this terminal"));
-    to_fonts(&mut console);
+    to_looks(&mut console);
     (console, child, slave)
 }
 
@@ -396,7 +438,7 @@ fn the_tui_starts_on_the_alternate_screen_with_the_four_requests() {
         "{:?}",
         String::from_utf8_lossy(&written[..written.len().min(100)])
     );
-    // the click on the Fonts tab turned it off again
+    // the click on the Looks tab turned it off again
     let text = String::from_utf8_lossy(&written).into_owned();
     assert!(
         text.contains("\x1b[?1006l\x1b[?1000l"),
@@ -418,8 +460,8 @@ fn t_tries_the_highlighted_font_and_q_gives_the_start_font_back() {
     let (mut c, child, slave) = started("browse", Kind::Vtium { ops: true }, 80, 25);
     assert_eq!(c.font(), "unifont");
     // the highlight alone sends the console nothing (ADR-1201 D4)
-    c.key(UP);
-    c.until("highlighted tiny5", |s| s.screen.contains("> tiny5"));
+    c.key(TO_TINY5);
+    highlighted(&c, "tiny5");
     assert_eq!(c.switches(), Vec::<String>::new());
     c.key(b"t");
     c.until("switched to tiny5", |s| {
@@ -439,7 +481,7 @@ fn t_tries_the_highlighted_font_and_q_gives_the_start_font_back() {
 #[test]
 fn ctrl_c_gives_the_start_font_back() {
     let (mut c, child, slave) = started("ctrl-c", Kind::Vtium { ops: true }, 80, 25);
-    c.key(UP);
+    c.key(TO_TINY5);
     c.key(b"t");
     c.until("drew tiny5", |s| s.font == "tiny5");
     c.key(b"\x03");
@@ -453,7 +495,7 @@ fn ctrl_c_gives_the_start_font_back() {
 #[test]
 fn sigterm_from_another_terminal_gives_the_start_font_back() {
     let (mut c, child, slave) = started("sigterm", Kind::Vtium { ops: true }, 80, 25);
-    c.key(UP);
+    c.key(TO_TINY5);
     c.key(b"t");
     c.until("drew tiny5", |s| s.font == "tiny5");
     let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
@@ -469,8 +511,9 @@ fn sigterm_from_another_terminal_gives_the_start_font_back() {
 #[test]
 fn a_terminal_that_answers_only_da1_gets_no_osc_50_switch() {
     let (mut c, child, slave) = started("da1", Kind::Da1Only, 80, 25);
-    c.key(UP);
-    c.key(UP);
+    c.key(TO_TINY5);
+    highlighted(&c, "tiny5");
+    c.key(b"t");
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -490,7 +533,9 @@ fn with_font_operations_off_no_osc_50_switch_goes() {
     c.until("said font operations are off", |s| {
         s.screen.contains("allow-font-ops turned off")
     });
-    c.key(UP);
+    c.key(TO_TINY5);
+    highlighted(&c, "tiny5");
+    c.key(b"t");
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -506,11 +551,12 @@ fn the_screen_fits_80x25_and_100x30() {
             cols,
             rows,
         );
-        // the tabs, the live trial, every frit and the keys, each on its
-        // row of the grid
-        c.until("drew the fonts view in the grid", |s| {
+        // the tabs, the live trial, the font sets that the list's window
+        // holds at this size and the keys, each on its row of the grid
+        let shown = if rows == 25 { 4 } else { 6 };
+        c.until("drew the looks tab in the grid", |s| {
             let lines: Vec<&str> = s.screen.lines().collect();
-            lines[0].contains(" Fonts ")
+            lines[0].contains(" Looks ")
                 && lines[1].contains(vtium_config::tui::words::TRIAL_KEY)
                 && [
                     "jetbrains-mono",
@@ -519,12 +565,10 @@ fn the_screen_fits_80x25_and_100x30() {
                     "unifont-icons",
                     "unscii-8",
                     "unscii-icons",
-                ]
-                .iter()
-                .all(|name| s.screen.contains(name))
-                && lines[usize::from(rows) - 1]
-                    .trim_end()
-                    .ends_with("i install  q quit")
+                ][..shown]
+                    .iter()
+                    .all(|name| lines.iter().any(|l| l.starts_with(&format!("   {name} "))))
+                && lines[usize::from(rows) - 1].contains("t try live  q quit")
         });
         c.key(b"q");
         assert_eq!(status(child), 0);
@@ -617,14 +661,17 @@ fn saving_into_directories_not_the_system_s_installs_as_the_user() {
             vtium.as_os_str(),
         ],
     );
-    to_fonts(&mut c);
+    to_looks(&mut c);
     c.until("decided", |s| s.screen.contains("t: try live"));
-    c.key(UP);
-    c.key(UP);
+    c.key(TO_JETBRAINS_MONO);
     c.key(b"t");
     c.until("drew jetbrains-mono", |s| s.font == "jetbrains-mono");
     c.key(b"k");
-    c.key(b"\r");
+    // the font kept, then typed as font-name in the Settings tab
+    c.key(&font_name("jetbrains-mono"));
+    c.until("changed font-name", |s| s.screen.contains("1 change"));
+    c.key(b"\x1b");
+    c.until("closed the section", |s| !s.screen.contains("Settings ›"));
     c.key(b"i");
     c.until("asked", |s| {
         s.screen
@@ -688,12 +735,11 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
             vtium.as_os_str(),
         ],
     );
-    to_fonts(&mut c);
+    to_looks(&mut c);
     c.until("decided", |s| s.screen.contains("t: try live"));
     // a new look on the Looks tab, so the draft differs from the system's
     // vtium.conf whatever it holds: n makes it, Enter keeps its name, and
     // Esc closes its card
-    c.key(b"3");
     c.key(b"n");
     c.until("the card", |s| s.screen.contains("Type the look's name"));
     c.key(b"\r");
@@ -921,9 +967,9 @@ fn the_udev_database_the_command_line_names_reaches_the_tui() {
 #[test]
 fn two_keys_at_once_send_one_switch_and_the_next_after_its_reply() {
     let (mut c, child, slave) = started("in-flight", Kind::Vtium { ops: true }, 80, 25);
-    // in one write: two Ups to jetbrains-mono, t to try it, and a key
-    // that puts unifont back, which waits for jetbrains-mono's reply
-    c.key(&[UP, UP, b"t", b"x"].concat());
+    // in one write: Down to jetbrains-mono, t to try it, and a key that
+    // puts unifont back, which waits for jetbrains-mono's reply
+    c.key(&[TO_JETBRAINS_MONO, b"t", b"x"].concat());
     c.until("drew jetbrains-mono and then unifont", |s| {
         s.font == "unifont"
             && String::from_utf8_lossy(&s.written)
@@ -949,7 +995,7 @@ fn sighup_sigint_and_sigquit_give_the_start_font_back() {
     for (signal, n) in [(Signal::HUP, 1), (Signal::INT, 2), (Signal::QUIT, 3)] {
         let (mut c, child, slave) =
             started(&format!("signal-{n}"), Kind::Vtium { ops: true }, 80, 25);
-        c.key(UP);
+        c.key(TO_TINY5);
         c.key(b"t");
         c.until("drew tiny5", |s| s.font == "tiny5");
         let pid = rustix::process::Pid::from_raw(child.id() as i32).expect("a pid");
@@ -979,9 +1025,9 @@ fn a_terminal_that_closes_ends_the_tui() {
     master
         .write_all(b"\x1bP>|vtium(test)\x1b\\\x1b]50;unifont\x1b\\\x1b[?62c")
         .expect("the answers");
-    // the TUI opens on the flow: the Fonts tab, then a font
-    master.write_all(FONTS_TAB).expect("a click");
-    master.write_all(UP).expect("a key");
+    // the TUI opens on the flow: the Looks tab, then a font set
+    master.write_all(LOOKS_TAB).expect("a click");
+    master.write_all(TO_TINY5).expect("the keys");
     master.write_all(b"t").expect("the trial key");
     while !got.windows(9).any(|w| w == b"\x1b]50;tiny") {
         let n = master.read(&mut buf).expect("the switch");
@@ -1053,7 +1099,7 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
         ],
     );
     drop(leaked);
-    to_fonts(&mut c);
+    to_looks(&mut c);
     c.until("decided", |s| s.screen.contains("t: try live"));
     // the stand-in lists what the TUI gave it
     let fds_file = root.join("helper.fds");
@@ -1101,13 +1147,14 @@ fn the_helper_holds_none_of_the_terminal_and_a_silent_one_marks_no_frit_broken()
         "no terminal: {fds:?}"
     );
     // a key reaches the TUI while the helper is silent
-    c.key(UP);
+    c.key(TO_TINY5);
     c.key(b"t");
     c.until("switched", |s| s.font == "tiny5");
     c.key(b"k");
     // once its wait is out, the TUI says it has not checked the sources
+    // the sentence under the list wraps after "font"
     c.until("gave up on the helper", |s| {
-        s.screen.contains("font files not checked")
+        s.screen.contains(" tiny5: reads, font") && s.screen.contains("files not checked")
     });
     c.key(b"q");
     assert_eq!(status(child), 0);
