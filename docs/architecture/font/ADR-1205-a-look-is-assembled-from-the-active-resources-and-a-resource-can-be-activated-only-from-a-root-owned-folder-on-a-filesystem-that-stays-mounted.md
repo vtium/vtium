@@ -151,6 +151,9 @@ considered:
   - operator: aaronsb
     said: "i agree on 2 and 3 [2: the Effects tab keeps its preview picture in a vtium console that draws its own vtlook, and the line beside it says the console draws the picture through that vtlook as well; 3: the vtium packages build the filters feature from 0.1.0-alpha.10 on]"
     via: steering session, 2026-11-20, on the wave 4 candidate
+  - operator: aaronsb
+    said: "I'd say we aim for the lowest physical attached monitor, without complicating the code required to determine it. [the DPI vtium-config uses to turn a bitmap font's strikes into a look's point sizes]"
+    via: steering session, 2026-11-20, on the Fonts tab review's C1
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -338,6 +341,8 @@ A look also takes active effects: the color maps and shaders that its vtlook nam
 A look offers only the sizes its fonts supply. A bitmap font supplies its strikes, and an outline font supplies its range of sizes. The Looks tab lists those sizes and no others.
 
 A `font-size` written in vtium.conf still works, and vtium draws it as ADR-1200 D17 decides. `vtium check-config` warns when the look's fonts cannot supply that size.
+
+> Note 2026-11-20: the maintainer decided which display's density turns a bitmap font's sizes into a look's point sizes (`considered`, 2026-11-20). vtium-config uses the lowest density among the monitors physically attached, as `display-dpi` or the displays' EDIDs give it, and does not work out which displays each look's terminals draw on. When the displays' densities differ, the Size line says the sizes are for the lowest-density display.
 
 ### D8: viewing a resource shows what works
 
