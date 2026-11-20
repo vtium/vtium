@@ -2695,7 +2695,14 @@ impl<F: Face> Renderer<F> {
             fc.attrs.contains(Attrs::OVERLINE),
         )
         .filter(|_| !placeholder)
-        .map(|kind| (Line { kind, script }, deco_strike.unwrap_or(fg)));
+        .map(|kind| {
+            let line = Line {
+                kind,
+                script,
+                skips_ink: false,
+            };
+            (line, deco_strike.unwrap_or(fg))
+        });
         // the underline cursor keeps a normal cell's rows, so it has one
         // height along a line
         let ul_script = if ul_cursor { Script::Baseline } else { script };
@@ -2703,6 +2710,7 @@ impl<F: Face> Renderer<F> {
             let line = Line {
                 kind,
                 script: ul_script,
+                skips_ink: !ul_cursor,
             };
             (line, ul_color)
         });

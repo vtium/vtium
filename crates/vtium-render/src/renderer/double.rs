@@ -48,6 +48,7 @@
 use vtium_font::{Doubled, Face, Font, Format, Glyph, Script, Variant, Width, sprite};
 use vtium_term::LineSize;
 
+use crate::beside::{Beside, Ink};
 use crate::mono::Fallback;
 use crate::renderer::sized::RunPiece;
 
@@ -490,6 +491,48 @@ pub(crate) fn piece_glyph(
         Some(glyph) => Some((glyph, 1)),
         None => Some((doubled(whole, piece)?, scale)),
     }
+}
+
+/// The pixels near the ink in the pieces beside piece `piece` of a glyph
+/// `width` cells wide on a line of double size, for an underline that
+/// keeps a gap of `gap` display pixels on each side of the ink
+/// ([`Beside`]). Each piece beside it is cut as [`piece_glyph`] cuts the
+/// piece itself, from `drawn` or from `whole`, so its ink is the ink that
+/// piece draws. A doubled glyph has two pieces across for each of its
+/// cells, and none past them.
+pub(crate) fn piece_beside(
+    drawn: Option<&Glyph>,
+    (whole, scale): (&Glyph, u32),
+    (cell, width): (vtium_font::Cell, Width),
+    piece: Piece,
+    gap: u32,
+) -> Option<Beside> {
+    let columns = match width {
+        Width::Wide => 4,
+        Width::Narrow => 2,
+    };
+    let column = piece.column();
+    let cut = |c: Option<u32>| {
+        let c = c.filter(|&c| c < columns)?;
+        let beside = Piece(piece.0 & !3 | u64::from(c));
+        piece_glyph(drawn, (whole, scale), (cell, width), beside)
+    };
+    // the pieces a gap of `gap` pixels reaches into, on each side
+    let reach = gap.div_ceil(cell.width.max(1));
+    let left: Vec<_> = (1..=reach).map(|k| cut(column.checked_sub(k))).collect();
+    let right: Vec<_> = (1..=reach).map(|k| cut(column.checked_add(k))).collect();
+    fn ink(p: &[Option<(Glyph, u32)>]) -> Vec<Option<Ink<'_>>> {
+        p.iter()
+            .map(|p| {
+                p.as_ref().map(|(glyph, scale)| Ink {
+                    glyph,
+                    layer: None,
+                    scale: *scale,
+                })
+            })
+            .collect()
+    }
+    Beside::of((cell.width, cell.height), gap, &ink(&left), &ink(&right))
 }
 
 #[cfg(test)]

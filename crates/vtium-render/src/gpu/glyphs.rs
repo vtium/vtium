@@ -46,6 +46,7 @@ use vtium_font::{Face, Font, Variant, Width};
 
 use std::collections::BTreeSet;
 
+use super::beside::Besides;
 use super::box_lines::BoxLines;
 use super::gl::{Error, ErrorKind, Format, Gl, Size, Texture};
 use super::ink::{InkGrid, ReceivingJob};
@@ -111,6 +112,9 @@ pub(crate) struct Place {
     /// For a glyph whose ink passes its cells, its slot among the boxes and
     /// how far its ink reaches.
     pub(crate) boxed: Option<(u32, Reach)>,
+    /// Its slot: the pool, the boxes among them, and its index there, by
+    /// which [`Besides`] keeps the ink beside a piece.
+    pub(crate) slot: (usize, u32),
 }
 
 /// One texture of a pool: its slots, laid out `cols` across.
@@ -436,6 +440,9 @@ pub(crate) struct Glyphs {
     /// What the cell shader reads of the neighbours whose ink a cell
     /// receives.
     pub(crate) ink: InkGrid,
+    /// What the cell shader reads of the ink beside the pieces of
+    /// magnified characters, whose underlines skip it.
+    pub(crate) besides: Besides,
     /// Every texture of the pools, and the sprites', each by its place; a
     /// place a pool gave its texture back from is empty until a new one
     /// takes it.
@@ -505,6 +512,7 @@ impl Glyphs {
             boxes: Boxes::new(cell, spec.bound, side),
             reaching: false,
             ink: InkGrid::default(),
+            besides: Besides::new(cell.height, side),
             textures: vec![Some(texture)],
             bytes: texture_bytes(Format::R8, grid),
             ceiling: GLYPH_TEXTURE_CEILING,
@@ -606,10 +614,13 @@ impl Glyphs {
         (b.texture, b.color, [b.slot.width, b.slot.height, b.cols])
     }
 
-    /// Fills the ink grid's texture where its entries changed, a call or
-    /// more of the frame's batch of uploads.
+    /// Fills the ink grid's texture where its entries changed, and the
+    /// texture of the ink beside the pieces whose underlines the frame
+    /// draws, a call or more of the frame's batch of uploads each.
     pub(crate) fn ink_upload<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
         let calls = self.ink.upload(gl)?;
+        self.uploads = self.uploads.saturating_add(calls);
+        let calls = self.besides.upload(gl)?;
         self.uploads = self.uploads.saturating_add(calls);
         Ok(())
     }
@@ -662,9 +673,11 @@ impl Glyphs {
         Ok(place.and_then(|p| p.boxed).map_or(Reach::NONE, |(_, r)| r))
     }
 
-    /// Starts a frame: glyphs used from now on are this frame's.
+    /// Starts a frame: glyphs used from now on are this frame's, and so
+    /// are the entries of the ink beside pieces.
     pub(crate) fn begin_frame(&mut self) {
         self.cache.begin_frame();
+        self.besides.begin();
     }
 
     /// Counts a frame, and gives back each pool's last texture that no
@@ -964,6 +977,7 @@ impl Glyphs {
                 color: s.color,
                 mixed: false,
                 boxed: Some((s.index, s.reach)),
+                slot: (BOXES, s.index),
             });
         }
         let (texture, x, y) = self.pools.get(s.pool)?.place(s.index)?;
@@ -974,6 +988,7 @@ impl Glyphs {
             color: s.pool & COLOR != 0,
             mixed: s.mixed,
             boxed: None,
+            slot: (s.pool, s.index),
         })
     }
 
@@ -1164,6 +1179,7 @@ impl Glyphs {
         stored: &Stored,
     ) -> Result<BoxLines, Error> {
         self.uploads = self.uploads.saturating_add(1);
+        self.besides.set((BOXES, index), stored.beside());
         let b = &self.boxes;
         let texture = b
             .texture
@@ -1275,6 +1291,7 @@ impl Glyphs {
     /// path reads them.
     fn fill<G: Gl>(&mut self, gl: &mut G, slot: Slot, stored: &Stored) -> Result<(), Error> {
         self.uploads = self.uploads.saturating_add(1);
+        self.besides.set((slot.pool, slot.index), stored.beside());
         let p = self
             .pools
             .get(slot.pool)
@@ -1332,7 +1349,7 @@ impl Glyphs {
 
     /// Frees every texture.
     pub(crate) fn free<G: Gl>(self, gl: &mut G) -> Result<(), Error> {
-        let mut out = self.ink.free(gl);
+        let mut out = self.ink.free(gl).and(self.besides.free(gl));
         for t in self.textures.into_iter().flatten() {
             out = out.and(gl.free_texture(t));
         }

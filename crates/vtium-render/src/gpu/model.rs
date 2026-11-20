@@ -68,8 +68,12 @@ pub(super) struct Inputs<'a> {
     pub(super) boxes: Texels<'a>,
     pub(super) ink: Texels<'a>,
     pub(super) color_boxes: Texels<'a>,
+    /// The ink beside the pieces of magnified characters.
+    pub(super) besides: Texels<'a>,
     /// The cell's width and height.
     pub(super) cell: (i64, i64),
+    /// The entries across the texture of the ink beside pieces.
+    pub(super) besides_across: i64,
     /// The sprites across the sprites' texture.
     pub(super) sprite_columns: i64,
     /// A box slot's width and height, and the slots across the texture.
@@ -94,6 +98,7 @@ struct Job {
 const RECEIVES: u32 = 1;
 const MARKED: u32 = 2;
 const DOWN: u32 = 4;
+const GAP: u32 = 3;
 
 fn rgb(c: u32) -> Rgb {
     let [_, r, g, b] = c.to_be_bytes();
@@ -109,6 +114,7 @@ fn int(v: impl TryInto<i64>) -> i64 {
 pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     let [dx, dy, dw, _] = q.dst.map(i64::from);
     let [sx, sy, col, row] = q.src.map(i64::from);
+    let (col, entry) = (col & 0xffff, col >> 16);
     let run = q.src[3] >> 16;
     let row = row & 0xffff;
     let [p0, p1, p2, p3] = q.params;
@@ -172,7 +178,15 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     };
     let mut p = 0;
     if ul != 0 {
-        p = tint_over(p, sprite(ul), rgb(p2));
+        let mut a = sprite(ul);
+        let gap = i64::from(flags >> GAP);
+        if a != 0
+            && gap != 0
+            && (near_ink(i, kind, at, (local.0, dw), gap) || beside(i, entry, local, dw))
+        {
+            a = 0;
+        }
+        p = tint_over(p, a, rgb(p2));
     }
     p = argb_over(p, recv);
     match kind {
@@ -191,6 +205,51 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
         p = tint_over(p, sprite(st), rgb(p3));
     }
     over_bg(bg, p)
+}
+
+/// The shader's `ink_at`: the coverage of the glyph of kind `kind` at its
+/// texel `at`, the color layer's and the text's together for a sized run's
+/// piece.
+fn ink_at(i: &Inputs<'_>, kind: u32, at: (i64, i64)) -> u8 {
+    match kind {
+        1 => i.masks.byte(at, 0),
+        2 => i.colors.byte(at, 3),
+        3 => i
+            .colors
+            .byte(at, 3)
+            .max(i.colors.byte((at.0.saturating_add(i.cell.0), at.1), 3)),
+        _ => 0,
+    }
+}
+
+/// The shader's `near_ink`: whether the glyph has ink at its texel `at` or
+/// at a texel up to `gap` before or after it, among the pixels of the
+/// quad, `w` wide, whose pixel `x` across it the texel `at` draws.
+fn near_ink(i: &Inputs<'_>, kind: u32, at: (i64, i64), (x, w): (i64, i64), gap: i64) -> bool {
+    (gap.saturating_neg()..=gap).any(|d| {
+        let n = x.saturating_add(d);
+        n >= 0 && n < w && ink_at(i, kind, (at.0.saturating_add(d), at.1)) != 0
+    })
+}
+
+/// The shader's `beside`: whether the pixel at `local` in the quad, `w`
+/// wide, lies within the gap of the ink beside the quad's piece, by its
+/// entry `entry` plus one, 0 for none.
+fn beside(i: &Inputs<'_>, entry: i64, (x, y): (i64, i64), w: i64) -> bool {
+    if entry == 0 {
+        return false;
+    }
+    let n = entry.saturating_sub(1);
+    let across = i.besides_across.max(1);
+    let at = (
+        n.checked_rem(across)
+            .unwrap_or(0)
+            .saturating_mul(i.cell.1)
+            .saturating_add(y),
+        n.checked_div(across).unwrap_or(0),
+    );
+    let (left, right) = (i.besides.byte(at, 0), i.besides.byte(at, 1));
+    x < i64::from(left) || x >= w.saturating_sub(i64::from(right))
 }
 
 /// The shader's `texels`: the texels of a cell's entry in the ink grid,
