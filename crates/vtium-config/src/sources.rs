@@ -305,7 +305,7 @@ pub enum SourceError {
     Missing(String),
     /// The font file is here, and the console's font helper may not draw
     /// from it, so it counts as missing: the batch does not list it, or it
-    /// fails the trust rule ([`Gate::open`]).
+    /// fails the trust rule.
     Refused {
         /// The font file.
         path: PathBuf,

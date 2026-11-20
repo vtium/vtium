@@ -10,7 +10,7 @@
 //! - the filesystem that holds the file is mounted at boot and stays
 //!   mounted, which [`crate::mounts`] decides.
 //!
-//! [`open`] walks the path from `/` one name at a time on descriptors.
+//! The private `open` walks the path from `/` one name at a time on descriptors.
 //! It opens each folder relative to the one before with `O_NOFOLLOW`, and
 //! checks each folder's owner and mode on its descriptor, so the folders
 //! checked are the folders crossed. The file is opened in the last folder
