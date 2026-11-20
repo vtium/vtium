@@ -402,18 +402,21 @@ fn the_helper_after_a_login_reads_the_new_active_fonts_before_any_ask() {
     );
 }
 
-// Every session end gives the ended head's consoles, all of them, the
-// palette the batch in force allows, whether or not that session end is
-// the one that found the batch changed. Here heads a and b both draw the
-// color scheme kiln, and head a has two consoles. Root activates kiln, a's
-// session ends and finds the change, then b's ends and finds the batch as
-// it was; both heads draw kiln. Root then deactivates kiln, and the same
-// two session ends take it from both.
+// A batch change reaches each console whose session is not running at
+// once, and each running session at its next login. Here heads a and b
+// both draw the color scheme kiln, and head a has two consoles, whose
+// hidden one runs a program that set color 1 with OSC 4. Root activates
+// kiln, and a's shown session ends: that console draws kiln, while a's
+// hidden console and b's console, both still running, keep the colors they
+// draw. Their color resets return to kiln. b's session then ends and finds
+// the batch as it was, and b's console draws kiln. Root deactivates kiln,
+// and b's next session end takes it from b's console, and from a's shown
+// console, which runs no session since its own ended.
 //
 // References:
 // - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
 #[test]
-fn every_session_end_gives_its_heads_consoles_the_palette_the_batch_allows() {
+fn a_batch_change_reaches_a_running_session_at_its_next_login() {
     let dir = Scratch::new("batch-heads");
     let share = dir.join("share");
     for d in [&*dir, &share] {
@@ -449,45 +452,109 @@ fn every_session_end_gives_its_heads_consoles_the_palette_the_batch_allows() {
     shown_at(&mut app, t);
     assert!(app.open_console(0, t), "head a's second console");
     let kiln = Rgb::new(0x28, 0x2a, 0x36);
-    let id = |app: &super::App, h: usize| app.heads.get(h).unwrap().console.id;
-    // whether every console of head `h` and the head itself draw kiln
-    let draws = |app: &super::App, h: usize| {
-        let head = app.heads.get(h).unwrap();
-        let mut all = head
-            .consoles()
-            .map(|c| c.term.terminal.palette().bg() == kiln);
-        let first = all.next().unwrap();
-        assert!(all.all(|c| c == first), "head {h}'s consoles agree");
-        assert_eq!(
-            head.palette().bg() == kiln,
-            first,
-            "head {h} and its consoles agree"
-        );
-        first
-    };
-    assert_eq!(app.heads.first().unwrap().console_count(), 2);
-    assert!(!draws(&app, 0) && !draws(&app, 1));
-    // root activates kiln
+    let one = Rgb::new(1, 1, 1);
+    let shown = |app: &super::App, h: usize| app.heads.get(h).unwrap().console.id;
+    let a_shown = shown(&app, 0);
+    let a_hidden = app
+        .heads
+        .first()
+        .unwrap()
+        .consoles()
+        .map(|c| c.id)
+        .find(|&c| c != a_shown)
+        .unwrap();
+    let bg = |app: &mut super::App, h: usize, id: u64| terminal(app, h, id).palette().bg();
+    let head_kiln = |app: &super::App, h: usize| app.heads.get(h).unwrap().palette().bg() == kiln;
+    // every console runs a session; /bin/true exits at once, but the loop
+    // never runs, so vtium never learns of the exit
+    let idle: Vec<(usize, u64)> = app
+        .heads
+        .iter()
+        .enumerate()
+        .flat_map(|(h, head)| {
+            head.consoles()
+                .filter(|c| !c.running())
+                .map(move |c| (h, c.id))
+        })
+        .collect();
+    for (h, id) in idle {
+        app.spawn(h, id);
+    }
+    assert!(
+        app.heads
+            .iter()
+            .all(|head| head.consoles().all(|c| c.running()))
+    );
+    terminal(&mut app, 0, a_hidden).input(b"\x1b]4;1;#010101\x07");
+    let before = bg(&mut app, 0, a_hidden);
+    assert_ne!(before, kiln);
+    // root activates kiln, and a's shown session ends
     write(&file, &format!("{}\n", scheme.display()));
-    app.return_font(0, id(&app, 0));
-    assert!(draws(&app, 0), "head a, whose session end found the change");
-    app.return_font(1, id(&app, 1));
-    assert!(
-        draws(&app, 1),
-        "head b, whose session end found the batch as it was"
+    end_session(&mut app, 0, a_shown);
+    assert!(head_kiln(&app, 0) && head_kiln(&app, 1));
+    assert_eq!(
+        bg(&mut app, 0, a_shown),
+        kiln,
+        "a's shown console, whose session ended"
     );
-    // root deactivates kiln
+    let b = shown(&app, 1);
+    for (h, id, name) in [(0, a_hidden, "a's hidden console"), (1, b, "b's console")] {
+        assert_eq!(
+            bg(&mut app, h, id),
+            before,
+            "{name}, whose session still runs"
+        );
+    }
+    assert_eq!(terminal(&mut app, 0, a_hidden).palette().color(1), one);
+    terminal(&mut app, 0, a_hidden).input(b"\x1b]111\x07");
+    assert_eq!(
+        bg(&mut app, 0, a_hidden),
+        kiln,
+        "a color reset returns to kiln"
+    );
+    assert_eq!(terminal(&mut app, 0, a_hidden).palette().color(1), one);
+    // b's session ends and finds the batch as it was
+    end_session(&mut app, 1, b);
+    assert_eq!(bg(&mut app, 1, b), kiln, "b's console, whose session ended");
+    // root deactivates kiln, and b's next session end finds the change
     write(&file, "# nothing is active\n");
-    app.return_font(1, id(&app, 1));
-    assert!(
-        !draws(&app, 1),
-        "head b, whose session end found the change"
+    end_session(&mut app, 1, b);
+    assert!(!head_kiln(&app, 0) && !head_kiln(&app, 1));
+    assert_ne!(bg(&mut app, 1, b), kiln, "b's console, whose session ended");
+    assert_ne!(
+        bg(&mut app, 0, a_shown),
+        kiln,
+        "a's shown console, which runs no session"
     );
-    app.return_font(0, id(&app, 0));
-    assert!(
-        !draws(&app, 0),
-        "head a, whose session end found the batch as it was"
+    assert_eq!(
+        bg(&mut app, 0, a_hidden),
+        kiln,
+        "a's hidden console, whose session still runs"
     );
+}
+
+/// The terminal of head `h`'s console `id`.
+fn terminal(app: &mut super::App, h: usize, id: u64) -> &mut vtium_term::Terminal {
+    &mut app
+        .heads
+        .get_mut(h)
+        .unwrap()
+        .console_mut(id)
+        .unwrap()
+        .term
+        .terminal
+}
+
+/// Ends the session of head `h`'s console `id` as a program's exit does:
+/// the console takes its hard reset, and the next login reads the batch
+/// again. No new session starts, so the console runs none afterwards.
+fn end_session(app: &mut super::App, h: usize, id: u64) {
+    app.heads
+        .get_mut(h)
+        .unwrap()
+        .exited(id, std::time::Duration::from_secs(60), false)
+        .unwrap();
+    app.return_font(h, id);
 }
 
 // A `.cube` file that a head's vtlook names follows its place in the batch

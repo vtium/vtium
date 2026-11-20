@@ -306,7 +306,7 @@ impl Head {
         }
         let running: Vec<u64> = self
             .consoles()
-            .filter(|c| c.pty.is_some())
+            .filter(|c| c.running())
             .map(|c| c.id)
             .collect();
         let mut news = false;

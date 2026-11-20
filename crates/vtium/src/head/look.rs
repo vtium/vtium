@@ -79,13 +79,14 @@ impl super::Head {
     /// The head's palette, read again from `config`, the head's
     /// configuration, with `top`, the top level's palette, in place of a
     /// palette file of the look's that fails or that no folder holds. vtium
-    /// calls this at every session end of the head, so the batch in force
-    /// decides the palette of the head's next login, whichever head's
-    /// session end found the batch changed. When the palette differs from
-    /// the one the head had, every console of the head takes it as the
-    /// palette it is configured with, and so does each console the head
-    /// opens from now on. A console whose session still runs then draws in
-    /// the new palette, in place of the colors its program set.
+    /// calls this for every head when a login finds the batch changed.
+    /// When the palette differs from the one the head had, it becomes the
+    /// palette each console of the head is configured with, and the palette
+    /// of each console the head opens from now on. A console that runs no
+    /// session draws in it at once. A console whose session still runs
+    /// keeps the colors it draws, including those its program set, so the
+    /// batch never recolors a program under it. Its color resets and its
+    /// next session return to the new palette.
     ///
     /// References:
     /// - ADR-1205 D4, its note of 2026-11-19: an activation or a deactivation takes effect at the next login.
@@ -98,7 +99,11 @@ impl super::Head {
         self.palette = palette;
         let palette = self.palette.clone();
         for console in self.consoles_mut() {
-            console.term.terminal.set_palette(palette.clone());
+            if console.running() {
+                console.term.terminal.set_reset_palette(palette.clone());
+            } else {
+                console.term.terminal.set_palette(palette.clone());
+            }
         }
     }
 
