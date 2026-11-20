@@ -111,6 +111,14 @@ pub struct Inputs {
     pub conf: Option<String>,
     /// The density size pictures are drawn at, and where it came from.
     pub dpi: (u32, DpiFrom),
+    /// The density of each connected display as the console finds it:
+    /// `display-dpi` where vtium.conf sets it, else the display's own,
+    /// else 96. A look's card converts its sizes at the lowest of them.
+    pub densities: Vec<u32>,
+    /// The font vconsole names, by `vconsole.font=` on the kernel command
+    /// line or `FONT=` in vconsole.conf, which the console draws where
+    /// vtium.conf and the look name no font set.
+    pub vconsole_font: Option<String>,
     /// The frits' directory, where a new frit is installed.
     pub frits: PathBuf,
     /// The view the TUI opens at: the fonts, or the new-frit view for

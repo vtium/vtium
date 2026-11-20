@@ -260,15 +260,39 @@ impl Fonts {
     }
 }
 
+/// The font set the console draws when no look and no `font-name` names
+/// one and vconsole names no font.
+///
+/// References:
+/// - ADR-1204 D2: `terminus` is the default set, after the font that a
+///   head's look, `font-name` or vconsole names.
+pub const DEFAULT_SET: &str = "terminus";
+
 /// The sizes the text font of the font set `name` supplies, from what the
 /// Fonts tab's descriptions say: the font set as the install would leave
 /// it, a new one that waits for the install, else the installed file. A
-/// built-in font's name is the font itself; with no font set at all, the
-/// console draws its built-in font too.
+/// built-in font's name is the font itself, and so is any name while
+/// `font-engine` names a built-in font. With no font set named, the
+/// console draws vconsole's font, a font set of that name or else the kbd
+/// font, and with none of those the default set.
+///
+/// References:
+/// - ADR-1200 D9: `font-name`, else vconsole's font.
+/// - ADR-1204 D2: the default set comes after vconsole's font.
 pub fn supplied_by(shared: &super::model::Shared, name: Option<&str>) -> Supplied {
-    let Some(name) = name.filter(|n| !n.is_empty()) else {
+    if matches!(
+        shared.drafted("font-engine").as_deref(),
+        Some("unifont" | "8x16")
+    ) {
         return Supplied::Unknown(Unknown::BuiltIn);
-    };
+    }
+    let named = name.filter(|n| !n.is_empty());
+    let vconsole = shared
+        .inputs
+        .vconsole_font
+        .as_deref()
+        .filter(|_| named.is_none());
+    let name = named.or(vconsole).unwrap_or(DEFAULT_SET);
     if crate::frit::RESERVED.contains(&name) {
         return Supplied::Unknown(Unknown::BuiltIn);
     }
@@ -277,12 +301,33 @@ pub fn supplied_by(shared: &super::model::Shared, name: Option<&str>) -> Supplie
         .frits
         .iter()
         .find(|(n, _)| n == name)
-        .map(|(_, t)| t.as_bytes())
-        .or_else(|| shared.inputs.installed.get(name).map(Vec::as_slice));
-    match text.and_then(|t| Frit::parse(t, Path::new(name), name).ok()) {
+        .map(|(_, t)| t.as_bytes().to_vec())
+        .or_else(|| shared.inputs.installed.get(name).cloned())
+        // vconsole's font with no font set of its name is a kbd font
+        .or_else(|| vconsole.map(|v| format!("source=kbd:{v}\n").into_bytes()));
+    match text.and_then(|t| Frit::parse(&t, Path::new(name), name).ok()) {
         Some(frit) => shared.inputs.font_files.supplied(&frit),
-        None => Supplied::Unknown(Unknown::NoTextFont),
+        None => Supplied::Unknown(Unknown::NoSet(name.to_owned())),
     }
+}
+
+/// The density a look's card converts point sizes at, and whether the
+/// displays differ, so that one point size draws a different strike on
+/// some of them. The card takes the lowest density, as the console does
+/// for displays that share one grid. vtium-config cannot yet tell which
+/// displays each head draws on, so every connected display counts.
+///
+/// References:
+/// - ADR-1200 D17: the lowest density among the displays converts the
+///   points.
+pub fn sizes_density(shared: &super::model::Shared) -> (u32, bool) {
+    let densities = &shared.inputs.densities;
+    let lowest = densities
+        .iter()
+        .copied()
+        .min()
+        .unwrap_or(shared.inputs.dpi.0);
+    (lowest, densities.iter().any(|d| *d != lowest))
 }
 
 /// What sizes a look's text font supplies.
@@ -304,6 +349,8 @@ pub enum Supplied {
 pub enum Unknown {
     /// The font set has no source of its own.
     NoTextFont,
+    /// No font set of this name is installed or waits for the install.
+    NoSet(String),
     /// The text font is built into vtium, or is the console's own font.
     BuiltIn,
     /// The font helper has not described every file that could be it.
@@ -614,6 +661,27 @@ mod tests {
             .map(|(p, _)| *p)
             .collect();
         assert_eq!(at_72, [12, 14, 16, 20]);
+    }
+
+    // At 192 DPI no whole point size draws the 7×14 strike before the
+    // 16-pixel one, so the size note names only the strikes the card
+    // offers a size for
+    #[test]
+    fn the_size_note_names_only_the_strikes_a_size_draws() {
+        let strikes: Vec<Strike> = [(7, 14), (8, 16)]
+            .iter()
+            .map(|&(width, height)| Strike { width, height })
+            .collect();
+        let supplied = Supplied::Strikes {
+            family: "Terminus".into(),
+            strikes: strikes.clone(),
+        };
+        let offered = strike_points(&strikes, 192);
+        assert_eq!(offered.len(), 1);
+        let note = super::super::words::sizes_note(&supplied, &offered, false);
+        assert!(note.ends_with("bitmap sizes: 8×16."), "{note}");
+        let none = super::super::words::sizes_note(&supplied, &[], false);
+        assert!(none.contains("offers only Automatic"), "{none}");
     }
 
     // Only All keeps a font not described yet; a kind, a group or a

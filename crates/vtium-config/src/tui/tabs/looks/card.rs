@@ -42,7 +42,7 @@
 
 use super::super::super::edit::Change as DraftChange;
 use super::super::super::effects_found::From;
-use super::super::super::fonts_found::{Supplied, strike_points, supplied_by};
+use super::super::super::fonts_found::{Supplied, sizes_density, strike_points, supplied_by};
 use super::super::super::input::Key;
 use super::super::super::listbox::{Act, Body, Item, ListBox, Marks, rows, tail};
 use super::super::super::model::{Font, FontState, SIZES, Shared, Size};
@@ -210,10 +210,12 @@ pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
             // a bitmap text font offers the sizes that draw its strikes,
             // and any other the usual sizes
             let mut sizes: Vec<(u32, String, &str)> = match supplied(shared, look) {
-                Supplied::Strikes { strikes, .. } => strike_points(&strikes, shared.inputs.dpi.0)
-                    .iter()
-                    .map(|(n, strike)| (*n, words::strike_size(*n, strike), ""))
-                    .collect(),
+                Supplied::Strikes { strikes, .. } => {
+                    strike_points(&strikes, sizes_density(shared).0)
+                        .iter()
+                        .map(|(n, strike)| (*n, words::strike_size(*n, strike), ""))
+                        .collect()
+                }
                 _ => SIZES.iter().map(|n| (*n, words::points(*n), "")).collect(),
             };
             // a size the look sets outside those takes its place among
@@ -381,7 +383,13 @@ fn shown(shared: &Shared, look: &Look, line: Line) -> String {
                 || words::from_top(size_name(&top(shared, "font-size").unwrap_or_default())),
                 size_name,
             );
-            format!("{size}. {}", words::sizes_note(&supplied(shared, look)))
+            let supplied = supplied(shared, look);
+            let (dpi, mixed) = sizes_density(shared);
+            let offered = match &supplied {
+                Supplied::Strikes { strikes, .. } => strike_points(strikes, dpi),
+                _ => Vec::new(),
+            };
+            format!("{size}. {}", words::sizes_note(&supplied, &offered, mixed))
         }
         Line::Palette => look
             .palette

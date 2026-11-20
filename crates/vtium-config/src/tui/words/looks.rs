@@ -178,9 +178,6 @@ pub const TOP_SIZE: &str = "size";
 pub const TOP_PALETTE: &str = "color scheme";
 pub const TOP_VTLOOK: &str = "vtlook";
 
-/// The size line's note: the card offers vtium-config's usual sizes.
-pub const SIZES_USUAL: &str = "vtium-config offers its usual sizes, because it cannot yet ask the font helper which sizes these fonts supply.";
-
 /// The marks of a color scheme in the card's list.
 pub const PALETTE_BUILT_IN: &str = "built in";
 

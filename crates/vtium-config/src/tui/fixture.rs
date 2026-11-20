@@ -184,6 +184,8 @@ pub fn inputs() -> Inputs {
         conf_path: PathBuf::from("/etc/vtium/vtium.conf"),
         conf: Some(format!("# mine\nfont-name=unifont\n{SECTIONS}")),
         dpi: (96, DpiFrom::Assumed),
+        densities: vec![96],
+        vconsole_font: None,
         frits: PathBuf::from("/etc/vtium/fonts"),
         view: View::Fonts,
         display: Some((640, 480)),

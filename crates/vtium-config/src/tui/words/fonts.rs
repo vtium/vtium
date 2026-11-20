@@ -326,16 +326,22 @@ pub fn system_font_failed(why: &str) -> String {
 
 pub const SYSTEM_FONT_NOT_YOURS: &str = "Only a font in your own folder is installed as a system font. This font is a system font already.";
 
-/// What a look's card says beside its size, from its text font.
-pub fn sizes_note(supplied: &Supplied) -> String {
-    match supplied {
+/// What a look's card says beside its size, from its text font: for a
+/// bitmap font, the strikes that the card offers a point size for, as
+/// `offered` gives them. `mixed` says that the displays' densities
+/// differ, so the sizes are for the display of the lowest density.
+pub fn sizes_note(supplied: &Supplied, offered: &[(u32, Strike)], mixed: bool) -> String {
+    let note = match supplied {
         Supplied::Any { family } => format!(
             "The text font, {family}, has outlines, so the look can take any size."
         ),
-        Supplied::Strikes { family, strikes } => {
-            let shown: Vec<String> = strikes.iter().map(strike_cell).collect();
+        Supplied::Strikes { family, .. } if offered.is_empty() => format!(
+            "The text font, {family}, is a bitmap font, and no point size draws any of its bitmap sizes, so vtium-config offers only Automatic."
+        ),
+        Supplied::Strikes { family, .. } => {
+            let shown: Vec<String> = offered.iter().map(|(_, s)| strike_cell(s)).collect();
             format!(
-                "The text font, {family}, is a bitmap font, so the look offers its sizes: {}.",
+                "The text font, {family}, is a bitmap font, so the look offers the point sizes that draw its bitmap sizes: {}.",
                 shown.join(", ")
             )
         }
@@ -344,6 +350,9 @@ pub fn sizes_note(supplied: &Supplied) -> String {
                 "vtium-config offers its usual sizes, because the font set names no text font."
                     .to_owned()
             }
+            Unknown::NoSet(name) => format!(
+                "vtium-config offers its usual sizes, because no font set named {name} is installed."
+            ),
             Unknown::BuiltIn => {
                 "vtium-config offers its usual sizes, because the text font is built into vtium or is the console's own font."
                     .to_owned()
@@ -359,8 +368,17 @@ pub fn sizes_note(supplied: &Supplied) -> String {
                 "vtium-config offers its usual sizes, because the font helper cannot read the text font {spelling}."
             ),
         },
+    };
+    if mixed && !matches!(supplied, Supplied::Unknown(_)) {
+        format!("{note} {SIZES_LOWEST_DENSITY}")
+    } else {
+        note
     }
 }
+
+/// What the card adds to its size note when the displays' densities
+/// differ.
+pub const SIZES_LOWEST_DENSITY: &str = "Your displays have different densities, so these sizes are for the display with the lowest density. On a denser display, a size may draw a larger bitmap size.";
 
 /// A bitmap strike as the card and a font's detail show it: its cell in
 /// pixels.
@@ -370,7 +388,7 @@ pub fn strike_cell(strike: &Strike) -> String {
 
 /// A size of the card's list that draws a bitmap strike.
 pub fn strike_size(points: u32, drawn: &Strike) -> String {
-    format!("{} pt, the {} strike", points, strike_cell(drawn))
+    format!("{} pt, bitmap size {}", points, strike_cell(drawn))
 }
 
 /// The Fonts tab's note when vtium-config cannot read the draft's batch.
