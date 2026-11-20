@@ -61,34 +61,42 @@ pub fn look(shared: &Shared, name: &str) -> Option<Look> {
     looks(shared).into_iter().find(|l| l.name == name)
 }
 
-/// The heads of the draft that draw the look `name`.
+/// The heads of the draft that draw the look `name`: those whose
+/// `look =` line names it, and for the look `default` also those with no
+/// `look =` line, which draw `default`. vtium reads what survives of the
+/// sections, so a draft with errors elsewhere still answers.
 pub fn heads(shared: &Shared, name: &str) -> Vec<String> {
     shared
         .conf_text()
-        .map(|c| crate::ops::heads_using(c, name))
+        .and_then(|c| vtium_settings::sections(c.as_bytes()))
+        .map(|r| {
+            r.parsed
+                .config
+                .heads
+                .iter()
+                .filter(|h| h.look == name)
+                .map(|h| h.name.clone())
+                .collect()
+        })
         .unwrap_or_default()
 }
 
-/// The look `look` as an item of the tab's list: its name, then its font
-/// set and size and the heads that draw it.
+/// The look `look` as an item of the tab's list: its name, then the
+/// sentence that says its font set, its size and the heads that draw it.
 pub fn item(shared: &Shared, look: &Look) -> Item {
-    let frit = look
-        .frit
-        .clone()
-        .unwrap_or_else(|| words::LOOK_FRIT_TOP.to_owned());
-    let size = match look.size.as_deref() {
-        None => words::LOOK_SIZE_TOP.to_owned(),
-        Some("0") => words::AUTOMATIC.to_owned(),
-        Some(n) => n.parse().map_or_else(|_| n.to_owned(), words::points),
-    };
     Item::new(
         look.name.clone(),
-        words::look_row(&frit, &size, &heads(shared, &look.name)),
+        words::look_about(
+            &look.name,
+            look.frit.as_deref(),
+            look.size.as_deref(),
+            &heads(shared, &look.name),
+        ),
     )
 }
 
-/// A name for a new look that no look of the draft has: `look`, else
-/// `look-2`, `look-3` and so on.
+/// A name for a new look that no look of the draft has: `new-look`, else
+/// `new-look-2`, `new-look-3` and so on.
 pub fn new_name(shared: &Shared) -> String {
     let taken: Vec<String> = looks(shared).into_iter().map(|l| l.name).collect();
     std::iter::once(words::NEW_LOOK_NAME.to_owned())

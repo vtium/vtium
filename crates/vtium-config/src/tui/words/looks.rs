@@ -7,7 +7,9 @@ use super::*;
 /// The Looks tab's name in the tab bar.
 pub const LOOKS: &str = "Looks";
 
-pub const CONSOLE_SIZE_CAPTION: &str = "These characters are drawn at the console's current size. A size you choose takes effect when vtium starts on this console again.";
+/// The caption of the console's own preview, which the console draws in
+/// the font and size it uses now.
+pub const CONSOLE_SIZE_CAPTION: &str = "The console draws this in its current font, so t shows a font set here. A size takes effect when vtium starts again.";
 
 /// The size that lets vtium choose.
 pub const AUTOMATIC: &str = "automatic";
@@ -38,60 +40,107 @@ pub const FONT_SETS_GROUP: &str = "Font sets";
 pub const NO_LOOKS: &str = "No looks yet";
 pub const NO_LOOKS_NOTE: &str = "press n to make one";
 
-/// What a look's row and card say where the look leaves a key to
-/// vtium.conf's top level.
-pub const LOOK_FRIT_TOP: &str = "vtium.conf's font set";
-pub const LOOK_SIZE_TOP: &str = "vtium.conf's size";
-
-/// A look's row in the list: its font set, its size, and the heads that
-/// draw it.
-pub fn look_row(frit: &str, size: &str, heads: &[String]) -> String {
-    match heads {
-        [] => format!("{frit}, {size}, no terminal uses it"),
-        [one] => format!("{frit}, {size}, used by terminal {one}"),
-        _ => format!("{frit}, {size}, used by terminals {}", heads.join(", ")),
+/// `items` as a list in a sentence: "a", "a and b", "a, b, and c".
+fn and_list(items: &[String]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.clone(),
+        [first, last] => format!("{first} and {last}"),
+        [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
     }
 }
 
+/// What the sentence under the list says of the highlighted look: its
+/// font set, its size, where `None` leaves each to vtium.conf, and the
+/// terminals that draw it.
+pub fn look_about(name: &str, frit: Option<&str>, size: Option<&str>, heads: &[String]) -> String {
+    let frit = match frit {
+        Some(f) => format!("the font set {f}"),
+        None => "vtium.conf's font set".to_owned(),
+    };
+    let size = match size {
+        None => "at vtium.conf's size".to_owned(),
+        Some("0") => "at the size vtium picks for each display".to_owned(),
+        Some(n) => format!("at {}", n.parse().map_or_else(|_| n.to_owned(), points)),
+    };
+    let heads = match heads {
+        [] => "No terminal uses it.".to_owned(),
+        [one] => format!("Terminal {one} uses it."),
+        _ => format!("Terminals {} use it.", and_list(heads)),
+    };
+    format!("{name} uses {frit} {size}. {heads}")
+}
+
+/// The look that every terminal with no `look =` line draws.
+pub const DEFAULT_LOOK: &str = "default";
+
 /// The name `n` gives a new look, with a number after it when a look of
 /// that name exists.
-pub const NEW_LOOK_NAME: &str = "look";
+pub const NEW_LOOK_NAME: &str = "new-look";
 
 /// What the message line says once `n` has made a new look.
 pub fn look_added(name: impl Display) -> String {
     format!("Made the look {name}. Type its name, then press Enter.")
 }
 
-/// The question `r` asks before it deletes a look.
+/// The question `r` asks before it deletes a look. The terminals that
+/// draw the look `default` then use vtium.conf's top-level settings, and
+/// those that draw any other look go back to the look `default`.
 pub fn look_delete_question(name: &str, heads: &[String]) -> String {
-    match heads {
-        [] => format!("Delete the look {name}? y deletes it, and any other key keeps it."),
-        [one] => format!(
-            "Delete the look {name}? Terminal {one} uses it and goes back to the default look. y deletes it, and any other key keeps it."
-        ),
-        _ => format!(
-            "Delete the look {name}? Terminals {} use it and go back to the default look. y deletes it, and any other key keeps it.",
-            heads.join(", ")
-        ),
-    }
+    let (after_one, after_many) = if name == DEFAULT_LOOK {
+        (
+            "then uses vtium.conf's top-level settings",
+            "then use vtium.conf's top-level settings",
+        )
+    } else {
+        (
+            "then goes back to the default look",
+            "then go back to the default look",
+        )
+    };
+    let users = match heads {
+        [] => String::new(),
+        [one] => format!(" Terminal {one} uses it, and {after_one}."),
+        _ => format!(" Terminals {} use it, and {after_many}.", and_list(heads)),
+    };
+    format!("Delete the look {name}?{users} y deletes it, and any other key keeps it.")
 }
 
-/// What the message line says when `t` has nothing to try.
+/// What the message line says when `t` finds no font set to try: the
+/// look names none, and vtium.conf names none either.
 pub const TRY_NO_FONT: &str =
-    "This look names no font set, and vtium.conf names none either, so there is nothing to try.";
+    "This look names no font set, and vtium.conf names none either, so t has nothing to try.";
+
+/// What the message line says when `t` is pressed on the row that says
+/// there are no looks yet.
+pub const TRY_NO_LOOK: &str =
+    "There is no look yet, so t has nothing to try. Press n to make a look.";
+
+/// What the message line says when `t` cannot try a font set that the
+/// console does not read, with why.
+pub fn try_refused(name: impl Display, why: impl Display) -> String {
+    format!("The console does not read the font set {name}, so t cannot try it: {why}")
+}
+
+/// What the message line says when `t` cannot try a font set that this
+/// machine does not have.
+pub fn try_absent(name: impl Display) -> String {
+    format!("This machine has no font set named {name}, so t cannot try it.")
+}
 
 /// What the sentence under the list says of the highlighted item.
 pub fn item_about(name: impl Display, detail: impl Display) -> String {
     format!("{name}: {detail}.")
 }
 
-/// The names of a look card's lines, in order.
+/// The names of a look card's lines, in order. A vtlook's name is always
+/// written in lowercase, as the Effects tab writes it.
 pub const CARD_LINES: [&str; 6] = [
     "Name",
     "Font set",
     "Size",
     "Color scheme",
-    "Vtlook",
+    "vtlook",
     "Pointer theme",
 ];
 
@@ -107,13 +156,27 @@ pub fn top_choice(what: &str, value: impl Display) -> String {
     format!("The {what} vtium.conf sets ({value})")
 }
 
-/// What a card's line shows for a key that neither the look nor vtium.conf
-/// sets, which vtium chooses itself.
-pub const TOP_UNSET: &str = "vtium's own choice";
+/// What vtium.conf sets for a key it leaves unset, in a card's first
+/// choice.
+pub const TOP_NONE: &str = "none";
+
+/// What the font set line shows where neither the look nor vtium.conf
+/// names a font set.
+pub const FRIT_NONE: &str =
+    "none, so vtium uses the font that vconsole.conf names, or else its built-in font";
+
+/// The note of the font set list's first choice where vtium.conf names no
+/// font set.
+pub const FRIT_NONE_NOTE: &str =
+    "vtium uses the font that vconsole.conf names, or else its built-in font";
+
+/// The text role where neither the look nor vtium.conf names a font set.
+pub const ROLE_TEXT_NONE: &str = "the font that vconsole.conf names, or else vtium's built-in font";
 
 pub const TOP_FRIT: &str = "font set";
 pub const TOP_SIZE: &str = "size";
 pub const TOP_PALETTE: &str = "color scheme";
+pub const TOP_VTLOOK: &str = "vtlook";
 
 /// The size line's note: the card offers vtium-config's usual sizes.
 pub const SIZES_USUAL: &str = "vtium-config offers its usual sizes, because it cannot yet ask the font helper which sizes these fonts supply.";
@@ -121,10 +184,30 @@ pub const SIZES_USUAL: &str = "vtium-config offers its usual sizes, because it c
 /// The marks of a color scheme in the card's list.
 pub const PALETTE_BUILT_IN: &str = "built in";
 
+/// The color scheme `custom` in the card's list, and its note.
+pub const PALETTE_CUSTOM: &str = "custom";
+pub const PALETTE_CUSTOM_NOTE: &str = "the colors that vtium.conf's palette-0 to palette-15 set";
+
+/// The note of a value that the look sets and the line's usual choices
+/// lack, such as a color scheme file or a size typed into vtium.conf.
+pub const CHOICE_OWN: &str = "what this look sets now";
+
+/// The note of a font set that the look names and this machine lacks.
+pub const CHOICE_ABSENT: &str =
+    "what this look sets now, and this machine has no font set of that name";
+
+/// The note of a font set that the look names and the console does not
+/// read, with why.
+pub fn choice_refused(why: impl Display) -> String {
+    format!("what this look sets now, and the console does not read it: {why}")
+}
+
 /// The mark of a vtlook that does not read, with why, in the card's list
 /// and on its line.
 pub fn vtlook_broken(why: impl Display) -> String {
-    format!("does not read, so the terminal draws No filter until it is fixed: {why}")
+    format!(
+        "vtium cannot read this file, so the terminal draws No filter until the file is fixed: {why}"
+    )
 }
 
 /// The pointer theme line: every look draws the pointer theme vtium.conf
@@ -135,7 +218,7 @@ pub fn pointer_line(theme: Option<&str>) -> String {
 }
 
 /// The sentence under a look's card.
-pub const CARD_HINT: &str = "Enter on a line shows its choices, and Left and Right step through them. Each change waits for Save. Esc goes back to the list and keeps the changes.";
+pub const CARD_HINT: &str = "Enter on a line shows its choices or lets you type the name, and Left and Right step through the choices. Esc keeps the changes for Save.";
 
 /// The sentence under a card's list.
 pub const CARD_LIST_HINT: &str =
@@ -155,12 +238,43 @@ pub fn role_line(role: &str, what: &str) -> String {
 }
 
 pub const ROLE_TEXT: &str = "Text";
+pub const ROLE_BOLD: &str = "Text, bold";
+pub const ROLE_ITALIC: &str = "Text, italic";
+pub const ROLE_BOLD_ITALIC: &str = "Text, bold italic";
 pub const ROLE_BOX: &str = "Box drawing";
-pub const ROLE_OTHER: &str = "Other fonts, in order";
-pub const ROLE_LAYERS: &str = "Layers for scripts, symbols, emoji and fallback";
-pub const ROLE_BOX_OWN: &str = "vtium's own lines and blocks";
-pub const ROLE_BOX_FONT: &str = "a font, as the font set's glyph-source line chooses";
+pub const ROLE_OTHER: &str = "More fonts, in the order vtium tries them";
+pub const ROLE_LAYERS: &str = "Scripts, symbols, emoji, and fallback";
+pub const ROLE_LAYER_FONT: &str = "A font from a layer";
 pub const ROLE_NONE: &str = "no font";
+
+/// Box drawing where the font set chooses nothing: vtium's default.
+pub const ROLE_BOX_DEFAULT: &str = "vtium's own lines, unless the text font has them all";
+pub const ROLE_BOX_OWN: &str = "vtium's own lines";
+pub const ROLE_BOX_FONT: &str = "the text font's own lines";
+pub const ROLE_BOX_AUTO: &str = "the text font's own lines, and vtium's where the font lacks one";
+
+/// The layers a font set adds, by name.
+pub fn role_layers(names: &[String]) -> String {
+    match names {
+        [one] => format!("the fonts of the layer {one}"),
+        _ => format!("the fonts of the layers {}", and_list(names)),
+    }
+}
+
+/// A font a font set names, in the words a person uses for it.
+pub fn font_named(origin: &crate::frit::Origin) -> String {
+    use crate::frit::Origin;
+    match origin {
+        Origin::Font(family) => format!("the font family {family}"),
+        Origin::Kbd(name) => format!("the console font {name}"),
+        Origin::File(p) | Origin::Bdf(p) | Origin::Hex(p) | Origin::Outline(p) => {
+            format!("the font file {}", p.display())
+        }
+        Origin::Vconsole => "the font that vconsole.conf names".to_owned(),
+        Origin::Console(vt) => format!("the font of VT {vt}"),
+        Origin::Builtin(name) => built_in_font(name),
+    }
+}
 
 /// What fills the text role of a built-in font.
 pub fn built_in_font(name: impl Display) -> String {
@@ -168,8 +282,13 @@ pub fn built_in_font(name: impl Display) -> String {
 }
 
 /// A font that the font helper found missing on this machine.
-pub fn font_missing(spelling: impl Display) -> String {
-    format!("{spelling} (missing)")
+pub fn font_missing(font: impl Display) -> String {
+    format!("{font}, not on this machine")
+}
+
+/// A font that this machine has and the font helper cannot use.
+pub fn font_refused(font: impl Display) -> String {
+    format!("{font}, which the font helper cannot use")
 }
 
 /// The roles line of a font set whose file vtium-config could not read.
@@ -178,9 +297,15 @@ pub const ROLES_UNREAD: &str = "vtium-config could not read the font set's file.
 pub const MISSES_NOTHING: &str = "Nothing: this machine has every font it names.";
 pub const MISSES_NOT_ASKED: &str = "Not known yet: the font helper has not checked its fonts.";
 
-/// A font the font set names that this machine lacks or refuses, and why.
-pub fn misses(spelling: impl Display, why: impl Display) -> String {
-    format!("{spelling}: {why}")
+/// A font the font set names for `role` that this machine lacks, and why.
+pub fn misses(role: impl Display, font: impl Display, why: impl Display) -> String {
+    format!("{role}: {font} is not on this machine: {why}.")
+}
+
+/// A font the font set names for `role` that this machine has and the
+/// font helper cannot use, and why.
+pub fn misses_refused(role: impl Display, font: impl Display, why: impl Display) -> String {
+    format!("{role}: this machine has {font}, but the font helper cannot use it: {why}.")
 }
 
 pub fn misses_all(why: impl Display) -> String {
@@ -205,9 +330,6 @@ pub fn does_not_read_whole(why: impl Display) -> String {
 
 /// The sentence under a font set's detail.
 pub const FONT_SET_HINT: &str = "Up and Down scroll the detail, and Esc goes back to the list.";
-
-/// The keys, on the last line of each view.
-pub const KEYS_LOOKS: &str = "Enter choose  Tab next view  i install  q quit without installing";
 
 /// What a card says once its look has left the draft.
 pub fn look_gone(name: impl Display) -> String {

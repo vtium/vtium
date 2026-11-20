@@ -102,3 +102,7 @@ pub const KEYS_FONTS_LIVE: &str =
 
 pub const KEYS_NEW: &str =
     "type into a field  Enter next field  Esc back  Ctrl-C quit without installing";
+
+/// What the message line says when `n` in the Fonts tab opens the form for
+/// a new font set, which belongs to the Looks tab.
+pub const NEW_FRIT_IN_LOOKS: &str = "The form for a new font set is part of the Looks tab, so Esc or adding the font set goes to the Looks tab.";

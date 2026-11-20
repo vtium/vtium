@@ -9,13 +9,7 @@ pub const HELP: &str = "Help";
 /// What the Help view says of each view whose node of the interface tree
 /// is still planned: the node's id, the view's name, what it does and its
 /// keys. The Help view writes every other view's keys from the contract.
-pub const HELP_PLANNED: [(&str, &str, &str, &str); 3] = [
-    (
-        "looks",
-        LOOKS,
-        "lists the console's font sizes, automatic first, with a preview of each. Later it will manage the looks, each a font set and a size.",
-        KEYS_LOOKS,
-    ),
+pub const HELP_PLANNED: [(&str, &str, &str, &str); 2] = [
     (
         "fonts",
         FONTS,

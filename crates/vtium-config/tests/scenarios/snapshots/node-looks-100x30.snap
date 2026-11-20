@@ -1,5 +1,6 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
+assertion_line: 117
 description: "looks at 100×30, keys: 3"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
@@ -16,16 +17,16 @@ description: "looks at 100×30, keys: 3"
    unifont               grey red green yellow magenta cyan white
    unscii-8              Bold text and italic text beside plain text.
                          ┌──────────┬──────────┐
- proof: proof,           │ name     │ size     │
- vtium.conf's size,      ├──────────┼──────────┤
- used by terminal desk.  │ plan.txt │ 1.8 KiB  │
- These characters are    └──────────┴──────────┘
- drawn at the console's  Accents: café, naïve, Ångström, Straße, žluťoučký
- current size. A size    user@desk:~/notes$
- you choose takes
+ proof uses the font     │ name     │ size     │
+ set proof at            ├──────────┼──────────┤
+ vtium.conf's size.      │ plan.txt │ 1.8 KiB  │
+ Terminal desk uses it.  └──────────┴──────────┘
+ The console draws this  Accents: café, naïve, Ångström, Straße, žluťoučký
+ in its current font,    user@desk:~/notes$
+ so t shows a font set
+ here. A size takes
  effect when vtium
- starts on this console
- again.
+ starts again.
 
 
 

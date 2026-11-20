@@ -4,10 +4,10 @@
  Font set proof
  The console reads it without errors.
  Its fonts, by role:
- Text: font:JetBrains Mono (missing)
- Box drawing: vtium's own lines and blocks
+ Text: the font family JetBrains Mono, not on this machine
+ Box drawing: vtium's own lines, unless the text font has them all
  What it still misses:
- font:JetBrains Mono: no such family
+ Text: the font family JetBrains Mono is not on this machine: no such family.
  Used by look proof.
 
  Up and Down scroll the detail, and Esc goes back to the list.
