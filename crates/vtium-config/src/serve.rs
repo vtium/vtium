@@ -1642,8 +1642,8 @@ struct SmallerFont {
 /// its family names as fontconfig matches them, or its first face for an
 /// empty family.
 fn outline_face<'a>(font: &'a [u8], family: &str) -> Result<swash::FontRef<'a>, String> {
-    use swash::{FontDataRef, StringId};
-    let fonts = FontDataRef::new(font).ok_or("not a TrueType or OpenType font")?;
+    use swash::StringId;
+    let fonts = crate::names::swash_fonts(font)?;
     let want = family_key(family);
     fonts
         .fonts()
@@ -5890,6 +5890,42 @@ mod tests {
         ];
         assert_eq!(outline_version(cut, ""), None);
         assert_eq!(outline_version(cut, "Mname"), None);
+    }
+
+    // The same bytes reach swash on every other path the helper takes:
+    // the coverage of a font, its description, and the drawing of a frit
+    // that names it. vtium-config checks the font's tables before swash
+    // reads them, so each path refuses the font with a message, in a debug
+    // build too, where swash's subtraction past zero would panic. The test
+    // runs in the test profile, which checks overflow as a debug build does.
+    #[test]
+    fn a_font_whose_tables_point_past_its_end_is_refused_on_every_path() {
+        let cut: &[u8] = &[
+            0x4f, 0x54, 0x54, 0x4f, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x6e, 0x61,
+            0x6d, 0x65, 0x54, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+            0x00,
+        ];
+        let damaged = "the font is damaged: its name table points past its own end";
+        assert_eq!(outline_coverage(cut, "").unwrap_err(), damaged);
+        assert_eq!(outline_coverage(cut, "Mname").unwrap_err(), damaged);
+        assert_eq!(
+            crate::describe::describe(cut, "font.ttf").unwrap_err(),
+            damaged
+        );
+        let dir = scratch("cut-font");
+        let file = dir.join("cut.otf");
+        std::fs::write(&file, cut).unwrap();
+        let text = format!(
+            "source=outline:{}\nsource=builtin:unifont\n",
+            file.display()
+        );
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        let left: Vec<(usize, bool, &str)> = engine
+            .left_out()
+            .iter()
+            .map(|l| (l.line, l.missing, l.why.as_str()))
+            .collect();
+        assert_eq!(left, [(1, false, damaged)]);
     }
 
     // A font of a lower version than version= asks for, and a file whose

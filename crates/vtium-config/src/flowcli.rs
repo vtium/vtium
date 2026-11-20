@@ -197,12 +197,7 @@ impl Command<'_, '_> {
         } else {
             flowmodel::text(
                 &flow,
-                &flowmodel::state_line(
-                    &name,
-                    &state,
-                    self.session.store.batch_changes(&name)?.len(),
-                    checked.count(),
-                ),
+                &flowmodel::state_line(&name, &state, self.beside(&name)?, checked.count()),
                 &missing,
             )
         };
@@ -242,7 +237,39 @@ impl Command<'_, '_> {
             );
             let _ = write!(self.out, "{shown}");
         }
+        // each font set change, under the frit's path in the frits'
+        // directory: a new frit as added lines, a replaced one as its
+        // difference from the installed frit, a removed one as removed
+        // lines
+        let (frits, notes) = self.session.frit_changes(&name)?;
+        for change in frits {
+            let path = change.path.to_string_lossy();
+            let old = change
+                .old
+                .as_deref()
+                .map(String::from_utf8_lossy)
+                .unwrap_or_default();
+            let shown = diff(
+                &path,
+                &old,
+                &format!("{path} (after install)"),
+                change.new.as_deref().unwrap_or_default(),
+            );
+            let _ = write!(self.out, "{shown}");
+        }
+        for note in notes {
+            let _ = writeln!(self.out, "{note}");
+        }
         Ok(())
+    }
+
+    /// What waits beside the draft `name`, as the state line counts it:
+    /// its changes to the active resources and its font set changes.
+    fn beside(&self, name: &str) -> Result<(usize, usize), Fail> {
+        Ok((
+            self.session.store.batch_changes(name)?.len(),
+            self.session.frit_changes(name)?.0.len(),
+        ))
     }
 
     /// `install [--force]`: installs the draft. A draft whose only problem
@@ -361,8 +388,13 @@ impl Command<'_, '_> {
             Err(fail) => return Err(fail),
         };
         self.print_check(&checked);
-        let batch = self.session.store.batch_changes(name)?.len();
-        self.say(&flowmodel::state_line(name, &state, batch, checked.count()));
+        let beside = self.beside(name)?;
+        self.say(&flowmodel::state_line(
+            name,
+            &state,
+            beside,
+            checked.count(),
+        ));
         if install {
             self.session
                 .install(name, new, Unrouted::Refuse, &mut run_child, None, self.out)?;
@@ -393,10 +425,16 @@ impl Command<'_, '_> {
         };
         if args.has("--dry-run") {
             let (added, removed) = crate::drafts::counts(&new, &text);
-            let batch = match self.session.store.batch_changes(&name)?.len() {
-                0 => String::new(),
-                n => format!(", and {}", crate::batch::resource_changes(n)),
-            };
+            let (batch, frits) = self.beside(&name)?;
+            let beside = [
+                (batch > 0).then(|| crate::batch::resource_changes(batch)),
+                (frits > 0).then(|| crate::drafts::frit_count(frits)),
+            ];
+            let batch: String = beside
+                .into_iter()
+                .flatten()
+                .map(|w| format!(", and {w}"))
+                .collect();
             self.say(&format!(
                 "{command} would lose {} of draft {name}{batch}",
                 crate::drafts::lines(added, removed)
@@ -408,8 +446,10 @@ impl Command<'_, '_> {
                 .store
                 .set_base(&name, installed.as_deref().map(str::as_bytes))?;
         }
-        // the draft starts over, so its changes to the active resources go
+        // the draft starts over, so its changes to the active resources
+        // and its font set changes go
         self.session.drop_batch(&name)?;
+        self.session.store.drop_frits(&name)?;
         self.write(&name, &text, &new, false, false)
     }
 

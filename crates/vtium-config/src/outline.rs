@@ -860,7 +860,7 @@ pub(crate) mod raster {
         #[cfg(test)]
         COLOR_DRAWS.with(|n| n.set(n.get().saturating_add(1)));
     }
-    use swash::{FontDataRef, FontRef, StringId};
+    use swash::{FontRef, StringId};
 
     /// The face `family` names in `data`, its Regular face first, or its
     /// first face for an empty family; with the family its name table
@@ -869,7 +869,7 @@ pub(crate) mod raster {
     /// the reader and the test the search among installed fonts uses, so a
     /// face the search finds is a face this takes (ADR-1500 D8).
     fn face<'a>(data: &'a [u8], family: &str) -> Result<(FontRef<'a>, String, u32), String> {
-        let fonts = FontDataRef::new(data).ok_or("not a TrueType or OpenType font")?;
+        let fonts = crate::names::swash_fonts(data)?;
         if fonts.is_empty() {
             return Err("the font holds no face".to_owned());
         }

@@ -449,15 +449,16 @@ pub fn state_words(flow: &Flow, rule: &Rule) -> String {
 
 /// The first line of `flow` and of the status line: the draft's name and
 /// state against the installed file, the count of its `batch` changes to
-/// the active resources, and its problems. A draft that changes the
-/// active resources is not the same as installed, even when its text is.
+/// the active resources and of its `frits`, the font set changes, and its
+/// problems. A draft that changes the active resources or holds a font
+/// set change is not the same as installed, even when its text is.
 ///
 /// References:
 /// - ADR-1403 D8: the state line counts a draft's changes beside vtium.conf.
 pub fn state_line(
     name: &str,
     state: &crate::drafts::State,
-    batch: usize,
+    (batch, frits): (usize, usize),
     problems: usize,
 ) -> String {
     let problems = match problems {
@@ -465,11 +466,20 @@ pub fn state_line(
         1 => "1 problem".to_owned(),
         n => format!("{n} problems"),
     };
-    let words = match (state, batch) {
-        (_, 0) => state.words(),
-        (crate::drafts::State::Same, n) => crate::batch::resource_changes(n),
-        (state, n) => format!("{}, {}", state.words(), crate::batch::resource_changes(n)),
-    };
+    // a draft is the same as installed only when its text is the
+    // installed file's and nothing waits beside it
+    let beside = [
+        (batch > 0).then(|| crate::batch::resource_changes(batch)),
+        (frits > 0).then(|| crate::drafts::frit_count(frits)),
+    ];
+    let words = std::iter::once(match state {
+        crate::drafts::State::Same if batch + frits > 0 => None,
+        state => Some(state.words()),
+    })
+    .chain(beside)
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(", ");
     format!("draft {name}: {words} · {problems}")
 }
 
