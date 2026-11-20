@@ -624,10 +624,11 @@ pub const NODES: &[Node] = &[
         what: "The Looks tab: the looks, the font sets, the color schemes and the installed pointer themes, as four groups of one list, with a preview of the highlighted look, font set or color scheme",
         supported: true,
         key_pages: &[
-            "↑↓ move  Enter open  r remove  n new  t try live  q quit  . more 1/4",
-            "Home first  End last  PgUp page up  PgDn page down  . more 2/4",
-            "1 2 4 5 6 go to tab  s save  i install  p picture | sample  . more 3/4",
-            "Tab next view  Shift-Tab view before  Ctrl-C save and quit  . more 4/4",
+            "↑↓ move  Enter open  Space activate  n new  t try live  q quit  . more 1/5",
+            "Home first  End last  PgUp page up  PgDn page down  . more 2/5",
+            "1 2 4 5 6 go to tab  s save  i install  r remove  . more 3/5",
+            "p picture | sample  Tab next view  Shift-Tab view before  . more 4/5",
+            "Ctrl-C save and quit  . more 5/5",
         ],
         help: &[
             ("↑", "Moves to the item above."),
@@ -637,6 +638,7 @@ pub const NODES: &[Node] = &[
             ("PgUp", "Moves up by a page."),
             ("PgDn", "Moves down by a page."),
             ("Enter", "On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail."),
+            ("Space", "On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing."),
             ("1", "Goes straight to the Fonts tab."),
             ("2", "Goes straight to the Effects tab."),
             ("4", "Goes straight to the Flow tab."),
@@ -671,6 +673,7 @@ pub const NODES: &[Node] = &[
             ("n.view.looks", true),
             ("t.view.looks", true),
             ("enter.view.looks", true),
+            ("space.view.resources", true),
             ("p.view.looks", true),
             ("window-ops.view.looks", false),
             ("o.view.looks", true),
@@ -824,9 +827,17 @@ pub const NODES: &[Node] = &[
     Node {
         id: "looks.palette",
         what: "A color scheme's detail, read-only: its file, or built in; whether it is active, its trust mark and the check it fails; the looks that use it; and its 16 colors beside text in its foreground on its background",
-        supported: false,
-        key_pages: &[],
-        help: &[],
+        supported: true,
+        key_pages: &[
+            "↑↓ scroll  Esc back  Ctrl-C save and quit  q quit",
+        ],
+        help: &[
+            ("↑", "Scrolls the detail up by a line."),
+            ("↓", "Scrolls the detail down by a line."),
+            ("Esc", "Goes back, with the same item highlighted."),
+            ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
+            ("q", "Quits vtium-config, and asks first if changes are not saved."),
+        ],
         rows: &[
             ("q.layer", true),
             ("esc.layer", true),
@@ -843,9 +854,17 @@ pub const NODES: &[Node] = &[
     Node {
         id: "looks.pointer",
         what: "A pointer theme's detail, read-only: its folder, whether the folder is active, its trust mark and the check it fails, and the looks that use it",
-        supported: false,
-        key_pages: &[],
-        help: &[],
+        supported: true,
+        key_pages: &[
+            "↑↓ scroll  Esc back  Ctrl-C save and quit  q quit",
+        ],
+        help: &[
+            ("↑", "Scrolls the detail up by a line."),
+            ("↓", "Scrolls the detail down by a line."),
+            ("Esc", "Goes back, with the same item highlighted."),
+            ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
+            ("q", "Quits vtium-config, and asks first if changes are not saved."),
+        ],
         rows: &[
             ("q.layer", true),
             ("esc.layer", true),
