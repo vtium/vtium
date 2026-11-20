@@ -1073,8 +1073,9 @@ fn a_built_in_scheme_the_top_level_names_is_used_by_the_top_level() {
 }
 
 /// A folder of scheme files on the disk, with the package's dusk and the
-/// administrator's mine, active, and the administrator's spare, not
-/// active, as the Looks tab finds them; and the inputs that list them.
+/// administrator's mine and Catppuccin Mocha, active, and the
+/// administrator's spare, not active, as the Looks tab finds them; and
+/// the inputs that list them.
 fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
     use vtium_config::batch::State;
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1097,6 +1098,7 @@ fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
         pkg.join("dusk.palette"),
         etc.join("mine.palette"),
         etc.join("spare.palette"),
+        etc.join("Catppuccin Mocha.palette"),
     ] {
         std::fs::write(f, text).expect("a scheme file");
     }
@@ -1132,12 +1134,12 @@ fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
 /// - ADR-1205 D10: the built-in schemes are always active.
 #[test]
 fn space_activates_or_deactivates_a_scheme_file_and_asks_when_a_look_uses_it() {
-    use vtium_config::batch::Change;
+    use vtium_config::batch::{Change, State};
     use vtium_config::tui::desk::Op;
     use vtium_config::tui::input::Key;
-    use vtium_config::tui::model::Effect;
-    use vtium_config::tui::tabs::looks::{Entry, palettes::Scheme};
-    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look proof]\nfont-name = proof\npalette = mine\n[head desk]\nlook = proof\n";
+    use vtium_config::tui::model::{Effect, Event};
+    use vtium_config::tui::tabs::looks::{Entry, card, list, palettes::Scheme};
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look proof]\nfont-name = proof\npalette = mine\n[look other]\n[head desk]\nlook = proof\n";
     let (root, i) = schemes_on_disk(conf);
     let etc = root.join("etc");
     let mut a = looks_app(i, 100, 30);
@@ -1155,16 +1157,66 @@ fn space_activates_or_deactivates_a_scheme_file_and_asks_when_a_look_uses_it() {
         question.contains("Look proof uses it. From the next login after the install, look proof renders without it."),
         "{question}"
     );
-    let out = press(&mut a, Key::Char('y'));
+    let op = Op::Resource {
+        path: etc.join("mine.palette"),
+        change: Change::Deactivate,
+    };
+    assert_eq!(press(&mut a, Key::Char('y')), [Effect::Desk(op.clone())]);
+    // the color schemes the card of a look that names none offers, by the
+    // name a look gives: the active files, but never one whose name a look
+    // cannot name
+    let offered = |a: &vtium_config::tui::model::App| -> Vec<String> {
+        let look = list::look(&a.shared, "other").expect("the look other");
+        card::choices(&a.shared, &look, card::Line::Palette)
+            .into_iter()
+            .filter_map(|c| c.value)
+            .collect()
+    };
+    let offers = offered(&a);
+    assert!(offers.iter().any(|n| n == "mine"), "{offers:?}");
+    assert!(
+        !offers.iter().any(|n| n.contains("Catppuccin")),
+        "{offers:?}"
+    );
+    // the desk's answer marks the file, and the card no longer offers it
+    let mut states = active();
+    states.extend([
+        (etc.join("mine.palette"), State::Active),
+        (etc.join("Catppuccin Mocha.palette"), State::Active),
+        (root.join("pkg/dusk.palette"), State::Active),
+    ]);
+    let done = vtium_config::tui::fixture::resource_op(
+        &mut states,
+        &etc.join("mine.palette"),
+        Change::Deactivate,
+    )
+    .expect("a deactivation");
+    a.event(Event::Desked(op, Ok(done)));
+    let state = |a: &vtium_config::tui::model::App, path: &Path| {
+        a.shared
+            .inputs
+            .effects
+            .palettes
+            .iter()
+            .find(|f| f.resource.path == path)
+            .map(|f| f.resource.state)
+    };
     assert_eq!(
-        out,
-        [Effect::Desk(Op::Resource {
-            path: etc.join("mine.palette"),
-            change: Change::Deactivate,
-        })]
+        state(&a, &etc.join("mine.palette")),
+        Some(State::Deactivates)
+    );
+    let screen = flat(&text(&a));
+    assert!(
+        screen.contains("mine: deactivates on install, trusted."),
+        "{screen}"
+    );
+    assert!(
+        !offered(&a).iter().any(|n| n == "mine"),
+        "{:?}",
+        offered(&a)
     );
     // a file no look uses deactivates at once, and one that is not active
-    // activates
+    // activates, and is offered once the desk answers
     let dusk = scheme_file(&a, &root.join("pkg").display().to_string(), "dusk");
     to_entry(&mut a, &dusk);
     assert_eq!(
@@ -1176,12 +1228,32 @@ fn space_activates_or_deactivates_a_scheme_file_and_asks_when_a_look_uses_it() {
     );
     let spare = scheme_file(&a, &etc.display().to_string(), "spare");
     to_entry(&mut a, &spare);
+    let op = Op::Resource {
+        path: etc.join("spare.palette"),
+        change: Change::Activate,
+    };
+    assert_eq!(press(&mut a, Key::Char(' ')), [Effect::Desk(op.clone())]);
+    assert!(!offered(&a).iter().any(|n| n == "spare"));
+    let done = vtium_config::tui::fixture::resource_op(
+        &mut states,
+        &etc.join("spare.palette"),
+        Change::Activate,
+    )
+    .expect("an activation");
+    a.event(Event::Desked(op, Ok(done)));
     assert_eq!(
-        press(&mut a, Key::Char(' ')),
-        [Effect::Desk(Op::Resource {
-            path: etc.join("spare.palette"),
-            change: Change::Activate,
-        })]
+        state(&a, &etc.join("spare.palette")),
+        Some(State::Activates)
+    );
+    let screen = flat(&text(&a));
+    assert!(
+        screen.contains("spare: activates on install, trusted."),
+        "{screen}"
+    );
+    assert!(
+        offered(&a).iter().any(|n| n == "spare"),
+        "{:?}",
+        offered(&a)
     );
     let _ = std::fs::remove_dir_all(&root);
     // a built-in scheme takes no Space, and the fixture's loose says why

@@ -814,6 +814,73 @@ mod palette_tests {
 }
 
 #[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    fn resource(path: &str, kind: &'static str) -> Resource {
+        Resource {
+            path: PathBuf::from(path),
+            kind,
+            state: State::Inactive,
+            trust: Ok(()),
+            own: false,
+            hidden: false,
+        }
+    }
+
+    // one answer of the desk marks every kind of resource the tabs list,
+    // and a resource the answer leaves out is not active
+    #[test]
+    fn set_states_marks_the_color_schemes_and_the_pointer_themes_too() {
+        let mut effects = Effects {
+            maps: vec![resource("/etc/vtium/looks/sepia.cube", "color map")],
+            shaders: vec![resource("/etc/vtium/shaders/crt.vtshader", "shader")],
+            palettes: vec![SchemeFile {
+                name: "dusk".to_owned(),
+                resource: resource("/etc/vtium/palettes/dusk.palette", PALETTE_KIND),
+                colors: Err(String::new()),
+            }],
+            pointers: vec![
+                resource("/usr/share/icons/Adwaita", POINTER_KIND),
+                resource("/usr/share/icons/gone", POINTER_KIND),
+            ],
+            ..Effects::default()
+        };
+        effects.pointers[1].state = State::Active;
+        effects.set_states(&[
+            (PathBuf::from("/etc/vtium/looks/sepia.cube"), State::Active),
+            (
+                PathBuf::from("/etc/vtium/shaders/crt.vtshader"),
+                State::Deactivates,
+            ),
+            (
+                PathBuf::from("/etc/vtium/palettes/dusk.palette"),
+                State::Activates,
+            ),
+            (PathBuf::from("/usr/share/icons/Adwaita"), State::Active),
+        ]);
+        let states: Vec<State> = effects
+            .maps
+            .iter()
+            .chain(&effects.shaders)
+            .chain(effects.palettes.iter().map(|f| &f.resource))
+            .chain(&effects.pointers)
+            .map(|r| r.state)
+            .collect();
+        assert_eq!(
+            states,
+            [
+                State::Active,
+                State::Deactivates,
+                State::Activates,
+                State::Active,
+                State::Inactive,
+            ]
+        );
+    }
+}
+
+#[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod pointer_tests {
     use super::*;
