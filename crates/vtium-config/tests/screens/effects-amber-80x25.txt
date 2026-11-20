@@ -2,11 +2,11 @@
  draft workstation · 1 change · no problems       image preview · no live trial
 --------------------------------------------------------------------------------
  Show: All effects
- vtlooks
+ vtlooks (filter files)
    No filter   built in, changes no color
    amber       preset
    green       preset, hidden by the administrator's vtlook of this name
-   green       administrator's, does not read
+   green       administrator's, has an error
    sepia       administrator's
 
  Color maps
@@ -15,9 +15,9 @@
    loose.cube  not active, fails the trust rule
    mine.cube   not usable
 
- No shaders are installed. Space activates or deactivates a color map or
- shader. Enter opens an item's detail, or the list of groups.
- The picture shows the sample screen through the vtlook amber.
+ No shaders are installed. Space activates or deactivates the highlighted color
+ map or shader. Enter opens its detail, or the groups on the filter line.
+ The terminal is too small to show the preview.
  Live trial is off: this vtium console has allow-font-ops turned off, so t
  cannot try a font on it. To turn it on, press o in the Fonts view, then
  install.
