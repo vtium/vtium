@@ -340,7 +340,17 @@ impl Fonts {
                     top: top.saturating_add(1).min(last),
                 });
             }
+            // the detail goes back to its first line, where the files and
+            // the command show while the question before the install is
+            // open
+            //
+            // References:
+            // - ADR-1205 D5: the exact command is shown before it runs.
             Key::Enter if file.resource.own => {
+                self.open = Some(Open::Detail {
+                    path: path.clone(),
+                    top: 0,
+                });
                 return vec![Command::Effect(Effect::Desk(Op::SystemFont(path)))];
             }
             Key::Enter => {

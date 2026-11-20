@@ -457,6 +457,20 @@ fn enter_on_a_font_that_replaces_an_installed_file_shows_both_files() {
     ] {
         assert!(text.contains(&line), "{line:?}:\n{screen}");
     }
+    // a detail scrolled down goes back to its first line, so the files
+    // and the command show while the question is open
+    let scrolled = on_font(5, &[b"\r", DOWN, DOWN, DOWN, DOWN, b"\r"]);
+    let mut c = console().keys(&scrolled);
+    let mut d = replacing();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    for line in [
+        words::SYSTEM_FONT_CLASH.to_owned(),
+        flat(&words::system_font_installed_file(OWN_FONT_INSTALLED_FACTS)),
+        OWN_FONT_COMMAND.to_owned(),
+    ] {
+        assert!(flat(&screen).contains(&line), "{line:?}:\n{screen}");
+    }
     let mut keys = ask.clone();
     keys.push(b"n");
     let mut c = console().keys(&keys);
