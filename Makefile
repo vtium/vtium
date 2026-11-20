@@ -594,7 +594,9 @@ install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and i
 # (ADR-1500 D9). tools/vendor/archive's header describes the archive, how it
 # stays byte-identical for a commit and how the check builds offline.
 # VENDOR_VERSION names the version in the file name; without it the script
-# takes HEAD's tag, or git describe.
+# takes HEAD's tag, or git describe. The check copies Cullet Mono's faces
+# for make install from CULLET_MONO_OUT when make cullet-mono has built them
+# there, and builds them itself when it has not.
 VENDOR_DIR = $(or $(CARGO_TARGET_DIR),target)/vendor-archive
 
 .PHONY: vendor-archive
@@ -604,7 +606,8 @@ vendor-archive: ## Pack the source of every crate Cargo.lock names, for the comm
 
 .PHONY: vendor-archive-check
 vendor-archive-check: export VTIUM_VENDOR_VERSION = $(value VENDOR_VERSION)
-vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build or if the manifest does not list the archive's crates
+vendor-archive-check: export VTIUM_VENDOR_CULLET_MONO = $(abspath $(CULLET_MONO_OUT))
+vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the workspace and make install from a clean copy of HEAD with the archive unpacked over it, offline and --locked, and fail if it does not build or if the manifest does not list the archive's crates (stages the font files first: needs the network once, and FontForge 20251009 unless make cullet-mono has built the faces)
 	tools/vendor/archive check '$(VENDOR_DIR)'
 
 # The ARM single-board computers minspec is judged against
