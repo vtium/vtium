@@ -595,7 +595,11 @@ mod tests {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+#[expect(
+    clippy::unwrap_used,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
 mod palette_tests {
     use super::*;
 
@@ -842,11 +846,13 @@ mod state_tests {
             }],
             pointers: vec![
                 resource("/usr/share/icons/Adwaita", POINTER_KIND),
-                resource("/usr/share/icons/gone", POINTER_KIND),
+                Resource {
+                    state: State::Active,
+                    ..resource("/usr/share/icons/gone", POINTER_KIND)
+                },
             ],
             ..Effects::default()
         };
-        effects.pointers[1].state = State::Active;
         effects.set_states(&[
             (PathBuf::from("/etc/vtium/looks/sepia.cube"), State::Active),
             (
