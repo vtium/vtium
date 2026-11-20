@@ -133,6 +133,9 @@ fn status(app: &App) -> String {
     // the right side, in its long or its short words
     // a vtium console draws the preview as text, pictures or not
     let pictures = app.shared.graphics && !app.shared.text_preview();
+    // the open tab's own node, under any question over it, since the
+    // status line says what t does in the tab
+    let trial_node = app.tab().node();
     let live_with = |short: bool| match (&app.shared.live, pictures) {
         (Live::Asking, _) => words::PREVIEW_ASKING.to_owned(),
         (live, graphics) => format!(
@@ -143,10 +146,14 @@ fn status(app: &App) -> String {
                 (false, false) => words::PREVIEW_TEXT,
                 (false, true) => words::PREVIEW_TEXT_SHORT,
             },
-            // only the Looks tab tries a font set with t; the other tabs
-            // say where the trial is
+            // t tries a font set on a look or a font set of the Looks tab
+            // and in a look's card; elsewhere in the Looks tab t does
+            // nothing, and the other tabs say where the trial is
             match (*live == Live::On, app.nav.view) {
-                (true, View::Looks) => words::TRIAL_KEY,
+                (true, View::Looks) if matches!(trial_node, "looks" | "looks.look") => {
+                    words::TRIAL_KEY
+                }
+                (true, View::Looks) => words::TRIAL_ON_FONT_SETS,
                 (true, _) => words::TRIAL_IN_LOOKS,
                 (false, _) => words::TRIAL_NONE,
             }

@@ -1687,3 +1687,40 @@ mod list_window {
         assert_eq!(highlighted(&app).map(|(_, k)| k), Some(key));
     }
 }
+
+/// The status line names `t` only where `t` tries a font set: on a look or
+/// a font set in the Looks tab, and in a look's card. Among the Looks
+/// tab's color schemes and pointer themes, and in their details, `t` does
+/// nothing, so the status line says where the live trial works instead.
+///
+/// References:
+/// - ADR-1201 D4: the live trial of a font set.
+/// - ADR-1403 D7, its note of 2026-11-18: the screen names only keys that
+///   act where it is shown.
+#[test]
+fn the_status_line_names_t_only_where_t_tries_a_font_set() {
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::model::{self, App};
+    use vtium_config::tui::{nav, words};
+    let status = |a: &App| text(a).lines().nth(1).unwrap_or_default().to_owned();
+    let mut a = app(100, 30);
+    a.shared.live = model::Live::On;
+    press(&mut a, Key::Char('3'));
+    assert_eq!(nav::node(&a), "looks");
+    assert!(status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
+    press(&mut a, Key::End);
+    assert_eq!(nav::node(&a), "looks-resources");
+    assert!(!status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
+    assert!(
+        status(&a).contains(words::TRIAL_ON_FONT_SETS),
+        "{}",
+        status(&a)
+    );
+    press(&mut a, Key::Enter);
+    assert_eq!(nav::node(&a), "looks.pointer");
+    assert!(!status(&a).contains(words::TRIAL_KEY), "{}", status(&a));
+    // another tab says where the trial is
+    press(&mut a, Key::Escape);
+    press(&mut a, Key::Char('1'));
+    assert!(status(&a).contains(words::TRIAL_IN_LOOKS), "{}", status(&a));
+}
