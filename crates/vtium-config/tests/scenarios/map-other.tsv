@@ -39,9 +39,9 @@ other any.question.confirm +pending	Esc	other settings(first) +pending
 other any.question.confirm +pending	Shrink	other any.question.confirm below 80×25 +pending	
 other any.question.confirm +pending	y	other effects(filter)	install
 other any.question.confirm +pending	y	other flow(doc display)	install
+other any.question.confirm +pending	y	other flow(doc display)	revert
 other any.question.confirm +pending	y	other flow(doc display) +pending	restore
-other any.question.confirm +pending	y	other flow(doc display) +pending	revert
-other any.question.confirm +pending	y	other flow(new empty) +pending	new
+other any.question.confirm +pending	y	other flow(new empty)	new
 other any.question.confirm +pending	y	other fonts(filter)	install
 other any.question.confirm +pending	y	other looks(frit)	install
 other any.question.confirm +pending	y	other looks(no looks) +unsaved +pending	check
@@ -60,9 +60,9 @@ other any.question.confirm +unsaved +pending	Ctrl-C	other looks(look) +unsaved +
 other any.question.confirm +unsaved +pending	Esc	other flow(doc terminal) +unsaved +pending	
 other any.question.confirm +unsaved +pending	Esc	other looks(look) +unsaved +pending	
 other any.question.confirm +unsaved +pending	Shrink	other any.question.confirm below 80×25 +unsaved +pending	
+other any.question.confirm +unsaved +pending	y	other flow(doc display)	revert
 other any.question.confirm +unsaved +pending	y	other flow(doc display) +pending	restore
-other any.question.confirm +unsaved +pending	y	other flow(doc display) +pending	revert
-other any.question.confirm +unsaved +pending	y	other flow(new empty) +pending	new
+other any.question.confirm +unsaved +pending	y	other flow(new empty)	new
 other any.question.confirm +unsaved +pending	y	other looks(no looks) +unsaved +pending	check
 other any.question.confirm below 80×25	Ctrl-C	other any.too-small	
 other any.question.confirm below 80×25	Esc	other any.too-small	
@@ -76,9 +76,9 @@ other any.question.confirm below 80×25 +pending	Ctrl-C	other any.too-small +pen
 other any.question.confirm below 80×25 +pending	Esc	other any.too-small +pending	
 other any.question.confirm below 80×25 +pending	Grow	other any.question.confirm +pending	
 other any.question.confirm below 80×25 +pending	y	other any.too-small	install
-other any.question.confirm below 80×25 +pending	y	other any.too-small +pending	new
+other any.question.confirm below 80×25 +pending	y	other any.too-small	new
+other any.question.confirm below 80×25 +pending	y	other any.too-small	revert
 other any.question.confirm below 80×25 +pending	y	other any.too-small +pending	restore
-other any.question.confirm below 80×25 +pending	y	other any.too-small +pending	revert
 other any.question.confirm below 80×25 +pending	y	other any.too-small +unsaved +pending	check
 other any.question.confirm below 80×25 +unsaved	Ctrl-C	other any.too-small +unsaved	
 other any.question.confirm below 80×25 +unsaved	Esc	other any.too-small +unsaved	
@@ -90,9 +90,9 @@ other any.question.confirm below 80×25 +unsaved	y	other any.too-small +unsaved	
 other any.question.confirm below 80×25 +unsaved +pending	Ctrl-C	other any.too-small +unsaved +pending	
 other any.question.confirm below 80×25 +unsaved +pending	Esc	other any.too-small +unsaved +pending	
 other any.question.confirm below 80×25 +unsaved +pending	Grow	other any.question.confirm +unsaved +pending	
-other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small +pending	new
+other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small	new
+other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small	revert
 other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small +pending	restore
-other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small +pending	revert
 other any.question.confirm below 80×25 +unsaved +pending	y	other any.too-small +unsaved +pending	check
 other any.question.deactivate	Ctrl-C	other effects(color map: active, trusted, used)	
 other any.question.deactivate	Esc	other effects(color map: active, trusted, used)	
@@ -3500,7 +3500,7 @@ other looks(frit)	Up	other looks(refused)
 other looks(frit)	i	other looks(frit)	prepare
 other looks(frit)	n	other looks.new-frit(row 0)	
 other looks(frit)	q	other left	exit 0
-other looks(frit)	r	other looks(marked) +pending	
+other looks(frit)	r	other looks(marked) +pending	font set
 other looks(frit)	w	other any.question.window-ops	
 other looks(frit) +pending	1	other fonts(filter) +pending	
 other looks(frit) +pending	2	other effects(filter) +pending	
@@ -3520,7 +3520,7 @@ other looks(frit) +pending	Up	other looks(marked) +pending
 other looks(frit) +pending	i	other any.question.confirm +pending	prepare
 other looks(frit) +pending	n	other looks.new-frit(row 0) +pending	
 other looks(frit) +pending	q	other any.question.leave +pending	
-other looks(frit) +pending	r	other looks(marked) +pending	
+other looks(frit) +pending	r	other looks(marked) +pending	font set
 other looks(frit) +pending	w	other any.question.window-ops +pending	
 other looks(frit) +unsaved	1	other fonts(filter) +unsaved	
 other looks(frit) +unsaved	2	other effects(filter) +unsaved	
@@ -3540,7 +3540,7 @@ other looks(frit) +unsaved	Up	other looks(refused) +unsaved
 other looks(frit) +unsaved	i	other any.question.confirm	save, prepare
 other looks(frit) +unsaved	n	other looks.new-frit(row 0) +unsaved	
 other looks(frit) +unsaved	q	other any.question.quit +unsaved	
-other looks(frit) +unsaved	r	other looks(marked) +unsaved +pending	
+other looks(frit) +unsaved	r	other looks(marked) +unsaved +pending	font set
 other looks(frit) +unsaved	s	other looks(frit)	save
 other looks(frit) +unsaved	w	other any.question.window-ops +unsaved	
 other looks(frit) +unsaved +pending	1	other fonts(filter) +unsaved +pending	
@@ -3561,7 +3561,7 @@ other looks(frit) +unsaved +pending	Up	other looks(marked) +unsaved +pending
 other looks(frit) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other looks(frit) +unsaved +pending	n	other looks.new-frit(row 0) +unsaved +pending	
 other looks(frit) +unsaved +pending	q	other any.question.leave +unsaved +pending	
-other looks(frit) +unsaved +pending	r	other looks(marked) +unsaved +pending	
+other looks(frit) +unsaved +pending	r	other looks(marked) +unsaved +pending	font set
 other looks(frit) +unsaved +pending	s	other looks(frit) +pending	save
 other looks(frit) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
 other looks(look)	1	other fonts(filter)	
@@ -3657,7 +3657,7 @@ other looks(marked) +pending	Up	other looks(look) +pending
 other looks(marked) +pending	i	other any.question.confirm +pending	prepare
 other looks(marked) +pending	n	other looks.new-frit(row 0) +pending	
 other looks(marked) +pending	q	other any.question.leave +pending	
-other looks(marked) +pending	r	other looks(refused)	
+other looks(marked) +pending	r	other looks(refused)	font set
 other looks(marked) +pending	w	other any.question.window-ops +pending	
 other looks(marked) +unsaved +pending	1	other fonts(filter) +unsaved +pending	
 other looks(marked) +unsaved +pending	2	other effects(filter) +unsaved +pending	
@@ -3678,7 +3678,7 @@ other looks(marked) +unsaved +pending	Up	other looks(look) +unsaved +pending
 other looks(marked) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other looks(marked) +unsaved +pending	n	other looks.new-frit(row 0) +unsaved +pending	
 other looks(marked) +unsaved +pending	q	other any.question.leave +unsaved +pending	
-other looks(marked) +unsaved +pending	r	other looks(refused) +unsaved	
+other looks(marked) +unsaved +pending	r	other looks(refused) +unsaved	font set
 other looks(marked) +unsaved +pending	s	other looks(marked) +pending	save
 other looks(marked) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
 other looks(no looks)	1	other fonts(filter)	
@@ -3766,7 +3766,7 @@ other looks(refused)	Up	other looks(look)
 other looks(refused)	i	other looks(refused)	prepare
 other looks(refused)	n	other looks.new-frit(row 0)	
 other looks(refused)	q	other left	exit 0
-other looks(refused)	r	other looks(marked) +pending	
+other looks(refused)	r	other looks(marked) +pending	font set
 other looks(refused)	w	other any.question.window-ops	
 other looks(refused) +unsaved	1	other fonts(filter) +unsaved	
 other looks(refused) +unsaved	2	other effects(filter) +unsaved	
@@ -3787,7 +3787,7 @@ other looks(refused) +unsaved	Up	other looks(no looks) +unsaved
 other looks(refused) +unsaved	i	other any.question.confirm	save, prepare
 other looks(refused) +unsaved	n	other looks.new-frit(row 0) +unsaved	
 other looks(refused) +unsaved	q	other any.question.quit +unsaved	
-other looks(refused) +unsaved	r	other looks(marked) +unsaved +pending	
+other looks(refused) +unsaved	r	other looks(marked) +unsaved +pending	font set
 other looks(refused) +unsaved	s	other looks(refused)	save
 other looks(refused) +unsaved	w	other any.question.window-ops +unsaved	
 other looks-resources(built-in scheme)	1	other fonts(filter)	

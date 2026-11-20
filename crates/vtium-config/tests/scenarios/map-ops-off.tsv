@@ -39,9 +39,9 @@ ops-off any.question.confirm +pending	Esc	ops-off settings(first) +pending
 ops-off any.question.confirm +pending	Shrink	ops-off any.question.confirm below 80×25 +pending	
 ops-off any.question.confirm +pending	y	ops-off effects(filter)	install
 ops-off any.question.confirm +pending	y	ops-off flow(doc display)	install
+ops-off any.question.confirm +pending	y	ops-off flow(doc display)	revert
 ops-off any.question.confirm +pending	y	ops-off flow(doc display) +pending	restore
-ops-off any.question.confirm +pending	y	ops-off flow(doc display) +pending	revert
-ops-off any.question.confirm +pending	y	ops-off flow(new empty) +pending	new
+ops-off any.question.confirm +pending	y	ops-off flow(new empty)	new
 ops-off any.question.confirm +pending	y	ops-off fonts(filter)	install
 ops-off any.question.confirm +pending	y	ops-off looks(frit)	install
 ops-off any.question.confirm +pending	y	ops-off looks(no looks) +unsaved +pending	check
@@ -60,9 +60,9 @@ ops-off any.question.confirm +unsaved +pending	Ctrl-C	ops-off looks(look) +unsav
 ops-off any.question.confirm +unsaved +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	
 ops-off any.question.confirm +unsaved +pending	Esc	ops-off looks(look) +unsaved +pending	
 ops-off any.question.confirm +unsaved +pending	Shrink	ops-off any.question.confirm below 80×25 +unsaved +pending	
+ops-off any.question.confirm +unsaved +pending	y	ops-off flow(doc display)	revert
 ops-off any.question.confirm +unsaved +pending	y	ops-off flow(doc display) +pending	restore
-ops-off any.question.confirm +unsaved +pending	y	ops-off flow(doc display) +pending	revert
-ops-off any.question.confirm +unsaved +pending	y	ops-off flow(new empty) +pending	new
+ops-off any.question.confirm +unsaved +pending	y	ops-off flow(new empty)	new
 ops-off any.question.confirm +unsaved +pending	y	ops-off looks(no looks) +unsaved +pending	check
 ops-off any.question.confirm below 80×25	Ctrl-C	ops-off any.too-small	
 ops-off any.question.confirm below 80×25	Esc	ops-off any.too-small	
@@ -76,9 +76,9 @@ ops-off any.question.confirm below 80×25 +pending	Ctrl-C	ops-off any.too-small 
 ops-off any.question.confirm below 80×25 +pending	Esc	ops-off any.too-small +pending	
 ops-off any.question.confirm below 80×25 +pending	Grow	ops-off any.question.confirm +pending	
 ops-off any.question.confirm below 80×25 +pending	y	ops-off any.too-small	install
-ops-off any.question.confirm below 80×25 +pending	y	ops-off any.too-small +pending	new
+ops-off any.question.confirm below 80×25 +pending	y	ops-off any.too-small	new
+ops-off any.question.confirm below 80×25 +pending	y	ops-off any.too-small	revert
 ops-off any.question.confirm below 80×25 +pending	y	ops-off any.too-small +pending	restore
-ops-off any.question.confirm below 80×25 +pending	y	ops-off any.too-small +pending	revert
 ops-off any.question.confirm below 80×25 +pending	y	ops-off any.too-small +unsaved +pending	check
 ops-off any.question.confirm below 80×25 +unsaved	Ctrl-C	ops-off any.too-small +unsaved	
 ops-off any.question.confirm below 80×25 +unsaved	Esc	ops-off any.too-small +unsaved	
@@ -90,9 +90,9 @@ ops-off any.question.confirm below 80×25 +unsaved	y	ops-off any.too-small +unsa
 ops-off any.question.confirm below 80×25 +unsaved +pending	Ctrl-C	ops-off any.too-small +unsaved +pending	
 ops-off any.question.confirm below 80×25 +unsaved +pending	Esc	ops-off any.too-small +unsaved +pending	
 ops-off any.question.confirm below 80×25 +unsaved +pending	Grow	ops-off any.question.confirm +unsaved +pending	
-ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small +pending	new
+ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small	new
+ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small	revert
 ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small +pending	restore
-ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small +pending	revert
 ops-off any.question.confirm below 80×25 +unsaved +pending	y	ops-off any.too-small +unsaved +pending	check
 ops-off any.question.deactivate	Ctrl-C	ops-off effects(color map: active, trusted, used)	
 ops-off any.question.deactivate	Esc	ops-off effects(color map: active, trusted, used)	
@@ -3500,7 +3500,7 @@ ops-off looks(frit)	Up	ops-off looks(refused)
 ops-off looks(frit)	i	ops-off looks(frit)	prepare
 ops-off looks(frit)	n	ops-off looks.new-frit(row 0)	
 ops-off looks(frit)	q	ops-off left	exit 0
-ops-off looks(frit)	r	ops-off looks(marked) +pending	
+ops-off looks(frit)	r	ops-off looks(marked) +pending	font set
 ops-off looks(frit)	w	ops-off any.question.window-ops	
 ops-off looks(frit) +pending	1	ops-off fonts(filter) +pending	
 ops-off looks(frit) +pending	2	ops-off effects(filter) +pending	
@@ -3520,7 +3520,7 @@ ops-off looks(frit) +pending	Up	ops-off looks(marked) +pending
 ops-off looks(frit) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off looks(frit) +pending	n	ops-off looks.new-frit(row 0) +pending	
 ops-off looks(frit) +pending	q	ops-off any.question.leave +pending	
-ops-off looks(frit) +pending	r	ops-off looks(marked) +pending	
+ops-off looks(frit) +pending	r	ops-off looks(marked) +pending	font set
 ops-off looks(frit) +pending	w	ops-off any.question.window-ops +pending	
 ops-off looks(frit) +unsaved	1	ops-off fonts(filter) +unsaved	
 ops-off looks(frit) +unsaved	2	ops-off effects(filter) +unsaved	
@@ -3540,7 +3540,7 @@ ops-off looks(frit) +unsaved	Up	ops-off looks(refused) +unsaved
 ops-off looks(frit) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off looks(frit) +unsaved	n	ops-off looks.new-frit(row 0) +unsaved	
 ops-off looks(frit) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off looks(frit) +unsaved	r	ops-off looks(marked) +unsaved +pending	
+ops-off looks(frit) +unsaved	r	ops-off looks(marked) +unsaved +pending	font set
 ops-off looks(frit) +unsaved	s	ops-off looks(frit)	save
 ops-off looks(frit) +unsaved	w	ops-off any.question.window-ops +unsaved	
 ops-off looks(frit) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
@@ -3561,7 +3561,7 @@ ops-off looks(frit) +unsaved +pending	Up	ops-off looks(marked) +unsaved +pending
 ops-off looks(frit) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off looks(frit) +unsaved +pending	n	ops-off looks.new-frit(row 0) +unsaved +pending	
 ops-off looks(frit) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off looks(frit) +unsaved +pending	r	ops-off looks(marked) +unsaved +pending	
+ops-off looks(frit) +unsaved +pending	r	ops-off looks(marked) +unsaved +pending	font set
 ops-off looks(frit) +unsaved +pending	s	ops-off looks(frit) +pending	save
 ops-off looks(frit) +unsaved +pending	w	ops-off any.question.window-ops +unsaved +pending	
 ops-off looks(look)	1	ops-off fonts(filter)	
@@ -3657,7 +3657,7 @@ ops-off looks(marked) +pending	Up	ops-off looks(look) +pending
 ops-off looks(marked) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off looks(marked) +pending	n	ops-off looks.new-frit(row 0) +pending	
 ops-off looks(marked) +pending	q	ops-off any.question.leave +pending	
-ops-off looks(marked) +pending	r	ops-off looks(refused)	
+ops-off looks(marked) +pending	r	ops-off looks(refused)	font set
 ops-off looks(marked) +pending	w	ops-off any.question.window-ops +pending	
 ops-off looks(marked) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	
 ops-off looks(marked) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	
@@ -3678,7 +3678,7 @@ ops-off looks(marked) +unsaved +pending	Up	ops-off looks(look) +unsaved +pending
 ops-off looks(marked) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
 ops-off looks(marked) +unsaved +pending	n	ops-off looks.new-frit(row 0) +unsaved +pending	
 ops-off looks(marked) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off looks(marked) +unsaved +pending	r	ops-off looks(refused) +unsaved	
+ops-off looks(marked) +unsaved +pending	r	ops-off looks(refused) +unsaved	font set
 ops-off looks(marked) +unsaved +pending	s	ops-off looks(marked) +pending	save
 ops-off looks(marked) +unsaved +pending	w	ops-off any.question.window-ops +unsaved +pending	
 ops-off looks(no looks)	1	ops-off fonts(filter)	
@@ -3766,7 +3766,7 @@ ops-off looks(refused)	Up	ops-off looks(look)
 ops-off looks(refused)	i	ops-off looks(refused)	prepare
 ops-off looks(refused)	n	ops-off looks.new-frit(row 0)	
 ops-off looks(refused)	q	ops-off left	exit 0
-ops-off looks(refused)	r	ops-off looks(marked) +pending	
+ops-off looks(refused)	r	ops-off looks(marked) +pending	font set
 ops-off looks(refused)	w	ops-off any.question.window-ops	
 ops-off looks(refused) +unsaved	1	ops-off fonts(filter) +unsaved	
 ops-off looks(refused) +unsaved	2	ops-off effects(filter) +unsaved	
@@ -3787,7 +3787,7 @@ ops-off looks(refused) +unsaved	Up	ops-off looks(no looks) +unsaved
 ops-off looks(refused) +unsaved	i	ops-off any.question.confirm	save, prepare
 ops-off looks(refused) +unsaved	n	ops-off looks.new-frit(row 0) +unsaved	
 ops-off looks(refused) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off looks(refused) +unsaved	r	ops-off looks(marked) +unsaved +pending	
+ops-off looks(refused) +unsaved	r	ops-off looks(marked) +unsaved +pending	font set
 ops-off looks(refused) +unsaved	s	ops-off looks(refused)	save
 ops-off looks(refused) +unsaved	w	ops-off any.question.window-ops +unsaved	
 ops-off looks-resources(built-in scheme)	1	ops-off fonts(filter)	
