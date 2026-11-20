@@ -776,6 +776,29 @@ fn a_font_file_s_preview_frit_names_the_file_alone() {
     assert!(why.contains("control character"), "{why}");
 }
 
+/// A font set reads `#` as the start of a comment and drops blanks at a
+/// line's end, so a font file whose name holds a `#` or ends in a blank is
+/// not previewed: its `source=` line would name another file. A blank
+/// inside the name is kept.
+#[test]
+fn a_font_file_whose_name_a_font_set_cannot_hold_is_not_previewed() {
+    let frits = Path::new("/etc/vtium/fonts");
+    for file in [
+        "/home/u/.local/share/fonts/C#Mono.ttf",
+        "/f/a.ttf ",
+        "/f/b.ttf\u{a0}",
+    ] {
+        let why = vtium_config::tui::frit_text(frits, file).expect_err(file);
+        assert_eq!(
+            why,
+            words::font_file_unpreviewable(&vtium_config::onscreen::text(file)),
+            "{file:?}"
+        );
+    }
+    let frit = vtium_config::tui::frit_text(frits, "/f/My Font.ttf").expect("a frit");
+    assert_eq!(frit.text, "source=outline:/f/My Font.ttf\n");
+}
+
 /// `t` in the Fonts tab tries nothing, since vtium can try a font set on
 /// its console but not a single font file, and says where to try one;
 /// `n` and `r` do nothing here.
