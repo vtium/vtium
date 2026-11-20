@@ -399,8 +399,7 @@ impl Launcher {
     /// too. The helper draws from no other font file.
     ///
     /// References:
-    /// - ADR-1205 D4: vtium draws only from the active resources, and an
-    ///   unprivileged vtium accepts its own account's files.
+    /// - ADR-1205 D4: vtium draws only from the active resources, and an unprivileged vtium accepts its own account's files.
     pub fn with_active(mut self, owner: u32, batch: &Batch) -> Launcher {
         self.active = Some(active_request(owner, batch).into());
         self

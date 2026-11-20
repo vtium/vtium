@@ -4495,18 +4495,29 @@ impl App {
         }
     }
 
-    /// The session in head `h`'s console `id` ended, or the console
-    /// closed (ADR-1201 D11). Where
-    /// an OSC 50 switch from that console, or from any console of a head
-    /// left with one, changed the head's font, vtium returns the head to
-    /// the font the configuration gives it, read again; and where the font
+    /// The session in head `h`'s console `id` ended, or the console closed.
+    /// vtium first reads the batch again, as at each new login. When the
+    /// batch changed, the font helpers start again with the new active
+    /// fonts, every stored glyph is dropped and asked for again, the palette
+    /// files are read again, every head takes its new palette, and the
+    /// pointer file may load again. Head `h` then chooses its vtlook again
+    /// and resolves its font again when the batch changed since the head
+    /// last caught up with it.
+    ///
+    /// Where an OSC 50 switch from that console, or from any console of a
+    /// head left with one, changed the head's font, vtium returns the head
+    /// to the font the configuration gives it, read again. Where the font
     /// returns or a zoom left the console off the configured size, the
-    /// console returns to that size. Where the `font-size` read again
-    /// turns the configured size on or off, the frit the head draws is
-    /// rebuilt to drop or take its own cell (ADR-1200 D16). Nothing else is
-    /// read or reloaded. A configured font that draws nothing at that size
-    /// leaves the font and the size as they were, with one line saying
-    /// why.
+    /// console returns to that size. Where the `font-size` read again turns
+    /// the configured size on or off, vtium rebuilds the frit the head draws
+    /// so that it drops or takes its own character cell. A configured font
+    /// that draws nothing at that size leaves the font and the size as they
+    /// were, with one line saying why.
+    ///
+    /// References:
+    /// - ADR-1201 D11: what the end of a session returns, the font and the size.
+    /// - ADR-1200 D16: a frit's own character cell follows whether `font-size` is configured.
+    /// - ADR-1205 D4, its note of 2026-11-19: the batch is read again at each new login.
     fn return_font(&mut self, h: usize, id: u64) {
         // the batch changed since the head's font was resolved, so the
         // font is resolved again, as a newly active first source can set
@@ -4537,8 +4548,11 @@ impl App {
             Some(chosen)
         } else if head.sized() != was_sized || rebatched {
             // The frit drawn, with its own cell or without it as the
-            // `font-size` read again now says (ADR-1200 D16), and with its
-            // own cell asked for again under a changed batch.
+            // `font-size` read again now says, and with its own cell asked
+            // for again under a changed batch.
+            //
+            // References:
+            // - ADR-1200 D16: a frit's own character cell follows whether `font-size` is configured.
             match &head.font {
                 Some(Chosen::Frit { frit, .. }) => {
                     Chosen::frit(frit.clone(), head.sized(), head.look_cell()).ok()

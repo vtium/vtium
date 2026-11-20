@@ -4,21 +4,22 @@
 //! Ghostty's theme format that vtium-settings reads.
 //!
 //! vtium reads each palette file once, the first time a configuration
-//! names it, and keeps what it read until a new login finds the batch
-//! changed: the palette, or nothing when the file failed or no folder holds it. A file that
-//! fails costs one read and one log line, however many heads name it. A
-//! failed or missing file counts as missing, and whoever named it draws
-//! the palette below: a look's falls back to the top level's, and the top
-//! level's to `legacy`. vtium reads `palette` only when it starts, so a
-//! file edited while vtium runs takes effect at the next start, as any
-//! change to `palette` does.
+//! names it, and keeps what it read: the palette, or nothing when the file
+//! failed or no folder holds it. A file that fails costs one read and one
+//! log line, however many heads name it. A failed or missing file counts
+//! as missing, and whoever named it draws the palette below: a look's
+//! falls back to the top level's, and the top level's to `legacy`. vtium
+//! reads the `palette` key only when it starts, so a change to the key
+//! takes effect at the next start.
 //!
 //! A palette file is a resource, so vtium reads it only when it passes the
 //! trust rule and the batch lists it, through the console's gate
 //! ([`crate::font::gate`]). The console reads the batch when it starts and
 //! again at each new login. When a login finds the batch changed, vtium
-//! forgets the palette files it read, so each is read again through the new
-//! gate. With no batch file, the batch is the list of a fresh install, which
+//! forgets the palette files it read and reads each again through the new
+//! gate. A palette file edited while vtium runs thus takes effect at the
+//! next start, or at the next login that finds the batch changed. With no
+//! batch file, the batch is the list of a fresh install, which
 //! holds every palette the package ships, so those draw from the first
 //! start.
 //!
