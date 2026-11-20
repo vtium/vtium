@@ -573,12 +573,25 @@ pub fn active() -> Vec<(PathBuf, vtium_config::batch::State)> {
 
 impl Desk {
     pub fn opened(&self) -> vtium_config::tui::desk::Opened {
-        let (added, removed) = vtium_config::drafts::counts(&self.installed, &self.draft);
+        self.checked(&self.draft)
+    }
+
+    /// The draft `text` as the store's check answers it: counted against
+    /// the installed file, with the draft's changes to the active
+    /// resources counted as the store counts the changes kept beside it.
+    pub fn checked(&self, text: &str) -> vtium_config::tui::desk::Opened {
+        use vtium_config::batch::State;
+        let (added, removed) = vtium_config::drafts::counts(&self.installed, text);
         vtium_config::tui::desk::Opened {
             name: "mine".into(),
-            text: self.draft.clone(),
+            text: text.to_owned(),
             added,
             removed,
+            batch: self
+                .resources
+                .iter()
+                .filter(|(_, s)| matches!(s, State::Activates | State::Deactivates))
+                .count(),
             resources: self.resources.clone(),
             ..Default::default()
         }
@@ -598,18 +611,7 @@ impl vtium_config::tui::desk::Desk for Desk {
                 Ok(Done::Draft(self.opened(), None))
             }
             // the store's check reads the text it is given and writes nothing
-            Op::Check(text) => {
-                let (added, removed) = vtium_config::drafts::counts(&self.installed, text);
-                let opened = vtium_config::tui::desk::Opened {
-                    name: "mine".into(),
-                    text: text.clone(),
-                    added,
-                    removed,
-                    resources: self.resources.clone(),
-                    ..Default::default()
-                };
-                Ok(Done::Draft(opened, None))
-            }
+            Op::Check(text) => Ok(Done::Draft(self.checked(text), None)),
             Op::Prepare if self.draft == self.installed => Ok(Done::Plan(Default::default())),
             Op::Prepare => Ok(Done::Plan(vtium_config::draft::Plan {
                 files: vec![vtium_config::draft::FileEdit {
@@ -678,7 +680,22 @@ impl vtium_config::tui::desk::Desk for Desk {
         self.fonts_installed.push(PathBuf::from(
             vtium_config::tui::fixture::OWN_FONT_INSTALLED,
         ));
-        Ok(vtium_config::tui::fixture::font_installed())
+        // the store's scan after the install marks each font as the draft
+        // and its changes to the active resources hold it
+        let mut done = vtium_config::tui::fixture::font_installed();
+        if let Done::FontInstalled {
+            found: Ok(found), ..
+        } = &mut done
+        {
+            for f in found {
+                f.state = self
+                    .resources
+                    .iter()
+                    .find(|(p, _)| *p == f.path)
+                    .map_or(vtium_config::batch::State::Inactive, |(_, s)| *s);
+            }
+        }
+        Ok(done)
     }
 }
 

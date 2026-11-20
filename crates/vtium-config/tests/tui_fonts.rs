@@ -316,6 +316,45 @@ fn space_activates_or_deactivates_the_highlighted_font() {
     );
 }
 
+/// The status line counts an activation made with Space among the draft's
+/// changes as soon as the desk answers, and the stand-in desk's check
+/// counts it as the real desk's does, so the next check keeps the count.
+#[test]
+fn the_status_line_counts_an_activation_made_with_space() {
+    use vtium_config::tui::desk::{Desk as _, Op};
+    let mut c = console().keys(&on_font(2, &[b" "]));
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        flat(&screen).contains("· 1 change · no problems"),
+        "{screen}"
+    );
+    let Ok(Done::Draft(checked, _)) = d.run(&Op::Check(d.draft.clone())) else {
+        panic!("the stand-in desk's check");
+    };
+    assert_eq!(checked.batch, 1);
+}
+
+/// An activation made with Space stays marked after a font of the
+/// person's is installed as a system font, since the draft the TUI holds
+/// keeps the activation the desk answered with.
+#[test]
+fn an_activation_made_with_space_stays_marked_after_a_system_font_install() {
+    let mut keys = on_font(2, &[b" "]);
+    // Home brings the list back to its top, where ter-u16n.otb shows
+    keys.extend([DOWN, DOWN, DOWN, b"\r", b"\r", b"y", ESC, b"\x1b[H"]);
+    let mut c = console().keys(&keys);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    assert_eq!(d.fonts_installed, [PathBuf::from(OWN_FONT_INSTALLED)]);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        screen.contains("ter-u16n.otb        Terminus Regular, activates on install, trusted"),
+        "{screen}"
+    );
+}
+
 /// Space on a font in the person's own folder activates nothing and says
 /// how the font becomes usable; on a font that fails the trust rule it
 /// says why and activates nothing.
