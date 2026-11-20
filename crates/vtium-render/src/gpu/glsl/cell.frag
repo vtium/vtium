@@ -23,7 +23,7 @@
 // from masks, 2 a premultiplied color glyph from colors, 3 a sized run's
 // piece of text and color glyphs from colors: its color layer at the
 // texel, and the text's mask in the alpha one cell to the right), y the
-// background and the job's flags (RECEIVES, MARKED and DOWN below), z the
+// background and the job's flags (RECEIVES, MARKED, DOWN and GAP below), z the
 // underline's color and its sprite, w the color and sprite of the lines
 // over the glyph (the strike, the overline or both),
 // a sprite being its place in sprites plus one, or 0 for none.
@@ -138,14 +138,50 @@ float sprite(uint k, ivec2 pos) {
     return byte(texelFetch(sprites, at, 0).r);
 }
 
-#ifdef INK
 // the job's flags, in the top byte of params.y: it receives ink from its
 // neighbours; a block cursor or the selection marks it, so received ink
 // takes its foreground (ADR-1306 D6); a display line runs down its column
-// of the upright frame, on a display turned a quarter
+// of the upright frame, on a display turned a quarter; and from bit GAP up,
+// the gap in display pixels that its underline keeps on each side of its
+// glyph's ink, or 0 when the underline skips no ink
 const uint RECEIVES = 1u;
 const uint MARKED = 2u;
 const uint DOWN = 4u;
+const uint GAP = 3u;
+
+// The coverage of the glyph of kind `kind` at its texel `at`: the mask's,
+// the color glyph's alpha, or for a sized run's piece the color layer's
+// alpha and the text's mask one cell to the right together.
+float ink_at(uint kind, ivec2 at) {
+    if (kind == 1u) {
+        return byte(texelFetch(masks, at, 0).r);
+    } else if (kind == 2u) {
+        return byte(texelFetch(colors, at, 0).a);
+    } else if (kind == 3u) {
+        return max(byte(texelFetch(colors, at, 0).a),
+            byte(texelFetch(colors, at + ivec2(cell.x, 0), 0).a));
+    }
+    return 0.0;
+}
+
+// Whether the glyph has ink at its texel `at` or at a texel up to `gap`
+// before or after it, counting only the pixels of the quad, which is `w`
+// pixels wide and has the pixel at `x` across it. An underline leaves out
+// each pixel where this holds, so the line stops short of a descender, as
+// the CPU path's compose.rs near_ink has it. The gap is one pixel of the
+// normal cell, so a magnified cell's gap is its magnification. The upright
+// frame always runs the cell's row across, so the pixels beside are the
+// texels beside.
+bool near_ink(uint kind, ivec2 at, int x, int w, int gap) {
+    for (int d = -gap; d <= gap; d++) {
+        if (x + d >= 0 && x + d < w && ink_at(kind, at + ivec2(d, 0)) != 0.0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+#ifdef INK
 
 // The job being drawn: the column and row of its first cell, how many
 // cells it spans, and the color marked ink takes.
@@ -272,8 +308,8 @@ void main() {
     float a = kind == 1u ? byte(texelFetch(masks, at, 0).r) : 0.0;
     bool one = !layer && ul == 0u && st == 0u && kind != 3u;
     vec4 recv = vec4(0.0);
-#ifdef INK
     uint flags = params.y >> 24u;
+#ifdef INK
     if ((flags & RECEIVES) != 0u) {
         Job job = Job(int(src.z), int(src.w & 0xffffu), dst.z / max(cell.x, 1), (flags & MARKED) != 0u, fg);
         ivec2 pixel = ivec2(job.col * cell.x, job.row * cell.y) + local;
@@ -311,7 +347,12 @@ void main() {
             pos = (at_run * cell.xy + pos) / s;
         }
         if (ul != 0u) {
-            p = tint_over(p, sprite(ul, pos), rgb(params.z));
+            float u = sprite(ul, pos);
+            int gap = int(flags >> GAP);
+            if (u != 0.0 && gap != 0 && near_ink(kind, at, local.x, dst.z, gap)) {
+                u = 0.0;
+            }
+            p = tint_over(p, u, rgb(params.z));
         }
         // the received ink, one layer over the underline and under the
         // cell's own glyph (compose.rs's received_over)

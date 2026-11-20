@@ -291,14 +291,25 @@ fn draw_at(kind: Kind, w: u32, h: u32, m: &Decorations, one_bit: bool) -> Vec<u8
     s.px
 }
 
-/// A line a cell draws: its kind, and the script whose set of lines it
-/// takes (ADR-1202 D8). A cell's own lines take its script's set; the
-/// underline cursor takes the normal set, so it keeps one height along a
-/// line.
+/// A line a cell draws: its kind, the script whose set of lines it takes,
+/// and whether it skips the ink of the cell's glyph. A cell's own lines
+/// take its script's set; the underline cursor takes the normal set, so it
+/// keeps one height along a line.
+///
+/// A cell's underline skips the glyph's ink: it leaves out every pixel
+/// within one pixel of the ink along the cell's row, so the line stops
+/// just short of a descender and goes on after it. The underline cursor
+/// shows where typing goes rather than decorating the text, so it keeps
+/// its whole line. The lines over the glyph, the strike-through and the
+/// overline, cross the glyph and skip nothing.
+///
+/// References:
+/// - ADR-1202 D8: the sets of lines for each script.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Line {
     pub(crate) kind: Kind,
     pub(crate) script: Script,
+    pub(crate) skips_ink: bool,
 }
 
 /// The scripts in the order their sets of sprites lie.
@@ -324,9 +335,13 @@ impl Line {
 
     /// Every line, in the order of [`Line::index`].
     pub(crate) fn all() -> impl Iterator<Item = Line> {
-        SCRIPTS
-            .into_iter()
-            .flat_map(|script| Kind::ALL.into_iter().map(move |kind| Line { kind, script }))
+        SCRIPTS.into_iter().flat_map(|script| {
+            Kind::ALL.into_iter().map(move |kind| Line {
+                kind,
+                script,
+                skips_ink: false,
+            })
+        })
     }
 }
 
@@ -396,6 +411,23 @@ pub(crate) fn scaled(
                 .unwrap_or(0)
         })
         .collect()
+}
+
+/// How many display pixels across one pixel of a normal cell's decoration
+/// spans in a cell that draws `piece`: the scale of a sized run on a line
+/// of the normal size, 2 on a line of double size, where a run's cell
+/// draws the line's doubled set, and 1 for the whole glyph. A cell's
+/// underline keeps this many pixels clear on each side of its glyph's
+/// ink, so the gap grows with the text as the line's thickness does, and
+/// a magnified cell skips what the normal cell magnified skips.
+pub(crate) fn magnification(piece: Piece) -> u32 {
+    match piece.run() {
+        Some(run) if run.line == LineSize::Single && run.size.scale >= 2 => {
+            u32::from(run.size.scale)
+        }
+        _ if piece.sprite_set() != 0 => 2,
+        _ => 1,
+    }
 }
 
 impl Sprites {
@@ -483,6 +515,12 @@ impl Sprites {
             .filter(|m| m.iter().any(|&a| a != 0))
             .map(|m| Stored::mask(&m, self.w, self.h, self.o, self.bits));
         self.runs.insert(key, stored);
+    }
+
+    /// Whether the display is turned a quarter, so that a cell's row runs
+    /// down a display column.
+    pub(crate) fn turned(&self) -> bool {
+        self.o.turned()
     }
 
     /// The sprite of `line` at the normal size.

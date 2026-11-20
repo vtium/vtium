@@ -94,6 +94,7 @@ struct Job {
 const RECEIVES: u32 = 1;
 const MARKED: u32 = 2;
 const DOWN: u32 = 4;
+const GAP: u32 = 3;
 
 fn rgb(c: u32) -> Rgb {
     let [_, r, g, b] = c.to_be_bytes();
@@ -172,7 +173,12 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     };
     let mut p = 0;
     if ul != 0 {
-        p = tint_over(p, sprite(ul), rgb(p2));
+        let mut a = sprite(ul);
+        let gap = i64::from(flags >> GAP);
+        if a != 0 && gap != 0 && near_ink(i, kind, at, (local.0, dw), gap) {
+            a = 0;
+        }
+        p = tint_over(p, a, rgb(p2));
     }
     p = argb_over(p, recv);
     match kind {
@@ -191,6 +197,31 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
         p = tint_over(p, sprite(st), rgb(p3));
     }
     over_bg(bg, p)
+}
+
+/// The shader's `ink_at`: the coverage of the glyph of kind `kind` at its
+/// texel `at`, the color layer's and the text's together for a sized run's
+/// piece.
+fn ink_at(i: &Inputs<'_>, kind: u32, at: (i64, i64)) -> u8 {
+    match kind {
+        1 => i.masks.byte(at, 0),
+        2 => i.colors.byte(at, 3),
+        3 => i
+            .colors
+            .byte(at, 3)
+            .max(i.colors.byte((at.0.saturating_add(i.cell.0), at.1), 3)),
+        _ => 0,
+    }
+}
+
+/// The shader's `near_ink`: whether the glyph has ink at its texel `at` or
+/// at a texel up to `gap` before or after it, among the pixels of the
+/// quad, `w` wide, whose pixel `x` across it the texel `at` draws.
+fn near_ink(i: &Inputs<'_>, kind: u32, at: (i64, i64), (x, w): (i64, i64), gap: i64) -> bool {
+    (gap.saturating_neg()..=gap).any(|d| {
+        let n = x.saturating_add(d);
+        n >= 0 && n < w && ink_at(i, kind, (at.0.saturating_add(d), at.1)) != 0
+    })
 }
 
 /// The shader's `texels`: the texels of a cell's entry in the ink grid,

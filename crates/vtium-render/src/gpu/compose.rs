@@ -50,7 +50,7 @@ use crate::arrow::Arrow;
 use crate::blend::pixel;
 use crate::bounds::GPU_IDLE_FRAMES;
 use crate::compose::{Area, Composer, Job};
-use crate::deco::{LINES, Line};
+use crate::deco::{LINES, Line, magnification};
 use crate::notice::Placed;
 use crate::reach::{Bound, Reach};
 use crate::renderer::Back;
@@ -165,10 +165,14 @@ const INK_INPUTS: [Input; 9] = [
 /// A cell job's flags, in the top byte of its quad's second parameter, as
 /// the cell shader reads them: it receives ink from its neighbours' glyphs;
 /// a block cursor or the selection marks it; a display line runs down a
-/// column of the upright frame, on a display turned a quarter.
+/// column of the upright frame, on a display turned a quarter. The bits
+/// from [`GAP`] up hold the gap its underline keeps on each side of its
+/// glyph's ink, in display pixels, as the CPU path's `near_ink` keeps it,
+/// or 0 when the underline skips no ink ([`Line::skips_ink`]).
 const RECEIVES: u32 = 1;
 const MARKED: u32 = 2;
 const DOWN: u32 = 4;
+const GAP: u32 = 3;
 
 /// The job a quad of the cell shader draws, in cells of `cell`, when it
 /// receives ink. A quad that covers part of a cell counts that cell whole,
@@ -2054,12 +2058,16 @@ pub(crate) fn cell_quad(
         u32::try_from(k).map_or(0, |n| n.saturating_add(1))
     };
     let with = |c: Rgb, k: u32| pixel(c) | k << 24;
+    let gap = match job.underline {
+        Some((line, _)) if line.skips_ink && kind != 0 => magnification(job.piece).min(31) << GAP,
+        _ => 0,
+    };
     Quad {
         dst: [i(r.x), i(r.y), i(r.w), i(r.h)],
         src,
         params: [
             with(job.fg, kind),
-            with(job.bg, flags),
+            with(job.bg, flags | gap),
             job.underline.map_or(0, |(k, c)| with(c, sprite(k))),
             job.over.map_or(0, |(k, c)| with(c, sprite(k))),
         ],
