@@ -34,9 +34,18 @@ const LINE: Bound = Bound {
     cite: "ADR-1403 D3, the console's bound on vtium.conf (`crates/vtium/src/config/mod.rs`, `LINE_MAX`)",
 };
 
+/// NAME_MAX's value as a literal, so a constant string can state the
+/// bound with `concat!`, as [`crate::keys::NOT_A_NAME`] does.
+macro_rules! name_max {
+    () => {
+        64
+    };
+}
+pub(crate) use name_max;
+
 const NAME: Bound = Bound {
     name: "NAME_MAX",
-    value: 64,
+    value: name_max!(),
     what: "Characters of a head's or a look's name, each of `A-Z a-z 0-9 . _ + -`",
     past: "The head is dropped, with every rule naming it, or the look is, the line named",
     cite: "ADR-1401 D3",

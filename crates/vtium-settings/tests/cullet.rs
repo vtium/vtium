@@ -17,6 +17,7 @@ use std::io::Read;
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
+use vtium_settings::ERRORS_MAX;
 use vtium_settings::Trust;
 use vtium_settings::Untrusted;
 use vtium_settings::batch::{
@@ -210,6 +211,58 @@ fn a_fifo_or_a_folder_is_not_a_file_and_the_fifo_is_never_opened() {
         refused(open(&dir.join("fonts"), &me(&dir), &system())),
         Check::NotAFile {
             at: dir.join("fonts")
+        }
+    );
+}
+
+// A name on the way to the file that is not a folder is refused as "not a
+// folder", and the last name that is not a regular file as "not a regular
+// file", so the reason a person reads names the right kind of thing.
+#[test]
+fn a_regular_file_on_the_way_is_not_a_folder_and_a_folder_at_the_end_is_not_a_file() {
+    let dir = fixture("not-a-folder");
+    write(&dir.join("plain.txt"), b"text", 0o644);
+    let on_the_way = dir.join("plain.txt/x.bdf");
+    let check = refused(open(&on_the_way, &me(&dir), &system()));
+    assert_eq!(
+        check,
+        Check::NotAFolder {
+            at: dir.join("plain.txt")
+        }
+    );
+    assert_eq!(
+        check.to_string(),
+        format!("{} is not a folder.", dir.join("plain.txt").display())
+    );
+    mkdir(&dir.join("fonts"), 0o755);
+    let check = refused(open(&dir.join("fonts"), &me(&dir), &system()));
+    assert_eq!(
+        check.to_string(),
+        format!("{} is not a regular file.", dir.join("fonts").display())
+    );
+
+    let theme = theme(&dir);
+    let rule = me(&dir);
+    assert_eq!(
+        refused(open_in_theme(
+            &theme,
+            &theme.join("cursors"),
+            &rule,
+            &system()
+        )),
+        Check::NotAFile {
+            at: theme.join("cursors")
+        }
+    );
+    assert_eq!(
+        refused(open_in_theme(
+            &theme,
+            &theme.join("cursors/text/x"),
+            &rule,
+            &system()
+        )),
+        Check::NotAFolder {
+            at: theme.join("cursors/text")
         }
     );
 }
@@ -711,6 +764,87 @@ fn a_batch_line_longer_than_a_path_or_not_utf8_is_ignored() {
             ..
         }
     ));
+}
+
+// A NUL byte ends a path at the kernel's interface, so no file has a name
+// that holds one. The font helper refuses the console's whole request of
+// active fonts when a path holds one, so vtium ignores such a line here, and
+// check-config and the log name it.
+#[test]
+fn a_batch_line_holding_a_nul_byte_is_ignored_and_named() {
+    let read = Batch::parse(
+        b"/usr/share/fonts/a.ttf\n/usr/share/fonts/a\0b.ttf\n",
+        Path::new("/b"),
+    );
+    assert_eq!(
+        read.batch.entries(),
+        [Entry::Path("/usr/share/fonts/a.ttf".into())]
+    );
+    assert_eq!(
+        read.findings,
+        [Finding::Line {
+            path: "/b".into(),
+            line: 2,
+            fault: LineFault::Nul,
+        }]
+    );
+    assert!(!read.batch.holds(Path::new("/usr/share/fonts/a\0b.ttf")));
+}
+
+// The finding's sentence starts with a capital letter, so the console's log
+// and check-config print the finding as it is.
+#[test]
+fn a_batch_line_finding_reads_as_a_sentence() {
+    let line = |fault| {
+        Finding::Line {
+            path: "/etc/vtium/batch.conf".into(),
+            line: 3,
+            fault,
+        }
+        .to_string()
+    };
+    assert_eq!(
+        line(LineFault::NotAbsolute),
+        "/etc/vtium/batch.conf:3: This line does not hold an absolute path, one that starts with /. Because of this, vtium ignores the line."
+    );
+    assert_eq!(
+        line(LineFault::Nul),
+        "/etc/vtium/batch.conf:3: This line holds a NUL byte, which no file's path can hold. Because of this, vtium ignores the line."
+    );
+}
+
+#[test]
+fn a_batch_file_that_starts_with_a_byte_order_mark_keeps_its_first_line() {
+    let read = Batch::parse(b"\xef\xbb\xbf/usr/share/fonts/a.ttf\n/b\n", Path::new("/b"));
+    assert_eq!(read.findings, []);
+    assert_eq!(
+        read.batch.entries(),
+        [
+            Entry::Path("/usr/share/fonts/a.ttf".into()),
+            Entry::Path("/b".into())
+        ]
+    );
+}
+
+#[test]
+fn a_batch_file_keeps_its_first_errors_and_counts_the_rest() {
+    let text = "x\n".repeat(1000);
+    let read = Batch::parse(text.as_bytes(), Path::new("/b"));
+    assert_eq!(read.findings.len(), ERRORS_MAX);
+    assert!(matches!(
+        read.findings.last(),
+        Some(Finding::Line {
+            line: ERRORS_MAX,
+            fault: LineFault::NotAbsolute,
+            ..
+        })
+    ));
+    assert_eq!(read.more, 1000 - ERRORS_MAX);
+    assert_eq!(
+        read.more_line().as_deref(),
+        Some("/b: vtium also ignores 936 more lines of this file. Only the first 64 are listed.")
+    );
+    assert_eq!(Batch::parse(b"x\n", Path::new("/b")).more_line(), None);
 }
 
 fn fresh() -> Batch {

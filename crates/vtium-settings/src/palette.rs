@@ -185,7 +185,7 @@ impl fmt::Display for Reason {
             }
             Reason::Inactive => write!(
                 f,
-                "The color scheme is not active, so vtium treats the file as missing. A color scheme is active while {BATCH_FILE} lists the file's path. To activate it, add the path to {BATCH_FILE} as root, on a line of its own."
+                "The color scheme is not active, so vtium treats the file as missing. A color scheme is active while {BATCH_FILE} lists the file's path. To activate it, press Space on it in vtium-config's Looks tab, or run vtium-config activate with the file's path, then install the change."
             ),
             Reason::Unreadable(kind) => write!(f, "vtium cannot read the file: {kind}."),
         }

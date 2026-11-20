@@ -58,7 +58,7 @@ Separate the folders with \fB:\fR, as in \fBPATH\fR. Each folder must be an abso
 .IP
 The list can reorder or leave out the system's folders.
 .IP
-When unset, vtium searches \fB/usr/share/fonts\fR and \fB/usr/local/share/fonts\fR. vtium searches a user's own folder, such as \fB~/.local/share/fonts\fR, only when the list names it. The font helper cannot read such a folder before someone logs in, because the helper then runs as \fBnobody\fR.
+When unset, vtium searches \fB/usr/share/fonts\fR and \fB/usr/local/share/fonts\fR. A font in a folder you own, such as \fB~/.local/share/fonts\fR, never renders, even when the list names the folder. Root does not own the font, so it fails the trust rule. Install it as a system font instead.
 .IP
 It takes absolute paths, separated by \fB:\fR: at most 4095 bytes in all, with no control character. Default: unset.
 .IP
