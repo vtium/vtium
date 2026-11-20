@@ -1258,11 +1258,12 @@ fn pointer_findings(
 }
 
 /// What check-config says of the batch file, the list of active fonts,
-/// color schemes, effects and pointer themes: the first list counts against the file, and the second is
-/// notes. A missing file is a note that says what vtium uses in its place
-/// and how to create the file. A file vtium cannot use, because it fails
-/// the owner and mode check, is too large or cannot be read, counts, and
-/// so does each line vtium ignores.
+/// color schemes, effects and pointer themes: the first list counts
+/// against the file, and the second is notes. A missing file is a note
+/// that says what vtium uses in its place and how to create the file. A
+/// file vtium cannot use, because it fails the owner and mode check, is
+/// too large or cannot be read, counts, and so does each line vtium
+/// ignores. Each finding reads as the console's log writes it.
 ///
 /// References:
 /// - ADR-1205 D4, its notes of 2026-11-18 and 2026-11-19: check-config says the batch file is missing and how to create it, and names a file vtium ignores and why.
@@ -1272,19 +1273,7 @@ fn batch_findings(findings: &[vtium_settings::batch::Finding]) -> (Vec<String>, 
     for finding in findings {
         match finding {
             Finding::Missing { .. } => notes.push(finding.to_string()),
-            Finding::Line { path, line, fault } => {
-                let fault = fault.to_string();
-                let mut chars = fault.chars();
-                let fault: String = chars
-                    .next()
-                    .map(|c| c.to_uppercase().chain(chars).collect())
-                    .unwrap_or_default();
-                counted.push(format!(
-                    "{}:{line}: {fault}. Because of this, vtium ignores the line.",
-                    path.display()
-                ));
-            }
-            Finding::Refused { .. } => counted.push(finding.to_string()),
+            Finding::Line { .. } | Finding::Refused { .. } => counted.push(finding.to_string()),
         }
     }
     (counted, notes)
