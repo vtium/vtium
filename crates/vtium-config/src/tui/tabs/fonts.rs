@@ -69,28 +69,20 @@ impl Fonts {
         "fonts"
     }
 
-    /// Highlights the font named `name`, where the list has it, and
-    /// returns the change that shows the highlighted font in the previews.
-    pub fn highlight(&mut self, shared: &Shared, name: &str) -> Command {
+    /// Highlights the font named `name`, where the list has it. The tab's
+    /// preview follows its own highlight.
+    pub fn highlight(&mut self, shared: &Shared, name: &str) {
         if let Some(at) = shared.inputs.fonts.iter().position(|f| f.name == name) {
             self.list.at = at;
         }
-        self.previewed()
     }
 
-    /// Keeps the highlight on the list once fonts have left it, and
-    /// returns the change that shows the highlighted font in the previews.
-    pub fn fit(&mut self, shared: &Shared) -> Command {
+    /// Keeps the highlight on the list once fonts have left it.
+    pub fn fit(&mut self, shared: &Shared) {
         self.list.at = self
             .list
             .at
             .min(shared.inputs.fonts.len().saturating_sub(1));
-        self.previewed()
-    }
-
-    /// The change that shows the highlighted font in the previews.
-    fn previewed(&self) -> Command {
-        Command::Change(Change::Preview(self.list.at))
     }
 
     /// The highlighted font.
@@ -167,7 +159,14 @@ impl Fonts {
     pub fn update(&mut self, shared: &Shared, key: Key) -> Vec<Command> {
         match key {
             Key::Char('r') => return self.remove(shared),
-            Key::Char('n') => return vec![Command::Request(Request::Go(View::New))],
+            // the form belongs to the Looks tab, so the message line says
+            // where Esc and adding the font set go
+            Key::Char('n') => {
+                return vec![
+                    Command::Request(Request::Go(View::New)),
+                    Command::Change(Change::Say(words::NEW_FRIT_IN_LOOKS.to_owned())),
+                ];
+            }
             Key::Char('s') if shared.live == super::super::model::Live::On => {
                 return vec![Command::Change(Change::SaveTried)];
             }
@@ -184,12 +183,8 @@ impl Fonts {
             }
             _ => {}
         }
-        let before = self.list.at;
         self.list.at = step(self.list.at, shared.inputs.fonts.len(), key);
         let mut out = Vec::new();
-        if self.list.at != before {
-            out.push(self.previewed());
-        }
         match self.font(shared) {
             Some(font)
                 if key == Key::Enter

@@ -33,7 +33,7 @@ use super::super::edit::Change as DraftChange;
 use super::super::input::Key;
 use super::super::layout::{PICTURE_COL, PICTURE_ROW};
 use super::super::listbox::{Body, Item, ListBox, Marks, plain, prose, rows, step, tail};
-use super::super::model::{DpiFrom, Shared, Size, Then, View};
+use super::super::model::{DpiFrom, Font, FontState, Shared, Size, Then, View};
 use super::super::shot::{Preview, Source};
 use super::super::words;
 use super::{Change, Command, Request, Room, Tab};
@@ -184,7 +184,11 @@ impl Looks {
                     Entry::FontSet(at) => fontsets::item(shared, *at),
                 };
                 if i == at {
-                    about = words::item_about(&full.name, &full.detail);
+                    about = match e {
+                        // a look's detail is a whole sentence of its own
+                        Entry::Look(_) => full.detail.clone(),
+                        _ => words::item_about(&full.name, &full.detail),
+                    };
                 }
                 let mut item = Item::new(full.name, "");
                 let first_font_set = matches!(e, Entry::FontSet(_))
@@ -241,14 +245,25 @@ impl Looks {
 
     /// `n` among the looks: a new look, with No filter and every other key
     /// left to vtium.conf, goes into the draft, and its card opens with its
-    /// name being typed.
+    /// name being typed. A look with no `vtlook` line draws the vtlook of
+    /// vtium.conf's top level, so where the top level sets one other than
+    /// the built-in one, the new look names the built-in one.
+    ///
+    /// References:
+    /// - ADR-1304 D4, its note of 2026-11-19: a new look starts on No
+    ///   filter.
+    /// - ADR-1304 D5: the look's vtlook wins, then the top level's.
     fn new_look(&mut self, shared: &Shared) -> Vec<Command> {
         let name = list::new_name(shared);
+        let default = vtium_settings::vtlook::DEFAULT;
         let change = DraftChange::LookAdd {
             name: name.clone(),
             frit: None,
             size: None,
-            vtlook: None,
+            vtlook: shared
+                .drafted("vtlook")
+                .is_some_and(|v| v != default)
+                .then(|| default.to_owned()),
         };
         if let Err(why) = shared.apply(std::slice::from_ref(&change)) {
             return vec![Command::Change(Change::Say(why))];
@@ -263,21 +278,24 @@ impl Looks {
         ]
     }
 
-    /// `t`: tries the font set `font` on the console, or says there is
-    /// none to try.
+    /// `t`: tries the font set `font` on the console, or says why it
+    /// cannot: there is none, the console does not read it, or this
+    /// machine does not have it. The live trial switches the console's
+    /// font alone, so a look's size, color scheme and vtlook take effect
+    /// only once vtium starts with them.
     fn try_font(shared: &Shared, font: Option<String>) -> Vec<Command> {
-        match font {
-            Some(name)
-                if shared
-                    .inputs
-                    .fonts
-                    .iter()
-                    .any(|f| f.name == name && fontsets::usable(shared, f)) =>
-            {
-                vec![Command::Change(Change::Try(name))]
-            }
-            Some(_) => Vec::new(),
-            None => vec![Command::Change(Change::Say(words::TRY_NO_FONT.to_owned()))],
+        let say = |line: String| vec![Command::Change(Change::Say(line))];
+        let Some(name) = font else {
+            return say(words::TRY_NO_FONT.to_owned());
+        };
+        match shared.inputs.fonts.iter().find(|f| f.name == name) {
+            Some(f) if fontsets::usable(shared, f) => vec![Command::Change(Change::Try(name))],
+            Some(Font {
+                state: FontState::Refused(why),
+                ..
+            }) => say(words::try_refused(&name, why)),
+            Some(_) => say(words::try_refused(&name, words::KEPT)),
+            None => say(words::try_absent(&name)),
         }
     }
 
@@ -310,8 +328,9 @@ impl Looks {
                 .get(at)
                 .map(|f| fontsets::remove(shared, &f.name))
                 .unwrap_or_default(),
-            (Key::Char('t'), Some(Entry::Look(_) | Entry::NoLooks)) => {
-                Self::try_font(shared, self.font_set(shared))
+            (Key::Char('t'), Some(Entry::Look(_))) => Self::try_font(shared, self.font_set(shared)),
+            (Key::Char('t'), Some(Entry::NoLooks)) => {
+                vec![Command::Change(Change::Say(words::TRY_NO_LOOK.to_owned()))]
             }
             (Key::Char('t'), Some(Entry::FontSet(at))) => {
                 Self::try_font(shared, shared.inputs.fonts.get(at).map(|f| f.name.clone()))
@@ -425,10 +444,6 @@ impl Tab for Looks {
             .into_iter()
             .map(|line| vec![(line, Style::PLAIN)])
             .collect()
-    }
-
-    fn planned_keys(&self, _shared: &Shared) -> &'static str {
-        words::KEYS_LOOKS
     }
 
     fn typing(&self) -> bool {

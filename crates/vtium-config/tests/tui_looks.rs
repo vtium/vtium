@@ -236,7 +236,8 @@ fn the_looks_tab_lists_the_looks_then_the_font_sets() {
         "{screen}"
     );
     assert!(
-        column(&screen).contains("proof: proof, vtium.conf's size, used by terminal desk."),
+        column(&screen)
+            .contains("proof uses the font set proof at vtium.conf's size. Terminal desk uses it."),
         "{screen}"
     );
 }
@@ -259,20 +260,22 @@ fn enter_on_a_look_opens_its_card_with_its_lines_and_its_fonts_by_role() {
         "Font set proof",
         "Size automatic, from vtium.conf.",
         "Color scheme legacy, from vtium.conf",
-        "Vtlook sepia",
+        "vtlook sepia",
         "Pointer theme vtium's own pictures, from vtium.conf.",
         words::SIZES_USUAL,
         "Its fonts, by role:",
-        "Text: font:JetBrains Mono",
-        "Box drawing: vtium's own lines and blocks",
+        "Text: the font family JetBrains Mono, not on this machine",
+        "Box drawing: vtium's own lines, unless the text font has them all",
         "What it still misses:",
+        "Text: the font family JetBrains Mono is not on this machine: no such family.",
     ] {
         assert!(text.contains(line), "{line:?}:\n{screen}");
     }
 }
 
 /// The color scheme line's list starts with the scheme vtium.conf sets,
-/// which leaves the look's own unset, then the nine built-in schemes.
+/// which leaves the look's own unset, then the nine built-in schemes, then
+/// `custom`, which takes vtium.conf's palette-0 to palette-15.
 ///
 /// References:
 /// - ADR-1205 D10: a look picks a built-in scheme or a scheme file, and
@@ -284,7 +287,8 @@ fn the_color_scheme_list_starts_with_vtium_conf_s_scheme_then_the_built_in_ones(
         .into_iter()
         .filter(|r| r.starts_with("   ● ") || r.starts_with("   ○ "))
         .collect();
-    assert_eq!(rows.len(), 10, "{screen}");
+    assert_eq!(rows.len(), 11, "{screen}");
+    assert!(rows[10].starts_with("   ○ custom "), "{screen}");
     assert!(
         rows[0].starts_with("   ● The color scheme vtium.conf sets (legacy)"),
         "{screen}"
@@ -319,7 +323,7 @@ fn the_vtlook_list_puts_no_filter_first_and_says_why_a_vtlook_does_not_read() {
     assert!(rows[3].starts_with("   ● sepia"), "{screen}");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
-        text.contains("does not read, so the terminal draws No filter until it is fixed: Line 2: there is no color filter named glow."),
+        text.contains("vtium cannot read this file, so the terminal draws No filter until the file is fixed: Line 2: there is no color filter named glow."),
         "{screen}"
     );
 }
@@ -373,7 +377,13 @@ fn n_makes_a_look_on_no_filter_whose_name_is_typed() {
     let mut d = desk();
     let backspace: &[u8] = b"\x7f";
     let mut c = console().keys(&[
-        TO_LOOKS, b"n", backspace, backspace, backspace, backspace, b"wide", b"\r", ESC, b"s",
+        TO_LOOKS,
+        b"n",
+        &backspace.repeat(8),
+        b"wide",
+        b"\r",
+        ESC,
+        b"s",
     ]);
     run_desk(&mut c, &mut d);
     assert!(d.draft.contains("[look wide]\n"), "{}", d.draft);
@@ -385,7 +395,7 @@ fn n_makes_a_look_on_no_filter_whose_name_is_typed() {
         .unwrap_or_default()
         .to_owned();
     assert!(!section.contains("vtlook"), "{}", d.draft);
-    assert!(!d.draft.contains("[look look]"), "{}", d.draft);
+    assert!(!d.draft.contains("[look new-look]"), "{}", d.draft);
 }
 
 /// `r` on a look asks first, and `y` deletes it; the terminal that drew it
@@ -416,7 +426,7 @@ fn a_font_set_s_detail_shows_its_fonts_by_role_and_the_looks_that_use_it() {
     for line in [
         "Font set proof",
         "The console reads it without errors.",
-        "Text: font:JetBrains Mono",
+        "Text: the font family JetBrains Mono, not on this machine",
         "What it still misses:",
         "Used by look proof.",
     ] {
@@ -454,4 +464,286 @@ fn p_switches_the_preview_between_sample_characters_and_a_picture() {
     assert!(!app.looks.picture());
     app.event(Event::Input(Input::Key(Key::Char('p'))));
     assert!(app.looks.picture());
+}
+
+/// The fixture's inputs with `conf` as its vtium.conf.
+fn with_conf(conf: &str) -> Inputs {
+    let mut i = inputs();
+    i.conf = Some(conf.to_owned());
+    i
+}
+
+/// The screen that `keys` reach at 100x30 in a vtium console with
+/// `allow-font-ops` on, from `inputs`.
+fn reach_inputs(inputs: Inputs, keys: &[&[u8]]) -> String {
+    let grid = (100, 30);
+    let mut c = Console::vtium(100, 30, true, "unifont")
+        .takes("minspec-16", grid)
+        .takes("proof", grid)
+        .takes("tiny5", grid)
+        .takes("unifont", grid)
+        .takes("unscii-8", grid)
+        .keys(keys);
+    drive(&mut c, inputs).expect("the loop");
+    c.seen.clone().expect("the screen")
+}
+
+/// The draft that `keys` leave, from a desk whose draft and installed
+/// file are `conf`.
+fn draft_after(conf: &str, keys: &[&[u8]]) -> String {
+    let mut d = desk();
+    d.installed = conf.to_owned();
+    d.draft = conf.to_owned();
+    let mut c = console().keys(keys);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(conf), Some(&mut d)).expect("the loop");
+    d.draft
+}
+
+/// The text of `screen` with its runs of blanks made one space.
+fn flat(screen: &str) -> String {
+    screen.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The rows of a list of choices on `screen`, ticked or not.
+fn choice_rows(screen: &str) -> Vec<String> {
+    body(screen)
+        .into_iter()
+        .filter(|r| r.starts_with("   ● ") || r.starts_with("   ○ "))
+        .collect()
+}
+
+/// The section `[look NAME]` of `draft`, up to the next section.
+fn look_section(draft: &str, name: &str) -> String {
+    draft
+        .split(&format!("[look {name}]\n"))
+        .nth(1)
+        .and_then(|rest| rest.split('[').next())
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// A vtium.conf whose top level sets the vtlook amber, with the look
+/// proof that names no vtlook.
+const TOP_AMBER: &str = "# mine\nfont-name=unifont\nvtlook=amber\nversion = 1\n[look proof]\nfont-name = proof\n[head desk]\nlook = proof\n[head panel]\n[rules]\ndisplay * -> desk\n";
+
+/// A look with no vtlook line draws the vtlook that vtium.conf's top
+/// level sets, and its card says so.
+///
+/// References:
+/// - ADR-1304 D5: the look's vtlook wins, then the top level's, then the
+///   built-in one.
+#[test]
+fn a_look_with_no_vtlook_line_shows_the_vtlook_vtium_conf_sets() {
+    let screen = reach_inputs(with_conf(TOP_AMBER), &[TO_LOOKS, b"\r"]);
+    assert!(
+        flat(&screen).contains("vtlook amber, from vtium.conf"),
+        "{screen}"
+    );
+}
+
+/// Where vtium.conf sets a vtlook, the vtlook list starts with it, which
+/// leaves the look's key unset, and No filter follows and writes
+/// `vtlook = default`, since an unset key would draw amber.
+///
+/// References:
+/// - ADR-1304 D5: `vtlook = default` in a look gives the built-in vtlook
+///   whatever the top level says.
+#[test]
+fn no_filter_writes_vtlook_default_where_vtium_conf_sets_another_vtlook() {
+    let to_list: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, DOWN, DOWN, b"\r"];
+    let screen = reach_inputs(with_conf(TOP_AMBER), to_list);
+    let rows = choice_rows(&screen);
+    assert!(
+        rows[0].starts_with("   ● The vtlook vtium.conf sets (amber)"),
+        "{screen}"
+    );
+    assert!(rows[1].starts_with("   ○ No filter"), "{screen}");
+    let draft = draft_after(TOP_AMBER, &[to_list, &[DOWN, b"\r", ESC, b"s"]].concat());
+    let proof = look_section(&draft, "proof");
+    assert!(proof.contains("vtlook = default\n"), "{draft}");
+    assert!(proof.contains("font-name = proof\n"), "{draft}");
+    // a look that names default shows No filter, ticked in the list
+    let named = TOP_AMBER.replace(
+        "font-name = proof\n",
+        "font-name = proof\nvtlook = default\n",
+    );
+    let screen = reach_inputs(with_conf(&named), to_list);
+    let rows = choice_rows(&screen);
+    assert!(rows[1].starts_with("   ● No filter"), "{screen}");
+}
+
+/// `n` writes `vtlook = default` into the new look where vtium.conf sets
+/// another vtlook, so the new look starts on No filter.
+///
+/// References:
+/// - ADR-1304 D4, its note of 2026-11-19: a new look starts on No filter.
+#[test]
+fn n_starts_a_new_look_on_no_filter_where_vtium_conf_sets_a_vtlook() {
+    let draft = draft_after(TOP_AMBER, &[TO_LOOKS, b"n", b"\r", ESC, b"s"]);
+    assert_eq!(
+        look_section(&draft, "new-look").trim(),
+        "vtlook = default",
+        "{draft}"
+    );
+}
+
+/// A look whose font set, size or color scheme is not among the line's
+/// usual choices lists that value, ticked, and Left and Right step from
+/// it: they never drop the look's key.
+#[test]
+fn a_value_the_usual_choices_lack_is_listed_and_steps_from_where_it_is() {
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look proof]\nfont-name = broken\nfont-size = 15\npalette = catppuccin-mocha\n";
+    // the color schemes end with custom, then the look's own scheme file
+    let draft = draft_after(conf, &[TO_LOOKS, b"\r", DOWN, DOWN, DOWN, LEFT, ESC, b"s"]);
+    assert!(
+        look_section(&draft, "proof").contains("palette = custom\n"),
+        "{draft}"
+    );
+    // 15 pt sits between 14 pt and 16 pt
+    let draft = draft_after(conf, &[TO_LOOKS, b"\r", DOWN, DOWN, RIGHT, ESC, b"s"]);
+    assert!(
+        look_section(&draft, "proof").contains("font-size = 16\n"),
+        "{draft}"
+    );
+    let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r"]);
+    let rows = choice_rows(&screen);
+    let ticked: Vec<&String> = rows.iter().filter(|r| r.starts_with("   ● ")).collect();
+    assert_eq!(ticked.len(), 1, "{screen}");
+    assert!(ticked[0].starts_with("   ● 15 pt"), "{screen}");
+    // the font set that does not read is listed, ticked, with why
+    let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"\r", DOWN, b"\r"]);
+    let rows = choice_rows(&screen);
+    let ticked: Vec<&String> = rows.iter().filter(|r| r.starts_with("   ● ")).collect();
+    assert_eq!(ticked.len(), 1, "{screen}");
+    assert!(ticked[0].starts_with("   ● broken"), "{screen}");
+    assert!(
+        flat(&screen).contains("the console does not read it: line 2: unknown key colour"),
+        "{screen}"
+    );
+}
+
+/// Left steps the font set line to its choice before.
+#[test]
+fn left_steps_the_font_set_line_back() {
+    let mut d = desk();
+    let mut c = console().keys(&[TO_LOOKS, b"\r", DOWN, LEFT, ESC, b"s"]);
+    run_desk(&mut c, &mut d);
+    // proof's choice before is minspec-16
+    assert!(
+        d.draft.contains("[look proof]\nfont-name = minspec-16\n"),
+        "{}",
+        d.draft
+    );
+}
+
+/// The look default is drawn by every terminal that names no look, so its
+/// row counts them, and `r` names them and says what they draw after.
+#[test]
+fn the_look_default_counts_the_terminals_that_name_no_look() {
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look default]\nfont-name = proof\n[head desk]\n[head panel]\n[rules]\ndisplay * -> desk\n";
+    let screen = reach_inputs(with_conf(conf), &[TO_LOOKS]);
+    assert!(
+        column(&screen).contains("Terminals desk and panel use it."),
+        "{screen}"
+    );
+    let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"r"]);
+    assert!(
+        flat(&screen).contains("Delete the look default? Terminals desk and panel use it, and then use vtium.conf's top-level settings."),
+        "{screen}"
+    );
+}
+
+/// A look's card names its fonts by role in the words a person uses, as
+/// the font set file reads: the text font with its bold face, box drawing
+/// as the file's glyph-source lines choose, the other fonts and the
+/// layers; and what it misses, by role.
+///
+/// References:
+/// - ADR-1205 D6: the roles.
+/// - ADR-1205 D8: what a look still misses, by role.
+#[test]
+fn a_look_s_card_names_its_fonts_by_role() {
+    let mut i = inputs();
+    i.installed.insert(
+        "proof".to_owned(),
+        b"source=font:JetBrains Mono\nsource=font:JetBrains Mono Bold\nstyle=bold\nsource=kbd:lat2-16\nglyph-source=sprites\nglyph-source-box=font\nlayer=noto-emoji\n".to_vec(),
+    );
+    let screen = reach_inputs(i, &[TO_LOOKS, b"\r"]);
+    let text = flat(&screen);
+    for line in [
+        "Text: the font family JetBrains Mono, not on this machine",
+        "Text, bold: the font family JetBrains Mono Bold",
+        "Box drawing: the text font's own lines",
+        "More fonts, in the order vtium tries them: the console font lat2-16",
+        "Scripts, symbols, emoji, and fallback: the fonts of the layer noto-emoji",
+        "Text: the font family JetBrains Mono is not on this machine: no such family.",
+    ] {
+        assert!(text.contains(line), "{line:?}:\n{screen}");
+    }
+}
+
+/// Where neither the look nor vtium.conf names a font set, the font set
+/// line says what vtium uses, and the roles name it too.
+#[test]
+fn a_look_with_no_font_set_anywhere_says_what_vtium_uses() {
+    let conf = "# mine\nversion = 1\n[look bare]\n";
+    let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"\r"]);
+    let text = flat(&screen);
+    assert!(
+        text.contains("Font set none, so vtium uses the font that vconsole.conf names, or else its built-in font"),
+        "{screen}"
+    );
+    assert!(
+        text.contains("Text: the font that vconsole.conf names, or else vtium's built-in font"),
+        "{screen}"
+    );
+    assert!(!text.contains("vtium's own choice"), "{screen}");
+    let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"\r", DOWN, b"\r"]);
+    assert!(
+        choice_rows(&screen)[0].starts_with("   ● The font set vtium.conf sets (none)"),
+        "{screen}"
+    );
+}
+
+/// `n` names the new look new-look, and the message line says so.
+#[test]
+fn n_names_the_new_look_new_look() {
+    let mut d = desk();
+    let mut c = console().keys(&[TO_LOOKS, b"n"]);
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        flat(&screen).contains("Made the look new-look. Type its name, then press Enter."),
+        "{screen}"
+    );
+}
+
+/// `t` says why it tries nothing: on the row that says there are no
+/// looks yet, and on a look whose font set does not read.
+#[test]
+fn t_says_why_it_has_nothing_to_try() {
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n";
+    let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"t"]);
+    assert!(
+        flat(&screen)
+            .contains("There is no look yet, so t has nothing to try. Press n to make a look."),
+        "{screen}"
+    );
+    let conf = "# mine\nfont-name=unifont\nversion = 1\n[look odd]\nfont-name = broken\n";
+    let screen = reach_inputs(with_conf(conf), &[TO_LOOKS, b"t"]);
+    assert!(
+        flat(&screen).contains("The console does not read the font set broken, so t cannot try it: line 2: unknown key colour"),
+        "{screen}"
+    );
+}
+
+/// `n` in the Fonts tab opens the form for a new font set, which belongs
+/// to the Looks tab, and the message line says where Esc goes.
+#[test]
+fn n_in_the_fonts_tab_says_the_form_belongs_to_the_looks_tab() {
+    let screen = reach(100, 30, &[TO_FONTS, b"n"]);
+    assert!(
+        flat(&screen).contains("The form for a new font set is part of the Looks tab, so Esc or adding the font set goes to the Looks tab."),
+        "{screen}"
+    );
 }

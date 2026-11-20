@@ -320,7 +320,7 @@ pub enum Live {
 /// pixels: the console's 8x16 at 640x480.
 pub const ASSUMED_CELL: (u32, u32) = (8, 16);
 
-/// The sizes the size view offers, in points, after automatic (0): within
+/// The sizes a look's card offers, in points, after automatic (0): within
 /// the bounds the console reads `font-size` and a frit's `size=` in.
 pub const SIZES: [u32; 15] = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32];
 
@@ -1085,8 +1085,7 @@ impl App {
             (true, Some(font)) => {
                 self.shared.start_font = Some(font.clone());
                 self.shared.shown_font = Some(font.clone());
-                let moved = self.fonts.highlight(&self.shared, &font);
-                self.perform(vec![moved]);
+                self.fonts.highlight(&self.shared, &font);
                 Live::On
             }
             (true, None) => Live::OpsOff,
@@ -1267,9 +1266,6 @@ impl App {
                 Command::Change(Change::SaveTried) => effects.extend(self.save_tried()),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
                 Command::Change(Change::Quiet) => self.shared.message = None,
-                // the Looks tab previews its own highlight, so a move of
-                // the Fonts tab's highlight changes nothing more
-                Command::Change(Change::Preview(_)) => {}
                 Command::Change(Change::Make { changes, select }) => {
                     effects.extend(self.make(changes, select));
                 }
@@ -1286,8 +1282,7 @@ impl App {
                 // the Fonts tab highlights the font before it opens, in
                 // that order, so its first frame shows the font
                 Request::ShowFont(name) => {
-                    let moved = self.fonts.highlight(&self.shared, &name);
-                    effects.extend(self.perform(vec![moved]));
+                    self.fonts.highlight(&self.shared, &name);
                     effects.extend(self.set_view(View::Fonts));
                 }
             }
@@ -1311,11 +1306,9 @@ impl App {
                 let Some(start) = self.shared.start_font.clone() else {
                     return Vec::new();
                 };
-                let moved = self.fonts.highlight(&self.shared, &start);
-                let mut out = self.perform(vec![moved]);
+                self.fonts.highlight(&self.shared, &start);
                 self.shared.want = Some(start);
-                out.extend(self.follow());
-                out
+                self.follow()
             }
             _ => Vec::new(),
         }
@@ -1407,8 +1400,7 @@ impl App {
         for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
-        let moved = self.fonts.fit(&self.shared);
-        self.perform(vec![moved]);
+        self.fonts.fit(&self.shared);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one

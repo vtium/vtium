@@ -1234,17 +1234,8 @@ fn looks_checks(
             None,
         ),
     );
-    // Left and Right step the line through its choices, which changes the
-    // draft, and stay on the card
-    let steps: Check = |s| {
-        if s.exited() || s.step.to.node() != "looks.look" {
-            Err("the key left the card".into())
-        } else {
-            Ok(())
-        }
-    };
-    m.insert("left.layer.look", (steps, None));
-    m.insert("right.layer.look", (steps, None));
+    m.insert("left.layer.look", (|s| steps(s, true), None));
+    m.insert("right.layer.look", (|s| steps(s, false), None));
     m.insert(
         "enter.layer.look",
         (|s| s.goes_to("looks.look.typing"), None),
@@ -1259,6 +1250,40 @@ fn looks_checks(
     }
     // a look draws vtium.conf's pointer theme, so its line has no list
     m.insert("list.pointer-themes", (not_built, Some(nothing)));
+}
+
+/// Left, with `back`, and Right step the highlighted line of a look's
+/// card to the choice before or after the look's value, which the look's
+/// key then takes. At either end of the choices, and on a line with none,
+/// they change nothing. Both stay on the card.
+fn steps(s: &Seen<'_>, back: bool) -> Result<(), String> {
+    if s.exited() || s.step.to.node() != "looks.look" {
+        return Err("the key left the card".into());
+    }
+    let Some(card) = s.before.app.looks.card() else {
+        return Err("no card was open before the key".into());
+    };
+    let (values, now) = card.values(&s.before.app.shared);
+    let at = values.iter().position(|v| *v == now);
+    let want = match at {
+        Some(at) if back => at.checked_sub(1),
+        Some(at) => at.checked_add(1).filter(|to| *to < values.len()),
+        None => None,
+    };
+    let after = s
+        .after
+        .app
+        .looks
+        .card()
+        .map(|c| c.values(&s.after.app.shared).1);
+    match want.and_then(|to| values.get(to)) {
+        None if s.kept() => Ok(()),
+        None => Err("the key changed the draft with no choice to step to".into()),
+        Some(to) if after.as_ref() == Some(to) && !s.kept() => Ok(()),
+        Some(to) => Err(format!(
+            "the key left the look's value at {after:?}, not at the next choice {to:?}"
+        )),
+    }
 }
 
 /// When a row applies, for rows that share a key in one node: the row is

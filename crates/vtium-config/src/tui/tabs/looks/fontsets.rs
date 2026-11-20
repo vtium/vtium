@@ -16,7 +16,13 @@ use super::super::super::listbox::Item;
 use super::super::super::model::{Font, FontState, Shared};
 use super::super::super::words;
 use super::super::{Change, Command};
+use crate::frit::{Frit, Source};
+use crate::serve::LeftOut;
 use crate::specimen::Sources;
+use std::path::Path;
+use vtium_font::Source as GlyphSource;
+use vtium_font::Style;
+use vtium_font::sprite::Range;
 
 /// The font set at `at` in the list of fonts as an item of the tab's
 /// list: its name, then what the console reads of it, whether the install
@@ -118,21 +124,83 @@ fn text<'s>(shared: &'s Shared, name: &str) -> Option<&'s str> {
         })
 }
 
-/// The value of each line of `text` whose key is `key`, in the file's
-/// order, with a comment after the value left out.
-fn values<'t>(text: &'t str, key: &str) -> Vec<&'t str> {
-    text.lines()
-        .filter_map(|line| line.split_once('='))
-        .filter(|(k, _)| k.trim() == key)
-        .map(|(_, v)| v.split('#').next().unwrap_or("").trim())
-        .filter(|v| !v.is_empty())
-        .collect()
+/// The font set `name` as the frit parser reads it, where its text reads.
+fn parsed(shared: &Shared, name: &str) -> Option<Frit> {
+    let text = text(shared, name)?;
+    Frit::parse(text.as_bytes(), Path::new(name), name).ok()
+}
+
+/// The role a source of a font set fills: the text font, one of its
+/// styled faces, a further font tried after it, or a font of a layer.
+fn role(frit: &Frit, source: &Source) -> &'static str {
+    if source.layer.is_some() {
+        return words::ROLE_LAYER_FONT;
+    }
+    match (source.style.bold, source.style.italic) {
+        (true, true) => words::ROLE_BOLD_ITALIC,
+        (true, false) => words::ROLE_BOLD,
+        (false, true) => words::ROLE_ITALIC,
+        (false, false) => {
+            let first = frit
+                .sources
+                .iter()
+                .find(|s| s.layer.is_none() && s.style == Style::default());
+            if first.is_some_and(|f| f.line == source.line) {
+                words::ROLE_TEXT
+            } else {
+                words::ROLE_OTHER
+            }
+        }
+    }
+}
+
+/// The font `spelling` names, in the words a person uses for it: as the
+/// source of `frit` with that spelling names it, else as the frit parser
+/// reads the spelling on a `source=` line of its own, which names a font
+/// from a layer. A spelling the parser does not read is shown as it is.
+fn font_of(frit: Option<&Frit>, spelling: &str) -> String {
+    let own = frit
+        .and_then(|f| f.sources.iter().find(|s| s.spelling == spelling))
+        .map(|s| s.origin.clone());
+    own.or_else(|| {
+        Frit::parse(
+            format!("source={spelling}\n").as_bytes(),
+            Path::new("font"),
+            "font",
+        )
+        .ok()
+        .and_then(|f| f.sources.into_iter().next())
+        .map(|s| s.origin)
+    })
+    .map_or_else(|| spelling.to_owned(), |o| words::font_named(&o))
+}
+
+/// What box drawing comes from, as the font set's `glyph-source-box=`
+/// line, else its `glyph-source=` line, chooses.
+fn box_drawing(frit: &Frit) -> &'static str {
+    let line = |range: Option<Range>| {
+        frit.glyph_source
+            .iter()
+            .rev()
+            .find(|(r, _)| *r == range)
+            .map(|(_, s)| *s)
+    };
+    match line(Some(Range::BoxDrawing)).or_else(|| line(None)) {
+        Some(GlyphSource::Sprites) => words::ROLE_BOX_OWN,
+        Some(GlyphSource::Font) => words::ROLE_BOX_FONT,
+        Some(GlyphSource::Auto) => words::ROLE_BOX_AUTO,
+        None => words::ROLE_BOX_DEFAULT,
+    }
 }
 
 /// The fonts the font set `name` draws with, by role, one line each: the
-/// text font first, then box drawing, then the font set's other fonts and
-/// its layers, in the order vtium tries them. A font the font helper found
-/// missing on this machine is marked so.
+/// text font and its bold and italic faces first, then box drawing, then
+/// the fonts vtium tries after the text font, and last the layers that
+/// add fonts for scripts, symbols, emoji and the fallback. A font the font
+/// helper found missing on this machine, or cannot use, is marked so.
+///
+/// References:
+/// - ADR-1205 D6: the roles, and box drawing apart from the fonts' order.
 pub fn roles(shared: &Shared, name: &str) -> Vec<String> {
     let built_in = shared
         .inputs
@@ -142,58 +210,86 @@ pub fn roles(shared: &Shared, name: &str) -> Vec<String> {
     if built_in {
         return vec![
             words::role_line(words::ROLE_TEXT, &words::built_in_font(name)),
-            words::role_line(words::ROLE_BOX, words::ROLE_BOX_OWN),
+            words::role_line(words::ROLE_BOX, words::ROLE_BOX_DEFAULT),
         ];
     }
-    let Some(text) = text(shared, name) else {
+    let Some(frit) = parsed(shared, name) else {
         return vec![words::ROLES_UNREAD.to_owned()];
     };
-    let left: Vec<String> = match shared.sources.get(name) {
-        Some(Sources::LeftOut(left)) => left
-            .iter()
-            .filter(|l| l.missing)
-            .map(|l| l.spelling.clone())
-            .collect(),
+    let left: Vec<&LeftOut> = match shared.sources.get(name) {
+        Some(Sources::LeftOut(left)) => left.iter().collect(),
         _ => Vec::new(),
     };
-    let shown = |spelling: &str| {
-        if left.iter().any(|l| l == spelling) {
-            words::font_missing(spelling)
-        } else {
-            spelling.to_owned()
+    let shown = |source: &Source| {
+        let font = words::font_named(&source.origin);
+        match left.iter().find(|l| l.spelling == source.spelling) {
+            Some(l) if l.missing => words::font_missing(font),
+            Some(_) => words::font_refused(font),
+            None => font,
         }
     };
-    let sources = values(text, "source");
     let mut out = Vec::new();
-    match sources.split_first() {
-        Some((first, rest)) => {
-            out.push(words::role_line(words::ROLE_TEXT, &shown(first)));
-            out.push(words::role_line(
-                words::ROLE_BOX,
-                if values(text, "glyph-source").is_empty() {
-                    words::ROLE_BOX_OWN
-                } else {
-                    words::ROLE_BOX_FONT
-                },
-            ));
-            if !rest.is_empty() {
-                let rest: Vec<String> = rest.iter().map(|s| shown(s)).collect();
-                out.push(words::role_line(words::ROLE_OTHER, &rest.join(", ")));
+    for heading in [
+        words::ROLE_TEXT,
+        words::ROLE_BOLD,
+        words::ROLE_ITALIC,
+        words::ROLE_BOLD_ITALIC,
+    ] {
+        let fonts: Vec<String> = frit
+            .sources
+            .iter()
+            .filter(|s| role(&frit, s) == heading)
+            .map(shown)
+            .collect();
+        match (heading, fonts.is_empty()) {
+            (_, false) => out.push(words::role_line(heading, &fonts.join(", "))),
+            (h, true) if h == words::ROLE_TEXT => {
+                out.push(words::role_line(words::ROLE_TEXT, words::ROLE_NONE));
             }
+            _ => {}
         }
-        None => out.push(words::role_line(words::ROLE_TEXT, words::ROLE_NONE)),
+        if heading == words::ROLE_BOLD_ITALIC {
+            out.push(words::role_line(words::ROLE_BOX, box_drawing(&frit)));
+        }
     }
-    let layers = values(text, "layer");
+    let more: Vec<String> = frit
+        .sources
+        .iter()
+        .filter(|s| role(&frit, s) == words::ROLE_OTHER)
+        .map(shown)
+        .collect();
+    if !more.is_empty() {
+        out.push(words::role_line(words::ROLE_OTHER, &more.join(", ")));
+    }
+    let layers: Vec<String> = frit.layers.iter().map(|(_, n)| n.clone()).collect();
     if !layers.is_empty() {
-        out.push(words::role_line(words::ROLE_LAYERS, &layers.join(", ")));
+        out.push(words::role_line(
+            words::ROLE_LAYERS,
+            &words::role_layers(&layers),
+        ));
     }
     out
 }
 
 /// What the font set `name` still misses on this machine, as the font
 /// helper found it, one line each: nothing, each font it lacks or
-/// refuses, or why nothing is known yet.
+/// cannot use, by the role the font fills, or why nothing is known yet.
+///
+/// References:
+/// - ADR-1205 D8: what a look still misses, by role.
 pub fn missing(shared: &Shared, name: &str) -> Vec<String> {
+    let frit = parsed(shared, name);
+    let role_of = |spelling: &str| {
+        frit.as_ref()
+            .and_then(|f| {
+                f.sources
+                    .iter()
+                    .find(|s| s.spelling == spelling)
+                    .map(|s| role(f, s))
+            })
+            // a font the frit's own lines do not name comes from a layer
+            .unwrap_or(words::ROLE_LAYER_FONT)
+    };
     match shared.sources.get(name) {
         _ if shared
             .inputs
@@ -206,7 +302,14 @@ pub fn missing(shared: &Shared, name: &str) -> Vec<String> {
         Some(Sources::LeftOut(left)) if left.is_empty() => vec![words::MISSES_NOTHING.to_owned()],
         Some(Sources::LeftOut(left)) => left
             .iter()
-            .map(|l| words::misses(&l.spelling, &l.why))
+            .map(|l| {
+                let (role, font) = (role_of(&l.spelling), font_of(frit.as_ref(), &l.spelling));
+                if l.missing {
+                    words::misses(role, font, &l.why)
+                } else {
+                    words::misses_refused(role, font, &l.why)
+                }
+            })
             .collect(),
         Some(Sources::DrawsNothing(why)) => vec![words::misses_all(why)],
         Some(Sources::Unknown(why)) => vec![words::misses_unknown(why)],

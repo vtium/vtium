@@ -179,10 +179,6 @@ pub enum Change {
     Try(String),
     /// Clears the message line.
     Quiet,
-    /// The Fonts tab's highlight moved to this place in the list of fonts.
-    /// Update hands the place to the Looks tab, which previews the font
-    /// that the Fonts tab highlights until looks name fonts of their own.
-    Preview(usize),
     /// Makes `changes` on the draft, in order, and hands the result to the
     /// desk to check, then selects `select` in the Flow view once the desk
     /// answers. The tab checks first that the changes can be made, with
