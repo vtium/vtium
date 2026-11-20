@@ -551,6 +551,7 @@ impl Desk {
             text: self.draft.clone(),
             added,
             removed,
+            resources: self.resources.clone(),
             ..Default::default()
         }
     }
@@ -576,6 +577,7 @@ impl vtium_config::tui::desk::Desk for Desk {
                     text: text.clone(),
                     added,
                     removed,
+                    resources: self.resources.clone(),
                     ..Default::default()
                 };
                 Ok(Done::Draft(opened, None))
@@ -591,11 +593,9 @@ impl vtium_config::tui::desk::Desk for Desk {
                 no_route: false,
             })),
             Op::Devices => Ok(Done::Present(Default::default())),
-            Op::Resource { path, change } => Ok(vtium_config::tui::fixture::resource_op(
-                &mut self.resources,
-                path,
-                *change,
-            )),
+            Op::Resource { path, change } => {
+                vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)
+            }
             other => Err(format!("{other:?} is not in these tests")),
         }
     }

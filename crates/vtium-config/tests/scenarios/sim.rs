@@ -68,7 +68,20 @@ impl Desk {
             text: text.to_owned(),
             added,
             removed,
+            resources: self.resources.clone(),
             ..Default::default()
+        }
+    }
+
+    /// Drops the draft's changes to the active resources, as the real
+    /// desk does when Revert, New or Delete starts the draft over.
+    fn drop_batch(&mut self) {
+        self.resources
+            .retain(|(_, s)| *s != vtium_config::batch::State::Activates);
+        for (_, s) in &mut self.resources {
+            if *s == vtium_config::batch::State::Deactivates {
+                *s = vtium_config::batch::State::Active;
+            }
         }
     }
 
@@ -100,10 +113,12 @@ impl Desk {
             }),
             Op::Revert | Op::Delete => {
                 self.draft.clone_from(&self.installed);
+                self.drop_batch();
                 self.draft()
             }
             Op::New => {
                 self.draft = "version = 1\n[look default]\n".to_owned();
+                self.drop_batch();
                 self.draft()
             }
             Op::History => Done::History(
@@ -127,7 +142,7 @@ impl Desk {
             }
             Op::Devices => Done::Present(present()),
             Op::Resource { path, change } => {
-                vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)
+                vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)?
             }
         })
     }

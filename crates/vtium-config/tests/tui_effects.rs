@@ -57,16 +57,13 @@ fn the_list_shows_no_filter_then_the_presets_then_the_administrator_s_vtlooks() 
     assert!(at("No filter") < at("amber"), "{screen}");
     assert!(at("amber") < at("sepia"), "{screen}");
     assert!(at(" vtlooks") < at(" Color maps"), "{screen}");
-    // the preset green is hidden by the administrator's green, which does
-    // not read
+    // the preset green is hidden by the administrator's green, which has
+    // an error
     assert!(
         screen.contains("preset, hidden by the administrator's vtlook of this name"),
         "{screen}"
     );
-    assert!(
-        screen.contains("administrator's, does not read"),
-        "{screen}"
-    );
+    assert!(screen.contains("administrator's, has an error"), "{screen}");
     assert!(screen.contains("sepia.cube"), "{screen}");
     assert!(screen.contains("active, trusted"), "{screen}");
     assert!(
@@ -129,10 +126,10 @@ fn a_vtlook_s_detail_shows_its_filters_files_and_looks() {
     press(&mut a, Key::Enter);
     let screen = text(&a);
     assert!(
-        screen.contains("File: none, it is built into vtium"),
+        screen.contains("File: none, because it is built into vtium"),
         "{screen}"
     );
-    assert!(screen.contains("It has no filter"), "{screen}");
+    assert!(screen.contains("This vtlook has no filter"), "{screen}");
 }
 
 #[test]
@@ -142,8 +139,15 @@ fn a_color_map_s_detail_shows_its_marks_and_the_check_it_fails() {
     press(&mut a, Key::Enter);
     let screen = text(&a);
     assert!(screen.contains(" color map loose.cube"), "{screen}");
-    assert!(screen.contains("Active: not active"), "{screen}");
-    assert!(screen.contains("the file belongs to user 1000"), "{screen}");
+    assert!(screen.contains("State: not active"), "{screen}");
+    assert!(
+        screen.contains("This color map fails the trust rule"),
+        "{screen}"
+    );
+    assert!(
+        joined(&screen).contains("the file belongs to user 1000"),
+        "{screen}"
+    );
     assert!(screen.contains("No look uses it."), "{screen}");
 }
 
@@ -163,7 +167,8 @@ fn space_activates_a_color_map_through_the_desk_and_the_mark_follows() {
         &mut states,
         std::path::Path::new("/etc/vtium/looks/warm.cube"),
         Change::Activate,
-    );
+    )
+    .expect("an activation");
     a.event(Event::Desked(op, Ok(done)));
     let warm = a
         .shared
@@ -185,14 +190,123 @@ fn space_activates_a_color_map_through_the_desk_and_the_mark_follows() {
     assert!(press(&mut a, Key::Char(' ')).is_empty());
 }
 
+/// The state of the color map `name` in the Effects tab's list.
+fn mark(a: &App, name: &str) -> Option<State> {
+    a.shared
+        .inputs
+        .effects
+        .maps
+        .iter()
+        .find(|m| m.name() == name)
+        .map(|m| m.state)
+}
+
+// The marks follow the draft after every desk answer that changes the
+// draft or its batch: an install of a draft that activates a color map
+// makes it active, and Revert, New, Delete and Restore each bring the
+// marks of the draft they leave open.
+#[test]
+fn the_marks_follow_the_draft_after_install_revert_new_delete_and_restore() {
+    use vtium_config::tui::desk::{Done, Opened};
+    let warm = std::path::PathBuf::from("/etc/vtium/looks/warm.cube");
+    let activated = || {
+        let mut a = effects();
+        let mut states = active();
+        let op = Op::Resource {
+            path: warm.clone(),
+            change: Change::Activate,
+        };
+        let done = vtium_config::tui::fixture::resource_op(&mut states, &warm, Change::Activate)
+            .expect("an activation");
+        a.event(Event::Desked(op, Ok(done)));
+        assert_eq!(mark(&a, "warm.cube"), Some(State::Activates));
+        a
+    };
+    let opened = |resources: Vec<(std::path::PathBuf, State)>| Opened {
+        name: "mine".into(),
+        text: inputs().conf.expect("the fixture's vtium.conf"),
+        resources,
+        ..Opened::default()
+    };
+    // the install makes the draft's activation active
+    let mut a = activated();
+    let mut installed = active();
+    installed.push((warm.clone(), State::Active));
+    a.event(Event::Installed(Ok(Done::Draft(opened(installed), None))));
+    assert_eq!(mark(&a, "warm.cube"), Some(State::Active));
+    assert_eq!(mark(&a, "sepia.cube"), Some(State::Active));
+    // each op that replaces the draft drops its activation
+    for op in [Op::Revert, Op::New, Op::Delete, Op::Restore(1)] {
+        let mut a = activated();
+        a.event(Event::Desked(
+            op.clone(),
+            Ok(Done::Draft(opened(active()), None)),
+        ));
+        assert_eq!(mark(&a, "warm.cube"), Some(State::Inactive), "{op:?}");
+        assert_eq!(mark(&a, "sepia.cube"), Some(State::Active), "{op:?}");
+    }
+}
+
+// Space on a vtlook changes nothing and says nothing, since a vtlook is
+// not a resource the batch lists.
+#[test]
+fn space_on_a_vtlook_does_nothing() {
+    for name in ["No filter", "amber", "sepia"] {
+        let mut a = effects();
+        to(&mut a, name);
+        let before = a.shared.message.clone();
+        assert!(press(&mut a, Key::Char(' ')).is_empty(), "{name}");
+        assert_eq!(a.shared.message, before, "{name}");
+        assert_eq!(nav::node(&a), "effects", "{name}");
+    }
+}
+
+// An administrator's vtlook that takes a preset's name hides the preset,
+// so the looks that name it use the files the administrator's vtlook
+// names, not the preset's.
+#[test]
+fn the_administrator_s_vtlook_decides_which_files_a_look_uses() {
+    use vtium_config::tui::effects_found::{From, Vtlook};
+    let mut found = inputs().effects;
+    let vtlook = |from, hidden, file: &str| Vtlook {
+        name: "glow".into(),
+        file: None,
+        from,
+        hidden,
+        read: Ok(Vec::new()),
+        files: vec![file.into()],
+    };
+    found
+        .vtlooks
+        .push(vtlook(From::Preset, true, "/etc/vtium/looks/warm.cube"));
+    found.vtlooks.push(vtlook(
+        From::Administrator,
+        false,
+        "/etc/vtium/looks/sepia.cube",
+    ));
+    let conf = "version = 1\n[look desk]\nvtlook = glow\n";
+    let users = |file: &str| found.uses(conf, std::path::Path::new(file));
+    assert!(users("/etc/vtium/looks/warm.cube").is_empty());
+    assert_eq!(
+        users("/etc/vtium/looks/sepia.cube"),
+        [vtium_config::batch::Use {
+            look: Some("desk".into()),
+            through: vtium_config::batch::Through::Vtlook("glow".into()),
+        }]
+    );
+}
+
 #[test]
 fn space_asks_before_it_deactivates_a_color_map_that_a_look_uses() {
     let mut a = effects();
     to(&mut a, "sepia.cube");
     assert!(press(&mut a, Key::Char(' ')).is_empty());
     assert_eq!(nav::node(&a), "any.question.deactivate");
-    let screen = text(&a);
-    assert!(screen.contains("Look proof uses it"), "{screen}");
+    let screen = joined(&text(&a));
+    assert!(
+        screen.contains("Look proof uses it through the vtlook sepia. From the next login after the install, look proof renders with no filter."),
+        "{screen}"
+    );
     // Esc goes back without acting
     press(&mut a, Key::Escape);
     assert_eq!(nav::node(&a), "effects");
@@ -344,28 +458,26 @@ fn draw_amber(shot: &vtium_config::specimen::Shot, out: &std::ffi::OsStr) {
 // names an active color map is drawn through.
 #[test]
 fn an_effect_vtium_cannot_use_leaves_the_picture_plain_and_says_why() {
-    let because = |place: usize, why: &str| {
+    let because = |place: usize, want: &str| {
         let (screen, c) = pictured(false, 100, 30, &to_item(place));
         assert_eq!(c.shots.last().expect("a picture").filter, None, "{screen}");
-        let want =
-            format!("The picture shows the sample screen without this effect, because {why}.");
-        assert!(joined(&screen).contains(&want), "{want}\n{screen}");
+        assert!(joined(&screen).contains(want), "{want}\n{screen}");
     };
     because(
         4,
-        "this vtlook does not read, so vtium renders the built-in vtlook in its place",
+        "The picture shows the sample screen without this vtlook. The vtlook has an error, so vtium renders the built-in vtlook in its place. Line 2: there is no color filter named glow.",
     );
     because(
         7,
-        "this color map is not active, so vtium treats it as missing",
+        "The picture shows the sample screen without this color map. The color map is not active, so vtium treats it as missing.",
     );
     because(
         8,
-        "this color map fails the trust rule, so vtium treats it as missing",
+        "The picture shows the sample screen without this color map. The color map fails the trust rule, so vtium treats it as missing.",
     );
     because(
         9,
-        "this color map is in your own folder, where vtium cannot use it",
+        "The picture shows the sample screen without this color map. The color map is in your own folder, so vtium cannot use it.",
     );
     let (_, c) = pictured(false, 100, 30, &to_item(5));
     assert!(
@@ -425,31 +537,275 @@ fn the_line_says_what_became_of_the_effect() {
         joined(&text(&a))
     };
     let shown = answer(Outcome::Failed(
-        "color filter 1 of 1, cube: reading: the file is missing.".into(),
+        "/etc/vtium/looks/warm.cube:5: color filter 1 of 1, cube: checking: a bad line.".into(),
     ));
     assert!(
-        shown.contains("without this effect, because vtium cannot build its colors: color filter 1 of 1, cube: reading: the file is missing."),
+        shown.contains("without this vtlook, because vtium cannot read it: /etc/vtium/looks/warm.cube:5: color filter 1 of 1, cube: checking: a bad line. vtium renders the built-in vtlook in its place."),
         "{shown}"
     );
     let shown = answer(Outcome::ColorOnly);
     assert!(
-        shown.contains("through the vtlook amber. It leaves out the vtlook's spatial filters, which only the GPU draws."),
+        shown.contains("through the vtlook amber. The picture leaves out the vtlook's spatial filters, which vtium draws only on the GPU."),
         "{shown}"
     );
 }
 
+/// The app on the Effects tab at 100×30 with `name` highlighted, in a
+/// terminal that shows pictures, its picture drawn with `outcome`.
+fn answered(name: &str, outcome: vtium_config::specimen::Outcome) -> App {
+    use vtium_config::specimen::Picture;
+    let mut a = app(100, 30);
+    press(&mut a, Key::Char('2'));
+    to(&mut a, name);
+    a.shared.live = vtium_config::tui::model::Live::NotVtium;
+    a.shared.graphics = true;
+    a.shared.drawing = false;
+    a.shared.asked = None;
+    let asked = press(&mut a, Key::Char('z'));
+    let Some((font, height)) = asked.iter().find_map(|e| match e {
+        Effect::Cell { font, height } => Some((font.clone(), *height)),
+        _ => None,
+    }) else {
+        panic!("no cell asked for: {asked:?}");
+    };
+    let cell = vtium_font::Cell {
+        width: 8,
+        height: 16,
+    };
+    a.event(Event::Celled {
+        font,
+        height,
+        cell: Ok((cell, 16)),
+    });
+    a.event(Event::Filtered {
+        picture: Picture {
+            width: 1,
+            height: 1,
+            rgba: vec![0, 0, 0, 255],
+        },
+        outcome,
+    });
+    a
+}
+
+// The line gives an effect's outcome only beside the preview it answers:
+// once the highlight moves on, the next item's line says nothing of the
+// last one's outcome while its own picture is on its way, and a picture
+// that comes for an item no longer highlighted leaves no outcome behind.
+#[test]
+fn the_line_never_gives_another_item_s_outcome() {
+    use vtium_config::specimen::{Outcome, Picture};
+    let mut a = answered("sepia", Outcome::ColorOnly);
+    assert!(
+        joined(&text(&a)).contains("through the vtlook sepia. The picture leaves out"),
+        "{}",
+        text(&a)
+    );
+    to(&mut a, "amber");
+    let shown = joined(&text(&a));
+    assert!(
+        shown.contains("The picture shows the sample screen through the vtlook amber."),
+        "{shown}"
+    );
+    assert!(!shown.contains("leaves out"), "{shown}");
+    // a picture of sepia that comes while amber is highlighted keeps no
+    // outcome for amber
+    a.event(Event::Filtered {
+        picture: Picture {
+            width: 1,
+            height: 1,
+            rgba: vec![0, 0, 0, 255],
+        },
+        outcome: Outcome::Failed("/etc/vtium/looks/sepia.cube:1: a bad line".into()),
+    });
+    let shown = joined(&text(&a));
+    assert!(!shown.contains("cannot read it"), "{shown}");
+}
+
+// In a vtium console that draws a vtlook of its own, the line adds that
+// the console draws the picture through that vtlook as well; elsewhere,
+// and in a console that draws No filter, it adds nothing.
+#[test]
+fn the_line_names_the_console_s_own_vtlook() {
+    use vtium_config::specimen::Outcome;
+    let own = "This console draws the picture through its own vtlook green as well.";
+    let mut a = answered("amber", Outcome::Applied);
+    assert!(!joined(&text(&a)).contains("its own vtlook"));
+    let conf = a
+        .shared
+        .inputs
+        .conf
+        .clone()
+        .expect("the installed vtium.conf");
+    for (live, conf, said) in [
+        (
+            vtium_config::tui::model::Live::On,
+            format!("vtlook = green\n{conf}"),
+            true,
+        ),
+        (
+            vtium_config::tui::model::Live::OpsOff,
+            format!("vtlook = green\n{conf}"),
+            true,
+        ),
+        (
+            vtium_config::tui::model::Live::On,
+            format!("vtlook = default\n{conf}"),
+            false,
+        ),
+        (
+            vtium_config::tui::model::Live::NotVtium,
+            format!("vtlook = green\n{conf}"),
+            false,
+        ),
+    ] {
+        let named = format!("{live:?}");
+        a.shared.live = live;
+        a.shared.inputs.conf = Some(conf);
+        let shown = joined(&text(&a));
+        assert_eq!(shown.contains(own), said, "{named}: {shown}");
+    }
+}
+
 // The Effects tab with the preset amber highlighted, in a terminal that
 // shows pictures: the list, the sentences under it, and the line beside
-// the picture.
+// the picture. At 80×25 the list leaves no room for the picture, so the
+// line says so and speaks of no picture.
 #[test]
 fn the_effects_tab_previews_a_preset_at_80x25_and_100x30() {
-    for (cols, rows) in [(80, 25), (100, 30)] {
+    for (cols, rows, line) in [
+        (80, 25, "The terminal is too small to show the preview."),
+        (
+            100,
+            30,
+            "The picture shows the sample screen through the vtlook amber.",
+        ),
+    ] {
         let (screen, c) = pictured(false, cols, rows, &to_item(2));
-        assert!(
-            joined(&screen).contains("through the vtlook amber."),
-            "{screen}"
-        );
+        assert!(joined(&screen).contains(line), "{screen}");
+        assert_eq!(c.shots.is_empty(), cols == 80, "{screen}");
         let bytes = c.written.get(..c.seen_at).unwrap_or_default().to_vec();
         golden(&format!("effects-amber-{cols}x{rows}"), &screen, &bytes);
     }
+}
+
+// The real desk keeps an activation beside the draft, answers with the
+// draft's states, carries them in each draft it opens, takes the change
+// back on a deactivation, and refuses what the batch refuses: a
+// deactivation of a resource that is not active, and an activation of a
+// file that fails the trust rule.
+#[test]
+fn the_real_desk_keeps_a_color_map_s_change_beside_the_draft() {
+    use std::os::unix::fs::PermissionsExt;
+    use vtium_config::tui::desk::{Desk, Done, Store};
+    // a folder that nobody else can write, as the trust rule asks
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("vtium-config-real-desk-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    for dir in ["etc/fonts", "etc/looks", "home", "sys"] {
+        std::fs::create_dir_all(root.join(dir)).expect("the fixture");
+    }
+    let root = root.canonicalize().expect("the fixture");
+    std::fs::write(
+        root.join("etc/vtium.conf"),
+        vtium_config::tui::fixture::DRAFT,
+    )
+    .expect("vtium.conf");
+    script::executable(&root.join("vtium"), vtium_config::tui::fixture::CHECKER);
+    let cube = root.join("etc/looks/warm.cube");
+    std::fs::write(&cube, "LUT_3D_SIZE 2\n").expect("the color map");
+    let home = root.clone();
+    let store = vtium_config::store::Store::locate(
+        1000,
+        move |name: &str| match name {
+            "HOME" => Some(home.join("home").into()),
+            "XDG_CONFIG_HOME" => Some(home.join("home/config").into()),
+            "XDG_STATE_HOME" => Some(home.join("home/state").into()),
+            _ => None,
+        },
+        |_| None,
+    )
+    .expect("the store");
+    let paths = vtium_config::tui::Paths {
+        configdir: root.join("etc"),
+        frits: Ok(root.join("etc/fonts")),
+        drafts: root.join("home/bundles"),
+        sudo: "sudo".into(),
+        vtium: root.join("vtium").into(),
+        helper: vtium_config::specimen::Helper {
+            program: "/bin/false".into(),
+            options: Vec::new(),
+        },
+        sys: root.join("sys"),
+    };
+    vtium_config::drafts::Session {
+        store: store.clone(),
+        paths: &paths,
+    }
+    .make("bench", vtium_config::drafts::From::Installed)
+    .expect("the draft bench");
+    let mut desk = Store::new(store.clone(), paths, Box::new(Default::default));
+    let op = |change| Op::Resource {
+        path: cube.clone(),
+        change,
+    };
+    let held = |states: &[(std::path::PathBuf, State)]| {
+        states.iter().find(|(p, _)| *p == cube).map(|(_, s)| *s)
+    };
+    match desk.run(&op(Change::Activate)) {
+        Ok(Done::Resources {
+            states,
+            said,
+            changes,
+        }) => {
+            assert_eq!(held(&states), Some(State::Activates));
+            assert!(
+                said.starts_with("The draft activates this color map."),
+                "{said}"
+            );
+            assert_eq!(changes, 1);
+        }
+        other => panic!("{other:?}"),
+    }
+    // the change is kept beside the draft, and the next draft the desk
+    // opens carries it
+    let kept = store.batch_changes("bench").expect("the draft's changes");
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    match desk.run(&Op::Open) {
+        Ok(Done::Draft(opened, _)) => {
+            assert_eq!(held(&opened.resources), Some(State::Activates));
+        }
+        other => panic!("{other:?}"),
+    }
+    // a deactivation takes the pending activation back
+    match desk.run(&op(Change::Deactivate)) {
+        Ok(Done::Resources {
+            states, changes, ..
+        }) => {
+            assert_eq!(held(&states), None);
+            assert_eq!(changes, 0);
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(
+        store
+            .batch_changes("bench")
+            .expect("the draft's changes")
+            .is_empty()
+    );
+    // the batch refuses a deactivation of a file that is not active
+    let refused = desk.run(&op(Change::Deactivate)).expect_err("a refusal");
+    assert!(refused.contains("is not active"), "{refused}");
+    // and an activation of a file that others can write
+    std::fs::set_permissions(&cube, std::fs::Permissions::from_mode(0o666)).expect("the mode");
+    let refused = desk.run(&op(Change::Activate)).expect_err("a refusal");
+    assert!(refused.contains(&cube.display().to_string()), "{refused}");
+    assert!(
+        store
+            .batch_changes("bench")
+            .expect("the draft's changes")
+            .is_empty()
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

@@ -2,7 +2,6 @@
 //! of groups that its filter line opens, and an item's detail.
 
 use vtium_config::tui::model::{App, View};
-use vtium_config::tui::resources::looks_using_file;
 use vtium_config::tui::tabs::effects::Effects;
 
 use super::super::state::Shown;
@@ -31,8 +30,8 @@ fn focus(app: &App) -> String {
         return "vtlook".into();
     };
     let conf = shared.conf_text().unwrap_or_default();
-    let used = looks_using_file(conf, &shared.inputs.effects, &r.path).is_empty();
-    let used = if used { "" } else { ", used" };
+    let unused = shared.inputs.effects.uses(conf, &r.path).is_empty();
+    let used = if unused { "" } else { ", used" };
     format!("{}: {}{used}", r.kind, r.row())
 }
 

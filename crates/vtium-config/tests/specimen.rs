@@ -207,3 +207,60 @@ fn no_picture_is_larger_than_the_cap() {
         Err(why) => assert!(why.contains("preview area"), "{why}"),
     }
 }
+
+// The TUI's filterer reads a vtlook's color maps from the folder it is
+// given, the one the Effects tab lists from, and under the trust rule of
+// the user it is given. A vtlook whose color map sits there and is active
+// is drawn through; under another user's rule, the same files fail the
+// trust rule and the picture stays as it is.
+#[test]
+fn the_filterer_reads_color_maps_from_its_folder_under_its_user_s_rule() {
+    use vtium_config::specimen::{Filter, Filtered, Outcome};
+    // a folder that nobody else can write, as the trust rule asks
+    let looks = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target")
+        .join(format!("vtium-config-filterer-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&looks);
+    std::fs::create_dir_all(&looks).expect("the folder");
+    let looks = looks.canonicalize().expect("the folder");
+    // a 2×2×2 table that maps every color to black
+    let mut cube = "LUT_3D_SIZE 2\n".to_owned();
+    for _ in 0..8 {
+        cube.push_str("0 0 0\n");
+    }
+    std::fs::write(looks.join("dark.cube"), cube).expect("the color map");
+    std::fs::write(
+        looks.join("dark.vtlook"),
+        "version = 1\n[color cube]\nfile = dark.cube\n",
+    )
+    .expect("the vtlook");
+    let filtered = Filtered {
+        filter: Filter::Vtlook {
+            name: "dark".to_owned(),
+            file: looks.join("dark.vtlook"),
+        },
+        active: vec![looks.join("dark.cube")],
+    };
+    let white = || Picture {
+        width: 1,
+        height: 1,
+        rgba: vec![255, 255, 255, 255],
+    };
+    let euid = rustix::process::geteuid().as_raw();
+    let mut picture = white();
+    let outcome = vtium_config::tui::filterer(looks.clone(), euid)(&mut picture, &filtered);
+    assert_eq!(outcome, Outcome::Applied);
+    assert_eq!(picture.rgba, [0, 0, 0, 255]);
+    // another folder holds no such color map
+    let mut picture = white();
+    let elsewhere = looks.join("none");
+    let outcome = vtium_config::tui::filterer(elsewhere, euid)(&mut picture, &filtered);
+    assert!(matches!(outcome, Outcome::Failed(_)), "{outcome:?}");
+    assert_eq!(picture.rgba, white().rgba);
+    // another user's rule refuses these files
+    let mut picture = white();
+    let outcome = vtium_config::tui::filterer(looks.clone(), 4242)(&mut picture, &filtered);
+    assert!(matches!(outcome, Outcome::Failed(_)), "{outcome:?}");
+    assert_eq!(picture.rgba, white().rgba);
+    let _ = std::fs::remove_dir_all(&looks);
+}

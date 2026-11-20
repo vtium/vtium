@@ -8,9 +8,10 @@
 
 use std::path::PathBuf;
 
+use super::effects_found::{Effects, From, Vtlook};
 use super::flow::{Base, Device, Draft, Flow, Head, Kind, Look, Rule, RuleState};
 use super::model::{DpiFrom, Font, FontState, Inputs, View};
-use super::resources::{Effects, From, Resource, Vtlook};
+use super::resources::Resource;
 use crate::batch::State;
 
 fn rule(kind: Kind, line: usize, selector: &str, target: &str, state: RuleState) -> Rule {
@@ -242,6 +243,7 @@ pub fn effects() -> Effects {
         state,
         trust,
         own,
+        hidden: false,
     };
     Effects {
         vtlooks: vec![
@@ -275,43 +277,69 @@ pub fn effects() -> Effects {
             map("mine.cube", State::Inactive, Ok(()), true),
         ],
         shaders: Vec::new(),
+        note: None,
     }
 }
 
 /// What a stand-in desk answers [`super::desk::Op::Resource`] with, on
 /// `states`, the resources that are active or that the draft changes: the
 /// draft's change as the real desk keeps it, an activation of a resource
-/// the draft deactivates taking the deactivation back.
+/// the draft deactivates taking the deactivation back. It refuses what
+/// the real batch refuses: an activation of a file the system does not
+/// hold that fails the trust rule, as the fixture's [`effects`] marks it,
+/// and a deactivation of a resource that is not active. Its messages name
+/// the kind of resource as the real desk's do.
 pub fn resource_op(
     states: &mut Vec<(PathBuf, State)>,
     path: &std::path::Path,
     change: crate::batch::Change,
-) -> super::desk::Done {
+) -> Result<super::desk::Done, String> {
     use crate::batch::Change;
+    let kind = crate::batch::kind(path);
     let now = states
         .iter()
         .find(|(p, _)| p == path)
         .map_or(State::Inactive, |(_, s)| *s);
-    let after = match (change, now) {
-        (Change::Activate, State::Deactivates) => Some(State::Active),
-        (Change::Activate, State::Inactive) => Some(State::Activates),
-        (Change::Deactivate, State::Active) => Some(State::Deactivates),
-        (Change::Deactivate, State::Activates) => None,
-        (_, same) => Some(same),
+    let said = match (change, now) {
+        (Change::Activate, State::Activates) => Some(super::words::already_activates(kind)),
+        (Change::Activate, State::Active | State::Always) => {
+            Some(super::words::already_active(kind))
+        }
+        (Change::Deactivate, State::Inactive | State::Deactivates) => {
+            return Err(format!(
+                "{} is not active, so there is nothing to deactivate.",
+                path.display()
+            ));
+        }
+        (Change::Activate, State::Inactive) => {
+            if let Some(Err(why)) = effects().resource(path).map(|r| r.trust.clone()) {
+                return Err(why);
+            }
+            None
+        }
+        _ => None,
     };
-    states.retain(|(p, _)| p != path);
-    if let Some(after) = after.filter(|s| *s != State::Inactive) {
-        states.push((path.to_path_buf(), after));
+    if said.is_none() {
+        let after = match (change, now) {
+            (Change::Activate, State::Deactivates) => Some(State::Active),
+            (Change::Activate, _) => Some(State::Activates),
+            (Change::Deactivate, State::Active) => Some(State::Deactivates),
+            (Change::Deactivate, _) => None,
+        };
+        states.retain(|(p, _)| p != path);
+        if let Some(after) = after {
+            states.push((path.to_path_buf(), after));
+        }
     }
     let changes = states
         .iter()
         .filter(|(_, s)| matches!(s, State::Activates | State::Deactivates))
         .count();
-    super::desk::Done::Resources {
+    Ok(super::desk::Done::Resources {
         states: states.clone(),
-        said: super::words::changed(change, "color map"),
+        said: said.unwrap_or_else(|| super::words::changed(change, kind)),
         changes,
-    }
+    })
 }
 
 /// The installed vtium.conf of the goldens that open a draft: two heads,

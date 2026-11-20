@@ -31,9 +31,10 @@ use std::time::Duration;
 
 use vtium_font::Cell;
 
+use super::effects_found::{Effects, Vtlook};
 use super::input::Key;
 use super::model::{App, Effect, Font, FontState, Live, Shared, Size};
-use super::resources::{Effects, Resource, Vtlook};
+use super::resources::Resource;
 use super::words;
 use crate::specimen::{Filter, Filtered, Outcome, Shot};
 
@@ -211,8 +212,19 @@ pub struct Caption {
     pub cell: Cell,
     pub grid: (usize, usize),
     /// What became of the effect the picture is drawn through, once the
-    /// picture has come.
-    pub outcome: Option<Outcome>,
+    /// picture has come, with the preview it answers, so the line never
+    /// gives one item's outcome beside another.
+    pub outcome: Option<(Wanted, Outcome)>,
+}
+
+/// Why no picture is on the screen for the preview asked for last.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unpictured {
+    /// The view leaves no room for it.
+    NoRoom,
+    /// Measuring the font or painting the picture failed, and the
+    /// message line says why.
+    Failed,
 }
 
 /// The cells under a picture on the screen: the picture's first row and
@@ -309,17 +321,23 @@ impl Applied<'_> {
         };
         match *self {
             Applied::Nothing => Ok(None),
-            Applied::Shader(_) => Err(words::EFFECT_SHADER.to_owned()),
+            Applied::Shader(_) => Err(words::effect_without("shader", words::EFFECT_SHADER)),
             Applied::Map(r) => match unusable(r) {
-                Some(why) => Err(words::map_unusable(why)),
+                Some(why) => Err(words::effect_without(
+                    "color map",
+                    &words::map_unusable(why),
+                )),
                 None => filtered(Filter::Cube(r.path.clone())),
             },
             Applied::Vtlook(v) => {
                 let Some(file) = &v.file else {
                     return Ok(None);
                 };
-                if v.read.is_err() {
-                    return Err(words::EFFECT_VTLOOK_BROKEN.to_owned());
+                if let Err(error) = &v.read {
+                    return Err(words::effect_without(
+                        "vtlook",
+                        &words::effect_vtlook_broken(error),
+                    ));
                 }
                 for named in v
                     .files
@@ -335,7 +353,10 @@ impl Applied<'_> {
                             || named.display().to_string(),
                             |n| n.to_string_lossy().into_owned(),
                         );
-                        return Err(words::vtlook_map_unusable(&name, why));
+                        return Err(words::effect_without(
+                            "vtlook",
+                            &words::vtlook_map_unusable(&name, why),
+                        ));
                     }
                 }
                 filtered(Filter::Vtlook {
@@ -461,7 +482,12 @@ impl<'a> Preview<'a> {
     }
 
     /// The line beside the Effects tab's picture: what it shows, and why
-    /// it shows the console without the effect, where it does.
+    /// it shows the console without the effect, where it does. The line
+    /// speaks of the picture only while one is on the screen or on its
+    /// way, and gives the outcome of the effect only for the preview that
+    /// outcome answers. In a vtium console that draws a vtlook of its own,
+    /// the line adds that the console draws the picture through that
+    /// vtlook too.
     fn effect_line(&self, effect: Applied<'_>) -> Option<String> {
         if super::layout::too_small(self.size) {
             return None;
@@ -469,23 +495,51 @@ impl<'a> Preview<'a> {
         if !self.shared.graphics {
             return Some(words::EFFECT_NO_PICTURES.to_owned());
         }
-        let outcome = self.shared.shot.as_ref().and_then(|c| c.outcome.as_ref());
-        Some(match effect.filter(&self.shared.inputs.effects) {
-            Err(why) => words::effect_without(&why),
+        let Some(wanted) = self.wanted() else {
+            return Some(words::EFFECT_NO_FONT.to_owned());
+        };
+        let asked_now = self
+            .shared
+            .asked
+            .as_ref()
+            .is_some_and(|a| a.wanted == wanted);
+        if asked_now {
+            match self.shared.unpictured {
+                Some(Unpictured::NoRoom) => return Some(words::EFFECT_NO_ROOM.to_owned()),
+                Some(Unpictured::Failed) => return Some(words::EFFECT_NOT_DRAWN.to_owned()),
+                None => {}
+            }
+        }
+        let outcome = self
+            .shared
+            .shot
+            .as_ref()
+            .and_then(|c| c.outcome.as_ref())
+            .filter(|(answers, _)| *answers == wanted)
+            .map(|(_, outcome)| outcome);
+        let mut line = match effect.filter(&self.shared.inputs.effects) {
+            Err(why) => why,
             Ok(None) => words::EFFECT_PLAIN.to_owned(),
             Ok(Some(_)) => {
-                let shown = match effect {
-                    Applied::Vtlook(v) => words::effect_vtlook(&v.name),
-                    Applied::Map(r) => words::effect_map(&r.name()),
-                    Applied::Nothing | Applied::Shader(_) => words::EFFECT_PLAIN.to_owned(),
+                let (shown, what) = match effect {
+                    Applied::Vtlook(v) => (words::effect_vtlook(&v.name), "vtlook"),
+                    Applied::Map(r) => (words::effect_map(&r.name()), "color map"),
+                    Applied::Nothing | Applied::Shader(_) => {
+                        (words::EFFECT_PLAIN.to_owned(), "effect")
+                    }
                 };
                 match outcome {
-                    Some(Outcome::Failed(why)) => words::effect_failed(why),
+                    Some(Outcome::Failed(why)) => words::effect_failed(what, why),
                     Some(Outcome::ColorOnly) => format!("{shown} {}", words::EFFECT_COLOR_ONLY),
                     Some(Outcome::Applied) | None => shown,
                 }
             }
-        })
+        };
+        if let Some(own) = self.shared.console_vtlook() {
+            line.push(' ');
+            line.push_str(&words::effect_console_vtlook(&own));
+        }
+        Some(line)
     }
 
     /// The line that describes the preview: beside a picture, what the
@@ -538,6 +592,38 @@ impl<'a> Preview<'a> {
             Some(s) => format!("{} {s}", words::NO_PICTURES),
             None => words::NO_PICTURES.to_owned(),
         })
+    }
+}
+
+impl Shared {
+    /// The vtlook this vtium console draws with, when it is not the
+    /// built-in one: the installed vtium.conf's vtlook for the console's
+    /// head, from the head's look, else the top level. The console draws
+    /// its whole frame through that vtlook, so a picture shown in it is
+    /// filtered a second time. `None` outside a vtium console.
+    ///
+    /// References:
+    /// - ADR-1304 D5: a head's vtlook comes from its look, else the top level, else the built-in one.
+    pub fn console_vtlook(&self) -> Option<String> {
+        if !matches!(
+            self.live,
+            super::model::Live::On | super::model::Live::OpsOff
+        ) {
+            return None;
+        }
+        let conf = self.inputs.conf.as_deref()?;
+        let top = vtium_settings::setting(conf, "vtlook");
+        let own = self.inputs.head.as_deref().and_then(|head| {
+            let config = vtium_settings::sections(conf.as_bytes())?.parsed.config;
+            let look = config.heads.iter().find(|h| h.name == head)?.look.clone();
+            config
+                .looks
+                .into_iter()
+                .find(|l| l.name == look)
+                .and_then(|l| l.vtlook)
+        });
+        own.or(top)
+            .filter(|v| v != vtium_settings::vtlook::DEFAULT && !v.is_empty())
     }
 }
 
@@ -624,6 +710,7 @@ impl App {
             return Vec::new();
         }
         self.shared.asked = asked.clone();
+        self.shared.unpictured = None;
         let Some(asked) = asked else {
             self.shared.shot = None;
             return self.drop_picture();
@@ -649,6 +736,7 @@ impl App {
         let max = self.picture_room();
         if max.0 == 0 || max.1 == 0 {
             self.shared.shot = None;
+            self.shared.unpictured = Some(Unpictured::NoRoom);
             return self.drop_picture();
         }
         self.shared.drawing = true;
@@ -696,6 +784,7 @@ impl App {
             Err(why) => {
                 self.shared.drawing = false;
                 self.shared.shot = None;
+                self.shared.unpictured = Some(Unpictured::Failed);
                 self.say_unless_trial(words::no_picture(why));
                 self.drop_picture()
             }
@@ -815,6 +904,7 @@ impl App {
             }
             Err(why) => {
                 self.shared.shot = None;
+                self.shared.unpictured = Some(Unpictured::Failed);
                 self.say_unless_trial(words::no_picture(why));
             }
         }
@@ -829,8 +919,16 @@ impl App {
         picture: crate::specimen::Picture,
         outcome: Outcome,
     ) -> Vec<Effect> {
-        if let Some(caption) = self.shared.shot.as_mut() {
-            caption.outcome = Some(outcome);
+        // the outcome is kept only for the preview it answers: a picture
+        // that comes after the highlight moved on says nothing
+        let current = self
+            .shared
+            .asked
+            .as_ref()
+            .map(|a| a.wanted.clone())
+            .filter(|w| self.preview().wanted().as_ref() == Some(w));
+        if let (Some(wanted), Some(caption)) = (current, self.shared.shot.as_mut()) {
+            caption.outcome = Some((wanted, outcome));
         }
         self.pictured(Ok(picture))
     }

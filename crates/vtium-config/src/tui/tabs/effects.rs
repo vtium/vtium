@@ -30,14 +30,16 @@
 
 use super::super::canvas::{Row, span};
 use super::super::color::Style;
+use super::super::effects_found::From;
 use super::super::input::Key;
 use super::super::layout::PICTURE_ROW;
 use super::super::listbox::{Body, Item, ListBox, Marks, plain, prose, rows, step, tail};
 use super::super::model::{Font, FontState, Shared, Size};
-use super::super::resources::{self, From, Resource};
+use super::super::resources::{self, Resource};
 use super::super::shot::{Applied, Preview, Source};
 use super::super::words;
 use super::{Command, Room, Tab};
+use crate::batch::Use;
 
 /// Which groups the list shows: all three, or one of
 /// [`words::EFFECTS_GROUPS`] by its place.
@@ -143,13 +145,14 @@ impl Effects {
         }
     }
 
-    /// The font the preview draws the sample screen in: the draft's
-    /// `font-name`, else the font the console shows, else the first font
-    /// that reads.
+    /// The font the preview draws the sample screen in: the font the
+    /// draft gives the console's head, from its look or else the top
+    /// level, else the font the console shows, else the first font that
+    /// reads.
     fn font(shared: &Shared) -> Option<&Font> {
         let fonts = &shared.inputs.fonts;
         let named = |name: Option<String>| name.and_then(|n| fonts.iter().find(|f| f.name == n));
-        named(shared.drafted("font-name"))
+        named(shared.head_font())
             .or_else(|| named(shared.shown_font.clone()))
             .or_else(|| {
                 fonts
@@ -158,10 +161,18 @@ impl Effects {
             })
     }
 
-    /// The looks of the draft that use the color map or shader `r`.
-    fn users(shared: &Shared, r: &Resource) -> Vec<String> {
+    /// The looks of the draft that use the color map or shader `r`, and
+    /// the vtlook each uses it through.
+    fn uses(shared: &Shared, r: &Resource) -> Vec<Use> {
         let conf = shared.conf_text().unwrap_or_default();
-        resources::looks_using_file(conf, &shared.inputs.effects, &r.path)
+        shared.inputs.effects.uses(conf, &r.path)
+    }
+
+    /// The names of the looks in `uses`, as a detail lists them.
+    fn names(uses: &[Use]) -> Vec<String> {
+        uses.iter()
+            .map(|u| words::look_name(u.look.as_deref()))
+            .collect()
     }
 
     /// `item` as an item of the list: its name and its marks, and the
@@ -233,13 +244,20 @@ impl Effects {
             if !v.files.is_empty() {
                 out.push(words::VTLOOK_FILES.to_owned());
                 out.extend(v.files.iter().map(|f| {
-                    let active = found.resource(f).is_some_and(Resource::active);
-                    format!("  {}", words::vtlook_file(&f.display().to_string(), active))
+                    let named = match found.resource(f) {
+                        None => words::Named::Missing,
+                        Some(r) if !r.active() => words::Named::Inactive,
+                        Some(r) if r.trust.is_err() => words::Named::Untrusted,
+                        Some(_) => words::Named::Usable,
+                    };
+                    format!("  {}", words::vtlook_file(&f.display().to_string(), named))
                 }));
             }
-            out.push(words::detail_users(&resources::looks_using_vtlook(
-                conf, &v.name,
-            )));
+            let users: Vec<String> = crate::batch::drawing_vtlook(conf, &v.name)
+                .iter()
+                .map(|look| words::look_name(look.as_deref()))
+                .collect();
+            out.push(words::detail_users(&users));
             return out;
         }
         let Some(r) = Self::resource(shared, item) else {
@@ -250,14 +268,15 @@ impl Effects {
             words::detail_file(Some(&r.path.display().to_string())),
         ];
         if r.own {
-            out.push(words::DETAIL_OWN.to_owned());
+            out.push(words::detail_own(r.kind));
         } else {
             out.push(words::detail_state(words::active_mark(r.state)));
             out.push(words::detail_trust(
+                r.kind,
                 r.trust.as_ref().err().map(String::as_str),
             ));
         }
-        out.push(words::detail_users(&Self::users(shared, r)));
+        out.push(words::detail_users(&Self::names(&Self::uses(shared, r))));
         out
     }
 
@@ -281,6 +300,10 @@ impl Effects {
         let (shown, keep) = rows(&items, at, Marks::None, cols);
         list.extend(shown);
         let mut sentence = String::new();
+        if let Some(note) = &shared.inputs.effects.note {
+            sentence.push_str(note);
+            sentence.push(' ');
+        }
         for (g, group) in words::EFFECTS_GROUPS.iter().enumerate() {
             let found = &shared.inputs.effects;
             let empty = match g {
@@ -462,7 +485,7 @@ impl Tab for Effects {
                     .highlighted(shared)
                     .and_then(|item| Self::resource(shared, item))
                 {
-                    Some(r) => resources::space(r, &Self::users(shared, r)),
+                    Some(r) => resources::space(r, &Self::uses(shared, r)),
                     None => Vec::new(),
                 },
                 _ => {

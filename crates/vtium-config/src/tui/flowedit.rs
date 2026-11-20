@@ -275,6 +275,9 @@ impl App {
                     Op::Restore(_) => self.shared.message = Some(words::RESTORED.to_owned()),
                     _ => {}
                 }
+                // the marks follow the draft the desk left open, its
+                // batch included, after every op that answers with it
+                self.shared.inputs.effects.set_states(&opened.resources);
                 self.shared.draft = Some(opened);
                 let select = self.flow.take_select();
                 self.rebuild(select);
@@ -384,6 +387,7 @@ impl App {
             Some(outcome) => crate::vts::message(&opened.name, outcome),
             None => words::installed(&opened.name),
         };
+        self.shared.inputs.effects.set_states(&opened.resources);
         self.shared.draft = Some(opened);
         self.frits_installed();
         self.rebuild(None);
