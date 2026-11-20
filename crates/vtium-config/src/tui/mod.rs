@@ -398,12 +398,8 @@ const SPECIMEN_FRIT: &str = "vtium-config-specimen";
 pub fn frit_text(frits: &Path, font: &str) -> Result<crate::serve::FritText, String> {
     // a font file the Fonts tab previews, drawn alone
     if fonts_found::is_file_name(font) {
-        let source = fonts_found::source_of(Path::new(font)).ok_or_else(|| {
-            format!(
-                "{}: vtium-config cannot preview a font file whose name holds a control character",
-                crate::onscreen::text(font)
-            )
-        })?;
+        let source = fonts_found::source_of(Path::new(font))
+            .ok_or_else(|| words::font_file_unpreviewable(&crate::onscreen::text(font)))?;
         return Ok(crate::serve::FritText {
             name: SPECIMEN_FRIT.to_owned(),
             text: format!("source={source}\n"),

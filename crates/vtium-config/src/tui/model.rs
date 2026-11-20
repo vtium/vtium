@@ -292,8 +292,12 @@ pub enum View {
     Settings,
     /// Help and About.
     Help,
-    /// `new`'s guided flow: a frit made from fonts, installed like any
-    /// change (ADR-1201 D9). It belongs to the Looks tab.
+    /// `new`'s guided flow: a font set (a frit) made from fonts, installed
+    /// like any change. It belongs to the Looks tab.
+    ///
+    /// References:
+    /// - ADR-1201 D9: `new`'s guided flow is the Looks tab's form for a new
+    ///   font set, and it ends in an install.
     New,
     /// The Effects tab: the vtlooks, color maps and shaders.
     Effects,

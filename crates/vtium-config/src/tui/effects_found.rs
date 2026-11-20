@@ -414,7 +414,7 @@ pub fn find(
     let name_of = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned());
     let stem = |p: &Path| {
         name_of(p)
-            .map(|n| n.trim_end_matches(SUFFIX).to_owned())
+            .map(|n| n.strip_suffix(SUFFIX).unwrap_or(&n).to_owned())
             .unwrap_or_default()
     };
     let admin: Vec<String> = files(&folders.looks, SUFFIX)
@@ -590,6 +590,37 @@ mod tests {
                 (etc_shaders.join("crt.vtshader"), false),
             ]
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // a file named with the suffix twice is listed under the name the
+    // console reads it by, the file's name less one suffix, and read from
+    // that file
+    #[test]
+    fn a_vtlook_named_with_the_suffix_twice_is_listed_and_read_by_one_name() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("vtium-config-effects-twice-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (pkg, etc) = (root.join("pkg"), root.join("etc"));
+        for d in [&pkg, &etc] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let tint = "version = 1\n[color tint]\ncolor = 255,176,0\n";
+        std::fs::write(pkg.join("x.vtlook.vtlook"), tint).unwrap();
+        let folders = Folders {
+            presets: pkg.clone(),
+            looks: etc,
+            shaders: Vec::new(),
+            own_looks: None,
+            own_shaders: None,
+        };
+        let trust = vtium_settings::Trust::running_as(rustix::process::geteuid().as_raw());
+        let found = find(&folders, &trust, &|_| State::Active, &|_| Ok(()));
+        let twice = found.vtlooks.get(1).unwrap();
+        assert_eq!(twice.name, "x.vtlook");
+        assert_eq!(twice.file, Some(pkg.join("x.vtlook.vtlook")));
+        assert!(twice.read.is_ok(), "{:?}", twice.read);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

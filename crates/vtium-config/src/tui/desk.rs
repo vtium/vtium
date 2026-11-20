@@ -41,10 +41,15 @@ pub enum Op {
     /// Copies the history's file of this number, counted from 1, newest
     /// first, into the draft.
     Restore(usize),
-    /// Reads the devices present again.
+    /// Reads the devices present again, and the connected displays'
+    /// densities.
     Devices,
     /// Activates or deactivates the resource at `path` in the draft,
-    /// which keeps the change beside it until the install (ADR-1205 D4).
+    /// which keeps the change beside it until the install.
+    ///
+    /// References:
+    /// - ADR-1205 D4: a draft's changes to the active resources wait
+    ///   beside it until the install.
     Resource {
         path: std::path::PathBuf,
         change: crate::batch::Change,
@@ -102,7 +107,13 @@ pub enum Done {
     /// The install is refused: why, and what the check printed.
     Refused(String, Vec<String>),
     History(Vec<Kept>),
-    Present(Present),
+    /// The devices present after [`Op::Devices`], and the density of each
+    /// connected display, read again with them, as
+    /// [`crate::tui::model::Inputs::densities`] holds it.
+    Present {
+        present: Present,
+        densities: Vec<u32>,
+    },
     /// The draft's view of the active resources after [`Op::Resource`]:
     /// each resource that is active or that the draft changes, with its
     /// state; what the change says, its warnings included; and how many
@@ -341,7 +352,18 @@ impl Store {
 
     fn step(&mut self, op: &Op) -> Result<Done, Fail> {
         match op {
-            Op::Devices => return Ok(Done::Present((self.devices)())),
+            Op::Devices => {
+                // a display connected since the TUI started counts toward
+                // a look's point sizes, so its density is read again here
+                let conf = crate::tui::read_conf(&self.paths.configdir.join("vtium.conf"))
+                    .ok()
+                    .flatten();
+                let displays = crate::display::displays(&self.paths.sys);
+                return Ok(Done::Present {
+                    present: (self.devices)(),
+                    densities: crate::tui::densities(conf.as_deref(), &displays),
+                });
+            }
             Op::SystemFont(source) => return self.system_font(source),
             Op::Open => {
                 let present = (self.devices)();
@@ -527,13 +549,18 @@ impl Desk for Store {
     /// PATH`, `failed PATH WHY`, or `wrote PATH` then `untrusted PATH WHY`,
     /// and each column passes through [`crate::onscreen::text`]. The font
     /// files are found again afterwards, so the new system font joins the
-    /// list, where the person can activate it.
+    /// list, where the person can activate it. The font's draft is removed
+    /// once the command has run, whatever its outcome.
     fn install_font(&mut self, run: Runner<'_>) -> Result<Done, String> {
         use crate::onscreen::text;
         let Some(font) = self.font.take() else {
             return Err(crate::tui::words::NO_FONT_READY.to_owned());
         };
-        let (ok, said) = run(&font.argv).map_err(|e| text(&e.to_string()))?;
+        let ran = run(&font.argv);
+        // the command has read the draft, or failed for good, so the
+        // draft goes; a new attempt readies a draft of its own
+        let _ = std::fs::remove_dir_all(&font.draft);
+        let (ok, said) = ran.map_err(|e| text(&e.to_string()))?;
         let mut untrusted = None;
         let mut lines = Vec::new();
         for line in said.lines() {

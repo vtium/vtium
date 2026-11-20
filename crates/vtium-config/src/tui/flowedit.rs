@@ -344,7 +344,10 @@ impl App {
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.flow.show_history(kept),
-            Done::Present(present) => self.set_present(present),
+            Done::Present { present, densities } => {
+                self.shared.inputs.densities = densities;
+                self.set_present(present);
+            }
             Done::Resources {
                 states,
                 said,
@@ -352,9 +355,15 @@ impl App {
             } => {
                 self.shared.inputs.effects.set_states(&states);
                 self.shared.inputs.font_files.set_states(&states);
+                // the draft keeps the desk's answer, so a later step that
+                // brings the marks back from the draft, such as a system
+                // font's install, keeps this change, and the status line
+                // counts it at once
                 if let Some(draft) = self.shared.draft.as_mut() {
                     draft.batch = changes;
+                    draft.resources = states;
                 }
+                self.rebuild(None);
                 return self.say(&said);
             }
             // a font of the person's readied as a system font: the
@@ -438,6 +447,9 @@ impl App {
             Ok(found) => self.shared.inputs.font_files.rescanned(found),
             Err(why) => self.shared.inputs.font_files.added_unscanned(target, &why),
         }
+        // the install may have replaced a file of the same name, so the
+        // helper describes the file at `target` again
+        self.shared.inputs.font_files.forget(target);
         if let Some(draft) = &self.shared.draft {
             self.shared.inputs.font_files.set_states(&draft.resources);
         }

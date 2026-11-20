@@ -967,6 +967,58 @@ mod draft_flow {
             .expect("the draft's changes");
     }
 
+    /// Writes a connected display to `b`'s sysfs as `card0-NAME`, at
+    /// 1920×1080 pixels and an EDID that states its size `cm` in centimeters.
+    fn connect(b: &Bench, name: &str, cm: (u8, u8)) {
+        let dir = b.root.join("sys/class/drm").join(format!("card0-{name}"));
+        std::fs::create_dir_all(&dir).expect("the display");
+        std::fs::write(dir.join("status"), "connected\n").expect("its status");
+        std::fs::write(dir.join("modes"), "1920x1080\n").expect("its modes");
+        let mut edid = vec![0u8; 128];
+        edid.splice(0..8, [0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0]);
+        edid.splice(21..23, [cm.0, cm.1]);
+        let sum = edid.iter().fold(0u8, |s, &x| s.wrapping_add(x));
+        edid.splice(127..128, [0u8.wrapping_sub(sum)]);
+        std::fs::write(dir.join("edid"), edid).expect("its EDID");
+    }
+
+    /// A display connected while vtium-config runs counts toward a look's
+    /// point sizes: the desk reads the displays' densities again with the
+    /// devices present, and the TUI takes them.
+    ///
+    /// References:
+    /// - ADR-1200 D17: the lowest density among the displays.
+    #[test]
+    fn a_display_connected_while_the_tui_runs_counts_toward_a_look_s_sizes() {
+        use vtium_config::tui::desk::Desk as _;
+        use vtium_config::tui::model::{App, Event};
+        let b = bench("densities");
+        let mut desk = b.desk(vec![present(Vec::new(), true)]);
+        connect(&b, "DP-1", (52, 29));
+        let read = |desk: &mut desk::Store| match desk.run(&desk::Op::Devices) {
+            Ok(Done::Present { densities, .. }) => densities,
+            other => panic!("{other:?}"),
+        };
+        let one = read(&mut desk);
+        assert_eq!(one.len(), 1, "{one:?}");
+        connect(&b, "HDMI-A-1", (30, 17));
+        let two = read(&mut desk);
+        assert_eq!(two.len(), 2, "{two:?}");
+        assert!(
+            two.contains(&one[0]) && two.iter().any(|d| *d > one[0]),
+            "{two:?}"
+        );
+        let (mut a, _) = App::new(inputs(), 80, 25);
+        a.event(Event::Desked(
+            desk::Op::Devices,
+            Ok(Done::Present {
+                present: Present::default(),
+                densities: two.clone(),
+            }),
+        ));
+        assert_eq!(a.shared.inputs.densities, two);
+    }
+
     #[test]
     fn the_status_line_counts_a_draft_s_changes_to_the_active_resources() {
         let b = bench("status-batch");

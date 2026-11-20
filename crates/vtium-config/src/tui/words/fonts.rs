@@ -450,3 +450,11 @@ pub fn system_font_not_a_font(source: &str, why: &str) -> String {
         "{source}: vtium-config cannot install this file as a system font, because the font helper cannot read it as a font: {why}"
     )
 }
+
+/// Why the Fonts tab cannot preview the font file at `path`: the font set
+/// that draws the file alone cannot name it.
+pub fn font_file_unpreviewable(path: &str) -> String {
+    format!(
+        "{path}: vtium-config cannot preview this font file, because a font set cannot name a file whose name holds a control character or a #, or starts or ends with a space."
+    )
+}
