@@ -526,6 +526,15 @@ impl Card {
         } else {
             words::CARD_HINT.to_owned()
         }];
+        // on the size line, a vtium console that does not let programs
+        // resize its grid takes no size live, and the card says why
+        if self.line() == Line::Size
+            && shared.in_vtium()
+            && !shared.window_ops()
+            && !shared.window_ops_drafted()
+        {
+            sentences.push(words::WINDOW_OPS_NOTICE.to_owned());
+        }
         sentences.push(words::ROLES_HEADING.to_owned());
         match look.frit.clone().or_else(|| shared.drafted("font-name")) {
             Some(frit) => {
@@ -567,6 +576,29 @@ impl Card {
                 value: choice.value,
             }],
             select: None,
+        })]
+    }
+
+    /// Enter on the size `pick` of the size line's list: the size tried on
+    /// the console's grid, in points, where the console can take it. The
+    /// first choice leaves the look's size to vtium.conf, so it tries
+    /// vtium.conf's size.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
+    ///   highlighted size to the console as a timed trial.
+    fn try_size(&self, shared: &Shared, look: &Look, pick: usize) -> Vec<Command> {
+        let Some(choice) = choices(shared, look, Line::Size).into_iter().nth(pick) else {
+            return Vec::new();
+        };
+        let points = choice
+            .value
+            .or_else(|| top(shared, "font-size"))
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(0);
+        vec![Command::Change(Change::TrySize {
+            font: self.font_set(shared),
+            points,
         })]
     }
 
@@ -617,6 +649,11 @@ impl Card {
             Some(Open::List(mut lb)) => {
                 let n = choices(shared, &look, line).len();
                 Step::Stay(match lb.key(key, n) {
+                    Act::Picked(i) if line == Line::Size => {
+                        let mut out = self.pick(shared, &look, line, i);
+                        out.extend(self.try_size(shared, &look, i));
+                        out
+                    }
                     Act::Picked(i) => self.pick(shared, &look, line, i),
                     Act::Closed => Vec::new(),
                     _ => {

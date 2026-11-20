@@ -175,6 +175,9 @@ pub enum Change {
     Pending(Pending),
     /// Tries this font on the live console.
     Try(String),
+    /// Tries the size `points` on the live console's grid, measured in the
+    /// font set `font`, or the font the console draws where it is `None`.
+    TrySize { font: Option<String>, points: u32 },
     /// Clears the message line.
     Quiet,
     /// Makes `changes` on the draft, in order, and hands the result to the

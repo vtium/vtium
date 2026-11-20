@@ -62,15 +62,16 @@ pub fn probe() -> Vec<u8> {
 /// The bytes of one font switch: `OSC 50 ; NAME ST`, the query
 /// `OSC 50 ; ? ST`, and DA1, which ends every batch.
 pub fn switch(name: &str) -> Vec<u8> {
-    Queue::default().send(switch_batch(Asker::Switch, &[], name))
+    Queue::default().send(switch_batch(Asker::Switch, &[], name, &[]))
 }
 
-/// The batch that writes `before`, switches the console to `name` and asks
-/// which font it draws then.
-fn switch_batch(asker: Asker, before: &[u8], name: &str) -> Batch {
+/// The batch that writes `before`, switches the console to `name`, writes
+/// `after` and asks which font it draws then.
+fn switch_batch(asker: Asker, before: &[u8], name: &str, after: &[u8]) -> Batch {
     Batch::new(asker)
         .write(before)
         .write(format!("\x1b]50;{name}\x1b\\").as_bytes())
+        .write(after)
         .ask(Query::Font)
 }
 
@@ -472,6 +473,15 @@ pub struct Shared {
     /// - ADR-1403 D7, "Changes wait for Save": the changes stay unsaved
     ///   until Save.
     pub unsaved: usize,
+    /// The terminal's grid when the TUI started, columns by rows, which
+    /// the TUI gives back when it leaves after the Looks tab changed it.
+    pub start_grid: (usize, usize),
+    /// The Looks tab has sent the console a grid request, so leaving
+    /// gives the console [`Shared::start_grid`] back.
+    pub grid_moved: bool,
+    /// The size whose cell the font helper is measuring for a trial of the
+    /// size on the console.
+    pub size_asked: Option<super::shot::SizeAsked>,
 }
 
 /// The terminal's grid, and its cell in pixels where it reports its size
@@ -523,6 +533,31 @@ impl Shared {
         self.conf_text()
             .and_then(|c| conf_switch(c, "allow-font-ops"))
             .unwrap_or(true)
+    }
+
+    /// Whether the console lets programs resize its grid: the installed
+    /// vtium.conf's `allow-window-ops`, which the running console read
+    /// when it started. It is off by default.
+    pub fn window_ops(&self) -> bool {
+        self.inputs
+            .conf
+            .as_deref()
+            .and_then(|c| conf_switch(c, "allow-window-ops"))
+            .unwrap_or(false)
+    }
+
+    /// Whether the draft turns `allow-window-ops` on, so the Looks tab's
+    /// question has nothing left to ask.
+    pub fn window_ops_drafted(&self) -> bool {
+        self.conf_text()
+            .and_then(|c| conf_switch(c, "allow-window-ops"))
+            .unwrap_or(false)
+    }
+
+    /// Whether the TUI runs in a vtium console, with `allow-font-ops` on
+    /// or off.
+    pub fn in_vtium(&self) -> bool {
+        matches!(self.live, Live::On | Live::OpsOff)
     }
 
     /// The value the draft gives `key`, as the settings view shows it,
@@ -723,6 +758,9 @@ impl App {
                 live_said: false,
                 quit_after_install: None,
                 unsaved: 0,
+                start_grid: (size.cols, size.rows),
+                grid_moved: false,
+                size_asked: None,
             },
             size,
             fonts: super::tabs::fonts::Fonts::default(),
@@ -969,7 +1007,9 @@ impl App {
             }
             Event::Timeout => self.timeout(),
             Event::Installed(result) => self.installed(result),
-            Event::Celled { font, height, cell } => self.celled(&font, height, cell),
+            Event::Celled { font, height, cell } => self
+                .size_measured(&font, height, &cell)
+                .unwrap_or_else(|| self.celled(&font, height, cell)),
             Event::Pictured(result) => self.pictured(result),
             Event::Filtered { picture, outcome } => self.filtered(picture, outcome),
             Event::Detailed {
@@ -1167,7 +1207,7 @@ impl App {
         let bytes = self
             .shared
             .replies
-            .send(switch_batch(Asker::Switch, &[], &name));
+            .send(switch_batch(Asker::Switch, &[], &name, &[]));
         self.shared.in_flight = Some(name);
         vec![Effect::Write(bytes)]
     }
@@ -1199,12 +1239,19 @@ impl App {
         if mouse {
             bytes.extend_from_slice(MOUSE_OFF);
         }
+        // the grid the console had at the start goes back after its font,
+        // since a font switch can change the grid too
+        let grid = if self.shared.grid_moved {
+            super::shot::grid_request(self.shared.start_grid)
+        } else {
+            Vec::new()
+        };
         match (&self.shared.live, self.shared.start_font.clone()) {
             (Live::On, Some(start)) if back => {
-                let bytes = self
-                    .shared
-                    .replies
-                    .send(switch_batch(Asker::Leave, &bytes, &start));
+                let bytes =
+                    self.shared
+                        .replies
+                        .send(switch_batch(Asker::Leave, &bytes, &start, &grid));
                 self.shared.leaving = Some(status);
                 self.shared.message = Some(super::words::LEAVING.to_owned());
                 vec![Effect::Write(bytes), Effect::Wait(WAIT)]
@@ -1214,6 +1261,7 @@ impl App {
             // DA1 after a switch already answered. The TUI waits for the
             // replies, so that none reaches the shell after it leaves.
             (Live::On, Some(_)) if self.shared.replies.awaiting() => {
+                bytes.extend_from_slice(&grid);
                 self.shared.leaving = Some(status);
                 if self.shared.in_flight.is_some() {
                     self.shared.message = Some(super::words::LEAVING.to_owned());
@@ -1226,6 +1274,7 @@ impl App {
                 out
             }
             _ => {
+                bytes.extend_from_slice(&grid);
                 self.shared.leaving = Some(status);
                 let mut out = Vec::new();
                 if !bytes.is_empty() {
@@ -1306,6 +1355,9 @@ impl App {
                 Command::Change(Change::Say(line)) => self.shared.message = Some(line),
                 Command::Change(Change::Pending(pending)) => self.shared.pending = pending,
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
+                Command::Change(Change::TrySize { font, points }) => {
+                    effects.extend(self.try_size(font, points));
+                }
                 Command::Change(Change::Quiet) => self.shared.message = None,
                 Command::Change(Change::Make { changes, select }) => {
                     effects.extend(self.make(changes, select));
@@ -1344,11 +1396,18 @@ impl App {
         match key {
             Key::Char('q') => self.quit(0),
             Key::Char('u') => {
-                let Some(start) = self.shared.start_font.clone() else {
-                    return Vec::new();
-                };
-                self.shared.want = Some(start);
-                self.follow()
+                let mut out = Vec::new();
+                if self.shared.grid_moved {
+                    self.shared.grid_moved = false;
+                    out.push(Effect::Write(super::shot::grid_request(
+                        self.shared.start_grid,
+                    )));
+                }
+                if let Some(start) = self.shared.start_font.clone() {
+                    self.shared.want = Some(start);
+                    out.extend(self.follow());
+                }
+                out
             }
             _ => Vec::new(),
         }

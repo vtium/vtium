@@ -627,8 +627,8 @@ pub const NODES: &[Node] = &[
             "↑↓ move  Enter open  n new  t try live  q quit  . more 1/5",
             "Home first  End last  PgUp page up  PgDn page down  . more 2/5",
             "1 2 4 5 6 go to tab  s save  i install  r remove  . more 3/5",
-            "p picture | sample  Tab next view  Shift-Tab view before  . more 4/5",
-            "Ctrl-C save and quit  . more 5/5",
+            "p picture | sample  w resize grid  Tab next view  . more 4/5",
+            "Shift-Tab view before  Ctrl-C save and quit  . more 5/5",
         ],
         help: &[
             ("↑", "Moves to the item above."),
@@ -649,6 +649,7 @@ pub const NODES: &[Node] = &[
             ("n", "Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set."),
             ("t", "Tries the highlighted look or font set on this console for 10 seconds."),
             ("p", "On a look or a font set, switches the preview between the sample characters and the picture of the console. On a font set that vtium cannot read, also says that the font set has no preview."),
+            ("w", "Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing."),
             (".", "Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row."),
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
@@ -673,7 +674,7 @@ pub const NODES: &[Node] = &[
             ("t.view.looks", true),
             ("enter.view.looks", true),
             ("p.view.looks", true),
-            ("window-ops.view.looks", false),
+            ("window-ops.view.looks", true),
             ("o.view.looks", true),
             ("key-line.any", true),
             ("period.view", true),
@@ -1617,9 +1618,16 @@ pub const NODES: &[Node] = &[
     Node {
         id: "any.question.window-ops",
         what: "\"Let programs resize the grid?\"",
-        supported: false,
-        key_pages: &[],
-        help: &[],
+        supported: true,
+        key_pages: &[
+            "y yes  n no  Esc Ctrl-C cancel",
+        ],
+        help: &[
+            ("y", "Answers yes, and vtium-config does what the question asks."),
+            ("n", "Answers no. Nothing changes."),
+            ("Esc", "Cancels the question. Nothing changes."),
+            ("Ctrl-C", "Cancels the question, as Esc does. Nothing changes."),
+        ],
         rows: &[
             ("y.question", true),
             ("n.question", true),

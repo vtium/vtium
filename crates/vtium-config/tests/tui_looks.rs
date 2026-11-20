@@ -1771,3 +1771,132 @@ fn a_pointer_theme_s_name_shows_no_direction_override() {
     assert_eq!(vtium_config::tui::nav::node(&a), "looks.pointer");
     assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
 }
+
+/// The fixture's vtium.conf with `allow-window-ops` on, so the console
+/// lets programs resize its grid.
+fn window_ops_on() -> String {
+    format!(
+        "# mine\nfont-name=unifont\nallow-window-ops\n{}",
+        vtium_config::tui::fixture::SECTIONS
+    )
+}
+
+/// The console of [`console`], driven with the stand-in desk on `conf`,
+/// with what it wrote and the draft it left.
+fn run_on(conf: &str, keys: &[&[u8]]) -> (Console, String) {
+    let mut d = desk();
+    d.installed = conf.to_owned();
+    d.draft = conf.to_owned();
+    let mut c = console().keys(keys);
+    vtium_config::tui::port::drive_with(&mut c, with_conf(conf), Some(&mut d)).expect("the loop");
+    (c, d.draft)
+}
+
+/// The keys that open the look proof's card, its size line's list, and
+/// pick 6 pt, the first size after vtium.conf's and automatic.
+const PICK_SIX: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r", DOWN, DOWN, b"\r"];
+
+/// `w` in the Looks tab asks whether to let programs resize the grid, and
+/// `y` writes `allow-window-ops = on` into the draft.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": `w` asks, and only `y`
+///   writes the key.
+#[test]
+fn w_asks_whether_to_let_programs_resize_the_grid_and_y_turns_it_on() {
+    let seen = reach(80, 25, &[TO_LOOKS, b"w"]);
+    assert!(seen.contains("Let programs resize the grid?"), "{seen}");
+    let draft = draft_after(
+        &inputs().conf.expect("the conf"),
+        &[TO_LOOKS, b"w", b"y", b"s"],
+    );
+    assert!(draft.contains("\nallow-window-ops\n"), "{draft}");
+}
+
+/// `n` and Esc answer the question with no, and write nothing.
+#[test]
+fn n_or_esc_at_the_resize_question_writes_nothing() {
+    let conf = inputs().conf.expect("the conf");
+    for no in [b"n".as_slice(), ESC] {
+        let draft = draft_after(&conf, &[TO_LOOKS, b"w", no, b"s"]);
+        assert!(!draft.contains("allow-window-ops"), "{draft}");
+    }
+}
+
+/// In a vtium console that does not let programs resize its grid, a look
+/// card's size line says so and names `w`, and Enter on a size
+/// says why the console stays as it is and sends no grid request.
+#[test]
+fn without_window_ops_the_tab_says_why_a_size_only_shows_in_the_preview() {
+    let seen = reach(100, 30, &[TO_LOOKS, b"\r", DOWN, DOWN]);
+    assert!(
+        flat(&seen).contains("does not let programs resize its grid"),
+        "{seen}"
+    );
+    let conf = inputs().conf.expect("the conf");
+    let (c, _) = run_on(&conf, PICK_SIX);
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new());
+    let seen = c.seen.expect("the screen");
+    assert!(flat(&seen).contains("shows only in the preview"), "{seen}");
+}
+
+/// Enter on a size in the look card's list tries it on the console: the
+/// font helper measures the font set's cell at that size, and the grid
+/// request asks for the grid that cell gives on the 640×480 display, 80×30
+/// for an 8×16 cell. Any key but `k` puts the grid of 80×25 back.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
+///   highlighted size as a timed trial, and any other key puts the grid
+///   back.
+#[test]
+fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.push(b"x");
+    let (c, draft) = run_on(&window_ops_on(), &keys);
+    assert!(c.cells.contains(&("proof".to_owned(), 8)), "{:?}", c.cells);
+    let tried = find(&c.written, b"\x1b[8;30;80t").expect("the size's grid request");
+    let back = find(&c.written[tried..], b"\x1b[8;25;80t").expect("the grid put back");
+    assert!(back > 0);
+    // the pick is a change to the look like any other, kept for Save
+    assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
+}
+
+/// `k` keeps the size on the console, and quitting gives the console the
+/// grid it had when vtium-config started.
+///
+/// References:
+/// - ADR-1201 D4, "Giving the console back": leaving gives the console
+///   its starting grid back, with the grid request.
+#[test]
+fn k_keeps_a_tried_size_and_quitting_gives_the_starting_grid_back() {
+    let mut keys = PICK_SIX.to_vec();
+    keys.extend_from_slice(&[b"k".as_slice(), ESC, ESC, b"q", b"n"]);
+    let (c, _) = run_on(&window_ops_on(), &keys);
+    let tried = find(&c.written, b"\x1b[8;30;80t").expect("the size's grid request");
+    let rest = &c.written[tried..];
+    // the keep sends nothing, and the leaving asks for the starting grid
+    assert!(
+        find(rest, b"\x1b[8;25;80t").is_some(),
+        "the starting grid given back"
+    );
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80"]);
+}
+
+/// Each grid request, `CSI 8 ; rows ; cols t`, in `bytes`, as its
+/// parameters.
+fn grid_requests(bytes: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(bytes);
+    text.split("\x1b[8;")
+        .skip(1)
+        .filter_map(|rest| {
+            let end = rest.find(|c: char| !c.is_ascii_digit() && c != ';')?;
+            (rest[end..].starts_with('t')).then(|| rest[..end].to_owned())
+        })
+        .collect()
+}
+
+/// The position of `needle` in `haystack`.
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack.windows(needle.len()).position(|w| w == needle)
+}

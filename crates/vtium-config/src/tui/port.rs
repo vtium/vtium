@@ -326,8 +326,18 @@ pub fn drive_with(
 }
 
 /// The bytes that give the console its start font back, when a switch
-/// changed it.
+/// changed it, and then its start grid, when the Looks tab changed it.
 fn give_back(app: &App) -> Vec<u8> {
+    let mut out = font_back(app);
+    if app.shared.grid_moved {
+        out.extend(super::shot::grid_request(app.shared.start_grid));
+    }
+    out
+}
+
+/// The font switch that gives the console its start font back, where a
+/// trial changed it.
+fn font_back(app: &App) -> Vec<u8> {
     match (&app.shared.live, &app.shared.start_font) {
         (Live::On, Some(start))
             if app

@@ -391,6 +391,7 @@ impl Looks {
             sentence.push(' ');
             sentence.push_str(&line);
         }
+
         // the console's own preview draws its text beside the names, so the
         // sentences keep to the names' column there; a picture leaves the
         // cells under it alone, and a written description has nothing
@@ -463,6 +464,29 @@ impl Looks {
         }
     }
 
+    /// `w`: asks whether to let programs resize the console's grid, and
+    /// on `y` writes `allow-window-ops = on` into the draft. Where the
+    /// draft already turns it on, the tab says so instead.
+    ///
+    /// References:
+    /// - ADR-1201 D4, "Sizes, live on a vtium console": the notice line
+    ///   shows `w`, which asks `Let programs resize the grid?`, and only
+    ///   `y` writes the key.
+    fn window_ops(shared: &Shared) -> Vec<Command> {
+        if shared.window_ops_drafted() {
+            return vec![Command::Change(Change::Say(
+                words::WINDOW_OPS_ON.to_owned(),
+            ))];
+        }
+        vec![Command::Request(Request::Ask {
+            question: words::WINDOW_OPS_QUESTION.to_owned(),
+            then: Then::Change(DraftChange::Top {
+                key: vtium_settings::keys::ALLOW_WINDOW_OPS.name,
+                value: Some("on".to_owned()),
+            }),
+        })]
+    }
+
     /// A key while nothing is open over the list.
     fn list_key(&mut self, shared: &Shared, key: Key) -> Vec<Command> {
         let entry = self.highlighted(shared);
@@ -500,6 +524,9 @@ impl Looks {
             // the color schemes and the pointer themes
             (Key::Char('n' | 'r' | 't' | 'p'), Some(Entry::Palette(_) | Entry::Pointer(_))) => {
                 Vec::new()
+            }
+            (Key::Char('w'), Some(Entry::Look(_) | Entry::NoLooks | Entry::FontSet(_))) => {
+                Self::window_ops(shared)
             }
             (Key::Char('n'), Some(Entry::Look(_) | Entry::NoLooks)) => self.new_look(shared),
             (Key::Char('n'), Some(Entry::FontSet(_))) => {

@@ -340,6 +340,54 @@ pub fn look_gone(name: impl Display) -> String {
 /// The heading of the Looks tab's group of color schemes.
 pub const COLOR_SCHEMES_GROUP: &str = "Color schemes";
 
+/// The countdown of a size tried on the console's grid.
+pub fn size_countdown(points: u32, left: u32) -> String {
+    format!(
+        "Trying {} on the console for {left} s. Press k to keep the size, or any other key to put the console's grid back.",
+        self::points(points)
+    )
+}
+
+/// `k` during a size's trial.
+pub fn size_kept(points: u32) -> String {
+    format!(
+        "The console keeps {} until you quit vtium-config. The look keeps it once you press s to save and i to install.",
+        self::points(points)
+    )
+}
+
+/// The end of a size's trial: the console's grid as it was.
+pub fn size_back((cols, rows): (usize, usize)) -> String {
+    format!("The console's grid is back to {cols}×{rows}.")
+}
+
+/// A size whose grid on the display is the console's grid now.
+pub fn size_same(points: u32) -> String {
+    format!(
+        "The console's grid already has the size {} gives, so there is nothing to try.",
+        self::points(points)
+    )
+}
+
+/// The font helper could not measure the size's character cell.
+pub fn size_unmeasured(why: impl Display) -> String {
+    format!("vtium-config cannot try this size on the console: {why}")
+}
+
+/// Enter on a size in a vtium console that does not let programs resize
+/// its grid.
+pub const SIZE_PICTURE_ONLY: &str = "The console does not let programs resize its grid, so the size shows only in the preview until you install it. Press w in the Looks tab to let programs resize the grid.";
+
+/// The question `w` asks in the Looks tab.
+pub const WINDOW_OPS_QUESTION: &str = "Let programs resize the grid? vtium-config writes allow-window-ops = on into the draft. Every program in the console can then set its rows and columns, and the console changes its font size to fit. y lets them, n or Esc does not.";
+
+/// `w` when the draft already lets programs resize the grid.
+pub const WINDOW_OPS_ON: &str = "The draft already lets programs resize the grid. The console does so once you install the draft and vtium starts again.";
+
+/// The notice on a look card's size line, in a vtium console that does
+/// not let programs resize its grid.
+pub const WINDOW_OPS_NOTICE: &str = "The console does not let programs resize its grid, so a size shows only in the preview. Press w in the list of looks to let them.";
+
 /// The heading of the Looks tab's group of pointer themes.
 pub const POINTERS_GROUP: &str = "Pointer themes";
 

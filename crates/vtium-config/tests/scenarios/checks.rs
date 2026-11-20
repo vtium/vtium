@@ -599,8 +599,21 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     // another shape today: what the key does there today is not pinned
     let not_built: Check = |_| Err("not built".into());
     m.insert("list.filter-picker", (not_built, None));
-    // w asks nothing yet in the Looks tab
-    m.insert("window-ops.view.looks", (not_built, Some(nothing)));
+    // w asks whether to let programs resize the grid, or says the draft
+    // already lets them
+    m.insert(
+        "window-ops.view.looks",
+        (
+            |s| {
+                if s.before.app.shared.window_ops_drafted() {
+                    s.nothing()
+                } else {
+                    s.opens("question:window-ops")
+                }
+            },
+            None,
+        ),
+    );
     looks_checks(&mut m, not_built, nothing);
     m.insert(
         "enter.typing.settings",
@@ -1811,7 +1824,6 @@ fn reached_today(id: &str) -> Option<bool> {
         "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
         // nothing like it exists today
         "flow.card.list" | "looks.new-frit.list" => false,
-        "any.question.window-ops" => false,
         // the six tabs' new screens and questions, which nothing builds yet
         "effects.filter" | "effects.effect" | "any.question.deactivate" => false,
         _ => return None,
