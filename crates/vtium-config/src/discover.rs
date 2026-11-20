@@ -27,7 +27,6 @@
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::mpsc;
 
 use vtium_settings::cullet::Rule;
@@ -36,8 +35,8 @@ use vtium_settings::mounts::Mounts;
 use crate::batch::State;
 use crate::describe::Description;
 use crate::serve::{
-    DescribeAsk, FRAME_BYTES_MAX, FRAME_DESCRIPTION, FRAME_FAILED, FRAME_NO_DESCRIPTION,
-    FRAME_SANDBOX, FRAME_WARNING,
+    DescribeAsk, FRAME_DESCRIPTION, FRAME_FAILED, FRAME_NO_DESCRIPTION, FRAME_SANDBOX,
+    FRAME_WARNING,
 };
 use crate::specimen::{HELPER_WAIT, Helper};
 
@@ -447,23 +446,6 @@ pub fn describe_each(helper: &Helper, paths: &[PathBuf], each: &mut dyn FnMut(De
     }
 }
 
-/// One frame the helper sent.
-fn frame(from: &mut dyn Read) -> Result<(u32, Vec<u8>), String> {
-    let mut head = [0u8; 8];
-    from.read_exact(&mut head)
-        .map_err(|_| "the font helper stopped without answering".to_owned())?;
-    let (kind, len) = head.split_at(4);
-    let kind = u32::from_le_bytes(kind.try_into().unwrap_or_default());
-    let len = u32::from_le_bytes(len.try_into().unwrap_or_default());
-    if len > FRAME_BYTES_MAX {
-        return Err("the font helper sent too much".to_owned());
-    }
-    let mut payload = vec![0u8; usize::try_from(len).unwrap_or(0)];
-    from.read_exact(&mut payload)
-        .map_err(|_| "the font helper's answer was cut short".to_owned())?;
-    Ok((kind, payload))
-}
-
 /// The answer to one description from the helper's frames, passing over
 /// its sandbox's report and any warning. A reason the helper gives is
 /// kept as [`crate::onscreen::bytes`] gives it, cut short and with no
@@ -471,7 +453,7 @@ fn frame(from: &mut dyn Read) -> Result<(u32, Vec<u8>), String> {
 fn answer(from: &mut dyn Read) -> Result<Described, String> {
     use crate::onscreen::bytes;
     loop {
-        let (kind, payload) = frame(from)?;
+        let (kind, payload) = crate::specimen::frame(from)?;
         match kind {
             FRAME_SANDBOX | FRAME_WARNING => {}
             FRAME_DESCRIPTION => {
@@ -498,29 +480,7 @@ fn describe_in_one(
 ) -> Result<usize, String> {
     let count = paths.len();
     let paths = paths.to_vec();
-    let started = Command::new(&helper.program)
-        .args(&helper.options)
-        .arg(crate::serve::SERVE_ARG)
-        .env_clear()
-        .current_dir("/")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn();
-    let mut child = match started {
-        Ok(child) => child,
-        Err(e) => {
-            return Err(format!(
-                "cannot start the font helper {}: {e}",
-                helper.program.display()
-            ));
-        }
-    };
-    let (Some(mut stdin), Some(mut stdout)) = (child.stdin.take(), child.stdout.take()) else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err("vtium-config cannot reach the font helper through its pipes".to_owned());
-    };
+    let (mut child, mut stdin, mut stdout) = crate::specimen::start(helper)?;
     let (arrived, answers) = mpsc::channel();
     // every request is written first, from a thread of its own, so a
     // helper that answers while the requests are still going in never

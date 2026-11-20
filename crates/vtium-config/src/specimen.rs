@@ -226,7 +226,9 @@ pub fn pixel_height(points: u32, dpi: u32) -> u32 {
 /// One frame the helper sent.
 type Frame = (u32, Vec<u8>);
 
-fn frame(from: &mut dyn Read) -> Result<Frame, String> {
+/// One frame from the helper's output: its kind and its payload, at most
+/// `FRAME_BYTES_MAX` bytes, or why the helper sent none.
+pub(crate) fn frame(from: &mut dyn Read) -> Result<Frame, String> {
     let mut head = [0u8; 8];
     from.read_exact(&mut head)
         .map_err(|_| "the font helper stopped without answering".to_owned())?;
@@ -318,7 +320,7 @@ fn failure_sent(stdout: &mut dyn Read) -> Option<String> {
 /// the process that parses fonts holds none of the user's terminal, and the
 /// helper sheds any other descriptor it is given as it starts
 /// ([`crate::serve::SHED_VAR`]).
-fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
+pub(crate) fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
     let mut child = Command::new(&helper.program)
         .args(&helper.options)
         .arg(crate::serve::SERVE_ARG)
@@ -328,13 +330,18 @@ fn start(helper: &Helper) -> Result<(Child, ChildStdin, ChildStdout), String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("{}: {e}", helper.program.display()))?;
+        .map_err(|e| {
+            format!(
+                "cannot start the font helper {}: {e}",
+                helper.program.display()
+            )
+        })?;
     match (child.stdin.take(), child.stdout.take()) {
         (Some(i), Some(o)) => Ok((child, i, o)),
         _ => {
             let _ = child.kill();
             let _ = child.wait();
-            Err("the helper's pipes".to_owned())
+            Err("vtium-config cannot reach the font helper through its pipes".to_owned())
         }
     }
 }
