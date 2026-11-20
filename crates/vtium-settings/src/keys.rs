@@ -129,7 +129,11 @@ pub fn name(words: &[&str], text: &str) -> bool {
 /// words nor a file's name, as the console's reading and vtium-config say
 /// it. `palette` is the one key of that kind, so the reason names its
 /// words, which `the_name_refusal_names_each_word_of_a_name_key` holds.
-pub const NOT_A_NAME: &str = "the value is a built-in color scheme (legacy, nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light or vga), custom, or a color scheme file's name, which has 1 to 64 of the characters A-Z a-z 0-9 . _ + - and no path";
+pub const NOT_A_NAME: &str = concat!(
+    "the value is a built-in color scheme (legacy, nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light or vga), custom, or a color scheme file's name, which has 1 to ",
+    crate::bounds::name_max!(),
+    " of the characters A-Z a-z 0-9 . _ + - and no path"
+);
 
 /// The smallest and largest side of a cell that a frit's `cell=` line
 /// and a look's `cell` state, in pixels: from minspec's 8 pixels to an 8K
