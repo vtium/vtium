@@ -647,6 +647,8 @@ flowchart TB
 
 - A head is a terminal for one or more physical displays: its displays, its inputs, a profile, and its consoles, each a session with its own pty, screen, scrollback and grid. Each display can be its own head, and so hold its own session.
 - A head's grid is its own, so a size in points is exact on each head. Where a head claims several displays, it mirrors across them by the scaled rule of `crates/vtium/src/layout.rs`. Only there does one grid span several densities, and there the point rule converts at the lowest density among them.
+
+> Note 2026-11-20: ADR-1404, proposed on this date and not yet accepted, would let a head join its displays into one larger terminal, stacked or side by side, with `arrange` and `display-order` in its section. Mirroring stays the default. This note changes nothing until the maintainer accepts ADR-1404.
 - A head shows one console at a time on every display it holds. A head starts with the number of consoles its `consoles` key gives it, 1 when unset, as today's console has one session; the count and the consoles' command are set per head in the head file (D3), and the console chords switch among them (D5). A zoom changes the grid of the console shown.
 - **Under `policy = closed` the count is fixed:** a head keeps the consoles it started with for as long as it runs, and no chord opens or closes one. A kiosk configured for one shell cannot gain a shell or lose one, and the closed policy is what makes a head a kiosk.
 - **Under an open policy the count is where the head starts.** Ctrl+Super+Enter opens a console on the head and Ctrl+Super+Backspace closes the console the head shows (D5), up to the head's cap, `head-consoles-max`, and the cap on every head's consoles together, `consoles-max` (D10).
