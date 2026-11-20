@@ -4017,42 +4017,51 @@ impl App {
             }
             return;
         }
-        if key.repeat
-            && (!head.console.term.terminal.auto_repeat()
-                || !self.held.delivered(node, key.keycode))
-        {
-            return;
-        }
-        let event = if key.repeat {
-            TermKeyEvent::Repeat
-        } else {
-            TermKeyEvent::Press
-        };
-        let Some(pressed) = term_key(key, event) else {
-            return;
-        };
-        if !key.repeat {
-            let to = held::Console {
-                head: h,
-                id: head.console.id,
-            };
-            self.held.pressed(node, key.keycode, to, pressed);
-        }
-        if head.console.term.terminal.key(&pressed) {
-            // The key opens a window on each display: the program's
-            // output draws at once until the display's next flip
-            // completes (ADR-1401 D2).
-            head.console.term.key_sent();
-            head.send_user_bytes();
-            head.console.term.terminal.screen_mut().reset_view();
-            if self.hide_while_typing {
-                head.hide_pointer();
+        // The key has already cleared the selection and changed the hovered
+        // link, so each way out of this block reaches the frame decision
+        // below, even when vtium drops the key itself: a repeat whose press
+        // it never delivered, or a key with no keysym.
+        'send: {
+            if key.repeat
+                && (!head.console.term.terminal.auto_repeat()
+                    || !self.held.delivered(node, key.keycode))
+            {
+                break 'send;
             }
-        }
-        let rate = crate::blink::cursor_period(&head.console.term.terminal);
-        let blinks = head.console.term.terminal.cursor_blinks();
-        if let Some(arm) = head.console.term.blink.key(rate, blinks) {
-            head.cursor_due = Some((after(now, arm.first), arm.every));
+            let event = if key.repeat {
+                TermKeyEvent::Repeat
+            } else {
+                TermKeyEvent::Press
+            };
+            let Some(pressed) = term_key(key, event) else {
+                break 'send;
+            };
+            if !key.repeat {
+                let to = held::Console {
+                    head: h,
+                    id: head.console.id,
+                };
+                self.held.pressed(node, key.keycode, to, pressed);
+            }
+            if head.console.term.terminal.key(&pressed) {
+                // The key opens a window on each display: the program's
+                // output draws at once until the display's next flip
+                // completes.
+                //
+                // References:
+                // - ADR-1401 D2: the key's window and when it closes.
+                head.console.term.key_sent();
+                head.send_user_bytes();
+                head.console.term.terminal.screen_mut().reset_view();
+                if self.hide_while_typing {
+                    head.hide_pointer();
+                }
+            }
+            let rate = crate::blink::cursor_period(&head.console.term.terminal);
+            let blinks = head.console.term.terminal.cursor_blinks();
+            if let Some(arm) = head.console.term.blink.key(rate, blinks) {
+                head.cursor_due = Some((after(now, arm.first), arm.every));
+            }
         }
         head.draw_now |= before.changed(head);
     }
@@ -9076,9 +9085,15 @@ mod tests {
         let name = rustix::pty::ptsname(app.pty().unwrap().master(), Vec::new()).unwrap();
         let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY;
         let slave = rustix::fs::open(name.as_c_str(), flags, rustix::fs::Mode::empty()).unwrap();
-        // Raw and with no echo, so the test's writes are the only echo.
+        // Raw and with no echo, so the test's writes are the only echo. A
+        // read returns as soon as a byte is there, and returns nothing after
+        // 5 s, so a key that never reaches the pty fails the test instead of
+        // hanging it. Each read comes after the key's turn has written the
+        // key, so the 5 s only bounds a failure.
         let mut termios = rustix::termios::tcgetattr(&slave).unwrap();
         termios.make_raw();
+        termios.special_codes[rustix::termios::SpecialCodeIndex::VMIN] = 0;
+        termios.special_codes[rustix::termios::SpecialCodeIndex::VTIME] = 50;
         rustix::termios::tcsetattr(&slave, rustix::termios::OptionalActions::Now, &termios)
             .unwrap();
         let mut slave = std::fs::File::from(slave);
@@ -9107,6 +9122,7 @@ mod tests {
             );
             let mut read = [0u8; 8];
             let n = slave.read(&mut read).unwrap();
+            assert_ne!(n, 0, "{c}: the key reaches the pty within 5 s");
             let echo = read.get(..n).unwrap();
             assert_eq!(echo, [c as u8], "{c} reached the program");
             slave.write_all(echo).unwrap();
@@ -9207,6 +9223,113 @@ mod tests {
         assert!(!blink.cursor_shown(), "the cursor's hidden phase");
         assert!(key(&mut app, 'c'), "the key showed the cursor");
         assert!(!key(&mut app, 'c'), "and the next key changes nothing");
+    }
+
+    // A key that vtium drops still clears the selection, and the selection
+    // it cleared draws a frame. vtium drops a repeat whose press it never
+    // delivered, and a key with no keysym, which no program can be sent.
+    #[test]
+    fn a_key_vtium_drops_draws_the_selection_it_cleared() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        app.hide_while_typing = false;
+        app.turn(Instant::now());
+        let c = u32::from('c');
+        let repeat = KeyEvent {
+            keycode: 46,
+            ascii: c,
+            unshifted: c,
+            shifted: c,
+            base: None,
+            mods: InputMods::empty(),
+            keysyms: vec![c],
+            codepoints: vec![Some('c')],
+            repeat: true,
+        };
+        let no_keysym = KeyEvent {
+            keysyms: Vec::new(),
+            codepoints: Vec::new(),
+            repeat: false,
+            ..repeat.clone()
+        };
+        for (what, key) in [
+            ("a dropped repeat", repeat),
+            ("a key with no keysym", no_keysym),
+        ] {
+            let screen = app.term_mut().unwrap().terminal.screen_mut();
+            screen.select_start(0, 0);
+            screen.select_to(3, 0);
+            assert!(screen.has_selection());
+            app.heads.first_mut().unwrap().draw_now = false;
+            app.input_event(InputEvent::Key(key), Instant::now());
+            let head = app.heads.first().unwrap();
+            assert!(
+                !head.views.values().any(|v| v.after_key(&head.console.term)),
+                "{what} does not reach the program"
+            );
+            assert!(
+                !head.console.term.terminal.screen().has_selection(),
+                "{what} clears the selection"
+            );
+            assert!(head.draw_now, "{what} draws the cleared selection");
+        }
+    }
+
+    // A key pressed with Ctrl while the pointer is over a link shows the
+    // link's URI on the overlay row, and that draws a frame before the
+    // program answers the key.
+    //
+    // References:
+    // - ADR-1002, "What a link does": Ctrl shows the hovered link's URI.
+    #[test]
+    fn a_ctrl_key_over_a_link_draws_the_uri_it_shows() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        app.hide_while_typing = false;
+        app.turn(Instant::now());
+        let head = app.heads.first_mut().unwrap();
+        head.console
+            .term
+            .terminal
+            .input(b"\x1b]8;;x:there\x1b\\link\x1b]8;;\x1b\\");
+        head.pointer.visible = true;
+        head.pointer.x = head.cell.0 / 2;
+        head.pointer.y = head.cell.1 / 2;
+        head.hover(false);
+        assert_eq!(head.link_overlay(), None, "no URI shows without Ctrl");
+        head.draw_now = false;
+        let e = u32::from('e');
+        app.input_event(
+            InputEvent::Key(KeyEvent {
+                keycode: 18,
+                ascii: e,
+                unshifted: e,
+                shifted: e,
+                base: None,
+                mods: InputMods::CTRL,
+                keysyms: vec![e],
+                codepoints: vec![Some('e')],
+                repeat: false,
+            }),
+            Instant::now(),
+        );
+        let head = app.heads.first().unwrap();
+        assert!(
+            head.views.values().all(|v| v.after_key(&head.console.term)),
+            "Ctrl+e went to the program"
+        );
+        assert_eq!(head.link_overlay().as_deref(), Some("x:there"));
+        assert!(head.draw_now, "the key draws the URI it shows");
     }
 
     // ADR-1401 D2: a synchronized update's end stops the terminal only
