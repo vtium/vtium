@@ -14,6 +14,8 @@ Each page explains one concept, so you can read them one at a time. Each page li
 - [From keyboards to displays](flows.md): how vtium.conf joins displays, heads and keyboards into paths, pictured as vtium-config draws them.
 - [Security](security.md): which parts of vtium run as root and which run with fewer rights, and what a program in your session can make vtium do. It also covers who may change vtium.conf, which keyboard can reach whose session, and where the protection ends.
 - [Fonts, generated at run time](fonts.md): the frit, the helper that draws its glyphs, the built-in fonts and switching between fonts.
+- [Active resources and the trust rule](resources.md): the fonts, color schemes and other files that vtium may draw from. It also covers the list that root keeps of them, and the rule each file must pass.
+- [Looks and effects](looks.md): what a look holds, and how a color scheme differs from an effect. It also covers how vtium draws a frame through a vtlook's filters.
 - [Using vtium](using-vtium.md): the configuration, the selection and the clipboard, links and prompts, keys and blanking.
 - [How vtium is judged](how-vtium-is-judged.md): the tiers of tests, from unit tests up to a virtual machine and the maintainer's review on a real VT. It also explains the goldens, the saved expected results that the tests compare vtium's output with.
 - [How vtium is built](how-vtium-is-built.md): how the project is laid out so that a person or an agent can find the part they work on. It also explains how one maintainer steers AI coding agents, and the checks that make the agents' work dependable.
