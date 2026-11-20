@@ -514,6 +514,9 @@ fn a_terminal_that_answers_only_da1_gets_no_osc_50_switch() {
     c.key(TO_TINY5);
     highlighted(&c, "tiny5");
     c.key(b"t");
+    c.until("said the trial is off", |s| {
+        s.screen.contains("The live trial works only")
+    });
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
@@ -536,6 +539,9 @@ fn with_font_operations_off_no_osc_50_switch_goes() {
     c.key(TO_TINY5);
     highlighted(&c, "tiny5");
     c.key(b"t");
+    c.until("said the trial is off", |s| {
+        s.screen.contains("The live trial works only")
+    });
     c.key(b"q");
     assert_eq!(status(child), 0);
     c.drained(&slave);
