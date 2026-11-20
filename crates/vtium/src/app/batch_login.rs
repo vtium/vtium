@@ -55,7 +55,13 @@ fn an_activation_between_two_logins_reaches_the_next_login() {
         ..no_fonts()
     };
     let t = Instant::now();
-    let (_lp, mut app) = seat_with(&["--palette=batch-login"], None, fonts);
+    // the stand-in helper, so that the console's launcher opens whether or
+    // not this machine has vtium's font helper installed
+    let helper = format!(
+        "--font-helper={}",
+        crate::helper::stand_in_shell().display()
+    );
+    let (_lp, mut app) = seat_with(&["--palette=batch-login", helper.as_str()], None, fonts);
     app.add_video(
         PathBuf::from("/dev/mem0"),
         Box::new(Still::new(&[(1, "A")])),
