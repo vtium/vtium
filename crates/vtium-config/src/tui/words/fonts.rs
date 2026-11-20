@@ -175,7 +175,17 @@ pub const FONTS_NONE: &str = "No font passes this filter.";
 pub const FONTS_EMPTY: &str = "vtium-config found no font files in the folders it looks in.";
 
 /// The sentence under the list that says what the keys do.
-pub const FONTS_HINT: &str = "Space activates or deactivates the highlighted font. Enter opens a font's detail, or the filters on the filter line. p switches the preview.";
+pub const FONTS_HINT: &str = "Space activates or deactivates the highlighted font. Enter opens a font's detail, or the filters on the filter line.";
+
+/// What `p` does next in the Fonts tab, while the preview shows the
+/// sample characters. A terminal without images shows the same written
+/// description for both previews, so this line is how the person sees
+/// which one is on.
+pub const FONTS_P_TO_PICTURE: &str = "p switches the preview to the picture of the console.";
+
+/// What `p` does next in the Fonts tab, while the preview shows the
+/// picture of the console.
+pub const FONTS_P_TO_SAMPLE: &str = "p switches the preview back to the sample characters.";
 
 /// The sentence under the list of filters.
 pub const FONTS_FILTER_HINT: &str = "Enter shows the fonts that pass the highlighted filter. A filter other than All fonts leaves out each font the font helper has not described.";

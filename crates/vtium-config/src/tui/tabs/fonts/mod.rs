@@ -228,6 +228,14 @@ impl Fonts {
             sentence.push(words::fonts_waiting(waiting));
         }
         sentence.push(words::FONTS_HINT.to_owned());
+        sentence.push(
+            if self.picture {
+                words::FONTS_P_TO_SAMPLE
+            } else {
+                words::FONTS_P_TO_PICTURE
+            }
+            .to_owned(),
+        );
         let mut under = tail(&sentence.join(" "), cols);
         if let Some(line) = Tab::preview(self, shared, size).preview_line() {
             under.extend(tail(&line, cols).into_iter().skip(1));
