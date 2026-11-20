@@ -1,0 +1,25 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
+ draft mine · no changes · no problems             text preview · no live trial
+--------------------------------------------------------------------------------
+ font NotoColorEmoji.ttf
+ File: /usr/local/share/fonts/NotoColorEmoji.ttf
+ Folder: system
+ Face: Noto Color Emoji Regular, version 2.37
+ OpenType, outline, proportional
+ Covers 3000 characters, and no script in full.
+ Belongs to: color emoji.
+ Sizes: any size, since it has outlines.
+ State: not active
+ This font fails the trust rule, so vtium treats it as missing. The rule asks
+ that the file and each folder above it belong to root, and that nobody else
+ can write them. /usr/local/share/fonts/NotoColorEmoji.ttf: the file belongs to
+ user 1000, and only root may own it.
+ Duplicate: a package installed the same file as
+ /usr/share/fonts/noto/NotoColorEmoji.ttf. vtium uses the package's file while
+
+ Up and Down scroll the detail, and Esc goes back to the list.
+ Live trial is off: this vtium console has allow-font-ops turned off, so t
+ cannot try a font on it. To turn it on, press o in the Fonts view, then
+ install.
+--------------------------------------------------------------------------------
+ Esc back  q quit  . more 1/2
