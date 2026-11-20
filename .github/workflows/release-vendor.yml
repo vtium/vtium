@@ -1,29 +1,46 @@
-# The vendor archive each GitHub release carries: the source of every outside
-# crate vtium builds with, so that a package manager that builds with no
-# network has it (ADR-1500 D9). tools/vendor/archive describes the archive.
+# The files each GitHub release carries, all made here from the tagged
+# commit: the source as vtium-VERSION.tar.gz and vtium-VERSION.zip from git
+# archive, the vendor archive vtium-VERSION-vendor.tar.zst and its .sha256,
+# which hold the source of every outside crate vtium builds with so that a
+# package manager that builds with no network has them (ADR-1500 D9), the
+# manifest of those crates, vtium-VERSION-dependencies.tsv, and SHA256SUMS,
+# which lists the SHA-256 of each. tools/vendor/archive describes the files.
 #
 # When a release is published, the archive job checks out the release's tag,
-# builds Cullet Mono's faces, then packs the archive with make
-# vendor-archive-check, which also builds the workspace and make install
-# offline from it, and keeps both files as a workflow artifact. The
-# attach job then attaches them to the release. Run by hand on a tag, a
-# branch or a commit, the workflow packs and checks the archive and keeps it
-# as a workflow artifact alone, so it can be checked before a release depends
-# on it. A run by hand checks out the whole history, so the archive's name
-# carries the ref's tag, or git describe's name for it.
+# builds Cullet Mono's faces, then packs the files with make
+# vendor-archive-check. The check verifies them against SHA256SUMS and the
+# source archives against the commit, builds the workspace and make install
+# offline from the vendor archive, and keeps the files as a workflow
+# artifact. The attest job makes a build provenance attestation for each
+# file, and the attach job attaches the files to the release. Anyone can
+# then check a file with gh attestation verify FILE --repo vtium/vtium.
+#
+# Run by hand on a tag, a branch or a commit, the workflow packs and checks
+# the files and keeps them as a workflow artifact alone, so they can be
+# checked before a release depends on them. It attests them only when the
+# attest input is true, which checks the attest step itself. An attestation
+# names the commit the workflow ran from, which in a run by hand is the
+# branch the run was started on, not the ref input, so a run by hand
+# attests only to try the step. A run by hand checks out the whole history,
+# so the files' names carry the ref's tag, or git describe's name for it.
 #
 # A release published with the workflow token starts no workflow, so this
 # runs for a release that a person publishes.
-name: Release vendor archive
+name: Release files
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       ref:
-        description: The tag, branch or commit to pack the archive for, such as v0.1.0-alpha.6 or main
+        description: The tag, branch or commit to pack the release files for, such as v0.1.0-alpha.6 or main
         required: true
         type: string
+      attest:
+        description: Also make a build provenance attestation for each file, to try the attest step
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -92,17 +109,46 @@ jobs:
             chown -R "$OWNER" target'
       # For a release, the file names carry its tag without the leading v.
       - run: make vendor-archive-check VENDOR_DIR="$RUNNER_TEMP/vendor" ${RELEASE_TAG:+VENDOR_VERSION="${RELEASE_TAG#v}"}
+      # SHA256SUMS names every file the release carries, and the check has
+      # just verified each against it, so the artifact holds those files.
+      - name: list the release files
+        run: |
+          cd "$RUNNER_TEMP/vendor"
+          mkdir "$RUNNER_TEMP/release"
+          cut -c67- SHA256SUMS > "$RUNNER_TEMP/files"
+          echo SHA256SUMS >> "$RUNNER_TEMP/files"
+          while read -r f; do cp "$f" "$RUNNER_TEMP/release/"; done < "$RUNNER_TEMP/files"
+          ls -l "$RUNNER_TEMP/release"
       - uses: actions/upload-artifact@v4
         with:
-          name: vtium-vendor
-          path: |
-            ${{ runner.temp }}/vendor/vtium-*-vendor.tar.zst
-            ${{ runner.temp }}/vendor/vtium-*-vendor.tar.zst.sha256
+          name: vtium-release
+          path: ${{ runner.temp }}/release/
           if-no-files-found: error
+
+  attest:
+    if: github.event_name == 'release' || inputs.attest
+    needs: archive
+    runs-on: ubuntu-latest
+    # Attesting needs a token from GitHub's OIDC provider and the right to
+    # store attestations. The job runs no code of the tag's.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vtium-release
+          path: release
+      # v4.2.2. One attestation covers every file, each named with its
+      # SHA-256, and gh attestation verify checks a file against it.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8
+        with:
+          subject-path: release/*
 
   attach:
     if: github.event_name == 'release'
-    needs: archive
+    needs: [archive, attest]
     runs-on: ubuntu-latest
     # Only this job may write to the release, and it runs no code of the
     # tag's.
@@ -111,14 +157,18 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: vtium-vendor
-          path: vendor
+          name: vtium-release
+          path: release
       # --clobber replaces the files a run that was started again had
-      # already attached.
+      # already attached. Each file must carry the release's version.
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=${RELEASE_TAG#v}
-          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            "vendor/vtium-$version-vendor.tar.zst" \
-            "vendor/vtium-$version-vendor.tar.zst.sha256"
+          for f in release/*; do
+            case ${f#release/} in
+              SHA256SUMS | "vtium-$version".* | "vtium-$version"-*) ;;
+              *) echo "$f does not carry the release's version $version" >&2; exit 1 ;;
+            esac
+          done
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber release/*
