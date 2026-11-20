@@ -25,6 +25,6 @@
  Enter shows the fonts that pass the highlighted filter. A filter other than All fonts leaves out
  each font the font helper has not described.
  Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it.
- To turn it on, press o in the Fonts view, then install.
+ To turn it on, change allow-font-ops in the Settings tab, then install.
 ----------------------------------------------------------------------------------------------------
  ↑↓ move  Enter pick  Esc back  q quit  . more 1/3

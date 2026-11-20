@@ -1,7 +1,7 @@
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
  draft mine · no changes · no problems             text preview · no live trial
 --------------------------------------------------------------------------------
- font NotoColorEmoji.ttf
+ Font NotoColorEmoji.ttf
  File: /usr/local/share/fonts/NotoColorEmoji.ttf
  Folder: system
  Face: Noto Color Emoji Regular, version 2.37
@@ -19,7 +19,7 @@
 
  Up and Down scroll the detail, and Esc goes back to the list.
  Live trial is off: this vtium console has allow-font-ops turned off, so t
- cannot try a font on it. To turn it on, press o in the Fonts view, then
- install.
+ cannot try a font on it. To turn it on, change allow-font-ops in the Settings
+ tab, then install.
 --------------------------------------------------------------------------------
  Esc back  q quit  . more 1/2
