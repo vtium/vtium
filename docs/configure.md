@@ -226,7 +226,7 @@ The line above the list is a filter. Enter on the filter line lists the filters:
 - Space activates the highlighted font, or deactivates it when it is active. vtium-config refuses to activate a font that fails the trust rule. Before it deactivates a font that a look uses, it asks, and names those looks.
 - Enter opens the font's detail: its file and folder, its face and version, the characters and scripts it covers, its sizes, its trust mark, and the looks that use it.
 - `p` switches the preview under the list between the sample characters and a picture of the console in the font.
-- `t` tries nothing here, because vtium can try a font set on the console but not a single font file. Make a font set from the font in the Looks tab, and try the set there.
+- `t` does not try a single font yet. See [the Fonts tab issue](https://github.com/vtium/vtium/issues/375). Until then, make a font set from the font in the Looks tab, and try the set there.
 - `n` and `r` do nothing here. You make and remove font sets in the Looks tab.
 
 vtium cannot use a font in your own folder, because root does not own the file. Enter in that font's detail offers to install it as a system font. vtium-config shows the exact command, which copies the file into `/usr/local/share/fonts` through sudo, and asks before it runs the command. Installing the font does not activate it, so press Space on the installed font afterwards.
@@ -256,7 +256,7 @@ Enter on a look opens its card, with one line each for the look's name, font set
 - The size line offers the sizes that the look's text font supplies. A bitmap font offers the point sizes that draw each of its bitmap sizes. An outline font offers vtium-config's usual sizes, since it can take any size.
 - The color scheme line offers the scheme that vtium.conf sets first, then the schemes built into vtium, then the active scheme files.
 - The vtlook line offers No filter, the presets and the vtlooks in `/etc/vtium/looks`, in the Effects tab's order. A vtlook with an error shows the error, and the look can still choose it.
-- The pointer theme line shows the theme that vtium.conf sets. A look cannot choose its own pointer theme yet.
+- The pointer theme line shows the theme that vtium.conf sets. A look cannot choose its own pointer theme yet. See [the pointer theme issue](https://github.com/vtium/vtium/issues/442).
 
 Under its lines, the card shows the fonts of the look's font set by role, such as the text font and box drawing, and the fonts this machine lacks. Esc closes the card and keeps its changes for Save. Among the looks, `n` makes a new look and lets you type its name, and `r` deletes a look after a question.
 

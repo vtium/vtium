@@ -124,9 +124,9 @@ When a head does not show the color scheme that its look names, vtium could not 
 
 ## An effect that does not apply
 
-When a head shows no effect where its look names a vtlook (a look file), the head draws the built-in vtlook, which changes no pixel. Check these in turn:
+When a head shows no effect where its look names a vtlook (a file of frame filters), the head draws the built-in vtlook, which changes no pixel. Check these in turn:
 
-- The build must have frame filters. `vtium --version` names `filters` on its `features` line when it does. The `vtium` and `vtium-git` packages are built without them. See [Arch Linux](install.md#arch-linux) for how to build them in.
+- The build must have frame filters. `vtium --version` names `filters` on its `features` line when it does. The `vtium` and `vtium-git` packages build them from 0.1.0-alpha.10 on, and a package of an earlier release has none. See [Arch Linux](install.md#arch-linux) for the features each package builds.
 - Run `vtium check-config`. It lists each error of every vtlook that vtium.conf names, with the file and the line. It also names a color map that a vtlook's `cube` filter cannot use, because the file is missing, is not active, or fails the trust rule. Any such error makes the whole vtlook fail.
 - A color map, a `.cube` file, must be active. A fresh install activates none. Activate the file and log in again:
 

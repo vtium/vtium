@@ -1,6 +1,6 @@
 # Vtlook files
 
-A vtlook (a look file) chooses the frame filters for a head. A frame filter changes the finished picture before the display shows it, such as a color correction or a CRT effect. This page describes the file: where it lives, its syntax, its display requirements, the built-in vtlook, and the errors vtium reports.
+A vtlook (a file of frame filters) chooses the filters a head applies to its picture. A frame filter changes the finished picture before the display shows it, such as a color correction or a CRT effect. This page describes the file: where it lives, its syntax, its display requirements, the built-in vtlook, and the errors vtium reports.
 
 vtium has five color filters, which change the color of each pixel: `gamma`, `contrast`, `tint`, `color-blind`, and `cube`, which reads a color table from a file. Spatial filters, which read the pixels around each pixel, such as scanlines, are not built yet. See [the frame filters issue](https://github.com/vtium/vtium/issues/219) for the filters as they arrive.
 

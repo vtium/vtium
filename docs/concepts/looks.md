@@ -28,7 +28,7 @@ An effect changes the finished picture, after vtium has drawn the text. It reach
 
 ## A vtlook is a chain of filters
 
-A vtlook (a look file) chooses the effects for a head. It is a file, `NAME.vtlook`, and each of its sections names one frame filter, a step that changes the finished frame. vtium has five color filters, which change each pixel's color from that color alone:
+A vtlook (a file of frame filters) chooses the effects for a head. It is a file, `NAME.vtlook`, and each of its sections names one frame filter, a step that changes the finished frame. vtium has five color filters, which change each pixel's color from that color alone:
 
 - `gamma` lightens or darkens the middle tones.
 - `contrast` spreads the tones apart or pulls them together, and shifts their brightness.
