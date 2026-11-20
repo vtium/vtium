@@ -150,8 +150,11 @@ pub struct Inputs {
     /// wrote it, or a line of it that it skipped.
     pub colors_note: Option<String>,
     /// The head of the console the TUI runs in, from `VTIUM_HEAD`, which
-    /// vtium sets in each console's session (ADR-1401 D5): where `s` in
-    /// the Fonts view of a vtium console saves the font the console shows.
+    /// vtium sets in each console's session: the head whose font the
+    /// preview names and a trial puts back.
+    ///
+    /// References:
+    /// - ADR-1401 D5: vtium sets `VTIUM_HEAD` in each console's session.
     pub head: Option<String>,
     /// The locale the specimen's line follows, as [`super::locale`] reads
     /// it, for the preview a vtium console draws as text.
@@ -282,8 +285,7 @@ pub enum Effect {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     Flow,
-    /// The looks; until looks are built, the sizes the console's font
-    /// takes.
+    /// The Looks tab: the looks, their font sets and their color schemes.
     Looks,
     Fonts,
     Settings,
@@ -292,7 +294,7 @@ pub enum View {
     /// `new`'s guided flow: a frit made from fonts, installed like any
     /// change (ADR-1201 D9). It belongs to the Looks tab.
     New,
-    /// The Effects tab, which says only that it is coming.
+    /// The Effects tab: the vtlooks, color maps and shaders.
     Effects,
 }
 
@@ -454,9 +456,6 @@ pub struct Shared {
     pub came: Option<String>,
     /// The notice that the live trial is off has been shown.
     live_said: bool,
-    /// What the message line says once the draft holds the font the
-    /// console shows, which `s` in a vtium console's Fonts view wrote.
-    pub saving_tried: Option<String>,
     /// The TUI leaves with this status once the install that `y` at the
     /// leave question started ends well.
     pub quit_after_install: Option<u8>,
@@ -717,7 +716,6 @@ impl App {
                 install_waits: None,
                 came: None,
                 live_said: false,
-                saving_tried: None,
                 quit_after_install: None,
                 unsaved: 0,
             },

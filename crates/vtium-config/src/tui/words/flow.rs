@@ -587,14 +587,14 @@ pub const IN_DOCUMENT: &str =
 pub const OTHERS_CANNOT: &str =
     "These inputs are neither keyboards nor pointers, so they cannot be part of a path.";
 
-pub const DEFAULT_FONT_PREVIEW: &str = "The default font set is the font vtium.conf sets. The Fonts view shows each font set's preview.";
+pub const DEFAULT_FONT_PREVIEW: &str = "The default font set is the font vtium.conf sets. The Looks tab shows each font set's preview.";
 
 pub const PREVIEW_PATH_NOT_HERE: &str =
     "Previewing a path needs a vtium console, and this terminal is not one.";
 
 pub const PREVIEW_PATH_LATER: &str = "Previewing a whole path needs the console's control socket, which vtium does not have yet. Enter on a font set shows its preview.";
 
-pub const LIVE_ON: &str = "Live trial is on: in the Fonts view, t tries a font on this console.";
+pub const LIVE_ON: &str = "Live trial is on: in the Looks tab, t tries a font set on this console.";
 
 pub const FLOW_COMPLETE: &str = "All devices are in a path";
 

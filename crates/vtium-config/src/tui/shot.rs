@@ -51,7 +51,7 @@ pub const ASSUMED_DISPLAY: (u32, u32) = (640, 480);
 
 /// The screen the Looks view's preview draws, in pixels, whatever the real
 /// display's size: a nominal screen of sample content from its top left.
-/// The preview shows it as the Fonts view shows the detailed specimen: one
+/// The preview shows it as the Fonts tab shows the detailed specimen: one
 /// pixel of the console to one pixel of the picture, as many whole
 /// character cells of the sample content as the preview area holds, so a
 /// bigger size gives a bigger picture. The glyphs keep the cell the look
@@ -184,7 +184,7 @@ pub struct Wanted {
     pub points: u32,
     pub cell: Option<Cell>,
     /// The detailed specimen of the font in place of the picture of the
-    /// console, which `s` chooses in the Fonts view.
+    /// console.
     pub detail: bool,
     /// The effect the picture is drawn through, which the Effects tab
     /// previews.

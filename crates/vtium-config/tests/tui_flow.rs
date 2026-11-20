@@ -703,50 +703,6 @@ mod draft_flow {
         }
     }
 
-    /// The TUI's checked save writes a draft whose check ends with
-    /// check-config's status for missing fonts, as an install takes it.
-    /// It goes by the status alone: the same warnings with status 1, or
-    /// another problem, refuse the save and leave the draft as it was.
-    ///
-    /// References:
-    /// - ADR-1204 D7: check-config names each missing font.
-    /// - ADR-1403 D8: the TUI's saves go through the check.
-    #[test]
-    fn the_checked_save_writes_a_draft_with_only_missing_fonts_and_nothing_else() {
-        use vtium_config::tui::desk::{Desk, Op};
-        let b = bench("save-missing-font");
-        let only = vtium_settings::CHECK_MISSING_FONTS;
-        // the stand-in warns of a missing font for each line that holds
-        // GONE, and exits as the real check does; WORDS makes it exit 1
-        let checker = CHECKER.replace(
-            "if [ -n \"$bad\" ]; then",
-            &format!(
-                "for n in $(grep -n GONE \"$file\" | cut -d: -f1); do\n  echo \"$file:$n: Font set desk needs the font Gone Mono, and no font of that name is installed.\" >&2\n  gone=1\ndone\nif [ -n \"$gone\" ] && [ -z \"$bad\" ]; then\n  grep -q WORDS \"$file\" && exit 1\n  exit {only}\nfi\nif [ -n \"$bad\" ]; then"
-            ),
-        );
-        script::executable(&b.root.join("vtium"), &checker);
-        let mut desk = b.desk(vec![present(vec![keyboard()], true)]);
-        let save = |desk: &mut desk::Store, font: &str| {
-            let text = INSTALLED.replacen("\n", &format!("\nfont-name={font}\n"), 1);
-            (desk.run(&Op::WriteChecked(text.clone())), text)
-        };
-        let (done, gone) = save(&mut desk, "GONEFONT");
-        assert!(matches!(done, Ok(Done::Draft(..))), "{done:?}");
-        assert_eq!(b.draft(), gone);
-        for font in ["GONEWORDS", "GONEFONT\nlogin=BAD"] {
-            let (done, _) = save(&mut desk, font);
-            let Ok(Done::Refused(why, problems)) = done else {
-                panic!("{font}: {done:?}");
-            };
-            assert_eq!(why, words::TRIED_REFUSED, "{font}");
-            assert!(
-                problems.iter().any(|p| p.contains("Gone Mono")),
-                "{font}: {problems:?}"
-            );
-            assert_eq!(b.draft(), gone, "{font}");
-        }
-    }
-
     #[test]
     fn the_view_opens_on_the_draft_and_its_state() {
         let b = bench("opens");

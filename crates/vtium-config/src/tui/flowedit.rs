@@ -241,11 +241,6 @@ impl App {
 
     /// What the desk answered `op` with.
     pub(crate) fn desked(&mut self, op: &Op, done: Result<Done, String>) -> Vec<Effect> {
-        let tried = if matches!(op, Op::WriteChecked(_)) {
-            self.shared.saving_tried.take()
-        } else {
-            None
-        };
         let done = match done {
             Ok(done) => done,
             Err(why) => {
@@ -267,10 +262,6 @@ impl App {
                     Op::Write(_) if self.shared.unsaved > 0 => {
                         self.shared.message =
                             Some(words::saved_draft(self.shared.unsaved, &opened.name));
-                        self.shared.unsaved = 0;
-                    }
-                    Op::WriteChecked(_) => {
-                        self.shared.message = tried;
                         self.shared.unsaved = 0;
                     }
                     _ => self.shared.unsaved = 0,
@@ -349,13 +340,7 @@ impl App {
                 self.shared.quit_after_install = None;
                 let mut lines = vec![why];
                 lines.extend(problems);
-                // the views beside the flow show one paragraph
-                let sep = if matches!(op, Op::WriteChecked(_)) {
-                    " "
-                } else {
-                    "\n"
-                };
-                self.shared.message = Some(lines.join(sep));
+                self.shared.message = Some(lines.join("\n"));
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.flow.show_history(kept),

@@ -13,17 +13,19 @@ use crate::tui::fonts_found::{Filter, Supplied, Unknown};
 /// The Fonts tab's name in the tab bar.
 pub const FONTS: &str = "Fonts";
 
-/// The line above the preview in a vtium console, where the console draws
-/// the preview's characters itself (ADR-1201 D4): in the Fonts view, the
-/// font it draws them in, which `t` changes; in the Looks view, the size,
-/// which the TUI cannot change on the console.
+/// The line above a font set's preview in a vtium console, where the
+/// console draws the preview's characters itself: the font it draws them
+/// in, which `t` in the Looks tab changes.
+///
+/// References:
+/// - ADR-1201 D4: a vtium console draws the preview's characters itself.
 pub fn console_font_caption(font: Option<&str>) -> String {
     let font = match font {
         Some(f) => format!("{f}, the font it uses now"),
         None => "the font it uses now".to_owned(),
     };
     format!(
-        "The console draws these characters in {font}. Press t to try the highlighted font on the console, k to keep it, and s to save it in the draft."
+        "The console draws these characters in {font}. Press t to try the highlighted font set on the console."
     )
 }
 
@@ -85,7 +87,7 @@ pub const NEW_HINT: &str = "A font set (frit) combines up to three fonts. Name e
 pub const NEW_BAD_NAME: &str = "A name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot be a built-in font's name.";
 
 pub fn new_added(name: impl Display) -> String {
-    format!("{name} is added to the install. Press Enter to install it.")
+    format!("{name} is added to the install. Press i to install it.")
 }
 
 pub fn new_replaces_binary(name: impl Display) -> String {

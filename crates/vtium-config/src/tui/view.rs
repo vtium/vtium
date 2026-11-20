@@ -143,10 +143,12 @@ fn status(app: &App) -> String {
                 (false, false) => words::PREVIEW_TEXT,
                 (false, true) => words::PREVIEW_TEXT_SHORT,
             },
-            if *live == Live::On {
-                words::TRIAL_KEY
-            } else {
-                words::TRIAL_NONE
+            // only the Looks tab tries a font set with t; the other tabs
+            // say where the trial is
+            match (*live == Live::On, app.nav.view) {
+                (true, View::Looks) => words::TRIAL_KEY,
+                (true, _) => words::TRIAL_IN_LOOKS,
+                (false, _) => words::TRIAL_NONE,
             }
         ),
     };
