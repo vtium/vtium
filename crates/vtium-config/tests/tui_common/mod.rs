@@ -546,6 +546,9 @@ pub struct Desk {
     pub font_ready: bool,
     /// The fonts it installed as system fonts, by their targets.
     pub fonts_installed: Vec<PathBuf>,
+    /// What the system's fonts folder holds where the person's font
+    /// would go: nothing, a different file, or the same file.
+    pub placement: vtium_config::apply::Placement,
 }
 
 pub fn desk() -> Desk {
@@ -559,6 +562,7 @@ pub fn desk() -> Desk {
         resources: active(),
         font_ready: false,
         fonts_installed: Vec::new(),
+        placement: vtium_config::apply::Placement::New,
     }
 }
 
@@ -621,8 +625,10 @@ impl vtium_config::tui::desk::Desk for Desk {
                 vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)
             }
             Op::SystemFont(path) => {
-                let done = vtium_config::tui::fixture::system_font_op(path)?;
-                self.font_ready = true;
+                let done = vtium_config::tui::fixture::system_font_op(path, self.placement)?;
+                // an identical file readies nothing, as the store readies
+                // no draft for it
+                self.font_ready = self.placement != vtium_config::apply::Placement::Identical;
                 Ok(done)
             }
             other => Err(format!("{other:?} is not in these tests")),

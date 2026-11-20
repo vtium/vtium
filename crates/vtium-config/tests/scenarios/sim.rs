@@ -144,7 +144,10 @@ impl Desk {
             Op::Resource { path, change } => {
                 vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)?
             }
-            Op::SystemFont(path) => vtium_config::tui::fixture::system_font_op(path)?,
+            Op::SystemFont(path) => vtium_config::tui::fixture::system_font_op(
+                path,
+                vtium_config::apply::Placement::New,
+            )?,
         })
     }
 }

@@ -230,22 +230,48 @@ pub const OWN_FONT_INSTALLED: &str = "/usr/local/share/fonts/Mine-Regular.ttf";
 pub const OWN_FONT_COMMAND: &str =
     "sudo vtium-config apply /home/user/.config/vtium/drafts/2026-11-19-1";
 
+/// The facts of the file already installed as [`OWN_FONT_INSTALLED`], as
+/// a stand-in desk shows them when the person's file replaces it.
+pub const OWN_FONT_INSTALLED_FACTS: &str = "/usr/local/share/fonts/Mine-Regular.ttf: 30112 bytes, changed 2026-10-02 09:14 UTC, Mine, version 1.0";
+
+/// The facts of [`OWN_FONT`], as a stand-in desk shows them when it
+/// replaces another file.
+pub const OWN_FONT_FACTS: &str = "/home/user/.local/share/fonts/Mine-Regular.ttf: 31408 bytes, changed 2026-11-18 16:40 UTC, Mine, version 1.1";
+
 /// What a stand-in desk answers [`super::desk::Op::SystemFont`] with: the
-/// install of [`OWN_FONT`], new to the system's folder. It refuses every
-/// other file, as the real desk refuses a font a package installed.
-pub fn system_font_op(path: &std::path::Path) -> Result<super::desk::Done, String> {
+/// install of [`OWN_FONT`] where the system's folder holds what
+/// `placement` says. A file of its name with other bytes gives both
+/// files' facts and the command, and the same bytes give no command, as
+/// the real desk does. It refuses every other file, as the real desk
+/// refuses a font a package installed.
+pub fn system_font_op(
+    path: &std::path::Path,
+    placement: crate::apply::Placement,
+) -> Result<super::desk::Done, String> {
+    use crate::apply::Placement;
     if path != std::path::Path::new(OWN_FONT) {
         return Err(format!(
             "{}: a package installed this font in /usr/share/fonts, so it is a system font already.",
             path.display()
         ));
     }
+    let (facts, command) = match placement {
+        Placement::New => (None, OWN_FONT_COMMAND),
+        Placement::Replaces => (
+            Some((
+                OWN_FONT_INSTALLED_FACTS.to_owned(),
+                OWN_FONT_FACTS.to_owned(),
+            )),
+            OWN_FONT_COMMAND,
+        ),
+        Placement::Identical => (None, ""),
+    };
     Ok(super::desk::Done::SystemFont(super::desk::FontReady {
         source: OWN_FONT.to_owned(),
         target: OWN_FONT_INSTALLED.to_owned(),
-        placement: crate::apply::Placement::New,
-        facts: None,
-        command: OWN_FONT_COMMAND.to_owned(),
+        placement,
+        facts,
+        command: command.to_owned(),
     }))
 }
 

@@ -384,6 +384,75 @@ fn enter_in_the_detail_of_a_font_of_yours_asks_then_installs_it_as_a_system_font
     );
 }
 
+/// A different file of the same name is installed already: the detail
+/// shows both files' facts and the command while the question asks
+/// whether to replace the installed file, and only `y` installs.
+///
+/// References:
+/// - ADR-1205 D5, its note of 2026-11-18: both files on a clash.
+#[test]
+fn enter_on_a_font_that_replaces_an_installed_file_shows_both_files() {
+    use vtium_config::tui::fixture::{OWN_FONT_FACTS, OWN_FONT_INSTALLED_FACTS};
+    let ask = on_font(5, &[b"\r", b"\r"]);
+    let replacing = || Desk {
+        placement: vtium_config::apply::Placement::Replaces,
+        ..desk()
+    };
+    let mut c = console().keys(&ask);
+    let mut d = replacing();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let text = flat(&screen);
+    for line in [
+        words::SYSTEM_FONT_CLASH.to_owned(),
+        flat(&words::system_font_installed_file(OWN_FONT_INSTALLED_FACTS)),
+        flat(&words::system_font_yours(OWN_FONT_FACTS)),
+        OWN_FONT_COMMAND.to_owned(),
+        flat(&words::system_font_replace_question(OWN_FONT_INSTALLED)),
+    ] {
+        assert!(text.contains(&line), "{line:?}:\n{screen}");
+    }
+    let mut keys = ask.clone();
+    keys.push(b"n");
+    let mut c = console().keys(&keys);
+    let mut d = replacing();
+    run_desk(&mut c, &mut d);
+    assert!(c.saves.is_empty(), "{:?}", c.saves);
+    let mut keys = ask;
+    keys.push(b"y");
+    let mut c = console().keys(&keys);
+    let mut d = replacing();
+    run_desk(&mut c, &mut d);
+    assert_eq!(d.fonts_installed, [PathBuf::from(OWN_FONT_INSTALLED)]);
+}
+
+/// The same file is installed already: the message line says nothing
+/// changed, no question opens, and `y` installs nothing.
+///
+/// References:
+/// - ADR-1205 D5, its note of 2026-11-18: nothing when the files are
+///   identical.
+#[test]
+fn enter_on_a_font_installed_already_says_nothing_changed() {
+    let mut c = console().keys(&on_font(5, &[b"\r", b"\r", b"y"]));
+    let mut d = Desk {
+        placement: vtium_config::apply::Placement::Identical,
+        ..desk()
+    };
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    assert!(
+        flat(&screen).contains(&flat(&words::system_font_identical(OWN_FONT_INSTALLED))),
+        "{screen}"
+    );
+    assert!(
+        !flat(&screen).contains(&flat(&words::system_font_question(OWN_FONT_INSTALLED))),
+        "{screen}"
+    );
+    assert!(c.saves.is_empty(), "{:?}", c.saves);
+    assert!(d.fonts_installed.is_empty());
+}
+
 /// Enter in the detail of a system font installs nothing and says it is a
 /// system font already.
 #[test]
