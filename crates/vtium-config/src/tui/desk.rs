@@ -527,13 +527,18 @@ impl Desk for Store {
     /// PATH`, `failed PATH WHY`, or `wrote PATH` then `untrusted PATH WHY`,
     /// and each column passes through [`crate::onscreen::text`]. The font
     /// files are found again afterwards, so the new system font joins the
-    /// list, where the person can activate it.
+    /// list, where the person can activate it. The font's draft is removed
+    /// once the command has run, whatever its outcome.
     fn install_font(&mut self, run: Runner<'_>) -> Result<Done, String> {
         use crate::onscreen::text;
         let Some(font) = self.font.take() else {
             return Err(crate::tui::words::NO_FONT_READY.to_owned());
         };
-        let (ok, said) = run(&font.argv).map_err(|e| text(&e.to_string()))?;
+        let ran = run(&font.argv);
+        // the command has read the draft, or failed for good, so the
+        // draft goes; a new attempt readies a draft of its own
+        let _ = std::fs::remove_dir_all(&font.draft);
+        let (ok, said) = ran.map_err(|e| text(&e.to_string()))?;
         let mut untrusted = None;
         let mut lines = Vec::new();
         for line in said.lines() {

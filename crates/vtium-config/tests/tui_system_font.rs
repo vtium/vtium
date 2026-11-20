@@ -254,3 +254,45 @@ fn a_readied_font_s_draft_goes_with_the_desk_and_an_untrusted_copy_is_reported()
         Some("the file is writable by others.")
     );
 }
+
+/// Once the install's command has run, its draft goes, whether the
+/// command installed the font, failed, as after a wrong sudo password,
+/// or could not start, so no attempt leaves a draft behind while the TUI
+/// runs.
+#[test]
+fn an_install_s_draft_goes_once_its_command_has_run() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    type Answer = fn() -> std::io::Result<(bool, String)>;
+    let answers: [(&str, Answer); 3] = [
+        ("installed", || Ok((true, "wrote\t/x/Mine.ttf\n".into()))),
+        ("failed", || {
+            Ok((
+                false,
+                "failed\t/x/Mine.ttf\tsudo: a password is required\n".into(),
+            ))
+        }),
+        ("not started", || {
+            Err(std::io::Error::other("sudo: not found"))
+        }),
+    ];
+    for (name, answer) in answers {
+        let bench = Bench::new(&format!("ran-{}", name.replace(' ', "-")));
+        let source = bench.yours("Mine.ttf", &font_bytes());
+        let mut desk = bench.desk(helper());
+        assert!(
+            matches!(desk.run(&Op::SystemFont(source)), Ok(Done::SystemFont(_))),
+            "{name}"
+        );
+        assert_eq!(bench.drafts_written().len(), 1, "{name}");
+        let mut run = |_: &[std::ffi::OsString]| answer();
+        let _ = desk.install_font(&mut run);
+        assert!(
+            bench.drafts_written().is_empty(),
+            "{name}: {:?}",
+            bench.drafts_written()
+        );
+    }
+}
