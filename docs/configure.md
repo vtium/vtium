@@ -127,7 +127,7 @@ These commands change the draft. `vtium config --help` lists every command, and 
 | Command | What it does |
 |---|---|
 | `vtium config flow [--json]` | prints the draft's flow, from the displays to the input devices. It places the devices plugged in now on the flow, and numbers each rule. `--json` prints the flow for scripts. |
-| `vtium config diff` | prints the difference between the installed file and the draft |
+| `vtium config diff` | prints the difference between the installed file and the draft, then each font set change the draft holds |
 | `vtium config get KEY` | prints a setting's value in the draft, or its default |
 | `vtium config set KEY VALUE`, `set --unset KEY` | sets a setting at the top of the draft, or leaves it at its default |
 | `vtium config rule add [--before N] 'KIND SELECTOR -> TARGET'` | adds a rule, such as `'input path:pci-0000:15:00.0-usb-0:3.3 -> desk'` |
@@ -136,7 +136,7 @@ These commands change the draft. `vtium config --help` lists every command, and 
 | `vtium config look add NAME [--frit F] [--size PT]`, `look set NAME ...`, `look rm NAME [--force]` | adds a look, changes its keys or its name, or deletes it |
 | `vtium config edit [--install]` | opens the draft in your editor, as `visudo` opens sudoers |
 | `vtium config install` | checks the draft and installs it as `/etc/vtium/vtium.conf` |
-| `vtium config revert` | throws away the draft's changes and copies the installed file back over it |
+| `vtium config revert` | throws away the draft's changes, its font set changes among them, and copies the installed file back over it |
 | `vtium config new` | empties the draft to the short comment, `version = 1` and one look, `[look default]`, so that it sets no setting |
 | `vtium config history`, `restore [N]` | lists the files earlier installs replaced, newest first, and copies one into the draft |
 | `vtium config draft list`, `draft new [NAME]`, `draft switch NAME`, `draft rm [NAME]` | lists the drafts, makes one, makes another the one you work on, or deletes one |
@@ -173,6 +173,8 @@ A draft is a complete vtium.conf. So you can build a configuration on one machin
 1. Copy the draft into `~/.config/vtium/drafts/` on the other machine.
 2. Make it the current draft with `vtium config draft switch NAME`.
 3. Install it there.
+
+A draft also keeps its font set changes: the font sets (frits) it adds or replaces, and the installed font sets it removes. They wait in a folder beside the draft, `~/.config/vtium/drafts/NAME.frits/`, so they survive when you leave vtium-config before an install. The folder holds `FRIT.vtfrit` for each font set the draft adds or replaces, and an empty `FRIT.removed` for each one it removes. `vtium config flow` counts these changes in its first line, as in `draft desk: 2 font set changes`. `vtium config diff` prints each one under its file in `/etc/vtium/fonts`. `vtium config install` writes the new font sets first, then vtium.conf, and then removes the removed ones. Copy the folder along with the draft when you carry the draft to another machine. A font set the folder holds with the same text as the installed one is no change. A removal of a font set the other machine does not have removes nothing.
 
 On the machine that built the draft, `vtium check-config --no-devices` checks the draft by its rules alone.
 
