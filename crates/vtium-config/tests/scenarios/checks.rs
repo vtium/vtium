@@ -620,9 +620,11 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("v.view.flow", (|s| s.opens("layer:file-view"), no_today));
     m.insert("o.view.flow", (|s| s.opens("layer:restore"), no_today));
     // today `o` turns allow-font-ops on in Help and Settings, and does
-    // nothing on the Effects tab, which is new and follows the row
+    // nothing on the Effects and Fonts tabs, which are new and follow the
+    // row
     let ops_on: Check = |s| {
-        if s.before.term == Term::OpsOff && s.before.app.nav.view != View::Effects {
+        let new_tab = matches!(s.before.app.nav.view, View::Effects | View::Fonts);
+        if s.before.term == Term::OpsOff && !new_tab {
             if s.has("check") {
                 Ok(())
             } else {

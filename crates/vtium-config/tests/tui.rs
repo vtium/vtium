@@ -16,6 +16,43 @@
 mod tui_common;
 use tui_common::*;
 
+/// The keys from the start that highlight the font set tiny5 in the Looks
+/// tab, then `more`. The tab lists its one look, proof, then the font sets
+/// broken, minspec-16, proof, tiny5 and unifont, so Down four times
+/// reaches tiny5, and Up from there reaches proof.
+fn on_tiny5(more: &[&'static [u8]]) -> Vec<&'static [u8]> {
+    let mut keys = vec![TO_LOOKS, DOWN, DOWN, DOWN, DOWN];
+    keys.extend_from_slice(more);
+    keys
+}
+
+/// The keys that set vtium.conf's `font-name` to tiny5 in the draft
+/// through the Settings tab, then `more`: the section that holds
+/// `font-name`, the key, its value unifont erased and tiny5 typed, and
+/// Esc to close the section again.
+fn font_name_tiny5(more: &[&'static [u8]]) -> Vec<&'static [u8]> {
+    use vtium_config::tui::tabs::settings::sections;
+    let (section, key) = sections()
+        .iter()
+        .enumerate()
+        .find_map(|(s, sec)| {
+            sec.keys()
+                .iter()
+                .position(|k| k.name == "font-name")
+                .map(|k| (s, k))
+        })
+        .expect("a section holds font-name");
+    let mut keys: Vec<&'static [u8]> = vec![TO_SETTINGS, b"\x1b[H"];
+    keys.extend(std::iter::repeat_n(DOWN, section));
+    keys.push(b"\r");
+    keys.extend(std::iter::repeat_n(DOWN, key));
+    keys.push(b"\r");
+    keys.extend(std::iter::repeat_n(b"\x7f".as_slice(), "unifont".len()));
+    keys.extend([b"tiny5".as_slice(), b"\r", b"\x1b"]);
+    keys.extend_from_slice(more);
+    keys
+}
+
 /// The TUI on a vtium console drawing unifont that answered the start
 /// requests, with tiny5 highlighted and tried by `t`, its switch answered.
 fn trying_tiny5() -> vtium_config::tui::model::App {
@@ -29,7 +66,7 @@ fn trying_tiny5() -> vtium_config::tui::model::App {
     ] {
         app.event(Event::Input(Input::Reply(r)));
     }
-    app.event(Event::Input(Input::Key(Key::Up)));
+    assert_eq!(to_tiny5(&mut app), []);
     let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
     assert_eq!(
         tried,
@@ -42,6 +79,18 @@ fn trying_tiny5() -> vtium_config::tui::model::App {
         assert_eq!(app.event(Event::Input(Input::Reply(reply))), []);
     }
     app
+}
+
+/// Sends `app` the keys of [`on_tiny5`], which highlight the font set
+/// tiny5 in the Looks tab, and returns the effects they ask for.
+fn to_tiny5(app: &mut vtium_config::tui::model::App) -> Vec<model::Effect> {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::Event;
+    let mut out = app.event(Event::Input(Input::Key(Key::Char('3'))));
+    for _ in 0..4 {
+        out.extend(app.event(Event::Input(Input::Key(Key::Down))));
+    }
+    out
 }
 
 /// Whether `screen` shows the Flow view's key line.
@@ -59,7 +108,7 @@ fn status_with_a_font_set_waiting(cols: u16) -> String {
         .takes("tiny5", grid)
         .takes("unifont", grid)
         .takes("unscii-8", grid)
-        .keys(&[UP, b"r", b"q"]);
+        .keys(&on_tiny5(&[b"r", b"q"]));
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
@@ -83,7 +132,7 @@ fn the_four_requests_go_first_in_their_order() {
 
 #[test]
 fn leaving_by_q_gives_the_start_font_back() {
-    let mut c = console().keys(&[UP, b"t", b"k", b"q"]);
+    let mut c = console().keys(&on_tiny5(&[b"t", b"k", b"q"]));
     assert_eq!(run(&mut c), 0);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
     assert_eq!(c.log.last().map(String::as_str), Some("reply unifont"));
@@ -97,14 +146,14 @@ fn leaving_by_q_gives_the_start_font_back() {
 /// font back.
 #[test]
 fn leaving_by_ctrl_c_gives_the_start_font_back() {
-    let mut c = console().keys(&[UP, b"t", b"\x03"]);
+    let mut c = console().keys(&on_tiny5(&[b"t", b"\x03"]));
     assert_eq!(run(&mut c), 130);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
 }
 
 #[test]
 fn leaving_by_sigterm_gives_the_start_font_back() {
-    let mut c = console().keys(&[UP, b"t", b"!15"]);
+    let mut c = console().keys(&on_tiny5(&[b"t", b"!15"]));
     assert_eq!(run(&mut c), 143);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
 }
@@ -112,7 +161,7 @@ fn leaving_by_sigterm_gives_the_start_font_back() {
 #[test]
 fn leaving_with_a_switch_in_flight_waits_for_both_replies() {
     // the switch to tiny5 and the leave come in one read
-    let mut c = console().keys(&[&[UP, b"t", b"\x03"].concat()]);
+    let mut c = console().keys(&on_tiny5(&[b"t\x03"]));
     assert_eq!(run(&mut c), 130);
     assert_eq!(c.switches(), ["tiny5", "unifont"]);
     assert_eq!(c.log.last().map(String::as_str), Some("reply unifont"));
@@ -128,7 +177,7 @@ fn leaving_with_a_switch_in_flight_waits_for_both_replies() {
 /// is not the Esc key, which would put the font back.
 #[test]
 fn an_esc_that_ends_a_read_while_da1_is_awaited_begins_its_reply() {
-    let mut c = console().keys(&[UP, b"t", b"k"]);
+    let mut c = console().keys(&on_tiny5(&[b"t", b"k"]));
     c.cut_replies = true;
     assert_eq!(run(&mut c), 143);
     assert_eq!(c.cuts, 2, "both switches' replies came in two reads");
@@ -147,7 +196,8 @@ fn an_esc_that_ends_a_read_while_da1_is_awaited_begins_its_reply() {
 
 #[test]
 fn another_terminal_gets_no_osc_50_but_the_start_query() {
-    let mut c = Console::da1_only(80, 25).keys(&[DOWN, DOWN, UP, b"\r", b"q"]);
+    let mut c =
+        Console::da1_only(80, 25).keys(&[font_name_tiny5(&[]), on_tiny5(&[b"t", b"q"])].concat());
     assert_eq!(run(&mut c), 0);
     assert_eq!(c.switches(), Vec::<String>::new());
     let text = String::from_utf8_lossy(&c.written);
@@ -171,7 +221,7 @@ fn with_font_operations_off_the_tui_says_so_and_offers_the_key() {
     // t says why it does nothing, and sends nothing
     let mut c = Console::vtium(80, 25, false, "unifont")
         .takes("tiny5", (80, 25))
-        .keys(&[UP, b"t"]);
+        .keys(&on_tiny5(&[b"t"]));
     run(&mut c);
     assert_eq!(c.switches(), Vec::<String>::new());
     let screen = c.seen.clone().expect("the screen");
@@ -185,7 +235,8 @@ fn with_font_operations_off_the_tui_says_so_and_offers_the_key() {
 #[test]
 fn turning_font_operations_on_is_a_change_installed_like_any_other() {
     let mut d = desk();
-    let mut c = Console::vtium(80, 25, false, "unifont").keys(&[b"o", b"i", b"y", b"q"]);
+    let mut c =
+        Console::vtium(80, 25, false, "unifont").keys(&[TO_SETTINGS, b"o", b"i", b"y", b"q"]);
     assert_eq!(run_desk(&mut c, &mut d), 0);
     let plan = d.plans.first().expect("an install");
     assert_eq!(plan.files.len(), 1);
@@ -198,13 +249,15 @@ fn turning_font_operations_on_is_a_change_installed_like_any_other() {
 
 #[test]
 fn a_font_switch_that_changes_the_grid_redraws_at_the_new_grid() {
-    let mut c = console().takes("tiny5", (100, 30)).keys(&[UP, b"t", b"k"]);
+    let mut c = console()
+        .takes("tiny5", (100, 30))
+        .keys(&on_tiny5(&[b"t", b"k"]));
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     let rows: Vec<&str> = screen.lines().collect();
     assert_eq!(rows.len(), 30);
     assert!(
-        rows[29].contains("Enter choose"),
+        rows[29].contains("Enter open"),
         "the keys on the last row: {screen}"
     );
     assert!(
@@ -219,7 +272,9 @@ fn a_font_switch_that_changes_the_grid_redraws_at_the_new_grid() {
 /// undo the font on it however few its rows (ADR-1201 D3).
 #[test]
 fn a_grid_too_small_draws_the_way_out() {
-    let mut c = console().takes("tiny5", (30, 8)).keys(&[UP, b"t", b"k"]);
+    let mut c = console()
+        .takes("tiny5", (30, 8))
+        .keys(&on_tiny5(&[b"t", b"k"]));
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     let rows: Vec<&str> = screen.lines().collect();
@@ -250,10 +305,10 @@ fn keeping_a_font_and_a_size_writes_each_into_the_draft_and_install_counts_them(
     let mut d = desk();
     // the look proof's card, its size line, and 12 pt in its list, after
     // vtium.conf's size, automatic and the sizes from 6 pt to 11 pt
-    let mut c = console().keys(&[
-        UP, b"\r", TO_LOOKS, b"\r", DOWN, DOWN, b"\r", DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN,
-        DOWN, b"\r", b"\x1b", b"i",
-    ]);
+    let mut c = console().keys(&font_name_tiny5(&[
+        TO_LOOKS, b"\r", DOWN, DOWN, b"\r", DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, b"\r",
+        b"\x1b", b"i",
+    ]));
     run_desk(&mut c, &mut d);
     // the look's new key goes first in its section
     assert_eq!(
@@ -272,7 +327,13 @@ fn keeping_a_font_and_a_size_writes_each_into_the_draft_and_install_counts_them(
 #[test]
 fn installing_runs_one_install_and_the_console_keeps_the_installed_font() {
     let mut d = desk();
-    let mut c = console().keys(&[UP, b"\r", b"i", b"y", b"q"]);
+    let mut c = console().keys(
+        &[
+            on_tiny5(&[b"t", b"k"]),
+            font_name_tiny5(&[b"i", b"y", b"q"]),
+        ]
+        .concat(),
+    );
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert_eq!(d.plans.len(), 1);
     assert_eq!(c.saves.len(), 1);
@@ -293,7 +354,7 @@ fn the_message_line_says_what_the_install_did_on_the_vts() {
         refused: vec![(7, vec!["terminal-1".to_owned()])],
         applied: Applied::Done(vec![2, 3, 12]),
     });
-    let mut c = console().keys(&[UP, b"\r", b"i", b"y"]);
+    let mut c = console().keys(&font_name_tiny5(&[b"i", b"y"]));
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     let joined = screen.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -306,7 +367,7 @@ fn the_message_line_says_what_the_install_did_on_the_vts() {
 #[test]
 fn a_failed_install_keeps_the_draft_and_says_why() {
     let mut d = desk();
-    let mut c = console().keys(&[UP, b"\r", b"i", b"y"]);
+    let mut c = console().keys(&font_name_tiny5(&[b"i", b"y"]));
     c.save_result = Err("sudo: a password is required".into());
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
@@ -516,7 +577,7 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
     assert!(d.plans.is_empty());
     // the question before leaving with a frit waiting: Tab leaves it
     // open, and Esc goes back
-    let mut c = console().keys(&[UP, b"r", b"q"]);
+    let mut c = console().keys(&on_tiny5(&[b"r", b"q"]));
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
@@ -525,7 +586,7 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
         keys_of("any.question.leave"),
         "{screen}"
     );
-    let mut c = console().keys(&[UP, b"r", b"q", TAB]);
+    let mut c = console().keys(&on_tiny5(&[b"r", b"q", TAB]));
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
@@ -534,14 +595,14 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
         keys_of("any.question.leave"),
         "{screen}"
     );
-    let mut c = console().keys(&[UP, b"r", b"q", TAB, b"\x1b"]);
+    let mut c = console().keys(&on_tiny5(&[b"r", b"q", TAB, b"\x1b"]));
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_LEFT), "{screen}");
     assert_eq!(
-        foot(&screen, keys_of("fonts")),
-        keys_of("fonts"),
+        foot(&screen, keys_of("looks")),
+        keys_of("looks"),
         "{screen}"
     );
 }
@@ -560,10 +621,19 @@ fn a_console_that_never_answers_the_give_back_is_left_after_the_wait() {
         started.extend(app.event(Event::Input(Input::Reply(r))));
     }
     // once the terminal is known, the helper is asked which sources each
-    // frit that reads lacks, and for no preview, which the console draws
+    // frit that reads lacks and to describe the fonts found, and for no
+    // preview, which the console draws
     let frits = ["minspec-16", "proof", "tiny5"].map(String::from).to_vec();
-    assert_eq!(started, [Effect::Sources(frits)]);
-    assert_eq!(app.event(Event::Input(Input::Key(Key::Up))), []);
+    assert_eq!(
+        started.first(),
+        Some(&Effect::Sources(frits)),
+        "{started:?}"
+    );
+    assert!(
+        matches!(started.as_slice(), [_, Effect::Describe(_)]),
+        "{started:?}"
+    );
+    assert_eq!(to_tiny5(&mut app), []);
     let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
     assert_eq!(
         tried,
@@ -628,7 +698,7 @@ fn a_switch_whose_query_goes_unanswered_marks_its_font_refused_at_da1() {
         app.event(Event::Input(Input::Reply(r)));
     }
     assert!(!app.awaiting(), "DA1's reply settled the start");
-    app.event(Event::Input(Input::Key(Key::Up)));
+    assert_eq!(to_tiny5(&mut app), []);
     let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
     assert_eq!(
         tried,
@@ -655,23 +725,28 @@ fn a_switch_whose_query_goes_unanswered_marks_its_font_refused_at_da1() {
 
 /// One preview is drawn at a time: a highlight that moves while one is
 /// being drawn asks for the next once it comes, for whatever is
-/// highlighted then.
+/// highlighted then. In the Looks tab of a console the TUI cannot switch,
+/// `p` asks for the written description of the look proof's font, and
+/// Down twice moves to the font set minspec-16 while it is drawn.
 #[test]
 fn one_preview_is_drawn_at_a_time() {
     use vtium_config::specimen::Summary;
     use vtium_config::tui::input::{Input, Key, Reply};
     use vtium_config::tui::model::{App, Effect, Event};
     let (mut app, _) = App::new(inputs(), 80, 25);
-    let mut out = Vec::new();
     for r in [Reply::Version("vtium(test)".into()), Reply::Attributes] {
-        out.extend(app.event(Event::Input(Input::Reply(r))));
+        app.event(Event::Input(Input::Reply(r)));
     }
-    assert!(out.contains(&Effect::Summary {
-        font: "unifont".into(),
-        height: 16
-    }));
-    assert_eq!(app.event(Event::Input(Input::Key(Key::Up))), []);
-    assert_eq!(app.event(Event::Input(Input::Key(Key::Up))), []);
+    assert_eq!(app.event(Event::Input(Input::Key(Key::Char('3')))), []);
+    assert_eq!(
+        app.event(Event::Input(Input::Key(Key::Char('p')))),
+        [Effect::Summary {
+            font: "proof".into(),
+            height: 16
+        }]
+    );
+    assert_eq!(app.event(Event::Input(Input::Key(Key::Down))), []);
+    assert_eq!(app.event(Event::Input(Input::Key(Key::Down))), []);
     let summary = Summary {
         cell: Cell {
             width: 8,
@@ -683,20 +758,20 @@ fn one_preview_is_drawn_at_a_time() {
         script: None,
     };
     let next = app.event(Event::Summarized {
-        font: "unifont".into(),
+        font: "proof".into(),
         height: 16,
         summary: Ok(summary),
     });
     assert_eq!(
         next,
         [Effect::Summary {
-            font: "proof".into(),
+            font: "minspec-16".into(),
             height: 16
         }]
     );
 }
 
-/// The picture of the console in the Fonts view shows the TUI's own screen
+/// The picture of the console in the Looks tab shows the TUI's own screen
 /// at the grid the font's cell gives. Update asks the loop to draw that
 /// screen, so the effect carries no screen of its own, and the view draws
 /// it at the picture's size while the model keeps the terminal's size.
@@ -716,14 +791,10 @@ fn the_picture_of_the_console_is_drawn_at_its_own_size_and_the_model_keeps_its_s
     ] {
         app.event(Event::Input(Input::Reply(r)));
     }
-    app.event(Event::Detailed {
-        font: "unifont".into(),
-        height: 16,
-        result: Err("none".into()),
-    });
-    // `s` turns the detailed specimen off, so the Fonts view asks for the
-    // font's cell toward a picture of the console
-    let asked = app.event(Event::Input(Input::Key(Key::Char('s'))));
+    // `p` in the Looks tab switches the preview to a picture of the
+    // console, so the tab asks for the cell of the look proof's font
+    app.event(Event::Input(Input::Key(Key::Char('3'))));
+    let asked = app.event(Event::Input(Input::Key(Key::Char('p'))));
     assert!(
         matches!(asked.as_slice(), [Effect::Cell { .. }]),
         "{asked:?}"
@@ -736,7 +807,7 @@ fn the_picture_of_the_console_is_drawn_at_its_own_size_and_the_model_keeps_its_s
         16,
     ));
     let picture = app.event(Event::Celled {
-        font: "unifont".into(),
+        font: "proof".into(),
         height: 16,
         cell,
     });
@@ -1128,19 +1199,23 @@ fn the_small_screen_shows_the_live_trial_s_countdown() {
 
 /// The picture shows the whole display at its resolution, laid out at the
 /// grid the font's cell gives on it: the TUI's own screen at that grid,
-/// the screen that says the grid is too small included (ADR-1201 D4).
+/// the screen that says the grid is too small included (ADR-1201 D4). In
+/// the Looks tab, `p` turns the picture on for the look proof, and Down
+/// four times moves it through broken, which has no picture, minspec-16
+/// and proof to tiny5.
 #[test]
 fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
-    let mut c = outside().keys(&[b"s", UP]);
+    let mut c = outside().keys(&[TO_LOOKS, b"p", DOWN, DOWN, DOWN, DOWN]);
     c.graphics = true;
     run(&mut c);
-    // unifont's 8x16 and tiny5's 4x6 on the fixture's 640x480 display
+    // the 8x16 cells of proof and minspec-16, and tiny5's 4x6, on the
+    // fixture's 640x480 display
     let fonts: Vec<&str> = c.shots.iter().map(|s| s.font.as_str()).collect();
-    assert_eq!(fonts, ["unifont", "tiny5"]);
+    assert_eq!(fonts, ["proof", "minspec-16", "proof", "tiny5"]);
     let displays: Vec<(u32, u32)> = c.shots.iter().map(|s| s.display).collect();
-    assert_eq!(displays, [(640, 480), (640, 480)]);
+    assert_eq!(displays, [(640, 480); 4]);
     let grids: Vec<(usize, usize)> = c.shots.iter().map(|s| s.grid).collect();
-    assert_eq!(grids, [(80, 30), (160, 80)]);
+    assert_eq!(grids, [(80, 30), (80, 30), (80, 30), (160, 80)]);
     for shot in &c.shots {
         assert_eq!(shot.screen.len(), shot.grid.1);
         let first = vtium_config::tui::view::text(&shot.screen[0]);
@@ -1155,7 +1230,7 @@ fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
     );
     // on a display too small for the TUI at that cell, the picture is the
     // screen that says so
-    let mut c = outside().keys(&[b"s"]);
+    let mut c = outside().keys(&[TO_LOOKS, b"p"]);
     c.graphics = true;
     let mut small = inputs();
     small.display = Some((320, 240));
@@ -1178,7 +1253,7 @@ fn a_terminal_that_answers_nothing_is_settled_by_the_wait() {
 
 #[test]
 fn a_failed_command_s_words_show_on_the_message_line() {
-    let mut c = console().keys(&[UP, b"\r", b"i", b"y"]);
+    let mut c = console().keys(&font_name_tiny5(&[b"i", b"y"]));
     c.save_result = Err(
         "vtium-config: vtium check-config refused the draft:\n/x/vtium.conf:2: font-size=\"lots\" is not a whole number, ignored".into(),
     );
@@ -1192,30 +1267,33 @@ fn a_failed_command_s_words_show_on_the_message_line() {
     assert!(text.contains("is not a whole number"), "{screen}");
 }
 
-/// Outside a vtium console the TUI can switch, the Fonts view keeps
-/// today's preview: the written description where the terminal shows no
-/// images, the helper's picture where it does, and `s` switches the
-/// picture. It never prints the specimen as text.
+/// Outside a vtium console the TUI can switch, `p` in the Looks tab
+/// switches the look's preview to the written description where the
+/// terminal shows no images, and to the helper's picture of the console
+/// where it does. It never prints the specimen as text.
 #[test]
 fn outside_a_vtium_console_the_preview_is_a_picture_or_a_description() {
     for graphics in [false, true] {
-        let mut c = outside().keys(&[b"s"]);
+        let mut c = outside().keys(&[TO_LOOKS, b"p"]);
         c.graphics = graphics;
         run(&mut c);
         let screen = c.seen.clone().expect("the screen");
         assert!(!screen.contains("@ABCDEFGHIJ"), "{screen}");
-        assert!(screen.contains(keys_of("fonts")), "{screen}");
+        assert!(screen.contains(keys_of("looks")), "{screen}");
+        let shots: Vec<&str> = c.shots.iter().map(|s| s.font.as_str()).collect();
         if graphics {
-            assert!(!c.specimens.is_empty() && !c.shots.is_empty());
+            assert_eq!(shots, ["proof"]);
+            assert!(c.summaries.is_empty(), "{:?}", c.summaries);
         } else {
             assert!(screen.contains("does not support images"), "{screen}");
-            assert!(!c.summaries.is_empty());
+            assert_eq!(c.summaries, [("proof".to_owned(), 16)]);
+            assert!(shots.is_empty(), "{shots:?}");
         }
     }
     // a terminal that is not vtium at all asks for the description too
-    let mut c = Console::da1_only(80, 25).keys(&[]);
+    let mut c = Console::da1_only(80, 25).keys(&[TO_LOOKS, b"p"]);
     run(&mut c);
-    assert_eq!(c.summaries, [("unifont".to_owned(), 16)]);
+    assert_eq!(c.summaries, [("proof".to_owned(), 16)]);
 }
 
 /// A vtium console the TUI can switch gets no picture, even where it
@@ -1223,7 +1301,7 @@ fn outside_a_vtium_console_the_preview_is_a_picture_or_a_description() {
 /// font tried and kept still comes back when the TUI leaves.
 #[test]
 fn a_vtium_console_that_draws_pictures_gets_no_picture() {
-    let mut c = console().keys(&[UP, b"t", b"k", TO_LOOKS, DOWN, b"q"]);
+    let mut c = console().keys(&on_tiny5(&[b"t", b"k", UP, b"q"]));
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
     assert!(c.pictures.is_empty() && c.specimens.is_empty() && c.cells.is_empty());
@@ -1336,7 +1414,13 @@ fn display_dpi_outside_the_console_s_bounds_is_not_used() {
 fn after_installing_a_font_leaving_puts_the_console_in_the_installed_font() {
     // try and keep tiny5 on the console, keep it in the draft, try proof
     // and keep it on the console, install, leave
-    let mut c = console().keys(&[UP, b"t", b"k", b"\r", UP, b"t", b"k", b"i", b"y", b"q"]);
+    let mut c = console().keys(
+        &[
+            on_tiny5(&[b"t", b"k"]),
+            font_name_tiny5(&[TO_LOOKS, UP, b"t", b"k", b"i", b"y", b"q"]),
+        ]
+        .concat(),
+    );
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     assert_eq!(
@@ -1357,7 +1441,7 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
         let mut c = Console::vtium(80, 25, true, "unifont")
             .takes("unifont", (80, 25))
             .takes("tiny5", grid)
-            .keys(&[UP, b"t", b"k"]);
+            .keys(&on_tiny5(&[b"t", b"k"]));
         run(&mut c);
         let screen = c.seen.clone().expect("the screen");
         let joined = screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
@@ -1378,7 +1462,7 @@ fn below_the_minimum_the_screen_says_so_and_u_undoes_the_preview() {
             .takes("unifont", (80, 25))
             .takes("tiny5", grid)
             .takes("proof", (80, 25))
-            .keys(&[UP, b"t", b"k", UP, b"u"]);
+            .keys(&on_tiny5(&[b"t", b"k", UP, b"u"]));
         run(&mut c);
         assert_eq!(c.switches(), ["tiny5", "unifont"], "{grid:?}");
         let screen = c.seen.clone().expect("the screen");
