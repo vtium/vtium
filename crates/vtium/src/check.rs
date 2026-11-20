@@ -319,25 +319,60 @@ fn look_login_images(out: &mut HeadCheck, path: &Path, parsed: &Parsed, me: u32)
     }
 }
 
-/// What check-config notes of `font-paths` (ADR-1200 D25): each folder
-/// that does not exist, and each that an account other than its owner,
-/// such as `nobody`, which the helper runs as before anyone logs in,
-/// cannot read and search.
+/// What check-config notes of each folder of `font-paths`: a folder that
+/// does not exist; a folder whose fonts can never be active, because the
+/// folder fails the trust rule that vtium, run as root, applies to every
+/// font; and a folder that accounts other than its owner cannot read and
+/// search. The last matters for a folder that passes the rule, because
+/// before anyone logs in the font helper runs as `nobody`. A user's own
+/// folder fails the rule on its owner, so its note says how to install
+/// one of its fonts as a system font instead.
+///
+/// References:
+/// - ADR-1200 D25: `font-paths` names the folders vtium searches for fonts.
+/// - ADR-1205 D4: a font draws only from a folder that passes the trust rule.
 fn font_paths_notes(config: &Config) -> Vec<String> {
-    use std::os::unix::fs::PermissionsExt;
     let Some(paths) = config.text(&keys::FONT_PATHS) else {
         return Vec::new();
     };
+    let mounts = vtium_settings::mounts::Mounts::system().unwrap_or_default();
     paths
         .split(':')
-        .filter_map(|dir| match std::fs::metadata(dir) {
-            Err(_) => Some(check_config::font_path_missing(dir)),
-            Ok(meta) if meta.permissions().mode() & 0o005 != 0o005 => {
-                Some(check_config::font_path_private(dir))
-            }
-            Ok(_) => None,
-        })
+        .filter_map(|dir| font_path_note(Path::new(dir), &mounts))
         .collect()
+}
+
+/// What check-config notes of the `font-paths` folder `dir`, judging its
+/// filesystem by `mounts` ([`font_paths_notes`]).
+fn font_path_note(dir: &Path, mounts: &vtium_settings::mounts::Mounts) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let shown = dir.to_string_lossy();
+    let Ok(meta) = std::fs::metadata(dir) else {
+        return Some(check_config::font_path_missing(&shown));
+    };
+    // vtium-settings checks a folder on its own only through the gate of a
+    // pointer theme, which the batch must list first. So a gate whose batch
+    // lists only this folder judges the folder under the trust rule. The
+    // rule is root's, because the console runs as root, whoever runs the
+    // check.
+    let listed = vtium_settings::batch::Batch::new(vec![vtium_settings::batch::Entry::Path(
+        dir.to_path_buf(),
+    )]);
+    let gate = vtium_settings::cullet::Gate::new(
+        vtium_settings::cullet::Rule::new(Trust::ROOT),
+        Some(mounts.clone()),
+        listed,
+    );
+    if let Err(refused) = gate.theme(dir) {
+        let why = match &refused.check {
+            vtium_settings::cullet::Check::Untrusted(Untrusted::Owner { path, uid }) => {
+                check_config::font_path_owner(path, *uid)
+            }
+            check => check.to_string(),
+        };
+        return Some(check_config::font_path_untrusted(&shown, &why));
+    }
+    (meta.permissions().mode() & 0o005 != 0o005).then(|| check_config::font_path_private(&shown))
 }
 
 /// What check-config notes of the font helper at `program` when it runs

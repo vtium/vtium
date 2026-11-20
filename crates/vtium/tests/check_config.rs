@@ -628,3 +628,78 @@ fn the_real_helper_answers_a_sources_query() {
         "{none}"
     );
 }
+
+/// What `vtium check-config` prints on standard output for a vtium.conf
+/// whose `font-paths` names the folder `fonts`, which exits 0 and prints
+/// nothing on standard error, since the note stands outside the status.
+fn font_paths_stdout(d: &Path, fonts: &Path) -> String {
+    std::fs::write(
+        d.join("vtium.conf"),
+        format!("font-paths={}\n{CLEAN_SECTIONS}", fonts.display()),
+    )
+    .expect("a configuration");
+    let out = check(d, &[]);
+    assert_eq!(String::from_utf8_lossy(&out.stderr), "");
+    assert_eq!(out.status.code(), Some(0));
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+/// The note of `stdout` about the `font-paths` folder `fonts`, if any.
+fn font_path_note<'a>(stdout: &'a str, fonts: &Path) -> Option<&'a str> {
+    let named = format!("{:?}", fonts.display().to_string());
+    stdout
+        .lines()
+        .find(|l| l.starts_with("font-paths:") && l.contains(&named))
+}
+
+// A folder of `font-paths` that the user owns yields no active font,
+// because the trust rule takes a font only from folders that root owns.
+// The test runs as an ordinary user, so its own scratch folder is that
+// case. check-config notes the folder, says that vtium draws no font from
+// it and why, and names the two ways to install one of its fonts as a
+// system font.
+//
+// References:
+// - ADR-1205 D4: a font draws only from a folder that passes the trust rule.
+// - ADR-1205 D5: a user's font reaches the console by its install as a system font.
+#[test]
+fn a_font_paths_folder_a_user_owns_is_noted_with_the_way_to_install_its_fonts() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = Scratch::new("check-user-font-folder");
+    let fonts = d.join("fonts");
+    std::fs::create_dir(&fonts).expect("a font folder");
+    std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(0o755))
+        .expect("a folder others can read");
+    let stdout = font_paths_stdout(&d, &fonts);
+    let note = font_path_note(&stdout, &fonts).unwrap_or_else(|| panic!("{stdout}"));
+    assert!(note.contains("vtium draws no font from"), "{note}");
+    assert!(note.contains(", because "), "{note}");
+    assert!(
+        note.contains("`vtium config fonts --install-system FILE`"),
+        "{note}"
+    );
+    assert!(note.contains("Fonts tab"), "{note}");
+    // handing a user's folder to root is not the way to use its fonts
+    assert!(!note.contains("chown"), "{note}");
+}
+
+// A folder of `font-paths` that root owns and that passes the trust rule
+// draws no note. `/usr` stands for it, since root owns it on every
+// machine the tests run on, but in the user namespace of `make arm-test`,
+// where no file is root's, and there the test skips and says so.
+//
+// References:
+// - ADR-1205 D4: a font draws only from a folder that passes the trust rule.
+#[test]
+fn a_font_paths_folder_root_owns_draws_no_note() {
+    use std::os::unix::fs::MetadataExt;
+    let usr = Path::new("/usr");
+    let owner = std::fs::metadata(usr).expect("/usr").uid();
+    if owner != 0 {
+        eprintln!("/usr belongs to uid {owner}, so no folder is root's: the test is skipped");
+        return;
+    }
+    let d = Scratch::new("check-root-font-folder");
+    let stdout = font_paths_stdout(&d, usr);
+    assert_eq!(font_path_note(&stdout, usr), None, "{stdout}");
+}

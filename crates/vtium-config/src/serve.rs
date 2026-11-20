@@ -4970,10 +4970,12 @@ const LANDLOCK_NEWEST: ABI = ABI::V9;
 /// file and grants none, refuses binding and connecting TCP sockets, and
 /// is scoped, so the helper connects to no abstract Unix socket made
 /// outside it and signals no process outside it, each as far as the
-/// kernel's landlock version knows it. It leaves reads open, since a frit
-/// may name a font by an absolute path anywhere. Returns whether the
-/// domain is in force; on a kernel without landlock the helper runs as
-/// before, with none.
+/// kernel's landlock version knows it. The domain leaves reads open,
+/// because a helper that vtium-config starts reads a font in a user's
+/// folder to preview it ([`DescribeAsk`]). The console's helper opens a
+/// font only through its gate, which takes only the active fonts. Returns
+/// whether the domain is in force; on a kernel without landlock the helper
+/// runs as before, with none.
 fn lock_out() -> Result<bool, String> {
     let status = Ruleset::default()
         .set_compatibility(CompatLevel::BestEffort)

@@ -489,6 +489,30 @@ changes nothing.\n";
         format!("font-paths: {dir:?} does not exist, so no fonts can be found there")
     }
 
+    /// A folder of `font-paths` whose fonts can never be active, because
+    /// the folder fails the trust rule, `why`, a sentence that follows
+    /// "because" and ends in a full stop. The note says how such a font
+    /// reaches the console instead: vtium-config installs it as a system
+    /// font.
+    ///
+    /// References:
+    /// - ADR-1205 D4: a font draws only from a folder that passes the trust rule.
+    /// - ADR-1205 D5: a user's font reaches the console by its install as a system font.
+    pub fn font_path_untrusted(dir: &str, why: &str) -> String {
+        format!(
+            "font-paths: vtium draws no font from {dir:?}, because {why} vtium uses a font only from folders that root owns and only root can change. vtium-config lists the fonts there, but cannot activate them. To use one of these fonts on the console, install it as a system font: press Enter on it in vtium-config's Fonts tab, or run `vtium config fonts --install-system FILE`."
+        )
+    }
+
+    /// The reason for [`font_path_untrusted`] when the folder `path`, or a
+    /// folder above it, belongs to user `uid`, as a user's own font folder
+    /// does. It names the owner and, unlike the trust rule's own reason,
+    /// no `chown`, since handing a user's folder to root is not the way to
+    /// use its fonts.
+    pub fn font_path_owner(path: impl Display, uid: u32) -> String {
+        format!("{path} belongs to user {uid}, not to root.")
+    }
+
     /// A folder of `font-paths` that other accounts cannot read and
     /// search (ADR-1200 D25).
     pub fn font_path_private(dir: &str) -> String {
