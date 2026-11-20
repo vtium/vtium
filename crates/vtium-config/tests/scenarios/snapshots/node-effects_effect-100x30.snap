@@ -6,9 +6,9 @@ description: "effects.effect at 100×30, keys: Tab Down Enter"
  draft mine · no changes · no problems                                   text preview · t: try live
 ----------------------------------------------------------------------------------------------------
  vtlook No filter
- File: none, it is built into vtium
- It reads without errors.
- It has no filter, so it changes no color.
+ File: none, because it is built into vtium
+ This vtlook reads without errors.
+ This vtlook has no filter, so it changes no color.
  No look uses it.
 
  This detail changes nothing. Esc goes back to the list.
