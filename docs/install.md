@@ -24,15 +24,16 @@ Each of those six depends on a terminfo package. A build from the release tag de
 
 Sessions in vtium run with `TERM=xterm-vtium`, the entry that the terminfo package installs. ssh passes `TERM` on to the remote host, and most hosts have no `xterm-vtium` entry, so programs there misbehave. [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) gives two fixes: a wrapper that makes ssh send `xterm-256color`, or the entry installed on a host you own.
 
-A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are five features:
+A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are six features:
 
 - The `images` feature renders sixel and kitty graphics images.
 - The `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine.
 - The `gpu` feature builds in the path that renders through the GPU.
 - The `bidi` feature lays out right-to-left text, such as Arabic and Hebrew.
+- The `filters` feature builds in the frame filters, the effects that a vtlook chooses, such as an amber tint. See [Looks and effects](concepts/looks.md) for details.
 - The `libseat` feature lets vtium get the screen, the keyboards and VT switching through libseat, the seat management library. In direct mode, vtium gets them from seatd where seatd runs. Seat mode, which gets them from logind, needs both `libseat` and `logind`. [Direct mode and seat mode](#direct-mode-and-seat-mode) describes both modes.
 
-When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build `images logind gpu bidi libseat`, for an ordinary desktop or laptop. These are the features of the packages that the AUR carries. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
+When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build `images logind gpu bidi libseat`, for an ordinary desktop or laptop. These are the features of the packages that the AUR carries. They leave out `filters`, so those packages draw every head without effects. To build the effects in, name all six features: `VTIUM_FEATURES='images logind gpu bidi libseat filters' makepkg -si`. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
 
 From v0.1.0-alpha.6 on, the `vtium` and `vtium-git` recipes build with `HWACCEL=on DISPLAY_BUFFERS=3`. These settings compile in two defaults: `hwaccel` is on, and each display gets three buffers. See [config.md](config.md) for both keys. vtium therefore renders through the GPU path. vtium renders a head on the CPU when the GPU set-up for that head fails. A head is a terminal for one or more displays. A line `no-hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path off.
 
@@ -66,6 +67,7 @@ The packages install these files:
 | `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in a build with `images` |
 | `/usr/bin/vtium-gallery` | the image gallery tool, in a build with `images`. It shows PNG images as a grid of thumbnails. |
 | `/etc/vtium/vtium.conf.example` | the example configuration. It lists every key at its default, commented out. Then it lists the heads and rules that vtium runs with when there is no configuration. |
+| `/usr/share/vtium/` | vtium's own data. `fonts/` holds the font files of Terminus, Cullet Mono and GNU Unifont, `palettes/` the color schemes, and `looks/` the preset vtlooks. `pointers.svg` holds vtium's pointer pictures. vtium uses these fonts, color schemes and pointer pictures from the first start. See [Choosing what vtium may use](#choosing-what-vtium-may-use) for details. |
 | `/etc/vtium/fonts/` | the frits `terminus`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, and in `layers/` the layers they share. You can choose each one with `vtium config` or with vtium.conf's `font-name`. A frit that nothing names changes nothing. |
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment. They are documentation, and they are never active. |
 | `/usr/share/terminfo/x/xterm-vtium`, `/usr/share/terminfo/v/vtium` | the terminfo entry, under its name and its alias `vtium`, from the terminfo package |
@@ -312,9 +314,38 @@ Run the `stop` line for each VT that `list-units` shows. For another terminal, p
 
 You can remove `kmscon` afterwards with `pacman -R kmscon`, if you want to. vtium needs nothing from it. vtium never reads `/etc/kmscon/kmscon.conf`. But vtium takes the keys that `kmscon` used. So you can copy that file to `/etc/vtium/vtium.conf` by hand, and check it with `vtium check-config`. [config.md](config.md) lists every key that vtium reads. [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#sharing-vts-with-kmscon) says when to keep `kmscon-terminfo`.
 
+## Choosing what vtium may use
+
+vtium draws only from the active resources: the fonts, color schemes, color maps, shaders and pointer themes that `/etc/vtium/batch.conf` lists. Each one must also pass the trust rule. Root owns the file and every folder above it, nobody else can write them, none of them is a symbolic link, and the filesystem stays mounted. [Active resources and the trust rule](concepts/resources.md) explains why.
+
+The package writes no `batch.conf`. While the file does not exist, vtium uses the list of a fresh install. That list holds vtium's own fonts in `/usr/share/vtium/fonts`, the console font that `/etc/vconsole.conf` names, the color schemes in `/usr/share/vtium/palettes`, and vtium's pointer pictures. Every other font waits until you activate it, those of `vtium-fonts` and the fonts that the `jetbrains-mono` frit names included.
+
+`vtium config active` lists what is active now, one resource on each line: its kind, its path, and its state. Without a `batch.conf`, a last line says that the list is the list of a fresh install. To activate a font, give its full path:
+
+```
+$ vtium config activate /usr/share/fonts/TTF/JetBrainsMono-Regular.ttf --install
+```
+
+`activate` first checks the trust rule, and it changes nothing when a path fails. It keeps the change in your draft, beside the draft's vtium.conf. `--install` then installs the draft through sudo, which writes `/etc/vtium/batch.conf`. The first such install writes the list of a fresh install with your change, so the fonts vtium ships stay active. Without `--install`, the change waits until `vtium config install`, and `vtium config revert` drops it. A pointer theme is activated by its folder, such as `/usr/share/icons/Adwaita`.
+
+`vtium config deactivate PATH` takes a resource off the list the same way. When a look uses the resource, `deactivate` names the look and says what it renders without it. The built-in font is always active, and `deactivate` refuses it.
+
+A change to the list takes effect at the next login on each head, and vtium needs no restart.
+
+`vtium config fonts --files` lists each font file that vtium-config finds, with its state in your draft and whether it passes the trust rule. It looks in the system's font folders, in vtium's own, in kbd's, in the folders that `font-paths` names, and in your own `~/.local/share/fonts` and `~/.fonts`. A font in your own folder cannot be activated, because root does not own it. Install it as a system font first:
+
+```
+$ vtium config fonts --install-system ~/.local/share/fonts/MyMono.ttf
+$ vtium config activate /usr/local/share/fonts/MyMono.ttf --install
+```
+
+The first command copies the file into `/usr/local/share/fonts`, owned by root with mode 0644, through `sudo vtium-config apply`. It shows that command and asks before it runs it. When `/usr/local/share/fonts` already holds a different file of that name, it shows both files and asks before it replaces the old one.
+
+In `vtium config tui`, the Effects tab activates color maps and shaders, and the Looks tab activates color schemes and pointer themes. In both tabs, Space activates or deactivates the highlighted item. [Active fonts](fonts.md#active-fonts) shows how to write `batch.conf` by hand.
+
 ## Upgrading and removing
 
-An upgrade restarts no running vtium, because a restart ends every session on its VT. Each VT runs the new build from its next start. To restart vtium on VT 3 now, log out there. Then run this from another VT or over ssh:
+An upgrade restarts no running vtium, because a restart ends every session on its VT. Each VT runs the new build from its next start. A machine upgraded from a vtium that kept no list of active resources has no `batch.conf`, so vtium uses the list of a fresh install. A frit that names a font outside that list, such as `jetbrains-mono`, then renders in vtium's own fonts until you activate its fonts, as [Choosing what vtium may use](#choosing-what-vtium-may-use) shows. To restart vtium on VT 3 now, log out there. Then run this from another VT or over ssh:
 
 ```
 # systemctl restart vtium@tty3.service

@@ -74,22 +74,71 @@ This happens on a machine where vtium took the VTs in a release that did not yet
 
 ## A font that does not load
 
-When vtium cannot render a frit (a font set file), it renders its built-in font instead, and logs why. Read the log of that VT's vtium:
+A frit (a font set file) names its fonts in order. When vtium cannot use one of them, it renders that font's characters from the next font, and in the end from its built-in font. When it cannot render the frit at all, it renders its built-in font instead. The most likely reason is a font that is installed but not active. vtium renders only the fonts that `/etc/vtium/batch.conf` lists, and only when each file passes the trust rule. See [Active resources and the trust rule](concepts/resources.md) for details.
+
+Check these in turn:
+
+1. Run `vtium check-config` as your own user. For each font that a frit needs and vtium treats as missing, it names the frit, the font and the file, and says why. A line such as `Font set jetbrains-mono needs the font JetBrains Mono, and its file /usr/share/fonts/TTF/JetBrainsMono-Regular.ttf is not active` means that the font is installed but not on the list. A file that fails the trust rule comes with the check it failed, such as a folder that other users can write.
+2. Run `vtium config active` to see the list. Without a `batch.conf`, vtium uses the list of a fresh install, which holds only the fonts vtium ships and the console font that `/etc/vconsole.conf` names.
+3. Activate the font's file:
+
+    ```
+    $ vtium config activate /usr/share/fonts/TTF/JetBrainsMono-Regular.ttf --install
+    ```
+
+    A font in your home folder cannot be activated, because root does not own it. Install it as a system font first, as [Choosing what vtium may use](install.md#choosing-what-vtium-may-use) shows.
+4. Log out of the VT and log in again. vtium reads the list again before the next login, so the font renders from then on, with no restart of vtium.
+
+If the font still does not render, read the log of that VT's vtium:
 
 ```
 # journalctl -b -u vtium@tty2.service
 ```
 
-A line such as `the font monoid is not drawn (...)`, or `the font's glyphs are not generated (...)`, gives the reason. Check these in turn:
+A line such as `the font monoid is not drawn (...)`, or `the font's glyphs are not generated (...)`, gives the reason. Check these too:
 
 - vtium finds a frit by its file's name. For example, `font-name=monoid` reads `/etc/vtium/fonts/monoid.vtfrit`. vtium does not find a file that is named otherwise, such as `Monoid.vtfrit`. It then looks for a kbd font named `monoid` instead.
-- A frit names its fonts as a list of sources. When the font helper cannot find a source, it skips that source without a warning, and the next source renders in its place. When everything renders in the emoji font or the built-in font, the font helper did not find your font. It searches only `/usr/share/fonts` and `/usr/local/share/fonts`, as user `nobody`. See [An outline font](fonts.md#an-outline-font) for details.
+- A frit names its fonts as a list of sources. When the font helper cannot find a source, it skips that source without a warning, and the next source renders in its place. When everything renders in the emoji font or the built-in font, the font helper did not find your font. It looks for an outline font's family in `/usr/share/fonts` and `/usr/local/share/fonts`, or in the folders that `font-paths` names, and takes only the active files there. See [An outline font](fonts.md#an-outline-font) for details.
 - The font file's own name table must give the family that the frit names. Either its typographic family name or its legacy family name counts. The file's own name does not matter. `fc-scan --format '%{family}\n' FILE` prints the families that a file gives. A `font:` line takes any of them, in any language. It ignores case, spaces, `-` and `_`.
 - The font helper takes a file named for the family first, such as `Monoid-Regular.ttf`, whatever its style. Otherwise it takes the first file whose subfamily is `Regular`. Failing that, it takes the first file of the family. "First" follows the order of the font directories, and then the path. A search opens at most 4096 font files. Past that, the search fails with a line that names the family and the limit.
 - vtium refuses the whole frit when the frit has an unknown key or a malformed line. The log names the file and the line.
-- vtium uses a change to the frit or to `vtium.conf` only from its next start on that VT. See [Configuration](configure.md) for details.
+- vtium uses a change to the frit or to `vtium.conf` only from its next start on that VT. See [Configuration](configure.md) for details. A change to the list of active fonts takes effect sooner, at the next login.
 
 `vtium check-config` also reports a frit whose `cell=` line vtium cannot read.
+
+## A color scheme that does not apply
+
+When a head does not show the color scheme that its look names, vtium could not use that color scheme. The head then shows the color scheme that the top of vtium.conf names, and in the end `legacy`. Check these in turn:
+
+- Run `vtium check-config`. It names each color scheme that vtium.conf names and cannot use, and says why. The name may match no built-in color scheme and no file `NAME.palette` in `/etc/vtium/palettes` or `/usr/share/vtium/palettes`. The file may have an error, which the check names with its line. A file may also take the name of a built-in color scheme, and vtium never reads such a file.
+- A color scheme of your own must be active. The color schemes that vtium installs are active from the first start, but a file you add to `/etc/vtium/palettes` is not. When the check says `The color scheme NAME is not active`, activate its file and log in again:
+
+    ```
+    $ vtium config activate /etc/vtium/palettes/NAME.palette --install
+    ```
+
+- The file must also pass the trust rule. The check names the rule that the file fails, such as a symbolic link on its path.
+- vtium reads the `palette` key and the palette files when it starts. A change to either takes effect when vtium next starts on the VT. See [How an install reaches the VTs](configure.md#how-an-install-reaches-the-vts) for details.
+- A program can change the colors in its own console, with OSC 4 and OSC 10 to 19. RIS, the full reset, returns them to the color scheme's. See [Programs that change the colors](palettes.md#programs-that-change-the-colors) for details.
+- An effect changes every color after the color scheme applies. Under the vtlook `amber`, for example, every color scheme shows in shades of amber.
+
+## An effect that does not apply
+
+When a head shows no effect where its look names a vtlook (a look file), the head draws the built-in vtlook, which changes no pixel. Check these in turn:
+
+- The build must have frame filters. `vtium --version` names `filters` on its `features` line when it does. The `vtium` and `vtium-git` packages are built without them. See [Arch Linux](install.md#arch-linux) for how to build them in.
+- Run `vtium check-config`. It lists each error of every vtlook that vtium.conf names, with the file and the line. It also names a color map that a vtlook's `cube` filter cannot use, because the file is missing, is not active, or fails the trust rule. Any such error makes the whole vtlook fail.
+- A color map, a `.cube` file, must be active. A fresh install activates none. Activate the file and log in again:
+
+    ```
+    $ vtium config activate /etc/vtium/looks/warm.cube --install
+    ```
+
+- A vtlook's `[requires]` section can rule out a display, such as one with fewer than 24 bits a pixel. That display draws the built-in vtlook, and the head's other displays keep the effect. vtium logs one line that names the display and the first requirement it misses, such as `vtlook amber: display DP-1 (1280x800, 1 bit) draws the built-in vtlook: requires min-depth 24`.
+- A copy of a preset in `/etc/vtium/looks` replaces the preset. When the copy has an error, the head draws the built-in vtlook, not the preset.
+- vtium reads vtium.conf and its vtlooks when it starts. A change to the `vtlook` key or to a vtlook's file takes effect when vtium next starts on the VT. Activating a color map takes effect sooner, at the next login.
+
+[Vtlook files](looks.md#errors) shows each error that `vtium check-config` prints.
 
 ## A VT that shows a getty
 
