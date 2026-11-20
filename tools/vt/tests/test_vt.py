@@ -3787,7 +3787,7 @@ CULLET_MONO_NOTICES = sorted(os.listdir(os.path.join(ROOT, "tools", "cullet-mono
 # the license text of each scheme's family in the package's license
 # directory, and the preset vtlooks it installs in /usr/share/vtium/looks.
 PALETTES = ["catppuccin-frappe", "catppuccin-latte", "catppuccin-macchiato", "catppuccin-mocha", "dracula",
-            "gruvbox-dark", "gruvbox-light", "kiln", "sunny", "tokyo-night", "tokyo-night-day",
+            "gruvbox-dark", "gruvbox-light", "ink", "kiln", "sunny", "tokyo-night", "tokyo-night-day",
             "tokyo-night-moon", "tokyo-night-storm"]
 PALETTE_LICENSES = ["catppuccin-LICENSE", "dracula-LICENSE", "gruvbox-LICENSE", "tokyo-night-LICENSE"]
 LOOKS = ["amber", "deuteranopia", "green", "protanopia", "tritanopia", "white"]
