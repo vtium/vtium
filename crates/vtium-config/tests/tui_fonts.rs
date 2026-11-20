@@ -112,7 +112,7 @@ fn each_font_shows_describing_until_the_helper_answers_and_keys_go_on() {
     // Enter reached the TUI and opened the first font's detail
     let screen = c.seen.clone().expect("the screen");
     assert!(
-        flat(&screen).contains("font DejaVuSansMono.ttf"),
+        flat(&screen).contains("Font DejaVuSansMono.ttf"),
         "{screen}"
     );
     assert!(flat(&screen).contains(words::FONT_DESCRIBING), "{screen}");
@@ -385,7 +385,7 @@ fn enter_opens_a_font_s_detail_and_esc_goes_back() {
     let screen = reach(100, 30, &on_font(3, &[b"\r"]));
     let text = flat(&screen);
     for line in [
-        "font NotoColorEmoji.ttf",
+        "Font NotoColorEmoji.ttf",
         "File: /usr/local/share/fonts/NotoColorEmoji.ttf",
         "Folder: system",
         "Face: Noto Color Emoji Regular, version 2.37",

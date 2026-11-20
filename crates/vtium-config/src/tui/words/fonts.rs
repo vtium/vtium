@@ -201,7 +201,7 @@ pub const FONTS_OWN_HINT: &str = "Press Enter to install this font as a system f
 /// What Space says on a font in the person's own folder.
 pub fn own_font(path: &str) -> String {
     format!(
-        "This font is in your own folder, so vtium cannot use it. Press Enter to open its detail, then Enter again to install it as a system font. {path}"
+        "This font is in your own folder, so vtium cannot use it. Press Enter to open its detail, then Enter again to install it as a system font. File: {path}"
     )
 }
 
@@ -210,7 +210,7 @@ pub const TRY_A_FONT_SET: &str = "vtium can try a font set on this console, but 
 
 /// The lines of a font's detail.
 pub fn font_title(name: &str) -> String {
-    format!("font {name}")
+    format!("Font {name}")
 }
 
 pub fn font_folder(place: Place) -> String {
@@ -326,7 +326,8 @@ pub fn system_font_failed(why: &str) -> String {
     format!("The font was not installed: {why}")
 }
 
-pub const SYSTEM_FONT_NOT_YOURS: &str = "Only a font in your own folder is installed as a system font. This font is a system font already.";
+pub const SYSTEM_FONT_NOT_YOURS: &str =
+    "This font is a system font already. Only a font in your own folder can be installed as one.";
 
 /// What a look's card says beside its size, from its text font: for a
 /// bitmap font, the strikes that the card offers a point size for, as
@@ -396,14 +397,14 @@ pub fn strike_size(points: u32, drawn: &Strike) -> String {
 /// The Fonts tab's note when vtium-config cannot read the draft's batch.
 pub fn fonts_unread(why: &str) -> String {
     format!(
-        "vtium-config cannot read which resources the draft keeps active, so every font shows as not active. {why}"
+        "vtium-config cannot read which fonts the draft keeps active, so every font shows as not active. {why}"
     )
 }
 
 /// The Fonts tab's note when vtium-config cannot read the mount table.
 pub fn fonts_unjudged(why: &str) -> String {
     format!(
-        "vtium-config cannot read the mount table, so it cannot judge the fonts it finds and lists none. {why}"
+        "vtium-config cannot read the mount table, so it cannot check the fonts it finds against the trust rule, and it lists none. {why}"
     )
 }
 
