@@ -83,7 +83,7 @@ So a resource you activate or deactivate takes effect at the next login, with no
 
 ## Activating a resource
 
-You change the list with vtium-config, which keeps the change in your draft beside vtium.conf and installs both together through sudo. The commands are `vtium config activate`, `vtium config deactivate` and `vtium config active`. vtium-config's Effects tab activates color maps and shaders, and its Looks tab activates color schemes and pointer themes. [Choosing what vtium may use](../install.md#choosing-what-vtium-may-use) gives the steps.
+You change the list with vtium-config, which keeps the change in your draft beside vtium.conf and installs both together through sudo. The commands are `vtium config activate`, `vtium config deactivate` and `vtium config active`. vtium-config's Fonts tab activates fonts, its Effects tab activates color maps and shaders, and its Looks tab activates color schemes and pointer themes. [Choosing what vtium may use](../install.md#choosing-what-vtium-may-use) gives the steps.
 
 A font in your home folder cannot be activated, because root does not own it. vtium-config can install it as a system font first, with `vtium config fonts --install-system FILE`, which copies it into `/usr/local/share/fonts` as root.
 
