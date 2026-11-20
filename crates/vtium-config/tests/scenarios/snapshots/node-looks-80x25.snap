@@ -1,5 +1,6 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
+assertion_line: 117
 description: "looks at 80×25, keys: 3"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
@@ -14,16 +15,16 @@ description: "looks at 80×25, keys: 3"
    proof                 user@desk:~/notes$ colors
    tiny5                 red green yellow magenta cyan white
                          grey red green yellow magenta cyan white
- proof: proof,           Bold text and italic text beside plain text.
- vtium.conf's size,      ┌──────────┬──────────┐
- used by terminal desk.  │ name     │ size     │
- These characters are    ├──────────┼──────────┤
- drawn at the console's  │ plan.txt │ 1.8 KiB  │
- current size. A size    └──────────┴──────────┘
- you choose takes        Accents: café, naïve, Ångström, Straße, žluťoučký
- effect when vtium       user@desk:~/notes$
- starts on this console
- again.
+ proof uses the font     Bold text and italic text beside plain text.
+ set proof at            ┌──────────┬──────────┐
+ vtium.conf's size.      │ name     │ size     │
+ Terminal desk uses it.  ├──────────┼──────────┤
+ The console draws this  │ plan.txt │ 1.8 KiB  │
+ in its current font,    └──────────┴──────────┘
+ so t shows a font set   Accents: café, naïve, Ångström, Straße, žluťoučký
+ here. A size takes      user@desk:~/notes$
+ effect when vtium
+ starts again.
 
 --------------------------------------------------------------------------------
  ↑↓ move  Enter open  r remove  n new  t try live  q quit  . more 1/4
