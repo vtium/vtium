@@ -469,6 +469,19 @@ fn enter_opens_a_font_s_detail_and_esc_goes_back() {
 #[test]
 fn enter_in_the_detail_of_a_font_of_yours_asks_then_installs_it_as_a_system_font() {
     let ask = on_font(5, &[b"\r", b"\r"]);
+    // the message line says the font is being checked when the desk is
+    // asked to ready it, and the loop draws that before the desk runs
+    let mut app = app_after(&[Key::Down; 5]);
+    app.event(Event::Input(Input::Key(Key::Enter)));
+    let effects = app.event(Event::Input(Input::Key(Key::Enter)));
+    assert!(
+        effects.iter().any(|e| matches!(
+            e,
+            vtium_config::tui::model::Effect::Desk(vtium_config::tui::desk::Op::SystemFont(_))
+        )),
+        "{effects:?}"
+    );
+    assert_eq!(app.shared.message.as_deref(), Some(words::CHECKING_FONT));
     let screen = reach_desk(&ask);
     let text = flat(&screen);
     for line in [

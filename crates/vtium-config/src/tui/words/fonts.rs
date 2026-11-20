@@ -330,6 +330,10 @@ pub fn system_font_untrusted(target: &str, why: &str) -> String {
     )
 }
 
+/// What the message line says while the font helper checks a font of the
+/// person's before its install as a system font.
+pub const CHECKING_FONT: &str = "Checking the font before the install…";
+
 /// What the Fonts tab says when its window shows only part of the list.
 pub fn fonts_window(first: usize, last: usize, of: usize) -> String {
     format!("The list shows fonts {first} to {last} of {of}. Up and Down scroll it.")

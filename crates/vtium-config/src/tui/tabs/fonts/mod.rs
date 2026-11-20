@@ -361,7 +361,12 @@ impl Fonts {
                     path: path.clone(),
                     top: 0,
                 });
-                return vec![Command::Effect(Effect::Desk(Op::SystemFont(path)))];
+                // the font helper's check can take seconds, so the message
+                // line says what is happening while it runs
+                return vec![
+                    Command::Change(Change::Say(words::CHECKING_FONT.to_owned())),
+                    Command::Effect(Effect::Desk(Op::SystemFont(path))),
+                ];
             }
             Key::Enter => {
                 return vec![Command::Change(Change::Say(

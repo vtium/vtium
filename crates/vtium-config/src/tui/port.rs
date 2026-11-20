@@ -255,6 +255,11 @@ pub fn drive_with(
                     Effect::Sources(fonts) => port.sources(fonts),
                     Effect::Describe(paths) => port.describe(paths),
                     Effect::Desk(op) => {
+                        // readying a system font waits on the font helper,
+                        // so the screen first shows that it is checking
+                        if matches!(op, super::desk::Op::SystemFont(_)) {
+                            port.write(&painter.frame(&app)?)?;
+                        }
                         let done = match desk.as_deref_mut() {
                             Some(desk) => desk.run(&op),
                             None => Err(super::words::NO_DESK.to_owned()),
