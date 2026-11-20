@@ -182,14 +182,14 @@ pub(super) fn pointer_findings(
     if let Some((value, named)) = top {
         add(pointer_file_findings(
             value,
-            |said| format!("{named}: {said}"),
+            &|said| format!("{named}: {said}"),
             gate,
         ));
     }
     for (_, value, line) in looks {
         add(pointer_file_findings(
             value,
-            |said| at(conf, Some(*line), said).to_string(),
+            &|said| at(conf, Some(*line), said).to_string(),
             gate,
         ));
     }
@@ -215,7 +215,7 @@ pub(super) fn pointer_findings(
 /// - ADR-1309 D2, D3: what the path names, and which files of a cursor theme serve each shape.
 fn pointer_file_findings(
     value: &str,
-    named: impl Fn(String) -> String,
+    named: &dyn Fn(String) -> String,
     gate: &vtium_settings::cullet::Gate,
 ) -> Vec<String> {
     use crate::pointer_file::{Located, locate, theme_names, theme_refused_line};
