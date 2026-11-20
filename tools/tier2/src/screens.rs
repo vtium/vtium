@@ -1821,6 +1821,10 @@ const PALETTE_SUNNY_DESC: &str = scheme_desc!(
     "Sunny, vtium's own color scheme: black text on a white background, deep colors that read on white, a light gray color 7, a vermilion cursor and a pale blue selection",
     scheme_set!()
 );
+const PALETTE_INK_DESC: &str = scheme_desc!(
+    "Ink, vtium's own color scheme for a display of three inks: black text on white, colors 1, 3 and 5 and their bright colors in pure red, colors 2, 4, 6 and 8 and their bright colors in black, colors 7 and 15 white, a red cursor and a red selection with white text",
+    scheme_set!()
+);
 const PALETTE_DRACULA_DESC: &str = scheme_desc!("Dracula, a dark color scheme", scheme_set!());
 const PALETTE_CATPPUCCIN_LATTE_DESC: &str = scheme_desc!(
     "Catppuccin Latte, the light flavor of Catppuccin",
@@ -3735,6 +3739,11 @@ const BASE: &[Case] = &[
         "palette-sunny",
         PALETTE_SUNNY_DESC,
         include_bytes!("../../../crates/vtium/install/palettes/sunny.palette"),
+    ),
+    color_scheme(
+        "palette-ink",
+        PALETTE_INK_DESC,
+        include_bytes!("../../../crates/vtium/install/palettes/ink.palette"),
     ),
 ];
 

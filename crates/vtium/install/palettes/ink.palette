@@ -1,0 +1,48 @@
+# Ink, vtium's own color scheme for black, red and white displays.
+#
+# Ink is for a display that shows three inks: black and red on white paper,
+# such as a three-color e-paper panel. Every color in this file is one of
+# those three, so a panel that turns each pixel into its nearest ink keeps
+# every color as it is. Text is black on white, and red marks what programs
+# color red, such as errors and deleted lines.
+#
+# License: MIT, the license of vtium itself. vtium installs the license's
+# text with its other license notices, as LICENSE in vtium's license folder,
+# which is /usr/share/licenses/vtium on most systems.
+#
+# The file is in Ghostty's theme format. The 16 basic colors fold onto the
+# three inks by the red light in them. Red, yellow and magenta, the colors
+# that mix red light, print in red ink, normal and bright alike. Black,
+# green, blue, cyan and gray print in black ink, so a program's colored text
+# stays readable on white.
+#
+# Colors 7 and 15, white and bright white, are the white of the paper.
+# Programs paint status bars and highlights with color 7, and text in color
+# 7 or 15 shows only on a colored background, as black text does not show
+# on a dark scheme's black. Colors 16 to 255 and 24-bit colors keep their
+# own values, and the display turns them into its inks.
+#
+# The cursor is a red block, and selected text is white on red.
+
+palette = 0=#000000
+palette = 1=#ff0000
+palette = 2=#000000
+palette = 3=#ff0000
+palette = 4=#000000
+palette = 5=#ff0000
+palette = 6=#000000
+palette = 7=#ffffff
+palette = 8=#000000
+palette = 9=#ff0000
+palette = 10=#000000
+palette = 11=#ff0000
+palette = 12=#000000
+palette = 13=#ff0000
+palette = 14=#000000
+palette = 15=#ffffff
+
+background = #ffffff
+foreground = #000000
+cursor-color = #ff0000
+selection-background = #ff0000
+selection-foreground = #ffffff

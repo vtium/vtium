@@ -659,3 +659,39 @@ fn a_palette_through_a_symbolic_link_is_refused() {
         Reason::Refused(Check::Link { at: linked })
     );
 }
+
+// The shipped Ink scheme is for a display of three inks, so each of its
+// sixteen basic colors, its text and background, and its cursor and
+// selection colors are black, red or white. Red, yellow and magenta print
+// red, the other colors black, and white stays the paper's white. The
+// file reads cleanly, with no key the reader ignores.
+#[test]
+fn the_ink_scheme_holds_only_black_red_and_white() {
+    let text = include_bytes!("../../../vtium/install/palettes/ink.palette");
+    let Ok((palette, ignored, _)) = parse(text) else {
+        panic!("the shipped Ink scheme reads cleanly");
+    };
+    assert!(ignored.is_empty(), "{ignored:?}");
+    let (black, red, white) = (
+        Rgb::new(0, 0, 0),
+        Rgb::new(0xff, 0, 0),
+        Rgb::new(0xff, 0xff, 0xff),
+    );
+    let sixteen: Vec<Rgb> = (0..16).map(|i| palette.color(i)).collect();
+    assert_eq!(
+        sixteen,
+        [
+            black, red, black, red, black, red, black, white, //
+            black, red, black, red, black, red, black, white,
+        ]
+    );
+    assert_eq!((palette.fg(), palette.bg()), (black, white));
+    assert_eq!(palette.cursor(), Some(red));
+    assert_eq!(
+        (
+            palette.special(Special::SelectionBg),
+            palette.special(Special::SelectionFg)
+        ),
+        (Some(red), Some(white))
+    );
+}
