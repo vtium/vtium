@@ -1362,7 +1362,7 @@ pub const FONT_PATHS: Key = Key {
     what: "The folders where vtium looks, in order, for installed fonts that a font set's `font:` lines name.\n\n\
            Separate the folders with `:`, as in `PATH`. Each folder must be an absolute path. The list replaces the built-in list. vtium skips a folder that is not an absolute path, logs why, and uses the rest.\n\n\
            [docs] The list can reorder or leave out the system's folders.\n\n\
-           When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. vtium searches a user's own folder, such as `~/.local/share/fonts`, only when the list names it. The font helper cannot read such a folder before someone logs in, because the helper then runs as `nobody`.",
+           When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. The list can name a folder you own, such as `~/.local/share/fonts`, but vtium never renders a font from it. Such a font fails the trust rule, which requires root to own the font file and each folder above it. Install the font as a system font instead, with vtium-config's Fonts tab or `vtium-config fonts --install-system FILE`.",
 };
 
 pub const FONT_HELPER: Key = Key {
