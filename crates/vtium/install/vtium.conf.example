@@ -38,11 +38,9 @@
 ## that is not an absolute path, logs why, and uses the rest.
 ##
 ## When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`.
-## The list can name a folder you own, such as `~/.local/share/fonts`, but
-## vtium never renders a font from it. Such a font fails the trust rule, which
-## requires root to own the font file and each folder above it. Install the
-## font as a system font instead, with vtium-config's Fonts tab or
-## `vtium-config fonts --install-system FILE`.
+## A font in a folder you own, such as `~/.local/share/fonts`, never renders,
+## even when the list names the folder. Root does not own the font, so it
+## fails the trust rule. Install it as a system font instead.
 #
 ## font-engine: Which kind of font to use. When unset, vtium tries each kind
 ## the build supports, in the order listed.
