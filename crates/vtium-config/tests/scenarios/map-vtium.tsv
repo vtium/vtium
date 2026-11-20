@@ -123,14 +123,14 @@ vtium any.question.leave +pending	Ctrl-C	vtium flow(doc display) +pending
 vtium any.question.leave +pending	Ctrl-C	vtium fonts(filter) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium help(help) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium looks(marked) +pending	
-vtium any.question.leave +pending	Ctrl-C	vtium looks.new-frit(row 6) +pending	
+vtium any.question.leave +pending	Ctrl-C	vtium looks.new-frit(row 0) +pending	
 vtium any.question.leave +pending	Ctrl-C	vtium settings(first) +pending	
 vtium any.question.leave +pending	Esc	vtium effects(filter) +pending	
 vtium any.question.leave +pending	Esc	vtium flow(doc display) +pending	
 vtium any.question.leave +pending	Esc	vtium fonts(filter) +pending	
 vtium any.question.leave +pending	Esc	vtium help(help) +pending	
 vtium any.question.leave +pending	Esc	vtium looks(marked) +pending	
-vtium any.question.leave +pending	Esc	vtium looks.new-frit(row 6) +pending	
+vtium any.question.leave +pending	Esc	vtium looks.new-frit(row 0) +pending	
 vtium any.question.leave +pending	Esc	vtium settings(first) +pending	
 vtium any.question.leave +pending	Shrink	vtium any.question.leave below 80×25 +pending	
 vtium any.question.leave +pending	n	vtium left	exit 0
@@ -142,14 +142,14 @@ vtium any.question.leave +unsaved +pending	Ctrl-C	vtium flow(doc terminal) +unsa
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium fonts(filter) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium help(help) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks(marked) +unsaved +pending	
-vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks.new-frit(row 6) +unsaved +pending	
+vtium any.question.leave +unsaved +pending	Ctrl-C	vtium looks.new-frit(row 0) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Ctrl-C	vtium settings(first) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium effects(filter) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium flow(doc terminal) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium fonts(filter) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium help(help) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
-vtium any.question.leave +unsaved +pending	Esc	vtium looks.new-frit(row 6) +unsaved +pending	
+vtium any.question.leave +unsaved +pending	Esc	vtium looks.new-frit(row 0) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Esc	vtium settings(first) +unsaved +pending	
 vtium any.question.leave +unsaved +pending	Shrink	vtium any.question.leave below 80×25 +unsaved +pending	
 vtium any.question.leave +unsaved +pending	n	vtium left	save, exit 0
@@ -171,14 +171,14 @@ vtium any.question.quit +unsaved	Ctrl-C	vtium flow(doc terminal) +unsaved
 vtium any.question.quit +unsaved	Ctrl-C	vtium fonts(filter) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium help(help) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium looks.look(name) +unsaved	
-vtium any.question.quit +unsaved	Ctrl-C	vtium looks.new-frit(row 6) +unsaved	
+vtium any.question.quit +unsaved	Ctrl-C	vtium looks.new-frit(row 0) +unsaved	
 vtium any.question.quit +unsaved	Ctrl-C	vtium settings(first) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium effects(filter) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium flow(doc terminal) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium fonts(filter) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium help(help) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium looks.look(name) +unsaved	
-vtium any.question.quit +unsaved	Esc	vtium looks.new-frit(row 6) +unsaved	
+vtium any.question.quit +unsaved	Esc	vtium looks.new-frit(row 0) +unsaved	
 vtium any.question.quit +unsaved	Esc	vtium settings(first) +unsaved	
 vtium any.question.quit +unsaved	Shrink	vtium any.question.quit below 80×25 +unsaved	
 vtium any.question.quit +unsaved	n	vtium left	exit 0
@@ -3913,7 +3913,7 @@ vtium looks(frit)	Shrink	vtium any.too-small
 vtium looks(frit)	Tab	vtium flow(doc display)	mouse on
 vtium looks(frit)	Up	vtium looks(refused)	
 vtium looks(frit)	i	vtium looks(frit)	prepare
-vtium looks(frit)	n	vtium looks.new-frit.typing(row 0)	
+vtium looks(frit)	n	vtium looks.new-frit(row 0)	
 vtium looks(frit)	q	vtium left	exit 0
 vtium looks(frit)	r	vtium looks(marked) +pending	
 vtium looks(frit)	t	vtium any.trial	switch
@@ -3934,7 +3934,7 @@ vtium looks(frit) +pending	Shrink	vtium any.too-small +pending
 vtium looks(frit) +pending	Tab	vtium flow(doc display) +pending	mouse on
 vtium looks(frit) +pending	Up	vtium looks(marked) +pending	
 vtium looks(frit) +pending	i	vtium any.question.confirm +pending	prepare
-vtium looks(frit) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
+vtium looks(frit) +pending	n	vtium looks.new-frit(row 0) +pending	
 vtium looks(frit) +pending	q	vtium any.question.leave +pending	
 vtium looks(frit) +pending	r	vtium looks(marked) +pending	
 vtium looks(frit) +pending	t	vtium any.trial +pending	switch
@@ -3955,7 +3955,7 @@ vtium looks(frit) +unsaved	Shrink	vtium any.too-small +unsaved
 vtium looks(frit) +unsaved	Tab	vtium flow(doc display) +unsaved	mouse on
 vtium looks(frit) +unsaved	Up	vtium looks(refused) +unsaved	
 vtium looks(frit) +unsaved	i	vtium any.question.confirm	save, prepare
-vtium looks(frit) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
+vtium looks(frit) +unsaved	n	vtium looks.new-frit(row 0) +unsaved	
 vtium looks(frit) +unsaved	q	vtium any.question.quit +unsaved	
 vtium looks(frit) +unsaved	r	vtium looks(marked) +unsaved +pending	
 vtium looks(frit) +unsaved	s	vtium looks(frit)	save
@@ -3977,7 +3977,7 @@ vtium looks(frit) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending
 vtium looks(frit) +unsaved +pending	Tab	vtium flow(doc display) +unsaved +pending	mouse on
 vtium looks(frit) +unsaved +pending	Up	vtium looks(marked) +unsaved +pending	
 vtium looks(frit) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
-vtium looks(frit) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
+vtium looks(frit) +unsaved +pending	n	vtium looks.new-frit(row 0) +unsaved +pending	
 vtium looks(frit) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium looks(frit) +unsaved +pending	r	vtium looks(marked) +unsaved +pending	
 vtium looks(frit) +unsaved +pending	s	vtium looks(frit) +pending	save
@@ -4078,7 +4078,7 @@ vtium looks(marked) +pending	Shrink	vtium any.too-small +pending
 vtium looks(marked) +pending	Tab	vtium flow(doc display) +pending	mouse on
 vtium looks(marked) +pending	Up	vtium looks(look) +pending	
 vtium looks(marked) +pending	i	vtium any.question.confirm +pending	prepare
-vtium looks(marked) +pending	n	vtium looks.new-frit.typing(row 0) +pending	
+vtium looks(marked) +pending	n	vtium looks.new-frit(row 0) +pending	
 vtium looks(marked) +pending	q	vtium any.question.leave +pending	
 vtium looks(marked) +pending	r	vtium looks(refused)	
 vtium looks(marked) +pending	w	vtium any.question.window-ops +pending	
@@ -4099,7 +4099,7 @@ vtium looks(marked) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pendi
 vtium looks(marked) +unsaved +pending	Tab	vtium flow(doc display) +unsaved +pending	mouse on
 vtium looks(marked) +unsaved +pending	Up	vtium looks(look) +unsaved +pending	
 vtium looks(marked) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
-vtium looks(marked) +unsaved +pending	n	vtium looks.new-frit.typing(row 0) +unsaved +pending	
+vtium looks(marked) +unsaved +pending	n	vtium looks.new-frit(row 0) +unsaved +pending	
 vtium looks(marked) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium looks(marked) +unsaved +pending	r	vtium looks(refused) +unsaved	
 vtium looks(marked) +unsaved +pending	s	vtium looks(marked) +pending	save
@@ -4187,7 +4187,7 @@ vtium looks(refused)	Shrink	vtium any.too-small
 vtium looks(refused)	Tab	vtium flow(doc display)	mouse on
 vtium looks(refused)	Up	vtium looks(look)	
 vtium looks(refused)	i	vtium looks(refused)	prepare
-vtium looks(refused)	n	vtium looks.new-frit.typing(row 0)	
+vtium looks(refused)	n	vtium looks.new-frit(row 0)	
 vtium looks(refused)	q	vtium left	exit 0
 vtium looks(refused)	r	vtium looks(marked) +pending	
 vtium looks(refused)	w	vtium any.question.window-ops	
@@ -4208,7 +4208,7 @@ vtium looks(refused) +unsaved	Shrink	vtium any.too-small +unsaved
 vtium looks(refused) +unsaved	Tab	vtium flow(doc display) +unsaved	mouse on
 vtium looks(refused) +unsaved	Up	vtium looks(no looks) +unsaved	
 vtium looks(refused) +unsaved	i	vtium any.question.confirm	save, prepare
-vtium looks(refused) +unsaved	n	vtium looks.new-frit.typing(row 0) +unsaved	
+vtium looks(refused) +unsaved	n	vtium looks.new-frit(row 0) +unsaved	
 vtium looks(refused) +unsaved	q	vtium any.question.quit +unsaved	
 vtium looks(refused) +unsaved	r	vtium looks(marked) +unsaved +pending	
 vtium looks(refused) +unsaved	s	vtium looks(refused)	save
@@ -5299,130 +5299,466 @@ vtium looks.look.typing +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium looks.look.typing +unsaved +pending	Enter	vtium looks.look(name) +unsaved +pending	
 vtium looks.look.typing +unsaved +pending	Esc	vtium looks.look(name) +unsaved +pending	
 vtium looks.look.typing +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 0)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 0)	Down	vtium looks.new-frit(row 1)	
+vtium looks.new-frit(row 0)	End	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 0)	Enter	vtium looks.new-frit.list(row 0)	
+vtium looks.new-frit(row 0)	Esc	vtium looks(refused)	
+vtium looks.new-frit(row 0)	PgDn	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 0)	Shrink	vtium any.too-small	
+vtium looks.new-frit(row 0)	q	vtium left	exit 0
+vtium looks.new-frit(row 0) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 0) +pending	Down	vtium looks.new-frit(row 1) +pending	
+vtium looks.new-frit(row 0) +pending	End	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 0) +pending	Enter	vtium looks.new-frit.list(row 0) +pending	
+vtium looks.new-frit(row 0) +pending	Esc	vtium looks(marked) +pending	
+vtium looks.new-frit(row 0) +pending	PgDn	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 0) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit(row 0) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit(row 0) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 0) +unsaved	Down	vtium looks.new-frit(row 1) +unsaved	
+vtium looks.new-frit(row 0) +unsaved	End	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 0) +unsaved	Enter	vtium looks.new-frit.list(row 0) +unsaved	
+vtium looks.new-frit(row 0) +unsaved	Esc	vtium looks(refused) +unsaved	
+vtium looks.new-frit(row 0) +unsaved	PgDn	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 0) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit(row 0) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit(row 0) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 0) +unsaved +pending	Down	vtium looks.new-frit(row 1) +unsaved +pending	
+vtium looks.new-frit(row 0) +unsaved +pending	End	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 0) +unsaved +pending	Enter	vtium looks.new-frit.list(row 0) +unsaved +pending	
+vtium looks.new-frit(row 0) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
+vtium looks.new-frit(row 0) +unsaved +pending	PgDn	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 0) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 0) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit(row 1)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 1)	Down	vtium looks.new-frit(row 2)	
+vtium looks.new-frit(row 1)	End	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 1)	Enter	vtium looks.new-frit.list(row 1)	
+vtium looks.new-frit(row 1)	Esc	vtium looks(refused)	
+vtium looks.new-frit(row 1)	Home	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 1)	PgDn	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 1)	PgUp	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 1)	Shrink	vtium any.too-small	
+vtium looks.new-frit(row 1)	Up	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 1)	q	vtium left	exit 0
+vtium looks.new-frit(row 1) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 1) +pending	Down	vtium looks.new-frit(row 2) +pending	
+vtium looks.new-frit(row 1) +pending	End	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 1) +pending	Enter	vtium looks.new-frit.list(row 1) +pending	
+vtium looks.new-frit(row 1) +pending	Esc	vtium looks(marked) +pending	
+vtium looks.new-frit(row 1) +pending	Home	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 1) +pending	PgDn	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 1) +pending	PgUp	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 1) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit(row 1) +pending	Up	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 1) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit(row 1) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 1) +unsaved	Down	vtium looks.new-frit(row 2) +unsaved	
+vtium looks.new-frit(row 1) +unsaved	End	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 1) +unsaved	Enter	vtium looks.new-frit.list(row 1) +unsaved	
+vtium looks.new-frit(row 1) +unsaved	Esc	vtium looks(refused) +unsaved	
+vtium looks.new-frit(row 1) +unsaved	Home	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 1) +unsaved	PgDn	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 1) +unsaved	PgUp	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 1) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit(row 1) +unsaved	Up	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 1) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit(row 1) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 1) +unsaved +pending	Down	vtium looks.new-frit(row 2) +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	End	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	Enter	vtium looks.new-frit.list(row 1) +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	Home	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	PgDn	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	PgUp	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	Up	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 1) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit(row 2)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 2)	Down	vtium looks.new-frit(row 3)	
+vtium looks.new-frit(row 2)	End	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 2)	Enter	vtium looks.new-frit.list(row 2)	
+vtium looks.new-frit(row 2)	Esc	vtium looks(refused)	
+vtium looks.new-frit(row 2)	Home	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 2)	PgDn	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 2)	PgUp	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 2)	Shrink	vtium any.too-small	
+vtium looks.new-frit(row 2)	Up	vtium looks.new-frit(row 1)	
+vtium looks.new-frit(row 2)	q	vtium left	exit 0
+vtium looks.new-frit(row 2) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 2) +pending	Down	vtium looks.new-frit(row 3) +pending	
+vtium looks.new-frit(row 2) +pending	End	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 2) +pending	Enter	vtium looks.new-frit.list(row 2) +pending	
+vtium looks.new-frit(row 2) +pending	Esc	vtium looks(marked) +pending	
+vtium looks.new-frit(row 2) +pending	Home	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 2) +pending	PgDn	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 2) +pending	PgUp	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 2) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit(row 2) +pending	Up	vtium looks.new-frit(row 1) +pending	
+vtium looks.new-frit(row 2) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit(row 2) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 2) +unsaved	Down	vtium looks.new-frit(row 3) +unsaved	
+vtium looks.new-frit(row 2) +unsaved	End	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 2) +unsaved	Enter	vtium looks.new-frit.list(row 2) +unsaved	
+vtium looks.new-frit(row 2) +unsaved	Esc	vtium looks(refused) +unsaved	
+vtium looks.new-frit(row 2) +unsaved	Home	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 2) +unsaved	PgDn	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 2) +unsaved	PgUp	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 2) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit(row 2) +unsaved	Up	vtium looks.new-frit(row 1) +unsaved	
+vtium looks.new-frit(row 2) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit(row 2) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 2) +unsaved +pending	Down	vtium looks.new-frit(row 3) +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	End	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	Enter	vtium looks.new-frit.list(row 2) +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	Home	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	PgDn	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	PgUp	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	Up	vtium looks.new-frit(row 1) +unsaved +pending	
+vtium looks.new-frit(row 2) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit(row 3)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 3)	Down	vtium looks.new-frit(row 4)	
+vtium looks.new-frit(row 3)	End	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 3)	Enter	vtium looks.new-frit.list(row 3)	
+vtium looks.new-frit(row 3)	Esc	vtium looks(refused)	
+vtium looks.new-frit(row 3)	Home	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 3)	PgDn	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 3)	PgUp	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 3)	Shrink	vtium any.too-small	
+vtium looks.new-frit(row 3)	Up	vtium looks.new-frit(row 2)	
+vtium looks.new-frit(row 3)	q	vtium left	exit 0
+vtium looks.new-frit(row 3) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 3) +pending	Down	vtium looks.new-frit(row 4) +pending	
+vtium looks.new-frit(row 3) +pending	End	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 3) +pending	Enter	vtium looks.new-frit.list(row 3) +pending	
+vtium looks.new-frit(row 3) +pending	Esc	vtium looks(marked) +pending	
+vtium looks.new-frit(row 3) +pending	Home	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 3) +pending	PgDn	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 3) +pending	PgUp	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 3) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit(row 3) +pending	Up	vtium looks.new-frit(row 2) +pending	
+vtium looks.new-frit(row 3) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit(row 3) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 3) +unsaved	Down	vtium looks.new-frit(row 4) +unsaved	
+vtium looks.new-frit(row 3) +unsaved	End	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 3) +unsaved	Enter	vtium looks.new-frit.list(row 3) +unsaved	
+vtium looks.new-frit(row 3) +unsaved	Esc	vtium looks(refused) +unsaved	
+vtium looks.new-frit(row 3) +unsaved	Home	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 3) +unsaved	PgDn	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 3) +unsaved	PgUp	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 3) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit(row 3) +unsaved	Up	vtium looks.new-frit(row 2) +unsaved	
+vtium looks.new-frit(row 3) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit(row 3) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 3) +unsaved +pending	Down	vtium looks.new-frit(row 4) +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	End	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	Enter	vtium looks.new-frit.list(row 3) +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	Home	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	PgDn	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	PgUp	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	Up	vtium looks.new-frit(row 2) +unsaved +pending	
+vtium looks.new-frit(row 3) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit(row 4)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 4)	Down	vtium looks.new-frit(row 5)	
+vtium looks.new-frit(row 4)	End	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 4)	Enter	vtium looks.new-frit.list(row 4)	
+vtium looks.new-frit(row 4)	Esc	vtium looks(refused)	
+vtium looks.new-frit(row 4)	Home	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 4)	PgDn	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 4)	PgUp	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 4)	Shrink	vtium any.too-small	
+vtium looks.new-frit(row 4)	Up	vtium looks.new-frit(row 3)	
+vtium looks.new-frit(row 4)	q	vtium left	exit 0
+vtium looks.new-frit(row 4) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 4) +pending	Down	vtium looks.new-frit(row 5) +pending	
+vtium looks.new-frit(row 4) +pending	End	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 4) +pending	Enter	vtium looks.new-frit.list(row 4) +pending	
+vtium looks.new-frit(row 4) +pending	Esc	vtium looks(marked) +pending	
+vtium looks.new-frit(row 4) +pending	Home	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 4) +pending	PgDn	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 4) +pending	PgUp	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 4) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit(row 4) +pending	Up	vtium looks.new-frit(row 3) +pending	
+vtium looks.new-frit(row 4) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit(row 4) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 4) +unsaved	Down	vtium looks.new-frit(row 5) +unsaved	
+vtium looks.new-frit(row 4) +unsaved	End	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 4) +unsaved	Enter	vtium looks.new-frit.list(row 4) +unsaved	
+vtium looks.new-frit(row 4) +unsaved	Esc	vtium looks(refused) +unsaved	
+vtium looks.new-frit(row 4) +unsaved	Home	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 4) +unsaved	PgDn	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 4) +unsaved	PgUp	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 4) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit(row 4) +unsaved	Up	vtium looks.new-frit(row 3) +unsaved	
+vtium looks.new-frit(row 4) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit(row 4) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 4) +unsaved +pending	Down	vtium looks.new-frit(row 5) +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	End	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	Enter	vtium looks.new-frit.list(row 4) +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	Home	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	PgDn	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	PgUp	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	Up	vtium looks.new-frit(row 3) +unsaved +pending	
+vtium looks.new-frit(row 4) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit(row 5)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 5)	Down	vtium looks.new-frit(row 6)	
+vtium looks.new-frit(row 5)	End	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 5)	Enter	vtium looks.new-frit.list(row 5)	
+vtium looks.new-frit(row 5)	Esc	vtium looks(refused)	
+vtium looks.new-frit(row 5)	Home	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 5)	PgDn	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 5)	PgUp	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 5)	Shrink	vtium any.too-small	
+vtium looks.new-frit(row 5)	Up	vtium looks.new-frit(row 4)	
+vtium looks.new-frit(row 5)	q	vtium left	exit 0
+vtium looks.new-frit(row 5) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 5) +pending	Down	vtium looks.new-frit(row 6) +pending	
+vtium looks.new-frit(row 5) +pending	End	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 5) +pending	Enter	vtium looks.new-frit.list(row 5) +pending	
+vtium looks.new-frit(row 5) +pending	Esc	vtium looks(marked) +pending	
+vtium looks.new-frit(row 5) +pending	Home	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 5) +pending	PgDn	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 5) +pending	PgUp	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 5) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit(row 5) +pending	Up	vtium looks.new-frit(row 4) +pending	
+vtium looks.new-frit(row 5) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit(row 5) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 5) +unsaved	Down	vtium looks.new-frit(row 6) +unsaved	
+vtium looks.new-frit(row 5) +unsaved	End	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 5) +unsaved	Enter	vtium looks.new-frit.list(row 5) +unsaved	
+vtium looks.new-frit(row 5) +unsaved	Esc	vtium looks(refused) +unsaved	
+vtium looks.new-frit(row 5) +unsaved	Home	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 5) +unsaved	PgDn	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 5) +unsaved	PgUp	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 5) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit(row 5) +unsaved	Up	vtium looks.new-frit(row 4) +unsaved	
+vtium looks.new-frit(row 5) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit(row 5) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 5) +unsaved +pending	Down	vtium looks.new-frit(row 6) +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	End	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	Enter	vtium looks.new-frit.list(row 5) +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	Home	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	PgDn	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	PgUp	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	Up	vtium looks.new-frit(row 4) +unsaved +pending	
+vtium looks.new-frit(row 5) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
 vtium looks.new-frit(row 6)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 6)	Down	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 6)	End	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 6)	Enter	vtium looks.new-frit.typing(row 6)	
 vtium looks.new-frit(row 6)	Esc	vtium looks(refused)	
-vtium looks.new-frit(row 6)	Home	vtium looks.new-frit.typing(row 0)	
-vtium looks.new-frit(row 6)	PgUp	vtium looks.new-frit.typing(row 0)	
+vtium looks.new-frit(row 6)	Home	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 6)	PgDn	vtium looks.new-frit(row 7)	
+vtium looks.new-frit(row 6)	PgUp	vtium looks.new-frit(row 0)	
 vtium looks.new-frit(row 6)	Shrink	vtium any.too-small	
-vtium looks.new-frit(row 6)	Up	vtium looks.new-frit.typing(row 5)	
+vtium looks.new-frit(row 6)	Up	vtium looks.new-frit(row 5)	
 vtium looks.new-frit(row 6)	q	vtium left	exit 0
 vtium looks.new-frit(row 6) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 6) +pending	Down	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 6) +pending	End	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 6) +pending	Enter	vtium looks.new-frit.typing(row 6) +pending	
 vtium looks.new-frit(row 6) +pending	Esc	vtium looks(marked) +pending	
-vtium looks.new-frit(row 6) +pending	Home	vtium looks.new-frit.typing(row 0) +pending	
-vtium looks.new-frit(row 6) +pending	PgUp	vtium looks.new-frit.typing(row 0) +pending	
+vtium looks.new-frit(row 6) +pending	Home	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 6) +pending	PgDn	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit(row 6) +pending	PgUp	vtium looks.new-frit(row 0) +pending	
 vtium looks.new-frit(row 6) +pending	Shrink	vtium any.too-small +pending	
-vtium looks.new-frit(row 6) +pending	Up	vtium looks.new-frit.typing(row 5) +pending	
+vtium looks.new-frit(row 6) +pending	Up	vtium looks.new-frit(row 5) +pending	
 vtium looks.new-frit(row 6) +pending	q	vtium any.question.leave +pending	
 vtium looks.new-frit(row 6) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 6) +unsaved	Down	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 6) +unsaved	End	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 6) +unsaved	Enter	vtium looks.new-frit.typing(row 6) +unsaved	
 vtium looks.new-frit(row 6) +unsaved	Esc	vtium looks(refused) +unsaved	
-vtium looks.new-frit(row 6) +unsaved	Home	vtium looks.new-frit.typing(row 0) +unsaved	
-vtium looks.new-frit(row 6) +unsaved	PgUp	vtium looks.new-frit.typing(row 0) +unsaved	
+vtium looks.new-frit(row 6) +unsaved	Home	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 6) +unsaved	PgDn	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit(row 6) +unsaved	PgUp	vtium looks.new-frit(row 0) +unsaved	
 vtium looks.new-frit(row 6) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium looks.new-frit(row 6) +unsaved	Up	vtium looks.new-frit.typing(row 5) +unsaved	
+vtium looks.new-frit(row 6) +unsaved	Up	vtium looks.new-frit(row 5) +unsaved	
 vtium looks.new-frit(row 6) +unsaved	q	vtium any.question.quit +unsaved	
 vtium looks.new-frit(row 6) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 6) +unsaved +pending	Down	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 6) +unsaved +pending	End	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 6) +unsaved +pending	Enter	vtium looks.new-frit.typing(row 6) +unsaved +pending	
 vtium looks.new-frit(row 6) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
-vtium looks.new-frit(row 6) +unsaved +pending	Home	vtium looks.new-frit.typing(row 0) +unsaved +pending	
-vtium looks.new-frit(row 6) +unsaved +pending	PgUp	vtium looks.new-frit.typing(row 0) +unsaved +pending	
+vtium looks.new-frit(row 6) +unsaved +pending	Home	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 6) +unsaved +pending	PgDn	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit(row 6) +unsaved +pending	PgUp	vtium looks.new-frit(row 0) +unsaved +pending	
 vtium looks.new-frit(row 6) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium looks.new-frit(row 6) +unsaved +pending	Up	vtium looks.new-frit.typing(row 5) +unsaved +pending	
+vtium looks.new-frit(row 6) +unsaved +pending	Up	vtium looks.new-frit(row 5) +unsaved +pending	
 vtium looks.new-frit(row 6) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
-vtium looks.new-frit.typing(row 0)	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 0)	Enter	vtium looks.new-frit.typing(row 1)	
-vtium looks.new-frit.typing(row 0)	Esc	vtium looks(refused)	
-vtium looks.new-frit.typing(row 0)	Shrink	vtium any.too-small	
-vtium looks.new-frit.typing(row 0) +pending	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 0) +pending	Enter	vtium looks.new-frit.typing(row 1) +pending	
-vtium looks.new-frit.typing(row 0) +pending	Esc	vtium looks(marked) +pending	
-vtium looks.new-frit.typing(row 0) +pending	Shrink	vtium any.too-small +pending	
-vtium looks.new-frit.typing(row 0) +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 0) +unsaved	Enter	vtium looks.new-frit.typing(row 1) +unsaved	
-vtium looks.new-frit.typing(row 0) +unsaved	Esc	vtium looks(refused) +unsaved	
-vtium looks.new-frit.typing(row 0) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium looks.new-frit.typing(row 0) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 0) +unsaved +pending	Enter	vtium looks.new-frit.typing(row 1) +unsaved +pending	
-vtium looks.new-frit.typing(row 0) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
-vtium looks.new-frit.typing(row 0) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium looks.new-frit.typing(row 1)	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 1)	Enter	vtium looks.new-frit.typing(row 2)	
-vtium looks.new-frit.typing(row 1)	Esc	vtium looks(refused)	
-vtium looks.new-frit.typing(row 1)	Shrink	vtium any.too-small	
-vtium looks.new-frit.typing(row 1) +pending	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 1) +pending	Enter	vtium looks.new-frit.typing(row 2) +pending	
-vtium looks.new-frit.typing(row 1) +pending	Esc	vtium looks(marked) +pending	
-vtium looks.new-frit.typing(row 1) +pending	Shrink	vtium any.too-small +pending	
-vtium looks.new-frit.typing(row 1) +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 1) +unsaved	Enter	vtium looks.new-frit.typing(row 2) +unsaved	
-vtium looks.new-frit.typing(row 1) +unsaved	Esc	vtium looks(refused) +unsaved	
-vtium looks.new-frit.typing(row 1) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium looks.new-frit.typing(row 1) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 1) +unsaved +pending	Enter	vtium looks.new-frit.typing(row 2) +unsaved +pending	
-vtium looks.new-frit.typing(row 1) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
-vtium looks.new-frit.typing(row 1) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium looks.new-frit.typing(row 2)	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 2)	Enter	vtium looks.new-frit.typing(row 3)	
-vtium looks.new-frit.typing(row 2)	Esc	vtium looks(refused)	
-vtium looks.new-frit.typing(row 2)	Shrink	vtium any.too-small	
-vtium looks.new-frit.typing(row 2) +pending	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 2) +pending	Enter	vtium looks.new-frit.typing(row 3) +pending	
-vtium looks.new-frit.typing(row 2) +pending	Esc	vtium looks(marked) +pending	
-vtium looks.new-frit.typing(row 2) +pending	Shrink	vtium any.too-small +pending	
-vtium looks.new-frit.typing(row 2) +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 2) +unsaved	Enter	vtium looks.new-frit.typing(row 3) +unsaved	
-vtium looks.new-frit.typing(row 2) +unsaved	Esc	vtium looks(refused) +unsaved	
-vtium looks.new-frit.typing(row 2) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium looks.new-frit.typing(row 2) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 2) +unsaved +pending	Enter	vtium looks.new-frit.typing(row 3) +unsaved +pending	
-vtium looks.new-frit.typing(row 2) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
-vtium looks.new-frit.typing(row 2) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium looks.new-frit.typing(row 3)	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 3)	Enter	vtium looks.new-frit.typing(row 4)	
-vtium looks.new-frit.typing(row 3)	Esc	vtium looks(refused)	
-vtium looks.new-frit.typing(row 3)	Shrink	vtium any.too-small	
-vtium looks.new-frit.typing(row 3) +pending	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 3) +pending	Enter	vtium looks.new-frit.typing(row 4) +pending	
-vtium looks.new-frit.typing(row 3) +pending	Esc	vtium looks(marked) +pending	
-vtium looks.new-frit.typing(row 3) +pending	Shrink	vtium any.too-small +pending	
-vtium looks.new-frit.typing(row 3) +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 3) +unsaved	Enter	vtium looks.new-frit.typing(row 4) +unsaved	
-vtium looks.new-frit.typing(row 3) +unsaved	Esc	vtium looks(refused) +unsaved	
-vtium looks.new-frit.typing(row 3) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium looks.new-frit.typing(row 3) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 3) +unsaved +pending	Enter	vtium looks.new-frit.typing(row 4) +unsaved +pending	
-vtium looks.new-frit.typing(row 3) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
-vtium looks.new-frit.typing(row 3) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium looks.new-frit.typing(row 4)	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 4)	Enter	vtium looks.new-frit.typing(row 5)	
-vtium looks.new-frit.typing(row 4)	Esc	vtium looks(refused)	
-vtium looks.new-frit.typing(row 4)	Shrink	vtium any.too-small	
-vtium looks.new-frit.typing(row 4) +pending	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 4) +pending	Enter	vtium looks.new-frit.typing(row 5) +pending	
-vtium looks.new-frit.typing(row 4) +pending	Esc	vtium looks(marked) +pending	
-vtium looks.new-frit.typing(row 4) +pending	Shrink	vtium any.too-small +pending	
-vtium looks.new-frit.typing(row 4) +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 4) +unsaved	Enter	vtium looks.new-frit.typing(row 5) +unsaved	
-vtium looks.new-frit.typing(row 4) +unsaved	Esc	vtium looks(refused) +unsaved	
-vtium looks.new-frit.typing(row 4) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium looks.new-frit.typing(row 4) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 4) +unsaved +pending	Enter	vtium looks.new-frit.typing(row 5) +unsaved +pending	
-vtium looks.new-frit.typing(row 4) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
-vtium looks.new-frit.typing(row 4) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
-vtium looks.new-frit.typing(row 5)	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 5)	Enter	vtium looks.new-frit(row 6)	
-vtium looks.new-frit.typing(row 5)	Esc	vtium looks(refused)	
-vtium looks.new-frit.typing(row 5)	Shrink	vtium any.too-small	
-vtium looks.new-frit.typing(row 5) +pending	Ctrl-C	vtium left	exit 130
-vtium looks.new-frit.typing(row 5) +pending	Enter	vtium looks.new-frit(row 6) +pending	
-vtium looks.new-frit.typing(row 5) +pending	Esc	vtium looks(marked) +pending	
-vtium looks.new-frit.typing(row 5) +pending	Shrink	vtium any.too-small +pending	
-vtium looks.new-frit.typing(row 5) +unsaved	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 5) +unsaved	Enter	vtium looks.new-frit(row 6) +unsaved	
-vtium looks.new-frit.typing(row 5) +unsaved	Esc	vtium looks(refused) +unsaved	
-vtium looks.new-frit.typing(row 5) +unsaved	Shrink	vtium any.too-small +unsaved	
-vtium looks.new-frit.typing(row 5) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
-vtium looks.new-frit.typing(row 5) +unsaved +pending	Enter	vtium looks.new-frit(row 6) +unsaved +pending	
-vtium looks.new-frit.typing(row 5) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
-vtium looks.new-frit.typing(row 5) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 7)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 7)	Esc	vtium looks(refused)	
+vtium looks.new-frit(row 7)	Home	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 7)	PgUp	vtium looks.new-frit(row 0)	
+vtium looks.new-frit(row 7)	Shrink	vtium any.too-small	
+vtium looks.new-frit(row 7)	Up	vtium looks.new-frit(row 6)	
+vtium looks.new-frit(row 7)	q	vtium left	exit 0
+vtium looks.new-frit(row 7) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit(row 7) +pending	Esc	vtium looks(marked) +pending	
+vtium looks.new-frit(row 7) +pending	Home	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 7) +pending	PgUp	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit(row 7) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit(row 7) +pending	Up	vtium looks.new-frit(row 6) +pending	
+vtium looks.new-frit(row 7) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit(row 7) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 7) +unsaved	Esc	vtium looks(refused) +unsaved	
+vtium looks.new-frit(row 7) +unsaved	Home	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 7) +unsaved	PgUp	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit(row 7) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit(row 7) +unsaved	Up	vtium looks.new-frit(row 6) +unsaved	
+vtium looks.new-frit(row 7) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit(row 7) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit(row 7) +unsaved +pending	Esc	vtium looks(marked) +unsaved +pending	
+vtium looks.new-frit(row 7) +unsaved +pending	Home	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 7) +unsaved +pending	PgUp	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit(row 7) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit(row 7) +unsaved +pending	Up	vtium looks.new-frit(row 6) +unsaved +pending	
+vtium looks.new-frit(row 7) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit.list(row 0)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 0)	Enter	vtium looks.new-frit(row 0)	
+vtium looks.new-frit.list(row 0)	Esc	vtium looks.new-frit(row 0)	
+vtium looks.new-frit.list(row 0)	Shrink	vtium any.too-small	
+vtium looks.new-frit.list(row 0)	q	vtium left	exit 0
+vtium looks.new-frit.list(row 0) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 0) +pending	Enter	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit.list(row 0) +pending	Esc	vtium looks.new-frit(row 0) +pending	
+vtium looks.new-frit.list(row 0) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit.list(row 0) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit.list(row 0) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 0) +unsaved	Enter	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit.list(row 0) +unsaved	Esc	vtium looks.new-frit(row 0) +unsaved	
+vtium looks.new-frit.list(row 0) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit.list(row 0) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit.list(row 0) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 0) +unsaved +pending	Enter	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit.list(row 0) +unsaved +pending	Esc	vtium looks.new-frit(row 0) +unsaved +pending	
+vtium looks.new-frit.list(row 0) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit.list(row 0) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit.list(row 1)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 1)	Enter	vtium looks.new-frit(row 1)	
+vtium looks.new-frit.list(row 1)	Esc	vtium looks.new-frit(row 1)	
+vtium looks.new-frit.list(row 1)	Shrink	vtium any.too-small	
+vtium looks.new-frit.list(row 1)	q	vtium left	exit 0
+vtium looks.new-frit.list(row 1) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 1) +pending	Enter	vtium looks.new-frit(row 1) +pending	
+vtium looks.new-frit.list(row 1) +pending	Esc	vtium looks.new-frit(row 1) +pending	
+vtium looks.new-frit.list(row 1) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit.list(row 1) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit.list(row 1) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 1) +unsaved	Enter	vtium looks.new-frit(row 1) +unsaved	
+vtium looks.new-frit.list(row 1) +unsaved	Esc	vtium looks.new-frit(row 1) +unsaved	
+vtium looks.new-frit.list(row 1) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit.list(row 1) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit.list(row 1) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 1) +unsaved +pending	Enter	vtium looks.new-frit(row 1) +unsaved +pending	
+vtium looks.new-frit.list(row 1) +unsaved +pending	Esc	vtium looks.new-frit(row 1) +unsaved +pending	
+vtium looks.new-frit.list(row 1) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit.list(row 1) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit.list(row 2)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 2)	Enter	vtium looks.new-frit(row 2)	
+vtium looks.new-frit.list(row 2)	Esc	vtium looks.new-frit(row 2)	
+vtium looks.new-frit.list(row 2)	Shrink	vtium any.too-small	
+vtium looks.new-frit.list(row 2)	q	vtium left	exit 0
+vtium looks.new-frit.list(row 2) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 2) +pending	Enter	vtium looks.new-frit(row 2) +pending	
+vtium looks.new-frit.list(row 2) +pending	Esc	vtium looks.new-frit(row 2) +pending	
+vtium looks.new-frit.list(row 2) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit.list(row 2) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit.list(row 2) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 2) +unsaved	Enter	vtium looks.new-frit(row 2) +unsaved	
+vtium looks.new-frit.list(row 2) +unsaved	Esc	vtium looks.new-frit(row 2) +unsaved	
+vtium looks.new-frit.list(row 2) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit.list(row 2) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit.list(row 2) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 2) +unsaved +pending	Enter	vtium looks.new-frit(row 2) +unsaved +pending	
+vtium looks.new-frit.list(row 2) +unsaved +pending	Esc	vtium looks.new-frit(row 2) +unsaved +pending	
+vtium looks.new-frit.list(row 2) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit.list(row 2) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit.list(row 3)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 3)	Enter	vtium looks.new-frit(row 3)	
+vtium looks.new-frit.list(row 3)	Esc	vtium looks.new-frit(row 3)	
+vtium looks.new-frit.list(row 3)	Shrink	vtium any.too-small	
+vtium looks.new-frit.list(row 3)	q	vtium left	exit 0
+vtium looks.new-frit.list(row 3) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 3) +pending	Enter	vtium looks.new-frit(row 3) +pending	
+vtium looks.new-frit.list(row 3) +pending	Esc	vtium looks.new-frit(row 3) +pending	
+vtium looks.new-frit.list(row 3) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit.list(row 3) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit.list(row 3) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 3) +unsaved	Enter	vtium looks.new-frit(row 3) +unsaved	
+vtium looks.new-frit.list(row 3) +unsaved	Esc	vtium looks.new-frit(row 3) +unsaved	
+vtium looks.new-frit.list(row 3) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit.list(row 3) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit.list(row 3) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 3) +unsaved +pending	Enter	vtium looks.new-frit(row 3) +unsaved +pending	
+vtium looks.new-frit.list(row 3) +unsaved +pending	Esc	vtium looks.new-frit(row 3) +unsaved +pending	
+vtium looks.new-frit.list(row 3) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit.list(row 3) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit.list(row 4)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 4)	Enter	vtium looks.new-frit(row 4)	
+vtium looks.new-frit.list(row 4)	Esc	vtium looks.new-frit(row 4)	
+vtium looks.new-frit.list(row 4)	Shrink	vtium any.too-small	
+vtium looks.new-frit.list(row 4)	q	vtium left	exit 0
+vtium looks.new-frit.list(row 4) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 4) +pending	Enter	vtium looks.new-frit(row 4) +pending	
+vtium looks.new-frit.list(row 4) +pending	Esc	vtium looks.new-frit(row 4) +pending	
+vtium looks.new-frit.list(row 4) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit.list(row 4) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit.list(row 4) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 4) +unsaved	Enter	vtium looks.new-frit(row 4) +unsaved	
+vtium looks.new-frit.list(row 4) +unsaved	Esc	vtium looks.new-frit(row 4) +unsaved	
+vtium looks.new-frit.list(row 4) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit.list(row 4) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit.list(row 4) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 4) +unsaved +pending	Enter	vtium looks.new-frit(row 4) +unsaved +pending	
+vtium looks.new-frit.list(row 4) +unsaved +pending	Esc	vtium looks.new-frit(row 4) +unsaved +pending	
+vtium looks.new-frit.list(row 4) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit.list(row 4) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit.list(row 5)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 5)	Enter	vtium looks.new-frit(row 5)	
+vtium looks.new-frit.list(row 5)	Esc	vtium looks.new-frit(row 5)	
+vtium looks.new-frit.list(row 5)	Shrink	vtium any.too-small	
+vtium looks.new-frit.list(row 5)	q	vtium left	exit 0
+vtium looks.new-frit.list(row 5) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.list(row 5) +pending	Enter	vtium looks.new-frit(row 5) +pending	
+vtium looks.new-frit.list(row 5) +pending	Esc	vtium looks.new-frit(row 5) +pending	
+vtium looks.new-frit.list(row 5) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit.list(row 5) +pending	q	vtium any.question.leave +pending	
+vtium looks.new-frit.list(row 5) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 5) +unsaved	Enter	vtium looks.new-frit(row 5) +unsaved	
+vtium looks.new-frit.list(row 5) +unsaved	Esc	vtium looks.new-frit(row 5) +unsaved	
+vtium looks.new-frit.list(row 5) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit.list(row 5) +unsaved	q	vtium any.question.quit +unsaved	
+vtium looks.new-frit.list(row 5) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.list(row 5) +unsaved +pending	Enter	vtium looks.new-frit(row 5) +unsaved +pending	
+vtium looks.new-frit.list(row 5) +unsaved +pending	Esc	vtium looks.new-frit(row 5) +unsaved +pending	
+vtium looks.new-frit.list(row 5) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
+vtium looks.new-frit.list(row 5) +unsaved +pending	q	vtium any.question.leave +unsaved +pending	
+vtium looks.new-frit.typing(row 6)	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.typing(row 6)	Enter	vtium looks.new-frit(row 7)	
+vtium looks.new-frit.typing(row 6)	Esc	vtium looks.new-frit(row 6)	
+vtium looks.new-frit.typing(row 6)	Shrink	vtium any.too-small	
+vtium looks.new-frit.typing(row 6) +pending	Ctrl-C	vtium left	exit 130
+vtium looks.new-frit.typing(row 6) +pending	Enter	vtium looks.new-frit(row 7) +pending	
+vtium looks.new-frit.typing(row 6) +pending	Esc	vtium looks.new-frit(row 6) +pending	
+vtium looks.new-frit.typing(row 6) +pending	Shrink	vtium any.too-small +pending	
+vtium looks.new-frit.typing(row 6) +unsaved	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.typing(row 6) +unsaved	Enter	vtium looks.new-frit(row 7) +unsaved	
+vtium looks.new-frit.typing(row 6) +unsaved	Esc	vtium looks.new-frit(row 6) +unsaved	
+vtium looks.new-frit.typing(row 6) +unsaved	Shrink	vtium any.too-small +unsaved	
+vtium looks.new-frit.typing(row 6) +unsaved +pending	Ctrl-C	vtium left	save, exit 130
+vtium looks.new-frit.typing(row 6) +unsaved +pending	Enter	vtium looks.new-frit(row 7) +unsaved +pending	
+vtium looks.new-frit.typing(row 6) +unsaved +pending	Esc	vtium looks.new-frit(row 6) +unsaved +pending	
+vtium looks.new-frit.typing(row 6) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium looks.palette	Ctrl-C	vtium left	exit 130
 vtium looks.palette	Esc	vtium looks-resources(built-in scheme)	
 vtium looks.palette	Shrink	vtium any.too-small	

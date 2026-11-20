@@ -167,6 +167,11 @@ pub struct Inputs {
     /// The font files the Fonts tab lists, with each file's marks and what
     /// the font helper has said of it so far.
     pub font_files: super::fonts_found::Fonts,
+    /// The layers in the frits' `layers/` folder that the layer reader
+    /// takes, each by its name with its role, in the order of their names:
+    /// what the new-frit form offers for the scripts, symbols, emoji and
+    /// fallback roles.
+    pub layers: Vec<(String, vtium_font::set::layer::Role)>,
 }
 
 /// One thing that happened.
@@ -1325,9 +1330,6 @@ impl App {
         match key {
             Key::Char('i') if takes('i') && !self.typing() => return self.action('i'),
             Key::Char('s') if takes('s') && !self.typing() => return self.save(),
-            Key::Char('o') if takes('o') && self.shared.live == Live::OpsOff => {
-                return self.top("allow-font-ops", Some("on"));
-            }
             _ => {}
         }
         let room = super::layout::room(self);

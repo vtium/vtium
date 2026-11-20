@@ -209,7 +209,25 @@ pub fn inputs() -> Inputs {
         .collect(),
         effects: effects(),
         font_files: font_files(),
+        layers: layers(),
     }
+}
+
+/// The layers the fixture's frits' folder holds, as [`super::layers`]
+/// reads them: two for scripts, one each for symbols, emoji and the
+/// fallback.
+pub fn layers() -> Vec<(String, vtium_font::set::layer::Role)> {
+    use vtium_font::set::layer::Role;
+    [
+        ("arabic", Role::Script),
+        ("cjk-jp", Role::Script),
+        ("nerd-symbols", Role::Symbols),
+        ("noto-emoji", Role::Emoji),
+        ("unifont", Role::Fallback),
+    ]
+    .into_iter()
+    .map(|(n, r)| (n.to_owned(), r))
+    .collect()
 }
 
 /// The font files the fixture's Fonts tab lists, in the scan's order:
@@ -517,6 +535,11 @@ fn scheme(dark: u8, light: u8, accent: [u8; 3]) -> vtium_term::Palette {
 /// administrator's dusk hides, and paper, both active; the
 /// administrator's dusk, active; loose, which fails the trust rule; and
 /// broken, which does not read.
+///
+/// Every scheme here is made up for the tests, and none is a scheme vtium
+/// ships. paper is a light scheme of the tests' own: vtium's e-ink scheme
+/// is ink, in crates/vtium/install/palettes. The settled screens of the
+/// Looks tab show paper by name, so the name stays.
 pub fn palettes() -> Vec<SchemeFile> {
     let file =
         |dir: &str, name: &str, state, trust: Result<(), String>, hidden, colors| SchemeFile {

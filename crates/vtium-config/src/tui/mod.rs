@@ -188,6 +188,41 @@ pub fn installed(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     out
 }
 
+/// The layers in the `layers/` folder of the frits' directory `dir`, each
+/// by its name with the role its `role=` line names, in the order of their
+/// names. A layer the layer reader refuses is left out, because a font set
+/// cannot use it.
+///
+/// References:
+/// - ADR-1204 D5: the layers' folder, and the roles a layer fills.
+pub fn layers(dir: &Path) -> Vec<(String, vtium_font::set::layer::Role)> {
+    use vtium_font::set::layer;
+    let folder = dir.join(layer::DIR);
+    let Ok(entries) = std::fs::read_dir(&folder) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = entries
+        .filter_map(Result::ok)
+        .filter_map(|e| {
+            e.file_name()
+                .to_str()?
+                .strip_suffix(layer::SUFFIX)
+                .map(str::to_owned)
+        })
+        .filter(|n| layer::valid_name(n))
+        .collect();
+    names.sort();
+    names
+        .into_iter()
+        .filter_map(|name| {
+            let text = crate::frit::read_layer(&folder, &name).ok()??;
+            let file = crate::frit::layer_file(&folder, &name);
+            let role = Frit::parse_layer(text.as_bytes(), &file, &name).ok()?;
+            Some((name, role))
+        })
+        .collect()
+}
+
 /// The density pictures are drawn at, in ADR-1200 D17's order:
 /// vtium.conf's `display-dpi` where it is set within the bounds the
 /// console believes; else the density of the first of `displays` whose
@@ -241,6 +276,7 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
     let conf_path = paths.configdir.join("vtium.conf");
     let conf = read_conf(&conf_path)?;
     let frits = paths.frits.clone()?;
+    let layers = layers(&frits);
     let displays = crate::display::displays(&paths.sys);
     let dpi = density(conf.as_deref(), &displays);
     // the Flow view's colors, from the person's own file, which
@@ -270,6 +306,7 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         // map's and shader's mark needs the draft's batch
         effects: effects_found::Effects::default(),
         font_files: fonts_found::Fonts::default(),
+        layers,
     })
 }
 

@@ -132,7 +132,7 @@ pub trait Tab {
     fn type_key(&mut self, _key: Key) {}
 
     /// Whether the action key `action` acts in the tab as it stands: `i`
-    /// installs, `s` saves and `o` turns `allow-font-ops` on. A tab whose
+    /// installs and `s` saves. A tab whose
     /// own keys use the letter, or with a level open over it, leaves the
     /// action alone.
     ///

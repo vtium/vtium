@@ -641,7 +641,7 @@ source=font:DejaVu Sans Mono
 
 /// A source as `new` takes it: a source's spelling when it starts with a
 /// form a frit's `source=` takes, and otherwise a font family, `font:`.
-fn source_spelling(word: &str) -> String {
+pub fn source_spelling(word: &str) -> String {
     const FORMS: [&str; 8] = [
         "font:", "kbd:", "file:", "bdf:", "hex:", "outline:", "console:", "builtin:",
     ];

@@ -10,7 +10,7 @@ q.too-small	q	too-small	Quits vtium-config. If changes are not saved, it asks fi
 esc.view	Esc	view	Does nothing here.	supported		ADR-1403 D7		-	
 esc.view.flow	Esc	view:flow	Clears NEW PATH. If you were revising a path, the path leaves the configuration. While NEW PATH is empty, says that there is nothing to clear.	supported	the one view where Esc acts with nothing open	ADR-1403 D7		clear	
 esc.layer	Esc	layer	Goes back, with the same item highlighted.	supported	the file view and Restore's list included	ADR-1403 D7		back	1
-esc.typing	Esc	typing	Cancels what you typed and goes back.	supported	on a field of the new-frit form, Esc closes the form	ADR-1403 D7		cancel	
+esc.typing	Esc	typing	Cancels what you typed and goes back.	supported		ADR-1403 D7		cancel	
 esc.question	Esc	question	Cancels the question. Nothing changes.	supported		ADR-1403 D7		cancel	
 esc.trial	Esc	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-	
 esc.too-small	Esc	too-small	Does nothing here.	supported		ADR-1201 D3		-	
@@ -66,7 +66,7 @@ window-ops.view.looks	w	view:looks	Asks whether to let programs resize the conso
 t.layer.flow-card	t	layer:flow-card	Tries the card's look on this console for 10 seconds.	planned	today t does nothing on a card	ADR-1201 D4; ADR-1205 D1; ADR-1403 D10	#379	try live	
 o.view.looks	o	view:looks	Does nothing here.	supported		ADR-1201 D4; ADR-1403 D7	#412	-	
 looks-keys.view.resources	n, r, t, p	view:resources	Does nothing here, because these keys act on a look or a font set.	supported		ADR-1403 D7, D10	#379	-	
-o.view	o	view	Does nothing here.	planned	o opens Restore in the Flow view alone; today o turns on allow-font-ops in Help and Settings too	ADR-1403 D7	#412	-	
+o.view	o	view	Does nothing here.	supported		ADR-1403 D7	#412	-	
 up.layer.list	Up	layer:list	Moves to the item above.	supported	the Flow view's picker does this today	ADR-1403 D7		move	1
 down.layer.list	Down	layer:list	Moves to the item below.	supported	the Flow view's picker does this today	ADR-1403 D7		move	1
 home.layer.list	Home	layer:list	Goes to the first item.	supported	the Flow view's picker does this today	ADR-1403 D7		first	
@@ -179,9 +179,9 @@ pgup.layer.settings-section	PgUp	layer:settings-section	Moves up by a page.	supp
 pgdn.layer.settings-section	PgDn	layer:settings-section	Moves down by a page.	supported		ADR-1201 D3		page down	
 up.layer.new-frit	Up	layer:new-frit	Moves to the field above.	supported		ADR-1201 D3		move	
 down.layer.new-frit	Down	layer:new-frit	Moves to the field below.	supported		ADR-1201 D3		move	
-enter.layer.new-frit	Enter	layer:new-frit	On the last row, adds the new font set to the draft.	supported		ADR-1201 D3		add	
+enter.layer.new-frit	Enter	layer:new-frit	On the name, lets you type it; on the last row, adds the new font set to the draft.	supported		ADR-1201 D3		add	
 enter.typing	Enter	typing	Keeps the value you typed.	supported		ADR-1403 D7		keep	
-enter.typing.new-frit	Enter	typing:new-frit	Keeps the value and goes to the next field.	supported		ADR-1201 D3		next field	
+enter.typing.new-frit	Enter	typing:new-frit	Keeps the value and goes to the next row.	supported		ADR-1201 D3		keep	
 backspace.typing	Backspace	typing	Deletes the character before the cursor.	supported		ADR-1403 D7		delete	
 char.typing	any letter	typing	Types the letter.	supported		ADR-1403 D7		type	
 home.layer.flow-maker	Home	layer:flow-maker	Goes to the first line.	supported		ADR-1403 D7		first	
@@ -192,8 +192,8 @@ home.layer.new-frit	Home	layer:new-frit	Goes to the first row.	supported		ADR-12
 end.layer.new-frit	End	layer:new-frit	Goes to the last row.	supported		ADR-1201 D3		last	
 pgup.layer.new-frit	PgUp	layer:new-frit	Moves up by a page.	supported		ADR-1201 D3		page up	
 pgdn.layer.new-frit	PgDn	layer:new-frit	Moves down by a page.	supported		ADR-1201 D3		page down	
-move.typing.new-frit	Up, Down, Home, End, PgUp, PgDn	typing:new-frit	Do nothing while you type. Enter keeps the value and goes to the next field, and Esc closes the form.	supported		ADR-1403 D7; ADR-1201 D3	#412	-	
-list.system-fonts	Enter	layer:new-frit	On a role's field, shows the active fonts that can fill the role as a list to pick from.	planned	today each font field takes typed text only	ADR-1205 D6; ADR-1403 D10	#379	choose	
+move.typing.new-frit	Up, Down, Home, End, PgUp, PgDn	typing:new-frit	Do nothing while you type. Enter keeps the value and goes to the next row, and Esc drops it.	supported		ADR-1403 D7; ADR-1201 D3	#412	-	
+list.system-fonts	Enter	layer:new-frit	On a role's field, shows what can fill the role as a list to pick from: the layers of the role, the active fonts that fit it, and Other… to type a font.	supported		ADR-1205 D6; ADR-1403 D10	#379	choose	
 up.layer.flow-choices	Up	layer:flow-choices	Moves to the choice above, and from the first choice back to the label line.	supported		ADR-1403 D7		move	1
 down.layer.flow-choices	Down	layer:flow-choices	Moves to the choice below.	supported		ADR-1403 D7		move	1
 home.layer.flow-choices	Home	layer:flow-choices	Goes to the label line at the top of the detail.	supported		ADR-1403 D7		top	

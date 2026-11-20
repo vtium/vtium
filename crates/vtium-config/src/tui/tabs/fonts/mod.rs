@@ -545,14 +545,12 @@ impl Tab for Fonts {
         )
     }
 
-    /// The action keys act while nothing is open over the list, and `o`
-    /// does nothing, since it opens Restore in the Flow view alone.
+    /// The action keys act while nothing is open over the list.
     ///
     /// References:
-    /// - ADR-1403 D7: the action keys do nothing while a layer is open, and
-    ///   the `o.view` row.
-    fn takes_action(&self, action: char) -> bool {
-        self.open.is_none() && action != 'o'
+    /// - ADR-1403 D7: the action keys do nothing while a layer is open.
+    fn takes_action(&self, _action: char) -> bool {
+        self.open.is_none()
     }
 
     fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {

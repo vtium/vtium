@@ -768,38 +768,42 @@ fn below_the_minimum_size_q_asks_the_quit_question_on_one_row() {
     assert_eq!((sim.exited, sim.desk.writes), (Some(0), 1));
 }
 
-/// While a field of the new-frit form is typed, only Enter and Esc act:
-/// the moving keys leave the field as it is, Enter keeps it and moves to
-/// the next field, and Esc closes the form.
+/// While the new-frit form's name is typed, only Enter and Esc act: the
+/// moving keys leave the name as it is, Enter keeps it and moves to the
+/// next row, and Esc drops it and goes back to the form's rows. Esc there
+/// goes back to the Looks tab.
 ///
 /// References:
 /// - ADR-1403 D7, "The same keys in every view": a value being typed takes
 ///   Enter and Esc, as in the Settings view, and the moving keys do
 ///   nothing.
 #[test]
-fn a_typed_field_of_the_new_frit_form_takes_only_enter_and_esc() {
+fn a_typed_name_in_the_new_frit_form_takes_only_enter_and_esc() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     press(&mut sim, &walk::TO_FORM);
-    press(&mut sim, &["x"]);
+    // the name is the row above the add row
+    press(&mut sim, &["End", "Up", "Enter", "x"]);
     assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::New);
-    assert_eq!(
-        sim.app.looks.form().fields.first().map(String::as_str),
-        Some("x")
-    );
+    assert_eq!(sim.app.looks.new_frit().typed(), Some("x"));
     for moving in ["Up", "Down", "Home", "End", "PgUp", "PgDn", "Left", "Right"] {
         let mut typed = sim.clone();
         let did = typed.press(press_of(moving));
         assert_eq!(
-            typed.app.looks.form(),
-            sim.app.looks.form(),
+            typed.app.looks.new_frit(),
+            sim.app.looks.new_frit(),
             "{moving} moved"
         );
         assert!(did.effects.is_empty(), "{moving}: {did:?}");
     }
     let mut kept = sim.clone();
     press(&mut kept, &["Enter"]);
-    assert_eq!(kept.app.looks.form().at, 1);
-    // the form belongs to the Looks tab, so Esc goes back there
+    assert_eq!(kept.app.looks.form().name, "x");
+    assert_eq!(kept.app.looks.form().at, 7);
+    // Esc drops the name, and Esc on the rows goes back to the Looks tab,
+    // which the form belongs to
+    press(&mut sim, &["Esc"]);
+    assert_eq!(sim.app.looks.form().name, "");
+    assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::New);
     press(&mut sim, &["Esc"]);
     assert_eq!(sim.app.nav.view, vtium_config::tui::model::View::Looks);
 }

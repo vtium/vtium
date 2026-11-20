@@ -290,7 +290,7 @@ impl Seen<'_> {
             .clone()
             .or_else(|| app.settings.editing().map(str::to_owned))
             .or_else(|| match app.nav.view {
-                View::New => app.looks.form().fields.get(app.looks.form().at).cloned(),
+                View::New => app.looks.new_frit().typed().map(str::to_owned),
                 View::Looks => app.looks.card().and_then(|c| c.typed()).map(str::to_owned),
                 _ => None,
             })
@@ -570,8 +570,8 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("click.question", (still, None));
     m.insert("wheel.question", (still, None));
     m.insert("mouse.trial", (back, no_today));
-    // the new-frit form's moving keys move between its rows, onto a field
-    // whose text is typed or onto the row that adds the font set
+    // the new-frit form's moving keys move between its rows: its roles,
+    // its name and the row that adds the font set
     for id in [
         "up.layer.new-frit",
         "down.layer.new-frit",
@@ -622,23 +622,8 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("n.view.flow", (|s| s.opens("question:new"), no_today));
     m.insert("v.view.flow", (|s| s.opens("layer:file-view"), no_today));
     m.insert("o.view.flow", (|s| s.opens("layer:restore"), no_today));
-    // today `o` turns allow-font-ops on in Help and Settings, and does
-    // nothing on the Effects and Fonts tabs, which are new and follow the
-    // row
-    let ops_on: Check = |s| {
-        let new_tab = matches!(s.before.app.nav.view, View::Effects | View::Fonts);
-        if s.before.term == Term::OpsOff && !new_tab {
-            if s.has("check") {
-                Ok(())
-            } else {
-                Err("expected allow-font-ops turned on".into())
-            }
-        } else {
-            s.nothing()
-        }
-    };
     m.insert("o.view.looks", (nothing, None));
-    m.insert("o.view", (nothing, Some(ops_on)));
+    m.insert("o.view", (nothing, None));
     // a card's own keys: Left and Right step the choice under the cursor,
     // Enter sets it, and e on a path's detail takes the path into NEW PATH
     m.insert(
@@ -1165,7 +1150,7 @@ fn looks_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
                 }
                 _ => {
                     let to = s.step.to.node();
-                    if to == "looks.new-frit.typing" {
+                    if to == "looks.new-frit" {
                         Ok(())
                     } else {
                         Err(format!(
@@ -1820,9 +1805,9 @@ fn reached_today(id: &str) -> Option<bool> {
     Some(match id {
         // the view, the tab or the form exists today in another shape, the
         // Effects tab as a line that says it is coming
-        "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
+        "effects" => true,
         // nothing like it exists today
-        "flow.card.list" | "looks.new-frit.list" => false,
+        "flow.card.list" => false,
         // the six tabs' new screens and questions, which nothing builds yet
         "effects.filter" | "effects.effect" | "any.question.deactivate" => false,
         _ => return None,

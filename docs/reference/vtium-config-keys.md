@@ -102,7 +102,7 @@ flowchart LR
     any --> any_trial
     any --> any_too_small
     classDef planned stroke-dasharray: 5 5
-    class flow_card_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list planned
+    class flow_card_list planned
 ```
 
 Each section below names a screen by its place in the tree, says how you open and leave it, and lists its keys. The column "Shown as" gives the word the key line shows beside the key, and a dash marks a key that the key line leaves out.
@@ -763,11 +763,9 @@ A pointer theme's detail, read-only: its folder, whether the folder is active, i
 
 The form for a new font set: a field for each role, from the text font to the fallback, then the font set's name (the views table's new-frit).
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Looks tab, with fields for a name, three fonts, a cell and a size in place of the roles, o writes the top-level allow-font-ops in a vtium console with allow-font-ops off, and i installs from the last row.
-
 **Open it:** N among the font sets.
 
-**Leave it:** Esc to looks; its last row adds the font set and goes to looks.
+**Leave it:** Esc to looks; Enter on a role to looks.new-frit.list, and on the name to looks.new-frit.typing; its last row adds the font set and goes to looks.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -781,22 +779,20 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the field above. |
 | Down | move | Moves to the field below. |
-| Enter | add | On the last row, adds the new font set to the draft. |
+| Enter | add | On the name, lets you type it; on the last row, adds the new font set to the draft. |
 | Home | first | Goes to the first row. |
 | End | last | Goes to the last row. |
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
-| Enter | choose | On a role's field, shows the active fonts that can fill the role as a list to pick from. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
+| Enter | choose | On a role's field, shows what can fill the role as a list to pick from: the layers of the role, the active fonts that fit it, and Other… to type a font. |
 
 ## `looks.new-frit.typing`
 
-A field of the form being typed.
+The font set's name being typed, or a font typed after Other… in a role's list.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#412](https://github.com/vtium/vtium/issues/412). Today: the form opens under the Looks tab, with fields for a name, three fonts, a cell and a size in place of the roles, and Up and Down move to another field while a value is typed.
+**Open it:** Enter on the name; Enter on Other… in a role's list.
 
-**Open it:** The form opens on its first field; Enter on a field goes to the next field.
-
-**Leave it:** Enter on the last field goes to the form's last row, in looks.new-frit; Esc closes the form and goes to looks.
+**Leave it:** Enter keeps the value and goes to the next row, and Esc drops it, both to looks.new-frit.
 
 | Key | Shown as | What it does |
 |---|---|---|
@@ -805,16 +801,14 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 | Tab | - | Does nothing while you type. |
 | Shift-Tab | - | Does nothing while you type. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
-| Enter | next field | Keeps the value and goes to the next field. |
+| Enter | keep | Keeps the value and goes to the next row. |
 | Backspace | delete | Deletes the character before the cursor. |
 | any letter | type | Types the letter. |
-| Up, Down, Home, End, PgUp, PgDn | - | Do nothing while you type. Enter keeps the value and goes to the next field, and Esc closes the form. |
+| Up, Down, Home, End, PgUp, PgDn | - | Do nothing while you type. Enter keeps the value and goes to the next row, and Esc drops it. |
 
 ## `looks.new-frit.list`
 
 The shared list of the active fonts that can fill a role.
-
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: the form has three fields for fonts, which take typed text, and no list.
 
 **Open it:** Enter on a role's field of the form.
 
@@ -859,7 +853,7 @@ The Fonts tab: a line of filters, then the fonts found on this system, each with
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | save | Saves the changes that are not saved into the draft. |
 | i | install | Saves, then asks whether to install the draft. |
-| o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| o | - | Does nothing here. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the item above. |
@@ -944,7 +938,7 @@ The Effects tab: a line of filters, then one list in three groups, with a previe
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | save | Saves the changes that are not saved into the draft. |
 | i | install | Saves, then asks whether to install the draft. |
-| o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| o | - | Does nothing here. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the item above. |
@@ -1024,7 +1018,7 @@ The Settings view: the sections of vtium.conf's keys, as the shared list.
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | save | Saves the changes that are not saved into the draft. |
 | i | install | Saves, then asks whether to install the draft. |
-| o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| o | - | Does nothing here. |
 | Enter | open | Opens the highlighted section, with its keys in titled groups. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
@@ -1129,7 +1123,7 @@ The Help view: the Help and About pages.
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s | - | Does nothing here. |
 | i | - | Does nothing here. |
-| o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| o | - | Does nothing here. |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Help and key line | - | Show, for the place you are in, the keys that act there and what each does. |
