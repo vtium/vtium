@@ -608,11 +608,12 @@ pub fn active() -> Vec<(PathBuf, State)> {
 /// the draft deactivates taking the deactivation back. It refuses what
 /// the real batch refuses: an activation of a file the system does not
 /// hold that fails the trust rule, as the fixture's [`effects`] and
-/// [`font_files`] mark it,
-/// and a deactivation of a resource that is not active. Its messages name
-/// the kind of resource as the real desk's do, from the fixture's marks
-/// where the fixture lists the resource, since the real rule reads the
-/// disk to tell a pointer theme's folder.
+/// [`font_files`] mark it, and a deactivation of a resource that is not
+/// active. The real batch never counts a path as always active, since
+/// only the built-in font is, so it refuses that deactivation too. Its
+/// messages name the kind of resource as the real desk's do, from the
+/// fixture's marks where the fixture lists the resource, since the real
+/// rule reads the disk to tell a pointer theme's folder.
 pub fn resource_op(
     states: &mut Vec<(PathBuf, State)>,
     path: &std::path::Path,
@@ -632,7 +633,7 @@ pub fn resource_op(
         (Change::Activate, State::Active | State::Always) => {
             Some(super::words::already_active(kind))
         }
-        (Change::Deactivate, State::Inactive | State::Deactivates) => {
+        (Change::Deactivate, State::Always | State::Inactive | State::Deactivates) => {
             return Err(format!(
                 "{} is not active, so there is nothing to deactivate.",
                 path.display()
@@ -688,3 +689,27 @@ if [ -n "$bad" ]; then
 fi
 echo "$file: checked"
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::batch::Change;
+
+    /// The stand-in refuses each deactivation the real batch refuses, a
+    /// resource that is always active among them, and changes nothing.
+    #[test]
+    fn the_stand_in_refuses_a_deactivation_of_what_is_not_active() {
+        let path = PathBuf::from("/usr/share/fonts/misc/ter-u16n.otb");
+        for state in [State::Always, State::Inactive, State::Deactivates] {
+            let mut states = vec![(path.clone(), state)];
+            let refused = resource_op(&mut states, &path, Change::Deactivate);
+            assert!(
+                refused
+                    .as_ref()
+                    .is_err_and(|why| why.contains("is not active")),
+                "{state:?}: {refused:?}"
+            );
+            assert_eq!(states, [(path.clone(), state)], "{state:?}");
+        }
+    }
+}
