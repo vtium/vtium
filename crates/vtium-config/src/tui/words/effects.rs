@@ -48,6 +48,12 @@ pub const EFFECTS_FILTER_HINT: &str = "Press Enter to show the highlighted group
 /// What the tab says under a detail.
 pub const EFFECTS_DETAIL_HINT: &str = "This detail changes nothing. Esc goes back to the list.";
 
+/// What the tab says when the window of its list shows only part of the
+/// list.
+pub fn effects_window(first: usize, last: usize, of: usize) -> String {
+    format!("The list shows effects {first} to {last} of {of}. Up and Down scroll it.")
+}
+
 /// What the tab says when a group holds nothing.
 pub fn effects_none(group: &str) -> String {
     format!("No {} are installed.", group.to_lowercase())

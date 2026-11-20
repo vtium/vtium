@@ -45,7 +45,7 @@ use super::super::model::{Effect, Shared, Size};
 use super::super::resources;
 use super::super::shot::{Preview, Source};
 use super::super::words;
-use super::{Change, Command, Room, Tab};
+use super::{Change, Command, Room, Tab, list_window as window};
 use crate::discover::Described;
 use crate::onscreen::{path as shown, text};
 
@@ -69,15 +69,6 @@ pub struct Fonts {
     filter: Filter,
     open: Option<Open>,
     picture: bool,
-}
-
-/// How many fonts the window of the list shows on a screen of `size`: at
-/// most a third of the rows, so the preview keeps room below the list
-/// however many fonts the system holds.
-fn window(size: Size) -> usize {
-    size.rows
-        .saturating_sub(20)
-        .clamp(3, (size.rows / 3).max(3))
 }
 
 impl Fonts {
