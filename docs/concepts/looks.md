@@ -59,8 +59,8 @@ The table applies to the finished frame, after vtium has rotated the frame for a
 
 Both paths read the same table, so a head looks the same on either. While a head's vtlook holds a filter, vtium draws the pointer into the frame instead of on the display's cursor plane, so the effect reaches the pointer too.
 
-Frame filters are a build feature, `filters`. A build without it, such as the smallest build, reads the `vtlook` key and draws every head with the built-in vtlook. `vtium --version` names `filters` on its `features` line when the build has it.
+Frame filters are a build feature, `filters`. The `vtium` and `vtium-git` packages build it from 0.1.0-alpha.10 on, and the minspec builds leave it out. A build without it reads the `vtlook` key and draws every head with the built-in vtlook. `vtium --version` names `filters` on its `features` line when the build has it. See [An effect that does not apply](../troubleshooting.md#an-effect-that-does-not-apply) for what to check.
 
 ## When a change takes effect
 
-vtium reads vtium.conf when it starts on a VT. So a change to which color scheme or vtlook a look names takes effect when vtium next starts there. See [How an install reaches the VTs](../configure.md#how-an-install-reaches-the-vts) for details. Activating or deactivating a color scheme or a color map takes effect sooner, at the head's next login, as [When a change takes effect](resources.md#when-a-change-takes-effect) explains.
+vtium reads vtium.conf when it starts on a VT. So a change to which color scheme or vtlook a look names takes effect when vtium next starts there, and a restart keeps your sessions running. See [The file](../configure.md#the-file) for what vtium reads when. Activating or deactivating a color scheme or a color map takes effect sooner, at the head's next login, as [When a change takes effect](resources.md#when-a-change-takes-effect) explains.
