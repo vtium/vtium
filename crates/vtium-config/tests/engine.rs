@@ -975,7 +975,7 @@ fn the_tiny5_frit_reads_its_bdf_as_published() {
         assert!(text.lines().any(|l| l == line), "tiny5 has {line}");
     }
     let sources: Vec<&str> = text.lines().filter(|l| l.starts_with("source=")).collect();
-    let published = "source=bdf:/usr/local/share/fonts/misc/Tiny5Mono.bdf";
+    let published = "source=bdf:/usr/share/fonts/vtium/Tiny5Mono.bdf";
     assert_eq!(sources, [published]);
     assert!(text.contains("7d30f9e887fdb29e0b951e92493822afba5f70a7"));
     assert!(text.contains("33a935687277817534ddcc1decf586d977cee211550f611ba4bb4365e99755d3"));
