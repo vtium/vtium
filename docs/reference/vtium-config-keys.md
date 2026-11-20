@@ -871,7 +871,7 @@ The Fonts tab: a line of filters, then the fonts found on this system, each with
 | Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On the built-in font or a built-in color scheme, does nothing. On a vtlook or a filter line, says why it does nothing there. |
 | Enter | open | On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it. |
 | t | try live | Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
-| p | preview | Switches the preview between the sample characters and the picture of the console. |
+| p | preview | Switches the preview between the sample characters and the picture of the console. In a terminal that does not support images, says that it cannot show the picture. |
 | n | - | Does nothing here. New font sets are made in the Looks tab. |
 | r | - | Does nothing here. Font sets are removed in the Looks tab. |
 

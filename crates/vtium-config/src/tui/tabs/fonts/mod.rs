@@ -16,7 +16,9 @@
 //! person's own asks whether to install it as a system font, and shows the
 //! exact command first. Under the list, the tab previews the highlighted
 //! font as its sample characters, or with `p` as the picture of the
-//! console drawn in it.
+//! console drawn in it. In a terminal that does not support images, the
+//! preview is a written description of the font, and `p` says why it
+//! cannot show the picture.
 //!
 //! References:
 //! - ADR-1205 D1: the Fonts tab, and the controls it shares with the
@@ -41,7 +43,7 @@ use super::super::fonts_found::{Filter, FontFile};
 use super::super::input::Key;
 use super::super::layout::{MESSAGE_ROWS, PICTURE_ROW};
 use super::super::listbox::{Act, Body, Item, ListBox, Marks, plain, prose, rows, step, tail};
-use super::super::model::{Effect, Shared, Size};
+use super::super::model::{Effect, Live, Shared, Size};
 use super::super::resources;
 use super::super::shot::{Preview, Source};
 use super::super::words;
@@ -104,6 +106,14 @@ fn follow_filter(mut lb: ListBox, n: usize) -> ListBox {
         lb.offset = lb.at.saturating_add(1).saturating_sub(n);
     }
     lb
+}
+
+/// Whether this terminal has answered that it does not support images.
+/// The preview is then a written description of the font, which reads the
+/// same for the sample characters and the picture of the console, so `p`
+/// has nothing to switch to.
+fn no_images(shared: &Shared) -> bool {
+    shared.live != Live::Asking && !shared.graphics
 }
 
 impl Fonts {
@@ -289,14 +299,16 @@ impl Fonts {
             sentence.push(words::fonts_waiting(waiting));
         }
         sentence.push(words::FONTS_HINT.to_owned());
-        sentence.push(
-            if self.picture {
-                words::FONTS_P_TO_SAMPLE
-            } else {
-                words::FONTS_P_TO_PICTURE
-            }
-            .to_owned(),
-        );
+        if !no_images(shared) {
+            sentence.push(
+                if self.picture {
+                    words::FONTS_P_TO_SAMPLE
+                } else {
+                    words::FONTS_P_TO_PICTURE
+                }
+                .to_owned(),
+            );
+        }
         let mut under = tail(&sentence.join(" "), cols);
         if let Some(line) = Tab::preview(self, shared, size).preview_line() {
             under.extend(tail(&line, cols).into_iter().skip(1));
@@ -342,6 +354,7 @@ impl Fonts {
                 // the filter line, which the key line's Space does not act on
                 None => say(words::SPACE_ON_FONT_FILTER.to_owned()),
             },
+            Key::Char('p') if no_images(shared) => say(words::FONTS_P_NO_IMAGES.to_owned()),
             Key::Char('p') => {
                 self.picture = !self.picture;
                 Vec::new()

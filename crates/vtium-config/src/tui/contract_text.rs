@@ -1028,7 +1028,7 @@ pub const NODES: &[Node] = &[
             ("s", "Saves the changes that are not saved into the draft."),
             ("i", "Saves, then asks whether to install the draft."),
             (".", "Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row."),
-            ("p", "Switches the preview between the sample characters and the picture of the console."),
+            ("p", "Switches the preview between the sample characters and the picture of the console. In a terminal that does not support images, says that it cannot show the picture."),
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),

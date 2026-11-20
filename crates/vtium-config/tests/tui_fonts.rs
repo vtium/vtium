@@ -757,6 +757,28 @@ fn the_preview_draws_the_highlighted_font_and_p_switches_it() {
     assert_eq!(live.switches(), Vec::<String>::new());
 }
 
+/// In a terminal that does not support images, the Fonts tab previews a
+/// font as a written description, and `p` has no picture to switch to.
+/// The sentences under the list say nothing of `p`, and `p` says why there
+/// is no picture and leaves the description as it was, so vtium-config
+/// asks the font helper for it once.
+///
+/// References:
+/// - ADR-1403 D10: `p` switches the preview.
+#[test]
+fn p_in_a_terminal_without_images_says_why_there_is_no_picture() {
+    let mut c = Console::vtium(100, 40, false, "unifont").keys(&on_font(1, &[b"p"]));
+    run(&mut c);
+    let screen = flat(&c.seen.clone().expect("the screen"));
+    assert!(screen.contains("does not support images"), "{screen}");
+    assert!(screen.contains(words::FONTS_P_NO_IMAGES), "{screen}");
+    assert!(!screen.contains(words::FONTS_P_TO_PICTURE), "{screen}");
+    assert!(!screen.contains(words::FONTS_P_TO_SAMPLE), "{screen}");
+    let described: Vec<&str> = c.summaries.iter().map(|(f, _)| f.as_str()).collect();
+    assert_eq!(described, ["/usr/share/fonts/TTF/DejaVuSansMono.ttf"]);
+    assert!(c.pictures.is_empty() && c.specimens.is_empty());
+}
+
 /// The frit that draws a font file alone for the preview names the file
 /// by its kind, and a file whose name holds a control character is not
 /// previewed, since it would end the source line and start another.
