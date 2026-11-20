@@ -70,19 +70,60 @@ pub fn remove_replaced(name: impl Display) -> String {
     format!("this install replaces {name} with a new font set")
 }
 
-/// The new-frit view: its fields, and what it says.
-pub const NEW_FIELD_NAMES: [&str; 6] = [
+/// The new-frit form: its fields, and what it says.
+pub const NEW_FIELD_NAMES: [&str; 7] = [
+    "Text font",
+    "Box drawing",
+    "Scripts",
+    "Symbols and icons",
+    "Emoji",
+    "Fallback",
     "Name",
-    "Font 1",
-    "Font 2",
-    "Font 3",
-    "Character cell",
-    "Size",
 ];
 
 pub const NEW_ADD: &str = "Add this font set to the install";
 
-pub const NEW_HINT: &str = "A font set (frit) combines up to three fonts. Name each font by its family, such as JetBrains Mono, or as a frit file names it, such as kbd:ter-v16n. Each later font supplies the characters the fonts before it lack. Character cell is WIDTHxHEIGHT in pixels and Size is in points; leave both empty to use the fonts' own size. If you leave Name empty, the name comes from the first font.";
+pub const NEW_HINT: &str = "A font set combines a text font with fonts for the other roles. vtium tries the fonts in the order of the rows, and each later font supplies the characters the fonts before it lack. Enter on a role lists the active fonts that can fill it, and the layers of that role. A layer is a group of fonts for scripts, symbols, emoji or the fallback. To use a font the list lacks, activate it in the Fonts tab, or pick Other… and type its name. If you leave Name empty, the name comes from the text font.";
+
+pub const NEW_TYPING_HINT: &str = "Type a font by its family, such as JetBrains Mono, or as a font set file names it, such as kbd:ter-v16n. Enter keeps it, and Esc drops it.";
+
+pub const NEW_LIST_HINT: &str = "Enter picks, and Esc closes the list. Among the scripts, Enter on a script that is already picked takes it out again.";
+
+/// A role the person left empty.
+pub const NEW_NONE: &str = "None";
+
+/// A role's row while it holds nothing.
+pub const NEW_NONE_CHOSEN: &str = "none";
+
+/// The last choice of a role's list, which lets the person type a font.
+pub const NEW_OTHER: &str = "Other…";
+
+/// The note beside a layer in a role's list.
+pub const NEW_LAYER: &str = "a layer from the font sets' folder";
+
+/// A layer picked for a role, as the form's row shows it.
+pub fn new_layer_shown(name: impl Display) -> String {
+    format!("the layer {name}")
+}
+
+/// The note beside a font in the list of scripts: the scripts it adds,
+/// then its file.
+pub fn new_covers(scripts: &[&str], path: &std::path::Path) -> String {
+    let scripts: Vec<String> = scripts.iter().map(|s| s.replace('_', " ")).collect();
+    format!("{}, {}", scripts.join(", "), path.display())
+}
+
+/// The name row while the person has typed no name.
+pub fn new_name_from(name: &str) -> String {
+    if name.is_empty() {
+        "made from the text font".to_owned()
+    } else {
+        format!("{name}, made from the text font")
+    }
+}
+
+pub const NEW_NO_TEXT: &str =
+    "A font set needs a text font. Enter on Text font lists the fonts that can be one.";
 
 pub const NEW_BAD_NAME: &str = "A name has 1 to 64 letters, digits, '.', '_', '+' or '-', and cannot be a built-in font's name.";
 
@@ -100,8 +141,7 @@ pub fn new_refused(why: impl Display) -> String {
     format!("This font set cannot be read: {why}")
 }
 
-pub const KEYS_NEW: &str =
-    "type into a field  Enter next field  Esc back  Ctrl-C quit without installing";
+pub const KEYS_NEW: &str = "Up/Down move  Enter choose  Esc back  Ctrl-C quit without installing";
 
 /// The filter line's choice that shows every font.
 pub const FONTS_ALL: &str = "All fonts";

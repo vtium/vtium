@@ -25,6 +25,27 @@ fn on_set(n: usize, more: &[&'static [u8]]) -> Vec<&'static [u8]> {
     keys
 }
 
+const ENTER: &[u8] = b"\r";
+const END: &[u8] = b"\x1b[F";
+
+/// The keys that fill the highlighted role of the new-frit form with the
+/// typed `font`: Enter opens the role's list, End reaches Other… at its
+/// end, Enter types, and the last Enter keeps the font and moves to the
+/// next row.
+fn other(font: &'static [u8]) -> [&'static [u8]; 5] {
+    [ENTER, END, ENTER, font, ENTER]
+}
+
+/// The keys from the text font row of the new-frit form that type `name`
+/// and add the font set: Down five times reaches the name from box
+/// drawing, Enter types the name and Enter keeps it, and Enter on the add
+/// row adds the font set.
+fn named(name: &'static [u8]) -> Vec<&'static [u8]> {
+    let mut keys = vec![DOWN; 5];
+    keys.extend([ENTER, name, ENTER, ENTER]);
+    keys
+}
+
 /// `t` switches the console to the highlighted font, one switch at a
 /// time: a key that puts the font back while the trial's switch is still
 /// in flight sends the switch back only once the console has replied.
@@ -71,27 +92,18 @@ fn the_refusal_mark_is_on_the_screen() {
     assert!(screen.contains("The console refused tiny5"), "{screen}");
 }
 
+/// The new-frit form writes a font set from its roles: a text font and a
+/// fallback, each typed after Other…, named in the name row, in the order
+/// of the roles.
 #[test]
-fn a_new_frit_is_typed_in_its_view_and_installed_into_the_frits() {
-    let mut c = console().keys(&on_set(
-        1,
-        &[
-            b"n",
-            b"quiet",
-            b"\r",
-            b"builtin:unscii-8",
-            b"\r",
-            b"Some Family",
-            b"\r",
-            b"\r",
-            b"\r",
-            b"\r",
-            b"\r",
-            b"i",
-            b"y",
-            b"q",
-        ],
-    ));
+fn a_new_frit_is_built_by_role_and_installed_into_the_frits() {
+    let mut keys = on_set(1, &[b"n"]);
+    keys.extend(other(b"builtin:unscii-8"));
+    // from box drawing, four rows down to the fallback
+    keys.extend([DOWN; 4]);
+    keys.extend(other(b"Some Family"));
+    keys.extend([ENTER, b"quiet", ENTER, ENTER, b"i", b"y", b"q"]);
+    let mut c = console().keys(&keys);
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     let plan = d.plans.first().expect("an install");
@@ -106,6 +118,106 @@ fn a_new_frit_is_typed_in_its_view_and_installed_into_the_frits() {
     );
 }
 
+/// Enter on a role lists what can fill it: the layers of its role, then
+/// the active fonts whose faces fit it, as the font helper described them.
+/// A font that is not active, fails the trust rule or sits in the
+/// person's own folder is not offered. The text font's list adds the
+/// built-in fonts, and every list ends with Other….
+#[test]
+fn each_role_lists_its_layers_and_the_active_fonts_that_fit_it() {
+    let shown = |rows: usize| {
+        let mut keys = on_set(1, &[b"n"]);
+        keys.extend(std::iter::repeat_n(DOWN, rows));
+        keys.push(ENTER);
+        let mut c = console().keys(&keys);
+        run(&mut c);
+        c.seen.clone().expect("the screen")
+    };
+    let has = |screen: &str, names: &[&str], not: &[&str]| {
+        for name in names {
+            assert!(screen.contains(name), "{name} is not offered: {screen}");
+        }
+        for name in not {
+            assert!(!screen.contains(name), "{name} is offered: {screen}");
+        }
+    };
+    let gone = ["Terminus", "Mine", "Noto Color Emoji"];
+    let text = shown(0);
+    has(
+        &text,
+        &[
+            "DejaVu Sans Mono",
+            "Cullet Mono",
+            "unifont",
+            "unscii-8",
+            "Other…",
+        ],
+        &gone,
+    );
+    has(&text, &[], &["arabic", "None"]);
+    has(
+        &shown(2),
+        &["None", "arabic", "cjk-jp", "Other…"],
+        &[&gone[..], &["nerd-symbols", "DejaVu Sans Mono"]].concat(),
+    );
+    has(
+        &shown(3),
+        &["nerd-symbols", "DejaVu Sans Mono", "Cullet Mono"],
+        &[&gone[..], &["arabic"]].concat(),
+    );
+    has(
+        &shown(4),
+        &["noto-emoji"],
+        &[&gone[..], &["Cullet Mono"]].concat(),
+    );
+    has(
+        &shown(5),
+        &["unifont", "DejaVu Sans Mono", "Cullet Mono"],
+        &gone,
+    );
+}
+
+/// Picks from the lists go into the font set in the order of the roles:
+/// the text font, the scripts in the order they were picked, the symbols,
+/// the emoji, the fallback, and box drawing on its own line. Enter on a
+/// script already picked takes it out again, and picking it once more puts
+/// it after the others.
+#[test]
+fn picks_from_the_lists_go_into_the_font_set_in_the_order_of_the_roles() {
+    let mut keys = on_set(1, &[b"n"]);
+    keys.extend([
+        // the text font: DejaVu Sans Mono, the list's first
+        ENTER, ENTER, // box drawing: the text font's own lines, the third choice
+        DOWN, ENTER, DOWN, DOWN, ENTER,
+        // the scripts: arabic, then cjk-jp, then arabic out and in again
+        DOWN, ENTER, DOWN, ENTER, ENTER, DOWN, ENTER, ENTER, ENTER, ENTER, UP, ENTER,
+        // the symbols, the emoji and the fallback: each role's layer
+        DOWN, ENTER, DOWN, ENTER, DOWN, ENTER, DOWN, ENTER, DOWN, ENTER, DOWN, ENTER,
+        // past the name to the add row
+        DOWN, DOWN, ENTER, b"i", b"y", b"q",
+    ]);
+    let mut c = console().keys(&keys);
+    let mut d = desk();
+    assert_eq!(run_desk(&mut c, &mut d), 0, "{:?}", c.seen);
+    let plan = d.plans.first().expect("an install");
+    assert_eq!(
+        plan.files[0].path,
+        PathBuf::from("/etc/vtium/fonts/dejavu-sans-mono.vtfrit")
+    );
+    assert_eq!(
+        plan.files[0].new,
+        "# dejavu-sans-mono: made by vtium-config new-frit\n\
+         name=dejavu-sans-mono\n\
+         source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf\n\
+         layer=cjk-jp\n\
+         layer=arabic\n\
+         layer=nerd-symbols\n\
+         layer=noto-emoji\n\
+         layer=unifont\n\
+         glyph-source-box=font\n"
+    );
+}
+
 /// A new frit named as an installed one replaces it, the save showing the
 /// installed text it replaces, as the TUI gathered it at start; one whose
 /// installed file is not UTF-8 text is not replaced, and says why.
@@ -113,9 +225,8 @@ fn a_new_frit_is_typed_in_its_view_and_installed_into_the_frits() {
 fn a_new_frit_replaces_the_installed_one_of_its_name() {
     let to_new = on_set(1, &[b"n"]);
     let mut keys: Vec<&[u8]> = to_new.clone();
-    keys.extend([b"proof".as_slice(), b"\r", b"builtin:unifont"]);
-    // five fields to the add row, the add, and the install
-    keys.extend([b"\r".as_slice(); 6]);
+    keys.extend(other(b"builtin:unifont"));
+    keys.extend(named(b"proof"));
     keys.extend([b"i".as_slice(), b"y", b"q"]);
     let mut c = console().keys(&keys);
     let mut d = desk();
@@ -130,8 +241,8 @@ fn a_new_frit_replaces_the_installed_one_of_its_name() {
         Some("source=font:JetBrains Mono\n")
     );
     let mut keys: Vec<&[u8]> = to_new;
-    keys.extend([b"latin1".as_slice(), b"\r", b"builtin:unifont"]);
-    keys.extend([b"\r".as_slice(); 6]);
+    keys.extend(other(b"builtin:unifont"));
+    keys.extend(named(b"latin1"));
     let mut c = console().keys(&keys);
     let mut d = desk();
     run_desk(&mut c, &mut d);
@@ -289,14 +400,25 @@ fn an_install_that_moves_the_frits_and_changes_a_frit_is_refused() {
 
 #[test]
 fn a_new_frit_the_reader_refuses_stays_in_its_view_and_says_why() {
-    let mut c = console().keys(&on_set(
-        1,
-        &[b"n", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r", b"\r"],
-    ));
+    // the add row with no text font
+    let mut c = console().keys(&on_set(1, &[b"n", END, ENTER]));
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains("This font set cannot be read: A font set needs a text font."),
+        "{screen}"
+    );
+    assert!(screen.contains("Text font"), "{screen}");
+    // a text font the frit reader refuses, typed after Other…
+    let mut keys = on_set(1, &[b"n"]);
+    keys.extend(other(b"kbd:"));
+    keys.extend([END, ENTER]);
+    let mut c = console().keys(&keys);
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains("This font set cannot be read"), "{screen}");
-    assert!(screen.contains("Font 1"), "{screen}");
+    assert!(screen.contains("Text font"), "{screen}");
     assert!(c.saves.is_empty());
 }
 
@@ -373,17 +495,27 @@ fn leaving_with_a_frit_waiting_goes_back_or_installs() {
 
 #[test]
 fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_the_looks_tab() {
+    // the name row, typed
+    let typed: [&[u8]; 5] = [DOWN, b"n", END, UP, ENTER];
     for key in [TAB, BACKTAB] {
-        let (screen, _) = reach_from(model::View::Looks, 80, 25, &[DOWN, b"n", b"abc", key]);
-        assert_eq!(
-            foot(&screen, words::KEYS_NEW),
-            words::KEYS_NEW,
-            "{key:?}: {screen}"
-        );
-        assert!(screen.contains("abc"), "{screen}");
+        let keys = [&typed[..], &[b"abc", key]].concat();
+        let (screen, _) = reach_from(model::View::Looks, 80, 25, &keys);
+        let typing = keys_of("looks.new-frit.typing");
+        assert_eq!(foot(&screen, typing), typing, "{key:?}: {screen}");
+        assert!(screen.contains("abc_"), "{screen}");
     }
-    // the form belongs to the Looks tab, so Esc goes back there
-    let line = key_line(model::View::Looks, &[DOWN, b"n", b"abc", TAB, b"\x1b"]);
+    // Esc drops the name typed and goes back to the form's rows, and Esc
+    // there goes back to the Looks tab, which the form belongs to
+    let line = key_line(
+        model::View::Looks,
+        &[&typed[..], &[b"abc", TAB, b"\x1b"]].concat(),
+    );
+    let rows = keys_of("looks.new-frit");
+    assert_eq!(foot(&line, rows), rows);
+    let line = key_line(
+        model::View::Looks,
+        &[&typed[..], &[b"abc", TAB, b"\x1b", b"\x1b"]].concat(),
+    );
     assert_eq!(foot(&line, keys_of("looks")), keys_of("looks"));
 }
 

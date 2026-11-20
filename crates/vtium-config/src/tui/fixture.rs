@@ -209,7 +209,25 @@ pub fn inputs() -> Inputs {
         .collect(),
         effects: effects(),
         font_files: font_files(),
+        layers: layers(),
     }
+}
+
+/// The layers the fixture's frits' folder holds, as [`super::layers`]
+/// reads them: two for scripts, one each for symbols, emoji and the
+/// fallback.
+pub fn layers() -> Vec<(String, vtium_font::set::layer::Role)> {
+    use vtium_font::set::layer::Role;
+    [
+        ("arabic", Role::Script),
+        ("cjk-jp", Role::Script),
+        ("nerd-symbols", Role::Symbols),
+        ("noto-emoji", Role::Emoji),
+        ("unifont", Role::Fallback),
+    ]
+    .into_iter()
+    .map(|(n, r)| (n.to_owned(), r))
+    .collect()
 }
 
 /// The font files the fixture's Fonts tab lists, in the scan's order:

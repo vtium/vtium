@@ -232,19 +232,21 @@ fn with_font_operations_off_the_tui_says_so_and_offers_the_key() {
     );
 }
 
+/// `o` opens Restore in the Flow view alone. In the Settings and Help tabs
+/// of a vtium console with allow-font-ops off, `o` changes nothing, so `q`
+/// leaves without asking and nothing is installed. The Settings tab's own
+/// row for allow-font-ops turns it on.
+///
+/// References:
+/// - ADR-1403 D7, the `o.view` row: `o` does nothing outside the Flow view.
 #[test]
-fn turning_font_operations_on_is_a_change_installed_like_any_other() {
+fn o_changes_nothing_outside_the_flow_view() {
     let mut d = desk();
     let mut c =
-        Console::vtium(80, 25, false, "unifont").keys(&[TO_SETTINGS, b"o", b"i", b"y", b"q"]);
+        Console::vtium(80, 25, false, "unifont").keys(&[TO_SETTINGS, b"o", TO_HELP, b"o", b"q"]);
     assert_eq!(run_desk(&mut c, &mut d), 0);
-    let plan = d.plans.first().expect("an install");
-    assert_eq!(plan.files.len(), 1);
-    assert!(
-        plan.files[0].new.contains("\nallow-font-ops\n"),
-        "{:?}",
-        plan.files[0].new
-    );
+    assert!(d.plans.is_empty(), "{:?}", d.plans);
+    assert_eq!(d.draft, d.installed);
 }
 
 #[test]
