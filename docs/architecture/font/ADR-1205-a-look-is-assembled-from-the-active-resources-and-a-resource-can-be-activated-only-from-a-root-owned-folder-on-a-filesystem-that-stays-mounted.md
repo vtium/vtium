@@ -154,6 +154,10 @@ considered:
   - operator: aaronsb
     said: "I'd say we aim for the lowest physical attached monitor, without complicating the code required to determine it. [the DPI vtium-config uses to turn a bitmap font's strikes into a look's point sizes]"
     via: steering session, 2026-11-20, on the Fonts tab review's C1
+  - operator: aaronsb
+    said: "A [look NAME] section can name its own pointer-theme, so each look picks its own theme, and a look with none draws the top-level one. Built in the next wave."
+    via: the maintainer's decision of 2026-11-20, as the steering session's comment on the GitHub issue for a look's pointer theme records it
+    paraphrase: true
 observable:
   - "vtium-config's tabs read Fonts, Effects, Looks, Flow, Settings and Help, and vtium-config opens on Flow"
   - "The Effects tab lists the color maps and shaders in the folders that ADR-1304 gives them, shows each one's trust mark, activates or deactivates each with the same controls as the Fonts tab, and previews an effect as a picture of the console"
@@ -336,6 +340,8 @@ A look also takes active effects: the color maps and shaders that its vtlook nam
 
 **A look picks its pointer theme.** The Looks tab lists the installed pointer themes: vtium's own `/usr/share/vtium/pointers.svg`, and each desktop cursor theme in `/usr/share/icons` or `/usr/local/share/icons` whose folder holds a `cursors` folder (ADR-1309 D2). Those two folders are this record's agent's call. Each look picks one of them, or none for vtium's own pictures. A pointer theme follows D4's rule and is activated like any other resource, so the Looks tab offers only active themes and marks the others as not active. A look's choice takes priority over the `pointer-theme` key in vtium.conf (ADR-1309 D1). That key stays the default for a look that picks no theme, so an existing configuration keeps its pointers.
 
+> Note 2026-11-20: the maintainer decided on 2026-11-20 that a `[look NAME]` section can name its own `pointer-theme`, with the same values as the top-level key: an absolute path to an SVG file or to a cursor theme's folder. A look with none uses the top-level `pointer-theme`, and with neither set the look draws vtium's own pictures. ADR-1403 D5 adds `pointer-theme` to the keys a look takes. The paragraph above said that a look's choice wins over the top-level key, and named no key in the look's section.
+
 > Note 2026-11-18: the maintainer decided where a pointer theme is activated (`considered`, 2026-11-18). The Looks tab lists every installed pointer theme and marks the ones that are not active. The person activates or deactivates a pointer theme there, with Activate and Deactivate. The Looks tab shows the same trust marks as the Fonts and Effects tabs, and a look still picks only an active theme.
 
 ### D7: sizes come from the look
@@ -372,6 +378,7 @@ Each record below carries a dated note at the passage this record changes. No re
 | ADR-1403 D7 and D8 | A terminal takes a look from the Looks tab, and the Flow view makes and prunes no look. |
 | ADR-1309 D5 | A pointer theme passes D4's rule. Its walk follows a symbolic link only while the link stays inside the same root-owned theme folder. The Looks tab lists the installed pointer themes, and each look picks an active one. |
 | ADR-1401 D10 | D4's rule sits beside D10, which keeps its scope. |
+| ADR-1403 D5 | A look takes `pointer-theme`, and its value wins over the top level's (D6's note of 2026-11-20). |
 
 > Note 2026-11-19: D10, proposed on this date, would change two more records if the maintainer accepts it. ADR-1403 D5 gives a look the key `palette`, and ADR-1201 D3's Looks tab lists the palettes. Each carries a dated note that says the change waits on D10.
 
