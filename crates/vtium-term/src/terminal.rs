@@ -693,6 +693,15 @@ impl Terminal {
         self.state.report_scheme_change(scheme);
     }
 
+    /// The palette the color resets and RIS return to, configured while
+    /// the program runs: the colors drawn stay as they are, including those
+    /// the program set, and no cell is marked changed. The host configures
+    /// a running session's palette this way, so the colors change at the
+    /// next reset or the next session rather than under the program.
+    pub fn set_reset_palette(&mut self, palette: Palette) {
+        self.state.host.palette = palette;
+    }
+
     /// Whether BackSpace sends DEL (0x7F) in place of BS (0x08).
     pub fn set_backspace_sends_delete(&mut self, on: bool) {
         self.state.host.backspace_delete = on;

@@ -229,7 +229,8 @@ pub struct Head {
     pub(crate) batch: u64,
     /// The head's configured palette: the one its look's `palette` names,
     /// else the top level's. Each console of the head starts with it, and
-    /// OSC 104 to 119, RIS and DECSTR return its colors to it.
+    /// the color resets return its colors to it: OSC 104, OSC 110 to 114,
+    /// 117 and 119, OSC 21's resets, DECSTR and RIS.
     ///
     /// References:
     /// - ADR-1205 D10: the look's palette is the head's configured palette.
