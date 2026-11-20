@@ -649,7 +649,7 @@ A look's card: its name, font set, size, color scheme, vtlook and pointer theme,
 | Enter | choose | On the look's size, shows the sizes that the look's fonts supply as a list. |
 | Enter | choose | On the look's color scheme, shows the color schemes as a list: first the one vtium.conf sets, which leaves the look's own unset, then the built-in schemes, then the active scheme files. |
 | Enter | choose | On the look's vtlook, shows the vtlooks as a list in the Effects tab's order: No filter first, then the presets, then the administrator's vtlooks. A vtlook that does not read, such as one that names a color map that is not active, shows why, and the look can still pick it. A new look starts on No filter. |
-| Enter | choose | On the look's pointer theme, shows the active pointer themes as a list, with vtium's own pictures first. |
+| Enter | choose | On the look's pointer theme, shows a list: the theme vtium.conf names first, which leaves the look's own unset, then each active pointer theme, with vtium's own pictures first. |
 | t | try live | Tries this look on this console for 10 seconds. |
 
 ## `looks.look.list`
