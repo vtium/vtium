@@ -893,11 +893,7 @@ fn held<T>(f: impl Fn(&Held) -> T) -> T {
 /// `rule` for each resource, unless the console already holds one; what
 /// vtium found reading the batch file, for the caller to log, or `None`
 /// when the console already held a batch.
-pub fn start_batch(
-    places: &batch::Places,
-    trust: &Trust,
-    rule: Rule,
-) -> Option<Vec<batch::Finding>> {
+pub fn start_batch(places: &batch::Places, trust: &Trust, rule: Rule) -> Option<Found> {
     if HELD.with_borrow(Option::is_some) {
         return None;
     }
@@ -931,11 +927,7 @@ pub fn package_palettes() -> PathBuf {
 ///
 /// References:
 /// - ADR-1205 D4, its note of 2026-11-19: the console reads the batch again at each new login, so an activation takes effect at the next login.
-pub fn load_batch(
-    places: &batch::Places,
-    trust: &Trust,
-    rule: Rule,
-) -> Option<Vec<batch::Finding>> {
+pub fn load_batch(places: &batch::Places, trust: &Trust, rule: Rule) -> Option<Found> {
     load_batch_with(places, trust, rule, Mounts::system().unwrap_or_default())
 }
 
@@ -949,7 +941,7 @@ fn load_batch_with(
     trust: &Trust,
     rule: Rule,
     mounts: Mounts,
-) -> Option<Vec<batch::Finding>> {
+) -> Option<Found> {
     let read = batch::Batch::system(places, trust);
     let (same, kept) = HELD.with_borrow(|held| {
         let Some(h) = held else {
@@ -961,21 +953,42 @@ fn load_batch_with(
     if kept {
         return None;
     }
+    let more = read.more_line();
     HELD.set(Some(Held {
         gate: std::sync::Arc::new(cullet::Gate::new(rule, Some(mounts), read.batch)),
         palettes: places.palettes.clone(),
     }));
-    (!same).then_some(read.findings)
+    (!same).then_some(Found {
+        findings: read.findings,
+        more,
+    })
 }
 
-/// Logs what vtium found reading the batch file: a missing file as
-/// information, since a machine upgraded from an earlier vtium has none,
-/// and a file vtium cannot use, or a line it ignores, as a warning.
-pub fn log_batch_findings(findings: &[batch::Finding]) {
-    for finding in findings {
-        match finding {
-            batch::Finding::Missing { .. } => log::info!(target: "batch", "{finding}"),
-            _ => log::warn!(target: "batch", "{finding}"),
+/// What vtium found reading the batch file, for the caller to log.
+#[derive(Debug)]
+pub struct Found {
+    /// The findings, in the file's order, at most the first
+    /// [`vtium_settings::ERRORS_MAX`] lines vtium ignores.
+    pub findings: Vec<batch::Finding>,
+    /// The line that counts the ignored lines past those listed, when
+    /// there are more ([`batch::Read::more_line`]).
+    pub more: Option<String>,
+}
+
+impl Found {
+    /// Logs the findings: a missing file as information, since a machine
+    /// upgraded from an earlier vtium has none, and a file vtium cannot
+    /// use, or a line it ignores, as a warning. The count of the ignored
+    /// lines past those listed comes last, as a warning too.
+    pub fn log(&self) {
+        for finding in &self.findings {
+            match finding {
+                batch::Finding::Missing { .. } => log::info!(target: "batch", "{finding}"),
+                _ => log::warn!(target: "batch", "{finding}"),
+            }
+        }
+        if let Some(more) = &self.more {
+            log::warn!(target: "batch", "{more}");
         }
     }
 }
@@ -3294,5 +3307,40 @@ mod tests {
             "the batch is the same, so there is nothing to log"
         );
         assert_eq!(gate().mounts.as_ref(), Some(&nfs));
+    }
+
+    // A batch file of more bad lines than vtium lists gives the first
+    // ERRORS_MAX as findings and the line that counts the rest, for the log.
+    //
+    // References:
+    // - ADR-1205 D4, its note of 2026-11-19: the console names each batch line it ignores.
+    #[test]
+    fn a_batch_past_the_error_bound_logs_the_count_of_the_rest() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("batch-more");
+        std::fs::set_permissions(&*dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let file = dir.join("batch.conf");
+        std::fs::write(&file, "relative\n".repeat(vtium_settings::ERRORS_MAX + 2)).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let me = rustix::process::geteuid().as_raw();
+        let places = batch::Places {
+            file: file.clone(),
+            vconsole_conf: PathBuf::from("/dev/null"),
+            cmdline: PathBuf::from("/dev/null"),
+            palettes: dir.to_path_buf(),
+            ..batch::Places::system()
+        };
+        let trust = Trust::owner(me).below(&dir);
+        let found = load_batch_with(&places, &trust, Rule::new(trust.clone()), Mounts::default())
+            .expect("the first read logs");
+        assert_eq!(found.findings.len(), vtium_settings::ERRORS_MAX);
+        assert_eq!(
+            found.more,
+            Some(format!(
+                "{}: vtium also ignores 2 more lines of this file. Only the first {} are listed.",
+                file.display(),
+                vtium_settings::ERRORS_MAX
+            ))
+        );
     }
 }

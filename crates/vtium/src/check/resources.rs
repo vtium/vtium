@@ -233,21 +233,22 @@ pub(super) fn pointer_findings(
 /// that says what vtium uses in its place and how to create the file. A
 /// file vtium cannot use, because it fails the owner and mode check, is
 /// too large or cannot be read, counts, and so does each line vtium
-/// ignores. Each finding reads as the console's log writes it.
+/// ignores. Each finding reads as the console's log writes it. When vtium
+/// ignores more lines than it lists, the line that counts the rest comes
+/// last.
 ///
 /// References:
 /// - ADR-1205 D4, its notes of 2026-11-18 and 2026-11-19: check-config says the batch file is missing and how to create it, and names a file vtium ignores and why.
-pub(super) fn batch_findings(
-    findings: &[vtium_settings::batch::Finding],
-) -> (Vec<String>, Vec<String>) {
+pub(super) fn batch_findings(read: &vtium_settings::batch::Read) -> (Vec<String>, Vec<String>) {
     use vtium_settings::batch::Finding;
     let (mut counted, mut notes) = (Vec::new(), Vec::new());
-    for finding in findings {
+    for finding in &read.findings {
         match finding {
             Finding::Missing { .. } => notes.push(finding.to_string()),
             Finding::Line { .. } | Finding::Refused { .. } => counted.push(finding.to_string()),
         }
     }
+    counted.extend(read.more_line());
     (counted, notes)
 }
 
@@ -430,7 +431,7 @@ pub(super) fn font_files(file: &Path, settings: &Settings) -> Vec<String> {
         match gate.open(font) {
             Err(r) if r.check == vtium_settings::cullet::Check::Missing => {}
             Err(r) if r.check == vtium_settings::cullet::Check::Inactive => out.push(format!(
-                "{at}: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+                "{at}: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, press Space on it in vtium-config's Fonts tab, or run vtium-config activate with the file's path, then install the change.",
                 font.display(),
                 b = vtium_settings::batch::BATCH_FILE
             )),
@@ -574,7 +575,7 @@ pub(super) fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs 
 pub(super) fn refused_font(set: &str, font: &str, path: &str, because: &str) -> String {
     if because == vtium_settings::batch::NOT_ACTIVE {
         format!(
-            "Font set {set} needs the font {font}, and its file {path} is not active, so vtium treats the font as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+            "Font set {set} needs the font {font}, and its file {path} is not active, so vtium treats the font as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, press Space on it in vtium-config's Fonts tab, or run vtium-config activate with the file's path, then install the change.",
             b = vtium_settings::batch::BATCH_FILE
         )
     } else {

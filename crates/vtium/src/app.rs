@@ -532,7 +532,7 @@ impl App {
             &trust,
             vtium_settings::cullet::Rule::new(trust.clone()),
         ) {
-            font::log_batch_findings(&found);
+            found.log();
         }
         let cap = vtium_term::sb_size_cap(
             physical_memory(),

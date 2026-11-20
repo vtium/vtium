@@ -73,11 +73,10 @@ impl App {
     fn batch_changed(&mut self) {
         let before = font::gate();
         let (places, rule) = &self.batch_places;
-        let Some(findings) = font::load_batch(places, &self.font_sources.trust, rule.clone())
-        else {
+        let Some(found) = font::load_batch(places, &self.font_sources.trust, rule.clone()) else {
             return;
         };
-        font::log_batch_findings(&findings);
+        found.log();
         let me = rustix::process::geteuid().as_raw();
         let gate = font::gate();
         // The launcher and the pointer file's helper take the new active

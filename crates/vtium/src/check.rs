@@ -545,7 +545,7 @@ fn outcome_with(
         ..vtium_settings::batch::Places::system()
     };
     let batch = vtium_settings::batch::Batch::system(&places, &host.frit_trust);
-    let (batch_counted, batch_notes) = batch_findings(&batch.findings);
+    let (batch_counted, batch_notes) = batch_findings(&batch);
     let gate = vtium_settings::cullet::Gate::new(
         vtium_settings::cullet::Rule::new(host.frit_trust.clone()),
         Some(vtium_settings::mounts::Mounts::system().unwrap_or_default()),
@@ -1445,7 +1445,7 @@ mod tests {
         assert_eq!(
             out.stdout.first().map(String::as_str),
             Some(format!(
-                "{b}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. vtium-config writes this file when it installs a change to what is active. You can also write it as root, with one file's path on each line."
+                "{b}: The list of active fonts, color schemes, effects and pointer themes does not exist. vtium uses the list of a fresh install instead: the built-in font, Cullet Mono, Terminus, Unifont, the console font that vconsole.conf names, the color schemes vtium ships, and vtium's pointer file. To activate a resource, press Space on it in vtium-config's Fonts, Effects or Looks tab, or run vtium-config activate PATH, then install the change. vtium-config then writes this file with the fresh-install list and your change. If you write the file by hand instead, it replaces the fresh-install list, so list every path that stays active, vtium's own fonts, color schemes and pointer file included."
             ).as_str()),
             "{:#?}",
             out.stdout
@@ -1460,6 +1460,24 @@ mod tests {
         assert!(
             out.stderr.contains(&format!(
                 "{b}:2: This line does not hold an absolute path, one that starts with /. Because of this, vtium ignores the line."
+            )),
+            "{:#?}",
+            out.stderr
+        );
+        // past the error bound, the lines vtium does not list are counted
+        let _ = std::fs::write(&batch, "relative\n".repeat(vtium_settings::ERRORS_MAX + 3));
+        let out = outcome_on(&["--no-devices", f.as_str()], &host);
+        assert_eq!(out.status, 1, "{:#?}", out.stderr);
+        let listed = out
+            .stderr
+            .iter()
+            .filter(|l| l.ends_with("Because of this, vtium ignores the line."))
+            .count();
+        assert_eq!(listed, vtium_settings::ERRORS_MAX, "{:#?}", out.stderr);
+        assert!(
+            out.stderr.contains(&format!(
+                "{b}: vtium also ignores 3 more lines of this file. Only the first {} are listed.",
+                vtium_settings::ERRORS_MAX
             )),
             "{:#?}",
             out.stderr
@@ -1521,7 +1539,7 @@ mod tests {
             counted,
             [
                 format!(
-                    "{}: The color scheme is not active, so vtium treats the file as missing. A color scheme is active while {batch} lists the file's path. To activate it, add the path to {batch} as root, on a line of its own.",
+                    "{}: The color scheme is not active, so vtium treats the file as missing. A color scheme is active while {batch} lists the file's path. To activate it, press Space on it in vtium-config's Looks tab, or run vtium-config activate with the file's path, then install the change.",
                     shut.display()
                 ),
                 "/etc/vtium/vtium.conf:1: The color scheme shut is not active, so the heads whose look names no color scheme of its own draw the color scheme legacy instead.".to_owned(),
@@ -1689,11 +1707,11 @@ mod tests {
                     o = open.display()
                 ),
                 format!(
-                    "{f}:4: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+                    "{f}:4: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, press Space on it in vtium-config's Fonts tab, or run vtium-config activate with the file's path, then install the change.",
                     idle.display()
                 ),
                 format!(
-                    "{f}:7: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own.",
+                    "{f}:7: The font {} is not active, so vtium treats it as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, press Space on it in vtium-config's Fonts tab, or run vtium-config activate with the file's path, then install the change.",
                     italic.display()
                 ),
             ]
@@ -4392,7 +4410,7 @@ mod tests {
         assert_eq!(
             idle.stderr,
             [format!(
-                "Font set desk needs the font Gone Mono, and its file /usr/share/fonts/gone.otf is not active, so vtium treats the font as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, add the path to {b} as root, on a line of its own."
+                "Font set desk needs the font Gone Mono, and its file /usr/share/fonts/gone.otf is not active, so vtium treats the font as missing and draws its characters from the next font in the set. A font is active while {b} lists the file's path. To activate it, press Space on it in vtium-config's Fonts tab, or run vtium-config activate with the file's path, then install the change."
             )]
         );
         let open = check(
