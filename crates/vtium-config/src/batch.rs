@@ -541,9 +541,10 @@ fn looks_of(conf: &str) -> Vec<Drawn> {
 /// list.
 pub fn uses(path: &Path, conf: &str, places: &Places<'_>) -> Vec<Use> {
     let mut out = Vec::new();
+    // paths compare by their components, so a last slash, a doubled
+    // slash or a `.` in the key's value changes nothing, as in the batch
     let theme = vtium_settings::setting(conf, vtium_settings::keys::POINTER_THEME.name);
-    if theme.is_some_and(|t| plain_path(Path::new(&t)).is_some_and(|t| Some(t) == plain_path(path)))
-    {
+    if theme.is_some_and(|t| Path::new(&t) == path) {
         out.push(Use {
             look: None,
             through: Through::PointerTheme,
@@ -575,17 +576,6 @@ pub fn uses(path: &Path, conf: &str, places: &Places<'_>) -> Vec<Use> {
         }
     }
     out
-}
-
-/// `path` as the batch compares it: absolute, with no `..`, and with `.`,
-/// doubled slashes and a last slash dropped. `None` for a path the batch
-/// never lists.
-fn plain_path(path: &Path) -> Option<PathBuf> {
-    let plain = path.is_absolute()
-        && !path
-            .components()
-            .any(|c| c == std::path::Component::ParentDir);
-    plain.then(|| path.components().collect())
 }
 
 /// The looks of vtium.conf's text `conf` that draw with the vtlook
