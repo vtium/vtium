@@ -191,6 +191,51 @@ fn a_filter_shows_the_fonts_that_pass_it() {
     assert!(flat(&screen).contains(words::FONTS_NONE), "{screen}");
 }
 
+/// The highlight stays on its font while descriptions arrive: under a
+/// filter, a font described later can join the list above the highlighted
+/// one, and the highlight follows its font rather than its row, so Space
+/// acts on the font the person chose.
+#[test]
+fn the_highlight_stays_on_its_font_as_descriptions_arrive() {
+    use vtium_config::tui::fixture::described;
+    use vtium_config::tui::fonts_found::Filter;
+    let (mut app, _) = App::new(inputs(), 100, 30);
+    let path = |name: &str| {
+        app.shared
+            .inputs
+            .font_files
+            .files
+            .iter()
+            .map(|f| f.path().to_path_buf())
+            .find(|p| p.ends_with(name))
+            .expect("the fixture's font")
+    };
+    let (dejavu, cullet) = (path("DejaVuSansMono.ttf"), path("cullet-mono.otf"));
+    // only cullet-mono.otf is described, so only it is an outline font yet
+    app.event(Event::Described(vec![(cullet.clone(), described(&cullet))]));
+    let at = Filter::choices()
+        .iter()
+        .position(|f| *f == Filter::Outline)
+        .expect("a filter");
+    let mut keys = vec![Key::Enter, Key::Home];
+    keys.extend(std::iter::repeat_n(Key::Down, at));
+    keys.extend([Key::Enter, Key::Down]);
+    for key in keys {
+        app.event(Event::Input(Input::Key(key)));
+    }
+    let highlighted = |app: &App| {
+        app.fonts
+            .highlighted(&app.shared)
+            .map(|f| f.path().to_path_buf())
+    };
+    assert_eq!(highlighted(&app).as_ref(), Some(&cullet));
+    // DejaVu Sans Mono, earlier in the list, is described as an outline
+    // font and joins the list above it
+    app.event(Event::Described(vec![(dejavu.clone(), described(&dejavu))]));
+    assert_eq!(app.fonts.items(&app.shared).len(), 2);
+    assert_eq!(highlighted(&app).as_ref(), Some(&cullet));
+}
+
 /// Space activates a font that is not active and deactivates one that is,
 /// through the desk, and the marks follow the draft.
 ///

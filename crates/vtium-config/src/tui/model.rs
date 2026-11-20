@@ -988,7 +988,9 @@ impl App {
                 Vec::new()
             }
             Event::Described(answers) => {
+                let highlighted = self.fonts.highlighted_path(&self.shared);
                 self.shared.inputs.font_files.describe(answers);
+                self.fonts.keep(&self.shared, highlighted.as_deref());
                 Vec::new()
             }
             Event::Desked(op, done) => self.desked(&op, done),
@@ -1431,7 +1433,7 @@ impl App {
         for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
-        self.fonts.fit(&self.shared);
+        self.fonts.keep(&self.shared, None);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one

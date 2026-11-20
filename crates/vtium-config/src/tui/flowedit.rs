@@ -444,11 +444,12 @@ impl App {
         said: &str,
         found: Vec<crate::discover::Found>,
     ) -> Vec<Effect> {
+        let highlighted = self.fonts.highlighted_path(&self.shared);
         self.shared.inputs.font_files.rescanned(found);
         if let Some(draft) = &self.shared.draft {
             self.shared.inputs.font_files.set_states(&draft.resources);
         }
-        self.fonts.fit(&self.shared);
+        self.fonts.keep(&self.shared, highlighted.as_deref());
         let mut out = self.say(&format!(
             "{} {said}",
             words::system_font_installed(&crate::onscreen::path(target))
