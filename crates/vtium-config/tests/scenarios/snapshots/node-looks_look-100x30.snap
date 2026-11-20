@@ -7,8 +7,8 @@ description: "looks.look at 100×30, keys: 3 Enter"
 ----------------------------------------------------------------------------------------------------
    Name           proof
    Font set       proof
-   Size           automatic, from vtium.conf. vtium-config offers its usual sizes, because it
-                  cannot yet ask the font helper which sizes these fonts supply.
+   Size           automatic, from vtium.conf. vtium-config offers its usual sizes, because it found
+                  no font file for the text font font:JetBrains Mono.
    Color scheme   legacy, from vtium.conf
    vtlook         sepia
    Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a pointer theme of its

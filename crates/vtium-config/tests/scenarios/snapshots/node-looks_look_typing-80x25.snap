@@ -8,8 +8,8 @@ description: "looks.look.typing at 80×25, keys: 3 n"
    Name           new-look_
    Font set       unifont, from vtium.conf
    Size           automatic, from vtium.conf. vtium-config offers its usual
-                  sizes, because it cannot yet ask the font helper which sizes
-                  these fonts supply.
+                  sizes, because the text font is built into vtium or is the
+                  console's own font.
    Color scheme   legacy, from vtium.conf
    vtlook         No filter
    Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a

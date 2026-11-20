@@ -1,7 +1,6 @@
 ---
 source: crates/vtium-config/tests/scenarios/snapshots.rs
-assertion_line: 117
-description: "looks.new-frit.typing at 100×30, keys: n"
+description: "looks.new-frit.typing at 100×30, keys: 3 Down n"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
  draft mine · no changes · no problems                                   text preview · t: try live
@@ -29,7 +28,7 @@ description: "looks.new-frit.typing at 100×30, keys: n"
 
 
 
- The form for a new font set is part of the Looks tab, so Esc or adding the font set goes to the
- Looks tab.
+
+
 ----------------------------------------------------------------------------------------------------
  type into a field  Enter next field  Esc back  Ctrl-C quit without installing
