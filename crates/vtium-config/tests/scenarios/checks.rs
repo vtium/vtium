@@ -1312,7 +1312,7 @@ fn row_cases() -> BTreeMap<&'static str, Case> {
         matches!(s.step.from.focus.as_str(), "switch" | "choice")
     });
     m.insert("list.font-set-files", |s| {
-        matches!(card_line(s), Some(CardLine::Font))
+        matches!(card_line(s), Some(CardLine::Look))
     });
     m.insert("list.terminals", |s| {
         matches!(card_line(s), Some(CardLine::Name))

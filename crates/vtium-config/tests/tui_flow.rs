@@ -712,7 +712,7 @@ mod draft_flow {
         assert!(status.contains("· no changes · no problems"), "{status}");
         assert!(!status.contains(words::NO_HOTPLUG), "{status}");
         let screen = ran.screen();
-        for want in ["desk", "panel", "proof", "kbd"] {
+        for want in ["desk", "panel", "look big", "kbd"] {
             assert!(screen.contains(want), "{want}: {screen}");
         }
     }

@@ -32,14 +32,17 @@ pub fn shown(app: &App) -> bool {
         && app.flow.restore().is_none()
 }
 
-/// The font sets the palette offers: every font the TUI lists that reads.
-pub fn font_names(shared: &Shared) -> Vec<String> {
+/// The looks the palette and a terminal's card offer: each look of the
+/// draft by its name. The default look comes first in each list, as no
+/// look.
+pub fn look_names(shared: &Shared) -> Vec<String> {
     shared
         .inputs
-        .fonts
+        .flow
+        .looks
         .iter()
-        .filter(|f| !matches!(f.state, super::model::FontState::Refused(_)))
-        .map(|f| f.name.clone())
+        .map(|l| l.name.clone())
+        .filter(|l| l != "default")
         .collect()
 }
 
@@ -115,12 +118,12 @@ pub fn choices_for(shared: &Shared, obj: &Obj) -> Vec<(String, String, Option<St
 }
 
 /// One line of a terminal's card: what a path sets that allocates no
-/// display, input or font, and in the editor, each part it joins.
+/// display or input, and in the editor, each part it joins.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CardLine {
     Name,
-    Font,
-    Size,
+    /// The look the terminal draws with, one of the draft's looks.
+    Look,
     Setting(&'static str),
     Part(Piece),
 }
@@ -149,7 +152,7 @@ pub fn card_path(state: &flowview::State, shared: &Shared, obj: &Obj) -> Option<
 
 /// The card's lines for `path`; the editor's also list its parts.
 pub fn card_lines(path: &Path, editor: bool) -> Vec<CardLine> {
-    let mut out = vec![CardLine::Name, CardLine::Font, CardLine::Size];
+    let mut out = vec![CardLine::Name, CardLine::Look];
     // the VTs change only in NEW PATH, where adding the path checks each
     // VT for a clash
     //
@@ -189,11 +192,8 @@ pub fn card_choices(shared: &Shared, line: &CardLine) -> Vec<(String, String)> {
             ),
             (words::LOGIN_OTHER.to_owned(), String::new()),
         ],
-        CardLine::Font => std::iter::once((words::DEFAULT_FONT_SET.to_owned(), String::new()))
-            .chain(font_names(shared).iter().map(|f| own(f)))
-            .collect(),
-        CardLine::Size => std::iter::once((words::AUTOMATIC_SIZE.to_owned(), String::new()))
-            .chain(super::model::SIZES.iter().map(|s| own(&s.to_string())))
+        CardLine::Look => std::iter::once((words::DEFAULT_LOOK_PART.to_owned(), String::new()))
+            .chain(look_names(shared).iter().map(|l| own(l)))
             .collect(),
         CardLine::Setting("consoles") => (1..=6).map(|n| own(&n.to_string())).collect(),
         CardLine::Setting("vt") => {
@@ -277,8 +277,7 @@ pub fn card_about(shared: &Shared, path: &Path, line: &CardLine, editor: bool) -
 pub fn card_value(path: &Path, line: &CardLine) -> String {
     match line {
         CardLine::Name => path.name.clone().unwrap_or_default(),
-        CardLine::Font => path.font.clone().unwrap_or_default(),
-        CardLine::Size => path.size.map(|s| s.to_string()).unwrap_or_default(),
+        CardLine::Look => path.look.clone().unwrap_or_default(),
         CardLine::Setting("consoles") => Some(path.setting("consoles"))
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "1".to_owned()),
