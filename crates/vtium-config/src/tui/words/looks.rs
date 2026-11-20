@@ -404,8 +404,14 @@ pub const PALETTE_FOREGROUND: &str = "foreground";
 pub const PALETTE_BACKGROUND: &str = "background";
 
 /// The sentence under a color scheme's preview in a terminal that does
-/// not take 24-bit color.
-pub const PALETTE_NO_TRUECOLOR: &str = "This terminal does not say it shows 24-bit color, so its own colors may stand in for the scheme's. Enter opens the scheme's detail, which gives each color's value.";
+/// not report 24-bit color, where the preview fills each block with the
+/// nearest of the terminal's eight basic colors.
+pub const PALETTE_NO_TRUECOLOR: &str = "This terminal does not report 24-bit color, so the preview shows the terminal's own eight colors in place of the scheme's. Enter opens the scheme's detail, which gives each color's value.";
+
+/// The sentence in place of a color scheme's preview while colors are
+/// off in this terminal, as with NO_COLOR, where every block would show
+/// blank.
+pub const PALETTE_NO_COLOR: &str = "Colors are off in this terminal, so the preview cannot show the scheme's colors. Enter opens the scheme's detail, which gives each color's value.";
 
 /// The title of a pointer theme's detail.
 pub fn pointer_title(name: impl Display) -> String {

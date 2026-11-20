@@ -955,14 +955,58 @@ fn a_color_scheme_s_preview_shows_its_colors_beside_text_in_its_own_colors() {
     // no picture is asked for while a color scheme is highlighted
     assert!(a.looks.preview(&a.shared, size).font().is_none());
     // without 24-bit color, the sentence says the terminal's own colors
-    // may stand in
+    // stand in
     let mut a = looks_app(inputs(), 100, 30);
     to_entry(&mut a, &paper);
     let screen = flat(&text(&a));
     assert!(
-        screen.contains("This terminal does not say it shows 24-bit color"),
+        screen.contains("This terminal does not report 24-bit color, so the preview shows the terminal's own eight colors in place of the scheme's. Enter opens the scheme's detail, which gives each color's value."),
         "{screen}"
     );
+}
+
+/// With color off in this terminal, as with NO_COLOR, a color scheme's
+/// preview leaves out its blocks of color, which would show blank, and
+/// says why; the detail still gives each color's value.
+///
+/// References:
+/// - ADR-1205 D10: a color scheme's preview is its 16 colors beside text
+///   in its foreground on its background.
+#[test]
+fn with_color_off_a_color_scheme_s_preview_says_so_and_shows_no_blocks() {
+    use vtium_config::tui::input::Key;
+    for truecolor in [false, true] {
+        let mut i = inputs();
+        i.color = false;
+        i.flow_colors.truecolor = truecolor;
+        let mut a = looks_app(i, 100, 30);
+        let paper = scheme_file(&a, "/usr/share/vtium/palettes", "paper");
+        to_entry(&mut a, &paper);
+        let screen = text(&a);
+        let rows = rows_text(&screen);
+        for label in ["0-7", "8-15", "Text"] {
+            assert!(
+                !rows.iter().any(|r| r.trim_start().starts_with(label)),
+                "{label}: {screen}"
+            );
+        }
+        let said = flat(&screen);
+        assert!(
+            said.contains("Colors are off in this terminal, so the preview cannot show the scheme's colors. Enter opens the scheme's detail, which gives each color's value."),
+            "{said}"
+        );
+        assert!(!said.contains("24-bit"), "{said}");
+        press(&mut a, Key::Enter);
+        let said = flat(&text(&a));
+        assert!(said.contains("foreground #"), "{said}");
+        assert!(
+            !rows_text(&text(&a))
+                .iter()
+                .any(|r| r.trim_start().starts_with("0-7")),
+            "{}",
+            text(&a)
+        );
+    }
 }
 
 /// Enter on a color scheme opens its detail: its file, or built in, its

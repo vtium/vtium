@@ -255,9 +255,9 @@ impl Looks {
         let highlighted = entries.get(at);
         if let Some(Entry::Palette(scheme)) = highlighted {
             let swatches = palettes::preview(shared, *scheme);
-            if !swatches.is_empty() && !palettes::truecolor(shared) {
+            if let Some(note) = palettes::preview_note(shared, *scheme) {
                 sentence.push(' ');
-                sentence.push_str(words::PALETTE_NO_TRUECOLOR);
+                sentence.push_str(note);
             }
             let mut tail = vec![plain("")];
             if !swatches.is_empty() {
