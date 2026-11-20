@@ -851,7 +851,7 @@ pub const DISPLAY_BUFFERS: Key = Key {
     levels: TOP,
     what: "How many frame buffers each DRM display keeps, the same number for every display.\n\n\
            `3` is triple buffering. No frame waits for the previous one to reach the screen, and each display needs one more frame of memory. `2` is double buffering. `1` is single buffering, which uses the least memory. vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
-           A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number it was built with, which `make DISPLAY_BUFFERS=N` sets and passes to cargo as `VTIUM_DISPLAY_BUFFERS`. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
+           A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number that `make DISPLAY_BUFFERS=N` built it with. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
            [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`. When the draft sets none, it prints the build's default followed by `default`. That default is `unset` when the build sets no number, and the rule above then decides.",
 };
 
@@ -863,7 +863,7 @@ pub const HWACCEL: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     what: "Draw with the GPU, in a build that supports it.\n\n\
-           It is off unless vtium was built with it on, as `make HWACCEL=on` builds it. make passes the setting to cargo as `VTIUM_HWACCEL`.\n\n\
+           It is off unless vtium was built with `make HWACCEL=on`.\n\n\
            [docs] `vtium config get hwaccel` prints the draft's value followed by `draft`, or the build's default followed by `default`. `vtium config set hwaccel on` turns it on in the draft.",
 };
 

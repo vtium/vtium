@@ -801,11 +801,10 @@
 ## draws into the buffer on screen, so a half-drawn frame can show.
 ##
 ## A framebuffer device (fbdev) always keeps one buffer. When the key is
-## unset, the build decides. A build uses the number it was built with, which
-## `make DISPLAY_BUFFERS=N` sets and passes to cargo as
-## `VTIUM_DISPLAY_BUFFERS`. Without one, it uses 3 in a build with optional
-## features, 2 in the smallest build (minspec), and 1 only in a build smaller
-## than that.
+## unset, the build decides. A build uses the number that
+## `make DISPLAY_BUFFERS=N` built it with. Without one, it uses 3 in a build
+## with optional features, 2 in the smallest build (minspec), and 1 only in a
+## build smaller than that.
 
 #display-buffers=
 
@@ -813,8 +812,7 @@
 
 ## Draw with the GPU, in a build that supports it.
 ##
-## It is off unless vtium was built with it on, as `make HWACCEL=on` builds
-## it. make passes the setting to cargo as `VTIUM_HWACCEL`.
+## It is off unless vtium was built with `make HWACCEL=on`.
 
 #no-hwaccel
 

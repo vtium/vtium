@@ -1000,7 +1000,7 @@ How many frame buffers each DRM display keeps, the same number for every display
 .IP
 \fB3\fR is triple buffering. No frame waits for the previous one to reach the screen, and each display needs one more frame of memory. \fB2\fR is double buffering. \fB1\fR is single buffering, which uses the least memory. vtium then draws into the buffer on screen, so a half-drawn frame can show.
 .IP
-A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number it was built with, which \fBmake DISPLAY_BUFFERS=N\fR sets and passes to cargo as \fBVTIUM_DISPLAY_BUFFERS\fR. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.
+A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number that \fBmake DISPLAY_BUFFERS=N\fR built it with. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.
 .IP
 \fBvtium config get display\-buffers\fR prints the draft's value followed by \fBdraft\fR. When the draft sets none, it prints the build's default followed by \fBdefault\fR. That default is \fBunset\fR when the build sets no number, and the rule above then decides.
 .IP
@@ -1011,7 +1011,7 @@ Set it in the top level, or on vtium's command line with \fB\-\-display\-buffers
 \fBhwaccel\fR
 Draw with the GPU, in a build that supports it.
 .IP
-It is off unless vtium was built with it on, as \fBmake HWACCEL=on\fR builds it. make passes the setting to cargo as \fBVTIUM_HWACCEL\fR.
+It is off unless vtium was built with \fBmake HWACCEL=on\fR.
 .IP
 \fBvtium config get hwaccel\fR prints the draft's value followed by \fBdraft\fR, or the build's default followed by \fBdefault\fR. \fBvtium config set hwaccel on\fR turns it on in the draft.
 .IP
