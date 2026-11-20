@@ -8,13 +8,13 @@ description: "looks.font-set at 80×25, keys: 3 Down Enter"
  Font set broken
  The console does not read it: line 2: unknown key colour
  Its fonts, by role:
- Text: builtin:unifont
- Box drawing: vtium's own lines and blocks
+ vtium-config could not read the font set's file.
  What it still misses:
  Not known yet: the font helper has not checked its fonts.
  No look uses it.
 
  Up and Down scroll the detail, and Esc goes back to the list.
+
 
 
 
