@@ -1116,6 +1116,46 @@ fn a_built_in_scheme_the_top_level_names_is_used_by_the_top_level() {
     }
 }
 
+/// A detail whose paragraphs wrap to many rows scrolls down to its last
+/// row, since the limit counts the rows on the screen, not paragraphs.
+///
+/// References:
+/// - ADR-1403 D10: the color scheme's read-only detail.
+#[test]
+fn a_detail_that_wraps_scrolls_to_its_last_row() {
+    use vtium_config::batch::State;
+    use vtium_config::tui::effects_found::SchemeFile;
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::resources::Resource;
+    // a file whose check and error each wrap to many rows, in a detail of
+    // few paragraphs
+    let mut i = inputs();
+    i.effects.palettes.push(SchemeFile {
+        name: "long".to_owned(),
+        resource: Resource {
+            path: PathBuf::from("/etc/vtium/palettes/long.palette"),
+            kind: "color scheme",
+            state: State::Inactive,
+            trust: Err(format!("{}first-end.", "The check says so. ".repeat(60))),
+            own: false,
+            hidden: false,
+        },
+        colors: Err(format!("{}last-end.", "The error says so. ".repeat(60))),
+    });
+    let mut a = looks_app(i, 80, 25);
+    let long = scheme_file(&a, "/etc/vtium/palettes", "long");
+    to_entry(&mut a, &long);
+    press(&mut a, Key::Enter);
+    assert_eq!(vtium_config::tui::nav::node(&a), "looks.palette");
+    for _ in 0..80 {
+        press(&mut a, Key::Down);
+    }
+    let screen = text(&a);
+    // the last row of the last paragraph is in sight, under the title
+    assert!(flat(&screen).contains("last-end."), "{screen}");
+    assert!(flat(&screen).contains("Color scheme long"), "{screen}");
+}
+
 /// A folder of scheme files on the disk, with the package's dusk and the
 /// administrator's mine and Catppuccin Mocha, active, and the
 /// administrator's spare, not active, as the Looks tab finds them; and

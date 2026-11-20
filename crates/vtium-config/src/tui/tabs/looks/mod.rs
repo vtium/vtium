@@ -560,7 +560,7 @@ impl Tab for Looks {
         self.open.is_none() && action != 'o'
     }
 
-    fn update(&mut self, shared: &Shared, _room: Room, key: Key) -> Vec<Command> {
+    fn update(&mut self, shared: &Shared, room: Room, key: Key) -> Vec<Command> {
         match self.open.take() {
             None => self.list_key(shared, key),
             Some(Open::Card(mut c)) => {
@@ -588,17 +588,25 @@ impl Tab for Looks {
                 }
             }
             Some(open) => {
-                // the last line under the title the detail can scroll to
-                let (last, top) = match &open {
-                    Open::FontSet { at, top } => (fontsets::detail(shared, *at).len(), *top),
+                // the last row under the title the detail can scroll to,
+                // counted as the screen wraps the detail's paragraphs
+                let cols = room.size.cols;
+                let (rows, top) = match &open {
+                    Open::FontSet { at, top } => (
+                        detail_rest(&fontsets::detail(shared, *at), Vec::new(), cols).len(),
+                        *top,
+                    ),
                     Open::Palette { scheme, top } => {
                         let (lines, colors) = palettes::detail(shared, *scheme);
-                        (lines.len().saturating_add(colors.len()), *top)
+                        (detail_rest(&lines, colors, cols).len(), *top)
                     }
-                    Open::Pointer { at, top } => (pointers::detail(shared, *at).len(), *top),
+                    Open::Pointer { at, top } => (
+                        detail_rest(&pointers::detail(shared, *at), Vec::new(), cols).len(),
+                        *top,
+                    ),
                     Open::Card(_) => (0, 0),
                 };
-                let last = last.saturating_sub(2);
+                let last = rows.saturating_sub(1);
                 let top = match key {
                     Key::Escape => return Vec::new(),
                     Key::Up => top.saturating_sub(1),
@@ -617,6 +625,22 @@ impl Tab for Looks {
     }
 }
 
+/// The rows of a detail of `lines` under its title, each paragraph
+/// wrapped to `cols`, then the `extra` rows. These are the rows the
+/// detail scrolls through.
+fn detail_rest(
+    lines: &[String],
+    extra: Vec<super::super::canvas::Row>,
+    cols: usize,
+) -> Vec<super::super::canvas::Row> {
+    let mut rest: Vec<super::super::canvas::Row> = Vec::new();
+    for line in lines.iter().skip(1) {
+        rest.extend(prose(line, cols));
+    }
+    rest.extend(extra);
+    rest
+}
+
 /// The body of a detail of `lines`, one paragraph each, with `extra` rows
 /// after them, scrolled `top` rows down. The title stays at the top, so
 /// the detail always says what it describes, and the rest scrolls.
@@ -626,11 +650,7 @@ fn detail_body(
     top: usize,
     size: Size,
 ) -> Body {
-    let mut rest: Vec<super::super::canvas::Row> = Vec::new();
-    for line in lines.iter().skip(1) {
-        rest.extend(prose(line, size.cols));
-    }
-    rest.extend(extra);
+    let rest = detail_rest(lines, extra, size.cols);
     let mut list = Vec::new();
     for line in lines.iter().take(1) {
         list.extend(prose(line, size.cols));
