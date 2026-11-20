@@ -250,7 +250,7 @@ The tool opens on its Flow view. To reach Fonts, press Tab twice, or click Fonts
 
 An image preview is a specimen, a sample of every character the font covers, at its real size. A character that the font itself does not have shows in grey where the built-in font supplies it. It shows as an empty box where no font supplies it. The line under the list gives the grid that the font makes on the display. `vtium config preview FONT` prints the same specimen.
 
-The Looks view previews each size the same way. In a vtium console with `allow-font-ops` on, its preview is a sample screen that the console draws as text. Elsewhere, its preview is an image of the display in the font at that size. A vtium console shows images when vtium is built with the `images` feature.
+The Looks view previews the highlighted look's font set at the look's size the same way. In a vtium console with `allow-font-ops` on, its preview is a sample screen that the console draws as text. Elsewhere, its preview is an image of the display in the font at that size. A vtium console shows images when vtium is built with the `images` feature.
 
 A head is one terminal of vtium, on one or more displays, and a look is the set of font settings a head uses. To give one head a font of its own, set the frit as the `font-name` of that head's look. See [The sections of vtium.conf](head-file.md#reading-the-sections) for details.
 
