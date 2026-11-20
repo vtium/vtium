@@ -11,7 +11,7 @@
 //! A line holds one absolute path. A line that starts with `#` is a
 //! comment, blank lines are allowed, and spaces around a path are
 //! dropped. vtium ignores a line that does not hold an absolute path
-//! without `..`, and reports it.
+//! without `..` and without a NUL byte, and reports it.
 //!
 //! When the batch file is missing, as on a machine upgraded from an
 //! earlier vtium, the batch is the list of a fresh install:
@@ -135,15 +135,20 @@ pub enum LineFault {
     TooLong,
     /// The line is not UTF-8.
     NotUtf8,
+    /// The line holds a NUL byte, which no file's path can hold.
+    Nul,
 }
 
 impl fmt::Display for LineFault {
+    /// The fault as a sentence that starts with a capital letter and has
+    /// no closing period, which [`Finding::Line`] adds.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            LineFault::NotAbsolute => "this line does not hold an absolute path, one that starts with /",
-            LineFault::ParentStep => "this path holds `..`, so vtium cannot tell which folder it names without following it",
-            LineFault::TooLong => "this line is longer than the longest path Linux takes",
-            LineFault::NotUtf8 => "this line is not UTF-8 text",
+            LineFault::NotAbsolute => "This line does not hold an absolute path, one that starts with /",
+            LineFault::ParentStep => "This path holds `..`, so vtium cannot tell which folder it names without following it",
+            LineFault::TooLong => "This line is longer than the longest path Linux takes",
+            LineFault::NotUtf8 => "This line is not UTF-8 text",
+            LineFault::Nul => "This line holds a NUL byte, which no file's path can hold",
         })
     }
 }
@@ -284,9 +289,14 @@ impl Read {
     }
 }
 
-/// A path as a batch line gives it: absolute, with no `..`, and with `.`
-/// and doubled slashes dropped.
+/// A path as a batch line gives it: absolute, with no `..` and no NUL
+/// byte, and with `.` and doubled slashes dropped. A NUL byte ends a path
+/// where the kernel takes it, so no file's path holds one, and the font
+/// helper refuses a request of active fonts that carries one.
 fn plain(text: &str) -> Result<PathBuf, LineFault> {
+    if text.contains('\0') {
+        return Err(LineFault::Nul);
+    }
     let path = Path::new(text);
     if !path.is_absolute() {
         return Err(LineFault::NotAbsolute);

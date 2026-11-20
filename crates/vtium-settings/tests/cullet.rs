@@ -766,6 +766,53 @@ fn a_batch_line_longer_than_a_path_or_not_utf8_is_ignored() {
     ));
 }
 
+// A NUL byte ends a path at the kernel's interface, so no file has a name
+// that holds one. The font helper refuses the console's whole request of
+// active fonts when a path holds one, so vtium ignores such a line here, and
+// check-config and the log name it.
+#[test]
+fn a_batch_line_holding_a_nul_byte_is_ignored_and_named() {
+    let read = Batch::parse(
+        b"/usr/share/fonts/a.ttf\n/usr/share/fonts/a\0b.ttf\n",
+        Path::new("/b"),
+    );
+    assert_eq!(
+        read.batch.entries(),
+        [Entry::Path("/usr/share/fonts/a.ttf".into())]
+    );
+    assert_eq!(
+        read.findings,
+        [Finding::Line {
+            path: "/b".into(),
+            line: 2,
+            fault: LineFault::Nul,
+        }]
+    );
+    assert!(!read.batch.holds(Path::new("/usr/share/fonts/a\0b.ttf")));
+}
+
+// The finding's sentence starts with a capital letter, so the console's log
+// and check-config print the finding as it is.
+#[test]
+fn a_batch_line_finding_reads_as_a_sentence() {
+    let line = |fault| {
+        Finding::Line {
+            path: "/etc/vtium/batch.conf".into(),
+            line: 3,
+            fault,
+        }
+        .to_string()
+    };
+    assert_eq!(
+        line(LineFault::NotAbsolute),
+        "/etc/vtium/batch.conf:3: This line does not hold an absolute path, one that starts with /. Because of this, vtium ignores the line."
+    );
+    assert_eq!(
+        line(LineFault::Nul),
+        "/etc/vtium/batch.conf:3: This line holds a NUL byte, which no file's path can hold. Because of this, vtium ignores the line."
+    );
+}
+
 #[test]
 fn a_batch_file_that_starts_with_a_byte_order_mark_keeps_its_first_line() {
     let read = Batch::parse(b"\xef\xbb\xbf/usr/share/fonts/a.ttf\n/b\n", Path::new("/b"));
