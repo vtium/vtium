@@ -53,7 +53,7 @@ pub const TRIAL_KEY: &str = "t: try live";
 pub const TRIAL_NONE: &str = "no live trial";
 
 /// Why the live trial does not work, on the message line.
-pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, press o in the Fonts view, then install.";
+pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, change allow-font-ops in the Settings tab, then install.";
 
 pub const NOT_VTIUM: &str = "Live trial is off: this terminal is not a vtium console, so t cannot try a font on it. You can still install fonts.";
 
@@ -68,7 +68,7 @@ pub fn trial_countdown(font: impl Display, left: u32) -> String {
 
 pub fn trial_kept(font: impl Display) -> String {
     format!(
-        "The console keeps {font} until you quit vtium-config. Press s to save it in the draft, then i to install it."
+        "The console keeps {font} until you quit vtium-config. To keep {font} after that, choose it on a look's card in the Looks tab, then press s to save and i to install."
     )
 }
 
@@ -96,7 +96,7 @@ pub fn detail_caption(
     (w, h): (u32, u32),
     assumed: bool,
 ) -> String {
-    let marks = "Characters in grey come from the built-in font, and a box marks a character no font can display. Press s to see the console.";
+    let marks = "Characters in grey come from the built-in font, and a box marks a character no font can display. Press p to see the console.";
     let Some(s) = summary else {
         return format!("{font} at {points} pt. {marks}");
     };
@@ -565,7 +565,7 @@ mod tests {
         };
         assert_eq!(
             super::detail_caption("ega", 12, Some(&summary), (1920, 1080), false),
-            "ega at 12 pt: each character cell is 8x16 pixels. The font can display 40 of the 51 characters in the preview. Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file. Characters in grey come from the built-in font, and a box marks a character no font can display. Press s to see the console."
+            "ega at 12 pt: each character cell is 8x16 pixels. The font can display 40 of the 51 characters in the preview. Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file. Characters in grey come from the built-in font, and a box marks a character no font can display. Press p to see the console."
         );
         assert_eq!(
             super::size_summary(&summary),
