@@ -84,34 +84,8 @@ pub fn trial_refused(font: impl Display) -> String {
     format!("The console refused {font}. Its log says why.")
 }
 
-/// What `s` in the Fonts view of a vtium console says: the font the
-/// console shows saved where the console's terminal takes its font from,
-/// or why not.
-pub fn tried_saved_look(font: &str, head: &str, look: &str, draft: &str) -> String {
-    format!(
-        "Saved {font} into draft {draft} as the font of the look {look}. This console belongs to {}, which draws with that look. Press i to install it.",
-        terminal(head)
-    )
-}
-
-pub fn tried_saved_top(font: &str, draft: &str) -> String {
-    format!(
-        "Saved {font} into draft {draft} as the font of every terminal whose look names no font. Press i to install it."
-    )
-}
-
-pub fn tried_already(font: &str) -> String {
-    format!("Nothing to save: the draft already gives this console's terminal {font}.")
-}
-
-pub const TRIED_UNKNOWN: &str = "Nothing to save: the console has not said which font it draws.";
-
-pub fn tried_no_head(font: &str) -> String {
-    format!(
-        "Nothing saved: vtium-config cannot tell which terminal this console belongs to, because VTIUM_HEAD is not set, and the draft's looks name fonts of their own. Choose {font} on a terminal's card in the Flow view instead."
-    )
-}
-
+/// Why the desk's checked save wrote nothing, before what the check
+/// printed.
 pub const TRIED_REFUSED: &str = "Nothing saved, because vtium check-config found problems:";
 
 /// The line beside the detailed specimen (ADR-1201 D4).

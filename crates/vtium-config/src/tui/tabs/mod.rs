@@ -173,8 +173,6 @@ pub enum Change {
     Say(String),
     /// Replaces the frits that wait for the install with these.
     Pending(Pending),
-    /// Saves the font the console shows, which the live trial put there.
-    SaveTried,
     /// Tries this font on the live console.
     Try(String),
     /// Clears the message line.

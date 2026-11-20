@@ -1292,7 +1292,6 @@ impl App {
                 }
                 Command::Change(Change::Say(line)) => self.shared.message = Some(line),
                 Command::Change(Change::Pending(pending)) => self.shared.pending = pending,
-                Command::Change(Change::SaveTried) => effects.extend(self.save_tried()),
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
                 Command::Change(Change::Quiet) => self.shared.message = None,
                 Command::Change(Change::Make { changes, select }) => {
