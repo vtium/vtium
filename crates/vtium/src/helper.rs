@@ -331,14 +331,20 @@ pub struct Launcher {
 
 /// The request that names the active fonts to the helper: `owner`, whose
 /// files pass the trust rule beside root's, and each path `batch` lists,
-/// in the helper's layout (vtium-config's `serve.rs`). The paths stop
+/// in the helper's layout (vtium-config's `serve.rs`). The helper refuses
+/// the whole request over one path that is not absolute UTF-8, holds a NUL
+/// byte or is too long, and then exits, so such a path is left out here
+/// and the other active fonts still reach the helper. The paths stop
 /// before they would pass the helper's bound, which a batch file within
 /// its own bound never reaches.
 fn active_request(owner: u32, batch: &Batch) -> Vec<u8> {
     let mut paths = Vec::new();
     let mut total = 0usize;
     for Entry::Path(path) in batch.entries() {
-        let Some(text) = path.to_str().filter(|t| t.len() <= ACTIVE_PATH_MAX) else {
+        let Some(text) = path
+            .to_str()
+            .filter(|t| t.starts_with('/') && !t.contains('\0') && t.len() <= ACTIVE_PATH_MAX)
+        else {
             continue;
         };
         total = total.saturating_add(text.len());
@@ -3222,6 +3228,30 @@ mod tests {
         let count = u32::from_le_bytes(bytes[16..20].try_into().unwrap());
         assert_eq!(count as usize, ACTIVE_BYTES_MAX / 1000);
         assert!(bytes.len() - 20 <= ACTIVE_BYTES_MAX + 4 * count as usize);
+    }
+
+    // A batch path that the helper would refuse, one holding a NUL byte or
+    // one that is not absolute, is left out of the active fonts' request.
+    // The helper refuses the whole request over one such path and exits,
+    // so one bad line would otherwise stop every helper from starting. The
+    // test reads the request with the helper's own parser.
+    //
+    // References:
+    // - ADR-1205 D4: the console tells each font helper the active fonts.
+    #[test]
+    fn a_path_the_helper_would_refuse_is_left_out_of_the_active_fonts() {
+        let batch = Batch::new(
+            ["/usr/share/fonts/a\0b.ttf", "relative.bdf", "/ok.bdf"]
+                .iter()
+                .map(|p| Entry::Path(PathBuf::from(p)))
+                .collect(),
+        );
+        let bytes = active_request(0, &batch);
+        let read = vtium_config::serve::read_request(&mut bytes.as_slice());
+        let Ok(Some(vtium_config::serve::Request::Active(ask))) = read else {
+            panic!("the helper refuses the request: {read:?}");
+        };
+        assert_eq!(ask.paths, [PathBuf::from("/ok.bdf")]);
     }
 
     // ADR-1200 D19, D21: an italic glyph an ask past the store's limit
