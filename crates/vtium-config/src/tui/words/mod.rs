@@ -165,7 +165,7 @@ pub fn script_caption(made: &crate::made::Made) -> String {
 
 /// The name a person knows a font set's `script-source=` font by: a kbd
 /// font's name, or the file name of a font named by its path.
-fn font_name(spelling: &str) -> &str {
+pub(super) fn font_name(spelling: &str) -> &str {
     let named = spelling.split_once(':').map_or(spelling, |(_, rest)| rest);
     named
         .rsplit('/')

@@ -285,6 +285,85 @@ fn every_named_key_acts(acted_once: &BTreeSet<(String, String, &'static str)>) -
     out
 }
 
+/// Every label the key line shows acts on what the highlight is on: in
+/// each state of a supported node that the walk reached, which names the
+/// node and its focus, at least one key of each labelled item changes
+/// something. Where none does at once, each key is pressed again after
+/// each of [`MOVING`] that keeps the TUI in the same state, which moves
+/// the highlight off the edge of a list to another item of the same kind.
+/// [`every_named_key_acts`] asks this of each node as a whole; this check
+/// asks it of each focus, so a key line that offers `n` on a color scheme
+/// because `n` acts on a look fails here. The keys that only move the
+/// highlight or the cursor, and Backspace, are left to that check, since a
+/// focus such as the first item of a list is one where Home has nowhere to
+/// go, and an empty value has nothing for Backspace to delete.
+///
+/// References:
+/// - ADR-1403 D7, its note of 2026-11-18: each key line names only keys
+///   that act where it is shown.
+fn labelled_keys_act_in_each_focus(map: &Map) -> Vec<String> {
+    let rows = tables::keys();
+    let tree = tables::tree();
+    let mut out = Vec::new();
+    for (abs, (rep, path, start)) in &map.reps {
+        if matches!(abs.kind, StateKind::Left | StateKind::TooSmall) || rep.exited.is_some() {
+            continue;
+        }
+        let Some(node) = tree
+            .iter()
+            .find(|n| n.id == abs.node() && n.status == "supported")
+        else {
+            continue;
+        };
+        // the labels the node's key line shows, each with the keys that
+        // share it
+        let mut labels: BTreeMap<&str, Vec<&'static str>> = BTreeMap::new();
+        for row in rows.iter().filter(|r| {
+            node.keys.contains(&r.id)
+                && r.status == "supported"
+                && r.label != "-"
+                && !r.key_line
+                && r.keys != ["."]
+                && !r
+                    .keys
+                    .iter()
+                    .all(|k| MOVING.contains(k) || *k == "Backspace")
+        }) {
+            labels
+                .entry(row.label.as_str())
+                .or_default()
+                .extend(pressed_for(row));
+        }
+        let acts_after = |first: Option<&str>, key: &str| {
+            let mut moved = rep.clone();
+            if let Some(f) = first {
+                moved.press(press_of(f));
+                if moved.exited.is_some() || state::of(&moved) != *abs {
+                    return false;
+                }
+            }
+            let mut after = moved.clone();
+            let did = after.press(press_of(key));
+            acted(&moved, &after, &did)
+        };
+        for (label, keys) in labels {
+            let acts = keys.iter().any(|k| acts_after(None, k))
+                || MOVING
+                    .iter()
+                    .any(|m| keys.iter().any(|k| acts_after(Some(m), k)));
+            if !acts {
+                let (term, cols, rows) = start;
+                out.push(format!(
+                    "in {abs}, the key line shows \"{label}\", and none of its keys {keys:?} changes anything there ({} {cols}×{rows}: {})",
+                    term.name(),
+                    path.join(" ")
+                ));
+            }
+        }
+    }
+    out
+}
+
 /// Where the key took the TUI, against where the reading of the tables in
 /// `reference.rs` says it goes, for the keys whose effect the tables
 /// decide whatever a tab holds. A failure names the scenario, the shortest
@@ -305,7 +384,8 @@ fn as_the_tables_say(step: &explore::Step) -> Option<String> {
     let shown = !step.from.view.is_empty() && !step.to.view.is_empty();
     if agrees.is_ok()
         && shown
-        && want == reference::Expect::At(step.from.node())
+        && (want == reference::Expect::At(step.from.node())
+            || want == reference::Expect::InTab(reference::tab_of(&step.from.node())))
         && step.to.view != step.from.view
     {
         agrees = Err(format!(
@@ -339,6 +419,10 @@ fn every_key_in_every_state_keeps_the_rules() {
                     from_a_second_page(&map, &mut checks);
                     let acts = named_keys_that_act(&map);
                     checks.found.failures.extend(moved);
+                    checks
+                        .found
+                        .failures
+                        .extend(labelled_keys_act_in_each_focus(&map));
                     (term, map, checks, acts)
                 })
             })

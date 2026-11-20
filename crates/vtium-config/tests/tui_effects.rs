@@ -247,18 +247,31 @@ fn the_marks_follow_the_draft_after_install_revert_new_delete_and_restore() {
     }
 }
 
-// Space on a vtlook changes nothing and says nothing, since a vtlook is
-// not a resource the batch lists.
+// Space on a vtlook changes nothing, since a vtlook is not a resource the
+// batch lists, and says why, since the key line offers Space there. Space
+// on the filter line says where Space acts.
 #[test]
-fn space_on_a_vtlook_does_nothing() {
+fn space_on_a_vtlook_or_the_filter_line_changes_nothing_and_says_why() {
     for name in ["No filter", "amber", "sepia"] {
         let mut a = effects();
         to(&mut a, name);
-        let before = a.shared.message.clone();
+        let draft = a.shared.conf_text().map(str::to_owned);
         assert!(press(&mut a, Key::Char(' ')).is_empty(), "{name}");
-        assert_eq!(a.shared.message, before, "{name}");
+        assert_eq!(
+            a.shared.message.as_deref(),
+            Some(vtium_config::tui::words::SPACE_ON_VTLOOK),
+            "{name}"
+        );
+        assert_eq!(a.shared.conf_text().map(str::to_owned), draft, "{name}");
         assert_eq!(nav::node(&a), "effects", "{name}");
     }
+    let mut a = effects();
+    press(&mut a, Key::Home);
+    assert!(press(&mut a, Key::Char(' ')).is_empty());
+    assert_eq!(
+        a.shared.message.as_deref(),
+        Some(vtium_config::tui::words::SPACE_ON_EFFECT_FILTER)
+    );
 }
 
 // An administrator's vtlook that takes a preset's name hides the preset,
@@ -808,4 +821,19 @@ fn the_real_desk_keeps_a_color_map_s_change_beside_the_draft() {
             .is_empty()
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+// A color map's file name is the administrator's text, so the list and
+// the detail show it with a direction override replaced.
+#[test]
+fn a_color_map_s_name_shows_no_direction_override() {
+    let mut a = effects();
+    let mut map = a.shared.inputs.effects.maps[0].clone();
+    map.path = map.path.with_file_name("evil\u{202e}txt.cube");
+    a.shared.inputs.effects.maps.insert(0, map);
+    to(&mut a, "evil\u{202e}txt.cube");
+    assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
+    press(&mut a, Key::Enter);
+    assert_eq!(nav::node(&a), "effects.effect");
+    assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
 }

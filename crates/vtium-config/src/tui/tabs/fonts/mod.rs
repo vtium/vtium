@@ -310,7 +310,8 @@ impl Fonts {
                 // usable: installing it from its detail
                 Some(f) if f.resource.own => say(words::own_font(&shown(f.path()))),
                 Some(f) => resources::space(&f.resource, &detail::uses(shared, f.path())),
-                None => Vec::new(),
+                // the filter line, which the key line's Space does not act on
+                None => say(words::SPACE_ON_FONT_FILTER.to_owned()),
             },
             Key::Char('p') => {
                 self.picture = !self.picture;

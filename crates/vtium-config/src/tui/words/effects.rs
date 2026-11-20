@@ -242,3 +242,11 @@ pub fn vtlook_map_unusable(map: &str, why: &str) -> String {
         "The vtlook names the color map {map}, which {why}, so vtium renders the built-in vtlook in its place."
     )
 }
+
+/// Space on the Effects tab's filter line.
+pub const SPACE_ON_EFFECT_FILTER: &str =
+    "Space activates the highlighted color map or shader. Move down to one first.";
+
+/// Space on a vtlook, which is no file to activate.
+pub const SPACE_ON_VTLOOK: &str =
+    "A vtlook needs no activating. A look uses a vtlook by naming it on the look's card.";

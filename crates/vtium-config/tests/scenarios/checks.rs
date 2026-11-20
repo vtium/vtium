@@ -1875,8 +1875,15 @@ const MOVES: &[&str] = &[
 /// value stays in the typing; any other key acts without leaving the TUI.
 /// A planned row of this kind records only that the walk reached it.
 fn generic(row: &KeyRow) -> Option<(Check, Option<Check>)> {
+    // a tab's list can be in more than one node by what the highlight is
+    // on, as the Looks tab's list is on a color scheme, so a key that moves
+    // the highlight stays in the tab's list
     let moves: Check = |s| {
-        if s.exited() || s.step.from.node() != s.step.to.node() || !s.kept() {
+        let (from, to) = (s.step.from.node(), s.step.to.node());
+        let listed = super::reference::kind(&from) == "view"
+            && super::reference::kind(&to) == "view"
+            && super::reference::tab_of(&from) == super::reference::tab_of(&to);
+        if s.exited() || (from != to && !listed) || !s.kept() {
             Err("the key left its node, quit, or changed what the person made".into())
         } else {
             Ok(())

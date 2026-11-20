@@ -26,6 +26,7 @@ use super::super::super::model::Shared;
 use super::super::super::resources::Resource;
 use super::super::super::words;
 use crate::batch::{Places, Use};
+use crate::onscreen::text;
 
 /// The pointer theme at `at`.
 pub fn theme(shared: &Shared, at: usize) -> Option<&Resource> {
@@ -35,7 +36,9 @@ pub fn theme(shared: &Shared, at: usize) -> Option<&Resource> {
 /// The pointer theme at `at` as an item of the list: its name, and its
 /// marks.
 pub fn item(shared: &Shared, at: usize) -> Item {
-    theme(shared, at).map_or_else(Item::default, |r| Item::new(r.name(), r.row()))
+    // a folder's name is the administrator's text, which the screen shows
+    // with its control and direction characters replaced
+    theme(shared, at).map_or_else(Item::default, |r| Item::new(text(&r.name()), r.row()))
 }
 
 /// The uses of the pointer theme at `path` in the draft, by the rule the
@@ -60,12 +63,12 @@ pub fn detail(shared: &Shared, at: usize) -> Vec<String> {
     let Some(r) = theme(shared, at) else {
         return Vec::new();
     };
-    let shown = r.path.display().to_string();
+    let shown = crate::onscreen::path(&r.path);
     // vtium reads a pointer file as SVG by its suffix, and any other path
     // as a cursor theme's folder
     let folder = r.path.extension().is_none_or(|e| e != "svg");
     vec![
-        words::pointer_title(r.name()),
+        words::pointer_title(text(&r.name())),
         if folder {
             words::pointer_folder(&shown)
         } else {

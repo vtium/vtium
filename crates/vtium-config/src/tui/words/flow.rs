@@ -778,3 +778,10 @@ pub const LABEL_REMOVED: &str =
 pub fn label_set(label: &str) -> String {
     format!("This part's label is now \u{201c}{label}\u{201d}. vtium-config wrote it to the draft.")
 }
+
+/// Esc in the Flow view while NEW PATH is empty.
+pub const NOTHING_TO_CLEAR: &str = "NEW PATH is empty, so Esc has nothing to clear.";
+
+/// Space on NEW PATH's terminal box.
+pub const NEW_TERMINAL_SPACE: &str =
+    "The new terminal is already in NEW PATH. Enter opens its card.";

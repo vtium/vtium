@@ -1428,6 +1428,10 @@ impl App {
     /// pending, and on a live console the font the draft gives the
     /// console's head is the one leaving gives back (ADR-1201 D4).
     pub(crate) fn frits_installed(&mut self) {
+        // the Looks tab holds each font set by its place in the list,
+        // which the changes below move, so its highlight and an open
+        // detail are kept by the font set's name
+        let spot = self.looks.spot(&self.shared);
         let removed = std::mem::take(&mut self.shared.pending.removals);
         self.shared
             .inputs
@@ -1456,6 +1460,7 @@ impl App {
             self.shared.inputs.installed.insert(name, text.into_bytes());
         }
         self.fonts.keep(&self.shared, None);
+        self.looks.restore(&self.shared, spot);
         self.shared.inputs.conf = self.shared.draft.as_ref().map(|d| d.text.clone());
         // the font the installed file gives the console's head, from its
         // look where the look names one

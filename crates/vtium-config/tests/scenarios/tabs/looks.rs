@@ -135,6 +135,8 @@ fn shown(s: &Shown) -> &'static [&'static str] {
     } else if s.top(" Pointer theme ") {
         &["looks.pointer"]
     } else {
-        &["looks"]
+        // the list is one node on a look or a font set and another on a
+        // color scheme or a pointer theme, and both show the same list
+        &["looks", "looks-resources"]
     }
 }
