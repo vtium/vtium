@@ -17,7 +17,8 @@
 //
 // A quad is one cell job: dst where it draws; src.xy the glyph's texel
 // under its top left and src.zw the column and row of the job's first
-// cell in the grid, the row in the low 16 bits of src.w; and params its
+// cell in the grid, the column in the low 16 bits of src.z and the row in
+// the low 16 bits of src.w; and params its
 // colors, 0xRRGGBB, each with a kind in
 // its top byte: x the foreground and the glyph's kind (0 none, 1 a mask
 // from masks, 2 a premultiplied color glyph from colors, 3 a sized run's
@@ -27,6 +28,13 @@
 // underline's color and its sprite, w the color and sprite of the lines
 // over the glyph (the strike, the overline or both),
 // a sprite being its place in sprites plus one, or 0 for none.
+//
+// A piece of a character on a line of double size, or of a sized run,
+// whose underline skips ink names in the bits of src.z from 16 up its
+// entry plus one in besides: for each row of its cell, the pixels from
+// its left and right edges that lie within the gap of the ink in the
+// character's pieces beside it. Its underline leaves those pixels out
+// with the ones near its own glyph's ink, as compose.rs's near_ink does.
 //
 // A cell of a sized run of scale s from 2 on draws its decorations scaled
 // with the run's text (ADR-1308 D9): src.w holds s in bits 16 to 18, the
@@ -63,8 +71,14 @@ uniform highp sampler2D colors;
 uniform highp sampler2D sprites;
 // x, y: the cell's width and height; z: the sprites across the sprites'
 // texture, which holds a cell for each in a grid, the first row left to
-// right, then the next
+// right, then the next; w: the entries across besides
 uniform ivec4 cell;
+// the ink beside the pieces of magnified characters: entry n takes cell.y
+// texels from column (n % cell.w) * cell.y of texel row n / cell.w, one
+// for each row of the piece's cell, upright, from the top, whose red byte
+// holds the pixels the ink keeps clear from the cell's left edge and
+// whose green byte those from its right edge
+uniform highp sampler2D besides;
 #ifdef INK
 // the boxes of the glyphs whose ink passes their cells, each in a slot
 // with its first cell REACH_SIDE cells from the slot's left and
@@ -179,6 +193,21 @@ bool near_ink(uint kind, ivec2 at, int x, int w, int gap) {
         }
     }
     return false;
+}
+
+// Whether the pixel at `local` in the quad, which is `w` pixels wide,
+// lies within the gap of the ink beside the quad's piece, by its entry in
+// besides plus one, 0 for none.
+bool beside(uint entry, ivec2 local, int w) {
+    if (entry == 0u) {
+        return false;
+    }
+    int n = int(entry - 1u);
+    int across = max(cell.w, 1);
+    vec4 t = texelFetch(besides, ivec2((n % across) * cell.y + local.y, n / across), 0);
+    int left = int(byte(t.r));
+    int right = int(byte(t.g));
+    return local.x < left || local.x >= w - right;
 }
 
 #ifdef INK
@@ -311,7 +340,7 @@ void main() {
     uint flags = params.y >> 24u;
 #ifdef INK
     if ((flags & RECEIVES) != 0u) {
-        Job job = Job(int(src.z), int(src.w & 0xffffu), dst.z / max(cell.x, 1), (flags & MARKED) != 0u, fg);
+        Job job = Job(int(src.z & 0xffffu), int(src.w & 0xffffu), dst.z / max(cell.x, 1), (flags & MARKED) != 0u, fg);
         ivec2 pixel = ivec2(job.col * cell.x, job.row * cell.y) + local;
         if (line_inked(job, pixel, (flags & DOWN) != 0u)) {
             recv = received(job, pixel);
@@ -349,7 +378,8 @@ void main() {
         if (ul != 0u) {
             float u = sprite(ul, pos);
             int gap = int(flags >> GAP);
-            if (u != 0.0 && gap != 0 && near_ink(kind, at, local.x, dst.z, gap)) {
+            if (u != 0.0 && gap != 0
+                && (near_ink(kind, at, local.x, dst.z, gap) || beside(src.z >> 16u, local, dst.z))) {
                 u = 0.0;
             }
             p = tint_over(p, u, rgb(params.z));

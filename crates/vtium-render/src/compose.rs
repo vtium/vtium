@@ -29,7 +29,7 @@ use crate::deco::{Line, Sprites, magnification};
 use crate::picture::{Mark, Pictures, Under, over_px, tint};
 use crate::renderer::double::Piece;
 use crate::stored::{Pens, Rows, Stored};
-use crate::target::Target;
+use crate::target::{Orientation, Target};
 
 pub(crate) fn int(v: impl TryInto<i64>) -> i64 {
     v.try_into().unwrap_or(i64::MAX)
@@ -699,7 +699,7 @@ fn deco_over(
             && cov.iter().any(|&a| a != 0)
         {
             if !near_found {
-                near_ink(job, glyph, sprites.turned(), y, (ink, near));
+                near_ink(job, glyph, sprites.orientation(), y, (ink, near));
                 near_found = true;
             }
             for (a, &n) in cov.iter_mut().zip(near.iter()) {
@@ -719,12 +719,29 @@ fn deco_over(
 /// cell's row, the ink's own pixels among them. A pixel here is one of
 /// the normal cell's, so in a magnified cell it spans [`magnification`]
 /// display pixels. Ink is any pixel of the glyph, or of its color layer,
-/// with a coverage above 0. Only the ink inside the job's area counts. The
+/// with a coverage above 0. Only the ink inside the job's area counts,
+/// and in a piece of a magnified character the ink of the character's
+/// pieces beside it, which the glyph carries ([`Stored::beside`]). The
 /// cell's row runs along the display line, or down a display column on a
-/// display turned a quarter, where the lines before and after `y` hold the
-/// pixels beside it. `ink` is scratch for the glyph's lines.
-fn near_ink(job: &Job, glyph: &Stored, turned: bool, y: i64, (ink, near): (&mut [u8], &mut [u8])) {
+/// display turned a quarter by `o`, where the lines before and after `y`
+/// hold the pixels beside it. `ink` is scratch for the glyph's lines.
+fn near_ink(
+    job: &Job,
+    glyph: &Stored,
+    o: Orientation,
+    y: i64,
+    (ink, near): (&mut [u8], &mut [u8]),
+) {
     near.fill(0);
+    if let Some(beside) = glyph.beside() {
+        let (dx, dy) = (job.r.x.saturating_sub(job.g.x), y.saturating_sub(job.g.y));
+        for (x, n) in (dx..).zip(near.iter_mut()) {
+            if beside.skips(o, (x, dy)) {
+                *n = 1;
+            }
+        }
+    }
+    let turned = o.turned();
     let gap = magnification(job.piece);
     let gx = job.r.x.saturating_sub(job.g.x);
     let lines = if turned {

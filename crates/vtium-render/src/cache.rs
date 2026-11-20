@@ -24,9 +24,11 @@
 //! arrival empties the table. A glyph refused
 //! for room is not remembered: the next frame may have the room.
 
-use vtium_font::{Doubled, Drawn, Face, Font, Glyph, Script, Variant, Width};
+use vtium_font::{Cell, Doubled, Drawn, Face, Font, Glyph, Script, Variant, Width};
 
+use crate::beside::{Beside, Ink};
 use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
+use crate::deco::magnification;
 use crate::mono::Fallback;
 use crate::reach::Reach;
 use crate::renderer::double::{self, Piece};
@@ -502,8 +504,9 @@ impl<T: Held> GlyphCache<T> {
             if missing {
                 self.missing.extend_from_slice(text);
             }
+            let beside = self.run_beside(font.cell(), run, magnification(piece));
             let (o, bits) = (self.orientation, self.storage.bits);
-            let stored = Stored::new(&glyph, 1, o, bits);
+            let stored = Stored::new(&glyph, 1, o, bits).with_beside(beside);
             let stored = match color {
                 Some(c) => stored.with_layer(Stored::new(&c, 1, o, bits)),
                 None => stored,
@@ -550,15 +553,19 @@ impl<T: Held> GlyphCache<T> {
             Some(bitmap) => (bitmap, 1),
             None => (glyph, scale),
         };
-        let (glyph, scale) = match piece.doubled() {
-            None => (glyph, scale),
+        let (glyph, scale, beside) = match piece.doubled() {
+            None => (glyph, scale, None),
             Some(size) => {
                 let drawn = self.doubled_glyph(font, (text, width, variant), size);
-                double::piece_glyph(drawn, (&glyph, scale), (font.cell(), width), piece)?
+                let at = (font.cell(), width);
+                let (cut, cut_scale) = double::piece_glyph(drawn, (&glyph, scale), at, piece)?;
+                let gap = magnification(piece);
+                let beside = double::piece_beside(drawn, (&glyph, scale), at, piece, gap);
+                (cut, cut_scale, beside)
             }
         };
         let stored = Stored::new(&glyph, scale, self.orientation, self.storage.bits);
-        Some((stored, missing))
+        Some((stored.with_beside(beside), missing))
     }
 
     /// The glyph for `text` drawn at the double size `size`
@@ -616,6 +623,45 @@ impl<T: Held> GlyphCache<T> {
         }
         let block = self.last_sized.as_ref()?.block.as_ref()?;
         Some((block.piece(font.cell(), run)?, block.missing))
+    }
+
+    /// The pixels near the ink in the pieces beside the sized run's piece
+    /// `run`, in a font of cell `cell`, for an underline that keeps a gap
+    /// of `gap` display pixels on each side of the ink ([`Beside`]): the
+    /// pieces beside it in its row of the run's block, which
+    /// [`GlyphCache::run_piece`] has just drawn. The whole block is the
+    /// run's one character, so the ink of every piece of its row counts.
+    fn run_beside(&self, cell: Cell, run: RunPiece, gap: u32) -> Option<Beside> {
+        let block = self.last_sized.as_ref()?.block.as_ref()?;
+        let cut = |column: Option<u8>| {
+            block.piece(
+                cell,
+                RunPiece {
+                    column: column?,
+                    ..run
+                },
+            )
+        };
+        // the pieces a gap of `gap` pixels reaches into, on each side
+        let reach = u8::try_from(gap.div_ceil(cell.width.max(1))).unwrap_or(u8::MAX);
+        let left: Vec<_> = (1..=reach)
+            .map(|k| cut(run.column.checked_sub(k)))
+            .collect();
+        let right: Vec<_> = (1..=reach)
+            .map(|k| cut(run.column.checked_add(k)))
+            .collect();
+        fn ink(p: &[Option<(Glyph, Option<Glyph>)>]) -> Vec<Option<Ink<'_>>> {
+            p.iter()
+                .map(|p| {
+                    p.as_ref().map(|(glyph, layer)| Ink {
+                        glyph,
+                        layer: layer.as_ref(),
+                        scale: 1,
+                    })
+                })
+                .collect()
+        }
+        Beside::of((cell.width, cell.height), gap, &ink(&left), &ink(&right))
     }
 
     /// Whether the font has drawn a glyph whose ink passes its cells: until

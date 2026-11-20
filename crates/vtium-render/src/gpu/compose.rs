@@ -36,6 +36,7 @@
 use vtium_font::{Face, Font};
 use vtium_term::Rgb;
 
+use super::beside::SHIFT;
 use super::gl::{
     Batch, Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Input, InputKind,
     Program, Quad, Size, Source, Texture, Value,
@@ -47,10 +48,11 @@ use super::pictures::Shown;
 use super::tile::{Tile, meet, tiles};
 use super::turn::Turn;
 use crate::arrow::Arrow;
+use crate::beside::shown_at;
 use crate::blend::pixel;
 use crate::bounds::GPU_IDLE_FRAMES;
 use crate::compose::{Area, Composer, Job};
-use crate::deco::{LINES, Line, magnification};
+use crate::deco::{LINES, Line, Sprites, magnification};
 use crate::notice::Placed;
 use crate::reach::{Bound, Reach};
 use crate::renderer::Back;
@@ -116,7 +118,7 @@ pub(crate) const TARGET_SIZE: Input = Input {
     kind: InputKind::Vec2,
 };
 
-const CELL_INPUTS: [Input; 5] = [
+const CELL_INPUTS: [Input; 6] = [
     TARGET_SIZE,
     Input {
         name: "masks",
@@ -134,16 +136,21 @@ const CELL_INPUTS: [Input; 5] = [
         name: "cell",
         kind: InputKind::IVec4,
     },
+    Input {
+        name: "besides",
+        kind: InputKind::Texture,
+    },
 ];
 
 /// The inputs of the cell shader built with [`INK`]: the cell shader's,
 /// the boxes, a box slot's size, the ink grid and the color boxes.
-const INK_INPUTS: [Input; 9] = [
+const INK_INPUTS: [Input; 10] = [
     CELL_INPUTS[0],
     CELL_INPUTS[1],
     CELL_INPUTS[2],
     CELL_INPUTS[3],
     CELL_INPUTS[4],
+    CELL_INPUTS[5],
     Input {
         name: "boxes",
         kind: InputKind::Texture,
@@ -185,7 +192,7 @@ pub(crate) fn receiving(q: &Quad, cell: Size) -> Option<ReceivingJob> {
     let n = |v: u32| usize::try_from(v).unwrap_or(0);
     let width = u32::try_from(q.dst[2]).unwrap_or(0);
     Some(ReceivingJob {
-        col: n(q.src[2]),
+        col: n(q.src[2] & COL),
         row: n(q.src[3] & ROW),
         cells: n(if cell.width > 0 {
             width.div_ceil(cell.width)
@@ -212,7 +219,7 @@ const BENEATH: [Input; 2] = [
 ];
 
 #[cfg(feature = "images")]
-const LAYER_INPUTS: [Input; 11] = [
+const LAYER_INPUTS: [Input; 12] = [
     INK_INPUTS[0],
     INK_INPUTS[1],
     INK_INPUTS[2],
@@ -222,6 +229,7 @@ const LAYER_INPUTS: [Input; 11] = [
     INK_INPUTS[6],
     INK_INPUTS[7],
     INK_INPUTS[8],
+    INK_INPUTS[9],
     BENEATH[0],
     BENEATH[1],
 ];
@@ -1079,10 +1087,11 @@ impl Composition {
         Ok(self.tiles.len())
     }
 
-    /// The textures a batch of cells samples, its masks, its colors and the
-    /// sprites, and the cell's size with the sprites across their texture,
-    /// as the cell shader's inputs; and for the cell shader built with
-    /// [`INK`], as `ink` asks, the boxes, a box slot's size and the ink
+    /// The textures a batch of cells samples, its masks, its colors, the
+    /// sprites and the ink beside the pieces of magnified characters, and
+    /// the cell's size with the sprites and those entries across their
+    /// textures, as the cell shader's inputs; and for the cell shader
+    /// built with [`INK`], as `ink` asks, the boxes, a box slot's size and the ink
     /// grid. A draw before any glyph has taken a box, or any cell has
     /// received ink, binds the sprites in place of the boxes and the ink
     /// grid, and never samples them.
@@ -1107,6 +1116,9 @@ impl Composition {
             None => (sprites, sprites),
         };
         let cell = glyphs.cell();
+        // no quad names an entry of the ink beside pieces before a piece
+        // with ink beside it draws an underline
+        let besides = glyphs.besides.texture().unwrap_or(sprites);
         let mut inputs = vec![
             ("masks", Value::Texture(masks, Filter::Nearest)),
             ("colors", Value::Texture(colors, Filter::Nearest)),
@@ -1117,9 +1129,10 @@ impl Composition {
                     side(cell.width),
                     side(cell.height),
                     side(glyphs.sprite_columns()),
-                    0,
+                    side(glyphs.besides.across()),
                 ]),
             ),
+            ("besides", Value::Texture(besides, Filter::Nearest)),
         ];
         if ink {
             let (boxes, color_boxes, [w, h, across]) = glyphs.boxes();
@@ -1598,9 +1611,10 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             over: None,
             ..*job
         };
-        let quad =
-            |j: &Job, place: Option<Place>, flags: u32| cell_quad(j, (r, g), place, (row, flags));
-        push(&mut self.cells, None, quad(&bare, None, 0));
+        let quad = |j: &Job, place: Option<Place>, flags: u32, beside: u32| {
+            cell_quad(j, (r, g), (place, beside), (row, flags))
+        };
+        push(&mut self.cells, None, quad(&bare, None, 0, 0));
         self.picture_rects
             .resize_with(pictures.pics().len(), Vec::new);
         for &i in self.meeting.get(top.unwrap_or(0)..).unwrap_or_default() {
@@ -1618,7 +1632,8 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             ..*job
         };
         if place.is_some() || text.layered() || ink != 0 {
-            let q = quad(&text, place, ink);
+            let beside = self.beside(&compose.sprites, &text, place);
+            let q = quad(&text, place, ink, beside);
             push(&mut self.text, place.map(|p| (p.texture, p.color)), q);
         }
         if job.under.selected
@@ -1628,9 +1643,38 @@ impl<'a, G: Gl> GpuBack<'a, G> {
         }
         if mark == Mark::Underline && job.underline.is_some() {
             let line = Job { over: None, ..*job };
-            push(&mut self.marks, None, quad(&line, None, 0));
+            push(&mut self.marks, None, quad(&line, None, 0, 0));
         }
         true
+    }
+}
+
+impl<G: Gl> GpuBack<'_, G> {
+    /// The entry plus one, for its quad, of the ink beside the piece that
+    /// `job` draws at `place`, when its underline skips ink; 0 when the
+    /// job draws no such underline, or its piece has nothing beside it on
+    /// the rows its underline's sprite in `sprites` covers.
+    fn beside(&mut self, sprites: &Sprites, job: &Job, place: Option<Place>) -> u32 {
+        let (Some((line, _)), Some(p)) = (job.underline, place) else {
+            return 0;
+        };
+        let Some(sprite) = sprites.piece(line, job.piece).filter(|_| line.skips_ink) else {
+            return 0;
+        };
+        let (o, cell) = (sprites.orientation(), self.glyphs.cell());
+        let (w, h) = (i64::from(cell.width), i64::from(cell.height));
+        // the sprite is turned as the display is, so each pixel of the
+        // upright row is read where the display shows it
+        let mut a = [0u8];
+        let underlines = |v: usize| {
+            let v = i64::try_from(v).unwrap_or(i64::MAX);
+            (0..w).any(|u| {
+                let (x, y) = shown_at(o, (u, v), (w, h));
+                sprite.mask_line(x, y, &mut a);
+                a[0] != 0
+            })
+        };
+        self.glyphs.besides.entry(p.slot, underlines)
     }
 }
 
@@ -1918,10 +1962,11 @@ impl<G: Gl> GpuBack<'_, G> {
             if self.pictured(compose, job, place, (row, ink)) {
                 continue;
             }
+            let beside = self.beside(&compose.sprites, job, place);
             let quad = cell_quad(
                 job,
                 (self.turn.up_area(job.r), self.turn.up_area(job.g)),
-                place,
+                (place, beside),
                 (row, ink),
             );
             push(&mut self.cells, place.map(|p| (p.texture, p.color)), quad);
@@ -1981,6 +2026,11 @@ fn bar_quad(r: Area, color: Rgb, cell: (usize, usize)) -> Quad {
     }
 }
 
+/// The bits of a quad's `src[2]` that hold the column of its first cell.
+/// The bits above them name the quad's entry of the ink beside its piece,
+/// plus one ([`super::beside`]).
+pub(crate) const COL: u32 = 0xffff;
+
 /// The bits of a quad's `src[3]` that hold the row of its first cell. The
 /// bits above them name the piece of a sized run's decorations the quad
 /// draws ([`run_bits`]).
@@ -2013,9 +2063,10 @@ fn run_bits(job: &Job) -> u32 {
 
 /// A cell job of grid row `row` as the cell shader's quad: where it
 /// draws, `r` in the upright frame; the glyph's texel under its top left,
-/// the glyph lying at `g`, and the column and row of the job's first cell,
-/// with a sized run's piece of its decorations above the row
-/// ([`run_bits`]);
+/// the glyph lying at `place` and `g`, and the column and row of the job's
+/// first cell, with `beside`, its entry of the ink beside its piece plus
+/// one, above the column, and a sized run's piece of its decorations above
+/// the row ([`run_bits`]);
 /// and its colors, each with a kind in its top byte: the glyph's (none, a
 /// mask, a color glyph), `flags` with the background, the underline's
 /// sprite and the sprite of the lines over the glyph (the strike, the
@@ -2024,13 +2075,13 @@ fn run_bits(job: &Job) -> u32 {
 pub(crate) fn cell_quad(
     job: &Job,
     (r, g): (Area, Area),
-    place: Option<Place>,
+    (place, beside): (Option<Place>, u32),
     (row, flags): (usize, u32),
 ) -> Quad {
     let i = |v: i64| i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX });
     let u = |v: i64| u32::try_from(v.max(0)).unwrap_or(u32::MAX);
     let (col, row) = (
-        u32::try_from(job.posx).unwrap_or(u32::MAX),
+        u32::try_from(job.posx).unwrap_or(COL).min(COL) | beside.min(COL) << SHIFT,
         u32::try_from(row).unwrap_or(ROW).min(ROW) | run_bits(job),
     );
     let (src, kind) = match place {

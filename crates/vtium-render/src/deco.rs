@@ -517,10 +517,9 @@ impl Sprites {
         self.runs.insert(key, stored);
     }
 
-    /// Whether the display is turned a quarter, so that a cell's row runs
-    /// down a display column.
-    pub(crate) fn turned(&self) -> bool {
-        self.o.turned()
+    /// How the display is turned, which turns the sprites.
+    pub(crate) fn orientation(&self) -> Orientation {
+        self.o
     }
 
     /// The sprite of `line` at the normal size.

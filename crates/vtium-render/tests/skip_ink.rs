@@ -307,3 +307,238 @@ fn the_underline_cursor_draws_on_the_gpu_path_as_on_the_cpu_path() {
     let d = differ(&got, &want);
     assert!(d.is_none(), "against the CPU path: {d:x?}");
 }
+
+/// A terminal of `cols` by `rows` with an invisible cursor, after `bytes`.
+fn term(cols: usize, rows: usize, bytes: &[u8]) -> vtium_term::Terminal {
+    let mut t = vtium_term::Terminal::new(cols, rows, 0);
+    t.input(b"\x1b[?25l");
+    t.input(bytes);
+    t
+}
+
+/// The SGR that sets underline style `u` in the color [`LINE`].
+fn sgr(u: UnderlineStyle) -> String {
+    let n = STYLES.iter().position(|&s| s == u).unwrap() + 1;
+    format!("\x1b[4:{n};58:2::255:32:64m")
+}
+
+/// `t`'s screen drawn whole on the CPU path, on a display that holds its
+/// grid of 8×16 cells exactly, row by row.
+fn cpu_term(t: &vtium_term::Terminal) -> Vec<u32> {
+    cpu_term_turned(t, Orientation::Normal)
+}
+
+/// `t`'s screen drawn whole on the CPU path on a display turned by `o`,
+/// which holds its grid of 8×16 cells exactly, upright and row by row.
+fn cpu_term_turned(t: &vtium_term::Terminal, o: Orientation) -> Vec<u32> {
+    let (cols, rows) = (t.screen().cols(), t.screen().rows());
+    let (w, h) = (cols as u32 * 8, rows as u32 * 16);
+    let turned = o == Orientation::Right || o == Orientation::Left;
+    let (dw, dh) = if turned { (h, w) } else { (w, h) };
+    let config = Config {
+        orientation: o,
+        ..Config::default()
+    };
+    let mut r = Renderer::new(unifont(), dw, dh, config);
+    assert_eq!(r.grid_size(), (cols, rows));
+    let mut c = Canvas::new(dw, dh, 0);
+    let st = DrawState {
+        cursor_on: true,
+        background: t.palette().bg(),
+        ..DrawState::default()
+    };
+    r.draw(&t.screen().frame(t.palette(), Age::NEVER), &mut c, 0, &st);
+    (0..h)
+        .flat_map(|y| (0..w).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            let (tx, ty) = match o {
+                Orientation::Normal => (x, y),
+                Orientation::UpsideDown => (w - 1 - x, h - 1 - y),
+                Orientation::Right => (h - 1 - y, x),
+                Orientation::Left => (y, w - 1 - x),
+            };
+            c.pixel(tx, ty).unwrap()
+        })
+        .collect()
+}
+
+/// `t`'s screen drawn on the GPU path, on the stand-in GL, as
+/// [`cpu_term`] draws it on the CPU path.
+#[cfg(feature = "gpu")]
+fn gpu_term(t: &vtium_term::Terminal) -> Vec<u32> {
+    use vtium_render::gpu::{Gl, Pipeline, Size, StandIn};
+    let (cols, rows) = (t.screen().cols(), t.screen().rows());
+    let (w, h) = (cols as u32 * 8, rows as u32 * 16);
+    let size = Size::new(w, h);
+    let mut gl = StandIn::new();
+    let mut pipeline = Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
+    let buffer = gl.import_buffer(&size).unwrap();
+    let mut r = Renderer::new(unifont(), w, h, Config::default());
+    let st = DrawState {
+        cursor_on: true,
+        background: t.palette().bg(),
+        ..DrawState::default()
+    };
+    let frame = t.screen().frame(t.palette(), Age::NEVER);
+    r.draw_gpu(&mut gl, &mut pipeline, &frame, &buffer, 0, &st, &[])
+        .unwrap();
+    gl.frame_names()
+        .iter()
+        .rev()
+        .find_map(|&n| gl.frame_pixels(n).filter(|(f, _)| *f == size))
+        .unwrap()
+        .1
+        .to_vec()
+}
+
+/// [`TEXT`] in each underline style at the normal size, a row each.
+fn normal_rows() -> Vec<u32> {
+    let mut bytes = Vec::new();
+    for (row, u) in STYLES.into_iter().enumerate() {
+        bytes.extend(format!("\x1b[{};1H{}{TEXT}\x1b[m", row + 1, sgr(u)).bytes());
+    }
+    cpu_term(&term(COLS, ROWS, &bytes))
+}
+
+/// What `got`, `w` pixels wide, should hold: at each pixel the pixel of
+/// `normal`, [`W`] pixels wide, that `from` names for it. Gives the first
+/// pixel that differs, with the drawn and the expected pixel, and how
+/// many differ.
+fn magnified_differ(
+    got: &[u32],
+    w: u32,
+    normal: &[u32],
+    from: impl Fn(u32, u32) -> Option<(u32, u32)>,
+) -> Option<(usize, (u32, u32), u32, u32)> {
+    let mut first = None;
+    let mut n = 0;
+    for (i, &g) in got.iter().enumerate() {
+        let (x, y) = (i as u32 % w, i as u32 / w);
+        let Some((nx, ny)) = from(x, y) else { continue };
+        let want = normal[(ny * W + nx) as usize];
+        if g != want {
+            n += 1;
+            first.get_or_insert(((x, y), g, want));
+        }
+    }
+    first.map(|(at, g, want)| (n, at, g, want))
+}
+
+/// [`TEXT`] in each underline style on a double-width line, then on a
+/// double-height pair: three rows for each style.
+fn doubled_terminal() -> vtium_term::Terminal {
+    let mut bytes = Vec::new();
+    for (i, u) in STYLES.into_iter().enumerate() {
+        for (k, line) in b"634".iter().enumerate() {
+            let row = i * 3 + k + 1;
+            bytes.extend(format!("\x1b[{row};1H\x1b#{}", *line as char).bytes());
+            bytes.extend(format!("{}{TEXT}\x1b[m", sgr(u)).bytes());
+        }
+    }
+    term(2 * COLS, 3 * ROWS, &bytes)
+}
+
+/// For a pixel of [`doubled_terminal`]'s drawing, the pixel of
+/// [`normal_rows`] it doubles.
+fn doubled_from(x: u32, y: u32) -> Option<(u32, u32)> {
+    let (row, line) = (y / 16, y % 16);
+    let (style, kind) = (row / 3, row % 3);
+    let ny = match kind {
+        0 => line,
+        1 => line / 2,
+        _ => (line + 16) / 2,
+    };
+    Some((x / 2, style * 16 + ny))
+}
+
+// A character on a line of double size draws as pieces, one for each of
+// its display cells, and each piece's underline leaves out the pixels
+// near the ink of the whole doubled character, its other pieces' too. So
+// a descender beside the edge between two pieces keeps its gap on both
+// sides of the edge, and each doubled underline draws as the line at the
+// normal size, doubled.
+// covers: sgr.underline-style
+#[test]
+fn a_doubled_underline_skips_the_ink_of_the_whole_doubled_character() {
+    let normal = normal_rows();
+    let t = doubled_terminal();
+    for o in [
+        Orientation::Normal,
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
+    ] {
+        let got = cpu_term_turned(&t, o);
+        let d = magnified_differ(&got, 2 * W, &normal, doubled_from);
+        assert!(
+            d.is_none(),
+            "{o:?}: (pixels that differ, the first (x, y), drawn, expected): {d:x?}"
+        );
+    }
+}
+
+/// [`TEXT`] in each underline style as a sized run of scale `s`, one
+/// block of `s` rows for each style.
+fn sized_terminal(s: usize) -> vtium_term::Terminal {
+    let mut bytes = Vec::new();
+    for (i, u) in STYLES.into_iter().enumerate() {
+        let row = i * s + 1;
+        bytes.extend(format!("\x1b[{row};1H{}\x1b]66;s={s};{TEXT}\x07\x1b[m", sgr(u)).bytes());
+    }
+    term(s * COLS, s * ROWS, &bytes)
+}
+
+// A sized run draws as pieces, one for each cell of its block, and each
+// piece's underline leaves out the pixels near the ink of the whole run.
+// So a run's underline draws as the line at the normal size, magnified by
+// the run's scale.
+// covers: sgr.underline-style
+#[test]
+fn a_sized_runs_underline_skips_the_ink_of_the_whole_run() {
+    let normal = normal_rows();
+    for s in [2u32, 3] {
+        let t = sized_terminal(s as usize);
+        for o in [
+            Orientation::Normal,
+            Orientation::Right,
+            Orientation::UpsideDown,
+            Orientation::Left,
+        ] {
+            let got = cpu_term_turned(&t, o);
+            let d = magnified_differ(&got, s * W, &normal, |x, y| Some((x / s, y / s)));
+            assert!(d.is_none(), "s={s}, {o:?}: {d:x?}");
+        }
+    }
+}
+
+// The GPU path draws the doubled and the sized underlines as the CPU path
+// does: the cell shader reads the rows of pixels near the ink beside each
+// piece, which the GPU path hands it with the piece's quad.
+// covers: sgr.underline-style
+#[cfg(feature = "gpu")]
+#[test]
+fn a_magnified_underline_skips_the_ink_of_its_whole_character_on_the_gpu_path() {
+    let normal = normal_rows();
+    let t = doubled_terminal();
+    let (got, cpu) = (gpu_term(&t), cpu_term(&t));
+    let d = magnified_differ(&got, 2 * W, &normal, doubled_from);
+    assert!(d.is_none(), "doubled, against the expectation: {d:x?}");
+    let d = differ_w(&got, &cpu, 2 * W);
+    assert!(d.is_none(), "doubled, against the CPU path: {d:x?}");
+    for s in [2u32, 3] {
+        let t = sized_terminal(s as usize);
+        let (got, cpu) = (gpu_term(&t), cpu_term(&t));
+        let d = magnified_differ(&got, s * W, &normal, |x, y| Some((x / s, y / s)));
+        assert!(d.is_none(), "s={s}, against the expectation: {d:x?}");
+        let d = differ_w(&got, &cpu, s * W);
+        assert!(d.is_none(), "s={s}, against the CPU path: {d:x?}");
+    }
+}
+
+/// [`differ`] for pixels `w` wide.
+#[cfg(feature = "gpu")]
+fn differ_w(got: &[u32], want: &[u32], w: u32) -> Option<(usize, (u32, u32), u32, u32)> {
+    let n = got.iter().zip(want).filter(|(a, b)| a != b).count();
+    let i = got.iter().zip(want).position(|(a, b)| a != b)?;
+    Some((n, (i as u32 % w, i as u32 / w), got[i], want[i]))
+}
