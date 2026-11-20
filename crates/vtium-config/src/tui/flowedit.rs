@@ -444,6 +444,9 @@ impl App {
             Ok(found) => self.shared.inputs.font_files.rescanned(found),
             Err(why) => self.shared.inputs.font_files.added_unscanned(target, &why),
         }
+        // the install may have replaced a file of the same name, so the
+        // helper describes the file at `target` again
+        self.shared.inputs.font_files.forget(target);
         if let Some(draft) = &self.shared.draft {
             self.shared.inputs.font_files.set_states(&draft.resources);
         }

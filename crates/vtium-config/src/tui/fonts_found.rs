@@ -107,6 +107,15 @@ impl Fonts {
         self.described.retain(|p, _| paths.contains(p.as_path()));
     }
 
+    /// Forgets what the helper said of the file at `path`, and that it was
+    /// asked, so the next [`Fonts::ask`] asks for the file again. An
+    /// install that replaces a file keeps the file's path, so the list
+    /// would otherwise show the replaced file's description.
+    pub fn forget(&mut self, path: &Path) {
+        self.described.remove(path);
+        self.asked.remove(path);
+    }
+
     /// Adds the system font `target`, just installed, to the list when the
     /// scan after the install failed with `why`: the list keeps the files
     /// it had, the new font joins the system's group, and the note says

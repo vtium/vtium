@@ -684,6 +684,30 @@ fn an_install_that_fails_the_trust_rule_or_the_scan_says_so_and_keeps_the_list()
     );
 }
 
+/// A system font that replaces an installed file of its name is described
+/// again, so the list, the filters and a look's sizes follow the new file
+/// rather than what the font helper said of the file it replaced.
+///
+/// References:
+/// - ADR-1205 D5: an install may replace a different file of the same name.
+#[test]
+fn a_system_font_that_replaces_an_installed_file_is_described_again() {
+    use vtium_config::tui::fixture::{described, font_installed};
+    use vtium_config::tui::model::Effect;
+    let target = PathBuf::from(OWN_FONT_INSTALLED);
+    let mut app = app_after(&[]);
+    app.event(Event::Installed(Ok(font_installed())));
+    let terminus = described(Path::new("/usr/share/fonts/misc/ter-u16n.otb"));
+    app.event(Event::Described(vec![(target.clone(), terminus)]));
+    assert!(app.shared.inputs.font_files.described(&target).is_some());
+    let out = app.event(Event::Installed(Ok(font_installed())));
+    assert!(
+        out.contains(&Effect::Describe(vec![target.clone()])),
+        "{out:?}"
+    );
+    assert_eq!(app.shared.inputs.font_files.described(&target), None);
+}
+
 /// Enter in the detail of a system font installs nothing and says it is a
 /// system font already.
 #[test]
