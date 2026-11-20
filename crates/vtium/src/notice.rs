@@ -299,7 +299,8 @@ pub mod check_config {
     pub use vtium_settings::fonts_report as font_needs;
 
     /// The subcommand's help.
-    pub const HELP: &str = "Usage: vtium check-config [OPTION]... [--no-devices] [FILE]\n\n\
+    pub const HELP: &str = "Usage: vtium check-config [OPTION]... [--no-devices]\n\
+\x20      [--with-frit FILE]... [--without-frit NAME]... [FILE]\n\n\
 Checks vtium's configuration without applying it. It reads\n\
 /etc/vtium/vtium.conf (or the vtium.conf in --configdir, or FILE, to\n\
 check a file before you install it) and the other options, as vtium\n\
@@ -312,6 +313,11 @@ It also checks that at least one display that is connected reaches a\n\
 head that a keyboard reaches, and says what is missing if not. With no\n\
 display or keyboard connected, or with --no-devices, it checks the rules\n\
 alone and says so.\n\n\
+--with-frit FILE counts the font set file FILE, named NAME.vtfrit, as\n\
+the installed font set NAME, and --without-frit NAME counts the font set\n\
+NAME as not installed. vtium-config passes them for the font sets that a\n\
+draft adds, replaces and removes, so that a look naming a font set the\n\
+draft adds gets no warning.\n\n\
 It exits 0 when it finds no error or warning. It exits 6 when the only\n\
 warnings are fonts that a font set needs and this machine lacks: a font\n\
 that is not installed, or one that lacks a character the set checks for.\n\
