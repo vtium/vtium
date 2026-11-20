@@ -1855,9 +1855,9 @@ fn enter_on_a_size_tries_its_grid_on_the_console_and_a_key_puts_it_back() {
     keys.push(b"x");
     let (c, draft) = run_on(&window_ops_on(), &keys);
     assert!(c.cells.contains(&("proof".to_owned(), 8)), "{:?}", c.cells);
-    let tried = find(&c.written, b"\x1b[8;30;80t").expect("the size's grid request");
-    let back = find(&c.written[tried..], b"\x1b[8;25;80t").expect("the grid put back");
-    assert!(back > 0);
+    // the trial's grid, then the grid put back, which is the starting
+    // grid, so leaving sends no other
+    assert_eq!(grid_requests(&c.written), ["30;80", "25;80"]);
     // the pick is a change to the look like any other, kept for Save
     assert!(draft.contains("[look proof]\nfont-size = 6\n"), "{draft}");
 }

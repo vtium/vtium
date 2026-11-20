@@ -1068,6 +1068,9 @@ impl App {
             return Vec::new();
         };
         if let Some(g) = t.grid {
+            // a console back at its starting grid needs nothing more when
+            // the TUI leaves
+            self.shared.grid_moved = g.back != self.shared.start_grid;
             self.shared.message = Some(words::size_back(g.back));
             return vec![Effect::Write(grid_request(g.back))];
         }
