@@ -3,8 +3,9 @@
 # network has it (ADR-1500 D9). tools/vendor/archive describes the archive.
 #
 # When a release is published, the archive job checks out the release's tag,
-# packs the archive with make vendor-archive-check, which also builds the
-# workspace offline from it, and keeps both files as a workflow artifact. The
+# builds Cullet Mono's faces, then packs the archive with make
+# vendor-archive-check, which also builds the workspace and make install
+# offline from it, and keeps both files as a workflow artifact. The
 # attach job then attaches them to the release. Run by hand on a tag, a
 # branch or a commit, the workflow packs and checks the archive and keeps it
 # as a workflow artifact alone, so it can be checked before a release depends
@@ -73,6 +74,22 @@ jobs:
           else
             echo "this runner has no kernel.apparmor_restrict_unprivileged_userns"
           fi
+      # The check ends with make install, which installs Cullet Mono's two
+      # faces, and tools/cullet-mono/pins.tsv pins the bytes that FontForge
+      # 20251009 writes. Ubuntu's FontForge is an older release, so this
+      # step builds the faces in an Arch Linux container, with the FontForge
+      # the AUR's recipes build them with, into target/cullet-mono. The
+      # check copies the faces from there, checks them against their pins,
+      # and stages the Terminus and Unifont files itself. The container runs
+      # as root, so the step gives the folders it wrote back to the runner's
+      # user.
+      - name: build Cullet Mono
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src -e OWNER="$(id -u):$(id -g)" archlinux:latest sh -euc '
+            pacman -Syu --noconfirm --needed fontforge python rust gcc curl
+            cargo run --release --locked --manifest-path tools/cullet-mono/Cargo.toml \
+              --target-dir target/cullet-mono-tool -- build --out target/cullet-mono
+            chown -R "$OWNER" target'
       # For a release, the file names carry its tag without the leading v.
       - run: make vendor-archive-check VENDOR_DIR="$RUNNER_TEMP/vendor" ${RELEASE_TAG:+VENDOR_VERSION="${RELEASE_TAG#v}"}
       - uses: actions/upload-artifact@v4

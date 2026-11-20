@@ -51,6 +51,23 @@
 # included, and last runs `make install` with the features the AUR's vtium
 # package builds, as a package build calls it. Its scratch, the clean copy
 # and the builds, is a directory under OUT that it removes when it ends.
+#
+# make install also installs font files that are not crates, so the archive
+# does not carry them, and a package build supplies them beside the archive:
+# Terminus 4.49.1's eighteen gzipped BDF files and Unifont's all-planes .hex
+# file in $CARGO_TARGET_DIR/font-files, and Cullet Mono's two faces in
+# $CARGO_TARGET_DIR/cullet-mono. tools/fonts/pins.tsv and
+# tools/cullet-mono/pins.tsv pin each one, and make install stops when one
+# is missing or differs from its pin. So before its offline build, while the
+# network is still allowed, check stages them in its own target directory
+# the way a package build does. It runs the commit's `tools/fonts/files
+# fetch`, which takes Terminus's pinned archive from the caller's cache or
+# downloads it, and copies Cullet Mono's faces from VTIUM_VENDOR_CULLET_MONO
+# when that folder holds them. Otherwise it builds the faces with the
+# commit's Cullet Mono tool, which needs FontForge 20251009 and the network
+# once. It then checks every staged file against its pin. make
+# vendor-archive-check sets VTIUM_VENDOR_CULLET_MONO to the folder that make
+# cullet-mono writes.
 set -eu
 
 die() { echo "archive: $*" >&2; exit 1; }
@@ -129,6 +146,13 @@ Unpack the archive at the top of vtium's source tree of the same version, beside
 
 Cargo then reads every crate from \`vendor/\` and checks each against the checksum that \`Cargo.lock\` pins. \`cargo build --offline --locked\` and \`make install\` build with no network, and the workflow that packs this archive checks both before it attaches the archive to the release. With \`CARGO_NET_OFFLINE=true\` set, Cargo stops with an error instead of reaching for the network.
 
+\`make install\` also installs vtium's font files, which are not crates, so the archive does not carry them. A package build supplies them beside the archive, before it runs \`make install\`:
+
+- Terminus 4.49.1's eighteen BDF files, gzipped, \`ter-u12n.bdf.gz\` to \`ter-u32b.bdf.gz\`, and Unifont's \`unifont_all-17.0.03.hex\`, in \`target/font-files/\`. \`make font-files\` stages them from \`terminus-font-4.49.1.tar.gz\`, which it takes from \`\$XDG_CACHE_HOME/vtium/fonts/\` or downloads there.
+- Cullet Mono's two faces, \`CulletMono-Regular.ttf\` and \`CulletMono-Bold.ttf\`, in \`target/cullet-mono/\`. \`make cullet-mono\` builds them with FontForge 20251009 from \`terminus-ttf-4.49.3.zip\` and Nerd Fonts' \`FontPatcher.zip\`, which it takes from \`\$XDG_CACHE_HOME/vtium/cullet-mono/\` or downloads there.
+
+The two folders sit under \`\$CARGO_TARGET_DIR\` instead of \`target/\` when that is set. \`tools/fonts/pins.tsv\` and \`tools/cullet-mono/pins.tsv\` in vtium's source tree pin the size and SHA-256 of each source archive and each file, and \`make install\` stops when a file is missing or differs from its pin. A recipe that builds with no network downloads the three source archives as pinned sources and links them into those cache folders. \`tools/fonts/README.md\` and \`tools/cullet-mono/README.md\` describe the files and their builds.
+
 The generators under \`crates/*/gen-*\` and the fuzz targets under \`crates/*/fuzz\` have lock files of their own and are not part of a package's build, so the archive leaves their crates out.
 
 \`$manifest\`, which \`make vendor-archive\` writes beside this archive, lists each crate in it with its version, its source, its SPDX license expression and its checksum, one tab-separated row per crate.
@@ -165,6 +189,38 @@ EOF
     echo "archive: $out/$manifest lists them"
 }
 
+# Stages the font files make install installs in $work/target, the target
+# directory of the offline build, as a package build supplies them, and
+# checks each one against its pin. It runs before the offline build, so it
+# may use the network. The header says where each file comes from.
+stage_fonts() {
+    fonts=$work/target/font-files
+    cullet=$work/target/cullet-mono
+    "$work/src/tools/fonts/files" fetch "$fonts" ||
+        die "cannot stage the Terminus and Unifont files that make install installs"
+    faces=$(awk -F'\t' '$1 == "face" { print $2 }' "$work/src/tools/cullet-mono/pins.tsv")
+    [ -n "$faces" ] || die "tools/cullet-mono/pins.tsv pins no face"
+    from=${VTIUM_VENDOR_CULLET_MONO:-$repo/target/cullet-mono}
+    have=yes
+    for f in $faces; do
+        [ -f "$from/$f" ] || have=no
+    done
+    if [ "$have" = yes ]; then
+        echo "archive: copying Cullet Mono's faces from $from"
+        mkdir -p "$cullet"
+        for f in $faces; do
+            cp "$from/$f" "$cullet/$f" || die "cannot copy $from/$f"
+        done
+    else
+        echo "archive: $from does not hold Cullet Mono's faces, so the check builds them, which needs FontForge 20251009"
+        cargo run --release --locked --manifest-path "$work/src/tools/cullet-mono/Cargo.toml" \
+            --target-dir "$work/cullet-mono-tool" -- build --out "$cullet" ||
+            die "cannot build Cullet Mono's faces, which make install installs"
+    fi
+    "$work/src/tools/fonts/files" check "$fonts" "$cullet" ||
+        die "the font files staged for make install do not match their pins"
+}
+
 check() {
     [ -f "$out/$name" ] || die "no $out/$name; make vendor-archive packs it"
     [ -f "$out/$manifest" ] || die "no $out/$manifest; make vendor-archive writes it"
@@ -179,6 +235,7 @@ check() {
     [ -z "$clash" ] || die "the archive replaces the commit's files: $clash"
     zstd -q -d -c "$out/$name" > "$work/archive.tar" || die "cannot decompress $name"
     tar -x -f "$work/archive.tar" -C "$work/src" || die "cannot unpack $name"
+    stage_fonts
     mkdir "$work/cargo-home"
     if unshare -rn true 2>/dev/null; then
         set -- unshare -rn
