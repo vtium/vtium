@@ -236,6 +236,13 @@ considered:
   - operator: aaronsb
     said: "squeeze goldens look fine"
     via: the maintainer, in the steering session, 2026-11-13, after the Squeeze Goldens page gained the specimen screens its first version left out
+  - operator: aaronsb
+    said: "agree with your lean - but maybe it's simpler than we think, lay the line on top after the glyph is drawn?"
+    via: the maintainer's words of 2026-11-16 on the decorated sized-run screens, quoted in the body of the GitHub issue for skip-ink underlines
+  - operator: aaronsb
+    said: "Skip-ink underlines are built in wave 5, with a short note in the decoration record: vtium draws the underline after the glyph and leaves the line off every pixel within one pixel of the glyph's ink."
+    via: the maintainer's interview in the steering session, 2026-11-20, round 4, as the steering session's notes and its brief for this note record it
+    paraphrase: true
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
@@ -486,16 +493,18 @@ The figure shows the first sentence of the Universal Declaration of Human Rights
 
 ### D7: the order the row is drawn in
 
-Each pixel of a composed run (ADR-1300 D5) is drawn in this order, with the per-pixel arithmetic ADR-1300 carries forward; ADR-1306 D4 adds the ink of the rows above and below, after step 2 and before step 3:
+Each pixel of a composed run (ADR-1300 D5) is drawn in this order, with the per-pixel arithmetic ADR-1300 carries forward; ADR-1306 D4 adds the ink of the rows above and below, after step 1 and before step 2:
 
 > Edited 2026-11-06: ADR-1306, accepted 2026-11-06 (the maintainer, 2026-11-06) D4 orders the ink of the rows above and below. It read: "Each pixel of a composed run (ADR-1300 D5) is drawn in this order, with the per-pixel arithmetic ADR-1300 carries forward:"
 
 
 1. The background of the cell the pixel lies in.
-2. That cell's underline.
-3. The ink of the glyphs beside the cell whose reach covers the pixel: the glyph before the cell in the cell's direction, then the glyph after it. A cell's direction is right to left when its character's Bidi_Class is R or AL, and left to right for every other cell, an empty cell, a space, a digit and punctuation included, so the order never depends on anything but the cell's own character.
-4. That cell's own glyph.
+2. The ink of the glyphs beside the cell whose reach covers the pixel: the glyph before the cell in the cell's direction, then the glyph after it. A cell's direction is right to left when its character's Bidi_Class is R or AL, and left to right for every other cell, an empty cell, a space, a digit and punctuation included, so the order never depends on anything but the cell's own character.
+3. That cell's own glyph.
+4. That cell's underline, on top of the glyph. vtium leaves the line off every pixel of the underline's rows that lies within one pixel of the glyph's ink, so the line stops just short of a descender such as the tail of g, leaves a gap of one pixel, and goes on after it. This holds for every underline style, a colored underline included, on the CPU path and on the GPU path.
 5. That cell's strike-through.
+
+> Edited 2026-11-20: the maintainer decided on 2026-11-20 that vtium draws the underline after the glyph and leaves the line off every pixel within one pixel of the glyph's ink (`considered`, 2026-11-20). The underline was step 2, under the ink of the glyphs beside the cell and under the cell's own glyph, so a descender drew over the line and broke a colored underline where it crossed. The steps read: the background, the cell's underline, the ink of the glyphs beside the cell, the cell's own glyph, and the strike-through. The gap is measured from the cell's own glyph; whether the ink that a glyph beside the cell reaches into it opens a gap too is left to the work that builds this, and this record's agent reads the decision as naming the cell's own glyph.
 
 - Steps 2 to 5 form the pixel's text layer, premultiplied, which goes over the background in one step, as a cell of several layers goes today.
 - A cell's own glyph is drawn last of the glyphs, so where two glyphs' ink meets, the cell's own letter lies on top.

@@ -528,6 +528,10 @@ considered:
   - operator: aaronsb
     said: "1. yes, for your reason plus it doesn't break the flow or completely block the user which is frustrating, and it pushes towards a sane fix 2. agree"
     via: "the steering session's chat, 2026-11-19, answering card R's two probes on the Looks and Effects rows: (1) a look may pick a vtlook that does not read, with the reason shown; (2) p does nothing on a color scheme"
+  - operator: aaronsb
+    said: "A [look NAME] section can name its own pointer-theme, so each look picks its own theme, and a look with none draws the top-level one."
+    via: the maintainer's decision of 2026-11-20, as the steering session's comment on the GitHub issue for a look's pointer theme records it
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -711,6 +715,8 @@ The maintainer accepted these rules on 2026-11-04 as this record drafted them (`
 > Note 2026-11-19: ADR-1205 D10, proposed on this date and not yet accepted, would add `palette` to the keys a look takes. Under this decision's rule the look's value then wins over the top level's, so a look can pick its own color scheme while vtium.conf's `palette` stays the default for the looks that pick none. The value names a built-in palette, `custom`, or an active palette file. The `palette-*` keys that `custom` reads stay at the top level. This note changes nothing until the maintainer accepts ADR-1205 D10.
 
 > Note 2026-11-19, later the same day: the maintainer accepted ADR-1205 D10, so the change the note above describes holds.
+
+> Note 2026-11-20: the maintainer decided on 2026-11-20 that a look also takes `pointer-theme`, with the top level's values (ADR-1205 D6). Under this decision's rule the look's value wins over the top level's, and a look with none takes the top-level `pointer-theme`.
 
 The other way is to let every key be set in a head's section. It would give each head its own palette or keyboard layout, but many keys belong to the process, the seat or an input device rather than a head, and each would need a rule for what a head's value means. A key can move into the head's list later, one row at a time, when someone needs it.
 
