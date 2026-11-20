@@ -3963,6 +3963,9 @@ impl App {
         let Some(head) = self.heads.get_mut(h) else {
             return;
         };
+        // What the displays show before the key, so that the key draws a
+        // frame only when it changed that (`KeyShown`).
+        let before = KeyShown::now(head);
         // A press of Ctrl shows the hovered link's URI, and a key pressed
         // without Ctrl hides it; letting go of Ctrl sends no key.
         head.hover(key.mods.contains(InputMods::CTRL));
@@ -4051,7 +4054,7 @@ impl App {
         if let Some(arm) = head.console.term.blink.key(rate, blinks) {
             head.cursor_due = Some((after(now, arm.first), arm.every));
         }
-        head.draw_now = true;
+        head.draw_now |= before.changed(head);
     }
 
     /// A head's chord (ADR-1401 D1, D5): a console chord shows another of
@@ -5414,6 +5417,42 @@ struct KeyFrom {
     roaming: bool,
 }
 
+/// What a head's displays show before a key, to tell whether the key
+/// changed it. A key can clear the selection, return the view from the
+/// scrollback, change the link the pointer hovers, hide the pointer and
+/// show a blinking cursor again, and each of these needs a frame. A key
+/// that changes none of them draws no frame of its own: the program's
+/// echo draws the next one. A frame drawn for such a key would still have
+/// damage on a display with two or three buffers, because the buffer it
+/// goes into lacks the frames drawn since that buffer was last shown. The
+/// display would then present the same picture again, a frame early, and
+/// the echo would wait for that frame's flip.
+struct KeyShown {
+    /// The screen's cells, its cursor and the pointer's shape.
+    screen: crate::term::Shown,
+    /// Whether the pointer shows.
+    pointer: bool,
+    /// Whether the cursor is in the shown phase of its blink.
+    cursor: bool,
+}
+
+impl KeyShown {
+    fn now(head: &mut Head) -> KeyShown {
+        KeyShown {
+            screen: crate::term::Shown::now(&mut head.console.term.terminal),
+            pointer: head.pointer.visible,
+            cursor: head.console.term.blink.cursor_shown(),
+        }
+    }
+
+    /// Whether the key changed what `head`'s displays show.
+    fn changed(&self, head: &Head) -> bool {
+        self.screen.changed(&head.console.term.terminal)
+            || self.pointer != head.pointer.visible
+            || self.cursor != head.console.term.blink.cursor_shown()
+    }
+}
+
 /// What the screens of `heads` show, merged variant by variant: each
 /// character and cluster any of them shows in that variant, sorted and
 /// once, the regular normal variant first.
@@ -5906,6 +5945,15 @@ mod tests {
         /// The swaps, each a frame composed, and the frames a commit sent.
         swaps: u32,
         committed: u32,
+        /// The damage each swap brought, in order, as drm2d receives it: a
+        /// swap with no damage presents nothing there.
+        pub(super) damage: Vec<Vec<Rect>>,
+        /// The buffers it takes turns with, as drm2d does: with 2, each
+        /// buffer it lends once two frames have gone out is 2 frames old, so
+        /// the renderer draws into it the cells the last two frames changed.
+        /// A swap with no damage presents nothing and ages no buffer. With
+        /// 0, every buffer is new and every frame is drawn whole.
+        pub(super) buffers: u32,
         /// The kernel removes it at the next commit, which answers as
         /// drm2d does when that commit finds the card gone.
         unplug_at_commit: bool,
@@ -5951,6 +5999,8 @@ mod tests {
                 kept: false,
                 swaps: 0,
                 committed: 0,
+                damage: Vec::new(),
+                buffers: 0,
                 unplug_at_commit: false,
                 waits_for_flip: false,
                 hotplugs: 0,
@@ -6023,17 +6073,22 @@ mod tests {
                 return None;
             }
             let memory: Arc<Memory> = self.pixels.clone();
+            let presented = self.damage.iter().filter(|d| !d.is_empty()).count();
+            let age = u32::try_from(presented)
+                .unwrap_or(u32::MAX)
+                .min(self.buffers);
             Some(Token::new(
                 id,
                 self.size,
                 self.size.0.saturating_mul(4),
-                0,
+                age,
                 memory,
             ))
         }
         fn give_back(&mut self, _: Token) {}
-        fn swap(&mut self, _: Token, _: &[Rect]) -> Result<Swapped, SwapError> {
+        fn swap(&mut self, _: Token, damage: &[Rect]) -> Result<Swapped, SwapError> {
             self.swaps = self.swaps.saturating_add(1);
+            self.damage.push(damage.to_vec());
             if self.flipping {
                 self.kept = true;
                 return Err(SwapError::Busy);
@@ -8945,6 +9000,213 @@ mod tests {
             .iter()
             .all(|h| h.frames_out() == 0)));
         assert_eq!(swaps(&mut app), first + 60, "one frame for each update");
+    }
+
+    // A key that a program echoes presents one frame on a display with two
+    // buffers: the frame that shows the echo. The key itself changes nothing
+    // on the screen, so vtium draws no frame for it. A frame drawn there
+    // would still have damage, because the buffer it goes into is two frames
+    // old and lacks the last echo, and the display would present it as a
+    // second frame with the same picture. The program here is the test,
+    // which reads each key from the pty in raw mode and writes it back, as
+    // tier 3's key-echo case does with dd.
+    //
+    // References:
+    // - ADR-1401 D2: a key's window, inside which the echo draws at once.
+    #[test]
+    fn an_echoed_key_presents_one_frame_on_a_double_buffered_display() {
+        use std::io::{Read, Write};
+        let args: Vec<OsString> = [
+            "--font-size=16",
+            "--no-blink",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "exec sleep 30",
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect();
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
+        let mut lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            vec![("PATH".into(), "/usr/bin:/bin".into())],
+        );
+        app.set_font_sources(no_fonts());
+        let mut still = Still::new(&[(1, "A")]);
+        still.buffers = 2;
+        app.add_video(PathBuf::from("/dev/mem0"), Box::new(still));
+        shown(&mut app);
+        app.focus = Some(0);
+        app.start();
+        // Turns the loop as `main` does, waiting at most 50 ms, until
+        // `done` holds, for at most 5 s.
+        fn turn_until(lp: &mut Loop<App>, app: &mut App, done: impl Fn(&mut App) -> bool) -> bool {
+            let end = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < end {
+                if done(app) {
+                    return true;
+                }
+                let wait = app
+                    .next_wake(Instant::now())
+                    .map_or(Duration::from_millis(50), |w| {
+                        w.min(Duration::from_millis(50))
+                    });
+                lp.dispatch(Some(wait), app).unwrap();
+                app.turn(Instant::now());
+            }
+            done(app)
+        }
+        // The frames the display presented: its swaps that brought damage.
+        fn presented(app: &mut App) -> usize {
+            let video = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let still = video.as_any().downcast_mut::<Still>().unwrap();
+            still.damage.iter().filter(|d| !d.is_empty()).count()
+        }
+        let idle = |app: &mut App| app.heads.iter().all(|h| h.frames_out() == 0);
+        assert!(
+            turn_until(&mut lp, &mut app, |app| app.pty().is_some()),
+            "the session starts"
+        );
+        let name = rustix::pty::ptsname(app.pty().unwrap().master(), Vec::new()).unwrap();
+        let flags = rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NOCTTY;
+        let slave = rustix::fs::open(name.as_c_str(), flags, rustix::fs::Mode::empty()).unwrap();
+        // Raw and with no echo, so the test's writes are the only echo.
+        let mut termios = rustix::termios::tcgetattr(&slave).unwrap();
+        termios.make_raw();
+        rustix::termios::tcsetattr(&slave, rustix::termios::OptionalActions::Now, &termios)
+            .unwrap();
+        let mut slave = std::fs::File::from(slave);
+        assert!(
+            turn_until(&mut lp, &mut app, |app| presented(app) > 0 && idle(app)),
+            "the first frame goes out"
+        );
+        for c in ['a', 'b', 'c', 'd'] {
+            let before = presented(&mut app);
+            let key = InputEvent::Key(KeyEvent {
+                keycode: 30,
+                ascii: u32::from(c),
+                unshifted: u32::from(c),
+                shifted: u32::from(c),
+                base: None,
+                mods: InputMods::empty(),
+                keysyms: vec![u32::from(c)],
+                codepoints: vec![Some(c)],
+                repeat: false,
+            });
+            app.input_event(key, Instant::now());
+            app.turn(Instant::now());
+            assert!(
+                turn_until(&mut lp, &mut app, idle),
+                "{c}: the key's turn ends"
+            );
+            let mut read = [0u8; 8];
+            let n = slave.read(&mut read).unwrap();
+            let echo = read.get(..n).unwrap();
+            assert_eq!(echo, [c as u8], "{c} reached the program");
+            slave.write_all(echo).unwrap();
+            let want = app.term_mut().unwrap().parsed + n as u64;
+            assert!(
+                turn_until(&mut lp, &mut app, |app| {
+                    app.term_mut().unwrap().parsed >= want && idle(app)
+                }),
+                "{c}: the echo is parsed and drawn"
+            );
+            // A few more turns, in which no other frame may go out.
+            for _ in 0..4 {
+                lp.dispatch(Some(Duration::ZERO), &mut app).unwrap();
+                app.turn(Instant::now());
+            }
+            assert!(turn_until(&mut lp, &mut app, idle), "{c}: nothing is out");
+            assert_eq!(
+                presented(&mut app) - before,
+                1,
+                "{c}: one frame for the key and its echo"
+            );
+        }
+        let row = app.screen_text().first().cloned().unwrap_or_default();
+        assert!(row.starts_with("abcd"), "the echoes show: {row:?}");
+    }
+
+    // A key that changes what the displays show draws a frame at once,
+    // before the program answers: it clears the selection, returns the view
+    // from the scrollback, hides the pointer under
+    // `pointer-hide-while-typing`, or shows a blinking cursor again in its
+    // hidden phase. A key that changes none of these draws no frame of its
+    // own, and the program's echo draws the next one.
+    #[test]
+    fn a_key_draws_a_frame_only_when_it_changes_what_shows() {
+        let key = |app: &mut App, c: char| {
+            app.heads.first_mut().unwrap().draw_now = false;
+            app.input_event(
+                InputEvent::Key(KeyEvent {
+                    keycode: 46,
+                    ascii: u32::from(c),
+                    unshifted: u32::from(c),
+                    shifted: u32::from(c),
+                    base: None,
+                    mods: InputMods::empty(),
+                    keysyms: vec![u32::from(c)],
+                    codepoints: vec![Some(c)],
+                    repeat: false,
+                }),
+                Instant::now(),
+            );
+            let head = app.heads.first().unwrap();
+            assert!(
+                head.views.values().all(|v| v.after_key(&head.console.term)),
+                "{c} went to the program"
+            );
+            head.draw_now
+        };
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        shown(&mut app);
+        app.focus = Some(0);
+        app.hide_while_typing = true;
+        app.turn(Instant::now());
+        let lines = b"line\r\n".repeat(40);
+        let term = app.term_mut().unwrap();
+        assert_eq!(term.parse(&lines, &mut |_| {}), lines.len());
+        app.heads.first_mut().unwrap().pointer.visible = false;
+        key(&mut app, 'c');
+        assert!(
+            !key(&mut app, 'c'),
+            "a key that changes nothing draws nothing"
+        );
+        // The selection.
+        let screen = app.term_mut().unwrap().terminal.screen_mut();
+        screen.select_start(0, 0);
+        screen.select_to(3, 0);
+        assert!(screen.has_selection());
+        assert!(key(&mut app, 'c'), "the key cleared the selection");
+        assert!(!app.term_mut().unwrap().terminal.screen().has_selection());
+        // The scrollback.
+        app.term_mut()
+            .unwrap()
+            .terminal
+            .screen_mut()
+            .scroll_view_up(3);
+        assert!(key(&mut app, 'c'), "the key returned the view");
+        assert_eq!(app.term_mut().unwrap().terminal.screen().scrolled_back(), 0);
+        // The pointer.
+        app.heads.first_mut().unwrap().pointer.visible = true;
+        assert!(key(&mut app, 'c'), "the key hid the pointer");
+        assert!(!app.heads.first().unwrap().pointer.visible);
+        // The cursor's hidden phase.
+        let blink = &mut app.term_mut().unwrap().blink;
+        blink.fired(Timer::Cursor, true);
+        assert!(!blink.cursor_shown(), "the cursor's hidden phase");
+        assert!(key(&mut app, 'c'), "the key showed the cursor");
+        assert!(!key(&mut app, 'c'), "and the next key changes nothing");
     }
 
     // ADR-1401 D2: a synchronized update's end stops the terminal only

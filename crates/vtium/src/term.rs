@@ -298,9 +298,9 @@ fn earliest(a: Option<Instant>, b: Option<Instant>) -> Option<Instant> {
     }
 }
 
-/// What a frame shows of the screen before an input call, to tell
-/// whether the call changed it.
-struct Shown {
+/// What a frame shows of the screen before an input call or a key, to
+/// tell whether the call or the key changed it.
+pub(crate) struct Shown {
     /// A checkpoint of the cells' damage: a cell marked after it changed,
     /// written, erased, scrolled, or under a picture added, moved or
     /// removed, or every cell at once, as a resize, a palette change or a
@@ -317,7 +317,7 @@ struct Shown {
 }
 
 impl Shown {
-    fn now(terminal: &mut Terminal) -> Shown {
+    pub(crate) fn now(terminal: &mut Terminal) -> Shown {
         Shown {
             since: terminal.screen_mut().checkpoint(),
             cursor: Shown::cursor(terminal),
@@ -336,7 +336,7 @@ impl Shown {
 
     /// Whether `terminal`'s screen changed since: a cell, the cursor or
     /// the pointer's shape.
-    fn changed(&self, terminal: &Terminal) -> bool {
+    pub(crate) fn changed(&self, terminal: &Terminal) -> bool {
         let damage = terminal.screen().damage();
         self.cursor != Shown::cursor(terminal)
             || self.pointer != terminal.pointer_shape()
