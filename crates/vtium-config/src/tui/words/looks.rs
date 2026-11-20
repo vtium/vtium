@@ -365,15 +365,20 @@ pub fn palette_hidden(name: impl Display) -> String {
 }
 
 /// The line above a color scheme's colors in its detail.
-pub const PALETTE_COLORS: &str = "Its 16 colors, then its foreground and background:";
+pub const PALETTE_COLORS: &str = "The scheme's 16 colors, then its foreground and background:";
 
-/// The line of a color scheme's detail when its file does not read, with
-/// the first error, its file and line first.
+/// The line of a color scheme's detail, and the note of its choice on a
+/// look's card, when vtium cannot use its file, with the first error, its
+/// file and line first.
 pub fn palette_unread(why: impl Display) -> String {
     format!(
-        "vtium cannot read this file, so a look that names this color scheme draws with the one vtium.conf names: {why}"
+        "vtium cannot use this file, so a look that names this color scheme renders with the one vtium.conf names: {why}"
     )
 }
+
+/// Why vtium cannot use a scheme file whose name a look cannot name: the
+/// name is what comes before `.palette`, and a look names a scheme by it.
+pub const PALETTE_BAD_NAME: &str = "The name before .palette is not one a look can name. A color scheme's name holds 1 to 64 of the letters A to Z and a to z, the digits 0 to 9, and the characters . _ + and -.";
 
 /// The labels of the preview's rows: the normal colors 0 to 7, the
 /// bright colors 8 to 15, and the sample text.

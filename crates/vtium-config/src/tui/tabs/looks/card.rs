@@ -231,11 +231,14 @@ pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
             ));
             // then the active scheme files, each once by the name a look
             // gives it: a packaged file that the administrator's file
-            // hides is the same name, and a file that takes a built-in
-            // scheme's name is never read
+            // hides is the same name, a file that takes a built-in
+            // scheme's name is never read, and a name a look cannot name,
+            // such as one with a space, is not offered
             for f in &shared.inputs.effects.palettes {
                 let r = &f.resource;
-                if r.active() && !r.hidden && !vtium_settings::palette::built_in(&f.name) {
+                let nameable = vtium_settings::palette::named(&f.name)
+                    && !vtium_settings::palette::built_in(&f.name);
+                if r.active() && !r.hidden && nameable {
                     let note = match &f.colors {
                         Ok(_) => words::PALETTE_FILE_NOTE.to_owned(),
                         Err(why) => words::palette_unread(why),

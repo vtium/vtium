@@ -11,8 +11,9 @@
 //! The TUI reads the files when it starts, outside the state machine,
 //! with [`super::super::super::effects_found::find_palettes`]. It reads
 //! each file's colors for the preview, whether or not the file is active,
-//! with the strict reader that vtium itself uses, so the preview and the
-//! detail show the error vtium would log. A color scheme's preview is its
+//! through the gate and the strict reader that vtium itself uses, so the
+//! preview and the detail show the error or the refusal vtium would log.
+//! A color scheme's preview is its
 //! 16 colors beside text in its foreground on its background
 //! ([`preview`]).
 //!

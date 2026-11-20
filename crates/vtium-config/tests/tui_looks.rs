@@ -986,7 +986,7 @@ fn enter_on_a_color_scheme_opens_its_detail() {
         "File: none, because it is built into vtium",
         "State: always active",
         "Used by look proof.",
-        "Its 16 colors, then its foreground and background:",
+        "The scheme's 16 colors, then its foreground and background:",
         "foreground #",
     ] {
         assert!(screen.contains(want), "{want}: {screen}");
@@ -1024,7 +1024,7 @@ fn enter_on_a_color_scheme_opens_its_detail() {
     press(&mut a, Key::Enter);
     let screen = flat(&text(&a));
     assert!(
-        screen.contains("vtium cannot read this file, so a look that names this color scheme draws with the one vtium.conf names: /etc/vtium/palettes/broken.palette:3:"),
+        screen.contains("vtium cannot use this file, so a look that names this color scheme renders with the one vtium.conf names: /etc/vtium/palettes/broken.palette:3:"),
         "{screen}"
     );
     assert!(!screen.contains("foreground #"), "{screen}");
@@ -1053,6 +1053,9 @@ fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
             conf.len()
         ));
     let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("a folder");
+    // vtium's gate takes only a path without `..`
+    let root = root.canonicalize().expect("the folder's path");
     let (etc, pkg) = (root.join("etc"), root.join("pkg"));
     for d in [&etc, &pkg] {
         std::fs::create_dir_all(d).expect("a folder");
@@ -1077,6 +1080,7 @@ fn schemes_on_disk(conf: &str) -> (PathBuf, Inputs) {
             }
         },
         &|_| Ok(()),
+        rustix::process::geteuid().as_raw(),
     );
     let mut i = with_conf(conf);
     i.effects.palettes = found;
