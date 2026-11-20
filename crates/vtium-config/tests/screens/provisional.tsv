@@ -128,3 +128,15 @@ looks-card-80x25	the Looks tab with the card of the look proof open: its name, f
 looks-card-100x30	the same at 100×30
 looks-font-set-80x25	the Looks tab with the detail of the font set proof open: whether it reads, its fonts by role, what it misses, and the looks that use it
 looks-font-set-100x30	the same at 100×30
+looks-palettes-80x25	the Looks tab with the color scheme paper highlighted: the color schemes group, and under the list paper's 16 colors and a line of text in its foreground on its background, in 24-bit color
+looks-palettes-100x30	the same at 100×30
+looks-palette-80x25	the Looks tab with the detail of the color scheme paper open: its file, its marks, the looks that use it, its colors by value, and its preview
+looks-palette-100x30	the same at 100×30
+looks-pointers-80x25	the Looks tab with the pointer theme Adwaita highlighted: the pointer themes group with each theme's marks
+looks-pointers-100x30	the same at 100×30
+node-looks_palette-100x30	the frame the view draws into ratatui's TestBackend at node looks.palette of the interface tree, at 100×30, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_palette-79x24	the frame the view draws into ratatui's TestBackend at node looks.palette of the interface tree, below the minimum, where the TUI asks for a larger terminal, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_palette-80x25	the frame the view draws into ratatui's TestBackend at node looks.palette of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_pointer-100x30	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, at 100×30, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_pointer-79x24	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, below the minimum, where the TUI asks for a larger terminal, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+node-looks_pointer-80x25	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)

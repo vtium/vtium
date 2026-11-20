@@ -1151,9 +1151,11 @@ fn looks_checks(
     m.insert(
         "enter.view.looks",
         (
-            |s| match s.step.from.focus.split(',').next().unwrap_or("") {
+            |s| match looks_group(s) {
                 "look" => s.goes_to("looks.look"),
                 "no looks" => s.nothing(),
+                "color scheme" => s.goes_to("looks.palette"),
+                "pointer theme" => s.goes_to("looks.pointer"),
                 _ => s.goes_to("looks.font-set"),
             },
             None,
@@ -1162,7 +1164,8 @@ fn looks_checks(
     m.insert(
         "n.view.looks",
         (
-            |s| match s.step.from.focus.split(',').next().unwrap_or("") {
+            |s| match looks_group(s) {
+                "color scheme" | "pointer theme" => s.nothing(),
                 // a new look goes into the draft, and its card opens with
                 // its name being typed
                 "look" | "no looks" => {
@@ -1192,9 +1195,9 @@ fn looks_checks(
     m.insert(
         "r.view.looks",
         (
-            |s| match s.step.from.focus.split(',').next().unwrap_or("") {
+            |s| match looks_group(s) {
                 "look" => s.opens("question:change"),
-                "no looks" => s.nothing(),
+                "no looks" | "color scheme" | "pointer theme" => s.nothing(),
                 // a font set is marked for removal, or the message says why
                 // it cannot be
                 _ => {
@@ -1219,16 +1222,35 @@ fn looks_checks(
             Ok(())
         }
     };
-    m.insert("t.view.looks", (tries, None));
+    m.insert(
+        "t.view.looks",
+        (
+            |s| match looks_group(s) {
+                "color scheme" | "pointer theme" => s.nothing(),
+                _ => {
+                    if s.exited() || !s.kept() {
+                        Err("t quit or changed what the person made".into())
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            None,
+        ),
+    );
     m.insert("t.layer.look", (tries, None));
     m.insert(
         "p.view.looks",
         (
-            |s| {
-                if s.after.app.looks.picture() != s.before.app.looks.picture() && s.kept() {
-                    Ok(())
-                } else {
-                    Err("p did not switch the preview".into())
+            |s| match looks_group(s) {
+                // a color scheme's preview has no second form
+                "color scheme" | "pointer theme" => s.nothing(),
+                _ => {
+                    if s.after.app.looks.picture() != s.before.app.looks.picture() && s.kept() {
+                        Ok(())
+                    } else {
+                        Err("p did not switch the preview".into())
+                    }
                 }
             },
             None,
@@ -1250,6 +1272,20 @@ fn looks_checks(
     }
     // a look draws vtium.conf's pointer theme, so its line has no list
     m.insert("list.pointer-themes", (not_built, Some(nothing)));
+}
+
+/// The group of the item the Looks tab highlighted before the key, as
+/// its focus names it: `look`, `no looks`, `color scheme`, `pointer theme`,
+/// or a font set's kind.
+fn looks_group<'a>(s: &Seen<'a>) -> &'a str {
+    let focus = s.step.from.focus.as_str();
+    if focus.starts_with("built-in scheme") || focus.starts_with("color scheme:") {
+        "color scheme"
+    } else if focus.starts_with("pointer theme:") {
+        "pointer theme"
+    } else {
+        focus.split(',').next().unwrap_or("")
+    }
 }
 
 /// Left, with `back`, and Right step the highlighted line of a look's
@@ -1795,8 +1831,6 @@ fn reached_today(id: &str) -> Option<bool> {
         | "effects.effect"
         | "fonts.filter"
         | "fonts.font"
-        | "looks.pointer"
-        | "looks.palette"
         | "any.question.deactivate"
         | "any.question.system-font" => false,
         _ => return None,

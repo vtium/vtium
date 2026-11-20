@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 
-use super::effects_found::{Effects, From, Vtlook};
+use super::effects_found::{Effects, From, SchemeFile, Vtlook};
 use super::flow::{Base, Device, Draft, Flow, Head, Kind, Look, Rule, RuleState};
 use super::model::{DpiFrom, Font, FontState, Inputs, View};
 use super::resources::Resource;
@@ -214,6 +214,8 @@ pub fn inputs() -> Inputs {
 /// and green, which does not read and hides the preset; the color maps
 /// sepia.cube, active, warm.cube, not active, loose.cube, which fails the
 /// trust rule, and mine.cube in the person's own folder; and no shader.
+/// Beside them, what the Looks tab lists: the color schemes of
+/// [`palettes`] and the pointer themes of [`pointers`].
 pub fn effects() -> Effects {
     let vtlook =
         |name: &str, from, hidden, read: Result<Vec<String>, String>, files: &[&str]| Vtlook {
@@ -277,8 +279,124 @@ pub fn effects() -> Effects {
             map("mine.cube", State::Inactive, Ok(()), true),
         ],
         shaders: Vec::new(),
+        palettes: palettes(),
+        // no folder, so no look of the fixture uses a scheme file: the
+        // rule that names those looks reads the files on the disk, and a
+        // test that needs one writes its own folder
+        palette_folders: Vec::new(),
+        pointers: pointers(),
         note: None,
     }
+}
+
+/// A color scheme of the fixture: its 16 colors stepping from `dark` to
+/// `light`, with `accent` as its red, and its foreground and background.
+fn scheme(dark: u8, light: u8, accent: [u8; 3]) -> vtium_term::Palette {
+    use vtium_term::Rgb;
+    let mut sixteen = [Rgb::default(); 16];
+    for (i, c) in sixteen.iter_mut().enumerate() {
+        let step = u8::try_from(i)
+            .unwrap_or(0)
+            .saturating_mul(light.saturating_sub(dark) / 16);
+        let v = dark.saturating_add(step);
+        *c = Rgb::new(v, v.saturating_add(8), v.saturating_add(16));
+    }
+    if let Some(red) = sixteen.get_mut(1) {
+        *red = Rgb::new(accent[0], accent[1], accent[2]);
+    }
+    vtium_term::Palette::custom(
+        sixteen,
+        Rgb::new(light, light, light),
+        Rgb::new(dark, dark, dark),
+    )
+}
+
+/// The fixture's color scheme files: the package's dusk, which the
+/// administrator's dusk hides, and paper, both active; the
+/// administrator's dusk, active; loose, which fails the trust rule; and
+/// broken, which does not read.
+pub fn palettes() -> Vec<SchemeFile> {
+    let file =
+        |dir: &str, name: &str, state, trust: Result<(), String>, hidden, colors| SchemeFile {
+            name: name.to_owned(),
+            resource: Resource {
+                path: PathBuf::from(format!("{dir}/{name}.palette")),
+                kind: "color scheme",
+                state,
+                trust,
+                own: false,
+                hidden,
+            },
+            colors,
+        };
+    let (pkg, etc) = ("/usr/share/vtium/palettes", "/etc/vtium/palettes");
+    vec![
+        file(pkg, "dusk", State::Active, Ok(()), true, Ok(scheme(20, 200, [200, 60, 60]))),
+        file(pkg, "paper", State::Active, Ok(()), false, Ok(scheme(16, 240, [180, 40, 40]))),
+        file(etc, "dusk", State::Active, Ok(()), false, Ok(scheme(24, 216, [220, 80, 40]))),
+        file(
+            etc,
+            "loose",
+            State::Inactive,
+            Err("/etc/vtium/palettes/loose.palette: the file belongs to user 1000, and only root may own it.".to_owned()),
+            false,
+            Ok(scheme(0, 160, [255, 0, 0])),
+        ),
+        file(
+            etc,
+            "broken",
+            State::Inactive,
+            Ok(()),
+            false,
+            Err("/etc/vtium/palettes/broken.palette:3: This line is not a setting. Each line of a color scheme reads key = value, or is a comment that starts with #.".to_owned()),
+        ),
+    ]
+}
+
+/// The fixture's pointer themes: vtium's own pictures, active; the cursor
+/// theme Adwaita, not active; and stray, whose link leaves its folder, so
+/// it fails the trust rule.
+pub fn pointers() -> Vec<Resource> {
+    let theme = |path: &str, state, trust: Result<(), String>| Resource {
+        path: PathBuf::from(path),
+        kind: "pointer theme",
+        state,
+        trust,
+        own: false,
+        hidden: false,
+    };
+    vec![
+        theme("/usr/share/vtium/pointers.svg", State::Active, Ok(())),
+        theme("/usr/share/icons/Adwaita", State::Inactive, Ok(())),
+        theme(
+            "/usr/share/icons/stray",
+            State::Inactive,
+            Err("/usr/share/icons/stray/cursors/left_ptr: this symbolic link leaves the theme's folder.".to_owned()),
+        ),
+    ]
+}
+
+/// Every resource of the fixture, with its marks: the color maps, the
+/// shaders, the color scheme files and the pointer themes.
+fn resources() -> Vec<Resource> {
+    let found = effects();
+    found
+        .maps
+        .into_iter()
+        .chain(found.shaders)
+        .chain(found.palettes.into_iter().map(|f| f.resource))
+        .chain(found.pointers)
+        .collect()
+}
+
+/// The fixture's resources that are active at the start, as the desk
+/// lists them.
+pub fn active() -> Vec<(PathBuf, State)> {
+    resources()
+        .into_iter()
+        .filter(Resource::active)
+        .map(|r| (r.path, r.state))
+        .collect()
 }
 
 /// What a stand-in desk answers [`super::desk::Op::Resource`] with, on
@@ -288,14 +406,19 @@ pub fn effects() -> Effects {
 /// the real batch refuses: an activation of a file the system does not
 /// hold that fails the trust rule, as the fixture's [`effects`] marks it,
 /// and a deactivation of a resource that is not active. Its messages name
-/// the kind of resource as the real desk's do.
+/// the kind of resource as the real desk's do, from the fixture's marks
+/// where the fixture lists the resource, since the real rule reads the
+/// disk to tell a pointer theme's folder.
 pub fn resource_op(
     states: &mut Vec<(PathBuf, State)>,
     path: &std::path::Path,
     change: crate::batch::Change,
 ) -> Result<super::desk::Done, String> {
     use crate::batch::Change;
-    let kind = crate::batch::kind(path);
+    let listed = resources().into_iter().find(|r| r.path == path);
+    let kind = listed
+        .as_ref()
+        .map_or_else(|| crate::batch::kind(path), |r| r.kind);
     let now = states
         .iter()
         .find(|(p, _)| p == path)
@@ -312,7 +435,7 @@ pub fn resource_op(
             ));
         }
         (Change::Activate, State::Inactive) => {
-            if let Some(Err(why)) = effects().resource(path).map(|r| r.trust.clone()) {
+            if let Some(Err(why)) = listed.map(|r| r.trust) {
                 return Err(why);
             }
             None

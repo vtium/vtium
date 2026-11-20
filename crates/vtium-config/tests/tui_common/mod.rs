@@ -534,13 +534,7 @@ pub fn desk() -> Desk {
 
 /// The fixture's resources that are active at the start.
 pub fn active() -> Vec<(PathBuf, vtium_config::batch::State)> {
-    inputs()
-        .effects
-        .maps
-        .iter()
-        .filter(|m| m.active())
-        .map(|m| (m.path.clone(), m.state))
-        .collect()
+    vtium_config::tui::fixture::active()
 }
 
 impl Desk {

@@ -100,7 +100,7 @@ flowchart LR
     any --> any_trial
     any --> any_too_small
     classDef planned stroke-dasharray: 5 5
-    class flow_card_list,looks_palette,looks_pointer,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,fonts_filter,fonts_font,any_question_system_font,any_question_window_ops planned
+    class flow_card_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,fonts_filter,fonts_font,any_question_system_font,any_question_window_ops planned
 ```
 
 Each section below names a screen by its place in the tree, says how you open and leave it, and lists its keys. The column "Shown as" gives the word the key line shows beside the key, and a dash marks a key that the key line leaves out.
@@ -573,6 +573,7 @@ The Looks tab: the looks, the font sets, the color schemes and the installed poi
 | n | new | Among the looks, makes a new look and lets you type its name. Among the font sets, opens the form for a new font set. Among the color schemes and the pointer themes, does nothing. |
 | t | try live | Tries the highlighted look or font set on this console for 10 seconds. Among the color schemes and the pointer themes, does nothing. |
 | Enter | open | On a look, opens its card. On a font set, a color scheme or a pointer theme, opens its detail. |
+| Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
 | p | picture \| sample | On a look or a font set, switches the preview between the sample characters and the picture of the console. Among the color schemes and the pointer themes, does nothing, because a color scheme's preview is its 16 colors beside text in its foreground on its background. |
 | w | resize grid | Asks whether to let programs resize the console's grid. y turns allow-window-ops on in the draft, and any other answer changes nothing. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | o | - | Does nothing here. |
@@ -684,8 +685,6 @@ A font set's detail, read-only: its fonts by role, what it still misses by role,
 
 A color scheme's detail, read-only: its file, or built in; whether it is active, its trust mark and the check it fails; the looks that use it; and its 16 colors beside text in its foreground on its background.
 
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379). Today: vtium-config lists no color schemes.
-
 **Open it:** Enter on a color scheme.
 
 **Leave it:** Esc to looks.
@@ -706,8 +705,6 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 ## `looks.pointer`
 
 A pointer theme's detail, read-only: its folder, whether the folder is active, its trust mark and the check it fails, and the looks that use it.
-
-This screen is not built as described yet. See [#379](https://github.com/vtium/vtium/issues/379), [#442](https://github.com/vtium/vtium/issues/442). Today: vtium-config lists no pointer themes.
 
 **Open it:** Enter on a pointer theme.
 

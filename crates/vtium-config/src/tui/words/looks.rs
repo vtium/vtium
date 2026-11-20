@@ -210,6 +210,10 @@ pub fn vtlook_broken(why: impl Display) -> String {
     )
 }
 
+/// The note of an active color scheme file in a look card's list of
+/// color schemes.
+pub const PALETTE_FILE_NOTE: &str = "scheme file";
+
 /// The pointer theme line: every look draws the pointer theme vtium.conf
 /// sets, which a look cannot change yet.
 pub fn pointer_line(theme: Option<&str>) -> String {
@@ -334,4 +338,87 @@ pub const FONT_SET_HINT: &str = "Up and Down scroll the detail, and Esc goes bac
 /// What a card says once its look has left the draft.
 pub fn look_gone(name: impl Display) -> String {
     format!("The draft no longer has the look {name}. Esc goes back to the list.")
+}
+
+/// The heading of the Looks tab's group of color schemes.
+pub const COLOR_SCHEMES_GROUP: &str = "Color schemes";
+
+/// The heading of the Looks tab's group of pointer themes.
+pub const POINTERS_GROUP: &str = "Pointer themes";
+
+/// The marks of a color scheme built into vtium.
+pub const PALETTE_ALWAYS: &str = "built in, always active";
+
+/// The mark of a color scheme file that vtium cannot read.
+pub const PALETTE_BROKEN: &str = "has an error";
+
+/// The title of a color scheme's detail.
+pub fn palette_title(name: impl Display) -> String {
+    format!("Color scheme {name}")
+}
+
+/// The line of a hidden color scheme file's detail.
+pub fn palette_hidden(name: impl Display) -> String {
+    format!(
+        "The administrator's folder holds a color scheme named {name} too, so vtium reads that file in place of this one."
+    )
+}
+
+/// The line above a color scheme's colors in its detail.
+pub const PALETTE_COLORS: &str = "Its 16 colors, then its foreground and background:";
+
+/// The line of a color scheme's detail when its file does not read, with
+/// the first error, its file and line first.
+pub fn palette_unread(why: impl Display) -> String {
+    format!(
+        "vtium cannot read this file, so a look that names this color scheme draws with the one vtium.conf names: {why}"
+    )
+}
+
+/// The labels of the preview's rows: the normal colors 0 to 7, the
+/// bright colors 8 to 15, and the sample text.
+pub const PALETTE_NORMAL: &str = "0-7";
+pub const PALETTE_BRIGHT: &str = "8-15";
+pub const PALETTE_TEXT: &str = "Text";
+
+/// The preview's sample text, each word with the color it is drawn in:
+/// a number from the 16 colors, or `None` for the scheme's foreground.
+pub const PALETTE_SAMPLE: [(&str, Option<u8>); 8] = [
+    ("~/notes", Some(4)),
+    (" $ ", None),
+    ("ls", Some(2)),
+    (" -l ", None),
+    ("todo.txt", Some(3)),
+    (" ", None),
+    ("error", Some(1)),
+    (" done", Some(10)),
+];
+
+/// The names of the scheme's foreground and background in its detail.
+pub const PALETTE_FOREGROUND: &str = "foreground";
+pub const PALETTE_BACKGROUND: &str = "background";
+
+/// The sentence under a color scheme's preview in a terminal that does
+/// not take 24-bit color.
+pub const PALETTE_NO_TRUECOLOR: &str = "This terminal does not say it shows 24-bit color, so its own colors may stand in for the scheme's. Enter opens the scheme's detail, which gives each color's value.";
+
+/// The title of a pointer theme's detail.
+pub fn pointer_title(name: impl Display) -> String {
+    format!("Pointer theme {name}")
+}
+
+/// The line of a pointer theme's detail that names its folder.
+pub fn pointer_folder(path: impl Display) -> String {
+    format!("Folder: {path}. Every file in the folder is active while the folder is.")
+}
+
+/// The line of a pointer theme's detail that says whether the looks draw
+/// it: every look draws the theme vtium.conf's `pointer-theme` names,
+/// because a look cannot pick one of its own yet.
+pub fn pointer_users(named: bool) -> String {
+    if named {
+        "Every look uses it, because vtium.conf's pointer-theme names it. A look cannot pick a pointer theme of its own yet.".to_owned()
+    } else {
+        "No look uses it. Every look uses the pointer theme that vtium.conf's pointer-theme names, because a look cannot pick one of its own yet.".to_owned()
+    }
 }

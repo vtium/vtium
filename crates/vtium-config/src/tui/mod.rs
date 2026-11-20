@@ -252,11 +252,13 @@ fn effect_folders() -> effects_found::Folders {
     effects_found::Folders::system(config)
 }
 
-/// What the Effects tab lists, read from `folders`: each color map and
-/// shader marked as the current draft's batch and the trust rule judge it
+/// What the Effects tab and the Looks tab list among the resources, read
+/// from `folders`, the system's color scheme folders and the system's
+/// pointer themes: each color map, shader, color scheme file and pointer
+/// theme marked as the current draft's batch and the trust rule judge it
 /// for an install through `paths`. When vtium-config cannot read the
-/// draft's batch, every file shows as not active, and the tab's note says
-/// why.
+/// draft's batch, every file shows as not active, and the Effects tab's
+/// note says why.
 fn effects(
     store: &crate::store::Store,
     paths: &Paths,
@@ -268,15 +270,29 @@ fn effects(
     };
     let active = crate::batch::Resources::open(&session);
     let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
+    let state = |path: &Path| {
+        active
+            .as_ref()
+            .map_or(crate::batch::State::Inactive, |a| a.state(path))
+    };
+    let trusted = |path: &Path| crate::batch::trusted(path, euid);
     let mut found = effects_found::find(
         folders,
         &vtium_settings::Trust::running_as(euid),
-        &|path| {
-            active
-                .as_ref()
-                .map_or(crate::batch::State::Inactive, |a| a.state(path))
-        },
-        &|path| crate::batch::trusted(path, euid),
+        &state,
+        &trusted,
+    );
+    found.palette_folders = vtium_settings::palette::FOLDERS
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    found.palettes = effects_found::find_palettes(&found.palette_folders, &state, &trusted);
+    let icons: Vec<PathBuf> = effects_found::ICONS.iter().map(PathBuf::from).collect();
+    found.pointers = effects_found::find_pointers(
+        Path::new(vtium_settings::batch::PACKAGE_POINTERS),
+        &icons,
+        &state,
+        &trusted,
     );
     if let Err(fail) = &active {
         found.note = Some(words::effects_unread(fail.text()));
