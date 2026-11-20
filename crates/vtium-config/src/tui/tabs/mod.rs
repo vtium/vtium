@@ -202,6 +202,15 @@ pub enum Request {
     ShowFont(String),
 }
 
+/// How many items the window of a resource tab's list shows on a screen
+/// of `size`: at most a third of the rows, so the preview under the list
+/// keeps its room however many fonts or effects the system holds.
+pub fn list_window(size: Size) -> usize {
+    size.rows
+        .saturating_sub(20)
+        .clamp(3, (size.rows / 3).max(3))
+}
+
 /// Whether a value being typed takes the character `c`. Every tab types
 /// through this test, so no value takes a control character, C0 or C1.
 /// A value goes into vtium.conf as it is typed, and a C1 control such as

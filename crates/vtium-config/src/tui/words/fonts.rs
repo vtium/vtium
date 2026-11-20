@@ -194,14 +194,18 @@ pub const FONTS_EMPTY: &str = "vtium-config found no font files in the folders i
 pub const FONTS_HINT: &str = "Space activates or deactivates the highlighted font. Enter opens a font's detail, or the filters on the filter line.";
 
 /// What `p` does next in the Fonts tab, while the preview shows the
-/// sample characters. A terminal without images shows the same written
-/// description for both previews, so this line is how the person sees
-/// which one is on.
+/// sample characters, in a terminal that supports images.
 pub const FONTS_P_TO_PICTURE: &str = "p switches the preview to the picture of the console.";
 
 /// What `p` does next in the Fonts tab, while the preview shows the
 /// picture of the console.
 pub const FONTS_P_TO_SAMPLE: &str = "p switches the preview back to the sample characters.";
+
+/// What `p` says in the Fonts tab in a terminal that does not support
+/// images, where the preview is a written description and has no picture
+/// to switch to.
+pub const FONTS_P_NO_IMAGES: &str =
+    "This terminal does not support images, so p cannot show the picture of the console.";
 
 /// The sentence under the list of filters.
 pub const FONTS_FILTER_HINT: &str = "Enter shows the fonts that pass the highlighted filter. A filter other than All fonts leaves out each font the font helper has not described.";
@@ -351,6 +355,12 @@ pub const CHECKING_FONT: &str = "Checking the font before the install…";
 /// What the Fonts tab says when its window shows only part of the list.
 pub fn fonts_window(first: usize, last: usize, of: usize) -> String {
     format!("The list shows fonts {first} to {last} of {of}. Up and Down scroll it.")
+}
+
+/// What the list of filters says when its window shows only part of the
+/// list.
+pub fn filters_window(first: usize, last: usize, of: usize) -> String {
+    format!("The list shows filters {first} to {last} of {of}. Up and Down scroll it.")
 }
 
 /// The Fonts tab's note when the scan after an install fails.

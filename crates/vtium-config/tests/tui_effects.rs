@@ -48,9 +48,12 @@ fn highlighted(a: &App, name: &str) -> bool {
         })
 }
 
+// The test runs at 100×40, where the window of the list holds every
+// item of the fixture; at 80×25 it holds five.
 #[test]
 fn the_list_shows_no_filter_then_the_presets_then_the_administrator_s_vtlooks() {
-    let a = effects();
+    let mut a = app(100, 40);
+    press(&mut a, Key::Char('2'));
     let screen = text(&a);
     let at = |s: &str| screen.find(s).unwrap_or_else(|| panic!("{s}:\n{screen}"));
     assert!(at(" Show: All effects") < at(" vtlooks"), "{screen}");
@@ -360,13 +363,24 @@ fn space_on_a_color_map_vtium_cannot_use_says_why() {
 /// font, after `keys`; and the console, which keeps each picture asked
 /// for.
 fn pictured(ops: bool, cols: usize, rows: usize, keys: &[&[u8]]) -> (String, Console) {
+    pictured_from(inputs(), ops, cols, rows, keys)
+}
+
+/// The screen and the console of [`pictured`], from `inputs`.
+fn pictured_from(
+    inputs: vtium_config::tui::model::Inputs,
+    ops: bool,
+    cols: usize,
+    rows: usize,
+    keys: &[&[u8]],
+) -> (String, Console) {
     let grid = (cols, rows);
     let mut c = Console::vtium(cols, rows, ops, "unifont")
         .takes("proof", grid)
         .takes("unifont", grid)
         .keys(keys);
     c.graphics = true;
-    drive(&mut c, inputs()).expect("the loop");
+    drive(&mut c, inputs).expect("the loop");
     let screen = c.seen.clone().expect("the screen");
     (screen, c)
 }
@@ -681,22 +695,19 @@ fn the_line_names_the_console_s_own_vtlook() {
 }
 
 // The Effects tab with the preset amber highlighted, in a terminal that
-// shows pictures: the list, the sentences under it, and the line beside
-// the picture. At 80×25 the list leaves no room for the picture, so the
-// line says so and speaks of no picture.
+// shows pictures: the window of the list, the sentences under it, and the
+// line beside the picture. The window keeps the picture's rows at 80×25
+// as well.
 #[test]
 fn the_effects_tab_previews_a_preset_at_80x25_and_100x30() {
-    for (cols, rows, line) in [
-        (80, 25, "The terminal is too small to show the preview."),
-        (
-            100,
-            30,
-            "The picture shows the sample screen through the vtlook amber.",
-        ),
-    ] {
+    for (cols, rows) in [(80, 25), (100, 30)] {
         let (screen, c) = pictured(false, cols, rows, &to_item(2));
-        assert!(joined(&screen).contains(line), "{screen}");
-        assert_eq!(c.shots.is_empty(), cols == 80, "{screen}");
+        assert!(
+            joined(&screen)
+                .contains("The picture shows the sample screen through the vtlook amber."),
+            "{screen}"
+        );
+        assert!(!c.shots.is_empty(), "{screen}");
         let bytes = c.written.get(..c.seen_at).unwrap_or_default().to_vec();
         golden(&format!("effects-amber-{cols}x{rows}"), &screen, &bytes);
     }
@@ -836,4 +847,51 @@ fn a_color_map_s_name_shows_no_direction_override() {
     press(&mut a, Key::Enter);
     assert_eq!(nav::node(&a), "effects.effect");
     assert!(!text(&a).contains('\u{202e}'), "{}", text(&a));
+}
+
+// A long list of effects keeps the preview's rows: the list shows a
+// window of the effects around the highlight, and a sentence under the
+// list says which effects the window shows, so the person knows that the
+// list goes on. With 16 more color maps, in a terminal that shows
+// pictures at 80×25 and at 100×30, the picture still comes, and End
+// moves the window to the last color map.
+#[test]
+fn a_long_list_shows_a_window_and_the_preview_keeps_its_rows() {
+    const END: &[u8] = b"\x1b[F";
+    let mut many = inputs();
+    let warm = many.effects.maps[1].clone();
+    for n in 1..=16 {
+        let mut map = warm.clone();
+        map.path = map.path.with_file_name(format!("extra-{n}.cube"));
+        many.effects.maps.push(map);
+    }
+    let vtlooks = many.effects.vtlooks.len();
+    let all = vtlooks + many.effects.maps.len() + many.effects.shaders.len();
+    for (cols, rows) in [(80, 25), (100, 30)] {
+        let (screen, c) = pictured_from(many.clone(), false, cols, rows, &to_item(2));
+        assert!(
+            !c.shots.is_empty(),
+            "no picture at {cols}x{rows}:\n{screen}"
+        );
+        assert!(
+            joined(&screen).contains("The list shows effects 1 to "),
+            "{screen}"
+        );
+        assert!(joined(&screen).contains(&format!(" of {all}.")), "{screen}");
+        assert!(!screen.contains("extra-16.cube"), "{screen}");
+        let (screen, c) = pictured_from(many.clone(), false, cols, rows, &[TO_EFFECTS, END]);
+        assert!(
+            !c.shots.is_empty(),
+            "no picture at {cols}x{rows}:\n{screen}"
+        );
+        assert!(screen.contains("extra-16.cube"), "{screen}");
+        assert!(
+            joined(&screen).contains(&format!(" to {all} of {all}.")),
+            "{screen}"
+        );
+        // the window starts the group it shows with the group's heading,
+        // though the group's first color map is out of sight
+        assert!(screen.contains("Color maps"), "{screen}");
+        assert!(!screen.contains("sepia.cube"), "{screen}");
+    }
 }
