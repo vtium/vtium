@@ -1234,6 +1234,43 @@ fn space_activates_a_pointer_theme_by_its_folder_and_its_detail_says_who_draws_i
     assert!(screen.contains("No look uses it."), "{screen}");
 }
 
+/// Space on the pointer theme that vtium.conf's pointer-theme names asks
+/// first, because every head draws that theme, and says what every head
+/// shows once it is deactivated.
+///
+/// References:
+/// - ADR-1205 D8: deactivating a resource warns and names what uses it.
+#[test]
+fn space_on_the_pointer_theme_vtium_conf_names_asks_first() {
+    use vtium_config::batch::Change;
+    use vtium_config::tui::desk::Op;
+    use vtium_config::tui::input::Key;
+    use vtium_config::tui::model::Effect;
+    use vtium_config::tui::tabs::looks::Entry;
+    let conf = "# mine\nfont-name=unifont\npointer-theme = /usr/share/vtium/pointers.svg\nversion = 1\n[look proof]\n";
+    let mut a = looks_app(with_conf(conf), 100, 30);
+    to_entry(&mut a, &Entry::Pointer(0));
+    assert!(press(&mut a, Key::Char(' ')).is_empty());
+    assert_eq!(vtium_config::tui::nav::node(&a), "any.question.deactivate");
+    let question = a
+        .nav
+        .confirm
+        .as_ref()
+        .map(|c| c.question.clone())
+        .unwrap_or_default();
+    assert!(
+        question.contains("vtium.conf's pointer-theme names it. From the next login after the install, every head shows vtium's own pointer pictures in its place."),
+        "{question}"
+    );
+    assert_eq!(
+        press(&mut a, Key::Char('y')),
+        [Effect::Desk(Op::Resource {
+            path: PathBuf::from("/usr/share/vtium/pointers.svg"),
+            change: Change::Deactivate,
+        })]
+    );
+}
+
 /// `n`, `r`, `t` and `p` do nothing among the color schemes and the
 /// pointer themes: nothing changes, nothing opens and nothing is said.
 ///

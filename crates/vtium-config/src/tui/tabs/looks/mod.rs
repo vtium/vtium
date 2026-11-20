@@ -118,9 +118,9 @@ impl Looks {
                 let uses = palettes::uses(shared, &f.resource.path);
                 (f.resource.clone(), uses)
             }),
-            // no look can pick a pointer theme yet, so the rule that names
-            // the looks using a resource names none for a pointer theme
-            Entry::Pointer(at) => pointers::theme(shared, *at).map(|r| (r.clone(), Vec::new())),
+            Entry::Pointer(at) => {
+                pointers::theme(shared, *at).map(|r| (r.clone(), pointers::uses(shared, &r.path)))
+            }
             _ => None,
         }
     }

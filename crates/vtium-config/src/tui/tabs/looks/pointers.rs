@@ -25,6 +25,7 @@ use super::super::super::listbox::Item;
 use super::super::super::model::Shared;
 use super::super::super::resources::Resource;
 use super::super::super::words;
+use crate::batch::{Places, Use};
 
 /// The pointer theme at `at`.
 pub fn theme(shared: &Shared, at: usize) -> Option<&Resource> {
@@ -37,12 +38,20 @@ pub fn item(shared: &Shared, at: usize) -> Item {
     theme(shared, at).map_or_else(Item::default, |r| Item::new(r.name(), r.row()))
 }
 
-/// Whether vtium.conf's `pointer-theme` names the theme at `path`, so
-/// every look draws it.
-fn named(shared: &Shared, path: &Path) -> bool {
-    shared
-        .drafted("pointer-theme")
-        .is_some_and(|t| Path::new(t.trim_end_matches('/')) == path)
+/// The uses of the pointer theme at `path` in the draft, by the rule the
+/// command line's warning follows: the top level of vtium.conf when its
+/// `pointer-theme` names the theme, which every look then draws.
+pub fn uses(shared: &Shared, path: &Path) -> Vec<Use> {
+    let none = |_: &str| Vec::new();
+    crate::batch::uses(
+        path,
+        shared.conf_text().unwrap_or_default(),
+        &Places {
+            frits: None,
+            palettes: &[],
+            vtlook: &none,
+        },
+    )
 }
 
 /// The detail of the pointer theme at `at`: its title, its file or
@@ -64,6 +73,6 @@ pub fn detail(shared: &Shared, at: usize) -> Vec<String> {
         },
         words::detail_state(words::active_mark(r.state)),
         words::detail_trust(r.kind, r.trust.as_ref().err().map(String::as_str)),
-        words::pointer_users(named(shared, &r.path)),
+        words::pointer_users(!uses(shared, &r.path).is_empty()),
     ]
 }
