@@ -185,19 +185,19 @@ other any.question.quit below 80×25 +unsaved	y	other left	save, exit 0
 other any.question.system-font	Ctrl-C	other fonts.font(a font of yours)	
 other any.question.system-font	Esc	other fonts.font(a font of yours)	
 other any.question.system-font	Shrink	other any.question.system-font below 80×25	
-other any.question.system-font	y	other fonts.font(a system font)	install font
+other any.question.system-font	y	other fonts.font(a font of yours)	install font
 other any.question.system-font +pending	Ctrl-C	other fonts.font(a font of yours) +pending	
 other any.question.system-font +pending	Esc	other fonts.font(a font of yours) +pending	
 other any.question.system-font +pending	Shrink	other any.question.system-font below 80×25 +pending	
-other any.question.system-font +pending	y	other fonts.font(a system font) +pending	install font
+other any.question.system-font +pending	y	other fonts.font(a font of yours) +pending	install font
 other any.question.system-font +unsaved	Ctrl-C	other fonts.font(a font of yours) +unsaved	
 other any.question.system-font +unsaved	Esc	other fonts.font(a font of yours) +unsaved	
 other any.question.system-font +unsaved	Shrink	other any.question.system-font below 80×25 +unsaved	
-other any.question.system-font +unsaved	y	other fonts.font(a system font) +unsaved	install font
+other any.question.system-font +unsaved	y	other fonts.font(a font of yours) +unsaved	install font
 other any.question.system-font +unsaved +pending	Ctrl-C	other fonts.font(a font of yours) +unsaved +pending	
 other any.question.system-font +unsaved +pending	Esc	other fonts.font(a font of yours) +unsaved +pending	
 other any.question.system-font +unsaved +pending	Shrink	other any.question.system-font below 80×25 +unsaved +pending	
-other any.question.system-font +unsaved +pending	y	other fonts.font(a system font) +unsaved +pending	install font
+other any.question.system-font +unsaved +pending	y	other fonts.font(a font of yours) +unsaved +pending	install font
 other any.question.system-font below 80×25	Ctrl-C	other any.too-small	
 other any.question.system-font below 80×25	Esc	other any.too-small	
 other any.question.system-font below 80×25	Grow	other any.question.system-font	

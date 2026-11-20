@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "fonts.filter at 100×30, keys: Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft mine · no changes · no problems                                   text preview · t: try live
+ draft mine · no changes · no problems                           text preview · live trial in Looks
 ----------------------------------------------------------------------------------------------------
    ● All fonts
    ○ Bitmap fonts

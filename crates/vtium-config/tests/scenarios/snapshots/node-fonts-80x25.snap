@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "fonts at 80×25, keys: "
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
- draft mine · no changes · no problems               text preview · t: try live
+ draft mine · no changes · no problems       text preview · live trial in Looks
 --------------------------------------------------------------------------------
  Show: All fonts
  System fonts

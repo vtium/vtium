@@ -3,9 +3,9 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "any.question.system-font at 100×30, keys: PgDn Enter Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft mine · no changes · no problems                                   text preview · t: try live
+ draft mine · no changes · no problems                           text preview · live trial in Looks
 ----------------------------------------------------------------------------------------------------
- font Mine-Regular.ttf
+ Font Mine-Regular.ttf
  To install /home/user/.local/share/fonts/Mine-Regular.ttf as
  /usr/local/share/fonts/Mine-Regular.ttf, vtium-config runs this command:
  sudo vtium-config apply /home/user/.config/vtium/drafts/2026-11-19-1

@@ -197,19 +197,19 @@ ops-off any.question.quit below 80×25 +unsaved	y	ops-off left	save, exit 0
 ops-off any.question.system-font	Ctrl-C	ops-off fonts.font(a font of yours)	
 ops-off any.question.system-font	Esc	ops-off fonts.font(a font of yours)	
 ops-off any.question.system-font	Shrink	ops-off any.question.system-font below 80×25	
-ops-off any.question.system-font	y	ops-off fonts.font(a system font)	install font
+ops-off any.question.system-font	y	ops-off fonts.font(a font of yours)	install font
 ops-off any.question.system-font +pending	Ctrl-C	ops-off fonts.font(a font of yours) +pending	
 ops-off any.question.system-font +pending	Esc	ops-off fonts.font(a font of yours) +pending	
 ops-off any.question.system-font +pending	Shrink	ops-off any.question.system-font below 80×25 +pending	
-ops-off any.question.system-font +pending	y	ops-off fonts.font(a system font) +pending	install font
+ops-off any.question.system-font +pending	y	ops-off fonts.font(a font of yours) +pending	install font
 ops-off any.question.system-font +unsaved	Ctrl-C	ops-off fonts.font(a font of yours) +unsaved	
 ops-off any.question.system-font +unsaved	Esc	ops-off fonts.font(a font of yours) +unsaved	
 ops-off any.question.system-font +unsaved	Shrink	ops-off any.question.system-font below 80×25 +unsaved	
-ops-off any.question.system-font +unsaved	y	ops-off fonts.font(a system font) +unsaved	install font
+ops-off any.question.system-font +unsaved	y	ops-off fonts.font(a font of yours) +unsaved	install font
 ops-off any.question.system-font +unsaved +pending	Ctrl-C	ops-off fonts.font(a font of yours) +unsaved +pending	
 ops-off any.question.system-font +unsaved +pending	Esc	ops-off fonts.font(a font of yours) +unsaved +pending	
 ops-off any.question.system-font +unsaved +pending	Shrink	ops-off any.question.system-font below 80×25 +unsaved +pending	
-ops-off any.question.system-font +unsaved +pending	y	ops-off fonts.font(a system font) +unsaved +pending	install font
+ops-off any.question.system-font +unsaved +pending	y	ops-off fonts.font(a font of yours) +unsaved +pending	install font
 ops-off any.question.system-font below 80×25	Ctrl-C	ops-off any.too-small	
 ops-off any.question.system-font below 80×25	Esc	ops-off any.too-small	
 ops-off any.question.system-font below 80×25	Grow	ops-off any.question.system-font	

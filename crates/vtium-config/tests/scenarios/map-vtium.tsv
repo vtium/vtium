@@ -185,19 +185,19 @@ vtium any.question.quit below 80×25 +unsaved	y	vtium left	save, exit 0
 vtium any.question.system-font	Ctrl-C	vtium fonts.font(a font of yours)	
 vtium any.question.system-font	Esc	vtium fonts.font(a font of yours)	
 vtium any.question.system-font	Shrink	vtium any.question.system-font below 80×25	
-vtium any.question.system-font	y	vtium fonts.font(a system font)	install font
+vtium any.question.system-font	y	vtium fonts.font(a font of yours)	install font
 vtium any.question.system-font +pending	Ctrl-C	vtium fonts.font(a font of yours) +pending	
 vtium any.question.system-font +pending	Esc	vtium fonts.font(a font of yours) +pending	
 vtium any.question.system-font +pending	Shrink	vtium any.question.system-font below 80×25 +pending	
-vtium any.question.system-font +pending	y	vtium fonts.font(a system font) +pending	install font
+vtium any.question.system-font +pending	y	vtium fonts.font(a font of yours) +pending	install font
 vtium any.question.system-font +unsaved	Ctrl-C	vtium fonts.font(a font of yours) +unsaved	
 vtium any.question.system-font +unsaved	Esc	vtium fonts.font(a font of yours) +unsaved	
 vtium any.question.system-font +unsaved	Shrink	vtium any.question.system-font below 80×25 +unsaved	
-vtium any.question.system-font +unsaved	y	vtium fonts.font(a system font) +unsaved	install font
+vtium any.question.system-font +unsaved	y	vtium fonts.font(a font of yours) +unsaved	install font
 vtium any.question.system-font +unsaved +pending	Ctrl-C	vtium fonts.font(a font of yours) +unsaved +pending	
 vtium any.question.system-font +unsaved +pending	Esc	vtium fonts.font(a font of yours) +unsaved +pending	
 vtium any.question.system-font +unsaved +pending	Shrink	vtium any.question.system-font below 80×25 +unsaved +pending	
-vtium any.question.system-font +unsaved +pending	y	vtium fonts.font(a system font) +unsaved +pending	install font
+vtium any.question.system-font +unsaved +pending	y	vtium fonts.font(a font of yours) +unsaved +pending	install font
 vtium any.question.system-font below 80×25	Ctrl-C	vtium any.too-small	
 vtium any.question.system-font below 80×25	Esc	vtium any.too-small	
 vtium any.question.system-font below 80×25	Grow	vtium any.question.system-font	
