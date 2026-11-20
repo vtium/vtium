@@ -697,7 +697,9 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     c.key(b"n");
     c.until("the card", |s| s.screen.contains("Type the look's name"));
     c.key(b"\r");
-    c.until("the name kept", |s| s.screen.contains("Enter on a line shows"));
+    c.until("the name kept", |s| {
+        s.screen.contains("Enter on a line shows")
+    });
     c.key(b"\x1b");
     c.until("the list", |s| s.screen.contains(" Font sets"));
     c.key(b"i");
