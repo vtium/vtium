@@ -5095,11 +5095,21 @@ class Guide(Case):
         release = os.path.join(self.s.tmp, "release")
         ran = ("printf 'ran %s on %s\\n' $((6 * 7)) \"$(tty)\"; "
                f"while [ ! -e {release} ]; do sleep 0.05; done")
+        # Ctrl-\ ends the Quit step's program with SIGQUIT, whose default
+        # action writes a core dump, so systemd-coredump would record every
+        # run of the test. A core limit of 0 still leaves a record there.
+        # The program is therefore a python3 that turns off its own core
+        # dumps with prctl(PR_SET_DUMPABLE, 0), and the kernel then writes
+        # none. The program next renames itself with PR_SET_NAME, which
+        # tells the test that dumps are off, and waits for a signal.
+        quit = ("echo begun; exec python3 -c 'import ctypes, signal; prctl = ctypes.CDLL(None).prctl; "
+                "PR_SET_DUMPABLE, PR_SET_NAME = 4, 15; prctl(PR_SET_DUMPABLE, 0, 0, 0, 0); "
+                "prctl(PR_SET_NAME, b\"undumpable\", 0, 0, 0); signal.pause()'")
         write(guide, "title: Run guide\n"
                      f"step: Ran\nrun: {ran}\ndo: keep still\nexpect: ran 42\n"
                      "step: Failed\nrun: echo VT {vt}; exit 3\nexpect: VT 6\n"
                      "step: Stopped\nrun: echo started; sleep infinity; echo not reached\nexpect: started\n"
-                     "step: Quit\nrun: echo begun; sleep infinity\nexpect: begun\n", 0o644)
+                     f"step: Quit\nrun: {quit}\nexpect: begun\n", 0o644)
         g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
         g.wait_for(b"Press Enter to begin.")
         g.send(b"\r")
@@ -5141,20 +5151,21 @@ class Guide(Case):
         # Ctrl-C stops the command, and Ctrl-\ the program it runs, as at a
         # prompt; the checks go on, the step asks with the status, and the
         # keys echo again.
-        for k, title, out, key, sig, status in ((3, "Stopped", b"started", b"\x03", signal.SIGINT, 130),
-                                                (4, "Quit", b"begun", b"\x1c", signal.SIGQUIT, 131)):
+        for k, title, out, name, key, sig, status in (
+                (3, "Stopped", b"started", "sleep", b"\x03", signal.SIGINT, 130),
+                (4, "Quit", b"begun", "undumpable", b"\x1c", signal.SIGQUIT, 131)):
             g.wait_for(f"Step {k} of 4: {title}".encode())
             g.wait_for(b"Press Enter to run it (")
             g.send(b"\r")
             g.wait_for(out + b"\r\n")
-            # The key goes in once the key's signal would end sleep: bash
-            # ignores Ctrl-\, so one sent between echo and sleep would reach
-            # no program. The test then waits for sleep to end before it
-            # reads the status, so a key that ends nothing fails here and
-            # names the state sleep was left in.
-            sleep = g.program("sleep", sig)
+            # The key goes in once the key's signal would end the program:
+            # bash ignores Ctrl-\, so one sent between echo and the program
+            # would reach nothing. The test then waits for the program to end
+            # before it reads the status, so a key that ends nothing fails
+            # here and names the state the program was left in.
+            program = g.program(name, sig)
             g.send(key)
-            g.ended(sleep)
+            g.ended(program)
             g.wait_for(f"The command exited with status {status}.".encode())
             g.wait_for(b"[y]es [n]o [s]kip: ")
             g.send(b"n")
@@ -5172,7 +5183,7 @@ class Guide(Case):
                                      "  command exited with status 3", "  answer: skip",
                                      "-- step 3 of 4: Stopped", "  run: echo started; sleep infinity; echo not reached",
                                      "  command exited with status 130", "  answer: no  note: cut short",
-                                     "-- step 4 of 4: Quit", "  run: echo begun; sleep infinity",
+                                     "-- step 4 of 4: Quit", "  run: " + quit,
                                      "  command exited with status 131", "  answer: no  note: cut short"])
         self.assertRegex(log[16], r"^=== done ")
 
