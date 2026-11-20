@@ -47,9 +47,9 @@ Here a head that uses the look `evening` draws Catppuccin Mocha's colors, and th
 
 You can set a look's color scheme from the command line too: `vtium-config look set evening --palette catppuccin-mocha`.
 
-vtium-config's Looks tab lists the color schemes after the font sets: the built-in ones first, then the palette files. Under the list, the highlighted scheme shows its 16 colors and a line of text in its own colors. Enter opens the scheme's details, with its file, its trust mark, the looks that use it and each color's value. Space activates or deactivates a palette file, and asks first when a look uses it. On a look's card, the color scheme line offers the built-in schemes and the active palette files.
+vtium-config's Looks tab lists the color schemes after the font sets: the built-in ones first, then the palette files. Under the list, the highlighted scheme shows its 16 colors and a line of text in its own colors. Enter opens the scheme's detail, with its file, its trust mark, the looks that use it and each color's value. Space activates or deactivates a palette file, and asks first when a look uses it. An activation takes effect at the next login after you install the draft, and so does a deactivation. On a look's card, the color scheme line offers the built-in schemes and the active palette files.
 
-vtium reads vtium.conf and the palette files when it starts. So a change reaches a VT when vtium next starts there, as [The file](configure.md#the-file) describes.
+vtium reads vtium.conf and the palette files when it starts. So a change to vtium.conf or to a palette file reaches a VT when vtium next starts there, as [The file](configure.md#the-file) describes.
 
 When a look names a palette file that is missing or has an error, the heads that use the look draw the color scheme that the top level names. When the top-level color scheme fails the same way, those heads draw `legacy`. vtium logs one line for each such file. Run `vtium check-config` to see the file, the line and the reason.
 
