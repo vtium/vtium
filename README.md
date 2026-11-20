@@ -37,6 +37,7 @@ The full steps are in [Find out what went wrong](docs/troubleshooting.md) and [U
 ## What vtium does
 
 - [Text in any script](https://vtium.github.io/vtium/home/text/): characters as a reader sees them (grapheme clusters) lined up in character cells, shaping for complex scripts, right-to-left text, and the fonts vtium reads.
+- [Looks and effects](https://vtium.github.io/vtium/concepts/looks/): color schemes for each display's terminal, and effects that change the finished picture, such as an amber tint or a correction for color blindness.
 - [A terminal on each display](https://vtium.github.io/vtium/home/displays/): one vtium drives several displays at once, each with its own independent terminal, keyboard, and mouse, for several people working at one machine.
 - [Images](https://vtium.github.io/vtium/home/images/): sixel, the kitty graphics protocol, and iTerm2's inline images.
 - [Keyboards and mice](https://vtium.github.io/vtium/home/input/): how vtium reads your devices, the key and mouse encodings programs receive, and the keys that act on the machine.
