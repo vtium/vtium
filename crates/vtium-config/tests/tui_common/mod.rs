@@ -87,6 +87,11 @@ pub struct Console {
     /// The helper's answer to a sources query never comes, as a slow one
     /// has not yet.
     pub hold_sources: bool,
+    /// The font files each describe request named, in order.
+    pub described_asked: Vec<Vec<PathBuf>>,
+    /// The helper's descriptions never come, as a slow helper's have not
+    /// yet.
+    pub hold_descriptions: bool,
     /// A save writes each file of its plan, as the privileged step would.
     pub installs: bool,
     /// The replies to a font switch reach the TUI in two reads, the first
@@ -132,6 +137,8 @@ impl Console {
             summaries: Vec::new(),
             sources_asked: Vec::new(),
             hold_sources: false,
+            described_asked: Vec::new(),
+            hold_descriptions: false,
             installs: false,
             cut_replies: false,
             cuts: 0,
@@ -408,6 +415,23 @@ impl Port for Console {
         self.pending.push_back(Wake::Drawn(answer));
     }
 
+    /// Answers with what the fixture's stand-in font helper says of each
+    /// file, unless the test holds the descriptions back.
+    fn describe(&mut self, paths: Vec<std::path::PathBuf>) {
+        self.described_asked.push(paths.clone());
+        if self.hold_descriptions {
+            return;
+        }
+        let answers = paths
+            .into_iter()
+            .map(|p| {
+                let d = vtium_config::tui::fixture::described(&p);
+                (p, d)
+            })
+            .collect();
+        self.pending.push_back(Wake::Described(answers));
+    }
+
     fn sources(&mut self, fonts: Vec<String>) {
         self.sources_asked.push(fonts.clone());
         if self.hold_sources {
@@ -518,6 +542,10 @@ pub struct Desk {
     /// The resources that are active or that the draft changes, as the
     /// batch and the draft's changes hold them.
     pub resources: Vec<(PathBuf, vtium_config::batch::State)>,
+    /// An Op::SystemFont readied a font's install that has not yet run.
+    pub font_ready: bool,
+    /// The fonts it installed as system fonts, by their targets.
+    pub fonts_installed: Vec<PathBuf>,
 }
 
 pub fn desk() -> Desk {
@@ -529,6 +557,8 @@ pub fn desk() -> Desk {
         ready: false,
         after: None,
         resources: active(),
+        font_ready: false,
+        fonts_installed: Vec::new(),
     }
 }
 
@@ -590,6 +620,11 @@ impl vtium_config::tui::desk::Desk for Desk {
             Op::Resource { path, change } => {
                 vtium_config::tui::fixture::resource_op(&mut self.resources, path, *change)
             }
+            Op::SystemFont(path) => {
+                let done = vtium_config::tui::fixture::system_font_op(path)?;
+                self.font_ready = true;
+                Ok(done)
+            }
             other => Err(format!("{other:?} is not in these tests")),
         }
     }
@@ -618,6 +653,26 @@ impl vtium_config::tui::desk::Desk for Desk {
             Some(outcome) => Done::Installed(self.opened(), outcome),
             None => Done::Draft(self.opened(), None),
         })
+    }
+
+    /// Installs the font an Op::SystemFont readied, through the console's
+    /// runner, as the store does; refuses when none is ready.
+    fn install_font(&mut self, run: vtium_config::apply::Runner<'_>) -> Result<Done, String> {
+        if !std::mem::take(&mut self.font_ready) {
+            return Err(vtium_config::tui::words::NO_FONT_READY.to_owned());
+        }
+        let argv: Vec<std::ffi::OsString> = ["sudo", "vtium-config", "apply", "FONT-DRAFT"]
+            .iter()
+            .map(Into::into)
+            .collect();
+        let (ok, said) = run(&argv).map_err(|e| e.to_string())?;
+        if !ok {
+            return Err(said);
+        }
+        self.fonts_installed.push(PathBuf::from(
+            vtium_config::tui::fixture::OWN_FONT_INSTALLED,
+        ));
+        Ok(vtium_config::tui::fixture::font_installed())
     }
 }
 

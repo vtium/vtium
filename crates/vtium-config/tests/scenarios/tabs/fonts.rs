@@ -1,50 +1,64 @@
-//! The Fonts tab's part of the scenario walk. The tab lists the font sets
-//! today, and `n` opens the form for a new font set, which belongs to the
-//! Looks tab.
+//! The Fonts tab's part of the scenario walk: the tab's list of font
+//! files, the list of filters that its filter line opens, and a font's
+//! detail.
 
-use vtium_config::tui::model::{App, FontState, View};
+use vtium_config::tui::model::{App, View};
+use vtium_config::tui::tabs::fonts::detail::uses;
 
 use super::super::state::Shown;
-use super::{Tab, no_layer_focus};
+use super::Tab;
 
 pub const TAB: Tab = Tab {
     bar: "fonts",
     views: &[(View::Fonts, "fonts")],
-    narrow: &[],
+    narrow: &[("fonts.filter", "list"), ("fonts.font", "detail")],
     focus,
-    layer_focus: no_layer_focus,
+    layer_focus,
     shown,
-    today: TODAY,
+    today: &[],
 };
 
-/// What the TUI does today where the tables plan something else, as their
-/// notes say, so that the walks reach a value being typed. `n.view.fonts`
-/// says that `n` in the Fonts tab opens the form for a new font set, which
-/// the tree's `looks.new-frit.typing` opens on its first field.
-const TODAY: &[(&str, &str, &str)] = &[("fonts", "n", "looks.new-frit.typing")];
-
-/// The kind of font the highlight is on in the list, and the row the
-/// form for a new font set is on, since `n` opens the form there.
+/// What the highlight is on decides what Enter and Space do: the filter
+/// line opens the list of filters, and a font's marks decide whether Space
+/// activates it, deactivates it, asks first, or only says why it cannot,
+/// as for a font in the person's own folder, whose detail offers the
+/// install as a system font.
 fn focus(app: &App) -> String {
-    let kind = match app.font() {
-        None => "none",
-        Some(font) if app.shared.pending.removals.contains(&font.name) => "marked",
-        Some(font) => match font.state {
-            FontState::Reads => "frit",
-            FontState::BuiltIn => "builtin",
-            FontState::Refused(_) => "refused",
-        },
+    let Some(font) = app.font() else {
+        return "filter".into();
     };
-    // the row the new-frit form is on decides where `n` opens it,
-    // so a form left on another row than the first is a state of
-    // its own
-    match app.looks.form().at {
-        0 => kind.into(),
-        row => format!("{kind}, form on row {row}"),
-    }
+    let unused = uses(&app.shared, font.path()).is_empty();
+    let used = if unused { "" } else { ", used" };
+    format!("font: {}{used}", font.resource.row())
 }
 
-/// The Fonts tab shows its list alone.
-fn shown(_: &Shown) -> &'static [&'static str] {
-    &["fonts"]
+/// Whose font a detail shows decides what Enter does there: in the
+/// detail of a font of the person's own, Enter asks whether to install it
+/// as a system font, and in any other detail it does nothing.
+fn layer_focus(app: &App, narrow: &str) -> Option<String> {
+    let font = app.font().filter(|_| narrow == "detail")?;
+    Some(
+        if font.resource.own {
+            "a font of yours"
+        } else {
+            "a system font"
+        }
+        .to_owned(),
+    )
+}
+
+/// The list starts with its filter line and ends with the sentence that
+/// says what its keys do, which stays when the filter line scrolls out of
+/// a short window. The list of filters marks each filter with a circle,
+/// and a detail starts with the font it describes.
+fn shown(s: &Shown) -> &'static [&'static str] {
+    if s.any(" Show: ") || s.any(" Space activates or deactivates the highlighted font.") {
+        &["fonts"]
+    } else if s.any("   ● ") || s.any("   ○ ") {
+        &["fonts.filter"]
+    } else if s.any(" font ") {
+        &["fonts.font"]
+    } else {
+        &[]
+    }
 }

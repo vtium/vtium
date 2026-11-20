@@ -486,23 +486,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("l.question.leave", (nothing, no_today));
     m.insert("other.question", (nothing, no_today));
     m.insert("s.view", (saves, no_today));
-    m.insert(
-        "s.view.fonts",
-        (
-            saves,
-            Some(|s| {
-                // outside a vtium console, s switches the preview and saves
-                // nothing
-                if s.before.term != Term::Vtium
-                    && (s.has("save") || s.after.app.shared.unsaved != s.before.app.shared.unsaved)
-                {
-                    Err("s saved outside a vtium console".into())
-                } else {
-                    Ok(())
-                }
-            }),
-        ),
-    );
+    m.insert("s.view.fonts", (saves, no_today));
     m.insert("s.view.help", (nothing, no_today));
     m.insert(
         "s.layer.file-view",
@@ -636,9 +620,11 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     m.insert("v.view.flow", (|s| s.opens("layer:file-view"), no_today));
     m.insert("o.view.flow", (|s| s.opens("layer:restore"), no_today));
     // today `o` turns allow-font-ops on in Help and Settings, and does
-    // nothing on the Effects tab, which is new and follows the row
+    // nothing on the Effects and Fonts tabs, which are new and follow the
+    // row
     let ops_on: Check = |s| {
-        if s.before.term == Term::OpsOff && s.before.app.nav.view != View::Effects {
+        let new_tab = matches!(s.before.app.nav.view, View::Effects | View::Fonts);
+        if s.before.term == Term::OpsOff && !new_tab {
             if s.has("check") {
                 Ok(())
             } else {
@@ -1822,17 +1808,12 @@ fn reached_today(id: &str) -> Option<bool> {
     Some(match id {
         // the view, the tab or the form exists today in another shape, the
         // Effects tab as a line that says it is coming
-        "fonts" | "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
+        "effects" | "looks.new-frit" | "looks.new-frit.typing" => true,
         // nothing like it exists today
         "flow.card.list" | "looks.new-frit.list" => false,
         "any.question.window-ops" => false,
         // the six tabs' new screens and questions, which nothing builds yet
-        "effects.filter"
-        | "effects.effect"
-        | "fonts.filter"
-        | "fonts.font"
-        | "any.question.deactivate"
-        | "any.question.system-font" => false,
+        "effects.filter" | "effects.effect" | "any.question.deactivate" => false,
         _ => return None,
     })
 }

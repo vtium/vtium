@@ -571,117 +571,136 @@ mod draft_flow {
     }
 
     /// Runs the TUI on `b`'s desk, 30 rows high and [`Bench::cols`] wide,
-    /// in the Fonts view of a vtium console of the head `head`, which
-    /// draws unifont and takes tiny5 and a font set named BADX, which the
-    /// bench's check refuses, typing `keys`.
-    fn run_fonts(b: &Bench, head: Option<&str>, keys: &[&[u8]]) -> Ran {
+    /// in the Looks tab of a vtium console of the head `head`, which draws
+    /// unifont and takes tiny5 and proof, typing `keys`. The tab lists the
+    /// look big, then the font sets broken, minspec-16, proof, tiny5 and
+    /// unifont.
+    fn run_looks(b: &Bench, head: Option<&str>, keys: &[&[u8]]) -> Ran {
         let grid = (b.cols(), 30);
         let mut console = Console::vtium(grid.0, grid.1, true, "unifont")
             .takes("tiny5", grid)
             .takes("unifont", grid)
-            .takes("BADX", grid)
+            .takes("proof", grid)
             .keys(keys);
         let mut desk = b.desk(vec![present(vec![keyboard()], true)]);
         let mut i = inputs();
-        i.view = model::View::Fonts;
+        i.view = model::View::Looks;
         i.head = head.map(str::to_owned);
-        i.fonts.push(font("BADX", FontState::Reads));
         i.flow = vtium_config::tui::flow::Flow::default();
         drive_with(&mut console, i, Some(&mut desk)).expect("the loop");
         Ran { console }
     }
 
-    /// The keys that try tiny5 on the console and keep it: from unifont,
-    /// one row up.
-    const TRY_TINY5: [&[u8]; 3] = [UP, b"t", b"k"];
+    /// The keys that try tiny5 on the console and keep it: from the look
+    /// big, down past the font sets broken, minspec-16 and proof.
+    const KEEP_TINY5: [&[u8]; 6] = [DOWN, DOWN, DOWN, DOWN, b"t", b"k"];
 
-    /// `s` in a vtium console's Fonts view saves the font the console
-    /// shows where the console's head takes its font from. The bench's
-    /// head desk draws the look big, which names proof, so the save makes
-    /// a look for tiny5, gives it to desk, and removes big, which no head
-    /// uses then, through the Flow card's plan; the top level's font-name
-    /// stays unset (ADR-1201 D4, ADR-1403 D8).
+    /// The keys that open the card of the look big, from tiny5 among the
+    /// font sets, and step its font set line from proof to tiny5, the
+    /// next font set that reads, then close the card.
+    const BIG_TO_TINY5: [&[u8]; 8] = [UP, UP, UP, UP, b"\r", DOWN, RIGHT, ESC];
+
+    /// A font kept after a trial stays on the console when the person then
+    /// chooses that font set on the card of the look the console's head
+    /// draws with, and `s` saves the choice into that look. The console
+    /// switches to tiny5 once, for the trial, and back to unifont once, when
+    /// the TUI leaves; the card and the save switch nothing. vtium.conf's
+    /// top-level font-name stays unset.
+    ///
+    /// This replaces a test of the old Fonts view's `s`, which saved the
+    /// font tried into the look of the console's head. The defect it caught,
+    /// a font that the person keeps and saves not reaching that look, is
+    /// caught here on the path that replaces the old `s`.
+    ///
+    /// References:
+    /// - ADR-1201 D4, the note of 2026-11-16 on saving the font tried: `s`
+    ///   saves as in every view, and a choice on a look's card writes that
+    ///   look.
+    /// - ADR-1201 D4, the live trial: `k` keeps the font until the TUI
+    ///   leaves.
     #[test]
-    fn s_saves_the_tried_font_into_the_look_of_the_consoles_head() {
-        let b = bench("tried-look");
-        let ran = run_fonts(&b, Some("desk"), &[&TRY_TINY5[..], &[b"s"]].concat());
+    fn a_kept_font_stays_when_the_look_s_card_chooses_it_and_s_saves_it() {
+        let b = bench("kept-then-card");
+        let ran = run_looks(
+            &b,
+            Some("desk"),
+            &[&KEEP_TINY5[..], &BIG_TO_TINY5[..], &[b"s"]].concat(),
+        );
         let draft = b.draft();
         assert!(
-            draft.contains("[look tiny5]\nfont-name = tiny5\n"),
-            "{draft}"
+            draft.contains("[look big]\nfont-name = tiny5\n"),
+            "{draft}\n{}",
+            ran.screen()
         );
-        assert!(draft.contains("[head desk]\nlook = tiny5\n"), "{draft}");
-        assert!(!draft.contains("[look big]"), "{draft}");
+        assert!(draft.contains("[head desk]\nlook = big\n"), "{draft}");
         assert_eq!(
             vtium_settings::setting(&draft, "font-name"),
             None,
             "{draft}"
         );
+        assert_eq!(ran.console.switches(), ["tiny5", "unifont"]);
+        // the console still drew tiny5 when the keys ran out, and went
+        // back to unifont only as the TUI left
+        let (during, leaving) = ran.console.written.split_at(ran.console.seen_at);
+        let back = "\x1b]50;unifont\x1b\\";
         assert!(
-            flat(ran.screen()).contains(&flat(&words::tried_saved_look(
-                "tiny5", "desk", "tiny5", "bench"
-            ))),
-            "{}",
-            ran.screen()
+            !String::from_utf8_lossy(during).contains(back),
+            "put back early"
+        );
+        assert!(
+            String::from_utf8_lossy(leaving).contains(back),
+            "given back on leaving"
         );
         assert!(ran.status().contains("no problems"), "{}", ran.status());
-        // the draft is the installed file until the save, which waits for
-        // nothing else
-        assert_ne!(draft, INSTALLED);
     }
 
-    /// A head whose look names no font takes the top level's: the save
-    /// writes `font-name` there and leaves the looks alone.
+    /// `s` after a kept trial saves the draft's changes and nothing else:
+    /// the font kept is not written anywhere, for a head whose look names
+    /// no font, and where vtium-config cannot tell the console's head.
+    /// With no other change, `s` says there is nothing to save; with a new
+    /// look made first, `s` saves that look alone.
+    ///
+    /// This replaces two tests of the old Fonts view's `s`. One saved the
+    /// font tried as the top-level font-name for a head whose look names
+    /// none. The other saved nothing without `VTIUM_HEAD` while a look
+    /// names a font. The defect they caught, the font tried written where
+    /// the person did not choose it, is caught here: no `s` writes it.
+    ///
+    /// References:
+    /// - ADR-1201 D4, the note of 2026-11-16 on saving the font tried: `s`
+    ///   saves as in every view, and the Looks tab writes no top-level key.
+    /// - ADR-1403 D7: Save writes the changes not yet saved.
     #[test]
-    fn s_saves_the_tried_font_at_the_top_level_for_a_head_whose_look_names_none() {
-        let b = bench("tried-top");
-        let ran = run_fonts(&b, Some("panel"), &[&TRY_TINY5[..], &[b"s"]].concat());
-        let draft = b.draft();
-        assert_eq!(
-            vtium_settings::setting(&draft, "font-name").as_deref(),
-            Some("tiny5"),
-            "{draft}"
-        );
-        assert!(draft.contains("[look big]\nfont-name = proof\n"), "{draft}");
-        assert!(draft.contains("[head desk]\nlook = big\n"), "{draft}");
-        assert!(
-            flat(ran.screen()).contains(&flat(&words::tried_saved_top("tiny5", "bench"))),
-            "{}",
-            ran.screen()
-        );
-        // without VTIUM_HEAD, where a look names a font of its own, the
-        // TUI cannot tell where the console takes its font from, and
-        // writes nothing
-        let b = bench("tried-no-head");
-        let ran = run_fonts(&b, None, &[&TRY_TINY5[..], &[b"s"]].concat());
-        assert_eq!(b.draft(), INSTALLED);
-        assert!(
-            flat(ran.screen()).contains(&flat(&words::tried_no_head("tiny5"))),
-            "{}",
-            ran.screen()
-        );
-    }
-
-    /// A save the check fails writes nothing: the draft stays as it was,
-    /// and the message line shows what `vtium check-config` printed.
-    #[test]
-    fn s_refuses_a_tried_font_the_check_fails_and_shows_the_checks_words() {
-        let b = bench("tried-refused");
-        let end: &[u8] = b"\x1b[4~";
-        let ran = run_fonts(&b, Some("panel"), &[end, b"t", b"k", b"s"]);
-        assert_eq!(ran.console.switches(), ["BADX", "unifont"]);
-        assert_eq!(b.draft(), INSTALLED);
-        let said = flat(ran.screen());
-        assert!(
-            said.contains(&flat(words::TRIED_REFUSED)),
-            "{}",
-            ran.screen()
-        );
-        assert!(
-            said.contains("BAD is not a key vtium reads"),
-            "{}",
-            ran.screen()
-        );
+    fn s_after_a_kept_trial_saves_the_draft_s_changes_and_nothing_else() {
+        for head in [Some("panel"), None] {
+            let b = bench(&format!("kept-then-s-{}", head.unwrap_or("none")));
+            let ran = run_looks(&b, head, &[&KEEP_TINY5[..], &[b"s"]].concat());
+            assert_eq!(b.draft(), INSTALLED, "{head:?}");
+            assert!(
+                flat(ran.screen()).contains(&flat(words::NOTHING_TO_SAVE)),
+                "{head:?}: {}",
+                ran.screen()
+            );
+            // a new look first, its name kept and its card closed
+            let b = bench(&format!("new-then-kept-{}", head.unwrap_or("none")));
+            let ran = run_looks(
+                &b,
+                head,
+                &[&[b"n", b"\r", ESC][..], &KEEP_TINY5[..], &[b"s"]].concat(),
+            );
+            let draft = b.draft();
+            assert!(
+                draft.contains("[look new-look]\n"),
+                "{head:?}: {draft}\n{}",
+                ran.screen()
+            );
+            assert!(!draft.contains("tiny5"), "{head:?}: {draft}");
+            assert_eq!(
+                draft.replacen("\n[look new-look]\n", "", 1),
+                INSTALLED,
+                "{head:?}: only the new look"
+            );
+        }
     }
 
     /// The TUI's checked save writes a draft whose check ends with
@@ -1178,6 +1197,9 @@ mod draft_flow {
             .takes("proof", (100, 30))
             .takes("unifont", (100, 30))
             .keys(&[
+                // the Looks tab's first font set, where n opens the form
+                TO_LOOKS,
+                DOWN,
                 b"n",
                 b"quiet",
                 b"\r",

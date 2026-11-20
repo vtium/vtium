@@ -1,0 +1,30 @@
+ Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
+ draft mine · no changes · no problems                                 text preview · no live trial
+----------------------------------------------------------------------------------------------------
+   ● All fonts
+   ○ Bitmap fonts
+   ○ Outline fonts
+   ○ Monospaced fonts
+   ○ Proportional fonts
+   ○ Nerd Fonts fonts
+   ○ Powerline fonts
+   ○ color emoji fonts
+   ○ box drawing fonts
+   ○ Fonts for Latin
+   ○ Fonts for Greek
+   ○ Fonts for Cyrillic
+   ○ Fonts for Armenian
+   ○ Fonts for Hebrew
+   ○ Fonts for Arabic
+   ○ Fonts for Devanagari
+   ○ Fonts for Bengali
+   ○ Fonts for Gurmukhi
+   ○ Fonts for Gujarati
+   ○ Fonts for Tamil
+
+ Enter shows the fonts that pass the highlighted filter. A filter other than All fonts leaves out
+ each font the font helper has not described.
+ Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it.
+ To turn it on, press o in the Fonts view, then install.
+----------------------------------------------------------------------------------------------------
+ ↑↓ move  Enter pick  Esc back  q quit  . more 1/3

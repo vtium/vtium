@@ -100,7 +100,7 @@ flowchart LR
     any --> any_trial
     any --> any_too_small
     classDef planned stroke-dasharray: 5 5
-    class flow_card_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,fonts,fonts_filter,fonts_font,any_question_system_font,any_question_window_ops planned
+    class flow_card_list,looks_new_frit,looks_new_frit_typing,looks_new_frit_list,any_question_window_ops planned
 ```
 
 Each section below names a screen by its place in the tree, says how you open and leave it, and lists its keys. The column "Shown as" gives the word the key line shows beside the key, and a dash marks a key that the key line leaves out.
@@ -805,8 +805,6 @@ This screen is not built as described yet. See [#379](https://github.com/vtium/v
 
 The Fonts tab: a line of filters, then the fonts found on this system, each with its active mark and trust mark, with a preview of the highlighted font.
 
-This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375). Today: the Fonts tab lists the font sets, with n, r, t and s on them.
-
 **Open it:** Tab from help, Shift-Tab from effects; 1 from any tab with nothing open.
 
 **Leave it:** Tab to effects, Shift-Tab to help; a digit to another tab.
@@ -823,7 +821,7 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 | 5 | go to tab | Goes straight to the Settings tab. |
 | 6 | go to tab | Goes straight to the Help tab. |
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
-| s | save | Saves the changes that are not saved into the draft. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| s | save | Saves the changes that are not saved into the draft. |
 | i | install | Saves, then asks whether to install the draft. |
 | o | - | Does nothing here. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
@@ -835,17 +833,15 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 | PgUp | page up | Moves up by a page. |
 | PgDn | page down | Moves down by a page. |
 | Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On a vtlook, the built-in font or a built-in color scheme, does nothing. |
-| Enter | open | On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| Enter | open | On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it. |
 | t | try live | Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
-| p | preview | Switches the preview between the sample characters and the picture of the console. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
-| n | - | Does nothing here. New font sets are made in the Looks tab. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
-| r | - | Does nothing here. Font sets are removed in the Looks tab. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| p | preview | Switches the preview between the sample characters and the picture of the console. |
+| n | - | Does nothing here. New font sets are made in the Looks tab. |
+| r | - | Does nothing here. Font sets are removed in the Looks tab. |
 
 ## `fonts.filter`
 
 The shared list of the Fonts tab's filters: bitmap or outline, monospaced or not, each script, and well-known groups such as Nerd Fonts and color emoji.
-
-This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375). Today: vtium-config has no filters.
 
 **Open it:** Enter on the filter line.
 
@@ -872,8 +868,6 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 
 A font's detail, read-only: its family and files, what it covers, its sizes, its trust mark and the check it fails, the looks that use it, and a duplicate mark.
 
-This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375). Today: vtium-config has no detail for a font.
-
 **Open it:** Enter on a font.
 
 **Leave it:** Esc to fonts; Enter on a font from your own folders asks any.question.system-font.
@@ -890,7 +884,7 @@ This screen is not built as described yet. See [#375](https://github.com/vtium/v
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | scroll | Scrolls the detail up by a line. |
 | Down | scroll | Scrolls the detail down by a line. |
-| Enter | install as system font | On a font from your own folders, asks whether to install it as a system font. The question shows the exact command first. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| Enter | install as system font | On a font from your own folders, asks whether to install it as a system font. The question shows the exact command first. |
 
 ## `effects`
 
@@ -1205,8 +1199,6 @@ The question before a font, a color map, a shader, a color scheme or a pointer t
 ## `any.question.system-font`
 
 The question before a font from your own folders is installed as a system font, which shows the exact command.
-
-This screen is not built as described yet. See [#375](https://github.com/vtium/vtium/issues/375), [#440](https://github.com/vtium/vtium/issues/440). Today: vtium-config has no such question.
 
 **Open it:** Enter in the detail of a font from your own folders.
 

@@ -140,3 +140,11 @@ node-looks_palette-80x25	the frame the view draws into ratatui's TestBackend at 
 node-looks_pointer-100x30	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, at 100×30, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
 node-looks_pointer-79x24	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, below the minimum, where the TUI asks for a larger terminal, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
 node-looks_pointer-80x25	the frame the view draws into ratatui's TestBackend at node looks.pointer of the interface tree, at 80×25, reached by the shortest keys; provisional until the maintainer accepts the layout (ADR-1206 D5)
+fonts-list-80x25	the Fonts tab's list of the fonts found, by folder, with the first font highlighted, at 80×25; provisional until the maintainer accepts the layout
+fonts-list-100x30	the Fonts tab's list of the fonts found, by folder, with the first font highlighted, at 100×30; provisional until the maintainer accepts the layout
+fonts-filter-80x25	the Fonts tab's list of filters, open over the list, at 80×25; provisional until the maintainer accepts the layout
+fonts-filter-100x30	the Fonts tab's list of filters, open over the list, at 100×30; provisional until the maintainer accepts the layout
+fonts-detail-80x25	a font's detail in the Fonts tab: the Noto Color Emoji file that fails the trust rule and repeats a package's file, at 80×25; provisional until the maintainer accepts the layout
+fonts-detail-100x30	a font's detail in the Fonts tab: the Noto Color Emoji file that fails the trust rule and repeats a package's file, at 100×30; provisional until the maintainer accepts the layout
+fonts-system-font-80x25	the question before a font of yours is installed as a system font, with the exact command, at 80×25; provisional until the maintainer accepts the layout
+fonts-system-font-100x30	the question before a font of yours is installed as a system font, with the exact command, at 100×30; provisional until the maintainer accepts the layout

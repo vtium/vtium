@@ -195,6 +195,7 @@ fn open(app: &App, at: &str) -> (StateKind, &'static str) {
                 Then::Leave(_) => "leave",
                 Then::Change(_) => "change",
                 Then::Install(_) => "install",
+                Then::InstallFont => "system font",
                 Then::Desk(op) => match op {
                     vtium_config::tui::desk::Op::Revert => "revert",
                     vtium_config::tui::desk::Op::New => "new",

@@ -206,7 +206,180 @@ pub fn inputs() -> Inputs {
         .map(|(n, b)| (n.to_owned(), b.to_vec()))
         .collect(),
         effects: effects(),
+        font_files: font_files(),
     }
+}
+
+/// The font files the fixture's Fonts tab lists, in the scan's order:
+/// DejaVu Sans Mono, active; a Terminus strike, not active; Noto Color
+/// Emoji in the administrator's folder, which fails the trust rule and
+/// repeats the package's file of the same bytes; vtium's own Cullet Mono,
+/// active; and a font in the person's own folder, which vtium cannot use.
+/// None is described until [`described`] answers for it.
+pub fn font_files() -> super::fonts_found::Fonts {
+    super::fonts_found::Fonts::new(found())
+}
+
+/// The font in the person's own folder that the fixture lists.
+pub const OWN_FONT: &str = "/home/user/.local/share/fonts/Mine-Regular.ttf";
+
+/// Where installing [`OWN_FONT`] as a system font puts it.
+pub const OWN_FONT_INSTALLED: &str = "/usr/local/share/fonts/Mine-Regular.ttf";
+
+/// The command a stand-in desk shows before it installs [`OWN_FONT`].
+pub const OWN_FONT_COMMAND: &str =
+    "sudo vtium-config apply /home/user/.config/vtium/drafts/2026-11-19-1";
+
+/// What a stand-in desk answers [`super::desk::Op::SystemFont`] with: the
+/// install of [`OWN_FONT`], new to the system's folder. It refuses every
+/// other file, as the real desk refuses a font a package installed.
+pub fn system_font_op(path: &std::path::Path) -> Result<super::desk::Done, String> {
+    if path != std::path::Path::new(OWN_FONT) {
+        return Err(format!(
+            "{}: a package installed this font in /usr/share/fonts, so it is a system font already.",
+            path.display()
+        ));
+    }
+    Ok(super::desk::Done::SystemFont(super::desk::FontReady {
+        source: OWN_FONT.to_owned(),
+        target: OWN_FONT_INSTALLED.to_owned(),
+        placement: crate::apply::Placement::New,
+        facts: None,
+        command: OWN_FONT_COMMAND.to_owned(),
+    }))
+}
+
+/// What a stand-in desk's install of [`OWN_FONT`] gives: the font in the
+/// system's folder, found by a scan afterwards beside the fixture's fonts.
+pub fn font_installed() -> super::desk::Done {
+    let mut found = found();
+    let new = crate::discover::Found {
+        path: PathBuf::from(OWN_FONT_INSTALLED),
+        folder: crate::discover::Folder {
+            path: PathBuf::from("/usr/local/share/fonts"),
+            place: crate::discover::Place::System,
+        },
+        trust: Ok(()),
+        state: State::Inactive,
+        duplicate: None,
+    };
+    found.insert(3.min(found.len()), new);
+    super::desk::Done::FontInstalled {
+        target: PathBuf::from(OWN_FONT_INSTALLED),
+        said: format!("wrote {OWN_FONT_INSTALLED}"),
+        found,
+    }
+}
+
+/// The scan's answer behind [`font_files`].
+fn found() -> Vec<crate::discover::Found> {
+    use crate::discover::{Duplicate, Folder, Found, Place};
+    let found = |path: &str, place, state, trust: Result<(), String>| Found {
+        path: PathBuf::from(path),
+        folder: Folder {
+            path: PathBuf::from("/"),
+            place,
+        },
+        trust,
+        state,
+        duplicate: None,
+    };
+    let mut emoji = found(
+        "/usr/local/share/fonts/NotoColorEmoji.ttf",
+        Place::System,
+        State::Inactive,
+        Err("/usr/local/share/fonts/NotoColorEmoji.ttf: the file belongs to user 1000, and only root may own it.".to_owned()),
+    );
+    emoji.duplicate = Some(Duplicate {
+        of: PathBuf::from("/usr/share/fonts/noto/NotoColorEmoji.ttf"),
+        same_bytes: true,
+    });
+    vec![
+        found(
+            "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+            Place::System,
+            State::Active,
+            Ok(()),
+        ),
+        found(
+            "/usr/share/fonts/misc/ter-u16n.otb",
+            Place::System,
+            State::Inactive,
+            Ok(()),
+        ),
+        emoji,
+        found(
+            "/usr/share/vtium/fonts/cullet-mono.otf",
+            Place::Vtium,
+            State::Active,
+            Ok(()),
+        ),
+        found(OWN_FONT, Place::User, State::Inactive, Ok(())),
+    ]
+}
+
+/// What a stand-in font helper says of the fixture's font files: each
+/// face as the real helper would describe it.
+pub fn described(path: &std::path::Path) -> crate::discover::Described {
+    use crate::describe::{Description, Face, Format, Group, Strike};
+    use crate::discover::Described;
+    let face =
+        |family: &str, outline, monospaced, scripts: &[&'static str], groups: &[Group]| Face {
+            family: family.to_owned(),
+            style: "Regular".to_owned(),
+            version: Some("2.37".to_owned()),
+            outline,
+            monospaced,
+            scripts: scripts.to_vec(),
+            groups: groups.to_vec(),
+            strikes: Vec::new(),
+            codepoints: 3_000,
+            coverage: vec![(0x20, 0x7e)],
+            coverage_cut: false,
+        };
+    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let faces = match name {
+        "DejaVuSansMono.ttf" => vec![face(
+            "DejaVu Sans Mono",
+            true,
+            true,
+            &["Latin", "Greek", "Cyrillic"],
+            &[Group::BoxDrawing, Group::Powerline],
+        )],
+        "ter-u16n.otb" => vec![Face {
+            strikes: vec![Strike {
+                width: 8,
+                height: 16,
+            }],
+            ..face(
+                "Terminus",
+                false,
+                true,
+                &["Latin", "Cyrillic"],
+                &[Group::BoxDrawing],
+            )
+        }],
+        "NotoColorEmoji.ttf" => vec![face(
+            "Noto Color Emoji",
+            true,
+            false,
+            &[],
+            &[Group::ColorEmoji],
+        )],
+        "cullet-mono.otf" => vec![face(
+            "Cullet Mono",
+            true,
+            true,
+            &["Latin", "Greek", "Cyrillic"],
+            &[Group::BoxDrawing, Group::NerdFonts],
+        )],
+        "Mine-Regular.ttf" => vec![face("Mine", true, false, &["Latin"], &[])],
+        _ => return Described::NotAFont("there is no such file".to_owned()),
+    };
+    Described::Font(Description {
+        format: Format::OpenType,
+        faces,
+    })
 }
 
 /// What the fixture's Effects tab lists: No filter; the presets amber and
@@ -386,6 +559,7 @@ fn resources() -> Vec<Resource> {
         .chain(found.shaders)
         .chain(found.palettes.into_iter().map(|f| f.resource))
         .chain(found.pointers)
+        .chain(font_files().files.into_iter().map(|f| f.resource))
         .collect()
 }
 
@@ -404,7 +578,8 @@ pub fn active() -> Vec<(PathBuf, State)> {
 /// draft's change as the real desk keeps it, an activation of a resource
 /// the draft deactivates taking the deactivation back. It refuses what
 /// the real batch refuses: an activation of a file the system does not
-/// hold that fails the trust rule, as the fixture's [`effects`] marks it,
+/// hold that fails the trust rule, as the fixture's [`effects`] and
+/// [`font_files`] mark it,
 /// and a deactivation of a resource that is not active. Its messages name
 /// the kind of resource as the real desk's do, from the fixture's marks
 /// where the fixture lists the resource, since the real rule reads the

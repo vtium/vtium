@@ -53,7 +53,7 @@ pub const TRIAL_KEY: &str = "t: try live";
 pub const TRIAL_NONE: &str = "no live trial";
 
 /// Why the live trial does not work, on the message line.
-pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, press o in the Fonts view, then install.";
+pub const OPS_OFF: &str = "Live trial is off: this vtium console has allow-font-ops turned off, so t cannot try a font on it. To turn it on, change allow-font-ops in the Settings tab, then install.";
 
 pub const NOT_VTIUM: &str = "Live trial is off: this terminal is not a vtium console, so t cannot try a font on it. You can still install fonts.";
 
@@ -68,7 +68,7 @@ pub fn trial_countdown(font: impl Display, left: u32) -> String {
 
 pub fn trial_kept(font: impl Display) -> String {
     format!(
-        "The console keeps {font} until you quit vtium-config. Press s to save it in the draft, then i to install it."
+        "The console keeps {font} until you quit vtium-config. To keep {font} after that, choose it on a look's card in the Looks tab, then press s to save and i to install."
     )
 }
 
@@ -84,34 +84,8 @@ pub fn trial_refused(font: impl Display) -> String {
     format!("The console refused {font}. Its log says why.")
 }
 
-/// What `s` in the Fonts view of a vtium console says: the font the
-/// console shows saved where the console's terminal takes its font from,
-/// or why not.
-pub fn tried_saved_look(font: &str, head: &str, look: &str, draft: &str) -> String {
-    format!(
-        "Saved {font} into draft {draft} as the font of the look {look}. This console belongs to {}, which draws with that look. Press i to install it.",
-        terminal(head)
-    )
-}
-
-pub fn tried_saved_top(font: &str, draft: &str) -> String {
-    format!(
-        "Saved {font} into draft {draft} as the font of every terminal whose look names no font. Press i to install it."
-    )
-}
-
-pub fn tried_already(font: &str) -> String {
-    format!("Nothing to save: the draft already gives this console's terminal {font}.")
-}
-
-pub const TRIED_UNKNOWN: &str = "Nothing to save: the console has not said which font it draws.";
-
-pub fn tried_no_head(font: &str) -> String {
-    format!(
-        "Nothing saved: vtium-config cannot tell which terminal this console belongs to, because VTIUM_HEAD is not set, and the draft's looks name fonts of their own. Choose {font} on a terminal's card in the Flow view instead."
-    )
-}
-
+/// Why the desk's checked save wrote nothing, before what the check
+/// printed.
 pub const TRIED_REFUSED: &str = "Nothing saved, because vtium check-config found problems:";
 
 /// The line beside the detailed specimen (ADR-1201 D4).
@@ -122,7 +96,7 @@ pub fn detail_caption(
     (w, h): (u32, u32),
     assumed: bool,
 ) -> String {
-    let marks = "Characters in grey come from the built-in font, and a box marks a character no font can display. Press s to see the console.";
+    let marks = "Characters in grey come from the built-in font, and a box marks a character no font can display. Press p to see the console.";
     let Some(s) = summary else {
         return format!("{font} at {points} pt. {marks}");
     };
@@ -591,7 +565,7 @@ mod tests {
         };
         assert_eq!(
             super::detail_caption("ega", 12, Some(&summary), (1920, 1080), false),
-            "ega at 12 pt: each character cell is 8x16 pixels. The font can display 40 of the 51 characters in the preview. Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file. Characters in grey come from the built-in font, and a box marks a character no font can display. Press s to see the console."
+            "ega at 12 pt: each character cell is 8x16 pixels. The font can display 40 of the 51 characters in the preview. Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file. Characters in grey come from the built-in font, and a box marks a character no font can display. Press p to see the console."
         );
         assert_eq!(
             super::size_summary(&summary),

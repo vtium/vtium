@@ -15,11 +15,13 @@
 //! Where it sets none, No filter comes first and leaves the key unset.
 //! The other vtlooks follow in the Effects tab's order, and a vtlook that
 //! does not read shows why and can still be picked: the terminal then
-//! draws No filter until the file is fixed. The sizes are vtium-config's
-//! usual sizes, because no request of the font helper reports the sizes a
-//! font set supplies yet. A value the look sets that the usual choices
-//! lack, such as a color scheme file or a font set that does not read, is
-//! listed too, so stepping from it never drops the look's key. Every look
+//! draws No filter until the file is fixed. The sizes come from the look's
+//! text font, as the font helper described it for the Fonts tab: a bitmap
+//! font offers the point sizes that draw each of its strikes, and an
+//! outline font, or a font not described yet, the usual sizes. A value the
+//! look sets that the choices lack, such as a color scheme file or a font
+//! set that does not read, is listed too, so stepping from it never drops
+//! the look's key. Every look
 //! draws the pointer theme vtium.conf sets, so the pointer theme line
 //! shows that theme and has no choices.
 //!
@@ -40,6 +42,7 @@
 
 use super::super::super::edit::Change as DraftChange;
 use super::super::super::effects_found::From;
+use super::super::super::fonts_found::{Supplied, strike_points, supplied_by};
 use super::super::super::input::Key;
 use super::super::super::listbox::{Act, Body, Item, ListBox, Marks, rows, tail};
 use super::super::super::model::{Font, FontState, SIZES, Shared, Size};
@@ -135,6 +138,15 @@ fn top(shared: &Shared, key: &str) -> Option<String> {
     }
 }
 
+/// The sizes the text font of the font set `look` draws supplies.
+///
+/// References:
+/// - ADR-1205 D7: a look offers the sizes its fonts supply.
+fn supplied(shared: &Shared, look: &Look) -> Supplied {
+    let name = look.frit.clone().or_else(|| top(shared, "font-name"));
+    supplied_by(shared, name.as_deref())
+}
+
 /// The vtlook that vtium.conf's top level sets, where it names one other
 /// than the built-in one, which every look with no `vtlook` line draws.
 fn top_vtlook(shared: &Shared) -> Option<String> {
@@ -195,20 +207,28 @@ pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
                 ),
                 Choice::new(words::AUTOMATIC, Some("0".to_owned()), ""),
             ];
-            let mut sizes: Vec<(u32, &str)> = SIZES.iter().map(|n| (*n, "")).collect();
-            // a size the look sets outside the usual ones takes its place
-            // among them, so Left and Right step to its neighbours
+            // a bitmap text font offers the sizes that draw its strikes,
+            // and any other the usual sizes
+            let mut sizes: Vec<(u32, String, &str)> = match supplied(shared, look) {
+                Supplied::Strikes { strikes, .. } => strike_points(&strikes, shared.inputs.dpi.0)
+                    .iter()
+                    .map(|(n, strike)| (*n, words::strike_size(*n, strike), ""))
+                    .collect(),
+                _ => SIZES.iter().map(|n| (*n, words::points(*n), "")).collect(),
+            };
+            // a size the look sets outside those takes its place among
+            // them, so Left and Right step to its neighbours
             if let Some(n) = look.size.as_deref().and_then(|v| v.parse::<u32>().ok())
                 && n > 0
-                && !SIZES.contains(&n)
+                && !sizes.iter().any(|(s, _, _)| *s == n)
             {
-                sizes.push((n, words::CHOICE_OWN));
-                sizes.sort_unstable();
+                sizes.push((n, words::points(n), words::CHOICE_OWN));
+                sizes.sort_unstable_by_key(|(n, _, _)| *n);
             }
             out.extend(
                 sizes
                     .into_iter()
-                    .map(|(n, note)| Choice::new(words::points(n), Some(n.to_string()), note)),
+                    .map(|(n, name, note)| Choice::new(name, Some(n.to_string()), note)),
             );
             out
         }
@@ -361,7 +381,7 @@ fn shown(shared: &Shared, look: &Look, line: Line) -> String {
                 || words::from_top(size_name(&top(shared, "font-size").unwrap_or_default())),
                 size_name,
             );
-            format!("{size}. {}", words::SIZES_USUAL)
+            format!("{size}. {}", words::sizes_note(&supplied(shared, look)))
         }
         Line::Palette => look
             .palette

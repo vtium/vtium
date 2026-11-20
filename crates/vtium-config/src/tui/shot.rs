@@ -420,9 +420,14 @@ impl<'a> Preview<'a> {
 
     /// Whether the tab previews as a picture in a vtium console as well,
     /// where the other tabs preview as the console's own text: the
-    /// Effects tab does, since the console's text cannot show an effect.
+    /// Effects tab does, since the console's text cannot show an effect,
+    /// and so does a font file of the Fonts tab, which the console cannot
+    /// draw its own text in.
     pub fn pictured_in_console(&self) -> bool {
         matches!(self.source, Source::Effect { .. })
+            || self
+                .font()
+                .is_some_and(|f| super::fonts_found::is_file_name(&f.name))
     }
 
     /// Whether the picture shows the sample screen, which the Looks tab
@@ -444,6 +449,13 @@ impl<'a> Preview<'a> {
                 .iter()
                 .find(|f| f.name == name)
                 .is_some_and(|f| !matches!(f.state, FontState::Refused(_)))
+                || (super::fonts_found::is_file_name(name)
+                    && self
+                        .shared
+                        .inputs
+                        .font_files
+                        .file(std::path::Path::new(name))
+                        .is_some())
         };
         match self.source {
             Source::Font { detail, .. } => {
@@ -548,7 +560,10 @@ impl<'a> Preview<'a> {
         if let Source::Effect { effect, .. } = self.source {
             return self.effect_line(effect);
         }
-        if self.shared.text_preview() && !super::layout::too_small(self.size) {
+        if self.shared.text_preview()
+            && !self.pictured_in_console()
+            && !super::layout::too_small(self.size)
+        {
             return match self.source {
                 Source::Font { .. } => Some(words::console_font_caption(
                     self.shared.shown_font.as_deref(),
@@ -726,7 +741,7 @@ impl App {
         if !self.shared.graphics {
             // an effect has no written description: its line says that
             // this terminal shows no pictures
-            if self.preview().pictured_in_console() {
+            if matches!(self.preview().source, Source::Effect { .. }) {
                 self.shared.shot = None;
                 return self.drop_picture();
             }

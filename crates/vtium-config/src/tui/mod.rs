@@ -47,6 +47,7 @@ pub mod flowdraw;
 mod flowedit;
 pub mod flowlayout;
 pub mod flowview;
+pub mod fonts_found;
 pub mod input;
 pub mod layout;
 pub mod listbox;
@@ -238,6 +239,7 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         // the loop reads them once the store is open, since each color
         // map's and shader's mark needs the draft's batch
         effects: effects_found::Effects::default(),
+        font_files: fonts_found::Fonts::default(),
     })
 }
 
@@ -300,15 +302,83 @@ fn effects(
     found
 }
 
+/// The font files the Fonts tab lists, found as `fonts --files` finds
+/// them: in the folders that the installed vtium.conf's text `conf` and
+/// the person's own folders give, each marked as the current draft's
+/// batch and the trust rule judge it for an install through `paths`.
+/// When vtium-config cannot read the draft's batch, every file shows as
+/// not active, and the second value says why. `Err` says why vtium-config
+/// cannot judge the files at all.
+///
+/// References:
+/// - ADR-1205 D3: the folders, and a user's font listed as not usable.
+/// - ADR-1205 D4: each font's trust mark and its state in the batch.
+pub fn scan_fonts(
+    store: &crate::store::Store,
+    paths: &Paths,
+    conf: Option<&str>,
+) -> Result<(Vec<crate::discover::Found>, Option<String>), String> {
+    let session = crate::drafts::Session {
+        store: store.clone(),
+        paths,
+    };
+    let active = crate::batch::Resources::open(&session);
+    let mounts = vtium_settings::mounts::Mounts::system()
+        .map_err(|e| words::fonts_unjudged(&e.to_string()))?;
+    let euid = crate::batch::rule_user(&paths.targets(), &paths.sudo);
+    let found = crate::discover::scan(
+        &crate::discover::Folders::of_user(conf),
+        &vtium_settings::cullet::Rule::running_as(euid),
+        &mounts,
+        &|path| {
+            active
+                .as_ref()
+                .map_or(crate::batch::State::Inactive, |a| a.state(path))
+        },
+    );
+    let note = active.err().map(|fail| words::fonts_unread(fail.text()));
+    Ok((found, note))
+}
+
+/// What the Fonts tab lists at start, from [`scan_fonts`], with the
+/// tab's note when vtium-config cannot read the draft's batch or the
+/// mount table. The font helper describes the files once the loop runs.
+fn font_files(
+    store: &crate::store::Store,
+    paths: &Paths,
+    conf: Option<&str>,
+) -> fonts_found::Fonts {
+    let (mut fonts, note) = match scan_fonts(store, paths, conf) {
+        Ok((found, note)) => (fonts_found::Fonts::new(found), note),
+        Err(why) => (fonts_found::Fonts::default(), Some(why)),
+    };
+    fonts.note = note;
+    fonts
+}
+
 /// The name the specimen's frit takes: a frit's name, never a built-in
 /// set's.
 const SPECIMEN_FRIT: &str = "vtium-config-specimen";
 
-/// The frit `font` names, as the helper takes it: the frit in `frits`, or
-/// a frit of the one built-in font of that name. The helper refuses a frit
-/// named for a built-in set, so a built-in font's frit takes a name of its
-/// own.
+/// The frit `font` names, as the helper takes it: a frit that draws the
+/// font file at that path alone, for the Fonts tab's preview; the frit in
+/// `frits`; or a frit of the one built-in font of that name. The helper
+/// refuses a frit named for a built-in set, so a built-in font's frit and
+/// a font file's take a name of their own.
 pub fn frit_text(frits: &Path, font: &str) -> Result<crate::serve::FritText, String> {
+    // a font file the Fonts tab previews, drawn alone
+    if fonts_found::is_file_name(font) {
+        let source = fonts_found::source_of(Path::new(font)).ok_or_else(|| {
+            format!(
+                "{}: vtium-config cannot preview a font file whose name holds a control character",
+                crate::onscreen::text(font)
+            )
+        })?;
+        return Ok(crate::serve::FritText {
+            name: SPECIMEN_FRIT.to_owned(),
+            text: format!("source={source}\n"),
+        });
+    }
     if RESERVED.contains(&font) {
         return Ok(crate::serve::FritText {
             name: SPECIMEN_FRIT.to_owned(),
@@ -438,6 +508,16 @@ pub fn finder(frits: PathBuf, helper: crate::specimen::Helper) -> port::Finder {
     Box::new(move |names| find_sources(&frits, &helper, &names))
 }
 
+/// The TUI's describer: what each font file is, as `helper` describes it,
+/// on a thread of its own while the TUI goes on reading keys.
+///
+/// References:
+/// - ADR-1205 D3: vtium-config reads a font only through the sandboxed
+///   helper.
+pub fn describer(helper: crate::specimen::Helper) -> port::Describer {
+    std::sync::Arc::new(move |paths, each| crate::discover::describe_each(&helper, paths, each))
+}
+
 /// Opens the TUI on the terminal at `view`, the devices present read from
 /// `devices`, and runs it until the user leaves; returns the exit status.
 pub fn run(
@@ -471,6 +551,7 @@ pub fn run(
     };
     let folders = effect_folders();
     inputs.effects = effects(&store, paths, &folders);
+    inputs.font_files = font_files(&store, paths, inputs.conf.as_deref());
     let mut desk = desk::Store::new(store, paths.clone(), desk::machine(devices));
     let tools = port::Tools {
         painter: painter(inputs.frits.clone(), paths.helper.clone(), locale()),
@@ -487,6 +568,7 @@ pub fn run(
             Some(inputs.display.unwrap_or(shot::ASSUMED_DISPLAY)),
         ),
         finder: Some(finder(inputs.frits.clone(), paths.helper.clone())),
+        describer: describer(paths.helper.clone()),
     };
     let mut tty = match port::Tty::open(tools) {
         Ok(tty) => tty,

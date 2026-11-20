@@ -284,6 +284,10 @@ impl Port for Figure {
     fn sources(&mut self, fonts: Vec<String>) {
         self.0.sources(fonts);
     }
+
+    fn describe(&mut self, paths: Vec<std::path::PathBuf>) {
+        self.0.describe(paths);
+    }
 }
 
 /// Runs the TUI on the figure's flow in this terminal.
@@ -298,6 +302,11 @@ fn figure() -> Result<u8, String> {
             vtium_config::specimen::Outcome::Failed(none.to_owned())
         }),
         finder: None,
+        describer: std::sync::Arc::new(move |paths, each| {
+            for _ in paths {
+                each(vtium_config::discover::Described::Unknown(none.to_owned()));
+            }
+        }),
     };
     let tty = Tty::open(tools).map_err(|e| format!("the terminal: {e}"))?;
     let mut inputs = fixture::inputs();

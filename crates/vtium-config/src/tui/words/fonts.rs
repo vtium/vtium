@@ -1,8 +1,14 @@
-//! What the Fonts tab says: the tab's name, what each font's line notes,
-//! the removal of a frit, the new-frit form, the caption of the console's
-//! own preview and the tab's key lines.
+//! What the Fonts tab says: the tab's name, its filters and groups, each
+//! font's marks, a font's detail, the sentences under the list, the
+//! question before a font is installed as a system font, and the sizes a
+//! look's card offers from its text font. The words of the font sets,
+//! which the Looks tab lists, live here too: what each font set's line
+//! notes, the removal of a font set and the new-frit form.
 
 use super::*;
+use crate::describe::Strike;
+use crate::discover::Place;
+use crate::tui::fonts_found::{Filter, Supplied, Unknown};
 
 /// The Fonts tab's name in the tab bar.
 pub const FONTS: &str = "Fonts";
@@ -92,17 +98,306 @@ pub fn new_refused(why: impl Display) -> String {
     format!("This font set cannot be read: {why}")
 }
 
-pub const KEYS_FONTS: &str =
-    "Enter choose  t try live  s preview  n new  r remove  i install  q quit";
-
-/// The Fonts view's keys in a vtium console, where `s` saves the font the
-/// console shows (ADR-1201 D4).
-pub const KEYS_FONTS_LIVE: &str =
-    "Enter choose  t try live  s save  n new  r remove  i install  q quit";
-
 pub const KEYS_NEW: &str =
     "type into a field  Enter next field  Esc back  Ctrl-C quit without installing";
 
-/// What the message line says when `n` in the Fonts tab opens the form for
-/// a new font set, which belongs to the Looks tab.
-pub const NEW_FRIT_IN_LOOKS: &str = "The form for a new font set is part of the Looks tab, so Esc or adding the font set goes to the Looks tab.";
+/// The filter line's choice that shows every font.
+pub const FONTS_ALL: &str = "All fonts";
+
+/// The filter line, which names the filter the list shows.
+pub fn fonts_filter(shown: &str) -> String {
+    format!("Show: {shown}")
+}
+
+/// The name of a filter, as the filter line and its list show it.
+pub fn filter_name(filter: Filter) -> String {
+    match filter {
+        Filter::All => FONTS_ALL.to_owned(),
+        Filter::Bitmap => "Bitmap fonts".to_owned(),
+        Filter::Outline => "Outline fonts".to_owned(),
+        Filter::Monospaced => "Monospaced fonts".to_owned(),
+        Filter::Proportional => "Proportional fonts".to_owned(),
+        Filter::Group(g) => format!("{} fonts", g.name()),
+        Filter::Script(s) => format!("Fonts for {}", s.replace('_', " ")),
+    }
+}
+
+/// The heading of each kind of folder's group in the list.
+pub fn place_heading(place: Place) -> &'static str {
+    match place {
+        Place::System => "System fonts",
+        Place::Vtium => "vtium's own fonts",
+        Place::Console => "Console fonts (kbd)",
+        Place::FontPaths => "Folders that font-paths names",
+        Place::User => {
+            "Your own fonts, which vtium cannot use until you install them as system fonts"
+        }
+    }
+}
+
+/// A font's mark while the font helper has not described it.
+pub const DESCRIBING: &str = "describing…";
+
+/// A font's mark when the font helper cannot read it as a font.
+pub const NOT_A_FONT: &str = "not a font vtium reads";
+
+/// A font's mark when no description came.
+pub const NOT_DESCRIBED: &str = "not described";
+
+/// The mark of a font that a package also installed.
+pub const DUPLICATE: &str = "duplicate";
+
+/// A face as a list names it: its family and its style.
+pub fn face_name(family: &str, style: &str) -> String {
+    if style.is_empty() {
+        family.to_owned()
+    } else {
+        format!("{family} {style}")
+    }
+}
+
+/// The sentence under the list while the font helper describes fonts.
+pub fn fonts_waiting(n: usize) -> String {
+    if n == 1 {
+        "The font helper is still describing 1 font, and only All fonts shows it until then."
+            .to_owned()
+    } else {
+        format!(
+            "The font helper is still describing {n} fonts, and only All fonts shows them until then."
+        )
+    }
+}
+
+/// The sentence under the list when the filter keeps no font.
+pub const FONTS_NONE: &str = "No font passes this filter.";
+
+/// The sentence under the list when the scan found no font file.
+pub const FONTS_EMPTY: &str = "vtium-config found no font files in the folders it looks in.";
+
+/// The sentence under the list that says what the keys do.
+pub const FONTS_HINT: &str = "Space activates or deactivates the highlighted font. Enter opens a font's detail, or the filters on the filter line.";
+
+/// What `p` does next in the Fonts tab, while the preview shows the
+/// sample characters. A terminal without images shows the same written
+/// description for both previews, so this line is how the person sees
+/// which one is on.
+pub const FONTS_P_TO_PICTURE: &str = "p switches the preview to the picture of the console.";
+
+/// What `p` does next in the Fonts tab, while the preview shows the
+/// picture of the console.
+pub const FONTS_P_TO_SAMPLE: &str = "p switches the preview back to the sample characters.";
+
+/// The sentence under the list of filters.
+pub const FONTS_FILTER_HINT: &str = "Enter shows the fonts that pass the highlighted filter. A filter other than All fonts leaves out each font the font helper has not described.";
+
+/// The sentence under a font's detail.
+pub const FONTS_DETAIL_HINT: &str = "Up and Down scroll the detail, and Esc goes back to the list.";
+
+/// The sentence under the detail of a font in the person's own folder.
+pub const FONTS_OWN_HINT: &str = "Press Enter to install this font as a system font. vtium-config shows the command and asks before it runs it. Esc goes back to the list.";
+
+/// What Space says on a font in the person's own folder.
+pub fn own_font(path: &str) -> String {
+    format!(
+        "This font is in your own folder, so vtium cannot use it. Press Enter to open its detail, then Enter again to install it as a system font. {path}"
+    )
+}
+
+/// What `t` says in the Fonts tab.
+pub const TRY_A_FONT_SET: &str = "vtium can try a font set on this console, but not a single font file. Make a font set from this font in the Looks tab, then press t there.";
+
+/// The lines of a font's detail.
+pub fn font_title(name: &str) -> String {
+    format!("font {name}")
+}
+
+pub fn font_folder(place: Place) -> String {
+    format!("Folder: {}", place.words())
+}
+
+pub fn font_face(name: &str, version: Option<&str>) -> String {
+    match version {
+        Some(v) => format!("Face: {name}, version {v}"),
+        None => format!("Face: {name}"),
+    }
+}
+
+pub fn font_kind(format: &str, outline: bool, monospaced: bool) -> String {
+    let drawn = if outline { "outline" } else { "bitmap" };
+    let spacing = if monospaced {
+        "monospaced"
+    } else {
+        "proportional"
+    };
+    format!("  {format}, {drawn}, {spacing}")
+}
+
+pub fn font_covers(codepoints: u32, scripts: &[&str]) -> String {
+    let scripts: Vec<String> = scripts.iter().map(|s| s.replace('_', " ")).collect();
+    if scripts.is_empty() {
+        format!("  Covers {codepoints} characters, and no script in full.")
+    } else {
+        format!("  Covers {codepoints} characters: {}.", scripts.join(", "))
+    }
+}
+
+pub fn font_groups(groups: &[&str]) -> String {
+    format!("  Belongs to: {}.", groups.join(", "))
+}
+
+pub fn font_strikes(strikes: &[String]) -> String {
+    if strikes.is_empty() {
+        "  Sizes: any size, since it has outlines.".to_owned()
+    } else {
+        format!("  Sizes: {}.", strikes.join(", "))
+    }
+}
+
+pub fn font_outline_strikes(strikes: &[String]) -> String {
+    format!(
+        "  Sizes: any size, since it has outlines, and bitmaps for {}.",
+        strikes.join(", ")
+    )
+}
+
+pub fn font_not_described(why: &str) -> String {
+    format!("The font helper cannot describe this file: {why}")
+}
+
+pub const FONT_DESCRIBING: &str = "The font helper is still describing this file.";
+
+pub fn font_duplicate(of: &str) -> String {
+    format!("Duplicate: {of}. vtium uses the package's file while it is active.")
+}
+
+pub const FONT_OWN: &str = "This font is in your own folder, so vtium cannot use it. Install it as a system font, then activate it.";
+
+/// The question before a font of the person's is installed as a system
+/// font. The font's detail above it shows the exact command.
+pub fn system_font_question(target: &str) -> String {
+    format!(
+        "Install this font as the system font {target}? The command shown above runs and asks for your password."
+    )
+}
+
+/// The same question when another file of the same name is installed.
+/// The font's detail above it shows both files and the command.
+pub fn system_font_replace_question(target: &str) -> String {
+    format!(
+        "Replace the installed file {target} with yours? The command shown above runs and asks for your password."
+    )
+}
+
+/// The lines a font's detail adds while the question before its install
+/// as a system font is open: both files for a file that replaces another,
+/// then the command.
+pub const SYSTEM_FONT_CLASH: &str = "A different file of this name is already installed.";
+
+pub fn system_font_installed_file(facts: &str) -> String {
+    format!("Installed: {facts}")
+}
+
+pub fn system_font_yours(facts: &str) -> String {
+    format!("Yours: {facts}")
+}
+
+pub fn system_font_command(source: &str, target: &str) -> String {
+    format!("To install {source} as {target}, vtium-config runs this command:")
+}
+
+/// What the message line says when the same file is already installed.
+pub fn system_font_identical(target: &str) -> String {
+    format!(
+        "This font is already installed as {target}, and the two files are the same. Nothing changed."
+    )
+}
+
+/// What the message line says after the install, with what the
+/// privileged step printed.
+pub fn system_font_installed(target: &str) -> String {
+    format!(
+        "{target} is installed as a system font. Installing does not activate it: press Space on it in the list to activate it."
+    )
+}
+
+pub fn system_font_failed(why: &str) -> String {
+    format!("The font was not installed: {why}")
+}
+
+pub const SYSTEM_FONT_NOT_YOURS: &str = "Only a font in your own folder is installed as a system font. This font is a system font already.";
+
+/// What a look's card says beside its size, from its text font.
+pub fn sizes_note(supplied: &Supplied) -> String {
+    match supplied {
+        Supplied::Any { family } => format!(
+            "The text font, {family}, has outlines, so the look can take any size."
+        ),
+        Supplied::Strikes { family, strikes } => {
+            let shown: Vec<String> = strikes.iter().map(strike_cell).collect();
+            format!(
+                "The text font, {family}, is a bitmap font, so the look offers its sizes: {}.",
+                shown.join(", ")
+            )
+        }
+        Supplied::Unknown(why) => match why {
+            Unknown::NoTextFont => {
+                "vtium-config offers its usual sizes, because the font set names no text font."
+                    .to_owned()
+            }
+            Unknown::BuiltIn => {
+                "vtium-config offers its usual sizes, because the text font is built into vtium or is the console's own font."
+                    .to_owned()
+            }
+            Unknown::Describing => {
+                "vtium-config offers its usual sizes until the font helper has described the text font."
+                    .to_owned()
+            }
+            Unknown::NotFound(spelling) => format!(
+                "vtium-config offers its usual sizes, because it found no font file for the text font {spelling}."
+            ),
+            Unknown::NotAFont(spelling) => format!(
+                "vtium-config offers its usual sizes, because the font helper cannot read the text font {spelling}."
+            ),
+        },
+    }
+}
+
+/// A bitmap strike as the card and a font's detail show it: its cell in
+/// pixels.
+pub fn strike_cell(strike: &Strike) -> String {
+    format!("{}×{}", strike.width, strike.height)
+}
+
+/// A size of the card's list that draws a bitmap strike.
+pub fn strike_size(points: u32, drawn: &Strike) -> String {
+    format!("{} pt, the {} strike", points, strike_cell(drawn))
+}
+
+/// The Fonts tab's note when vtium-config cannot read the draft's batch.
+pub fn fonts_unread(why: &str) -> String {
+    format!(
+        "vtium-config cannot read which resources the draft keeps active, so every font shows as not active. {why}"
+    )
+}
+
+/// The Fonts tab's note when vtium-config cannot read the mount table.
+pub fn fonts_unjudged(why: &str) -> String {
+    format!(
+        "vtium-config cannot read the mount table, so it cannot judge the fonts it finds and lists none. {why}"
+    )
+}
+
+/// What the message line says when Enter in a font's detail finds that
+/// the desk has readied no font to install.
+pub const NO_FONT_READY: &str = "No font is ready to install as a system font.";
+
+/// Why a font helper's answer is missing.
+pub const HELPER_SILENT: &str = "the font helper did not answer";
+
+/// Why a font of the person's is not installed: the font helper cannot
+/// read the draft's copy as a font.
+pub fn system_font_not_a_font(source: &str, why: &str) -> String {
+    format!(
+        "{source}: vtium-config cannot install this file as a system font, because the font helper cannot read it as a font: {why}"
+    )
+}
