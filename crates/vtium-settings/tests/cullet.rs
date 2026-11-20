@@ -215,6 +215,58 @@ fn a_fifo_or_a_folder_is_not_a_file_and_the_fifo_is_never_opened() {
     );
 }
 
+// A name on the way to the file that is not a folder is refused as "not a
+// folder", and the last name that is not a regular file as "not a regular
+// file", so the reason a person reads names the right kind of thing.
+#[test]
+fn a_regular_file_on_the_way_is_not_a_folder_and_a_folder_at_the_end_is_not_a_file() {
+    let dir = fixture("not-a-folder");
+    write(&dir.join("plain.txt"), b"text", 0o644);
+    let on_the_way = dir.join("plain.txt/x.bdf");
+    let check = refused(open(&on_the_way, &me(&dir), &system()));
+    assert_eq!(
+        check,
+        Check::NotAFolder {
+            at: dir.join("plain.txt")
+        }
+    );
+    assert_eq!(
+        check.to_string(),
+        format!("{} is not a folder.", dir.join("plain.txt").display())
+    );
+    mkdir(&dir.join("fonts"), 0o755);
+    let check = refused(open(&dir.join("fonts"), &me(&dir), &system()));
+    assert_eq!(
+        check.to_string(),
+        format!("{} is not a regular file.", dir.join("fonts").display())
+    );
+
+    let theme = theme(&dir);
+    let rule = me(&dir);
+    assert_eq!(
+        refused(open_in_theme(
+            &theme,
+            &theme.join("cursors"),
+            &rule,
+            &system()
+        )),
+        Check::NotAFile {
+            at: theme.join("cursors")
+        }
+    );
+    assert_eq!(
+        refused(open_in_theme(
+            &theme,
+            &theme.join("cursors/text/x"),
+            &rule,
+            &system()
+        )),
+        Check::NotAFolder {
+            at: theme.join("cursors/text")
+        }
+    );
+}
+
 // The file read is the file checked: a file swapped in at the path after
 // the open does not reach the reader, because the reader reads from the
 // descriptor the checks ran on.

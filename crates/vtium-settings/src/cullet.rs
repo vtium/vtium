@@ -118,9 +118,12 @@ pub enum Check {
     /// A folder on the path, the file, or the theme folder belongs to
     /// another user, or others can write it.
     Untrusted(Untrusted),
-    /// The path names something other than a regular file, or a name on
-    /// the way names something other than a folder.
+    /// The last name of the path, at `at`, names something other than a
+    /// regular file.
     NotAFile { at: PathBuf },
+    /// A name on the way to the file, at `at`, names something other than
+    /// a folder.
+    NotAFolder { at: PathBuf },
     /// The file or a folder at `at` was swapped for another while vtium
     /// opened it: the open found something other than what the look
     /// before it found.
@@ -158,9 +161,8 @@ impl fmt::Display for Check {
                 theme.display()
             ),
             Check::Untrusted(why) => write!(f, "{}", why.reason()),
-            Check::NotAFile { at } => {
-                write!(f, "{} is not a regular file or folder.", at.display())
-            }
+            Check::NotAFile { at } => write!(f, "{} is not a regular file.", at.display()),
+            Check::NotAFolder { at } => write!(f, "{} is not a folder.", at.display()),
             Check::Swapped { at } => write!(
                 f,
                 "{} was swapped for another file or folder while vtium opened it.",
@@ -388,7 +390,7 @@ impl Walk<'_> {
         match FileType::from_raw_mode(st.st_mode) {
             FileType::Symlink => Err(self.refuse(Check::Link { at: at()? })),
             FileType::Directory => self.enter(name),
-            _ => Err(self.refuse(Check::NotAFile { at: at()? })),
+            _ => Err(self.refuse(Check::NotAFolder { at: at()? })),
         }
     }
 
@@ -674,9 +676,15 @@ fn open_in_theme(
             }
             FileType::Directory if !todo.is_empty() => walk.enter(&name)?,
             FileType::RegularFile if todo.is_empty() => return walk.open_file(&name, &st),
+            // a regular file with names still to walk is on the way, and
+            // anything but a regular file at the end is not the file
             _ => {
                 let at = walk.here()?.path.join(&name);
-                return Err(walk.refuse(Check::NotAFile { at }));
+                return Err(walk.refuse(if todo.is_empty() {
+                    Check::NotAFile { at }
+                } else {
+                    Check::NotAFolder { at }
+                }));
             }
         }
     }
