@@ -72,7 +72,7 @@ def fresh_fonts():
 
 
 def fresh_list(tar_path):
-    """The list of a fresh install, in vtium's order: the package's fonts,
+    """The list of a fresh install: the package's fonts,
     then each color scheme the install tree at `tar_path` puts in
     /usr/share/vtium/palettes, then its pointer file."""
     out = [PACKAGE_FONTS + "/" + name for name in fresh_fonts()]

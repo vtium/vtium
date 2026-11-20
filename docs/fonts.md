@@ -86,7 +86,7 @@ A listed font file must also pass four checks:
 
 vtium treats a font that is not listed, or that fails a check, as missing. vtium then renders the font's characters from the next font in the frit. It logs one line for the file, once a boot, which names the file and the check it failed.
 
-A font in your home folder no longer renders, even when you name its folder in the `font-paths` key of `vtium.conf`. You own that folder, not root, so the font fails the first check. A program you run as yourself could change that font while the console uses it. Install the font as a system font instead, as [An outline font](#an-outline-font) shows, and then list it in `batch.conf`. See [the trust rule issue](https://github.com/vtium/vtium/issues/438) and [the font-paths issue](https://github.com/vtium/vtium/issues/441).
+A font in your home folder never renders, even when you name its folder in the `font-paths` key of `vtium.conf`. You own that folder, not root, so the font fails the first check. A program you run as yourself could change that font while the console uses it. Install the font as a system font instead, as [An outline font](#an-outline-font) shows, and then list it in `batch.conf`. See [the trust rule issue](https://github.com/vtium/vtium/issues/438) and [the font-paths issue](https://github.com/vtium/vtium/issues/441).
 
 ## A console font
 

@@ -2,6 +2,7 @@
 //! key table, and the sections from the text that vtium compiles in as its
 //! built-in sections.
 
+use vtium_settings::NAME_MAX;
 use vtium_settings::keys::{
     Default, FRIT_CELL_MAX, FRIT_CELL_MIN, KEYS, Key, Kind, Level, SB_MEMORY, SECTIONS, Scope,
     TEXT_MAX,
@@ -64,7 +65,7 @@ fn bound(k: &Key) -> Option<String> {
             format!("{min} to {max}; vtium clamps a number outside that range")
         }
         Kind::Text => format!("at most {TEXT_MAX} bytes, with no control character"),
-        Kind::Name(_) => "1 to 64 of the characters A-Z a-z 0-9 . _ + -".to_owned(),
+        Kind::Name(_) => format!("1 to {NAME_MAX} of the characters A-Z a-z 0-9 . _ + -"),
         Kind::Path => format!("at most {TEXT_MAX} bytes, with no control character"),
         Kind::Paths => format!("at most {TEXT_MAX} bytes in all, with no control character"),
         Kind::Command => format!("at most {TEXT_MAX} bytes in a file"),
