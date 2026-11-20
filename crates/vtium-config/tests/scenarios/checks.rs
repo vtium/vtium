@@ -1648,6 +1648,15 @@ impl Checks {
                 .or_default()
                 .insert("frits".into());
         }
+        // the draft's changes to the active resources, which an install
+        // writes as the batch file
+        if s.before.desk.resources != s.after.desk.resources && !s.has("install") {
+            self.found
+                .writes
+                .entry(view)
+                .or_default()
+                .insert("batch".into());
+        }
     }
 
     /// The checks after the walk: every row of the key table reached and
