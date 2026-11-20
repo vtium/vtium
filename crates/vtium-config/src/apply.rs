@@ -219,11 +219,35 @@ pub fn font_name_refusal(name: &str) -> Option<&'static str> {
 /// and `package-fonts` in the configuration directory for any other, such
 /// as a test's.
 pub fn package_fonts(targets: &Targets) -> PathBuf {
-    if targets.configdir == crate::cli::default_configdir() {
+    if targets.is_system() {
         PathBuf::from(crate::discover::PACKAGE_FONTS)
     } else {
         targets.configdir.join("package-fonts")
     }
+}
+
+/// The folders whose fonts are system fonts already, which "install as a
+/// system font" never takes a font from, each with the words that say who
+/// installed a font there. These are the packages' fonts folder, vtium's
+/// own fonts folder, and kbd's console-font folders, for the system's
+/// directories. For any other they are `package-fonts`, `vtium-fonts` and
+/// `console-fonts` in the configuration directory, such as a test's.
+pub fn owned_font_folders(targets: &Targets) -> Vec<(PathBuf, &'static str)> {
+    let mut folders = vec![(package_fonts(targets), "a package installed this font in ")];
+    let vtium = "vtium installed this font in ";
+    let kbd = "kbd installed this console font in ";
+    if targets.is_system() {
+        folders.push((PathBuf::from(vtium_settings::batch::PACKAGE_FONTS), vtium));
+        folders.extend(
+            vtium_settings::batch::CONSOLE_FONT_FOLDERS
+                .iter()
+                .map(|f| (PathBuf::from(f), kbd)),
+        );
+    } else {
+        folders.push((targets.configdir.join("vtium-fonts"), vtium));
+        folders.push((targets.configdir.join("console-fonts"), kbd));
+    }
+    folders
 }
 
 /// The folder "install as a system font" copies a font into: fontconfig's
@@ -236,7 +260,7 @@ pub fn package_fonts(targets: &Targets) -> PathBuf {
 /// - ADR-1205 D5: the install step copies into `/usr/local/share/fonts`
 ///   and never into `/usr/share/fonts`.
 pub fn local_fonts(targets: &Targets) -> PathBuf {
-    if targets.configdir == crate::cli::default_configdir() {
+    if targets.is_system() {
         PathBuf::from(crate::discover::LOCAL_FONTS)
     } else {
         targets.configdir.join("local-fonts")
@@ -362,8 +386,9 @@ impl SystemFont {
     /// The font file at `source` as a font for `targets`' system fonts
     /// folder. `Err` says why it cannot be: the file cannot be read, is
     /// not a regular file, is larger than an outline font may be, has a
-    /// name a system font may not have, or is a font a package installed,
-    /// which is a system font already. The file at the target is read
+    /// name a system font may not have, or is a font that a package, vtium
+    /// or kbd installed, which is a system font already
+    /// ([`owned_font_folders`]). The file at the target is read
     /// too, so [`SystemFont::placement`] can compare the two.
     pub fn read(source: &Path, targets: &Targets) -> Result<SystemFont, String> {
         let limit = crate::outline::OUTLINE_BYTES_MAX;
@@ -381,15 +406,16 @@ impl SystemFont {
             return Err(format!("{}: {why}", source.display()));
         }
         // a link to a package's font is the package's font too
-        let packages = package_fonts(targets);
         let real = std::fs::canonicalize(source).unwrap_or_else(|_| source.to_path_buf());
-        let packages_real = std::fs::canonicalize(&packages).unwrap_or(packages.clone());
-        if real.starts_with(&packages_real) || source.starts_with(&packages) {
-            return Err(format!(
-                "{}: a package installed this font in {}, so it is a system font already. Installing it again would only make a duplicate.",
-                source.display(),
-                packages.display()
-            ));
+        for (folder, who) in owned_font_folders(targets) {
+            let folder_real = std::fs::canonicalize(&folder).unwrap_or(folder.clone());
+            if real.starts_with(&folder_real) || source.starts_with(&folder) {
+                return Err(format!(
+                    "{}: {who}{}, so it is a system font already. Installing it again would only make a duplicate.",
+                    source.display(),
+                    folder.display()
+                ));
+            }
         }
         let target = local_fonts(targets).join(name);
         let bytes = read_regular(source, limit)?
@@ -513,6 +539,24 @@ pub enum Route {
 }
 
 impl Targets {
+    /// Whether these are the system's directories: the system's
+    /// configuration directory and the frits' directory it names, both
+    /// together. Only these install through sudo ([`route`]) and into the
+    /// system's own folders: the batch file vtium reads and the system
+    /// fonts folder. Any other targets, such as a test's or a trial that
+    /// names its own frits' directory, install as the user, beside their
+    /// own configuration directory, so an install the user runs never
+    /// writes into a folder only root may write.
+    pub fn is_system(&self) -> bool {
+        // the system's frits' directory is read from its vtium.conf, so
+        // targets elsewhere are told apart without reading it
+        if self.configdir != crate::cli::default_configdir() {
+            return false;
+        }
+        let system = Targets::system();
+        self.configdir == system.configdir && self.frits == system.frits
+    }
+
     /// The system's directories and console: `/etc/vtium`, the frits'
     /// directory its configuration files name in `font-frits`, else the
     /// one the build names ([`crate::switch::frits_dir`]), and the console
@@ -533,8 +577,7 @@ impl Targets {
 /// sudo's `apply DIR` takes no option, so it checks with the console it
 /// was built with whatever console the user's own check ran.
 pub fn route(targets: &Targets, sudo: &OsString) -> Route {
-    let system = Targets::system();
-    if targets.configdir == system.configdir && targets.frits == system.frits {
+    if targets.is_system() {
         Route::Sudo(sudo.clone())
     } else {
         Route::User
@@ -1589,6 +1632,69 @@ mod tests {
             target(&targets_in(&base), "system-font/A.ttf").unwrap(),
             base.join("local-fonts/A.ttf")
         );
+    }
+
+    /// Fonts that vtium itself or kbd installed are system fonts already,
+    /// as a package's are, so none is copied into the system fonts folder
+    /// as a duplicate.
+    #[test]
+    fn vtium_s_own_fonts_and_kbd_s_console_fonts_are_not_installed_again() {
+        let base = base("system-font-owned");
+        for (folder, said) in [
+            ("vtium-fonts", "vtium installed this font in "),
+            ("console-fonts", "kbd installed this console font in "),
+        ] {
+            let font = base.join(folder).join("A.psf");
+            std::fs::create_dir_all(font.parent().unwrap()).unwrap();
+            std::fs::write(&font, b"\x36\x04").unwrap();
+            let why = SystemFont::read(&font, &targets_in(&base)).unwrap_err();
+            assert!(why.contains(said), "{why}");
+            assert!(why.contains("so it is a system font already"), "{why}");
+        }
+        let system: Vec<PathBuf> = owned_font_folders(&Targets::system())
+            .into_iter()
+            .map(|(p, _)| p)
+            .collect();
+        for folder in [
+            "/usr/share/fonts",
+            "/usr/share/vtium/fonts",
+            "/usr/share/kbd/consolefonts",
+            "/usr/lib/kbd/consolefonts",
+            "/lib/kbd/consolefonts",
+            "/usr/share/consolefonts",
+        ] {
+            assert!(
+                system.contains(&PathBuf::from(folder)),
+                "{folder}: {system:?}"
+            );
+        }
+    }
+
+    /// The system's directories are decided in one place: only the
+    /// system's configuration directory and frits' directory together
+    /// install through sudo into the system's folders. A trial that names
+    /// its own frits' directory beside `/etc/vtium` installs as the user,
+    /// and so writes its fonts and its batch file beside its own files,
+    /// never into `/usr/local/share/fonts`.
+    #[test]
+    fn the_system_s_directories_are_the_system_s_configdir_and_frits_together() {
+        let trial = Targets {
+            configdir: crate::cli::default_configdir(),
+            frits: Ok(PathBuf::from("/tmp/my-frits")),
+            vtium: VTIUM.into(),
+        };
+        assert_eq!(route(&trial, &"sudo".into()), Route::User);
+        assert!(!trial.is_system());
+        assert_eq!(local_fonts(&trial), trial.configdir.join("local-fonts"));
+        assert_eq!(package_fonts(&trial), trial.configdir.join("package-fonts"));
+        assert_eq!(
+            crate::batch::batch_file(&trial),
+            trial.configdir.join("batch.conf")
+        );
+        let system = Targets::system();
+        assert!(system.is_system());
+        assert_eq!(route(&system, &"sudo".into()), Route::Sudo("sudo".into()));
+        assert_eq!(local_fonts(&system), Path::new("/usr/local/share/fonts"));
     }
 
     #[test]

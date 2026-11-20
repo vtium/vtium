@@ -202,7 +202,7 @@ pub fn builtin(word: &str) -> bool {
 /// `batch.conf` in the configuration directory for any other, such as a
 /// test's.
 pub fn batch_file(targets: &Targets) -> PathBuf {
-    if targets.configdir == crate::cli::default_configdir() {
+    if targets.is_system() {
         PathBuf::from(active::BATCH_FILE)
     } else {
         targets.configdir.join("batch.conf")
