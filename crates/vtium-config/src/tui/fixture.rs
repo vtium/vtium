@@ -713,6 +713,85 @@ fi
 echo "$file: checked"
 "#;
 
+/// What a stand-in desk does with [`super::desk::Op::FontSet`] on `frits`,
+/// the draft's folder: the change as the real store keeps it. A new font
+/// set takes the place of a removal of the installed one of its name, and
+/// a removal takes the place of a new font set. It refuses what the real
+/// store refuses: a built-in font's name and a name no font set can have.
+pub fn font_set_op(
+    frits: &mut crate::store::FritChanges,
+    frit: &str,
+    edit: &super::desk::FontSetEdit,
+) -> Result<(), String> {
+    use super::desk::FontSetEdit;
+    if crate::frit::RESERVED.contains(&frit) || !crate::frit::valid_name(frit) {
+        return Err(format!("{frit:?} is not a name a font set can have"));
+    }
+    frits.kept.remove(frit);
+    frits.removed.remove(frit);
+    match edit {
+        FontSetEdit::Keep(text) => {
+            frits.kept.insert(frit.to_owned(), text.clone());
+        }
+        FontSetEdit::Remove => {
+            frits.removed.insert(frit.to_owned());
+        }
+        FontSetEdit::Forget => {}
+    }
+    Ok(())
+}
+
+/// The font set part of the plan a stand-in desk readies from `frits`,
+/// the draft's folder, against `installed`, the installed frits by name,
+/// in the frits' directory `dir`, as the real desk's prepare builds it:
+/// each new or replaced frit whose text differs from the installed one,
+/// and a removal for each removed frit that is installed.
+pub fn frit_plan(
+    frits: &crate::store::FritChanges,
+    installed: &std::collections::BTreeMap<String, Vec<u8>>,
+    dir: &std::path::Path,
+) -> (Vec<crate::draft::FileEdit>, Vec<crate::draft::Removal>) {
+    let path = |name: &str| dir.join(format!("{name}.vtfrit"));
+    let files = frits
+        .kept
+        .iter()
+        .filter(|(name, text)| installed.get(*name).map(Vec::as_slice) != Some(text.as_bytes()))
+        .map(|(name, text)| crate::draft::FileEdit {
+            path: path(name),
+            old: installed
+                .get(name)
+                .map(|b| String::from_utf8_lossy(b).into_owned()),
+            new: text.clone(),
+        })
+        .collect();
+    let removals = frits
+        .removed
+        .iter()
+        .filter_map(|name| {
+            Some(crate::draft::Removal {
+                path: path(name),
+                old: installed.get(name)?.clone(),
+            })
+        })
+        .collect();
+    (files, removals)
+}
+
+/// What a stand-in desk's install does to `frits`, the draft's folder,
+/// and `installed`, the installed frits: the install writes and removes
+/// them, and the folder keeps no change the system now matches.
+pub fn frits_install(
+    frits: &mut crate::store::FritChanges,
+    installed: &mut std::collections::BTreeMap<String, Vec<u8>>,
+) {
+    for (name, text) in std::mem::take(&mut frits.kept) {
+        installed.insert(name, text.into_bytes());
+    }
+    for name in std::mem::take(&mut frits.removed) {
+        installed.remove(&name);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -303,8 +303,6 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
 /// look's `font-name` names.
 #[test]
 fn r_refuses_what_remove_frit_refuses() {
-    use vtium_config::tui::desk::Opened;
-    use vtium_config::tui::model::App;
     let conf = inputs().conf.expect("the fixture");
     let names_minspec = conf.replace("font-name=unifont", "font-name=minspec-16");
     for (keys, draft, says) in [
@@ -334,68 +332,6 @@ fn r_refuses_what_remove_frit_refuses() {
             d.plans
         );
     }
-    // a frit marked for removal that the draft then names as font-name is
-    // not removed: the install says why and plans nothing
-    let (mut app, _) = App::new(inputs(), 80, 25);
-    app.shared.pending.removals.push("tiny5".to_owned());
-    app.shared.draft = Some(Opened {
-        name: "mine".into(),
-        text: conf.replace("font-name=unifont", "font-name=tiny5"),
-        ..Opened::default()
-    });
-    let why = app.frit_plan().expect_err("the draft names tiny5");
-    assert!(why.contains("font-name"), "{why}");
-}
-
-/// A save that changes font-frits and also writes or removes a frit is
-/// refused: the frits would go to the directory font-frits named before
-/// the save, so the user saves the new directory first. A save that
-/// changes only one of the two is planned.
-/// An install that moves font-frits and also writes or removes a frit is
-/// refused: the frits would go to the directory font-frits named before,
-/// so the user installs the new directory first. An install that changes
-/// only one of the two is planned.
-#[test]
-fn an_install_that_moves_the_frits_and_changes_a_frit_is_refused() {
-    use vtium_config::tui::desk::Opened;
-    use vtium_config::tui::model::App;
-    let conf = inputs().conf.expect("the fixture");
-    let drafted = |text: &str| Opened {
-        name: "mine".into(),
-        text: text.to_owned(),
-        ..Opened::default()
-    };
-    let moved = conf.replace(
-        "font-name=unifont\n",
-        "font-name=unifont\nfont-frits=/srv/frits\n",
-    );
-    let (mut app, _) = App::new(inputs(), 80, 25);
-    app.shared.draft = Some(drafted(&moved));
-    assert!(app.frit_plan().is_ok());
-    app.shared.pending.removals.push("tiny5".to_owned());
-    let why = app.frit_plan().expect_err("a removal and a new directory");
-    assert!(why.contains("font-frits"), "{why}");
-    app.shared.pending.removals.clear();
-    app.shared
-        .pending
-        .frits
-        .push(("made".to_owned(), "source=builtin:unifont\n".to_owned()));
-    let why = app.frit_plan().expect_err("a new frit and a new directory");
-    assert!(why.contains("font-frits"), "{why}");
-    // a draft that leaves font-frits alone is no move
-    let (mut app, _) = App::new(inputs(), 80, 25);
-    app.shared.draft = Some(drafted(
-        &conf.replace("font-name=unifont", "font-name=proof"),
-    ));
-    app.shared.pending.removals.push("tiny5".to_owned());
-    assert!(app.frit_plan().is_ok());
-    // nor is one that names the directory the installed file names
-    let mut named = inputs();
-    named.conf = Some(moved.clone());
-    let (mut app, _) = App::new(named, 80, 25);
-    app.shared.draft = Some(drafted(&moved));
-    app.shared.pending.removals.push("tiny5".to_owned());
-    assert!(app.frit_plan().is_ok(), "{:?}", app.frit_plan());
 }
 
 #[test]
@@ -435,10 +371,11 @@ fn new_opens_the_tui_at_its_new_frit_view() {
     );
 }
 
-/// Leaving while a frit's removal waits for an install asks first and
-/// names it; `y` installs the removal and leaves, `n` leaves without
-/// installing, a stray key such as `l` leaves the question open, and the
-/// top row counts the font set waiting.
+/// Leaving while a frit's removal waits in the draft's folder for an
+/// install asks first and names it; `y` installs the removal and leaves,
+/// `n` leaves without installing and the folder keeps the removal, a stray
+/// key such as `l` leaves the question open, and the top row counts the
+/// font set waiting.
 #[test]
 fn leaving_with_a_frit_waiting_asks_and_y_installs_it() {
     let mut c = console().keys(&on_set(4, &[b"r", b"q"]));
@@ -448,7 +385,7 @@ fn leaving_with_a_frit_waiting_asks_and_y_installs_it() {
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(
         text.contains(
-            "Install before you quit? Quitting without installing loses the removal of tiny5."
+            "Install before you quit? The draft keeps the removal of tiny5 until you install it."
         ),
         "{screen}"
     );
@@ -588,10 +525,13 @@ fn a_font_set_installed_joins_the_font_sets_at_once() {
     use vtium_config::tui::desk::{Done, Opened};
     use vtium_config::tui::model::{App, Event};
     let (mut app, _) = App::new(inputs(), 100, 30);
-    app.shared
-        .pending
-        .frits
-        .push(("fresh".to_owned(), "source=builtin:unifont\n".to_owned()));
+    app.shared.draft = Some(Opened {
+        frits: vtium_config::store::FritChanges {
+            kept: [("fresh".to_owned(), "source=builtin:unifont\n".to_owned())].into(),
+            ..Default::default()
+        },
+        ..Opened::default()
+    });
     app.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
     let fresh = app
         .shared

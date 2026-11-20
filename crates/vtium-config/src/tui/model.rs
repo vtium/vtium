@@ -28,7 +28,7 @@ use super::edit::Change as DraftChange;
 use super::flow::Flow;
 use super::input::{Button, Input, Key, Mouse, Reply};
 use super::replies::{Answer, Asker, Batch, Query, Queue};
-use crate::draft::{FileEdit, Plan, Removal};
+use crate::draft::Plan;
 use crate::frit::Frit;
 
 /// How long the TUI waits for the terminal's answers at start, and for
@@ -362,23 +362,13 @@ pub const ASSUMED_CELL: (u32, u32) = (8, 16);
 /// the bounds the console reads `font-size` and a frit's `size=` in.
 pub const SIZES: [u32; 15] = [6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32];
 
-/// The frits an install writes and removes with the draft. Unlike a
-/// key, a frit is a file of its own, which no draft holds, so the TUI
-/// keeps it until Install, which writes the frits before vtium.conf
-/// (ADR-1403 D8), or until the user leaves.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Pending {
-    /// New frits, each its name and text.
-    pub frits: Vec<(String, String)>,
-    /// Installed frits the install removes, by name.
-    pub removals: Vec<String>,
-}
-
-impl Pending {
-    pub fn is_empty(&self) -> bool {
-        *self == Pending::default()
-    }
-}
+/// The font set changes of no draft, which the TUI shows while no desk
+/// answers.
+static NO_FRITS: crate::store::FritChanges = crate::store::FritChanges {
+    kept: std::collections::BTreeMap::new(),
+    removed: std::collections::BTreeSet::new(),
+    problems: Vec::new(),
+};
 
 /// What the answers at start have said so far.
 #[derive(Clone, Debug, Default)]
@@ -390,8 +380,7 @@ struct Answers {
 
 /// What every tab reads, and no tab changes itself: what the TUI started
 /// from, the draft and its unsaved changes, the live console's state, what
-/// the terminal answered, the pictures, the pending installs and the
-/// message line. A tab asks for a change to it, and update makes the
+/// the terminal answered, the pictures and the message line. A tab asks for a change to it, and update makes the
 /// change.
 ///
 /// References:
@@ -436,7 +425,6 @@ pub struct Shared {
     pub refused: BTreeSet<String>,
     /// Mouse reporting is on.
     pub mouse: bool,
-    pub pending: Pending,
     /// A line for the user, under the list.
     pub message: Option<String>,
     /// The TUI is leaving with this status once the font is back.
@@ -582,56 +570,24 @@ impl Shared {
         super::edit::apply_all(&draft.text, changes).map_err(|fail| fail.text().to_owned())
     }
 
-    /// The frits an install writes and removes with the draft, frits
-    /// first, as apply writes them. Refused when the draft names a frit
-    /// it removes, or moves the frits' directory while frits change,
-    /// since they would go to the directory the TUI started with.
-    pub fn frit_plan(&self) -> Result<Plan, String> {
-        self.frit_plan_of(&self.pending)
+    /// The font sets the draft's folder adds, replaces and removes, which
+    /// wait there for the install; none while no desk has answered.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "A draft's font set changes": the TUI keeps no font set change in memory.
+    pub fn frits(&self) -> &crate::store::FritChanges {
+        self.draft.as_ref().map_or(&NO_FRITS, |d| &d.frits)
     }
 
-    /// The install's frits as [`Shared::frit_plan`] says, with `p` in
-    /// place of the frits that wait for the install now.
-    pub fn frit_plan_of(&self, p: &Pending) -> Result<Plan, String> {
-        let mut files = Vec::new();
-        for (name, text) in &p.frits {
-            let path = self.inputs.frits.join(format!("{name}.vtfrit"));
-            let old = self
-                .inputs
-                .installed
-                .get(name)
-                .and_then(|b| String::from_utf8(b.clone()).ok());
-            files.push(FileEdit {
-                path,
-                old,
-                new: text.clone(),
-            });
-        }
-        let key = keys::FONT_FRITS.name;
-        if !p.is_empty() && self.drafted(key) != self.configured(key) {
-            return Err(crate::apply::FRITS_MOVE_FIRST.to_owned());
-        }
-        let mut removals = Vec::new();
-        for name in &p.removals {
-            if let Some(why) = crate::commands::removal_refusal(name, self.conf_text()) {
-                return Err(why);
-            }
-            let old = self
-                .inputs
-                .installed
-                .get(name)
-                .cloned()
-                .ok_or_else(|| super::words::remove_unread(name))?;
-            removals.push(Removal {
-                path: self.inputs.frits.join(format!("{name}.vtfrit")),
-                old,
-            });
-        }
-        Ok(Plan {
-            files,
-            removals,
-            no_route: false,
-        })
+    /// The text of the font set `name` as the install would leave it: the
+    /// draft's own where its folder adds or replaces it, else the
+    /// installed file's.
+    pub fn frit_text(&self, name: &str) -> Option<&[u8]> {
+        self.frits()
+            .kept
+            .get(name)
+            .map(String::as_bytes)
+            .or_else(|| self.inputs.installed.get(name).map(Vec::as_slice))
     }
 }
 
@@ -747,7 +703,6 @@ impl App {
                 in_flight: None,
                 refused: BTreeSet::new(),
                 mouse: false,
-                pending: Pending::default(),
                 message: None,
                 leaving: None,
                 picture: None,
@@ -1355,7 +1310,6 @@ impl App {
                     effects.extend(self.top(key, value.as_deref()));
                 }
                 Command::Change(Change::Say(line)) => self.shared.message = Some(line),
-                Command::Change(Change::Pending(pending)) => self.shared.pending = pending,
                 Command::Change(Change::Try(font)) => effects.extend(self.try_live(font)),
                 Command::Change(Change::TrySize { font, points }) => {
                     effects.extend(self.try_size(font, points));
@@ -1479,21 +1433,16 @@ impl App {
         )
     }
 
-    /// The frits an install writes and removes, as [`Shared::frit_plan`]
-    /// says.
-    pub fn frit_plan(&self) -> Result<Plan, String> {
-        self.shared.frit_plan()
-    }
-
-    /// After an install: the frits it removed leave the list, nothing is
-    /// pending, and on a live console the font the draft gives the
-    /// console's head is the one leaving gives back (ADR-1201 D4).
-    pub(crate) fn frits_installed(&mut self) {
+    /// After an install of `done`, the font set changes the install made:
+    /// the frits it removed leave the list, the frits it wrote join it,
+    /// and on a live console the font the draft gives the console's head
+    /// is the one leaving gives back (ADR-1201 D4).
+    pub(crate) fn frits_installed(&mut self, done: crate::store::FritChanges) {
         // the Looks tab holds each font set by its place in the list,
         // which the changes below move, so its highlight and an open
         // detail are kept by the font set's name
         let spot = self.looks.spot(&self.shared);
-        let removed = std::mem::take(&mut self.shared.pending.removals);
+        let crate::store::FritChanges { kept, removed, .. } = done;
         self.shared
             .inputs
             .fonts
@@ -1505,7 +1454,7 @@ impl App {
         // each new font set joins the list the Looks tab offers at once,
         // as the next start would list it, in place of an installed set of
         // its name
-        for (name, text) in std::mem::take(&mut self.shared.pending.frits) {
+        for (name, text) in kept {
             let state = match Frit::parse(text.as_bytes(), Path::new(&name), &name) {
                 Ok(_) => FontState::Reads,
                 Err(e) if e.line == 0 => FontState::Refused(e.why.clone()),

@@ -649,7 +649,11 @@ fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
     press(&mut sim, &TO_TINY5);
     press(&mut sim, &["r", "q"]);
     assert_eq!(sim.app.shared.unsaved, 1);
-    assert_eq!(sim.app.shared.pending.removals, ["tiny5"]);
+    assert!(
+        sim.app.shared.frits().removed.iter().eq(["tiny5"]),
+        "{:?}",
+        sim.app.shared.frits()
+    );
     let question = sim
         .app
         .nav
@@ -891,15 +895,23 @@ fn the_leave_question_asks_before_it_installs_a_draft_with_no_complete_route() {
     assert_eq!(sim.exited, Some(0));
 }
 
-/// With no draft, `y` at the leave question installs nothing and stays,
-/// and once a draft opens, `i` asks before it installs, as it always does.
+/// With no draft, no folder can keep a font set's removal, so `r` keeps
+/// none and says why, and `q` asks no leave question; once a draft opens,
+/// `i` asks before it installs, as it always does.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": the TUI keeps no font set change in memory.
 #[test]
-fn the_leave_question_without_a_draft_leaves_no_install_waiting() {
+fn without_a_draft_r_keeps_no_removal_and_no_install_waits() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     let draft = sim.app.shared.draft.take();
     press(&mut sim, &TO_TINY5);
-    press(&mut sim, &["r", "q", "y"]);
-    assert_eq!(sim.exited, None);
+    press(&mut sim, &["r"]);
+    assert_eq!(
+        sim.app.shared.message.as_deref(),
+        Some(vtium_config::tui::words::NO_DESK)
+    );
+    assert!(sim.app.shared.frits().is_empty());
     sim.app.shared.draft = draft;
     let did = sim.press(press_of("i"));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");

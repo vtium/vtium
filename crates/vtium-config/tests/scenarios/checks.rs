@@ -50,7 +50,7 @@ impl Seen<'_> {
     fn kept(&self) -> bool {
         Self::draft(self.before) == Self::draft(self.after)
             && self.before.app.shared.unsaved == self.after.app.shared.unsaved
-            && self.before.app.shared.pending == self.after.app.shared.pending
+            && self.before.app.shared.frits() == self.after.app.shared.frits()
     }
 
     /// The changes that waited for Save are in the draft the desk keeps.
@@ -64,7 +64,7 @@ impl Seen<'_> {
     /// sets wait for an install.
     fn quits_or_asks(&self) -> Result<(), String> {
         let app = &self.before.app;
-        let want = if !app.shared.pending.is_empty() {
+        let want = if !app.shared.frits().is_empty() {
             "question:leave"
         } else if app.shared.unsaved > 0 {
             "question:quit"
@@ -1173,7 +1173,7 @@ fn looks_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
                 _ => {
                     if s.exited() || s.step.to.node() != "looks" {
                         Err("r left the list".into())
-                    } else if s.before.app.shared.pending != s.after.app.shared.pending
+                    } else if s.before.app.shared.frits() != s.after.app.shared.frits()
                         || s.after.app.shared.message.is_some()
                     {
                         Ok(())
@@ -1641,7 +1641,13 @@ impl Checks {
             let parts = written(before, after);
             self.found.writes.entry(view).or_default().extend(parts);
         }
-        if s.before.app.shared.pending != s.after.app.shared.pending && !s.has("install") {
+        // the font sets the draft's folder keeps: an install settles them,
+        // and Revert and New start the draft over without them, as they
+        // replace the draft
+        let replaces = ["install", "revert", "new", "delete"]
+            .iter()
+            .any(|op| s.has(op));
+        if s.before.app.shared.frits() != s.after.app.shared.frits() && !replaces {
             self.found
                 .writes
                 .entry(view)

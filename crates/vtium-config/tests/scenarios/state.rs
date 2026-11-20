@@ -134,7 +134,7 @@ pub fn of(sim: &Sim) -> Abs {
         kind: StateKind::View,
         narrow: String::new(),
         unsaved: app.shared.unsaved > 0,
-        pending: !app.shared.pending.is_empty(),
+        pending: !app.shared.frits().is_empty(),
         at: nav::node(app),
     };
     if sim.exited.is_some() {

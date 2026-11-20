@@ -12,8 +12,9 @@
 //! - ADR-1205 D8: a resource's view shows what works, and within a look
 //!   what it still misses, by role.
 
+use super::super::super::desk::{FontSetEdit, Op};
 use super::super::super::listbox::Item;
-use super::super::super::model::{Font, FontState, Shared};
+use super::super::super::model::{Effect, Font, FontState, Shared};
 use super::super::super::words;
 use super::super::{Change, Command};
 use crate::frit::{Frit, Source};
@@ -46,7 +47,7 @@ pub fn item(shared: &Shared, at: usize) -> Item {
     if shared.refused.contains(&f.name) {
         note = words::KEPT.to_owned();
     }
-    if shared.pending.removals.contains(&f.name) {
+    if shared.frits().removed.contains(&f.name) {
         note = format!("{note}, {}", words::TO_REMOVE);
     }
     if shared.changed("font-name") && shared.drafted("font-name").as_deref() == Some(&f.name) {
@@ -63,29 +64,40 @@ pub fn usable(shared: &Shared, font: &Font) -> bool {
     !matches!(font.state, FontState::Refused(_)) && !shared.refused.contains(&font.name)
 }
 
-/// `r` on the font set named `name`: the font set is removed when the
-/// user installs, or, when the install already removes it, no longer is.
-/// The tab refuses what `remove-frit` refuses, by vtium.conf, its top
-/// level and its looks, both as it is and as the install leaves it, and a
-/// font set the install replaces with a new one. The install lists the
-/// font set's file among what it changes, and `apply` removes it, as it
-/// removes the frit of `remove-frit`'s draft.
+/// `r` on the font set named `name`: the draft's folder keeps the
+/// removal, and the install removes the font set; or, when the draft
+/// already removes it, the draft no longer does. The tab refuses what
+/// `remove-frit` refuses, by vtium.conf, its top level and its looks as
+/// the draft has them, and a font set the draft replaces with a new one.
+/// The install lists the font set's file among what it changes, and
+/// `apply` removes it, as it removes the frit of `remove-frit`'s draft.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": the removal waits in the draft's folder, as an empty `FRIT.removed`.
 pub fn remove(shared: &Shared, name: &str) -> Vec<Command> {
     let say = |line: String| Command::Change(Change::Say(line));
-    let mut pending = shared.pending.clone();
-    if let Some(at) = pending.removals.iter().position(|n| n == name) {
-        pending.removals.remove(at);
-        return vec![
-            Command::Change(Change::Pending(pending)),
-            say(words::remove_dropped(name)),
-        ];
+    let Some(draft) = &shared.draft else {
+        return vec![say(words::NO_DESK.to_owned())];
+    };
+    let keep = |edit, line| {
+        vec![
+            Command::Effect(Effect::Desk(Op::FontSet {
+                frit: name.to_owned(),
+                edit,
+                text: draft.text.clone(),
+            })),
+            say(line),
+        ]
+    };
+    if shared.frits().removed.contains(name) {
+        return keep(FontSetEdit::Forget, words::remove_dropped(name));
     }
     let refused = crate::commands::removal_refusal(name, shared.conf_text())
         .or_else(|| {
-            pending
-                .frits
-                .iter()
-                .any(|(n, _)| n == name)
+            shared
+                .frits()
+                .kept
+                .contains_key(name)
                 .then(|| words::remove_replaced(name))
         })
         .or_else(|| {
@@ -94,34 +106,15 @@ pub fn remove(shared: &Shared, name: &str) -> Vec<Command> {
     if let Some(why) = refused {
         return vec![say(words::remove_refused(name, why))];
     }
-    pending.removals.push(name.to_owned());
-    // the install as it would be with the removal: refused when the
-    // draft names the font set
-    match shared.frit_plan_of(&pending) {
-        Ok(_) => vec![
-            Command::Change(Change::Pending(pending)),
-            say(words::remove_pending(name)),
-        ],
-        Err(why) => vec![say(words::remove_refused(name, why))],
-    }
+    keep(FontSetEdit::Remove, words::remove_pending(name))
 }
 
 /// The text of the font set `name` as the install would leave it: a new
 /// font set that waits for the install, else the installed file.
 fn text<'s>(shared: &'s Shared, name: &str) -> Option<&'s str> {
     shared
-        .pending
-        .frits
-        .iter()
-        .find(|(n, _)| n == name)
-        .map(|(_, t)| t.as_str())
-        .or_else(|| {
-            shared
-                .inputs
-                .installed
-                .get(name)
-                .and_then(|b| std::str::from_utf8(b).ok())
-        })
+        .frit_text(name)
+        .and_then(|b| std::str::from_utf8(b).ok())
 }
 
 /// The font set `name` as the frit parser reads it, where its text reads.

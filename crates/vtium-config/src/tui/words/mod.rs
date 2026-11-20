@@ -427,19 +427,20 @@ pub fn small_question(unsaved: usize) -> String {
     }
 }
 
-/// The question `q` asks while font sets wait for an install: what
-/// leaving loses, and the `unsaved` changes that `y` saves first.
+/// The question `q` asks while font sets wait for an install in the
+/// draft's folder: what waits there, and the `unsaved` changes that `y`
+/// saves first.
 pub fn leave_question(added: &[String], removed: &[String], unsaved: usize) -> String {
-    let mut lost = Vec::new();
+    let mut waiting = Vec::new();
     if !added.is_empty() {
-        lost.push(format!("the new font sets {}", list(added.iter().cloned())));
+        waiting.push(format!("the new font sets {}", list(added.iter().cloned())));
     }
     if !removed.is_empty() {
-        lost.push(format!("the removal of {}", list(removed.iter().cloned())));
+        waiting.push(format!("the removal of {}", list(removed.iter().cloned())));
     }
-    let lost = list(lost.into_iter());
+    let waiting = list(waiting.into_iter());
     let ask = format!(
-        "Install before you quit? Quitting without installing loses {lost}. y installs and quits, n quits without installing, and Esc goes back."
+        "Install before you quit? The draft keeps {waiting} until you install it. y installs and quits, n quits without installing, and Esc goes back."
     );
     match unsaved {
         0 => ask,

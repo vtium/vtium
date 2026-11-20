@@ -169,7 +169,7 @@ impl Command<'_, '_> {
         let state = self.session.state(name, text)?;
         let checked = self
             .session
-            .check(text, &self.session.store.draft_path(name)?)?;
+            .check(name, text, &self.session.store.draft_path(name)?)?;
         let (added, removed) = state.counts();
         let draft = crate::tui::flow::Draft {
             name: name.to_owned(),
@@ -361,7 +361,7 @@ impl Command<'_, '_> {
                 "{}",
                 diff(&shown, old, &format!("{shown} (after)"), new)
             );
-            let checked = self.session.check(new, &path)?;
+            let checked = self.session.check(name, new, &path)?;
             self.print_check(&checked);
             self.say(if checked.verdict == Verdict::Passed {
                 "the check passes; nothing was saved (--dry-run)"
@@ -377,7 +377,7 @@ impl Command<'_, '_> {
             self.say(&format!("wrote {}", path.display()));
         }
         let state = self.session.state(name, new)?;
-        let checked = match self.session.check(new, &path) {
+        let checked = match self.session.check(name, new, &path) {
             Ok(checked) => checked,
             // the draft is written whatever the check says, even when it
             // cannot run
@@ -884,7 +884,7 @@ impl Command<'_, '_> {
             draft = edited;
             let path = self.session.store.draft_path(name)?;
             self.say(&format!("wrote {}", path.display()));
-            let checked = self.session.check(&draft, &path)?;
+            let checked = self.session.check(name, &draft, &path)?;
             self.print_check(&checked);
             // a missing font is shown, and never asks for another edit
             if checked.clears() {

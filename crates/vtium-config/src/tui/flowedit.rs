@@ -101,35 +101,32 @@ impl App {
     }
 
     /// `q`: leaves, or asks first. While changes wait for Save, it asks
-    /// the quit question. While new frits or frit removals wait for an
-    /// install, it asks the leave question instead, since leaving loses
-    /// them. The leave question also names the changes that wait for
-    /// Save, and its `y` saves them before the TUI leaves, as the quit
+    /// the quit question. While the draft's folder holds new frits or frit
+    /// removals that wait for an install, it asks the leave question
+    /// instead, which offers to install them first; the folder keeps them
+    /// either way. The leave question also names the changes that wait
+    /// for Save, and its `y` saves them before the TUI leaves, as the quit
     /// question's does.
     ///
     /// References:
     /// - ADR-1403 D7, "The same keys in every view": what `q` asks, and
     ///   that the leave question names and saves the unsaved changes.
     pub(crate) fn quit(&mut self, status: u8) -> Vec<Effect> {
-        if self.shared.pending.is_empty() && self.shared.unsaved > 0 {
+        let frits = self.shared.frits();
+        let waiting = frits.len();
+        if waiting == 0 && self.shared.unsaved > 0 {
             self.ask(
                 words::quit_question(self.shared.unsaved),
                 Then::Quit(status),
             );
             return Vec::new();
         }
-        if self.shared.pending.is_empty() {
+        if waiting == 0 {
             return self.leave(status);
         }
-        let added: Vec<String> = self
-            .shared
-            .pending
-            .frits
-            .iter()
-            .map(|(n, _)| n.clone())
-            .collect();
-        let question =
-            words::leave_question(&added, &self.shared.pending.removals, self.shared.unsaved);
+        let added: Vec<String> = frits.kept.keys().cloned().collect();
+        let removed: Vec<String> = frits.removed.iter().cloned().collect();
+        let question = words::leave_question(&added, &removed, self.shared.unsaved);
         self.ask(question, Then::Leave(status));
         Vec::new()
     }
@@ -262,10 +259,11 @@ impl App {
                     self.shared.present = present;
                 }
                 self.shared.came = None;
-                // a check keeps the unsaved changes; every other op leaves
-                // the draft as the store holds it
+                // a check, and a font set kept in the draft's folder, keep
+                // the unsaved changes; every other op leaves the draft as
+                // the store holds it
                 match op {
-                    Op::Check(_) => {}
+                    Op::Check(_) | Op::FontSet { .. } => {}
                     Op::Write(_) if self.shared.unsaved > 0 => {
                         self.shared.message =
                             Some(words::saved_draft(self.shared.unsaved, &opened.name));
@@ -294,21 +292,19 @@ impl App {
                     self.flow.restart(&self.shared.inputs.flow);
                 }
             }
-            Done::Plan(mut plan) => {
-                // the frits go first, so vtium.conf never names a frit that
-                // is not there yet (ADR-1403 D8)
-                let frits = match self.frit_plan() {
-                    Ok(frits) => frits,
-                    Err(why) => {
-                        self.shared.quit_after_install = None;
-                        return self.say(&why);
-                    }
-                };
-                let n = frits.files.len().saturating_add(frits.removals.len());
-                let mut files = frits.files;
-                files.append(&mut plan.files);
-                plan.files = files;
-                plan.removals = frits.removals;
+            // the desk's plan holds the draft's font sets from its folder,
+            // frits first, so vtium.conf never names a frit that is not
+            // there yet
+            //
+            // References:
+            // - ADR-1403 D8: an install writes the frits before vtium.conf.
+            Done::Plan(plan) => {
+                let n = plan
+                    .files
+                    .iter()
+                    .filter(|f| f.path.extension().is_some_and(|e| e == "vtfrit"))
+                    .count()
+                    .saturating_add(plan.removals.len());
                 if plan.is_empty() {
                     return match self.shared.quit_after_install.take() {
                         Some(status) => self.leave(status),
@@ -425,8 +421,23 @@ impl App {
         };
         self.shared.inputs.effects.set_states(&opened.resources);
         self.shared.inputs.font_files.set_states(&opened.resources);
+        // the font sets the install wrote and removed: those the folder
+        // held before and no longer holds, since the install takes out of
+        // the folder each change the system now matches
+        let before = self.shared.frits().clone();
+        let mut done = crate::store::FritChanges::default();
+        for (name, text) in before.kept {
+            if !opened.frits.kept.contains_key(&name) {
+                done.kept.insert(name, text);
+            }
+        }
+        for name in before.removed {
+            if !opened.frits.removed.contains(&name) {
+                done.removed.insert(name);
+            }
+        }
         self.shared.draft = Some(opened);
-        self.frits_installed();
+        self.frits_installed(done);
         self.rebuild(None);
         if let Some(status) = self.shared.quit_after_install.take() {
             self.shared.message = Some(message);
