@@ -94,6 +94,10 @@ considered:
     said: "Mode 2034, contour's semantic block query, is declined for now: its row stays weighed, not now, because a reply hands the output of earlier commands to any program on the pty. Its issue closes with that reopen trigger."
     via: the maintainer's interview in the steering session, 2026-11-20, round 4, as the steering session's notes of that interview record it
     paraphrase: true
+  - operator: aaronsb
+    said: "Mode 2034, contour's semantic block query: status refused, deliberately not built, keeping the reason that a reply would hand the output of earlier commands to any program on the pty, and the reopen trigger."
+    via: the maintainer's answer in the steering session, 2026-11-20, as the steering session's brief for this fix round records it
+    paraphrase: true
 status: accepted
 date: 2026-10-26
 deciders:
@@ -201,7 +205,7 @@ The `linux` column records the Linux kernel's own console: the escape and contro
 
 VT52 (DECANM, DEC 2) has a reserved row, ignored: DECRQM reports the ANSI state (DECANM set) as permanent and a reset does nothing. Its own issue holds the space for full VT52 support in a later layer.
 
-contour's semantic block query (DEC 2034) stays weighed, and vtium does not take it now. The maintainer decided on 2026-11-20 that a reply to the query hands the output of earlier commands to any program on the pty: a program that prints untrusted text, or a remote host at the far end of ssh, could ask for it, and the session token that contour's specification gives is the only guard. The mode stays out of vtium's mode table, so DECRQM answers 0. Its issue reopens when a program on the console needs the mode, or when xterm and one of foot, Ghostty, WezTerm or kitty document it, as the rule for a new mode asks; the reply's exposure is then decided with it.
+vtium refuses contour's semantic block query (DEC 2034). The maintainer decided on 2026-11-20 that its row is refused, because a reply to the query hands the output of earlier commands to any program on the pty. A program that prints untrusted text, or a remote host at the far end of ssh, could ask for that output, and the session token that contour's specification gives is the only guard. The mode stays out of vtium's mode table, so DECRQM answers 0. Its issue reopens when a program on the console needs the mode, or when xterm and one of foot, Ghostty, WezTerm or kitty document it, as the rule for a new mode asks; the reply's exposure is then decided with it.
 
 ### Replies and policy
 
