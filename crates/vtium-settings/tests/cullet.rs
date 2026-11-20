@@ -1192,7 +1192,11 @@ fn a_loop_device_is_judged_by_where_its_backing_file_sits() {
     fs::write(loop0.join("loop/backing_file"), backing).expect("backing_file");
     symlink(&loop0, sys.join("dev/block/7:0")).expect("the device link");
 
-    // the real mount table, with the image's own mount rewritten
+    // the real mount table, with the image's own mount rewritten; its
+    // mount point becomes the fixture's folder, which holds the image,
+    // since the build tree may sit on the filesystem mounted on /, which
+    // passes whatever disk holds it
+    let point = dir.display().to_string();
     let real = system();
     let id = real
         .find(&Place::at(&image).expect("where the image sits"))
@@ -1208,6 +1212,7 @@ fn a_loop_device_is_judged_by_where_its_backing_file_sits() {
                     let mut f: Vec<&str> = head.split(' ').collect();
                     let dev = rest.split(' ').next().expect("a device");
                     f[2] = dev;
+                    f[4] = point.as_str();
                     format!("{} - {}\n", f.join(" "), &rest[dev.len() + 1..])
                 } else {
                     format!("{l}\n")
@@ -1226,13 +1231,7 @@ fn a_loop_device_is_judged_by_where_its_backing_file_sits() {
             point: "/mnt/iso".into(),
             file: image.clone(),
             why: Box::new(Unsteady::Network {
-                point: real
-                    .list()
-                    .iter()
-                    .find(|m| m.id == id)
-                    .expect("it")
-                    .point
-                    .clone(),
+                point: dir.clone(),
                 fstype: "nfs4".into()
             })
         })
