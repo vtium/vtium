@@ -10,7 +10,7 @@ When vtium misbehaves on a VT, these steps get you out, in this order:
 
 1. Switch to another VT, or to your desktop's, with Ctrl+Alt and a function key from F1 to F12. On its own VT, vtium reads the keyboard itself. The kernel switches VTs only when vtium asks it to. So when vtium has stopped answering keys, those keys cannot take you off its VT. Then you take the next steps from another machine over ssh instead.
 
-2. Restart that VT's vtium, from another VT, a desktop terminal, or another machine over ssh. A restart ends every session on the VT. On VT 3:
+2. Restart that VT's vtium, from another VT, a desktop terminal, or another machine over ssh. A restart keeps the sessions on the VT running, and vtium draws their screens again. See [Keeping sessions through a restart](concepts/how-vtium-works.md#keeping-sessions-through-a-restart) for how. On VT 3:
 
     ```
     # systemctl restart vtium@tty3.service
@@ -102,7 +102,7 @@ A line such as `the font monoid is not drawn (...)`, or `the font's glyphs are n
 - The font file's own name table must give the family that the frit names. Either its typographic family name or its legacy family name counts. The file's own name does not matter. `fc-scan --format '%{family}\n' FILE` prints the families that a file gives. A `font:` line takes any of them, in any language. It ignores case, spaces, `-` and `_`.
 - The font helper takes a file named for the family first, such as `Monoid-Regular.ttf`, whatever its style. Otherwise it takes the first file whose subfamily is `Regular`. Failing that, it takes the first file of the family. "First" follows the order of the font directories, and then the path. A search opens at most 4096 font files. Past that, the search fails with a line that names the family and the limit.
 - vtium refuses the whole frit when the frit has an unknown key or a malformed line. The log names the file and the line.
-- vtium uses a change to the frit or to `vtium.conf` only from its next start on that VT. See [Configuration](configure.md) for details. A change to the list of active fonts takes effect sooner, at the next login.
+- vtium uses a change to the frit, or to a look's font keys in `vtium.conf`, from its next start on that VT. A change to the list of active fonts takes effect sooner, at the next login. [The file](configure.md#the-file) says what vtium reads when.
 
 `vtium check-config` also reports a frit whose `cell=` line vtium cannot read.
 
@@ -118,7 +118,7 @@ When a head does not show the color scheme that its look names, vtium could not 
     ```
 
 - The file must also pass the trust rule. The check names the rule that the file fails, such as a symbolic link on its path.
-- vtium reads the `palette` key and the palette files when it starts. A change to either takes effect when vtium next starts on the VT. See [How an install reaches the VTs](configure.md#how-an-install-reaches-the-vts) for details.
+- vtium reads the `palette` key and the palette files when it starts. A change to either takes effect when vtium next starts on the VT. [The file](configure.md#the-file) says what vtium reads when.
 - A program can change the colors in its own console, with OSC 4 and OSC 10 to 19. RIS, the full reset, returns them to the color scheme's. See [Programs that change the colors](palettes.md#programs-that-change-the-colors) for details.
 - An effect changes every color after the color scheme applies. Under the vtlook `amber`, for example, every color scheme shows in shades of amber.
 
@@ -126,7 +126,7 @@ When a head does not show the color scheme that its look names, vtium could not 
 
 When a head shows no effect where its look names a vtlook (a file of frame filters), the head draws the built-in vtlook, which changes no pixel. Check these in turn:
 
-- The build must have frame filters. `vtium --version` names `filters` on its `features` line when it does. The `vtium` and `vtium-git` packages build them from 0.1.0-alpha.10 on, and a package of an earlier release has none. See [Arch Linux](install.md#arch-linux) for the features each package builds.
+- The build must have frame filters, the `filters` feature. `vtium --version` names `filters` on its `features` line when it does. The `vtium` and `vtium-git` packages build the feature from 0.1.0-alpha.10 on, and the minspec builds leave it out. See [Arch Linux](install.md#arch-linux) for the features each package builds.
 - Run `vtium check-config`. It lists each error of every vtlook that vtium.conf names, with the file and the line. It also names a color map that a vtlook's `cube` filter cannot use, because the file is missing, is not active, or fails the trust rule. Any such error makes the whole vtlook fail.
 - A color map, a `.cube` file, must be active. A fresh install activates none. Activate the file and log in again:
 
@@ -136,7 +136,7 @@ When a head shows no effect where its look names a vtlook (a file of frame filte
 
 - A vtlook's `[requires]` section can rule out a display, such as one with fewer than 24 bits a pixel. That display draws the built-in vtlook, and the head's other displays keep the effect. vtium logs one line that names the display and the first requirement it misses, such as `vtlook amber: display DP-1 (1280x800, 1 bit) draws the built-in vtlook: requires min-depth 24`.
 - A copy of a preset in `/etc/vtium/looks` replaces the preset. When the copy has an error, the head draws the built-in vtlook, not the preset.
-- vtium reads vtium.conf and its vtlooks when it starts. A change to the `vtlook` key or to a vtlook's file takes effect when vtium next starts on the VT. Activating a color map takes effect sooner, at the next login.
+- vtium reads vtium.conf and its vtlooks when it starts. A change to the `vtlook` key or to a vtlook's file takes effect when vtium next starts on the VT. Activating a color map takes effect sooner, at the next login. [The file](configure.md#the-file) says what vtium reads when.
 
 [Vtlook files](looks.md#errors) shows each error that `vtium check-config` prints.
 
@@ -161,7 +161,7 @@ A getty that ran on the VT before you gave it to vtium also keeps the VT until i
 
 ## A VT that stays black after you switch back to it
 
-Sometimes you switch from the desktop back to a VT where vtium runs, and the screen stays black. A key press does not bring it back. This is a known defect, which [issue #249](https://github.com/vtium/vtium/issues/249) follows. Until it is fixed, restart that VT's vtium, as [Getting out](#getting-out) shows. The restart ends every session on the VT. If the screen stayed black until you rebooted, collect a report of the previous boot with `vtium-config report --previous-boot --save`. See [Collecting a report and filing an issue](#collecting-a-report-and-filing-an-issue) for details.
+Sometimes you switch from the desktop back to a VT where vtium runs, and the screen stays black. A key press does not bring it back. This is a known defect, which [issue #249](https://github.com/vtium/vtium/issues/249) follows. Until it is fixed, restart that VT's vtium, as [Getting out](#getting-out) shows. The restart keeps the sessions on the VT running. If the screen stayed black until you rebooted, collect a report of the previous boot with `vtium-config report --previous-boot --save`. See [Collecting a report and filing an issue](#collecting-a-report-and-filing-an-issue) for details.
 
 ## Images that do not show
 
