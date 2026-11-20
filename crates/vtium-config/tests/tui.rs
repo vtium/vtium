@@ -426,8 +426,8 @@ fn each_view_at_80x25_and_100x30() {
             &[TO_LOOKS, DOWN, DOWN, DOWN, b"\r"],
         ),
         ("fonts", Fonts, &[]),
-        ("settings", Fonts, &[b"\t"]),
-        ("help", Fonts, &[b"\t", b"\t"]),
+        ("settings", Fonts, &[TO_SETTINGS]),
+        ("help", Fonts, &[TO_HELP]),
         ("new", Fonts, &[TO_LOOKS, DOWN, b"n"]),
     ];
     for (cols, rows) in [(80, 25), (100, 30)] {
