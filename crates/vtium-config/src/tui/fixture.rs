@@ -535,6 +535,11 @@ fn scheme(dark: u8, light: u8, accent: [u8; 3]) -> vtium_term::Palette {
 /// administrator's dusk hides, and paper, both active; the
 /// administrator's dusk, active; loose, which fails the trust rule; and
 /// broken, which does not read.
+///
+/// Every scheme here is made up for the tests, and none is a scheme vtium
+/// ships. paper is a light scheme of the tests' own: vtium's e-ink scheme
+/// is ink, in crates/vtium/install/palettes. The settled screens of the
+/// Looks tab show paper by name, so the name stays.
 pub fn palettes() -> Vec<SchemeFile> {
     let file =
         |dir: &str, name: &str, state, trust: Result<(), String>, hidden, colors| SchemeFile {
