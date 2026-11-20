@@ -146,19 +146,23 @@ impl Fonts {
         self.files.iter().find(|f| f.resource.path == path)
     }
 
-    /// The sizes the text font of `frit` supplies, from the descriptions.
-    /// The text font is the set's first source of its own. A family is
-    /// matched as the console matches it, with case and blanks ignored; a
-    /// kbd name matches a file of that name with any of kbd's suffixes;
-    /// and a path matches its file. An outline face supplies any size. A
-    /// bitmap face supplies exactly its strikes, and the strikes of one
-    /// design are gathered across its files by family and style, since
-    /// Terminus's `.otb` files hold one strike each. The set's `strike=`
-    /// files count among the text font's.
+    /// The sizes the text font of `frit` supplies, from the descriptions:
+    /// the sizes of the one file the console draws the text font from,
+    /// and of each file the set's `strike=` lines add. A path names its
+    /// file. A kbd name names the first file found of that name with any
+    /// of kbd's suffixes. A family names the first described file with a
+    /// Regular face of that family, else the first with any face of it,
+    /// with case and blanks ignored as the console ignores them. An
+    /// outline face supplies any size, and a bitmap face exactly its
+    /// strikes. Other files of the same design are not counted, because
+    /// the console never draws them: a size only they supply would fall
+    /// back to the built-in font.
     ///
     /// References:
-    /// - ADR-1205 D7: a bitmap font supplies its strikes, and an outline
-    ///   font its range of sizes.
+    /// - ADR-1205 D7: a look offers only the sizes its fonts supply; a
+    ///   bitmap font supplies its strikes, and an outline font its range
+    ///   of sizes.
+    /// - ADR-1204 D2: only `strike=` lines add strikes to a set.
     pub fn supplied(&self, frit: &Frit) -> Supplied {
         let Some(text) = frit.sources.iter().find(|s| s.layer.is_none()) else {
             return Supplied::Unknown(Unknown::NoTextFont);
@@ -168,48 +172,35 @@ impl Fonts {
         let mut files = 0usize;
         let mut waiting = false;
         for origin in origins {
-            let paths: Vec<&Path> = match origin {
+            let path: Option<&Path> = match origin {
                 Origin::Builtin(_) | Origin::Vconsole | Origin::Console(_) => {
                     return Supplied::Unknown(Unknown::BuiltIn);
                 }
                 Origin::File(p) | Origin::Bdf(p) | Origin::Hex(p) | Origin::Outline(p) => {
-                    vec![p.as_path()]
+                    Some(p.as_path())
                 }
                 Origin::Kbd(name) => self
                     .files
                     .iter()
                     .map(FontFile::path)
-                    .filter(|p| kbd_name(p) == Some(name.as_str()))
-                    .collect(),
+                    .find(|p| kbd_name(p) == Some(name.as_str())),
                 Origin::Font(family) => {
-                    let want = squashed(family);
-                    let mut out = Vec::new();
-                    for f in &self.files {
-                        match self.described.get(f.path()) {
-                            None => waiting = true,
-                            Some(Described::Font(d))
-                                if d.faces.iter().any(|face| squashed(&face.family) == want) =>
-                            {
-                                out.push(f.path());
-                            }
-                            Some(_) => {}
-                        }
-                    }
-                    out
+                    let (path, unanswered) = self.family_file(family);
+                    waiting |= unanswered && path.is_none();
+                    path
                 }
             };
-            for path in paths {
-                files = files.saturating_add(1);
-                match self.described.get(path) {
-                    None => waiting = true,
-                    Some(Described::Font(d)) => {
-                        matched.extend(d.faces.iter().filter(|face| match origin {
-                            Origin::Font(family) => squashed(&face.family) == squashed(family),
-                            _ => true,
-                        }))
-                    }
-                    Some(_) => {}
+            let Some(path) = path else { continue };
+            files = files.saturating_add(1);
+            match self.described.get(path) {
+                None => waiting = true,
+                Some(Described::Font(d)) => {
+                    matched.extend(d.faces.iter().filter(|face| match origin {
+                        Origin::Font(family) => squashed(&face.family) == squashed(family),
+                        _ => true,
+                    }))
                 }
+                Some(_) => {}
             }
         }
         let family = matched
@@ -227,26 +218,8 @@ impl Fonts {
                 Unknown::NotAFont(text.spelling.clone())
             });
         }
-        // the strikes of one design, gathered across its files
-        let designs: Vec<(String, &str)> = matched
+        let mut strikes: Vec<Strike> = matched
             .iter()
-            .map(|f| (squashed(&f.family), f.style.as_str()))
-            .collect();
-        let mut strikes: Vec<Strike> = self
-            .described
-            .values()
-            .filter_map(|d| match d {
-                Described::Font(d) => Some(&d.faces),
-                _ => None,
-            })
-            .flatten()
-            .filter(|f| {
-                !f.outline
-                    && designs
-                        .iter()
-                        .any(|(family, style)| *family == squashed(&f.family) && *style == f.style)
-            })
-            .chain(matched.iter().copied())
             .flat_map(|f| f.strikes.iter().copied())
             .collect();
         strikes.sort_unstable_by_key(|s| (s.height, s.width));
@@ -255,6 +228,35 @@ impl Fonts {
             return Supplied::Unknown(Unknown::NotAFont(text.spelling.clone()));
         }
         Supplied::Strikes { family, strikes }
+    }
+
+    /// The file a `font:` source of `family` draws from, among the files
+    /// described so far: the first with a Regular face of the family,
+    /// else the first with any face of it. The second value says whether
+    /// some file is not described yet, so that it could still be the one.
+    fn family_file(&self, family: &str) -> (Option<&Path>, bool) {
+        let want = squashed(family);
+        let mut waiting = false;
+        let mut any = None;
+        for f in &self.files {
+            match self.described.get(f.path()) {
+                None => waiting = true,
+                Some(Described::Font(d)) => {
+                    let mut faces = d.faces.iter().filter(|face| squashed(&face.family) == want);
+                    let first = faces.next();
+                    if first.is_some_and(|face| face.style == "Regular")
+                        || faces.any(|face| face.style == "Regular")
+                    {
+                        return (Some(f.path()), waiting);
+                    }
+                    if first.is_some() && any.is_none() {
+                        any = Some(f.path());
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+        (any, waiting)
     }
 }
 
@@ -516,9 +518,10 @@ mod tests {
         Frit::parse(text.as_bytes(), Path::new("t"), "t").unwrap_or_else(|e| panic!("{e}"))
     }
 
-    // An outline text font supplies any size; a bitmap design supplies
-    // its strikes, gathered across its files by family and style; a
-    // family no file has, or one not described yet, says why
+    // An outline text font supplies any size; a bitmap source supplies the
+    // strikes of its own file and of its `strike=` files, never those of
+    // other files of the same design; a family no file has, or one not
+    // described yet, says why
     #[test]
     fn a_look_s_sizes_come_from_its_text_font() {
         let found = fonts(&[
@@ -535,29 +538,41 @@ mod tests {
                 "/f/ter-u16b.otb",
                 Some(face("Terminus", "Bold", false, &[(8, 17)])),
             ),
+            (
+                "/f/ter-u14n.bdf",
+                Some(face("Terminus", "Regular", false, &[(7, 14)])),
+            ),
             ("/f/later.ttf", None),
         ]);
+        let strikes = |cells: &[(u32, u32)]| Supplied::Strikes {
+            family: "Terminus".into(),
+            strikes: cells
+                .iter()
+                .map(|&(width, height)| Strike { width, height })
+                .collect(),
+        };
         assert_eq!(
             found.supplied(&frit("source=font:monosans\n")),
             Supplied::Any {
                 family: "Mono Sans".into()
             }
         );
+        // the console draws this one file, so the 12-pixel strike of
+        // another Terminus file is no size of this look
         assert_eq!(
             found.supplied(&frit("source=outline:/f/ter-u16n.otb\n")),
-            Supplied::Strikes {
-                family: "Terminus".into(),
-                strikes: vec![
-                    Strike {
-                        width: 6,
-                        height: 12
-                    },
-                    Strike {
-                        width: 8,
-                        height: 16
-                    }
-                ],
-            }
+            strikes(&[(8, 16)])
+        );
+        assert_eq!(
+            found.supplied(&frit(
+                "source=outline:/f/ter-u16n.otb\nstrike=bdf:/f/ter-u14n.bdf\n"
+            )),
+            strikes(&[(7, 14), (8, 16)])
+        );
+        // a family draws from its first file with a Regular face
+        assert_eq!(
+            found.supplied(&frit("source=font:Terminus\n")),
+            strikes(&[(6, 12)])
         );
         assert_eq!(
             found.supplied(&frit("source=font:Nowhere\n")),
