@@ -177,6 +177,7 @@ pub const TOP_FRIT: &str = "font set";
 pub const TOP_SIZE: &str = "size";
 pub const TOP_PALETTE: &str = "color scheme";
 pub const TOP_VTLOOK: &str = "vtlook";
+pub const TOP_POINTER: &str = "pointer theme";
 
 /// The marks of a color scheme in the card's list.
 pub const PALETTE_BUILT_IN: &str = "built in";
@@ -211,12 +212,24 @@ pub fn vtlook_broken(why: impl Display) -> String {
 /// color schemes.
 pub const PALETTE_FILE_NOTE: &str = "scheme file";
 
-/// The pointer theme line: every look draws the pointer theme vtium.conf
-/// sets, which a look cannot change yet.
-pub fn pointer_line(theme: Option<&str>) -> String {
-    let theme = theme.unwrap_or("vtium's own pictures");
-    format!("{theme}, from vtium.conf. A look cannot pick a pointer theme of its own yet.")
+/// The name of vtium's own pointer pictures, the theme a look draws where
+/// neither it nor vtium.conf names one.
+pub const POINTER_OWN: &str = "vtium's own pictures";
+
+/// The pointer theme line of a look's card: the theme the look names, or
+/// vtium.conf's where it names none, which every such look draws.
+pub fn pointer_line(theme: Option<&str>, inherited: bool) -> String {
+    let theme = theme.unwrap_or(POINTER_OWN);
+    if inherited {
+        from_top(theme)
+    } else {
+        theme.to_owned()
+    }
 }
+
+/// The note of an active pointer theme in a look card's list of pointer
+/// themes.
+pub const POINTER_ACTIVE_NOTE: &str = "active";
 
 /// The sentence under a look's card.
 pub const CARD_HINT: &str = "Enter on a line shows its choices or lets you type the name, and Left and Right step through the choices. Esc keeps the changes for Save.";
@@ -381,7 +394,8 @@ pub const SIZE_PICTURE_ONLY: &str = "The console does not let programs resize it
 /// The question `w` asks in the Looks tab.
 pub const WINDOW_OPS_QUESTION: &str = "Let programs resize the grid? vtium-config writes allow-window-ops = on into the draft. Every program in the console can then set its rows and columns, and the console changes its font size to fit. y lets them, n or Esc does not.";
 
-/// `w` when the draft already lets programs resize the grid.
+/// The start of `w`'s question when the draft already lets programs
+/// resize the grid.
 pub const WINDOW_OPS_ON: &str = "The draft already lets programs resize the grid. The console does so once you install the draft and vtium starts again.";
 
 /// The notice on a look card's size line, in a vtium console that does
@@ -468,14 +482,29 @@ pub fn pointer_folder(path: impl Display) -> String {
     format!("Folder: {path}. Every file in the folder is active while the folder is.")
 }
 
-/// The line of a pointer theme's detail that says whether the looks draw
-/// it: every look draws the theme vtium.conf's `pointer-theme` names,
-/// because a look cannot pick one of its own yet.
-pub fn pointer_users(named: bool) -> String {
-    if named {
-        "Every look uses it, because vtium.conf's pointer-theme names it. A look cannot pick a pointer theme of its own yet.".to_owned()
-    } else {
-        "No look uses it. Every look uses the pointer theme that vtium.conf's pointer-theme names, because a look cannot pick one of its own yet.".to_owned()
+/// The line of a pointer theme's detail that says which looks draw it:
+/// the looks that name it, and every look that names no theme of its own
+/// where vtium.conf's `pointer-theme` names it.
+pub fn pointer_users(top: bool, looks: &[String]) -> String {
+    match (top, looks) {
+        (false, []) => "No look uses it.".to_owned(),
+        (true, []) => "Every look that names no pointer theme of its own uses it, because vtium.conf's pointer-theme names it.".to_owned(),
+        (false, looks) => format!("Used by {}.", list_of_looks(looks)),
+        (true, looks) => format!(
+            "Used by {}, and by every look that names no pointer theme of its own, because vtium.conf's pointer-theme names it.",
+            list_of_looks(looks)
+        ),
+    }
+}
+
+/// The looks `looks`, as a sentence names them: `look big`, `looks big
+/// and small`, `looks a, b, and c`.
+fn list_of_looks(looks: &[String]) -> String {
+    match looks {
+        [one] => format!("look {one}"),
+        [a, b] => format!("looks {a} and {b}"),
+        [rest @ .., last] => format!("looks {}, and {last}", rest.join(", ")),
+        [] => String::new(),
     }
 }
 
@@ -489,6 +518,3 @@ pub const NO_LOOK_YET: &str = "The draft has no look yet. Press n to make one.";
 /// `p` on a font set vtium cannot read, whose preview stays empty.
 pub const NO_PREVIEW_TO_SWITCH: &str =
     "vtium cannot read this font set, so it has no preview to switch.";
-
-/// Enter on the pointer theme line of a look's card.
-pub const LOOK_POINTER_NOT_YET: &str = "A look cannot pick a pointer theme of its own yet.";

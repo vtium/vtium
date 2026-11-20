@@ -15,7 +15,9 @@
 //!   names, and a digit whose row is planned does nothing. The keys that
 //!   move stay in the tab, and a key that is a child node's whole `reach`
 //!   opens that child, as `v` opens the file view. A row whose meaning
-//!   begins "Asks whether" opens a question. Two planned rows act by
+//!   begins "Asks whether" opens a question: the question whose reach
+//!   names the key and the node, as `w in looks` does, else the confirm
+//!   question. Two planned rows act by
 //!   what their notes say the TUI does today, so the walks reach a value
 //!   being typed.
 //! - In a layer or a typed value, Esc goes where the node's `leave`
@@ -322,8 +324,16 @@ pub fn expect(from: &str, key: &str) -> Option<Expect> {
     if planned_row(node, key) && key.chars().all(|c| c.is_ascii_digit()) {
         return Some(Expect::At(from.to_owned()));
     }
+    // a question of its own names the key and the node it is asked from
+    // in its reach, as `w in looks` does; any other is the confirm question
     if means("Asks whether") {
-        return Some(Expect::At("any.question.confirm".to_owned()));
+        let own = tables().tree.iter().find(|n| {
+            n.id.starts_with("any.question.")
+                && n.status == "supported"
+                && n.reach.starts_with(&format!("{key} in {from} "))
+        });
+        let to = own.map_or("any.question.confirm", |n| n.id.as_str());
+        return Some(Expect::At(to.to_owned()));
     }
     if let Some(child) = tables()
         .tree

@@ -256,7 +256,7 @@ fn enter_on_a_look_opens_its_card_with_its_lines_and_its_fonts_by_role() {
         "Size automatic, from vtium.conf.",
         "Color scheme legacy, from vtium.conf",
         "vtlook sepia",
-        "Pointer theme vtium's own pictures, from vtium.conf.",
+        "Pointer theme vtium's own pictures, from vtium.conf",
         "vtium-config offers its usual sizes, because it found no font file for the text font JetBrains Mono.",
         "Its fonts, by role:",
         "Text: the font family JetBrains Mono, not on this machine",
@@ -1504,7 +1504,7 @@ fn space_activates_a_pointer_theme_by_its_folder_and_its_detail_says_who_draws_i
         "Folder: /usr/share/icons/Adwaita. Every file in the folder is active while the folder is.",
         "State: activates on install",
         "This pointer theme passes the trust rule.",
-        "Every look uses it, because vtium.conf's pointer-theme names it.",
+        "Every look that names no pointer theme of its own uses it, because vtium.conf's pointer-theme names it.",
     ] {
         assert!(screen.contains(want), "{want}: {screen}");
     }
@@ -1899,4 +1899,52 @@ fn grid_requests(bytes: &[u8]) -> Vec<String> {
 /// The position of `needle` in `haystack`.
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
+}
+
+/// The keys that open the look proof's card on its pointer theme line,
+/// the card's sixth.
+const TO_POINTER: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, DOWN, DOWN, DOWN];
+
+/// The pointer theme line's list offers vtium.conf's theme first, then
+/// each active pointer theme: in the fixture, vtium's own pictures, while
+/// Adwaita, which is not active, and stray, which fails the trust rule,
+/// stay out.
+///
+/// References:
+/// - ADR-1205 D6: a look picks only an active pointer theme.
+/// - ADR-1403 D10, the row `list.pointer-themes`.
+#[test]
+fn the_pointer_theme_list_offers_vtium_conf_s_theme_then_the_active_ones() {
+    let mut keys = TO_POINTER.to_vec();
+    keys.push(b"\r");
+    let seen = flat(&reach(100, 30, &keys));
+    assert!(
+        seen.contains("The pointer theme vtium.conf sets (vtium's own pictures)"),
+        "{seen}"
+    );
+    assert!(seen.contains("pointers.svg active"), "{seen}");
+    assert!(!seen.contains("Adwaita"), "{seen}");
+    assert!(!seen.contains("stray"), "{seen}");
+}
+
+/// Picking a pointer theme writes the look's own `pointer-theme`, and the
+/// first choice takes it out again, so the look draws vtium.conf's theme.
+///
+/// References:
+/// - ADR-1205 D6: a look's choice takes priority over vtium.conf's
+///   `pointer-theme`, which stays the default for a look that picks none.
+#[test]
+fn picking_a_pointer_theme_writes_the_look_s_own_pointer_theme() {
+    let conf = inputs().conf.expect("the conf");
+    let mut keys = TO_POINTER.to_vec();
+    keys.extend_from_slice(&[b"\r".as_slice(), DOWN, b"\r", ESC, b"s"]);
+    let draft = draft_after(&conf, &keys);
+    assert!(
+        draft.contains("[look proof]\npointer-theme = /usr/share/vtium/pointers.svg\n"),
+        "{draft}"
+    );
+    let mut keys = TO_POINTER.to_vec();
+    keys.extend_from_slice(&[b"\r".as_slice(), DOWN, b"\r", b"\r", UP, b"\r", ESC, b"s"]);
+    let draft = draft_after(&conf, &keys);
+    assert!(!draft.contains("pointer-theme"), "{draft}");
 }
