@@ -56,7 +56,7 @@ fn shown(s: &Shown) -> &'static [&'static str] {
         &["fonts"]
     } else if s.any("   ● ") || s.any("   ○ ") {
         &["fonts.filter"]
-    } else if s.any(" font ") {
+    } else if s.any(" Font ") {
         &["fonts.font"]
     } else {
         &[]
