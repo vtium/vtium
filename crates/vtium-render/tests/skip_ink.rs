@@ -362,18 +362,28 @@ fn cpu_term_turned(t: &vtium_term::Terminal, o: Orientation) -> Vec<u32> {
         .collect()
 }
 
-/// `t`'s screen drawn on the GPU path, on the stand-in GL, as
-/// [`cpu_term`] draws it on the CPU path.
+/// `t`'s screen drawn on the GPU path, on the stand-in GL, on a display
+/// turned by `o`, as [`cpu_term_turned`] draws it on the CPU path. The
+/// stand-in keeps the upright frame that the GPU path draws before it turns
+/// the frame onto the display, so this reads that frame: the one whose size
+/// is the upright grid's.
 #[cfg(feature = "gpu")]
-fn gpu_term(t: &vtium_term::Terminal) -> Vec<u32> {
+fn gpu_term_turned(t: &vtium_term::Terminal, o: Orientation) -> Vec<u32> {
     use vtium_render::gpu::{Gl, Pipeline, Size, StandIn};
     let (cols, rows) = (t.screen().cols(), t.screen().rows());
     let (w, h) = (cols as u32 * 8, rows as u32 * 16);
-    let size = Size::new(w, h);
+    let turned = o == Orientation::Right || o == Orientation::Left;
+    let (dw, dh) = if turned { (h, w) } else { (w, h) };
+    let size = Size::new(dw, dh);
     let mut gl = StandIn::new();
     let mut pipeline = Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
     let buffer = gl.import_buffer(&size).unwrap();
-    let mut r = Renderer::new(unifont(), w, h, Config::default());
+    let config = Config {
+        orientation: o,
+        ..Config::default()
+    };
+    let mut r = Renderer::new(unifont(), dw, dh, config);
+    assert_eq!(r.grid_size(), (cols, rows));
     let st = DrawState {
         cursor_on: true,
         background: t.palette().bg(),
@@ -385,7 +395,7 @@ fn gpu_term(t: &vtium_term::Terminal) -> Vec<u32> {
     gl.frame_names()
         .iter()
         .rev()
-        .find_map(|&n| gl.frame_pixels(n).filter(|(f, _)| *f == size))
+        .find_map(|&n| gl.frame_pixels(n).filter(|(f, _)| *f == Size::new(w, h)))
         .unwrap()
         .1
         .to_vec()
@@ -512,26 +522,40 @@ fn a_sized_runs_underline_skips_the_ink_of_the_whole_run() {
 }
 
 // The GPU path draws the doubled and the sized underlines as the CPU path
-// does: the cell shader reads the rows of pixels near the ink beside each
-// piece, which the GPU path hands it with the piece's quad.
+// does, at each of the four turns of the display: the cell shader reads the
+// rows of pixels near the ink beside each piece, which the GPU path hands it
+// with the piece's quad. On a display turned a quarter, the GPU path looks
+// for those rows where the display shows each upright row of the piece, so
+// the test turns the display as well as the CPU tests do.
 // covers: sgr.underline-style
 #[cfg(feature = "gpu")]
 #[test]
 fn a_magnified_underline_skips_the_ink_of_its_whole_character_on_the_gpu_path() {
     let normal = normal_rows();
-    let t = doubled_terminal();
-    let (got, cpu) = (gpu_term(&t), cpu_term(&t));
-    let d = magnified_differ(&got, 2 * W, &normal, doubled_from);
-    assert!(d.is_none(), "doubled, against the expectation: {d:x?}");
-    let d = differ_w(&got, &cpu, 2 * W);
-    assert!(d.is_none(), "doubled, against the CPU path: {d:x?}");
-    for s in [2u32, 3] {
-        let t = sized_terminal(s as usize);
-        let (got, cpu) = (gpu_term(&t), cpu_term(&t));
-        let d = magnified_differ(&got, s * W, &normal, |x, y| Some((x / s, y / s)));
-        assert!(d.is_none(), "s={s}, against the expectation: {d:x?}");
-        let d = differ_w(&got, &cpu, s * W);
-        assert!(d.is_none(), "s={s}, against the CPU path: {d:x?}");
+    let doubled = doubled_terminal();
+    let sized = [2u32, 3].map(|s| (s, sized_terminal(s as usize)));
+    for o in [
+        Orientation::Normal,
+        Orientation::Right,
+        Orientation::UpsideDown,
+        Orientation::Left,
+    ] {
+        let (got, cpu) = (gpu_term_turned(&doubled, o), cpu_term_turned(&doubled, o));
+        let d = magnified_differ(&got, 2 * W, &normal, doubled_from);
+        assert!(
+            d.is_none(),
+            "doubled, {o:?}, against the expectation: {d:x?}"
+        );
+        let d = differ_w(&got, &cpu, 2 * W);
+        assert!(d.is_none(), "doubled, {o:?}, against the CPU path: {d:x?}");
+        for (s, t) in &sized {
+            let s = *s;
+            let (got, cpu) = (gpu_term_turned(t, o), cpu_term_turned(t, o));
+            let d = magnified_differ(&got, s * W, &normal, |x, y| Some((x / s, y / s)));
+            assert!(d.is_none(), "s={s}, {o:?}, against the expectation: {d:x?}");
+            let d = differ_w(&got, &cpu, s * W);
+            assert!(d.is_none(), "s={s}, {o:?}, against the CPU path: {d:x?}");
+        }
     }
 }
 
