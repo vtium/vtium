@@ -10,10 +10,10 @@ description: "fonts.filter at 100×30, keys: Enter"
    ○ Outline fonts
    ○ Monospaced fonts
    ○ Proportional fonts
-   ○ Nerd Fonts fonts
+   ○ Nerd Fonts
    ○ Powerline fonts
-   ○ color emoji fonts
-   ○ box drawing fonts
+   ○ Color emoji fonts
+   ○ Box-drawing fonts
    ○ Fonts for Latin
    ○ Fonts for Greek
    ○ Fonts for Cyrillic
@@ -23,12 +23,12 @@ description: "fonts.filter at 100×30, keys: Enter"
    ○ Fonts for Devanagari
    ○ Fonts for Bengali
    ○ Fonts for Gurmukhi
-   ○ Fonts for Gujarati
-   ○ Fonts for Tamil
-   ○ Fonts for Telugu
 
- Enter shows the fonts that pass the highlighted filter. A filter other than All fonts leaves out
- each font the font helper has not described.
+ The list shows filters 1 to 18 of 36. Up and Down scroll it. Enter shows the fonts that pass the
+ highlighted filter. A filter other than All fonts leaves out each font the font helper has not
+ described.
+
+
 
 ----------------------------------------------------------------------------------------------------
  ↑↓ move  Enter pick  Esc back  q quit  . more 1/3

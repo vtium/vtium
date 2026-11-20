@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "looks.look.list at 80×25, keys: 3 Enter Down Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
- draft mine · no changes · no problems               text preview · t: try live
+ draft mine · no changes · no problems   text preview · live trial on font sets
 --------------------------------------------------------------------------------
    ○ The font set vtium.conf sets (unifont)
    ○ minspec-16

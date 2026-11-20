@@ -24,9 +24,9 @@ description: "any.trial at 100×30, keys: 3 t"
  vtium.conf's size.      user@desk:~/notes$
  Terminal desk uses it.
  The console draws this
- in its current font,
- so t shows a font set
- here. A size takes
+ in its current font.
+ Press t to try the
+ font set. A size takes
  effect when vtium
  starts again.
  Trying proof on the console for 10 s. Press k to keep it, or any other key to put the font back.

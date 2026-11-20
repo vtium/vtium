@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "looks.palette at 100×30, keys: 3 PgDn Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft mine · no changes · no problems                                   text preview · t: try live
+ draft mine · no changes · no problems                       text preview · live trial on font sets
 ----------------------------------------------------------------------------------------------------
  Color scheme solarized
  File: none, because it is built into vtium

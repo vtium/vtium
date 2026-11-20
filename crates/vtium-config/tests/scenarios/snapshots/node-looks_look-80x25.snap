@@ -9,7 +9,7 @@ description: "looks.look at 80×25, keys: 3 Enter"
    Font set       proof
    Size           automatic, from vtium.conf. vtium-config offers its usual
                   sizes, because it found no font file for the text font
-                  font:JetBrains Mono.
+                  JetBrains Mono.
    Color scheme   legacy, from vtium.conf
    vtlook         sepia
    Pointer theme  vtium's own pictures, from vtium.conf. A look cannot pick a

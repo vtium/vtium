@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "looks.pointer at 80×25, keys: 3 End Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
- draft mine · no changes · no problems               text preview · t: try live
+ draft mine · no changes · no problems   text preview · live trial on font sets
 --------------------------------------------------------------------------------
  Pointer theme stray
  Folder: /usr/share/icons/stray. Every file in the folder is active while the

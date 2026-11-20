@@ -18,9 +18,9 @@ description: "any.trial at 80×25, keys: 3 t"
  vtium.conf's size.      ┌──────────┬──────────┐
  Terminal desk uses it.  │ name     │ size     │
  The console draws this  ├──────────┼──────────┤
- in its current font,    │ plan.txt │ 1.8 KiB  │
- so t shows a font set   └──────────┴──────────┘
- here. A size takes      Accents: café, naïve, Ångström, Straße, žluťoučký
+ in its current font.    │ plan.txt │ 1.8 KiB  │
+ Press t to try the      └──────────┴──────────┘
+ font set. A size takes  Accents: café, naïve, Ångström, Straße, žluťoučký
  effect when vtium       user@desk:~/notes$
  starts again.
  Trying proof on the console for 10 s. Press k to keep it, or any other key to

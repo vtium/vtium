@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "looks.font-set at 100×30, keys: 3 Down Enter"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft mine · no changes · no problems                                   text preview · t: try live
+ draft mine · no changes · no problems                       text preview · live trial on font sets
 ----------------------------------------------------------------------------------------------------
  Font set broken
  The console does not read it: line 2: unknown key colour

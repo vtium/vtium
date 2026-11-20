@@ -3,7 +3,7 @@ source: crates/vtium-config/tests/scenarios/snapshots.rs
 description: "any.question.quit at 80×25, keys: 3 n Shrink q"
 ---
  Fonts  Effects  Looks  Flow  Settings  Help                      Save  Install
- draft mine · 2 changes · 1 not saved · no problems  text preview · t: try live
+ draft mine · 2 changes · 1 not saved · no pro…  text · live trial on font sets
 --------------------------------------------------------------------------------
    Name           new-look_
    Font set       unifont, from vtium.conf

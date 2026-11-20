@@ -1,5 +1,5 @@
  Fonts  Effects  Looks  Flow  Settings  Help                                          Save  Install
- draft workstation · 1 change · no problems                              text preview · t: try live
+ draft workstation · 1 change · no problems                  text preview · live trial on font sets
 ----------------------------------------------------------------------------------------------------
    unifont
    unscii-8
@@ -27,4 +27,4 @@
  Adwaita: not active, trusted.
 
 ----------------------------------------------------------------------------------------------------
- ↑↓ move  Enter open  Space activate  n new  t try live  q quit  . more 1/5
+ ↑↓ move  Enter open  Space activate  q quit  . more 1/4
