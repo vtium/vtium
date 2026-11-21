@@ -1,5 +1,5 @@
 id	key	state	means	status	note	decided	issue	label	page
-q.view	q	view	Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them.	supported		ADR-1403 D7		quit	1
+q.view	q	view	Quits vtium-config. If changes are not saved, it asks first.	supported		ADR-1403 D7		quit	1
 q.layer	q	layer	Quits vtium-config, and asks first if changes are not saved.	supported	a card, detail, part maker or picker of the Flow view, and the new-frit form's last row	ADR-1403 D7		quit	1
 q.layer.file-view	q	layer:file-view	Quits vtium-config, and asks first if changes are not saved. Esc goes back to the configuration.	supported		ADR-1403 D7	#412	quit	1
 q.layer.restore	q	layer:restore	Quits vtium-config, and asks first if changes are not saved. Esc closes the list.	supported		ADR-1403 D7	#412	quit	1
@@ -38,12 +38,8 @@ ctrl-c.trial	Ctrl-C	trial	Saves the changes that are not saved into the draft, p
 ctrl-c.too-small	Ctrl-C	too-small	Saves the changes that are not saved into the draft, puts back the console's font and size, and quits without asking.	supported		ADR-1403 D7; ADR-1201 D3	#412	save and quit	
 y.question	y	question	Answers yes, and vtium-config does what the question asks.	supported		ADR-1403 D7		yes	
 y.question.quit	y	question:quit	Saves the changes that are not saved into the draft, then quits.	supported		ADR-1403 D7		save and quit	
-y.question.leave	y	question:leave	Installs the draft, then quits. Install saves the changes that are not saved first.	supported		ADR-1403 D7	#411	install and quit	
-n.question.leave	n	question:leave	Saves the changes that are not saved into the draft, then quits without installing. The new and removed font sets that wait for an install are lost.	supported		ADR-1403 D7	#411	quit without installing	
 n.question.quit	n	question:quit	Quits without saving the changes that are not saved.	supported		ADR-1403 D7		quit without saving	
 n.question	n	question	Answers no. Nothing changes.	supported		ADR-1403 D7	#412	no	
-i.question.leave	i	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
-l.question.leave	l	question:leave	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#411	-	
 other.question	any other key	question	Does nothing. The question stays until you answer it or cancel it.	supported		ADR-1403 D7	#412	-	
 s.view	s	view	Saves the changes that are not saved into the draft.	supported	it acts in Fonts, Effects, Looks, Flow and Settings, whose tab bars show Save	ADR-1403 D7		save	
 s.view.fonts	s	view:fonts	Saves the changes that are not saved into the draft.	supported		ADR-1205 D1; ADR-1403 D10	#375	save	
