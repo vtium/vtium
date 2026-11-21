@@ -390,9 +390,7 @@ The tab bar shows the Flow view's actions beside the views' names: `v View file`
 - **Restore**, on `o`, lists the installed history. It copies the file you choose into the draft after asking, for example, `Replace the draft with earlier file 1? 2 lines added and 5 removed will be lost.` Esc closes the list, and `q` quits.
 - **New**, on `n`, asks `Start a new configuration? The draft's heads, rules and looks will be lost.` It then empties the draft to the short comment, `version = 1` and one look, `[look default]`, so that it sets no setting.
 
-When you press `q` with changes that are not saved, the view asks whether to save them first, for example `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.` With nothing unsaved, `q` quits at once.
-
-When font sets that you made or removed in the Looks tab wait for an install, `q` asks `Install before you quit? The draft keeps the removal of tiny5 until you install it. y installs and quits, n quits without installing, and Esc goes back.` Both `y` and `n` first save the changes that are not saved, and the question says so when there are any. When the install fails, the TUI stays and says why.
+When you press `q` with changes that are not saved, the view asks whether to save them first, for example `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.` With nothing unsaved, `q` quits at once. The font sets that you made or removed in the Looks tab stay in the draft's folder, so `q` asks nothing about them.
 
 Ctrl-C saves the changes that are not saved and quits, without a question. At a question, Ctrl-C goes back, as Esc does.
 
