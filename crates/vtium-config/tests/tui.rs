@@ -99,7 +99,8 @@ fn is_flow_keys(screen: &str) -> bool {
 }
 
 /// The status line with a font set waiting to be installed, on a screen
-/// `cols` wide.
+/// `cols` wide: tiny5 marked for removal, and the screen read when the
+/// keys run out.
 fn status_with_a_font_set_waiting(cols: u16) -> String {
     let grid = (usize::from(cols), 25);
     let mut c = Console::vtium(usize::from(cols), 25, true, "unifont")
@@ -108,7 +109,7 @@ fn status_with_a_font_set_waiting(cols: u16) -> String {
         .takes("tiny5", grid)
         .takes("unifont", grid)
         .takes("unscii-8", grid)
-        .keys(&on_tiny5(&[b"r", b"q"]));
+        .keys(&on_tiny5(&[b"r"]));
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
