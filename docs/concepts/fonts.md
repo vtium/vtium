@@ -42,7 +42,7 @@ vtium reads a frit only when it passes the same ownership check as vtium.conf. R
 
 `vtium-config --help about` draws the tool's name in glass. See [the glass banner issue](https://github.com/vtium/vtium/issues/112).
 
-Later, vtium-config may find installed fonts that match the looks people choose, without a frit written for each. A look is a named set of font settings in vtium.conf, such as a font and its size. That direction is not decided yet. See [the issue about matching installed fonts](https://github.com/vtium/vtium/issues/117).
+You do not need a frit for every font. When `font-name` names an installed font's family instead of a frit, vtium makes a frit for that font on the fly. The Fonts tab of `vtium config tui` lists the fonts installed on the machine, with what each covers.
 
 ## The catalog of font sets
 
@@ -55,7 +55,7 @@ vtium ships a catalog of font sets, each named after the font it is based on. Yo
 | Code-friendly fonts | Outline fonts designed for code | `jetbrains-mono`, `fira-code`, `hack` |
 | Nerd Fonts | Code fonts in their Nerd Fonts build, with the icons inside the font | `jetbrains-mono-nerd`, `caskaydia-cove` |
 | Scripts and regions | A writing system beside Latin text | `noto-arabic`, `noto-cjk-jp` |
-| Small panels | Cells of 8×8 to 8×16 on the smallest build | `unifont-icons`, `unscii-icons`, `tiny5` |
+| Small panels | Cells from 6×9 to 8×16 on the smallest build | `unifont-icons`, `unscii-icons`, `tiny5` |
 
 Each set is ready to use. Its own font draws the text, and shared parts called layers add the rest: Nerd Fonts' icons, color emoji, and GNU Unifont for every other character. vtium draws box drawing, blocks and Braille itself. A layer is a file in `/etc/vtium/fonts/layers/`, and a set adds it with a `layer=` line. You can build your own set from the same layers. See [Layers that frits share](../fonts.md#layers-that-frits-share).
 
