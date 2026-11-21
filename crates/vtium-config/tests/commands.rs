@@ -256,12 +256,13 @@ fn remove_frit_keeps_the_removal_in_the_draft_until_install() {
 
 /// `new-frit` keeps the frit it makes, from fonts or from a file, in the
 /// current draft's font set folder and installs nothing, and `install`
-/// then writes it into the frits' directory; `--install` installs the
-/// draft at once. `remove-frit` on a frit that only the draft adds takes
-/// it back out of the draft.
+/// then writes it into the frits' directory. `remove-frit` on a frit that
+/// only the draft adds takes it back out of the draft. Neither command
+/// takes `--install`.
 ///
 /// References:
-/// - ADR-1403 D8, "Every font set change is kept at once": `new-frit` writes the current draft's folder, and `--install` installs the draft.
+/// - ADR-1403 D8, "Every font set change is kept at once": `new-frit` writes the current draft's folder and installs nothing.
+/// - ADR-1201 D2: a command that writes installs nothing, and `install` installs.
 #[test]
 fn new_frit_keeps_the_frit_in_the_draft_until_install() {
     let f = fixture("new", None);
@@ -305,18 +306,18 @@ fn new_frit_keeps_the_frit_in_the_draft_until_install() {
     );
     assert!(!later.exists());
     // the template prints a frit that --from takes, named by its file, and
-    // --install installs it at once
+    // install installs it
     let template = f.run(&["new-frit", "--template"]);
     assert_eq!(template.status, 0, "{}", template.err);
     let file = f.root.join("edited.vtfrit");
     std::fs::write(&file, &template.out).expect("the template");
-    let from = f.run(&[
-        "new-frit",
-        "--from",
-        file.to_str().expect("a path"),
-        "--install",
-    ]);
+    let from = f.run(&["new-frit", "--from", file.to_str().expect("a path")]);
     f.kept(&from, "edited.vtfrit");
+    assert!(
+        !fonts.join("edited.vtfrit").exists(),
+        "the frit waits in the draft"
+    );
+    f.install();
     assert_eq!(
         std::fs::read_to_string(fonts.join("edited.vtfrit")).expect("installed"),
         template.out
@@ -338,7 +339,27 @@ fn new_frit_keeps_the_frit_in_the_draft_until_install() {
         ),
         (&["new-frit", "--frobnicate"], 2, "--frobnicate"),
         (&["new-frit", "x", "--from", "y"], 2, "takes"),
-        (&["new-frit", "--template", "--install"], 2, "--template"),
+        (&["new-frit", "--template", "--name", "x"], 2, "--template"),
+        (
+            &["new-frit", "x", "--install"],
+            2,
+            "new-frit has no option --install",
+        ),
+        (
+            &["new-frit", "--from", "y.vtfrit", "--install"],
+            2,
+            "new-frit has no option --install",
+        ),
+        (
+            &["remove-frit", "x", "--install"],
+            2,
+            "remove-frit takes one font set's name",
+        ),
+        (
+            &["remove-frit", "--install"],
+            2,
+            "remove-frit has no option --install",
+        ),
     ] {
         let ran = f.run(args);
         assert_eq!(ran.status, status, "{args:?}: {}", ran.out);

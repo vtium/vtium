@@ -97,13 +97,17 @@
 #                    privileged step (t3_apply.py): builds an install bundle
 #                    in a folder of root's own, whose MANIFEST writes the new
 #                    font set fonts/t3-apply.vtfrit and a vtium.conf that
-#                    names it, and runs /usr/bin/vtium-config apply on it;
-#                    answers apply's output, its exit status, the installed
-#                    set's owner and mode, the count of
-#                    /run/vtium-config-apply-* left and whether vtium.conf
-#                    names the set. Then the same with the frits' directory
-#                    at mode 0777, which apply must refuse, answering the
-#                    same, and the directory's mode before and once
+#                    names it, and runs /usr/bin/vtium-config apply on it,
+#                    while /usr/bin/vtium is a program that writes down
+#                    each copy of a font set apply's check reads and then
+#                    runs the console moved aside; answers apply's output,
+#                    each copy the check read with its folder's owner and
+#                    mode, apply's exit status, the installed set's owner
+#                    and mode, the count of /run/vtium-config-apply-* left,
+#                    whether vtium.conf names the set and whether the
+#                    console is back as it was. Then the same with the
+#                    frits' directory at mode 0777, which apply must
+#                    refuse, and the directory's mode before and once
 #                    restored. Last it
 #                    stops vtium's unit on tty2 and starts it again, as
 #                    `bare` does, and answers the unit's state and the new
@@ -148,9 +152,10 @@ debugfs=${T3_AGENT_ROOT:-}/sys/kernel/debug
 bare_paths=(/etc/vtium /usr/local/share/tier3-fonts /usr/local/share/fonts/vtium-tier3
             /usr/local/share/fonts/vtium-showcase /usr/bin/vtium-config)
 
-# The privileged step that apply-root runs, and the folder for its bundles,
-# below T3_AGENT_ROOT too.
+# The privileged step that apply-root runs, the console that runs its
+# check, and the folder for its bundles, below T3_AGENT_ROOT too.
 apply_program=$bare_root/usr/bin/vtium-config
+apply_console=$bare_root/usr/bin/vtium
 apply_home=$bare_root/root
 
 # The PID of vtium on tty2, its unit's main process, and its age in seconds,
@@ -336,15 +341,39 @@ apply_bundle() {
         "$(sha256sum < "$etc/vtium.conf" | cut -d' ' -f1)" > "$1/MANIFEST"
 }
 
+# A program at $1 that apply runs as its check in place of the console, for
+# the bundle $2: it writes to $2.checked the path of each font set copy the
+# check is given with --with-frit, with the owner and mode of the folder that
+# holds the copy, while the copy is there, and then runs the console $3 with
+# the same arguments.
+apply_recorder() {
+    sed -e "s|@CHECKED@|$2.checked|" -e "s|@CONSOLE@|$3|" > "$1" <<'EOF'
+#!/bin/bash
+prev=
+for arg in "$@"; do
+    if [ "$prev" = --with-frit ]; then
+        printf '%s %s\n' "$arg" "$(stat -c '%U %a' "${arg%/*}")" >> '@CHECKED@'
+    fi
+    prev=$arg
+done
+exec '@CONSOLE@' "$@"
+EOF
+    chmod 0755 "$1"
+}
+
 # Runs apply on the bundle $1, which writes the font set $2, and answers
-# with the prefix $3: apply's output, its exit status, the set's owner and
-# mode or none, how many of apply's private folders /run still holds, and
-# how many lines of vtium.conf name the set.
+# with the prefix $3: apply's output, each copy its check read
+# (apply_recorder), its exit status, the set's owner and mode or none, how
+# many of apply's private folders /run still holds, and how many lines of
+# vtium.conf name the set.
 apply_report() {
     local etc=$bare_root/etc/vtium status
     "$apply_program" apply "$1" > "$1.out" 2>&1
     status=$?
     sed "s/^/$3 said /" "$1.out"
+    if [ -e "$1.checked" ]; then
+        sed "s/^/$3 checked /" "$1.checked"
+    fi
     echo "$3 status $status"
     if [ -e "$etc/fonts/$2.vtfrit" ]; then
         echo "$3 frit $(stat -c '%U %a' "$etc/fonts/$2.vtfrit")"
@@ -356,10 +385,23 @@ apply_report() {
 }
 
 apply_root() {
-    local fonts=$bare_root/etc/vtium/fonts d mode
+    local fonts=$bare_root/etc/vtium/fonts d mode sum
     d=$(mktemp -d "$apply_home/t3-apply.XXXXXX") || return
     apply_bundle "$d/ok" t3-apply
+    # apply's check runs the console by the path it was built with, and
+    # root may not name another, so the console steps aside for the length
+    # of this one install, for a program that writes down the copies the
+    # check reads and then runs the console
+    sum=$(sha256sum < "$apply_console")
+    mv "$apply_console" "$d/console"
+    apply_recorder "$apply_console" "$d/ok" "$d/console"
     apply_report "$d/ok" t3-apply apply
+    mv -f "$d/console" "$apply_console"
+    if [ "$(sha256sum < "$apply_console")" = "$sum" ]; then
+        echo "apply console kept"
+    else
+        echo "apply console changed"
+    fi
     # the frits' directory open to every user: apply must refuse it and
     # write nothing, and the directory gets its mode back afterwards
     mode=$(stat -c %a "$fonts")

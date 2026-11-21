@@ -361,11 +361,11 @@ const TOPICS: &[Topic] = &[
         command: Command::NewFrit,
         forms: &[
             form(
-                "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS] [--layer NAME]... [--install]",
+                "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS] [--layer NAME]...",
                 "make a font set from fonts, in your draft",
             ),
             form(
-                "new-frit --from FILE [--name NAME] [--install]",
+                "new-frit --from FILE [--name NAME]",
                 "add the font set in FILE to your draft",
             ),
             form(
@@ -377,7 +377,7 @@ const TOPICS: &[Topic] = &[
                 "open the full-screen tool at its new font set page",
             ),
         ],
-        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. Each --layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. --from takes a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. The font set then waits in your draft, in ~/.config/vtium/drafts/DRAFT.frits/, and install installs it with the draft. new-frit prints what the check of the draft finds and how the draft stands. --install installs the draft afterwards.",
+        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. Each --layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. --from takes a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. The font set then waits in your draft, in ~/.config/vtium/drafts/DRAFT.frits/, and install installs it with the draft. new-frit prints what the check of the draft finds and how the draft stands.",
         example: "vtium-config new-frit unifont --name my-font --size 14",
     },
     Topic {
@@ -388,11 +388,8 @@ const TOPICS: &[Topic] = &[
     },
     Topic {
         command: Command::RemoveFrit,
-        forms: &[form(
-            "remove-frit NAME [--install]",
-            "remove a font set, in your draft",
-        )],
-        detail: "Removes the font set NAME.vtfrit in your draft. The removal waits in ~/.config/vtium/drafts/DRAFT.frits/ until you install the draft, and install then keeps the file as NAME.vtfrit.bak. For a font set that only your draft adds, remove-frit takes the new font set back out of the draft. It does not remove a built-in font, a name with no font set, or a set of vtium's catalog. When font-name names the font set, at the top of vtium.conf or in a look, the removal still waits in the draft. The check then lists each line that names it, and install refuses the draft until those lines name another font. --install installs the draft afterwards.",
+        forms: &[form("remove-frit NAME", "remove a font set, in your draft")],
+        detail: "Removes the font set NAME.vtfrit in your draft. The removal waits in ~/.config/vtium/drafts/DRAFT.frits/ until you install the draft, and install then keeps the file as NAME.vtfrit.bak. For a font set that only your draft adds, remove-frit takes the new font set back out of the draft. It does not remove a built-in font, a name with no font set, or a set of vtium's catalog. When font-name names the font set, at the top of vtium.conf or in a look, the removal still waits in the draft. The check then lists each line that names it, and install refuses the draft until those lines name another font.",
         example: "vtium-config remove-frit my-font",
     },
     Topic {
