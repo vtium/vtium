@@ -28,8 +28,8 @@ use super::color::{Color, Colors, Style};
 use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
 use super::flowlayout::{
-    CardLine, card_about, card_choices, card_chosen, card_lines, card_path, card_value,
-    choices_for, label_target, layout_of, look_names, message_rows, window,
+    CardLine, card_about, card_chosen, card_lines, card_path, card_value, choices_for,
+    label_target, layout_of, look_names, look_section, message_rows, path_choices, window,
 };
 use super::flowview::{self, BOX_ROWS, Boxed, Layout, Mood, NoteKind, Obj, Slot, Wire};
 use super::model::{App, Shared};
@@ -910,7 +910,7 @@ fn card_words(shared: &Shared, path: &Path, line: &CardLine) -> String {
         }
         CardLine::Setting("login") => value,
         CardLine::Part(_) => words::CONNECTED.to_owned(),
-        _ => card_choices(shared, line)
+        _ => path_choices(shared, path, line)
             .into_iter()
             .find(|(_, v)| *v == value)
             .map_or(value, |(w, _)| w),
@@ -986,7 +986,7 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
                 at(rows, vx, y, &field(t, room), Style::PLAIN.reversed());
             }
             (None, true) => {
-                let choices = card_choices(&app.shared, line);
+                let choices = path_choices(&app.shared, &path, line);
                 if choices.is_empty() {
                     let x = at(
                         rows,
@@ -1084,17 +1084,19 @@ fn subflow(rows: &mut [Row], app: &App, path: &Path, y: usize, bottom: usize) {
     }
     let flow = &app.shared.inputs.flow;
     at(rows, 1, y, words::SUBFLOW_TITLE, bold(Color::BrightWhite));
-    let font = path
-        .look
-        .as_ref()
-        .and_then(|l| flow.looks.iter().find(|x| x.name == *l))
+    // a terminal with no look draws with `[look default]` when the draft
+    // holds that section, and with the top of vtium.conf when it does not
+    let section = look_section(flow, path.look.as_deref());
+    let font = section
         .map(|l| l.frit.clone())
         .filter(|f| !f.is_empty())
         .unwrap_or_else(|| words::FONT_SET_FROM_CONF.to_owned());
-    let look = path.look.as_ref().map_or_else(
-        || words::DEFAULT_LOOK_BOX.to_owned(),
-        |l| words::look_box(l),
-    );
+    let look = match (&path.look, section) {
+        (None, Some(_)) => words::DEFAULT_LOOK_PART.to_owned(),
+        (None, None) => words::DEFAULT_LOOK_BOX.to_owned(),
+        (Some(l), Some(_)) => words::look_box(l),
+        (Some(l), None) => words::look_box(&words::missing_look(l)),
+    };
     let displays: Vec<String> = path
         .displays
         .iter()

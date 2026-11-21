@@ -11,7 +11,7 @@
 //!   layout functions and never a view.
 
 use super::canvas::wrap;
-use super::flow::Kind;
+use super::flow::{Flow, Kind, Look};
 use super::flowview::{self, Ctx, Layout, Obj, Slot};
 use super::model::{App, Shared, Size};
 use super::paths::{self, Path, Piece};
@@ -44,6 +44,16 @@ pub fn look_names(shared: &Shared) -> Vec<String> {
         .map(|l| l.name.clone())
         .filter(|l| l != "default")
         .collect()
+}
+
+/// The `[look NAME]` section vtium draws a terminal with when the
+/// terminal names the look `look`: that look's section, or the
+/// `[look default]` section for a terminal that names no look. `None`
+/// when the draft holds no such section. vtium then draws the terminal
+/// with the settings at the top of vtium.conf, outside any section.
+pub fn look_section<'a>(flow: &'a Flow, look: Option<&str>) -> Option<&'a Look> {
+    let name = look.unwrap_or("default");
+    flow.looks.iter().find(|l| l.name == name)
 }
 
 /// The document as the Flow tab's `state` and the draft hold it, laid
@@ -178,9 +188,10 @@ pub fn card_lines(path: &Path, editor: bool) -> Vec<CardLine> {
     out
 }
 
-/// A line's choices, each its words and its value; none for the name,
-/// which the person types. The login's second choice, Other…, starts
-/// typing a command ([`card_types`]).
+/// A line's choices on every card, each its words and its value; none for
+/// the name, which the person types. The login's second choice, Other…,
+/// starts typing a command ([`card_types`]). [`path_choices`] adds the
+/// choices of one path's card.
 pub fn card_choices(shared: &Shared, line: &CardLine) -> Vec<(String, String)> {
     let own = |v: &str| (v.to_owned(), v.to_owned());
     match line {
@@ -214,13 +225,34 @@ pub fn card_choices(shared: &Shared, line: &CardLine) -> Vec<(String, String)> {
     }
 }
 
+/// The look `path` names when the draft holds no section of that name.
+/// vtium then draws the terminal with the settings at the top of
+/// vtium.conf.
+pub fn missing_look<'a>(shared: &Shared, path: &'a Path) -> Option<&'a str> {
+    path.look
+        .as_deref()
+        .filter(|l| look_section(&shared.inputs.flow, Some(l)).is_none())
+}
+
+/// The choices `line` offers on `path`'s card: [`card_choices`], and on
+/// the Look line of a terminal that names a look the draft does not hold,
+/// that look last, marked as missing. The line then starts on the look
+/// the head names, and the person sees that it is missing.
+pub fn path_choices(shared: &Shared, path: &Path, line: &CardLine) -> Vec<(String, String)> {
+    let mut out = card_choices(shared, line);
+    if let (CardLine::Look, Some(l)) = (line, missing_look(shared, path)) {
+        out.push((words::missing_look(l), l.to_owned()));
+    }
+    out
+}
+
 /// The choice of `line` that the path holds, if any: for the login,
 /// Default while the head sets none and Other… while it sets a command.
 pub fn card_chosen(shared: &Shared, path: &Path, line: &CardLine) -> Option<usize> {
     let value = card_value(path, line);
     match line {
         CardLine::Setting("login") => Some(usize::from(!value.is_empty())),
-        _ => card_choices(shared, line)
+        _ => path_choices(shared, path, line)
             .iter()
             .position(|(_, v)| *v == value),
     }
@@ -248,6 +280,7 @@ pub fn card_types(shared: &Shared, line: &CardLine, pick: usize) -> bool {
 ///   when vtium switches to a head's VT on Enter, and when it does not.
 pub fn card_about(shared: &Shared, path: &Path, line: &CardLine, editor: bool) -> Option<String> {
     match line {
+        CardLine::Look => missing_look(shared, path).map(words::look_missing_about),
         CardLine::Setting("login") => Some(words::LOGIN_ABOUT.to_owned()),
         CardLine::Setting("switch-on-enter") => {
             let vts = path.vts();

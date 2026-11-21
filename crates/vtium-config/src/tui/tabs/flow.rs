@@ -456,18 +456,12 @@ impl Flow {
                 Vec::new()
             }
             // a look shows its font set in the Looks tab, where the look
-            // is made and changed
+            // is made and changed. The default look is the draft's
+            // `[look default]` section when the draft holds one.
             Obj::Pal(Slot::Look(l)) => {
-                let frit = l.as_ref().and_then(|l| {
-                    shared
-                        .inputs
-                        .flow
-                        .looks
-                        .iter()
-                        .find(|x| x.name == *l)
-                        .map(|x| x.frit.clone())
-                        .filter(|f| !f.is_empty())
-                });
+                let frit = flowlayout::look_section(&shared.inputs.flow, l.as_deref())
+                    .map(|x| x.frit.clone())
+                    .filter(|f| !f.is_empty());
                 let Some(frit) = frit else {
                     return say(words::DEFAULT_FONT_PREVIEW);
                 };
@@ -913,7 +907,7 @@ impl Flow {
         if let Some(typed) = state.typing.clone() {
             return self.card_type_key(shared, obj, &path, &line, typed, key);
         }
-        let choices = flowlayout::card_choices(shared, &line);
+        let choices = flowlayout::path_choices(shared, &path, &line);
         match key {
             Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown => {
                 let at = step(state.line, lines.len(), key);
@@ -1547,6 +1541,47 @@ mod tests {
         // the Flow view asks update to show the look's font set, which the
         // Looks tab lists; it never writes another tab's state itself
         assert_eq!(app.nav.view, View::Looks, "{name}");
+    }
+
+    // vtium draws a terminal that names no look with the draft's
+    // `[look default]` section, so Enter on "default look" shows that
+    // look's font set
+    #[test]
+    fn enter_on_the_default_look_shows_the_font_set_of_look_default() {
+        let mut app = app();
+        let mut big = app
+            .shared
+            .inputs
+            .flow
+            .looks
+            .first()
+            .cloned()
+            .expect("the look big");
+        big.name = "default".into();
+        big.frit = "unifont".into();
+        app.shared.inputs.flow.looks.push(big);
+        highlight(&mut app, Obj::Pal(Slot::Look(None)));
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(
+            app.nav.view,
+            View::Looks,
+            "{:?}",
+            app.shared.message.as_deref()
+        );
+    }
+
+    // with no `[look default]` section, vtium draws such a terminal with
+    // the font set the top of vtium.conf sets
+    #[test]
+    fn enter_on_the_default_look_with_no_look_default_says_vtium_conf_sets_it() {
+        let mut app = app();
+        highlight(&mut app, Obj::Pal(Slot::Look(None)));
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(app.nav.view, View::Flow);
+        assert_eq!(
+            app.shared.message.as_deref(),
+            Some(words::DEFAULT_FONT_PREVIEW)
+        );
     }
 
     #[test]
