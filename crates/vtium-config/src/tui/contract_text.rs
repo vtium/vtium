@@ -57,7 +57,7 @@ pub const NODES: &[Node] = &[
             ("a", "Adds the path in NEW PATH to the configuration."),
             ("e", "Takes the highlighted path out of the configuration into NEW PATH, to change it. On a box that is not a path, it says how to choose one."),
             ("d", "Reads the connected displays and input devices again."),
-            ("t", "Says where a font set can be tried on this console: on a path card's font set field. Where this terminal is not a vtium console, or allow-font-ops is off, it says why the trial is off."),
+            ("t", "Says where a font set can be tried on this console: in the Looks tab. Where this terminal is not a vtium console, or allow-font-ops is off, it says why the trial is off."),
             ("Esc", "Clears NEW PATH. If you were revising a path, the path leaves the configuration. While NEW PATH is empty, says that there is nothing to clear."),
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),

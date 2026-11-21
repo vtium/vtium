@@ -146,7 +146,7 @@ pub const FLOW_TERMINALS: &str = "TERMINALS";
 
 pub const FLOW_INPUTS: &str = "INPUTS";
 
-pub const FLOW_FONT_SETS: &str = "FONT SETS";
+pub const FLOW_LOOKS: &str = "LOOKS";
 
 pub const NO_PATHS: &str =
     "No paths yet. Pick an input and a display in PARTS, then press a to add the path.";
@@ -425,6 +425,10 @@ pub const SUBFLOW_TITLE: &str = "WHAT THIS TERMINAL DRAWS";
 
 pub const FONT_SET_WORD: &str = "Font set";
 
+/// The font set of a look that names none, which vtium.conf's top-level
+/// `font-name` sets.
+pub const FONT_SET_FROM_CONF: &str = "from vtium.conf";
+
 pub const DEFAULT_LOOK_BOX: &str = "default look (built in)";
 
 pub const NO_DISPLAY_BOX: &str = "no display";
@@ -443,7 +447,14 @@ pub const NOT_PLUGGED: &str = "Not connected";
 
 pub const EVERY_INPUT_ON_PORT: &str = "every input on that port";
 
-pub const DEFAULT_FONT_SET: &str = "default font set";
+/// The default look, as the Flow view names it: the look of a head that
+/// names none.
+pub const DEFAULT_LOOK_PART: &str = "default look";
+
+/// A look's words on its terminal's box and in PARTS.
+pub fn look_words(look: &str) -> String {
+    format!("look {look}")
+}
 
 /// The VTs a terminal runs on, as its box and its card say them (ADR-1403
 /// D4, D7): `every VT` for a terminal with no `vt`, else `VT 3` or
@@ -463,9 +474,7 @@ pub const EVERY_VT: &str = "every VT";
 
 pub const VTS_LABEL: &str = "VTs";
 
-pub const DEFAULT_FONT_SET_DETAIL: &str = "Font that vtium.conf sets";
-
-pub const FONT_SET: &str = "font set";
+pub const DEFAULT_LOOK_DETAIL: &str = "Fonts and settings that vtium.conf sets";
 
 pub const IN_NO_PATH: &str = "in no path";
 
@@ -498,8 +507,6 @@ pub const CHOOSE_ABOUT: &str =
     "The choices go from the widest to the narrowest. Enter picks one into the new path.";
 
 pub const NEW_TERMINAL: &str = "THE NEW PATH'S TERMINAL";
-
-pub const AUTOMATIC_SIZE: &str = "automatic";
 
 pub const KEEP_SESSIONS: &str = "keep the sessions running";
 
@@ -587,7 +594,7 @@ pub const IN_DOCUMENT: &str =
 pub const OTHERS_CANNOT: &str =
     "These inputs are neither keyboards nor pointers, so they cannot be part of a path.";
 
-pub const DEFAULT_FONT_PREVIEW: &str = "The default font set is the font vtium.conf sets. The Looks tab shows each font set's preview.";
+pub const DEFAULT_FONT_PREVIEW: &str = "This look draws with the font set vtium.conf sets. The Looks tab shows each font set's preview.";
 
 pub const PREVIEW_PATH_NOT_HERE: &str =
     "Previewing a path needs a vtium console, and this terminal is not one.";
@@ -620,9 +627,9 @@ pub fn flow_other_inputs(n: usize) -> String {
     }
 }
 
-pub fn path_other_font(head: &str) -> String {
+pub fn path_other_look(head: &str) -> String {
     format!(
-        "{} already has these parts with another font set. Press e on it to revise its path.",
+        "{} already has these parts with another look. Press e on it to revise its path.",
         capitalized(&terminal(head))
     )
 }
@@ -684,16 +691,16 @@ pub fn piece_out(title: &str) -> String {
     format!("Took {title} out of the new path.")
 }
 
-pub fn font_picked(font: &str) -> String {
-    format!("The new path uses the font set {font}.")
+pub fn look_picked(look: &str) -> String {
+    format!("The new path uses the look {look}.")
 }
 
-pub fn font_instead(font: &str, old: &str) -> String {
-    format!("The new path uses the font set {font} in place of {old}.")
+pub fn look_instead(look: &str, old: &str) -> String {
+    format!("The new path uses the look {look} in place of {old}.")
 }
 
-pub fn font_default() -> String {
-    "The new path uses the default font set.".to_owned()
+pub fn look_default() -> String {
+    "The new path uses the default look.".to_owned()
 }
 
 /// What picking a display or an input says: what was picked, with `any

@@ -1,6 +1,6 @@
 //! The parts the Flow view ([`super::flowview`]) offers in PARTS. A
 //! part is what a person puts into a path: a display or an input, matched
-//! the way a rule matches it; a font set; or a terminal. Each of the four
+//! the way a rule matches it; a look of the draft; or a terminal. Each of the four
 //! stages of a path has a template, which is never placed in a path.
 //! Enter on a template lists the ways to make a part of its kind
 //! ([`makes`]), and a choice that filters by a match key lists the values
@@ -27,18 +27,18 @@ pub enum Stage {
     Display,
     Terminal,
     Input,
-    Font,
+    Look,
 }
 
 impl Stage {
-    pub const ALL: [Stage; 4] = [Stage::Display, Stage::Terminal, Stage::Input, Stage::Font];
+    pub const ALL: [Stage; 4] = [Stage::Display, Stage::Terminal, Stage::Input, Stage::Look];
 
     /// The stage a piece fills in a path.
     pub const fn of(piece: &Piece) -> Stage {
         match piece {
             Piece::Display(_) => Stage::Display,
             Piece::Input(_) | Piece::NoInput => Stage::Input,
-            Piece::Font(_) => Stage::Font,
+            Piece::Look(_) => Stage::Look,
             Piece::Active | Piece::NoTerminal | Piece::Terminal(_) => Stage::Terminal,
         }
     }
@@ -49,7 +49,7 @@ impl Stage {
             Stage::Display => "Display",
             Stage::Terminal => "Terminal",
             Stage::Input => "Input",
-            Stage::Font => "Font set",
+            Stage::Look => "Look",
         }
     }
 }
@@ -68,16 +68,16 @@ pub struct Part {
 }
 
 /// The name of a part that matches no device: "no input", "the active
-/// terminal", "no terminal", a new terminal's name, or a font set's.
+/// terminal", "no terminal", a new terminal's name, or a look's.
 pub fn special_title(piece: &Piece) -> String {
     match piece {
         Piece::NoInput => words::NO_INPUT.to_owned(),
         Piece::NoTerminal => words::NO_TERMINAL.to_owned(),
         Piece::Active => words::ACTIVE_TERMINAL.to_owned(),
         Piece::Terminal(n) => n.clone(),
-        Piece::Font(f) => f
+        Piece::Look(l) => l
             .clone()
-            .unwrap_or_else(|| words::DEFAULT_FONT_SET.to_owned()),
+            .unwrap_or_else(|| words::DEFAULT_LOOK_PART.to_owned()),
         Piece::Display(s) | Piece::Input(s) => s.clone(),
     }
 }
@@ -191,7 +191,7 @@ pub fn enumerate(flow: &Flow, doc: &Doc) -> Vec<Part> {
         add(Piece::NoTerminal);
     }
     for p in &doc.paths {
-        add(Piece::Font(p.font.clone()));
+        add(Piece::Look(p.look.clone()));
     }
     pieces
         .into_iter()
@@ -244,7 +244,7 @@ pub enum Make {
     Part(Piece),
     /// A part that matches by this match key, chosen from a picker.
     Filter(&'static str),
-    /// A new terminal, whose name, font set and size the editor asks.
+    /// A new terminal, whose name and look the editor asks.
     NewTerminal,
 }
 
@@ -301,9 +301,9 @@ const DISPLAY_KEYS: [&str; 4] = ["edid", "connector", "connector-path", "card"];
 
 /// The ways to make a part of `stage`, each its label, what it covers, and
 /// what choosing it does: the whole-kind and special parts first, then the
-/// choices that match by one key. `fonts` are the font sets the draft can
-/// draw with.
-pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
+/// choices that match by one key. `looks` are the names of the draft's
+/// looks, which a terminal can draw with.
+pub fn makes(stage: Stage, looks: &[String]) -> Vec<(String, String, Make)> {
     let one = |w: &str, d: &str, m: Make| (w.to_owned(), d.to_owned(), m);
     let input = |s: &str| Make::Part(Piece::Input(s.to_owned()));
     let filters = |display: bool| {
@@ -358,15 +358,15 @@ pub fn makes(stage: Stage, fonts: &[String]) -> Vec<(String, String, Make)> {
                 Make::Part(Piece::NoTerminal),
             ),
         ],
-        Stage::Font => std::iter::once(one(
-            words::DEFAULT_FONT_SET,
-            words::DEFAULT_FONT_SET_DETAIL,
-            Make::Part(Piece::Font(None)),
+        Stage::Look => std::iter::once(one(
+            words::DEFAULT_LOOK_PART,
+            words::DEFAULT_LOOK_DETAIL,
+            Make::Part(Piece::Look(None)),
         ))
         .chain(
-            fonts
+            looks
                 .iter()
-                .map(|f| one(f, words::FONT_SET, Make::Part(Piece::Font(Some(f.clone()))))),
+                .map(|l| one(l, words::LOOK, Make::Part(Piece::Look(Some(l.clone()))))),
         )
         .collect(),
     }
@@ -642,7 +642,7 @@ mod tests {
     #[test]
     fn the_templates_offer_the_ways_to_make_each_kind_of_part() {
         let words = |s: Stage| -> Vec<String> {
-            makes(s, &["monoid".to_owned()])
+            makes(s, &["big".to_owned()])
                 .into_iter()
                 .map(|(w, _, _)| w)
                 .collect()
@@ -677,7 +677,7 @@ mod tests {
             words(Stage::Terminal),
             ["New terminal…", "Active terminal", "Nowhere"]
         );
-        assert_eq!(words(Stage::Font), ["default font set", "monoid"]);
+        assert_eq!(words(Stage::Look), ["default look", "big"]);
     }
 
     // The maintainer's try-out accepted a table of labels and

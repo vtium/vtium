@@ -66,7 +66,7 @@ fn focus(app: &App) -> String {
             }
         }
         Slot::Terminal => "terminal",
-        Slot::Font(_) => "font",
+        Slot::Look(_) => "look",
         Slot::Special(_) => "special",
         Slot::Template(_) => "template",
         Slot::Empty(_) => "empty",

@@ -1312,7 +1312,7 @@ fn row_cases() -> BTreeMap<&'static str, Case> {
         matches!(s.step.from.focus.as_str(), "switch" | "choice")
     });
     m.insert("list.font-set-files", |s| {
-        matches!(card_line(s), Some(CardLine::Font))
+        matches!(card_line(s), Some(CardLine::Look))
     });
     m.insert("list.terminals", |s| {
         matches!(card_line(s), Some(CardLine::Name))
@@ -1653,6 +1653,15 @@ impl Checks {
                 .entry(view)
                 .or_default()
                 .insert("frits".into());
+        }
+        // the draft's changes to the active resources, which an install
+        // writes as the batch file
+        if s.before.desk.resources != s.after.desk.resources && !s.has("install") {
+            self.found
+                .writes
+                .entry(view)
+                .or_default()
+                .insert("batch".into());
         }
     }
 

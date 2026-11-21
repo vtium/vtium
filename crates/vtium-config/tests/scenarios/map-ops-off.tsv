@@ -937,7 +937,7 @@ ops-off flow(doc display)	Click box	ops-off flow(doc terminal)
 ops-off flow(doc display)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(doc display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc display)	Down	ops-off flow(doc terminal)	
-ops-off flow(doc display)	End	ops-off flow(parts font)	
+ops-off flow(doc display)	End	ops-off flow(parts look)	
 ops-off flow(doc display)	Enter	ops-off flow.info	
 ops-off flow(doc display)	PgDn	ops-off flow(parts template)	
 ops-off flow(doc display)	Right	ops-off flow(doc terminal)	
@@ -962,7 +962,7 @@ ops-off flow(doc display) +pending	Click box	ops-off flow(doc terminal) +pending
 ops-off flow(doc display) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(doc display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc display) +pending	Down	ops-off flow(doc terminal) +pending	
-ops-off flow(doc display) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(doc display) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(doc display) +pending	Enter	ops-off flow.info +pending	
 ops-off flow(doc display) +pending	PgDn	ops-off flow(parts template) +pending	
 ops-off flow(doc display) +pending	Right	ops-off flow(doc terminal) +pending	
@@ -987,7 +987,7 @@ ops-off flow(doc display) +unsaved	Click box	ops-off flow(doc terminal) +unsaved
 ops-off flow(doc display) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc display) +unsaved	Down	ops-off flow(doc terminal) +unsaved	
-ops-off flow(doc display) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(doc display) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(doc display) +unsaved	Enter	ops-off flow.info +unsaved	
 ops-off flow(doc display) +unsaved	PgDn	ops-off flow(parts template) +unsaved	
 ops-off flow(doc display) +unsaved	Right	ops-off flow(doc terminal) +unsaved	
@@ -1013,7 +1013,7 @@ ops-off flow(doc display) +unsaved +pending	Click box	ops-off flow(doc terminal)
 ops-off flow(doc display) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc display) +unsaved +pending	Down	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(doc display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(doc display) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	Enter	ops-off flow.info +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	PgDn	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	Right	ops-off flow(doc terminal) +unsaved +pending	
@@ -1038,7 +1038,7 @@ ops-off flow(doc terminal)	6	ops-off help(help)	mouse off
 ops-off flow(doc terminal)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(doc terminal)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc terminal)	Down	ops-off flow(new empty)	
-ops-off flow(doc terminal)	End	ops-off flow(parts font)	
+ops-off flow(doc terminal)	End	ops-off flow(parts look)	
 ops-off flow(doc terminal)	Enter	ops-off flow.card	
 ops-off flow(doc terminal)	Home	ops-off flow(doc display)	
 ops-off flow(doc terminal)	PgDn	ops-off flow(parts template)	
@@ -1063,7 +1063,7 @@ ops-off flow(doc terminal) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(doc terminal) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(doc terminal) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc terminal) +pending	Down	ops-off flow(new empty) +pending	
-ops-off flow(doc terminal) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(doc terminal) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(doc terminal) +pending	Enter	ops-off flow.card +pending	
 ops-off flow(doc terminal) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(doc terminal) +pending	PgDn	ops-off flow(parts template) +pending	
@@ -1089,7 +1089,7 @@ ops-off flow(doc terminal) +unsaved	Click box	ops-off flow.card +unsaved
 ops-off flow(doc terminal) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc terminal) +unsaved	Down	ops-off flow(new empty) +unsaved	
-ops-off flow(doc terminal) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(doc terminal) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(doc terminal) +unsaved	Enter	ops-off flow.card +unsaved	
 ops-off flow(doc terminal) +unsaved	PgDn	ops-off flow(parts display) +unsaved	
 ops-off flow(doc terminal) +unsaved	Right	ops-off flow(new empty) +unsaved	
@@ -1115,7 +1115,7 @@ ops-off flow(doc terminal) +unsaved +pending	Click box	ops-off flow.card +unsave
 ops-off flow(doc terminal) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc terminal) +unsaved +pending	Down	ops-off flow(new empty) +unsaved +pending	
-ops-off flow(doc terminal) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(doc terminal) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	Enter	ops-off flow.card +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	PgDn	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	Right	ops-off flow(new empty) +unsaved +pending	
@@ -1141,7 +1141,7 @@ ops-off flow(new display)	Click box	ops-off flow(new terminal)
 ops-off flow(new display)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(new display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new display)	Down	ops-off flow(parts template)	
-ops-off flow(new display)	End	ops-off flow(parts font)	
+ops-off flow(new display)	End	ops-off flow(parts look)	
 ops-off flow(new display)	Enter	ops-off flow.detail.choices	
 ops-off flow(new display)	Esc	ops-off flow(doc terminal) +unsaved	check
 ops-off flow(new display)	Home	ops-off flow(doc terminal)	
@@ -1172,7 +1172,7 @@ ops-off flow(new display) +pending	Click box	ops-off flow(new terminal) +pending
 ops-off flow(new display) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(new display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new display) +pending	Down	ops-off flow(parts template) +pending	
-ops-off flow(new display) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(new display) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(new display) +pending	Enter	ops-off flow.detail.choices +pending	
 ops-off flow(new display) +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	check
 ops-off flow(new display) +pending	Home	ops-off flow(doc terminal) +pending	
@@ -1203,7 +1203,7 @@ ops-off flow(new empty)	Click box	ops-off flow(doc terminal)
 ops-off flow(new empty)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(new empty)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new empty)	Down	ops-off flow(parts display)	
-ops-off flow(new empty)	End	ops-off flow(parts font)	
+ops-off flow(new empty)	End	ops-off flow(parts look)	
 ops-off flow(new empty)	Enter	ops-off flow.maker(line 0)	
 ops-off flow(new empty)	Home	ops-off flow(doc display)	
 ops-off flow(new empty)	PgDn	ops-off flow(parts template)	
@@ -1229,7 +1229,7 @@ ops-off flow(new empty) +pending	Click box	ops-off flow(doc terminal) +pending
 ops-off flow(new empty) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(new empty) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new empty) +pending	Down	ops-off flow(parts display) +pending	
-ops-off flow(new empty) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(new empty) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(new empty) +pending	Enter	ops-off flow.maker(line 0) +pending	
 ops-off flow(new empty) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(new empty) +pending	PgDn	ops-off flow(parts template) +pending	
@@ -1255,7 +1255,7 @@ ops-off flow(new empty) +unsaved	Click box	ops-off flow(doc terminal) +unsaved
 ops-off flow(new empty) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(new empty) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new empty) +unsaved	Down	ops-off flow(parts display) +unsaved	
-ops-off flow(new empty) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(new empty) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(new empty) +unsaved	Enter	ops-off flow.maker(line 0) +unsaved	
 ops-off flow(new empty) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new empty) +unsaved	PgDn	ops-off flow(parts display) +unsaved	
@@ -1282,7 +1282,7 @@ ops-off flow(new empty) +unsaved +pending	Click box	ops-off flow(doc terminal) +
 ops-off flow(new empty) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new empty) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
-ops-off flow(new empty) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(new empty) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	Enter	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	PgDn	ops-off flow(parts display) +unsaved +pending	
@@ -1309,7 +1309,7 @@ ops-off flow(new terminal)	Click box	ops-off flow.new-card
 ops-off flow(new terminal)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(new terminal)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new terminal)	Down	ops-off flow(parts display)	
-ops-off flow(new terminal)	End	ops-off flow(parts font)	
+ops-off flow(new terminal)	End	ops-off flow(parts look)	
 ops-off flow(new terminal)	Enter	ops-off flow.new-card	
 ops-off flow(new terminal)	Esc	ops-off flow(doc terminal) +unsaved	check
 ops-off flow(new terminal)	Home	ops-off flow(doc terminal)	
@@ -1339,7 +1339,7 @@ ops-off flow(new terminal) +pending	Click box	ops-off flow.new-card +pending
 ops-off flow(new terminal) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(new terminal) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new terminal) +pending	Down	ops-off flow(parts display) +pending	
-ops-off flow(new terminal) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(new terminal) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(new terminal) +pending	Enter	ops-off flow.new-card +pending	
 ops-off flow(new terminal) +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	check
 ops-off flow(new terminal) +pending	Home	ops-off flow(doc terminal) +pending	
@@ -1369,7 +1369,7 @@ ops-off flow(new terminal) +unsaved	Click box	ops-off flow.new-card +unsaved
 ops-off flow(new terminal) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new terminal) +unsaved	Down	ops-off flow(parts display) +unsaved	
-ops-off flow(new terminal) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(new terminal) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(new terminal) +unsaved	Enter	ops-off flow.new-card +unsaved	
 ops-off flow(new terminal) +unsaved	Esc	ops-off flow(new empty) +unsaved	check
 ops-off flow(new terminal) +unsaved	Home	ops-off flow(new empty) +unsaved	
@@ -1397,7 +1397,7 @@ ops-off flow(new terminal) +unsaved +pending	Click box	ops-off flow.new-card +un
 ops-off flow(new terminal) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new terminal) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
-ops-off flow(new terminal) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(new terminal) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Enter	ops-off flow.new-card +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Esc	ops-off flow(new empty) +unsaved +pending	check
 ops-off flow(new terminal) +unsaved +pending	Home	ops-off flow(new empty) +unsaved +pending	
@@ -1424,8 +1424,8 @@ ops-off flow(others)	6	ops-off help(help)	mouse off
 ops-off flow(others)	Click box	ops-off flow(parts special)	
 ops-off flow(others)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(others)	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow(others)	Down	ops-off flow(parts font)	
-ops-off flow(others)	End	ops-off flow(parts font)	
+ops-off flow(others)	Down	ops-off flow(parts look)	
+ops-off flow(others)	End	ops-off flow(parts look)	
 ops-off flow(others)	Enter	ops-off flow.others	
 ops-off flow(others)	Home	ops-off flow(doc display)	
 ops-off flow(others)	Left	ops-off flow(parts pointer)	
@@ -1435,7 +1435,7 @@ ops-off flow(others)	Shift-Tab	ops-off looks(look)	mouse off
 ops-off flow(others)	Shrink	ops-off any.too-small	
 ops-off flow(others)	Tab	ops-off settings(first)	mouse off
 ops-off flow(others)	Up	ops-off flow(parts any input)	
-ops-off flow(others)	Wheel down	ops-off flow(parts font)	
+ops-off flow(others)	Wheel down	ops-off flow(parts look)	
 ops-off flow(others)	Wheel up	ops-off flow(parts any input)	
 ops-off flow(others)	d	ops-off flow(others)	devices
 ops-off flow(others)	i	ops-off flow(others)	prepare
@@ -1452,8 +1452,8 @@ ops-off flow(others) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(others) +pending	Click box	ops-off flow(parts special) +pending	
 ops-off flow(others) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(others) +pending	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow(others) +pending	Down	ops-off flow(parts font) +pending	
-ops-off flow(others) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(others) +pending	Down	ops-off flow(parts look) +pending	
+ops-off flow(others) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(others) +pending	Enter	ops-off flow.others +pending	
 ops-off flow(others) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(others) +pending	Left	ops-off flow(parts pointer) +pending	
@@ -1463,7 +1463,7 @@ ops-off flow(others) +pending	Shift-Tab	ops-off looks(marked) +pending	mouse off
 ops-off flow(others) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(others) +pending	Tab	ops-off settings(first) +pending	mouse off
 ops-off flow(others) +pending	Up	ops-off flow(parts any input) +pending	
-ops-off flow(others) +pending	Wheel down	ops-off flow(parts font) +pending	
+ops-off flow(others) +pending	Wheel down	ops-off flow(parts look) +pending	
 ops-off flow(others) +pending	Wheel up	ops-off flow(parts any input) +pending	
 ops-off flow(others) +pending	d	ops-off flow(others) +pending	devices
 ops-off flow(others) +pending	i	ops-off any.question.confirm +pending	prepare
@@ -1479,8 +1479,8 @@ ops-off flow(others) +unsaved	5	ops-off settings(first) +unsaved	mouse off
 ops-off flow(others) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(others) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(others) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(others) +unsaved	Down	ops-off flow(parts font) +unsaved	
-ops-off flow(others) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(others) +unsaved	Down	ops-off flow(parts look) +unsaved	
+ops-off flow(others) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(others) +unsaved	Enter	ops-off flow.others +unsaved	
 ops-off flow(others) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(others) +unsaved	Left	ops-off flow(parts pointer) +unsaved	
@@ -1490,7 +1490,7 @@ ops-off flow(others) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
 ops-off flow(others) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(others) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
 ops-off flow(others) +unsaved	Up	ops-off flow(parts any input) +unsaved	
-ops-off flow(others) +unsaved	Wheel down	ops-off flow(parts font) +unsaved	
+ops-off flow(others) +unsaved	Wheel down	ops-off flow(parts look) +unsaved	
 ops-off flow(others) +unsaved	Wheel up	ops-off flow(parts any input) +unsaved	
 ops-off flow(others) +unsaved	d	ops-off flow(others) +unsaved	devices
 ops-off flow(others) +unsaved	i	ops-off any.question.confirm	save, prepare
@@ -1507,8 +1507,8 @@ ops-off flow(others) +unsaved +pending	5	ops-off settings(first) +unsaved +pendi
 ops-off flow(others) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(others) +unsaved +pending	Down	ops-off flow(parts font) +unsaved +pending	
-ops-off flow(others) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Down	ops-off flow(parts look) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(others) +unsaved +pending	Enter	ops-off flow.others +unsaved +pending	
 ops-off flow(others) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(others) +unsaved +pending	Left	ops-off flow(parts pointer) +unsaved +pending	
@@ -1518,7 +1518,7 @@ ops-off flow(others) +unsaved +pending	Shift-Tab	ops-off looks(marked) +unsaved 
 ops-off flow(others) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(others) +unsaved +pending	Tab	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(others) +unsaved +pending	Up	ops-off flow(parts any input) +unsaved +pending	
-ops-off flow(others) +unsaved +pending	Wheel down	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Wheel down	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(others) +unsaved +pending	Wheel up	ops-off flow(parts any input) +unsaved +pending	
 ops-off flow(others) +unsaved +pending	d	ops-off flow(others) +unsaved +pending	devices
 ops-off flow(others) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
@@ -1537,7 +1537,7 @@ ops-off flow(parts any input)	Click box	ops-off flow(parts template)
 ops-off flow(parts any input)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts any input)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts any input)	Down	ops-off flow(parts pointer)	
-ops-off flow(parts any input)	End	ops-off flow(parts font)	
+ops-off flow(parts any input)	End	ops-off flow(parts look)	
 ops-off flow(parts any input)	Enter	ops-off flow.detail	
 ops-off flow(parts any input)	Home	ops-off flow(doc display)	
 ops-off flow(parts any input)	Left	ops-off flow(parts keyboard)	
@@ -1565,7 +1565,7 @@ ops-off flow(parts any input) +pending	Click box	ops-off flow(parts template) +p
 ops-off flow(parts any input) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts any input) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts any input) +pending	Down	ops-off flow(parts pointer) +pending	
-ops-off flow(parts any input) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts any input) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(parts any input) +pending	Enter	ops-off flow.detail +pending	
 ops-off flow(parts any input) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts any input) +pending	Left	ops-off flow(parts keyboard) +pending	
@@ -1592,7 +1592,7 @@ ops-off flow(parts any input) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts any input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts any input) +unsaved	Down	ops-off flow(parts pointer) +unsaved	
-ops-off flow(parts any input) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts any input) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(parts any input) +unsaved	Enter	ops-off flow.detail +unsaved	
 ops-off flow(parts any input) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts any input) +unsaved	Left	ops-off flow(parts keyboard) +unsaved	
@@ -1620,7 +1620,7 @@ ops-off flow(parts any input) +unsaved +pending	6	ops-off help(help) +unsaved +p
 ops-off flow(parts any input) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts any input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts any input) +unsaved +pending	Down	ops-off flow(parts pointer) +unsaved +pending	
-ops-off flow(parts any input) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(parts any input) +unsaved +pending	Enter	ops-off flow.detail +unsaved +pending	
 ops-off flow(parts any input) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts any input) +unsaved +pending	Left	ops-off flow(parts keyboard) +unsaved +pending	
@@ -1648,7 +1648,7 @@ ops-off flow(parts display)	6	ops-off help(help)	mouse off
 ops-off flow(parts display)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts display)	Down	ops-off flow(parts template)	
-ops-off flow(parts display)	End	ops-off flow(parts font)	
+ops-off flow(parts display)	End	ops-off flow(parts look)	
 ops-off flow(parts display)	Enter	ops-off flow.detail	
 ops-off flow(parts display)	Home	ops-off flow(doc display)	
 ops-off flow(parts display)	PgDn	ops-off flow(parts template)	
@@ -1675,7 +1675,7 @@ ops-off flow(parts display) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts display) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts display) +pending	Down	ops-off flow(parts template) +pending	
-ops-off flow(parts display) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts display) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(parts display) +pending	Enter	ops-off flow.detail +pending	
 ops-off flow(parts display) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts display) +pending	PgDn	ops-off flow(parts template) +pending	
@@ -1702,7 +1702,7 @@ ops-off flow(parts display) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts display) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts display) +unsaved	Down	ops-off flow(parts template) +unsaved	
-ops-off flow(parts display) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts display) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(parts display) +unsaved	Enter	ops-off flow.detail +unsaved	
 ops-off flow(parts display) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts display) +unsaved	PgDn	ops-off flow(parts keyboard) +unsaved	
@@ -1729,7 +1729,7 @@ ops-off flow(parts display) +unsaved +pending	6	ops-off help(help) +unsaved +pen
 ops-off flow(parts display) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts display) +unsaved +pending	Down	ops-off flow(parts template) +unsaved +pending	
-ops-off flow(parts display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts display) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	Enter	ops-off flow.detail +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	PgDn	ops-off flow(parts keyboard) +unsaved +pending	
@@ -1748,88 +1748,6 @@ ops-off flow(parts display) +unsaved +pending	q	ops-off any.question.leave +unsa
 ops-off flow(parts display) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	s	ops-off flow(parts display) +pending	save
 ops-off flow(parts display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
-ops-off flow(parts font)	1	ops-off fonts(filter)	mouse off
-ops-off flow(parts font)	2	ops-off effects(filter)	mouse off
-ops-off flow(parts font)	3	ops-off looks(look)	mouse off
-ops-off flow(parts font)	5	ops-off settings(first)	mouse off
-ops-off flow(parts font)	6	ops-off help(help)	mouse off
-ops-off flow(parts font)	Click tab	ops-off effects(filter)	mouse off
-ops-off flow(parts font)	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow(parts font)	Home	ops-off flow(doc display)	
-ops-off flow(parts font)	PgUp	ops-off flow(parts special)	
-ops-off flow(parts font)	Shift-Tab	ops-off looks(look)	mouse off
-ops-off flow(parts font)	Shrink	ops-off any.too-small	
-ops-off flow(parts font)	Tab	ops-off settings(first)	mouse off
-ops-off flow(parts font)	d	ops-off flow(parts font)	devices
-ops-off flow(parts font)	i	ops-off flow(parts font)	prepare
-ops-off flow(parts font)	n	ops-off any.question.confirm	
-ops-off flow(parts font)	o	ops-off flow.restore	history
-ops-off flow(parts font)	q	ops-off left	mouse off, exit 0
-ops-off flow(parts font)	r	ops-off any.question.confirm	
-ops-off flow(parts font)	v	ops-off flow.file	
-ops-off flow(parts font) +pending	1	ops-off fonts(filter) +pending	mouse off
-ops-off flow(parts font) +pending	2	ops-off effects(filter) +pending	mouse off
-ops-off flow(parts font) +pending	3	ops-off looks(marked) +pending	mouse off
-ops-off flow(parts font) +pending	5	ops-off settings(first) +pending	mouse off
-ops-off flow(parts font) +pending	6	ops-off help(help) +pending	mouse off
-ops-off flow(parts font) +pending	Click tab	ops-off effects(filter) +pending	mouse off
-ops-off flow(parts font) +pending	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow(parts font) +pending	Home	ops-off flow(doc display) +pending	
-ops-off flow(parts font) +pending	PgUp	ops-off flow(parts special) +pending	
-ops-off flow(parts font) +pending	Shift-Tab	ops-off looks(marked) +pending	mouse off
-ops-off flow(parts font) +pending	Shrink	ops-off any.too-small +pending	
-ops-off flow(parts font) +pending	Tab	ops-off settings(first) +pending	mouse off
-ops-off flow(parts font) +pending	d	ops-off flow(parts font) +pending	devices
-ops-off flow(parts font) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off flow(parts font) +pending	n	ops-off any.question.confirm +pending	
-ops-off flow(parts font) +pending	o	ops-off flow.restore +pending	history
-ops-off flow(parts font) +pending	q	ops-off any.question.leave +pending	
-ops-off flow(parts font) +pending	r	ops-off any.question.confirm +pending	
-ops-off flow(parts font) +pending	v	ops-off flow.file +pending	
-ops-off flow(parts font) +unsaved	1	ops-off fonts(filter) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	3	ops-off looks(look) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	5	ops-off settings(first) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	6	ops-off help(help) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(parts font) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
-ops-off flow(parts font) +unsaved	PgUp	ops-off flow(parts special) +unsaved	
-ops-off flow(parts font) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off flow(parts font) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
-ops-off flow(parts font) +unsaved	Up	ops-off flow(parts template) +unsaved	
-ops-off flow(parts font) +unsaved	Wheel up	ops-off flow(parts template) +unsaved	
-ops-off flow(parts font) +unsaved	d	ops-off flow(parts font) +unsaved	devices
-ops-off flow(parts font) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off flow(parts font) +unsaved	n	ops-off any.question.confirm +unsaved	
-ops-off flow(parts font) +unsaved	o	ops-off flow.restore +unsaved	history
-ops-off flow(parts font) +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off flow(parts font) +unsaved	r	ops-off any.question.confirm +unsaved	
-ops-off flow(parts font) +unsaved	s	ops-off flow(parts font)	save
-ops-off flow(parts font) +unsaved	v	ops-off flow.file +unsaved	
-ops-off flow(parts font) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	3	ops-off looks(marked) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(parts font) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
-ops-off flow(parts font) +unsaved +pending	PgUp	ops-off flow(parts special) +unsaved +pending	
-ops-off flow(parts font) +unsaved +pending	Shift-Tab	ops-off looks(marked) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off flow(parts font) +unsaved +pending	Tab	ops-off settings(first) +unsaved +pending	mouse off
-ops-off flow(parts font) +unsaved +pending	Up	ops-off flow(parts template) +unsaved +pending	
-ops-off flow(parts font) +unsaved +pending	Wheel up	ops-off flow(parts template) +unsaved +pending	
-ops-off flow(parts font) +unsaved +pending	d	ops-off flow(parts font) +unsaved +pending	devices
-ops-off flow(parts font) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off flow(parts font) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
-ops-off flow(parts font) +unsaved +pending	o	ops-off flow.restore +unsaved +pending	history
-ops-off flow(parts font) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off flow(parts font) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
-ops-off flow(parts font) +unsaved +pending	s	ops-off flow(parts font) +pending	save
-ops-off flow(parts font) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts input)	1	ops-off fonts(filter)	mouse off
 ops-off flow(parts input)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts input)	3	ops-off looks(look)	mouse off
@@ -1838,7 +1756,7 @@ ops-off flow(parts input)	6	ops-off help(help)	mouse off
 ops-off flow(parts input)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts input)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts input)	Down	ops-off flow(parts any input)	
-ops-off flow(parts input)	End	ops-off flow(parts font)	
+ops-off flow(parts input)	End	ops-off flow(parts look)	
 ops-off flow(parts input)	Enter	ops-off flow.detail	
 ops-off flow(parts input)	Home	ops-off flow(doc display)	
 ops-off flow(parts input)	Left	ops-off flow(parts template)	
@@ -1865,7 +1783,7 @@ ops-off flow(parts input) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts input) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts input) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts input) +pending	Down	ops-off flow(parts any input) +pending	
-ops-off flow(parts input) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts input) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(parts input) +pending	Enter	ops-off flow.detail +pending	
 ops-off flow(parts input) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts input) +pending	Left	ops-off flow(parts template) +pending	
@@ -1892,7 +1810,7 @@ ops-off flow(parts input) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts input) +unsaved	Down	ops-off flow(parts any input) +unsaved	
-ops-off flow(parts input) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts input) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(parts input) +unsaved	Enter	ops-off flow.detail +unsaved	
 ops-off flow(parts input) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts input) +unsaved	PgDn	ops-off flow(parts keyboard) +unsaved	
@@ -1920,7 +1838,7 @@ ops-off flow(parts input) +unsaved +pending	6	ops-off help(help) +unsaved +pendi
 ops-off flow(parts input) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts input) +unsaved +pending	Down	ops-off flow(parts any input) +unsaved +pending	
-ops-off flow(parts input) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts input) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Enter	ops-off flow.detail +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	PgDn	ops-off flow(parts keyboard) +unsaved +pending	
@@ -1947,7 +1865,7 @@ ops-off flow(parts keyboard)	5	ops-off settings(first)	mouse off
 ops-off flow(parts keyboard)	6	ops-off help(help)	mouse off
 ops-off flow(parts keyboard)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts keyboard)	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow(parts keyboard)	End	ops-off flow(parts font)	
+ops-off flow(parts keyboard)	End	ops-off flow(parts look)	
 ops-off flow(parts keyboard)	Enter	ops-off flow.detail	
 ops-off flow(parts keyboard)	Home	ops-off flow(doc display)	
 ops-off flow(parts keyboard)	Left	ops-off flow(parts input)	
@@ -1972,7 +1890,7 @@ ops-off flow(parts keyboard) +pending	5	ops-off settings(first) +pending	mouse o
 ops-off flow(parts keyboard) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts keyboard) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts keyboard) +pending	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow(parts keyboard) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts keyboard) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(parts keyboard) +pending	Enter	ops-off flow.detail +pending	
 ops-off flow(parts keyboard) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts keyboard) +pending	Left	ops-off flow(parts input) +pending	
@@ -1997,7 +1915,7 @@ ops-off flow(parts keyboard) +unsaved	5	ops-off settings(first) +unsaved	mouse o
 ops-off flow(parts keyboard) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts keyboard) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts keyboard) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(parts keyboard) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts keyboard) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(parts keyboard) +unsaved	Enter	ops-off flow.detail +unsaved	
 ops-off flow(parts keyboard) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts keyboard) +unsaved	Left	ops-off flow(parts input) +unsaved	
@@ -2023,7 +1941,7 @@ ops-off flow(parts keyboard) +unsaved +pending	5	ops-off settings(first) +unsave
 ops-off flow(parts keyboard) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts keyboard) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts keyboard) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(parts keyboard) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(parts keyboard) +unsaved +pending	Enter	ops-off flow.detail +unsaved +pending	
 ops-off flow(parts keyboard) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts keyboard) +unsaved +pending	Left	ops-off flow(parts input) +unsaved +pending	
@@ -2042,6 +1960,92 @@ ops-off flow(parts keyboard) +unsaved +pending	q	ops-off any.question.leave +uns
 ops-off flow(parts keyboard) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts keyboard) +unsaved +pending	s	ops-off flow(parts keyboard) +pending	save
 ops-off flow(parts keyboard) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts look)	1	ops-off fonts(filter)	mouse off
+ops-off flow(parts look)	2	ops-off effects(filter)	mouse off
+ops-off flow(parts look)	3	ops-off looks(look)	mouse off
+ops-off flow(parts look)	5	ops-off settings(first)	mouse off
+ops-off flow(parts look)	6	ops-off help(help)	mouse off
+ops-off flow(parts look)	Click tab	ops-off effects(filter)	mouse off
+ops-off flow(parts look)	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts look)	Home	ops-off flow(doc display)	
+ops-off flow(parts look)	PgUp	ops-off flow(parts special)	
+ops-off flow(parts look)	Shift-Tab	ops-off looks(look)	mouse off
+ops-off flow(parts look)	Shrink	ops-off any.too-small	
+ops-off flow(parts look)	Tab	ops-off settings(first)	mouse off
+ops-off flow(parts look)	Up	ops-off flow(parts template)	
+ops-off flow(parts look)	Wheel up	ops-off flow(parts template)	
+ops-off flow(parts look)	d	ops-off flow(parts look)	devices
+ops-off flow(parts look)	i	ops-off flow(parts look)	prepare
+ops-off flow(parts look)	n	ops-off any.question.confirm	
+ops-off flow(parts look)	o	ops-off flow.restore	history
+ops-off flow(parts look)	q	ops-off left	mouse off, exit 0
+ops-off flow(parts look)	r	ops-off any.question.confirm	
+ops-off flow(parts look)	v	ops-off flow.file	
+ops-off flow(parts look) +pending	1	ops-off fonts(filter) +pending	mouse off
+ops-off flow(parts look) +pending	2	ops-off effects(filter) +pending	mouse off
+ops-off flow(parts look) +pending	3	ops-off looks(marked) +pending	mouse off
+ops-off flow(parts look) +pending	5	ops-off settings(first) +pending	mouse off
+ops-off flow(parts look) +pending	6	ops-off help(help) +pending	mouse off
+ops-off flow(parts look) +pending	Click tab	ops-off effects(filter) +pending	mouse off
+ops-off flow(parts look) +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts look) +pending	Home	ops-off flow(doc display) +pending	
+ops-off flow(parts look) +pending	PgUp	ops-off flow(parts special) +pending	
+ops-off flow(parts look) +pending	Shift-Tab	ops-off looks(marked) +pending	mouse off
+ops-off flow(parts look) +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow(parts look) +pending	Tab	ops-off settings(first) +pending	mouse off
+ops-off flow(parts look) +pending	Up	ops-off flow(parts template) +pending	
+ops-off flow(parts look) +pending	Wheel up	ops-off flow(parts template) +pending	
+ops-off flow(parts look) +pending	d	ops-off flow(parts look) +pending	devices
+ops-off flow(parts look) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off flow(parts look) +pending	n	ops-off any.question.confirm +pending	
+ops-off flow(parts look) +pending	o	ops-off flow.restore +pending	history
+ops-off flow(parts look) +pending	q	ops-off any.question.leave +pending	
+ops-off flow(parts look) +pending	r	ops-off any.question.confirm +pending	
+ops-off flow(parts look) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts look) +unsaved	1	ops-off fonts(filter) +unsaved	mouse off
+ops-off flow(parts look) +unsaved	2	ops-off effects(filter) +unsaved	mouse off
+ops-off flow(parts look) +unsaved	3	ops-off looks(look) +unsaved	mouse off
+ops-off flow(parts look) +unsaved	5	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts look) +unsaved	6	ops-off help(help) +unsaved	mouse off
+ops-off flow(parts look) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
+ops-off flow(parts look) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts look) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
+ops-off flow(parts look) +unsaved	PgUp	ops-off flow(parts special) +unsaved	
+ops-off flow(parts look) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mouse off
+ops-off flow(parts look) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow(parts look) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
+ops-off flow(parts look) +unsaved	Up	ops-off flow(parts template) +unsaved	
+ops-off flow(parts look) +unsaved	Wheel up	ops-off flow(parts template) +unsaved	
+ops-off flow(parts look) +unsaved	d	ops-off flow(parts look) +unsaved	devices
+ops-off flow(parts look) +unsaved	i	ops-off any.question.confirm	save, prepare
+ops-off flow(parts look) +unsaved	n	ops-off any.question.confirm +unsaved	
+ops-off flow(parts look) +unsaved	o	ops-off flow.restore +unsaved	history
+ops-off flow(parts look) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off flow(parts look) +unsaved	r	ops-off any.question.confirm +unsaved	
+ops-off flow(parts look) +unsaved	s	ops-off flow(parts look)	save
+ops-off flow(parts look) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts look) +unsaved +pending	1	ops-off fonts(filter) +unsaved +pending	mouse off
+ops-off flow(parts look) +unsaved +pending	2	ops-off effects(filter) +unsaved +pending	mouse off
+ops-off flow(parts look) +unsaved +pending	3	ops-off looks(marked) +unsaved +pending	mouse off
+ops-off flow(parts look) +unsaved +pending	5	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts look) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
+ops-off flow(parts look) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
+ops-off flow(parts look) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts look) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
+ops-off flow(parts look) +unsaved +pending	PgUp	ops-off flow(parts special) +unsaved +pending	
+ops-off flow(parts look) +unsaved +pending	Shift-Tab	ops-off looks(marked) +unsaved +pending	mouse off
+ops-off flow(parts look) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow(parts look) +unsaved +pending	Tab	ops-off settings(first) +unsaved +pending	mouse off
+ops-off flow(parts look) +unsaved +pending	Up	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts look) +unsaved +pending	Wheel up	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts look) +unsaved +pending	d	ops-off flow(parts look) +unsaved +pending	devices
+ops-off flow(parts look) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
+ops-off flow(parts look) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(parts look) +unsaved +pending	o	ops-off flow.restore +unsaved +pending	history
+ops-off flow(parts look) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off flow(parts look) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(parts look) +unsaved +pending	s	ops-off flow(parts look) +pending	save
+ops-off flow(parts look) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
 ops-off flow(parts pointer)	1	ops-off fonts(filter)	mouse off
 ops-off flow(parts pointer)	2	ops-off effects(filter)	mouse off
 ops-off flow(parts pointer)	3	ops-off looks(look)	mouse off
@@ -2050,8 +2054,8 @@ ops-off flow(parts pointer)	6	ops-off help(help)	mouse off
 ops-off flow(parts pointer)	Click box	ops-off flow(parts special)	
 ops-off flow(parts pointer)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts pointer)	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow(parts pointer)	Down	ops-off flow(parts font)	
-ops-off flow(parts pointer)	End	ops-off flow(parts font)	
+ops-off flow(parts pointer)	Down	ops-off flow(parts look)	
+ops-off flow(parts pointer)	End	ops-off flow(parts look)	
 ops-off flow(parts pointer)	Enter	ops-off flow.detail	
 ops-off flow(parts pointer)	Home	ops-off flow(doc display)	
 ops-off flow(parts pointer)	Left	ops-off flow(parts keyboard)	
@@ -2061,7 +2065,7 @@ ops-off flow(parts pointer)	Shift-Tab	ops-off looks(look)	mouse off
 ops-off flow(parts pointer)	Shrink	ops-off any.too-small	
 ops-off flow(parts pointer)	Tab	ops-off settings(first)	mouse off
 ops-off flow(parts pointer)	Up	ops-off flow(parts any input)	
-ops-off flow(parts pointer)	Wheel down	ops-off flow(parts font)	
+ops-off flow(parts pointer)	Wheel down	ops-off flow(parts look)	
 ops-off flow(parts pointer)	Wheel up	ops-off flow(parts any input)	
 ops-off flow(parts pointer)	d	ops-off flow(parts pointer)	devices
 ops-off flow(parts pointer)	i	ops-off flow(parts pointer)	prepare
@@ -2078,8 +2082,8 @@ ops-off flow(parts pointer) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts pointer) +pending	Click box	ops-off flow(parts special) +pending	
 ops-off flow(parts pointer) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts pointer) +pending	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow(parts pointer) +pending	Down	ops-off flow(parts font) +pending	
-ops-off flow(parts pointer) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts pointer) +pending	Down	ops-off flow(parts look) +pending	
+ops-off flow(parts pointer) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(parts pointer) +pending	Enter	ops-off flow.detail +pending	
 ops-off flow(parts pointer) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts pointer) +pending	Left	ops-off flow(parts keyboard) +pending	
@@ -2089,7 +2093,7 @@ ops-off flow(parts pointer) +pending	Shift-Tab	ops-off looks(marked) +pending	mo
 ops-off flow(parts pointer) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(parts pointer) +pending	Tab	ops-off settings(first) +pending	mouse off
 ops-off flow(parts pointer) +pending	Up	ops-off flow(parts any input) +pending	
-ops-off flow(parts pointer) +pending	Wheel down	ops-off flow(parts font) +pending	
+ops-off flow(parts pointer) +pending	Wheel down	ops-off flow(parts look) +pending	
 ops-off flow(parts pointer) +pending	Wheel up	ops-off flow(parts any input) +pending	
 ops-off flow(parts pointer) +pending	d	ops-off flow(parts pointer) +pending	devices
 ops-off flow(parts pointer) +pending	i	ops-off any.question.confirm +pending	prepare
@@ -2105,8 +2109,8 @@ ops-off flow(parts pointer) +unsaved	5	ops-off settings(first) +unsaved	mouse of
 ops-off flow(parts pointer) +unsaved	6	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(parts pointer) +unsaved	Down	ops-off flow(parts font) +unsaved	
-ops-off flow(parts pointer) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts pointer) +unsaved	Down	ops-off flow(parts look) +unsaved	
+ops-off flow(parts pointer) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(parts pointer) +unsaved	Enter	ops-off flow.detail +unsaved	
 ops-off flow(parts pointer) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts pointer) +unsaved	Left	ops-off flow(parts keyboard) +unsaved	
@@ -2116,7 +2120,7 @@ ops-off flow(parts pointer) +unsaved	Shift-Tab	ops-off looks(look) +unsaved	mous
 ops-off flow(parts pointer) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(parts pointer) +unsaved	Tab	ops-off settings(first) +unsaved	mouse off
 ops-off flow(parts pointer) +unsaved	Up	ops-off flow(parts any input) +unsaved	
-ops-off flow(parts pointer) +unsaved	Wheel down	ops-off flow(parts font) +unsaved	
+ops-off flow(parts pointer) +unsaved	Wheel down	ops-off flow(parts look) +unsaved	
 ops-off flow(parts pointer) +unsaved	Wheel up	ops-off flow(parts any input) +unsaved	
 ops-off flow(parts pointer) +unsaved	d	ops-off flow(parts pointer) +unsaved	devices
 ops-off flow(parts pointer) +unsaved	i	ops-off any.question.confirm	save, prepare
@@ -2133,8 +2137,8 @@ ops-off flow(parts pointer) +unsaved +pending	5	ops-off settings(first) +unsaved
 ops-off flow(parts pointer) +unsaved +pending	6	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow(parts pointer) +unsaved +pending	Down	ops-off flow(parts font) +unsaved +pending	
-ops-off flow(parts pointer) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Down	ops-off flow(parts look) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	Enter	ops-off flow.detail +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	Left	ops-off flow(parts keyboard) +unsaved +pending	
@@ -2144,7 +2148,7 @@ ops-off flow(parts pointer) +unsaved +pending	Shift-Tab	ops-off looks(marked) +u
 ops-off flow(parts pointer) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	Tab	ops-off settings(first) +unsaved +pending	mouse off
 ops-off flow(parts pointer) +unsaved +pending	Up	ops-off flow(parts any input) +unsaved +pending	
-ops-off flow(parts pointer) +unsaved +pending	Wheel down	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Wheel down	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	Wheel up	ops-off flow(parts any input) +unsaved +pending	
 ops-off flow(parts pointer) +unsaved +pending	d	ops-off flow(parts pointer) +unsaved +pending	devices
 ops-off flow(parts pointer) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
@@ -2162,7 +2166,7 @@ ops-off flow(parts special)	6	ops-off help(help)	mouse off
 ops-off flow(parts special)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts special)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts special)	Down	ops-off flow(parts input)	
-ops-off flow(parts special)	End	ops-off flow(parts font)	
+ops-off flow(parts special)	End	ops-off flow(parts look)	
 ops-off flow(parts special)	Home	ops-off flow(doc display)	
 ops-off flow(parts special)	PgDn	ops-off flow(parts keyboard)	
 ops-off flow(parts special)	PgUp	ops-off flow(new empty)	
@@ -2188,7 +2192,7 @@ ops-off flow(parts special) +pending	6	ops-off help(help) +pending	mouse off
 ops-off flow(parts special) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts special) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts special) +pending	Down	ops-off flow(parts input) +pending	
-ops-off flow(parts special) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts special) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(parts special) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts special) +pending	PgDn	ops-off flow(parts keyboard) +pending	
 ops-off flow(parts special) +pending	PgUp	ops-off flow(new empty) +pending	
@@ -2215,7 +2219,7 @@ ops-off flow(parts special) +unsaved	Click box	ops-off flow(parts display) +unsa
 ops-off flow(parts special) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved	Down	ops-off flow(parts input) +unsaved	
-ops-off flow(parts special) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts special) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(parts special) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(parts special) +unsaved	PgDn	ops-off flow(parts keyboard) +unsaved	
 ops-off flow(parts special) +unsaved	PgUp	ops-off flow(parts display) +unsaved	
@@ -2243,7 +2247,7 @@ ops-off flow(parts special) +unsaved +pending	Click box	ops-off flow(parts displ
 ops-off flow(parts special) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved +pending	Down	ops-off flow(parts input) +unsaved +pending	
-ops-off flow(parts special) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts special) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	PgDn	ops-off flow(parts keyboard) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	PgUp	ops-off flow(parts display) +unsaved +pending	
@@ -2271,7 +2275,7 @@ ops-off flow(parts template)	Click box	ops-off flow(parts display)
 ops-off flow(parts template)	Click tab	ops-off effects(filter)	mouse off
 ops-off flow(parts template)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts template)	Down	ops-off flow(parts display)	
-ops-off flow(parts template)	End	ops-off flow(parts font)	
+ops-off flow(parts template)	End	ops-off flow(parts look)	
 ops-off flow(parts template)	Enter	ops-off flow.maker(line 0)	
 ops-off flow(parts template)	Home	ops-off flow(doc display)	
 ops-off flow(parts template)	Left	ops-off flow(new empty)	
@@ -2299,7 +2303,7 @@ ops-off flow(parts template) +pending	Click box	ops-off flow(parts display) +pen
 ops-off flow(parts template) +pending	Click tab	ops-off effects(filter) +pending	mouse off
 ops-off flow(parts template) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts template) +pending	Down	ops-off flow(parts display) +pending	
-ops-off flow(parts template) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts template) +pending	End	ops-off flow(parts look) +pending	
 ops-off flow(parts template) +pending	Enter	ops-off flow.maker(line 0) +pending	
 ops-off flow(parts template) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts template) +pending	Left	ops-off flow(new empty) +pending	
@@ -2327,7 +2331,7 @@ ops-off flow(parts template) +unsaved	Click box	ops-off flow(parts display) +uns
 ops-off flow(parts template) +unsaved	Click tab	ops-off effects(filter) +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts template) +unsaved	Down	ops-off flow(parts display) +unsaved	
-ops-off flow(parts template) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts template) +unsaved	End	ops-off flow(parts look) +unsaved	
 ops-off flow(parts template) +unsaved	Enter	ops-off flow.maker(line 0) +unsaved	
 ops-off flow(parts template) +unsaved	Home	ops-off flow(doc display) +unsaved	
 ops-off flow(parts template) +unsaved	Left	ops-off flow(new empty) +unsaved	
@@ -2356,7 +2360,7 @@ ops-off flow(parts template) +unsaved +pending	Click box	ops-off flow(parts disp
 ops-off flow(parts template) +unsaved +pending	Click tab	ops-off effects(filter) +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts template) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
-ops-off flow(parts template) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts template) +unsaved +pending	End	ops-off flow(parts look) +unsaved +pending	
 ops-off flow(parts template) +unsaved +pending	Enter	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow(parts template) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
 ops-off flow(parts template) +unsaved +pending	Left	ops-off flow(new empty) +unsaved +pending	

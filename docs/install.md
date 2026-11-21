@@ -18,9 +18,9 @@ The AUR (the Arch User Repository) carries vtium's packages for Arch. Each packa
 | `vtium-minspec-gpu-git` | the same build | the tip of `main` | no: build it from the `vtium-git` recipe |
 | `vtium-terminfo` | `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM` | the same release tag | yes |
 | `vtium-terminfo-git` | the same entry | the tip of `main` | yes |
-| `vtium-fonts` | a curated set of fonts chosen to go with vtium's frits (font set files). It installs them through the distribution's own font packages. | the recipe repository alone | from the next publish |
+| `vtium-fonts` | the font sets of vtium's catalog that no console package installs, the fonts that Arch does not package, and dependencies on Arch's packages for the rest | the same release tag | yes |
 
-Each of those six depends on a terminfo package. A build from the release tag depends on `vtium-terminfo`, and a build from `main` depends on `vtium-terminfo-git`. Today the AUR builds `vtium-terminfo` from the `vtium` recipe, and `vtium-terminfo-git` from the `vtium-git` recipe. From the next publish, each terminfo package has a recipe of its own on the AUR.
+Each of those six depends on a terminfo package. A build from the release tag depends on `vtium-terminfo`, and a build from `main` depends on `vtium-terminfo-git`. Each terminfo package has a recipe of its own on the AUR. makepkg installs only dependencies from Arch's own repositories, so build and install the terminfo package first, or use an AUR helper such as paru or yay, which builds both.
 
 Sessions in vtium run with `TERM=xterm-vtium`, the entry that the terminfo package installs. ssh passes `TERM` on to the remote host, and most hosts have no `xterm-vtium` entry, so programs there misbehave. [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) gives two fixes: a wrapper that makes ssh send `xterm-256color`, or the entry installed on a host you own.
 
@@ -43,12 +43,16 @@ v0.1.0-alpha.5 built with `HWACCEL=off`. Its vtium rendered on the CPU until a l
 
 No package sets `font-name`. vtium renders text in the font that vconsole.conf names. When vconsole.conf names none, vtium renders in its default font set, `terminus`. Every build installs the font files of `terminus` and of the outline set `cullet-mono`, with GNU Unifont for the characters that Terminus lacks. Each of the six packages that hold vtium installs five frits (font set files): `terminus`, `cullet-mono`, `jetbrains-mono`, `unifont-icons` and `unscii-icons`, with the layers they share. These are the frits that `make install` stages by default, as [From a checkout](#from-a-checkout) says. Each frit names the fonts it needs. A frit leaves out any font that the machine lacks, so a frit with none of its fonts installed renders in the built-in fonts. On Arch, most of their fonts are in `kbd`, `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`. `vtium config fonts` names each font that a frit still lacks, and where to get it.
 
-makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key. Import it once from there, then build and install. With `VTIUM_FEATURES` unset, makepkg builds the recipe's default features, as above:
+makepkg refuses to build the `vtium` and `vtium-terminfo` recipes until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. Each recipe carries a copy of the key. Import it once from there, then build and install `vtium-terminfo` and then `vtium`. With `VTIUM_FEATURES` unset, makepkg builds the recipe's default features, as above:
 
 ```
+$ git clone https://aur.archlinux.org/vtium-terminfo.git
+$ cd vtium-terminfo
+$ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
+$ makepkg -si
+$ cd ..
 $ git clone https://aur.archlinux.org/vtium.git
 $ cd vtium
-$ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
 $ makepkg -si
 ```
 
@@ -94,11 +98,11 @@ $ VTIUM_FEATURES= makepkg -si
 
 The repository `vtium/vtium-arch` also keeps four minspec recipes: `vtium-minspec`, `vtium-minspec-gpu`, and their `-git` twins. Its CI builds them to check that minspec still builds.
 
-### What the next publish adds
+### vtium-fonts
 
-`vtium-fonts` reaches the AUR with the next publish. It is a curated set of fonts chosen to go with the frits (font set files) that vtium ships. It grows as new frits are added. It installs no font file itself. Instead, it depends on the distribution's package for each font that the frits name. On Arch these are `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`. The packages that hold vtium list `vtium-fonts` as an optional dependency, so you install it only if you want those fonts.
+`vtium-fonts` installs the font sets of vtium's catalog that no console package installs, under `/etc/vtium/fonts/<category>/`, and their layers under `/etc/vtium/fonts/layers/`. It depends on Arch's packages for most of the fonts those sets name, such as `ttf-jetbrains-mono`, `ttf-fira-code`, `noto-fonts` and `terminus-font`. Arch packages four of the fonts nowhere, so `vtium-fonts` carries them in `/usr/share/fonts/vtium/`: Px437 IBM VGA 9×16, Glass TTY VT220, Tiny5 Mono and Unscii-8. Their license texts and a notices file are in `/usr/share/licenses/vtium-fonts/`. Noto Sans CJK and the Nerd Fonts builds are optional dependencies, because only a few sets use them. The packages that hold vtium list `vtium-fonts` as an optional dependency, so you install it only if you want the whole catalog.
 
-From the next publish, `vtium-fonts` also installs five frits for scripts whose marks need room above and below the letters. They are `noto-arabic`, `noto-hebrew`, `noto-indic`, `noto-thai-lao` and `noto-vietnamese`. It also installs four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters: `noto-cjk-sc`, `noto-cjk-tc`, `noto-cjk-jp` and `noto-cjk-kr`. It then depends on `noto-fonts` and `noto-fonts-cjk` too, which hold every font these frits name. See [Fonts for other scripts](fonts-for-scripts.md) for details.
+Among its sets are five for scripts whose marks need room above and below the letters: `noto-arabic`, `noto-hebrew`, `noto-indic`, `noto-thai-lao` and `noto-vietnamese`. Four more serve Chinese, Japanese and Korean, one for each region's forms of Han characters: `noto-cjk-sc`, `noto-cjk-tc`, `noto-cjk-jp` and `noto-cjk-kr`. See [Fonts for other scripts](fonts-for-scripts.md) for details.
 
 ## From a checkout
 

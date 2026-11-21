@@ -161,7 +161,7 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 | e | revise | Takes the highlighted path out of the configuration into NEW PATH, to change it. On a box that is not a path, it says how to choose one. |
 | d | read devices | Reads the connected displays and input devices again. |
 | p | preview | Shows a preview of the highlighted complete path. Today it only says that the preview is not available yet, or not in this terminal. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
-| t | trial | Says where a font set can be tried on this console: on a path card's font set field. Where this terminal is not a vtium console, or allow-font-ops is off, it says why the trial is off. |
+| t | trial | Says where a font set can be tried on this console: in the Looks tab. Where this terminal is not a vtium console, or allow-font-ops is off, it says why the trial is off. |
 | Click on a view's name | - | Switches to that view. |
 | Click on a box | - | Highlights the box. A second click on the highlighted box opens it. |
 | Wheel up | - | Moves to the box above, as Up does. |
