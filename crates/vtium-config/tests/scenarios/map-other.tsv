@@ -118,54 +118,6 @@ other any.question.deactivate below 80×25 +unsaved +pending	Ctrl-C	other any.to
 other any.question.deactivate below 80×25 +unsaved +pending	Esc	other any.too-small +unsaved +pending	
 other any.question.deactivate below 80×25 +unsaved +pending	Grow	other any.question.deactivate +unsaved +pending	
 other any.question.deactivate below 80×25 +unsaved +pending	y	other any.too-small +unsaved +pending	resource
-other any.question.leave +pending	Ctrl-C	other effects(filter) +pending	
-other any.question.leave +pending	Ctrl-C	other flow(doc display) +pending	
-other any.question.leave +pending	Ctrl-C	other fonts(filter) +pending	
-other any.question.leave +pending	Ctrl-C	other help(help) +pending	
-other any.question.leave +pending	Ctrl-C	other looks(marked) +pending	
-other any.question.leave +pending	Ctrl-C	other looks.new-frit(row 0) +pending	
-other any.question.leave +pending	Ctrl-C	other settings(first) +pending	
-other any.question.leave +pending	Esc	other effects(filter) +pending	
-other any.question.leave +pending	Esc	other flow(doc display) +pending	
-other any.question.leave +pending	Esc	other fonts(filter) +pending	
-other any.question.leave +pending	Esc	other help(help) +pending	
-other any.question.leave +pending	Esc	other looks(marked) +pending	
-other any.question.leave +pending	Esc	other looks.new-frit(row 0) +pending	
-other any.question.leave +pending	Esc	other settings(first) +pending	
-other any.question.leave +pending	Shrink	other any.question.leave below 80×25 +pending	
-other any.question.leave +pending	n	other left	exit 0
-other any.question.leave +pending	n	other left	mouse off, exit 0
-other any.question.leave +pending	y	other left	prepare, install, exit 0
-other any.question.leave +pending	y	other left	prepare, install, mouse off, exit 0
-other any.question.leave +unsaved +pending	Ctrl-C	other effects(filter) +unsaved +pending	
-other any.question.leave +unsaved +pending	Ctrl-C	other flow(doc terminal) +unsaved +pending	
-other any.question.leave +unsaved +pending	Ctrl-C	other fonts(filter) +unsaved +pending	
-other any.question.leave +unsaved +pending	Ctrl-C	other help(help) +unsaved +pending	
-other any.question.leave +unsaved +pending	Ctrl-C	other looks(marked) +unsaved +pending	
-other any.question.leave +unsaved +pending	Ctrl-C	other looks.new-frit(row 0) +unsaved +pending	
-other any.question.leave +unsaved +pending	Ctrl-C	other settings(first) +unsaved +pending	
-other any.question.leave +unsaved +pending	Esc	other effects(filter) +unsaved +pending	
-other any.question.leave +unsaved +pending	Esc	other flow(doc terminal) +unsaved +pending	
-other any.question.leave +unsaved +pending	Esc	other fonts(filter) +unsaved +pending	
-other any.question.leave +unsaved +pending	Esc	other help(help) +unsaved +pending	
-other any.question.leave +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
-other any.question.leave +unsaved +pending	Esc	other looks.new-frit(row 0) +unsaved +pending	
-other any.question.leave +unsaved +pending	Esc	other settings(first) +unsaved +pending	
-other any.question.leave +unsaved +pending	Shrink	other any.question.leave below 80×25 +unsaved +pending	
-other any.question.leave +unsaved +pending	n	other left	save, exit 0
-other any.question.leave +unsaved +pending	n	other left	save, mouse off, exit 0
-other any.question.leave +unsaved +pending	y	other left	save, prepare, install, exit 0
-other any.question.leave +unsaved +pending	y	other left	save, prepare, install, mouse off, exit 0
-other any.question.leave below 80×25 +pending	Ctrl-C	other any.too-small +pending	
-other any.question.leave below 80×25 +pending	Esc	other any.too-small +pending	
-other any.question.leave below 80×25 +pending	Grow	other any.question.leave +pending	
-other any.question.leave below 80×25 +pending	n	other left	exit 0
-other any.question.leave below 80×25 +pending	y	other left	prepare, install, exit 0
-other any.question.leave below 80×25 +unsaved +pending	Ctrl-C	other any.too-small +unsaved +pending	
-other any.question.leave below 80×25 +unsaved +pending	Esc	other any.too-small +unsaved +pending	
-other any.question.leave below 80×25 +unsaved +pending	Grow	other any.question.leave +unsaved +pending	
-other any.question.leave below 80×25 +unsaved +pending	n	other left	save, exit 0
-other any.question.leave below 80×25 +unsaved +pending	y	other left	save, prepare, install, exit 0
 other any.question.quit +unsaved	Ctrl-C	other effects(filter) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other flow(doc terminal) +unsaved	
 other any.question.quit +unsaved	Ctrl-C	other fonts(filter) +unsaved	
@@ -185,11 +137,35 @@ other any.question.quit +unsaved	n	other left	exit 0
 other any.question.quit +unsaved	n	other left	mouse off, exit 0
 other any.question.quit +unsaved	y	other left	save, exit 0
 other any.question.quit +unsaved	y	other left	save, mouse off, exit 0
+other any.question.quit +unsaved +pending	Ctrl-C	other effects(filter) +unsaved +pending	
+other any.question.quit +unsaved +pending	Ctrl-C	other flow(doc terminal) +unsaved +pending	
+other any.question.quit +unsaved +pending	Ctrl-C	other fonts(filter) +unsaved +pending	
+other any.question.quit +unsaved +pending	Ctrl-C	other help(help) +unsaved +pending	
+other any.question.quit +unsaved +pending	Ctrl-C	other looks(marked) +unsaved +pending	
+other any.question.quit +unsaved +pending	Ctrl-C	other looks.new-frit(row 0) +unsaved +pending	
+other any.question.quit +unsaved +pending	Ctrl-C	other settings(first) +unsaved +pending	
+other any.question.quit +unsaved +pending	Esc	other effects(filter) +unsaved +pending	
+other any.question.quit +unsaved +pending	Esc	other flow(doc terminal) +unsaved +pending	
+other any.question.quit +unsaved +pending	Esc	other fonts(filter) +unsaved +pending	
+other any.question.quit +unsaved +pending	Esc	other help(help) +unsaved +pending	
+other any.question.quit +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
+other any.question.quit +unsaved +pending	Esc	other looks.new-frit(row 0) +unsaved +pending	
+other any.question.quit +unsaved +pending	Esc	other settings(first) +unsaved +pending	
+other any.question.quit +unsaved +pending	Shrink	other any.question.quit below 80×25 +unsaved +pending	
+other any.question.quit +unsaved +pending	n	other left	exit 0
+other any.question.quit +unsaved +pending	n	other left	mouse off, exit 0
+other any.question.quit +unsaved +pending	y	other left	save, exit 0
+other any.question.quit +unsaved +pending	y	other left	save, mouse off, exit 0
 other any.question.quit below 80×25 +unsaved	Ctrl-C	other any.too-small +unsaved	
 other any.question.quit below 80×25 +unsaved	Esc	other any.too-small +unsaved	
 other any.question.quit below 80×25 +unsaved	Grow	other any.question.quit +unsaved	
 other any.question.quit below 80×25 +unsaved	n	other left	exit 0
 other any.question.quit below 80×25 +unsaved	y	other left	save, exit 0
+other any.question.quit below 80×25 +unsaved +pending	Ctrl-C	other any.too-small +unsaved +pending	
+other any.question.quit below 80×25 +unsaved +pending	Esc	other any.too-small +unsaved +pending	
+other any.question.quit below 80×25 +unsaved +pending	Grow	other any.question.quit +unsaved +pending	
+other any.question.quit below 80×25 +unsaved +pending	n	other left	exit 0
+other any.question.quit below 80×25 +unsaved +pending	y	other left	save, exit 0
 other any.question.system-font	Ctrl-C	other fonts.font(a font of yours)	
 other any.question.system-font	Esc	other fonts.font(a font of yours)	
 other any.question.system-font	Shrink	other any.question.system-font below 80×25	
@@ -267,13 +243,13 @@ other any.too-small	Grow	other fonts(filter)
 other any.too-small	q	other left	exit 0
 other any.too-small +pending	Ctrl-C	other left	exit 130
 other any.too-small +pending	Grow	other looks(marked) +pending	
-other any.too-small +pending	q	other any.question.leave below 80×25 +pending	
+other any.too-small +pending	q	other left	exit 0
 other any.too-small +unsaved	Ctrl-C	other left	save, exit 130
 other any.too-small +unsaved	Grow	other looks.look.typing +unsaved	
 other any.too-small +unsaved	q	other any.question.quit below 80×25 +unsaved	
 other any.too-small +unsaved +pending	Ctrl-C	other left	save, exit 130
 other any.too-small +unsaved +pending	Grow	other looks.look.typing +unsaved +pending	
-other any.too-small +unsaved +pending	q	other any.question.leave below 80×25 +unsaved +pending	
+other any.too-small +unsaved +pending	q	other any.question.quit below 80×25 +unsaved +pending	
 other effects(color map: activates on install, trusted)	1	other fonts(filter)	
 other effects(color map: activates on install, trusted)	3	other looks(look)	
 other effects(color map: activates on install, trusted)	4	other flow(doc display)	mouse on
@@ -311,7 +287,7 @@ other effects(color map: activates on install, trusted) +pending	Space	other eff
 other effects(color map: activates on install, trusted) +pending	Tab	other looks(marked) +pending	
 other effects(color map: activates on install, trusted) +pending	Up	other effects(color map: active, trusted, used) +pending	
 other effects(color map: activates on install, trusted) +pending	i	other any.question.confirm +pending	prepare
-other effects(color map: activates on install, trusted) +pending	q	other any.question.leave +pending	
+other effects(color map: activates on install, trusted) +pending	q	other left	exit 0
 other effects(color map: activates on install, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other effects(color map: activates on install, trusted) +unsaved	3	other looks(no looks) +unsaved	
 other effects(color map: activates on install, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -350,7 +326,7 @@ other effects(color map: activates on install, trusted) +unsaved +pending	Space	
 other effects(color map: activates on install, trusted) +unsaved +pending	Tab	other looks(marked) +unsaved +pending	
 other effects(color map: activates on install, trusted) +unsaved +pending	Up	other effects(color map: active, trusted, used) +unsaved +pending	
 other effects(color map: activates on install, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other effects(color map: activates on install, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects(color map: activates on install, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects(color map: activates on install, trusted) +unsaved +pending	s	other effects(color map: activates on install, trusted) +pending	save
 other effects(color map: active, trusted)	1	other fonts(filter)	
 other effects(color map: active, trusted)	3	other looks(no looks)	
@@ -428,7 +404,7 @@ other effects(color map: active, trusted, used) +pending	Space	other any.questio
 other effects(color map: active, trusted, used) +pending	Tab	other looks(marked) +pending	
 other effects(color map: active, trusted, used) +pending	Up	other effects(vtlook) +pending	
 other effects(color map: active, trusted, used) +pending	i	other any.question.confirm +pending	prepare
-other effects(color map: active, trusted, used) +pending	q	other any.question.leave +pending	
+other effects(color map: active, trusted, used) +pending	q	other left	exit 0
 other effects(color map: active, trusted, used) +unsaved +pending	1	other fonts(filter) +unsaved +pending	
 other effects(color map: active, trusted, used) +unsaved +pending	3	other looks(marked) +unsaved +pending	
 other effects(color map: active, trusted, used) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
@@ -447,7 +423,7 @@ other effects(color map: active, trusted, used) +unsaved +pending	Space	other an
 other effects(color map: active, trusted, used) +unsaved +pending	Tab	other looks(marked) +unsaved +pending	
 other effects(color map: active, trusted, used) +unsaved +pending	Up	other effects(vtlook) +unsaved +pending	
 other effects(color map: active, trusted, used) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other effects(color map: active, trusted, used) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects(color map: active, trusted, used) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects(color map: active, trusted, used) +unsaved +pending	s	other effects(color map: active, trusted, used) +pending	save
 other effects(color map: deactivates on install, trusted)	1	other fonts(filter)	
 other effects(color map: deactivates on install, trusted)	3	other looks(no looks)	
@@ -525,7 +501,7 @@ other effects(color map: deactivates on install, trusted, used) +pending	Space	o
 other effects(color map: deactivates on install, trusted, used) +pending	Tab	other looks(marked) +pending	
 other effects(color map: deactivates on install, trusted, used) +pending	Up	other effects(vtlook) +pending	
 other effects(color map: deactivates on install, trusted, used) +pending	i	other any.question.confirm +pending	prepare
-other effects(color map: deactivates on install, trusted, used) +pending	q	other any.question.leave +pending	
+other effects(color map: deactivates on install, trusted, used) +pending	q	other left	exit 0
 other effects(color map: deactivates on install, trusted, used) +unsaved +pending	1	other fonts(filter) +unsaved +pending	
 other effects(color map: deactivates on install, trusted, used) +unsaved +pending	3	other looks(marked) +unsaved +pending	
 other effects(color map: deactivates on install, trusted, used) +unsaved +pending	4	other flow(doc display) +unsaved +pending	mouse on
@@ -544,7 +520,7 @@ other effects(color map: deactivates on install, trusted, used) +unsaved +pendin
 other effects(color map: deactivates on install, trusted, used) +unsaved +pending	Tab	other looks(marked) +unsaved +pending	
 other effects(color map: deactivates on install, trusted, used) +unsaved +pending	Up	other effects(vtlook) +unsaved +pending	
 other effects(color map: deactivates on install, trusted, used) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other effects(color map: deactivates on install, trusted, used) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects(color map: deactivates on install, trusted, used) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects(color map: deactivates on install, trusted, used) +unsaved +pending	s	other effects(color map: deactivates on install, trusted, used) +pending	save
 other effects(color map: not active, fails the trust rule)	1	other fonts(filter)	
 other effects(color map: not active, fails the trust rule)	3	other looks(look)	
@@ -581,7 +557,7 @@ other effects(color map: not active, fails the trust rule) +pending	Shrink	other
 other effects(color map: not active, fails the trust rule) +pending	Tab	other looks(marked) +pending	
 other effects(color map: not active, fails the trust rule) +pending	Up	other effects(color map: not active, trusted) +pending	
 other effects(color map: not active, fails the trust rule) +pending	i	other any.question.confirm +pending	prepare
-other effects(color map: not active, fails the trust rule) +pending	q	other any.question.leave +pending	
+other effects(color map: not active, fails the trust rule) +pending	q	other left	exit 0
 other effects(color map: not active, fails the trust rule) +unsaved	1	other fonts(filter) +unsaved	
 other effects(color map: not active, fails the trust rule) +unsaved	3	other looks(no looks) +unsaved	
 other effects(color map: not active, fails the trust rule) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -618,7 +594,7 @@ other effects(color map: not active, fails the trust rule) +unsaved +pending	Shr
 other effects(color map: not active, fails the trust rule) +unsaved +pending	Tab	other looks(marked) +unsaved +pending	
 other effects(color map: not active, fails the trust rule) +unsaved +pending	Up	other effects(color map: not active, trusted) +unsaved +pending	
 other effects(color map: not active, fails the trust rule) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other effects(color map: not active, fails the trust rule) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects(color map: not active, fails the trust rule) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects(color map: not active, fails the trust rule) +unsaved +pending	s	other effects(color map: not active, fails the trust rule) +pending	save
 other effects(color map: not active, trusted)	1	other fonts(filter)	
 other effects(color map: not active, trusted)	3	other looks(look)	
@@ -657,7 +633,7 @@ other effects(color map: not active, trusted) +pending	Space	other effects(color
 other effects(color map: not active, trusted) +pending	Tab	other looks(marked) +pending	
 other effects(color map: not active, trusted) +pending	Up	other effects(color map: active, trusted, used) +pending	
 other effects(color map: not active, trusted) +pending	i	other any.question.confirm +pending	prepare
-other effects(color map: not active, trusted) +pending	q	other any.question.leave +pending	
+other effects(color map: not active, trusted) +pending	q	other left	exit 0
 other effects(color map: not active, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other effects(color map: not active, trusted) +unsaved	3	other looks(no looks) +unsaved	
 other effects(color map: not active, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -696,7 +672,7 @@ other effects(color map: not active, trusted) +unsaved +pending	Space	other effe
 other effects(color map: not active, trusted) +unsaved +pending	Tab	other looks(marked) +unsaved +pending	
 other effects(color map: not active, trusted) +unsaved +pending	Up	other effects(color map: active, trusted, used) +unsaved +pending	
 other effects(color map: not active, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other effects(color map: not active, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects(color map: not active, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects(color map: not active, trusted) +unsaved +pending	s	other effects(color map: not active, trusted) +pending	save
 other effects(color map: not usable)	1	other fonts(filter)	
 other effects(color map: not usable)	3	other looks(look)	
@@ -727,7 +703,7 @@ other effects(color map: not usable) +pending	Shrink	other any.too-small +pendin
 other effects(color map: not usable) +pending	Tab	other looks(marked) +pending	
 other effects(color map: not usable) +pending	Up	other effects(color map: not active, fails the trust rule) +pending	
 other effects(color map: not usable) +pending	i	other any.question.confirm +pending	prepare
-other effects(color map: not usable) +pending	q	other any.question.leave +pending	
+other effects(color map: not usable) +pending	q	other left	exit 0
 other effects(color map: not usable) +unsaved	1	other fonts(filter) +unsaved	
 other effects(color map: not usable) +unsaved	3	other looks(no looks) +unsaved	
 other effects(color map: not usable) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -758,7 +734,7 @@ other effects(color map: not usable) +unsaved +pending	Shrink	other any.too-smal
 other effects(color map: not usable) +unsaved +pending	Tab	other looks(marked) +unsaved +pending	
 other effects(color map: not usable) +unsaved +pending	Up	other effects(color map: not active, fails the trust rule) +unsaved +pending	
 other effects(color map: not usable) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other effects(color map: not usable) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects(color map: not usable) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects(color map: not usable) +unsaved +pending	s	other effects(color map: not usable) +pending	save
 other effects(filter)	1	other fonts(filter)	
 other effects(filter)	3	other looks(look)	
@@ -789,7 +765,7 @@ other effects(filter) +pending	Shift-Tab	other fonts(filter) +pending
 other effects(filter) +pending	Shrink	other any.too-small +pending	
 other effects(filter) +pending	Tab	other looks(marked) +pending	
 other effects(filter) +pending	i	other any.question.confirm +pending	prepare
-other effects(filter) +pending	q	other any.question.leave +pending	
+other effects(filter) +pending	q	other left	exit 0
 other effects(filter) +unsaved	1	other fonts(filter) +unsaved	
 other effects(filter) +unsaved	3	other looks(no looks) +unsaved	
 other effects(filter) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -820,7 +796,7 @@ other effects(filter) +unsaved +pending	Shift-Tab	other fonts(filter) +unsaved +
 other effects(filter) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other effects(filter) +unsaved +pending	Tab	other looks(marked) +unsaved +pending	
 other effects(filter) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other effects(filter) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects(filter) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects(filter) +unsaved +pending	s	other effects(filter) +pending	save
 other effects(vtlook)	1	other fonts(filter)	
 other effects(vtlook)	3	other looks(look)	
@@ -855,7 +831,7 @@ other effects(vtlook) +pending	Shrink	other any.too-small +pending
 other effects(vtlook) +pending	Tab	other looks(marked) +pending	
 other effects(vtlook) +pending	Up	other effects(filter) +pending	
 other effects(vtlook) +pending	i	other any.question.confirm +pending	prepare
-other effects(vtlook) +pending	q	other any.question.leave +pending	
+other effects(vtlook) +pending	q	other left	exit 0
 other effects(vtlook) +unsaved	1	other fonts(filter) +unsaved	
 other effects(vtlook) +unsaved	3	other looks(no looks) +unsaved	
 other effects(vtlook) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -890,7 +866,7 @@ other effects(vtlook) +unsaved +pending	Shrink	other any.too-small +unsaved +pen
 other effects(vtlook) +unsaved +pending	Tab	other looks(marked) +unsaved +pending	
 other effects(vtlook) +unsaved +pending	Up	other effects(filter) +unsaved +pending	
 other effects(vtlook) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other effects(vtlook) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects(vtlook) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects(vtlook) +unsaved +pending	s	other effects(vtlook) +pending	save
 other effects.effect	Ctrl-C	other left	exit 130
 other effects.effect	Esc	other effects(vtlook)	
@@ -899,7 +875,7 @@ other effects.effect	q	other left	exit 0
 other effects.effect +pending	Ctrl-C	other left	exit 130
 other effects.effect +pending	Esc	other effects(vtlook) +pending	
 other effects.effect +pending	Shrink	other any.too-small +pending	
-other effects.effect +pending	q	other any.question.leave +pending	
+other effects.effect +pending	q	other left	exit 0
 other effects.effect +unsaved	Ctrl-C	other left	save, exit 130
 other effects.effect +unsaved	Esc	other effects(vtlook) +unsaved	
 other effects.effect +unsaved	Shrink	other any.too-small +unsaved	
@@ -907,7 +883,7 @@ other effects.effect +unsaved	q	other any.question.quit +unsaved
 other effects.effect +unsaved +pending	Ctrl-C	other left	save, exit 130
 other effects.effect +unsaved +pending	Esc	other effects(vtlook) +unsaved +pending	
 other effects.effect +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other effects.effect +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects.effect +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other effects.filter	Ctrl-C	other left	exit 130
 other effects.filter	Enter	other effects(filter)	
 other effects.filter	Esc	other effects(filter)	
@@ -917,7 +893,7 @@ other effects.filter +pending	Ctrl-C	other left	exit 130
 other effects.filter +pending	Enter	other effects(filter) +pending	
 other effects.filter +pending	Esc	other effects(filter) +pending	
 other effects.filter +pending	Shrink	other any.too-small +pending	
-other effects.filter +pending	q	other any.question.leave +pending	
+other effects.filter +pending	q	other left	exit 0
 other effects.filter +unsaved	Ctrl-C	other left	save, exit 130
 other effects.filter +unsaved	Enter	other effects(filter) +unsaved	
 other effects.filter +unsaved	Esc	other effects(filter) +unsaved	
@@ -927,7 +903,7 @@ other effects.filter +unsaved +pending	Ctrl-C	other left	save, exit 130
 other effects.filter +unsaved +pending	Enter	other effects(filter) +unsaved +pending	
 other effects.filter +unsaved +pending	Esc	other effects(filter) +unsaved +pending	
 other effects.filter +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other effects.filter +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other effects.filter +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(doc display)	1	other fonts(filter)	mouse off
 other flow(doc display)	2	other effects(filter)	mouse off
 other flow(doc display)	3	other looks(look)	mouse off
@@ -975,7 +951,7 @@ other flow(doc display) +pending	e	other flow(new terminal) +pending
 other flow(doc display) +pending	i	other any.question.confirm +pending	prepare
 other flow(doc display) +pending	n	other any.question.confirm +pending	
 other flow(doc display) +pending	o	other flow.restore +pending	history
-other flow(doc display) +pending	q	other any.question.leave +pending	
+other flow(doc display) +pending	q	other left	mouse off, exit 0
 other flow(doc display) +pending	r	other any.question.confirm +pending	
 other flow(doc display) +pending	v	other flow.file +pending	
 other flow(doc display) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1026,7 +1002,7 @@ other flow(doc display) +unsaved +pending	e	other flow(new terminal) +unsaved +p
 other flow(doc display) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(doc display) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(doc display) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(doc display) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(doc display) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(doc display) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(doc display) +unsaved +pending	s	other flow(doc display) +pending	save
 other flow(doc display) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1077,7 +1053,7 @@ other flow(doc terminal) +pending	e	other flow(new terminal) +pending
 other flow(doc terminal) +pending	i	other any.question.confirm +pending	prepare
 other flow(doc terminal) +pending	n	other any.question.confirm +pending	
 other flow(doc terminal) +pending	o	other flow.restore +pending	history
-other flow(doc terminal) +pending	q	other any.question.leave +pending	
+other flow(doc terminal) +pending	q	other left	mouse off, exit 0
 other flow(doc terminal) +pending	r	other any.question.confirm +pending	
 other flow(doc terminal) +pending	v	other flow.file +pending	
 other flow(doc terminal) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1128,7 +1104,7 @@ other flow(doc terminal) +unsaved +pending	e	other flow(new terminal) +unsaved +
 other flow(doc terminal) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(doc terminal) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(doc terminal) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(doc terminal) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(doc terminal) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(doc terminal) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(doc terminal) +unsaved +pending	s	other flow(doc terminal) +pending	save
 other flow(doc terminal) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1191,7 +1167,7 @@ other flow(new display) +pending	d	other flow(new display) +pending	devices
 other flow(new display) +pending	i	other any.question.confirm +pending	prepare
 other flow(new display) +pending	n	other any.question.confirm +pending	
 other flow(new display) +pending	o	other flow.restore +pending	history
-other flow(new display) +pending	q	other any.question.leave +pending	
+other flow(new display) +pending	q	other left	mouse off, exit 0
 other flow(new display) +pending	r	other any.question.confirm +pending	
 other flow(new display) +pending	v	other flow.file +pending	
 other flow(new empty)	1	other fonts(filter)	mouse off
@@ -1243,7 +1219,7 @@ other flow(new empty) +pending	d	other flow(new empty) +pending	devices
 other flow(new empty) +pending	i	other any.question.confirm +pending	prepare
 other flow(new empty) +pending	n	other any.question.confirm +pending	
 other flow(new empty) +pending	o	other flow.restore +pending	history
-other flow(new empty) +pending	q	other any.question.leave +pending	
+other flow(new empty) +pending	q	other left	mouse off, exit 0
 other flow(new empty) +pending	r	other any.question.confirm +pending	
 other flow(new empty) +pending	v	other flow.file +pending	
 other flow(new empty) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1296,7 +1272,7 @@ other flow(new empty) +unsaved +pending	d	other flow(new empty) +unsaved +pendin
 other flow(new empty) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(new empty) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(new empty) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(new empty) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(new empty) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(new empty) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(new empty) +unsaved +pending	s	other flow(new empty) +pending	save
 other flow(new empty) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1357,7 +1333,7 @@ other flow(new terminal) +pending	d	other flow(new terminal) +pending	devices
 other flow(new terminal) +pending	i	other any.question.confirm +pending	prepare
 other flow(new terminal) +pending	n	other any.question.confirm +pending	
 other flow(new terminal) +pending	o	other flow.restore +pending	history
-other flow(new terminal) +pending	q	other any.question.leave +pending	
+other flow(new terminal) +pending	q	other left	mouse off, exit 0
 other flow(new terminal) +pending	r	other any.question.confirm +pending	
 other flow(new terminal) +pending	v	other flow.file +pending	
 other flow(new terminal) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1412,7 +1388,7 @@ other flow(new terminal) +unsaved +pending	d	other flow(new terminal) +unsaved +
 other flow(new terminal) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(new terminal) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(new terminal) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(new terminal) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(new terminal) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(new terminal) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(new terminal) +unsaved +pending	s	other flow(new terminal) +pending	save
 other flow(new terminal) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1469,7 +1445,7 @@ other flow(others) +pending	d	other flow(others) +pending	devices
 other flow(others) +pending	i	other any.question.confirm +pending	prepare
 other flow(others) +pending	n	other any.question.confirm +pending	
 other flow(others) +pending	o	other flow.restore +pending	history
-other flow(others) +pending	q	other any.question.leave +pending	
+other flow(others) +pending	q	other left	mouse off, exit 0
 other flow(others) +pending	r	other any.question.confirm +pending	
 other flow(others) +pending	v	other flow.file +pending	
 other flow(others) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1524,7 +1500,7 @@ other flow(others) +unsaved +pending	d	other flow(others) +unsaved +pending	devi
 other flow(others) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(others) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(others) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(others) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(others) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(others) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(others) +unsaved +pending	s	other flow(others) +pending	save
 other flow(others) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1581,7 +1557,7 @@ other flow(parts any input) +pending	d	other flow(parts any input) +pending	devi
 other flow(parts any input) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts any input) +pending	n	other any.question.confirm +pending	
 other flow(parts any input) +pending	o	other flow.restore +pending	history
-other flow(parts any input) +pending	q	other any.question.leave +pending	
+other flow(parts any input) +pending	q	other left	mouse off, exit 0
 other flow(parts any input) +pending	r	other any.question.confirm +pending	
 other flow(parts any input) +pending	v	other flow.file +pending	
 other flow(parts any input) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1636,7 +1612,7 @@ other flow(parts any input) +unsaved +pending	d	other flow(parts any input) +uns
 other flow(parts any input) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts any input) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(parts any input) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(parts any input) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(parts any input) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(parts any input) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts any input) +unsaved +pending	s	other flow(parts any input) +pending	save
 other flow(parts any input) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1691,7 +1667,7 @@ other flow(parts display) +pending	d	other flow(parts display) +pending	devices
 other flow(parts display) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts display) +pending	n	other any.question.confirm +pending	
 other flow(parts display) +pending	o	other flow.restore +pending	history
-other flow(parts display) +pending	q	other any.question.leave +pending	
+other flow(parts display) +pending	q	other left	mouse off, exit 0
 other flow(parts display) +pending	r	other any.question.confirm +pending	
 other flow(parts display) +pending	v	other flow.file +pending	
 other flow(parts display) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1744,7 +1720,7 @@ other flow(parts display) +unsaved +pending	d	other flow(parts display) +unsaved
 other flow(parts display) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts display) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(parts display) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(parts display) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(parts display) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(parts display) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts display) +unsaved +pending	s	other flow(parts display) +pending	save
 other flow(parts display) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1799,7 +1775,7 @@ other flow(parts input) +pending	d	other flow(parts input) +pending	devices
 other flow(parts input) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts input) +pending	n	other any.question.confirm +pending	
 other flow(parts input) +pending	o	other flow.restore +pending	history
-other flow(parts input) +pending	q	other any.question.leave +pending	
+other flow(parts input) +pending	q	other left	mouse off, exit 0
 other flow(parts input) +pending	r	other any.question.confirm +pending	
 other flow(parts input) +pending	v	other flow.file +pending	
 other flow(parts input) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1854,7 +1830,7 @@ other flow(parts input) +unsaved +pending	d	other flow(parts input) +unsaved +pe
 other flow(parts input) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts input) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(parts input) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(parts input) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(parts input) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(parts input) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts input) +unsaved +pending	s	other flow(parts input) +pending	save
 other flow(parts input) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1905,7 +1881,7 @@ other flow(parts keyboard) +pending	d	other flow(parts keyboard) +pending	device
 other flow(parts keyboard) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts keyboard) +pending	n	other any.question.confirm +pending	
 other flow(parts keyboard) +pending	o	other flow.restore +pending	history
-other flow(parts keyboard) +pending	q	other any.question.leave +pending	
+other flow(parts keyboard) +pending	q	other left	mouse off, exit 0
 other flow(parts keyboard) +pending	r	other any.question.confirm +pending	
 other flow(parts keyboard) +pending	v	other flow.file +pending	
 other flow(parts keyboard) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -1956,7 +1932,7 @@ other flow(parts keyboard) +unsaved +pending	d	other flow(parts keyboard) +unsav
 other flow(parts keyboard) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts keyboard) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(parts keyboard) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(parts keyboard) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	s	other flow(parts keyboard) +pending	save
 other flow(parts keyboard) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -1999,7 +1975,7 @@ other flow(parts look) +pending	d	other flow(parts look) +pending	devices
 other flow(parts look) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts look) +pending	n	other any.question.confirm +pending	
 other flow(parts look) +pending	o	other flow.restore +pending	history
-other flow(parts look) +pending	q	other any.question.leave +pending	
+other flow(parts look) +pending	q	other left	mouse off, exit 0
 other flow(parts look) +pending	r	other any.question.confirm +pending	
 other flow(parts look) +pending	v	other flow.file +pending	
 other flow(parts look) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -2042,7 +2018,7 @@ other flow(parts look) +unsaved +pending	d	other flow(parts look) +unsaved +pend
 other flow(parts look) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts look) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(parts look) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(parts look) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(parts look) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(parts look) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts look) +unsaved +pending	s	other flow(parts look) +pending	save
 other flow(parts look) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -2099,7 +2075,7 @@ other flow(parts pointer) +pending	d	other flow(parts pointer) +pending	devices
 other flow(parts pointer) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts pointer) +pending	n	other any.question.confirm +pending	
 other flow(parts pointer) +pending	o	other flow.restore +pending	history
-other flow(parts pointer) +pending	q	other any.question.leave +pending	
+other flow(parts pointer) +pending	q	other left	mouse off, exit 0
 other flow(parts pointer) +pending	r	other any.question.confirm +pending	
 other flow(parts pointer) +pending	v	other flow.file +pending	
 other flow(parts pointer) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -2154,7 +2130,7 @@ other flow(parts pointer) +unsaved +pending	d	other flow(parts pointer) +unsaved
 other flow(parts pointer) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts pointer) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(parts pointer) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(parts pointer) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	s	other flow(parts pointer) +pending	save
 other flow(parts pointer) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -2207,7 +2183,7 @@ other flow(parts special) +pending	d	other flow(parts special) +pending	devices
 other flow(parts special) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts special) +pending	n	other any.question.confirm +pending	
 other flow(parts special) +pending	o	other flow.restore +pending	history
-other flow(parts special) +pending	q	other any.question.leave +pending	
+other flow(parts special) +pending	q	other left	mouse off, exit 0
 other flow(parts special) +pending	r	other any.question.confirm +pending	
 other flow(parts special) +pending	v	other flow.file +pending	
 other flow(parts special) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -2262,7 +2238,7 @@ other flow(parts special) +unsaved +pending	d	other flow(parts special) +unsaved
 other flow(parts special) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts special) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(parts special) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(parts special) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(parts special) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(parts special) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts special) +unsaved +pending	s	other flow(parts special) +pending	save
 other flow(parts special) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -2319,7 +2295,7 @@ other flow(parts template) +pending	d	other flow(parts template) +pending	device
 other flow(parts template) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts template) +pending	n	other any.question.confirm +pending	
 other flow(parts template) +pending	o	other flow.restore +pending	history
-other flow(parts template) +pending	q	other any.question.leave +pending	
+other flow(parts template) +pending	q	other left	mouse off, exit 0
 other flow(parts template) +pending	r	other any.question.confirm +pending	
 other flow(parts template) +pending	v	other flow.file +pending	
 other flow(parts template) +unsaved	1	other fonts(filter) +unsaved	mouse off
@@ -2376,7 +2352,7 @@ other flow(parts template) +unsaved +pending	d	other flow(parts template) +unsav
 other flow(parts template) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts template) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
 other flow(parts template) +unsaved +pending	o	other flow.restore +unsaved +pending	history
-other flow(parts template) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow(parts template) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow(parts template) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other flow(parts template) +unsaved +pending	s	other flow(parts template) +pending	save
 other flow(parts template) +unsaved +pending	v	other flow.file +unsaved +pending	
@@ -2391,7 +2367,7 @@ other flow.card +pending	Enter	other flow.card.typing +pending
 other flow.card +pending	Esc	other flow(doc terminal) +pending	
 other flow.card +pending	Shrink	other any.too-small +pending	
 other flow.card +pending	e	other flow(new terminal) +pending	
-other flow.card +pending	q	other any.question.leave +pending	
+other flow.card +pending	q	other left	mouse off, exit 0
 other flow.card +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.card +unsaved	Enter	other flow.card.typing +unsaved	
 other flow.card +unsaved	Esc	other flow(doc terminal) +unsaved	
@@ -2403,7 +2379,7 @@ other flow.card +unsaved +pending	Enter	other flow.card.typing +unsaved +pending
 other flow.card +unsaved +pending	Esc	other flow(doc terminal) +unsaved +pending	
 other flow.card +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.card +unsaved +pending	e	other flow(new terminal) +unsaved +pending	
-other flow.card +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.card +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.card.typing	Ctrl-C	other left	mouse off, exit 130
 other flow.card.typing	Enter	other flow.card	
 other flow.card.typing	Esc	other flow.card	
@@ -2437,7 +2413,7 @@ other flow.detail +pending	Esc	other flow(parts display) +pending
 other flow.detail +pending	PgDn	other flow.detail.choices +pending	
 other flow.detail +pending	Shrink	other any.too-small +pending	
 other flow.detail +pending	Wheel down	other flow.detail.choices +pending	
-other flow.detail +pending	q	other any.question.leave +pending	
+other flow.detail +pending	q	other left	mouse off, exit 0
 other flow.detail +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.detail +unsaved	Down	other flow.detail.choices +unsaved	
 other flow.detail +unsaved	End	other flow.detail.choices +unsaved	
@@ -2455,7 +2431,7 @@ other flow.detail +unsaved +pending	Esc	other flow(parts display) +unsaved +pend
 other flow.detail +unsaved +pending	PgDn	other flow.detail.choices +unsaved +pending	
 other flow.detail +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.detail +unsaved +pending	Wheel down	other flow.detail.choices +unsaved +pending	
-other flow.detail +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.detail +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.detail.choices	Ctrl-C	other left	mouse off, exit 130
 other flow.detail.choices	Enter	other flow(new display)	
 other flow.detail.choices	Esc	other flow(new display)	
@@ -2473,7 +2449,7 @@ other flow.detail.choices +pending	PgUp	other flow.detail +pending
 other flow.detail.choices +pending	Shrink	other any.too-small +pending	
 other flow.detail.choices +pending	Up	other flow.detail +pending	
 other flow.detail.choices +pending	Wheel up	other flow.detail +pending	
-other flow.detail.choices +pending	q	other any.question.leave +pending	
+other flow.detail.choices +pending	q	other left	mouse off, exit 0
 other flow.detail.choices +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.detail.choices +unsaved	Enter	other flow(parts display) +unsaved	
 other flow.detail.choices +unsaved	Esc	other flow(parts display) +unsaved	
@@ -2491,7 +2467,7 @@ other flow.detail.choices +unsaved +pending	PgUp	other flow.detail +unsaved +pen
 other flow.detail.choices +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.detail.choices +unsaved +pending	Up	other flow.detail +unsaved +pending	
 other flow.detail.choices +unsaved +pending	Wheel up	other flow.detail +unsaved +pending	
-other flow.detail.choices +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.detail.choices +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.detail.typing	Ctrl-C	other left	mouse off, exit 130
 other flow.detail.typing	Enter	other flow.detail	
 other flow.detail.typing	Esc	other flow.detail	
@@ -2517,7 +2493,7 @@ other flow.file +pending	Ctrl-C	other left	mouse off, exit 130
 other flow.file +pending	Esc	other flow(doc display) +pending	
 other flow.file +pending	Shrink	other any.too-small +pending	
 other flow.file +pending	i	other any.question.confirm +pending	prepare
-other flow.file +pending	q	other any.question.leave +pending	
+other flow.file +pending	q	other left	mouse off, exit 0
 other flow.file +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.file +unsaved	Esc	other flow(doc terminal) +unsaved	
 other flow.file +unsaved	Shrink	other any.too-small +unsaved	
@@ -2528,7 +2504,7 @@ other flow.file +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow.file +unsaved +pending	Esc	other flow(doc terminal) +unsaved +pending	
 other flow.file +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.file +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other flow.file +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.file +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.file +unsaved +pending	s	other flow.file +pending	save
 other flow.info	Ctrl-C	other left	mouse off, exit 130
 other flow.info	Esc	other flow(doc display)	
@@ -2539,7 +2515,7 @@ other flow.info +pending	Ctrl-C	other left	mouse off, exit 130
 other flow.info +pending	Esc	other flow(doc display) +pending	
 other flow.info +pending	Shrink	other any.too-small +pending	
 other flow.info +pending	e	other flow(new terminal) +pending	
-other flow.info +pending	q	other any.question.leave +pending	
+other flow.info +pending	q	other left	mouse off, exit 0
 other flow.info +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.info +unsaved	Esc	other flow(doc display) +unsaved	
 other flow.info +unsaved	Shrink	other any.too-small +unsaved	
@@ -2549,7 +2525,7 @@ other flow.info +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow.info +unsaved +pending	Esc	other flow(doc display) +unsaved +pending	
 other flow.info +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.info +unsaved +pending	e	other flow(new terminal) +unsaved +pending	
-other flow.info +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.info +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.maker(line 0)	Ctrl-C	other left	mouse off, exit 130
 other flow.maker(line 0)	Down	other flow.maker(line 1)	
 other flow.maker(line 0)	End	other flow.maker(line 4)	
@@ -2567,7 +2543,7 @@ other flow.maker(line 0) +pending	Esc	other flow(parts template) +pending
 other flow.maker(line 0) +pending	PgDn	other flow.maker(line 4) +pending	
 other flow.maker(line 0) +pending	Shrink	other any.too-small +pending	
 other flow.maker(line 0) +pending	Wheel down	other flow.maker(line 1) +pending	
-other flow.maker(line 0) +pending	q	other any.question.leave +pending	
+other flow.maker(line 0) +pending	q	other left	mouse off, exit 0
 other flow.maker(line 0) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.maker(line 0) +unsaved	Down	other flow.maker(line 1) +unsaved	
 other flow.maker(line 0) +unsaved	End	other flow.maker(line 2) +unsaved	
@@ -2585,7 +2561,7 @@ other flow.maker(line 0) +unsaved +pending	Esc	other flow(new empty) +unsaved +p
 other flow.maker(line 0) +unsaved +pending	PgDn	other flow.maker(line 2) +unsaved +pending	
 other flow.maker(line 0) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.maker(line 0) +unsaved +pending	Wheel down	other flow.maker(line 1) +unsaved +pending	
-other flow.maker(line 0) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.maker(line 0) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.maker(line 1)	Ctrl-C	other left	mouse off, exit 130
 other flow.maker(line 1)	Down	other flow.maker(line 2)	
 other flow.maker(line 1)	End	other flow.maker(line 4)	
@@ -2611,7 +2587,7 @@ other flow.maker(line 1) +pending	Shrink	other any.too-small +pending
 other flow.maker(line 1) +pending	Up	other flow.maker(line 0) +pending	
 other flow.maker(line 1) +pending	Wheel down	other flow.maker(line 2) +pending	
 other flow.maker(line 1) +pending	Wheel up	other flow.maker(line 0) +pending	
-other flow.maker(line 1) +pending	q	other any.question.leave +pending	
+other flow.maker(line 1) +pending	q	other left	mouse off, exit 0
 other flow.maker(line 1) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.maker(line 1) +unsaved	Down	other flow.maker(line 2) +unsaved	
 other flow.maker(line 1) +unsaved	End	other flow.maker(line 2) +unsaved	
@@ -2637,7 +2613,7 @@ other flow.maker(line 1) +unsaved +pending	Shrink	other any.too-small +unsaved +
 other flow.maker(line 1) +unsaved +pending	Up	other flow.maker(line 0) +unsaved +pending	
 other flow.maker(line 1) +unsaved +pending	Wheel down	other flow.maker(line 2) +unsaved +pending	
 other flow.maker(line 1) +unsaved +pending	Wheel up	other flow.maker(line 0) +unsaved +pending	
-other flow.maker(line 1) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.maker(line 1) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.maker(line 2)	Ctrl-C	other left	mouse off, exit 130
 other flow.maker(line 2)	Down	other flow.maker(line 3)	
 other flow.maker(line 2)	End	other flow.maker(line 4)	
@@ -2663,7 +2639,7 @@ other flow.maker(line 2) +pending	Shrink	other any.too-small +pending
 other flow.maker(line 2) +pending	Up	other flow.maker(line 1) +pending	
 other flow.maker(line 2) +pending	Wheel down	other flow.maker(line 3) +pending	
 other flow.maker(line 2) +pending	Wheel up	other flow.maker(line 1) +pending	
-other flow.maker(line 2) +pending	q	other any.question.leave +pending	
+other flow.maker(line 2) +pending	q	other left	mouse off, exit 0
 other flow.maker(line 2) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.maker(line 2) +unsaved	Enter	other flow(new terminal) +unsaved	
 other flow.maker(line 2) +unsaved	Esc	other flow(new empty) +unsaved	
@@ -2681,7 +2657,7 @@ other flow.maker(line 2) +unsaved +pending	PgUp	other flow.maker(line 0) +unsave
 other flow.maker(line 2) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow.maker(line 2) +unsaved +pending	Up	other flow.maker(line 1) +unsaved +pending	
 other flow.maker(line 2) +unsaved +pending	Wheel up	other flow.maker(line 1) +unsaved +pending	
-other flow.maker(line 2) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.maker(line 2) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.maker(line 3)	Ctrl-C	other left	mouse off, exit 130
 other flow.maker(line 3)	Down	other flow.maker(line 4)	
 other flow.maker(line 3)	End	other flow.maker(line 4)	
@@ -2707,7 +2683,7 @@ other flow.maker(line 3) +pending	Shrink	other any.too-small +pending
 other flow.maker(line 3) +pending	Up	other flow.maker(line 2) +pending	
 other flow.maker(line 3) +pending	Wheel down	other flow.maker(line 4) +pending	
 other flow.maker(line 3) +pending	Wheel up	other flow.maker(line 2) +pending	
-other flow.maker(line 3) +pending	q	other any.question.leave +pending	
+other flow.maker(line 3) +pending	q	other left	mouse off, exit 0
 other flow.maker(line 4)	Ctrl-C	other left	mouse off, exit 130
 other flow.maker(line 4)	Enter	other flow.maker.picker(line 0)	
 other flow.maker(line 4)	Esc	other flow(parts template)	
@@ -2725,7 +2701,7 @@ other flow.maker(line 4) +pending	PgUp	other flow.maker(line 0) +pending
 other flow.maker(line 4) +pending	Shrink	other any.too-small +pending	
 other flow.maker(line 4) +pending	Up	other flow.maker(line 3) +pending	
 other flow.maker(line 4) +pending	Wheel up	other flow.maker(line 3) +pending	
-other flow.maker(line 4) +pending	q	other any.question.leave +pending	
+other flow.maker(line 4) +pending	q	other left	mouse off, exit 0
 other flow.maker.picker(line 0)	Ctrl-C	other left	mouse off, exit 130
 other flow.maker.picker(line 0)	Down	other flow.maker.picker(line 1)	
 other flow.maker.picker(line 0)	End	other flow.maker.picker(line 1)	
@@ -2743,7 +2719,7 @@ other flow.maker.picker(line 0) +pending	Esc	other flow.maker(line 1) +pending
 other flow.maker.picker(line 0) +pending	PgDn	other flow.maker.picker(line 1) +pending	
 other flow.maker.picker(line 0) +pending	Shrink	other any.too-small +pending	
 other flow.maker.picker(line 0) +pending	Wheel down	other flow.maker.picker(line 1) +pending	
-other flow.maker.picker(line 0) +pending	q	other any.question.leave +pending	
+other flow.maker.picker(line 0) +pending	q	other left	mouse off, exit 0
 other flow.maker.picker(line 1)	Ctrl-C	other left	mouse off, exit 130
 other flow.maker.picker(line 1)	Enter	other flow.maker.picker.typing	
 other flow.maker.picker(line 1)	Esc	other flow.maker(line 1)	
@@ -2761,7 +2737,7 @@ other flow.maker.picker(line 1) +pending	PgUp	other flow.maker.picker(line 0) +p
 other flow.maker.picker(line 1) +pending	Shrink	other any.too-small +pending	
 other flow.maker.picker(line 1) +pending	Up	other flow.maker.picker(line 0) +pending	
 other flow.maker.picker(line 1) +pending	Wheel up	other flow.maker.picker(line 0) +pending	
-other flow.maker.picker(line 1) +pending	q	other any.question.leave +pending	
+other flow.maker.picker(line 1) +pending	q	other left	mouse off, exit 0
 other flow.maker.picker.typing	Ctrl-C	other left	mouse off, exit 130
 other flow.maker.picker.typing	Esc	other flow.maker.picker(line 1)	
 other flow.maker.picker.typing	Shrink	other any.too-small	
@@ -2777,7 +2753,7 @@ other flow.new-card +pending	Ctrl-C	other left	mouse off, exit 130
 other flow.new-card +pending	Enter	other flow.card.typing +pending	
 other flow.new-card +pending	Esc	other flow(new terminal) +pending	
 other flow.new-card +pending	Shrink	other any.too-small +pending	
-other flow.new-card +pending	q	other any.question.leave +pending	
+other flow.new-card +pending	q	other left	mouse off, exit 0
 other flow.new-card +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.new-card +unsaved	Enter	other flow.card.typing +unsaved	
 other flow.new-card +unsaved	Esc	other flow(new terminal) +unsaved	
@@ -2787,7 +2763,7 @@ other flow.new-card +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 13
 other flow.new-card +unsaved +pending	Enter	other flow.card.typing +unsaved +pending	
 other flow.new-card +unsaved +pending	Esc	other flow(new terminal) +unsaved +pending	
 other flow.new-card +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow.new-card +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.new-card +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.others	Ctrl-C	other left	mouse off, exit 130
 other flow.others	Esc	other flow(others)	
 other flow.others	Shrink	other any.too-small	
@@ -2795,7 +2771,7 @@ other flow.others	q	other left	mouse off, exit 0
 other flow.others +pending	Ctrl-C	other left	mouse off, exit 130
 other flow.others +pending	Esc	other flow(others) +pending	
 other flow.others +pending	Shrink	other any.too-small +pending	
-other flow.others +pending	q	other any.question.leave +pending	
+other flow.others +pending	q	other left	mouse off, exit 0
 other flow.others +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.others +unsaved	Esc	other flow(others) +unsaved	
 other flow.others +unsaved	Shrink	other any.too-small +unsaved	
@@ -2803,7 +2779,7 @@ other flow.others +unsaved	q	other any.question.quit +unsaved
 other flow.others +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow.others +unsaved +pending	Esc	other flow(others) +unsaved +pending	
 other flow.others +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow.others +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.others +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other flow.restore	Ctrl-C	other left	mouse off, exit 130
 other flow.restore	Enter	other any.question.confirm	
 other flow.restore	Esc	other flow(doc display)	
@@ -2813,7 +2789,7 @@ other flow.restore +pending	Ctrl-C	other left	mouse off, exit 130
 other flow.restore +pending	Enter	other any.question.confirm +pending	
 other flow.restore +pending	Esc	other flow(doc display) +pending	
 other flow.restore +pending	Shrink	other any.too-small +pending	
-other flow.restore +pending	q	other any.question.leave +pending	
+other flow.restore +pending	q	other left	mouse off, exit 0
 other flow.restore +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow.restore +unsaved	Enter	other any.question.confirm +unsaved	
 other flow.restore +unsaved	Esc	other flow(doc terminal) +unsaved	
@@ -2823,7 +2799,7 @@ other flow.restore +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow.restore +unsaved +pending	Enter	other any.question.confirm +unsaved +pending	
 other flow.restore +unsaved +pending	Esc	other flow(doc terminal) +unsaved +pending	
 other flow.restore +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other flow.restore +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other flow.restore +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts(filter)	2	other effects(filter)	
 other fonts(filter)	3	other looks(look)	
 other fonts(filter)	4	other flow(doc display)	mouse on
@@ -2853,7 +2829,7 @@ other fonts(filter) +pending	Shift-Tab	other help(help) +pending
 other fonts(filter) +pending	Shrink	other any.too-small +pending	
 other fonts(filter) +pending	Tab	other effects(filter) +pending	
 other fonts(filter) +pending	i	other any.question.confirm +pending	prepare
-other fonts(filter) +pending	q	other any.question.leave +pending	
+other fonts(filter) +pending	q	other left	exit 0
 other fonts(filter) +unsaved	2	other effects(filter) +unsaved	
 other fonts(filter) +unsaved	3	other looks(no looks) +unsaved	
 other fonts(filter) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -2884,7 +2860,7 @@ other fonts(filter) +unsaved +pending	Shift-Tab	other help(help) +unsaved +pendi
 other fonts(filter) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other fonts(filter) +unsaved +pending	Tab	other effects(filter) +unsaved +pending	
 other fonts(filter) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other fonts(filter) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(filter) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts(filter) +unsaved +pending	s	other fonts(filter) +pending	save
 other fonts(font: activates on install, trusted)	2	other effects(filter)	
 other fonts(font: activates on install, trusted)	3	other looks(look)	
@@ -2923,7 +2899,7 @@ other fonts(font: activates on install, trusted) +pending	Space	other fonts(font
 other fonts(font: activates on install, trusted) +pending	Tab	other effects(filter) +pending	
 other fonts(font: activates on install, trusted) +pending	Up	other fonts(font: active, trusted) +pending	
 other fonts(font: activates on install, trusted) +pending	i	other any.question.confirm +pending	prepare
-other fonts(font: activates on install, trusted) +pending	q	other any.question.leave +pending	
+other fonts(font: activates on install, trusted) +pending	q	other left	exit 0
 other fonts(font: activates on install, trusted) +unsaved	2	other effects(filter) +unsaved	
 other fonts(font: activates on install, trusted) +unsaved	3	other looks(no looks) +unsaved	
 other fonts(font: activates on install, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -2962,7 +2938,7 @@ other fonts(font: activates on install, trusted) +unsaved +pending	Space	other f
 other fonts(font: activates on install, trusted) +unsaved +pending	Tab	other effects(filter) +unsaved +pending	
 other fonts(font: activates on install, trusted) +unsaved +pending	Up	other fonts(font: active, trusted) +unsaved +pending	
 other fonts(font: activates on install, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other fonts(font: activates on install, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(font: activates on install, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts(font: activates on install, trusted) +unsaved +pending	s	other fonts(font: activates on install, trusted) +pending	save
 other fonts(font: active, trusted)	2	other effects(filter)	
 other fonts(font: active, trusted)	3	other looks(look)	
@@ -3001,7 +2977,7 @@ other fonts(font: active, trusted) +pending	Space	other fonts(font: deactivates 
 other fonts(font: active, trusted) +pending	Tab	other effects(filter) +pending	
 other fonts(font: active, trusted) +pending	Up	other fonts(filter) +pending	
 other fonts(font: active, trusted) +pending	i	other any.question.confirm +pending	prepare
-other fonts(font: active, trusted) +pending	q	other any.question.leave +pending	
+other fonts(font: active, trusted) +pending	q	other left	exit 0
 other fonts(font: active, trusted) +unsaved	2	other effects(filter) +unsaved	
 other fonts(font: active, trusted) +unsaved	3	other looks(no looks) +unsaved	
 other fonts(font: active, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -3040,7 +3016,7 @@ other fonts(font: active, trusted) +unsaved +pending	Space	other fonts(font: dea
 other fonts(font: active, trusted) +unsaved +pending	Tab	other effects(filter) +unsaved +pending	
 other fonts(font: active, trusted) +unsaved +pending	Up	other fonts(filter) +unsaved +pending	
 other fonts(font: active, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other fonts(font: active, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(font: active, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts(font: active, trusted) +unsaved +pending	s	other fonts(font: active, trusted) +pending	save
 other fonts(font: deactivates on install, trusted)	2	other effects(filter)	
 other fonts(font: deactivates on install, trusted)	3	other looks(look)	
@@ -3079,7 +3055,7 @@ other fonts(font: deactivates on install, trusted) +pending	Space	other fonts(fo
 other fonts(font: deactivates on install, trusted) +pending	Tab	other effects(filter) +pending	
 other fonts(font: deactivates on install, trusted) +pending	Up	other fonts(filter) +pending	
 other fonts(font: deactivates on install, trusted) +pending	i	other any.question.confirm +pending	prepare
-other fonts(font: deactivates on install, trusted) +pending	q	other any.question.leave +pending	
+other fonts(font: deactivates on install, trusted) +pending	q	other left	exit 0
 other fonts(font: deactivates on install, trusted) +unsaved	2	other effects(filter) +unsaved	
 other fonts(font: deactivates on install, trusted) +unsaved	3	other looks(no looks) +unsaved	
 other fonts(font: deactivates on install, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -3118,7 +3094,7 @@ other fonts(font: deactivates on install, trusted) +unsaved +pending	Space	other
 other fonts(font: deactivates on install, trusted) +unsaved +pending	Tab	other effects(filter) +unsaved +pending	
 other fonts(font: deactivates on install, trusted) +unsaved +pending	Up	other fonts(filter) +unsaved +pending	
 other fonts(font: deactivates on install, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other fonts(font: deactivates on install, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(font: deactivates on install, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts(font: deactivates on install, trusted) +unsaved +pending	s	other fonts(font: deactivates on install, trusted) +pending	save
 other fonts(font: not active, fails the trust rule)	2	other effects(filter)	
 other fonts(font: not active, fails the trust rule)	3	other looks(look)	
@@ -3155,7 +3131,7 @@ other fonts(font: not active, fails the trust rule) +pending	Shrink	other any.to
 other fonts(font: not active, fails the trust rule) +pending	Tab	other effects(filter) +pending	
 other fonts(font: not active, fails the trust rule) +pending	Up	other fonts(font: not active, trusted) +pending	
 other fonts(font: not active, fails the trust rule) +pending	i	other any.question.confirm +pending	prepare
-other fonts(font: not active, fails the trust rule) +pending	q	other any.question.leave +pending	
+other fonts(font: not active, fails the trust rule) +pending	q	other left	exit 0
 other fonts(font: not active, fails the trust rule) +unsaved	2	other effects(filter) +unsaved	
 other fonts(font: not active, fails the trust rule) +unsaved	3	other looks(no looks) +unsaved	
 other fonts(font: not active, fails the trust rule) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -3192,7 +3168,7 @@ other fonts(font: not active, fails the trust rule) +unsaved +pending	Shrink	oth
 other fonts(font: not active, fails the trust rule) +unsaved +pending	Tab	other effects(filter) +unsaved +pending	
 other fonts(font: not active, fails the trust rule) +unsaved +pending	Up	other fonts(font: not active, trusted) +unsaved +pending	
 other fonts(font: not active, fails the trust rule) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other fonts(font: not active, fails the trust rule) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(font: not active, fails the trust rule) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts(font: not active, fails the trust rule) +unsaved +pending	s	other fonts(font: not active, fails the trust rule) +pending	save
 other fonts(font: not active, trusted)	2	other effects(filter)	
 other fonts(font: not active, trusted)	3	other looks(look)	
@@ -3231,7 +3207,7 @@ other fonts(font: not active, trusted) +pending	Space	other fonts(font: activate
 other fonts(font: not active, trusted) +pending	Tab	other effects(filter) +pending	
 other fonts(font: not active, trusted) +pending	Up	other fonts(font: active, trusted) +pending	
 other fonts(font: not active, trusted) +pending	i	other any.question.confirm +pending	prepare
-other fonts(font: not active, trusted) +pending	q	other any.question.leave +pending	
+other fonts(font: not active, trusted) +pending	q	other left	exit 0
 other fonts(font: not active, trusted) +unsaved	2	other effects(filter) +unsaved	
 other fonts(font: not active, trusted) +unsaved	3	other looks(no looks) +unsaved	
 other fonts(font: not active, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -3270,7 +3246,7 @@ other fonts(font: not active, trusted) +unsaved +pending	Space	other fonts(font:
 other fonts(font: not active, trusted) +unsaved +pending	Tab	other effects(filter) +unsaved +pending	
 other fonts(font: not active, trusted) +unsaved +pending	Up	other fonts(font: active, trusted) +unsaved +pending	
 other fonts(font: not active, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other fonts(font: not active, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(font: not active, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts(font: not active, trusted) +unsaved +pending	s	other fonts(font: not active, trusted) +pending	save
 other fonts(font: not usable)	2	other effects(filter)	
 other fonts(font: not usable)	3	other looks(look)	
@@ -3301,7 +3277,7 @@ other fonts(font: not usable) +pending	Shrink	other any.too-small +pending
 other fonts(font: not usable) +pending	Tab	other effects(filter) +pending	
 other fonts(font: not usable) +pending	Up	other fonts(font: active, trusted) +pending	
 other fonts(font: not usable) +pending	i	other any.question.confirm +pending	prepare
-other fonts(font: not usable) +pending	q	other any.question.leave +pending	
+other fonts(font: not usable) +pending	q	other left	exit 0
 other fonts(font: not usable) +unsaved	2	other effects(filter) +unsaved	
 other fonts(font: not usable) +unsaved	3	other looks(no looks) +unsaved	
 other fonts(font: not usable) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -3332,7 +3308,7 @@ other fonts(font: not usable) +unsaved +pending	Shrink	other any.too-small +unsa
 other fonts(font: not usable) +unsaved +pending	Tab	other effects(filter) +unsaved +pending	
 other fonts(font: not usable) +unsaved +pending	Up	other fonts(font: active, trusted) +unsaved +pending	
 other fonts(font: not usable) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other fonts(font: not usable) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts(font: not usable) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts(font: not usable) +unsaved +pending	s	other fonts(font: not usable) +pending	save
 other fonts.filter	Ctrl-C	other left	exit 130
 other fonts.filter	Enter	other fonts(filter)	
@@ -3343,7 +3319,7 @@ other fonts.filter +pending	Ctrl-C	other left	exit 130
 other fonts.filter +pending	Enter	other fonts(filter) +pending	
 other fonts.filter +pending	Esc	other fonts(filter) +pending	
 other fonts.filter +pending	Shrink	other any.too-small +pending	
-other fonts.filter +pending	q	other any.question.leave +pending	
+other fonts.filter +pending	q	other left	exit 0
 other fonts.filter +unsaved	Ctrl-C	other left	save, exit 130
 other fonts.filter +unsaved	Enter	other fonts(filter) +unsaved	
 other fonts.filter +unsaved	Esc	other fonts(filter) +unsaved	
@@ -3353,7 +3329,7 @@ other fonts.filter +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts.filter +unsaved +pending	Enter	other fonts(filter) +unsaved +pending	
 other fonts.filter +unsaved +pending	Esc	other fonts(filter) +unsaved +pending	
 other fonts.filter +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other fonts.filter +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts.filter +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts.font(a font of yours)	Ctrl-C	other left	exit 130
 other fonts.font(a font of yours)	Enter	other any.question.system-font	system font
 other fonts.font(a font of yours)	Esc	other fonts(font: not usable)	
@@ -3363,7 +3339,7 @@ other fonts.font(a font of yours) +pending	Ctrl-C	other left	exit 130
 other fonts.font(a font of yours) +pending	Enter	other any.question.system-font +pending	system font
 other fonts.font(a font of yours) +pending	Esc	other fonts(font: not usable) +pending	
 other fonts.font(a font of yours) +pending	Shrink	other any.too-small +pending	
-other fonts.font(a font of yours) +pending	q	other any.question.leave +pending	
+other fonts.font(a font of yours) +pending	q	other left	exit 0
 other fonts.font(a font of yours) +unsaved	Ctrl-C	other left	save, exit 130
 other fonts.font(a font of yours) +unsaved	Enter	other any.question.system-font +unsaved	system font
 other fonts.font(a font of yours) +unsaved	Esc	other fonts(font: not usable) +unsaved	
@@ -3373,7 +3349,7 @@ other fonts.font(a font of yours) +unsaved +pending	Ctrl-C	other left	save, exit
 other fonts.font(a font of yours) +unsaved +pending	Enter	other any.question.system-font +unsaved +pending	system font
 other fonts.font(a font of yours) +unsaved +pending	Esc	other fonts(font: not usable) +unsaved +pending	
 other fonts.font(a font of yours) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other fonts.font(a font of yours) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts.font(a font of yours) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other fonts.font(a system font)	Ctrl-C	other left	exit 130
 other fonts.font(a system font)	Esc	other fonts(font: active, trusted)	
 other fonts.font(a system font)	Shrink	other any.too-small	
@@ -3381,7 +3357,7 @@ other fonts.font(a system font)	q	other left	exit 0
 other fonts.font(a system font) +pending	Ctrl-C	other left	exit 130
 other fonts.font(a system font) +pending	Esc	other fonts(font: active, trusted) +pending	
 other fonts.font(a system font) +pending	Shrink	other any.too-small +pending	
-other fonts.font(a system font) +pending	q	other any.question.leave +pending	
+other fonts.font(a system font) +pending	q	other left	exit 0
 other fonts.font(a system font) +unsaved	Ctrl-C	other left	save, exit 130
 other fonts.font(a system font) +unsaved	Esc	other fonts(font: active, trusted) +unsaved	
 other fonts.font(a system font) +unsaved	Shrink	other any.too-small +unsaved	
@@ -3389,7 +3365,7 @@ other fonts.font(a system font) +unsaved	q	other any.question.quit +unsaved
 other fonts.font(a system font) +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts.font(a system font) +unsaved +pending	Esc	other fonts(font: active, trusted) +unsaved +pending	
 other fonts.font(a system font) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other fonts.font(a system font) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other fonts.font(a system font) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other help(about)	1	other fonts(filter)	
 other help(about)	2	other effects(filter)	
 other help(about)	3	other looks(look)	
@@ -3413,7 +3389,7 @@ other help(about) +pending	Right	other help(help) +pending
 other help(about) +pending	Shift-Tab	other settings(first) +pending	
 other help(about) +pending	Shrink	other any.too-small +pending	
 other help(about) +pending	Tab	other fonts(filter) +pending	
-other help(about) +pending	q	other any.question.leave +pending	
+other help(about) +pending	q	other left	exit 0
 other help(about) +unsaved	1	other fonts(filter) +unsaved	
 other help(about) +unsaved	2	other effects(filter) +unsaved	
 other help(about) +unsaved	3	other looks(no looks) +unsaved	
@@ -3437,7 +3413,7 @@ other help(about) +unsaved +pending	Right	other help(help) +unsaved +pending
 other help(about) +unsaved +pending	Shift-Tab	other settings(first) +unsaved +pending	
 other help(about) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other help(about) +unsaved +pending	Tab	other fonts(filter) +unsaved +pending	
-other help(about) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other help(about) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other help(help)	1	other fonts(filter)	
 other help(help)	2	other effects(filter)	
 other help(help)	3	other looks(look)	
@@ -3461,7 +3437,7 @@ other help(help) +pending	Right	other help(about) +pending
 other help(help) +pending	Shift-Tab	other settings(first) +pending	
 other help(help) +pending	Shrink	other any.too-small +pending	
 other help(help) +pending	Tab	other fonts(filter) +pending	
-other help(help) +pending	q	other any.question.leave +pending	
+other help(help) +pending	q	other left	exit 0
 other help(help) +unsaved	1	other fonts(filter) +unsaved	
 other help(help) +unsaved	2	other effects(filter) +unsaved	
 other help(help) +unsaved	3	other looks(no looks) +unsaved	
@@ -3485,7 +3461,7 @@ other help(help) +unsaved +pending	Right	other help(about) +unsaved +pending
 other help(help) +unsaved +pending	Shift-Tab	other settings(first) +unsaved +pending	
 other help(help) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other help(help) +unsaved +pending	Tab	other fonts(filter) +unsaved +pending	
-other help(help) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other help(help) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks(frit)	1	other fonts(filter)	
 other looks(frit)	2	other effects(filter)	
 other looks(frit)	4	other flow(doc display)	mouse on
@@ -3523,7 +3499,7 @@ other looks(frit) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks(frit) +pending	Up	other looks(marked) +pending	
 other looks(frit) +pending	i	other any.question.confirm +pending	prepare
 other looks(frit) +pending	n	other looks.new-frit(row 0) +pending	
-other looks(frit) +pending	q	other any.question.leave +pending	
+other looks(frit) +pending	q	other left	exit 0
 other looks(frit) +pending	r	other looks(marked) +pending	font set
 other looks(frit) +pending	w	other any.question.window-ops +pending	
 other looks(frit) +unsaved	1	other fonts(filter) +unsaved	
@@ -3564,7 +3540,7 @@ other looks(frit) +unsaved +pending	Tab	other flow(doc display) +unsaved +pendin
 other looks(frit) +unsaved +pending	Up	other looks(marked) +unsaved +pending	
 other looks(frit) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other looks(frit) +unsaved +pending	n	other looks.new-frit(row 0) +unsaved +pending	
-other looks(frit) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks(frit) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks(frit) +unsaved +pending	r	other looks(marked) +unsaved +pending	font set
 other looks(frit) +unsaved +pending	s	other looks(frit) +pending	save
 other looks(frit) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
@@ -3601,7 +3577,7 @@ other looks(look) +pending	Shrink	other any.too-small +pending
 other looks(look) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks(look) +pending	i	other any.question.confirm +pending	prepare
 other looks(look) +pending	n	other looks.look.typing +unsaved +pending	check
-other looks(look) +pending	q	other any.question.leave +pending	
+other looks(look) +pending	q	other left	exit 0
 other looks(look) +pending	r	other any.question.confirm +pending	
 other looks(look) +pending	w	other any.question.window-ops +pending	
 other looks(look) +unsaved	1	other fonts(filter) +unsaved	
@@ -3638,7 +3614,7 @@ other looks(look) +unsaved +pending	Shrink	other any.too-small +unsaved +pending
 other looks(look) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks(look) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other looks(look) +unsaved +pending	n	other looks.look.typing +unsaved +pending	check
-other looks(look) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks(look) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks(look) +unsaved +pending	r	other any.question.confirm +unsaved +pending	
 other looks(look) +unsaved +pending	s	other looks(look) +pending	save
 other looks(look) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
@@ -3660,7 +3636,7 @@ other looks(marked) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks(marked) +pending	Up	other looks(look) +pending	
 other looks(marked) +pending	i	other any.question.confirm +pending	prepare
 other looks(marked) +pending	n	other looks.new-frit(row 0) +pending	
-other looks(marked) +pending	q	other any.question.leave +pending	
+other looks(marked) +pending	q	other left	exit 0
 other looks(marked) +pending	r	other looks(refused)	font set
 other looks(marked) +pending	w	other any.question.window-ops +pending	
 other looks(marked) +unsaved +pending	1	other fonts(filter) +unsaved +pending	
@@ -3681,7 +3657,7 @@ other looks(marked) +unsaved +pending	Tab	other flow(doc display) +unsaved +pend
 other looks(marked) +unsaved +pending	Up	other looks(look) +unsaved +pending	
 other looks(marked) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other looks(marked) +unsaved +pending	n	other looks.new-frit(row 0) +unsaved +pending	
-other looks(marked) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks(marked) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks(marked) +unsaved +pending	r	other looks(refused) +unsaved	font set
 other looks(marked) +unsaved +pending	s	other looks(marked) +pending	save
 other looks(marked) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
@@ -3715,7 +3691,7 @@ other looks(no looks) +pending	Shrink	other any.too-small +pending
 other looks(no looks) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks(no looks) +pending	i	other any.question.confirm +pending	prepare
 other looks(no looks) +pending	n	other looks.look.typing +unsaved +pending	check
-other looks(no looks) +pending	q	other any.question.leave +pending	
+other looks(no looks) +pending	q	other left	exit 0
 other looks(no looks) +pending	w	other any.question.window-ops +pending	
 other looks(no looks) +unsaved	1	other fonts(filter) +unsaved	
 other looks(no looks) +unsaved	2	other effects(filter) +unsaved	
@@ -3748,7 +3724,7 @@ other looks(no looks) +unsaved +pending	Shrink	other any.too-small +unsaved +pen
 other looks(no looks) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks(no looks) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other looks(no looks) +unsaved +pending	n	other looks.look.typing +unsaved +pending	check
-other looks(no looks) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks(no looks) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks(no looks) +unsaved +pending	s	other looks(no looks) +pending	save
 other looks(no looks) +unsaved +pending	w	other any.question.window-ops +unsaved +pending	
 other looks(refused)	1	other fonts(filter)	
@@ -3825,7 +3801,7 @@ other looks-resources(built-in scheme) +pending	Shift-Tab	other effects(filter) 
 other looks-resources(built-in scheme) +pending	Shrink	other any.too-small +pending	
 other looks-resources(built-in scheme) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(built-in scheme) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(built-in scheme) +pending	q	other any.question.leave +pending	
+other looks-resources(built-in scheme) +pending	q	other left	exit 0
 other looks-resources(built-in scheme) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(built-in scheme) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(built-in scheme) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -3858,7 +3834,7 @@ other looks-resources(built-in scheme) +unsaved +pending	Shift-Tab	other effects
 other looks-resources(built-in scheme) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks-resources(built-in scheme) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(built-in scheme) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(built-in scheme) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(built-in scheme) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(built-in scheme) +unsaved +pending	s	other looks-resources(built-in scheme) +pending	save
 other looks-resources(color scheme: activates on install, trusted)	1	other fonts(filter)	
 other looks-resources(color scheme: activates on install, trusted)	2	other effects(filter)	
@@ -3897,7 +3873,7 @@ other looks-resources(color scheme: activates on install, trusted) +pending	Spac
 other looks-resources(color scheme: activates on install, trusted) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(color scheme: activates on install, trusted) +pending	Up	other looks-resources(color scheme: not active, fails the trust rule) +pending	
 other looks-resources(color scheme: activates on install, trusted) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(color scheme: activates on install, trusted) +pending	q	other any.question.leave +pending	
+other looks-resources(color scheme: activates on install, trusted) +pending	q	other left	exit 0
 other looks-resources(color scheme: activates on install, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(color scheme: activates on install, trusted) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(color scheme: activates on install, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -3936,7 +3912,7 @@ other looks-resources(color scheme: activates on install, trusted) +unsaved +pen
 other looks-resources(color scheme: activates on install, trusted) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(color scheme: activates on install, trusted) +unsaved +pending	Up	other looks-resources(color scheme: not active, fails the trust rule) +unsaved +pending	
 other looks-resources(color scheme: activates on install, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(color scheme: activates on install, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(color scheme: activates on install, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(color scheme: activates on install, trusted) +unsaved +pending	s	other looks-resources(color scheme: activates on install, trusted) +pending	save
 other looks-resources(color scheme: active, trusted)	1	other fonts(filter)	
 other looks-resources(color scheme: active, trusted)	2	other effects(filter)	
@@ -3973,7 +3949,7 @@ other looks-resources(color scheme: active, trusted) +pending	Shrink	other any.t
 other looks-resources(color scheme: active, trusted) +pending	Space	other looks-resources(color scheme: deactivates on install, trusted) +pending	resource
 other looks-resources(color scheme: active, trusted) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(color scheme: active, trusted) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(color scheme: active, trusted) +pending	q	other any.question.leave +pending	
+other looks-resources(color scheme: active, trusted) +pending	q	other left	exit 0
 other looks-resources(color scheme: active, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(color scheme: active, trusted) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(color scheme: active, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4010,7 +3986,7 @@ other looks-resources(color scheme: active, trusted) +unsaved +pending	Shrink	ot
 other looks-resources(color scheme: active, trusted) +unsaved +pending	Space	other looks-resources(color scheme: deactivates on install, trusted) +unsaved +pending	resource
 other looks-resources(color scheme: active, trusted) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(color scheme: active, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(color scheme: active, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(color scheme: active, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(color scheme: active, trusted) +unsaved +pending	s	other looks-resources(color scheme: active, trusted) +pending	save
 other looks-resources(color scheme: deactivates on install, trusted)	1	other fonts(filter)	
 other looks-resources(color scheme: deactivates on install, trusted)	2	other effects(filter)	
@@ -4049,7 +4025,7 @@ other looks-resources(color scheme: deactivates on install, trusted) +pending	Sp
 other looks-resources(color scheme: deactivates on install, trusted) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(color scheme: deactivates on install, trusted) +pending	Up	other looks-resources(color scheme: active, trusted) +pending	
 other looks-resources(color scheme: deactivates on install, trusted) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(color scheme: deactivates on install, trusted) +pending	q	other any.question.leave +pending	
+other looks-resources(color scheme: deactivates on install, trusted) +pending	q	other left	exit 0
 other looks-resources(color scheme: deactivates on install, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(color scheme: deactivates on install, trusted) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(color scheme: deactivates on install, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4088,7 +4064,7 @@ other looks-resources(color scheme: deactivates on install, trusted) +unsaved +p
 other looks-resources(color scheme: deactivates on install, trusted) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(color scheme: deactivates on install, trusted) +unsaved +pending	Up	other looks-resources(color scheme: active, trusted) +unsaved +pending	
 other looks-resources(color scheme: deactivates on install, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(color scheme: deactivates on install, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(color scheme: deactivates on install, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(color scheme: deactivates on install, trusted) +unsaved +pending	s	other looks-resources(color scheme: deactivates on install, trusted) +pending	save
 other looks-resources(color scheme: not active, fails the trust rule)	1	other fonts(filter)	
 other looks-resources(color scheme: not active, fails the trust rule)	2	other effects(filter)	
@@ -4125,7 +4101,7 @@ other looks-resources(color scheme: not active, fails the trust rule) +pending	S
 other looks-resources(color scheme: not active, fails the trust rule) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(color scheme: not active, fails the trust rule) +pending	Up	other looks-resources(color scheme: active, trusted) +pending	
 other looks-resources(color scheme: not active, fails the trust rule) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(color scheme: not active, fails the trust rule) +pending	q	other any.question.leave +pending	
+other looks-resources(color scheme: not active, fails the trust rule) +pending	q	other left	exit 0
 other looks-resources(color scheme: not active, fails the trust rule) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(color scheme: not active, fails the trust rule) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(color scheme: not active, fails the trust rule) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4162,7 +4138,7 @@ other looks-resources(color scheme: not active, fails the trust rule) +unsaved +
 other looks-resources(color scheme: not active, fails the trust rule) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(color scheme: not active, fails the trust rule) +unsaved +pending	Up	other looks-resources(color scheme: active, trusted) +unsaved +pending	
 other looks-resources(color scheme: not active, fails the trust rule) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(color scheme: not active, fails the trust rule) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(color scheme: not active, fails the trust rule) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(color scheme: not active, fails the trust rule) +unsaved +pending	s	other looks-resources(color scheme: not active, fails the trust rule) +pending	save
 other looks-resources(color scheme: not active, trusted)	1	other fonts(filter)	
 other looks-resources(color scheme: not active, trusted)	2	other effects(filter)	
@@ -4201,7 +4177,7 @@ other looks-resources(color scheme: not active, trusted) +pending	Space	other lo
 other looks-resources(color scheme: not active, trusted) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(color scheme: not active, trusted) +pending	Up	other looks-resources(color scheme: not active, fails the trust rule) +pending	
 other looks-resources(color scheme: not active, trusted) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(color scheme: not active, trusted) +pending	q	other any.question.leave +pending	
+other looks-resources(color scheme: not active, trusted) +pending	q	other left	exit 0
 other looks-resources(color scheme: not active, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(color scheme: not active, trusted) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(color scheme: not active, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4240,7 +4216,7 @@ other looks-resources(color scheme: not active, trusted) +unsaved +pending	Space
 other looks-resources(color scheme: not active, trusted) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(color scheme: not active, trusted) +unsaved +pending	Up	other looks-resources(color scheme: not active, fails the trust rule) +unsaved +pending	
 other looks-resources(color scheme: not active, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(color scheme: not active, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(color scheme: not active, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(color scheme: not active, trusted) +unsaved +pending	s	other looks-resources(color scheme: not active, trusted) +pending	save
 other looks-resources(pointer theme: activates on install, trusted)	1	other fonts(filter)	
 other looks-resources(pointer theme: activates on install, trusted)	2	other effects(filter)	
@@ -4279,7 +4255,7 @@ other looks-resources(pointer theme: activates on install, trusted) +pending	Spa
 other looks-resources(pointer theme: activates on install, trusted) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(pointer theme: activates on install, trusted) +pending	Up	other looks-resources(pointer theme: active, trusted) +pending	
 other looks-resources(pointer theme: activates on install, trusted) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(pointer theme: activates on install, trusted) +pending	q	other any.question.leave +pending	
+other looks-resources(pointer theme: activates on install, trusted) +pending	q	other left	exit 0
 other looks-resources(pointer theme: activates on install, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(pointer theme: activates on install, trusted) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(pointer theme: activates on install, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4318,7 +4294,7 @@ other looks-resources(pointer theme: activates on install, trusted) +unsaved +pe
 other looks-resources(pointer theme: activates on install, trusted) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(pointer theme: activates on install, trusted) +unsaved +pending	Up	other looks-resources(pointer theme: active, trusted) +unsaved +pending	
 other looks-resources(pointer theme: activates on install, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(pointer theme: activates on install, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(pointer theme: activates on install, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(pointer theme: activates on install, trusted) +unsaved +pending	s	other looks-resources(pointer theme: activates on install, trusted) +pending	save
 other looks-resources(pointer theme: active, trusted)	1	other fonts(filter)	
 other looks-resources(pointer theme: active, trusted)	2	other effects(filter)	
@@ -4357,7 +4333,7 @@ other looks-resources(pointer theme: active, trusted) +pending	Space	other looks
 other looks-resources(pointer theme: active, trusted) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(pointer theme: active, trusted) +pending	Up	other looks-resources(color scheme: not active, trusted) +pending	
 other looks-resources(pointer theme: active, trusted) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(pointer theme: active, trusted) +pending	q	other any.question.leave +pending	
+other looks-resources(pointer theme: active, trusted) +pending	q	other left	exit 0
 other looks-resources(pointer theme: active, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(pointer theme: active, trusted) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(pointer theme: active, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4396,7 +4372,7 @@ other looks-resources(pointer theme: active, trusted) +unsaved +pending	Space	ot
 other looks-resources(pointer theme: active, trusted) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(pointer theme: active, trusted) +unsaved +pending	Up	other looks-resources(color scheme: not active, trusted) +unsaved +pending	
 other looks-resources(pointer theme: active, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(pointer theme: active, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(pointer theme: active, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(pointer theme: active, trusted) +unsaved +pending	s	other looks-resources(pointer theme: active, trusted) +pending	save
 other looks-resources(pointer theme: deactivates on install, trusted)	1	other fonts(filter)	
 other looks-resources(pointer theme: deactivates on install, trusted)	2	other effects(filter)	
@@ -4435,7 +4411,7 @@ other looks-resources(pointer theme: deactivates on install, trusted) +pending	S
 other looks-resources(pointer theme: deactivates on install, trusted) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(pointer theme: deactivates on install, trusted) +pending	Up	other looks-resources(color scheme: not active, trusted) +pending	
 other looks-resources(pointer theme: deactivates on install, trusted) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(pointer theme: deactivates on install, trusted) +pending	q	other any.question.leave +pending	
+other looks-resources(pointer theme: deactivates on install, trusted) +pending	q	other left	exit 0
 other looks-resources(pointer theme: deactivates on install, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(pointer theme: deactivates on install, trusted) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(pointer theme: deactivates on install, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4474,7 +4450,7 @@ other looks-resources(pointer theme: deactivates on install, trusted) +unsaved +
 other looks-resources(pointer theme: deactivates on install, trusted) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(pointer theme: deactivates on install, trusted) +unsaved +pending	Up	other looks-resources(color scheme: not active, trusted) +unsaved +pending	
 other looks-resources(pointer theme: deactivates on install, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(pointer theme: deactivates on install, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(pointer theme: deactivates on install, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(pointer theme: deactivates on install, trusted) +unsaved +pending	s	other looks-resources(pointer theme: deactivates on install, trusted) +pending	save
 other looks-resources(pointer theme: not active, fails the trust rule)	1	other fonts(filter)	
 other looks-resources(pointer theme: not active, fails the trust rule)	2	other effects(filter)	
@@ -4505,7 +4481,7 @@ other looks-resources(pointer theme: not active, fails the trust rule) +pending	
 other looks-resources(pointer theme: not active, fails the trust rule) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(pointer theme: not active, fails the trust rule) +pending	Up	other looks-resources(pointer theme: not active, trusted) +pending	
 other looks-resources(pointer theme: not active, fails the trust rule) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(pointer theme: not active, fails the trust rule) +pending	q	other any.question.leave +pending	
+other looks-resources(pointer theme: not active, fails the trust rule) +pending	q	other left	exit 0
 other looks-resources(pointer theme: not active, fails the trust rule) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(pointer theme: not active, fails the trust rule) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(pointer theme: not active, fails the trust rule) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4536,7 +4512,7 @@ other looks-resources(pointer theme: not active, fails the trust rule) +unsaved 
 other looks-resources(pointer theme: not active, fails the trust rule) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(pointer theme: not active, fails the trust rule) +unsaved +pending	Up	other looks-resources(pointer theme: not active, trusted) +unsaved +pending	
 other looks-resources(pointer theme: not active, fails the trust rule) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(pointer theme: not active, fails the trust rule) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(pointer theme: not active, fails the trust rule) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(pointer theme: not active, fails the trust rule) +unsaved +pending	s	other looks-resources(pointer theme: not active, fails the trust rule) +pending	save
 other looks-resources(pointer theme: not active, trusted)	1	other fonts(filter)	
 other looks-resources(pointer theme: not active, trusted)	2	other effects(filter)	
@@ -4575,7 +4551,7 @@ other looks-resources(pointer theme: not active, trusted) +pending	Space	other l
 other looks-resources(pointer theme: not active, trusted) +pending	Tab	other flow(doc display) +pending	mouse on
 other looks-resources(pointer theme: not active, trusted) +pending	Up	other looks-resources(pointer theme: active, trusted) +pending	
 other looks-resources(pointer theme: not active, trusted) +pending	i	other any.question.confirm +pending	prepare
-other looks-resources(pointer theme: not active, trusted) +pending	q	other any.question.leave +pending	
+other looks-resources(pointer theme: not active, trusted) +pending	q	other left	exit 0
 other looks-resources(pointer theme: not active, trusted) +unsaved	1	other fonts(filter) +unsaved	
 other looks-resources(pointer theme: not active, trusted) +unsaved	2	other effects(filter) +unsaved	
 other looks-resources(pointer theme: not active, trusted) +unsaved	4	other flow(doc display) +unsaved	mouse on
@@ -4614,7 +4590,7 @@ other looks-resources(pointer theme: not active, trusted) +unsaved +pending	Spac
 other looks-resources(pointer theme: not active, trusted) +unsaved +pending	Tab	other flow(doc display) +unsaved +pending	mouse on
 other looks-resources(pointer theme: not active, trusted) +unsaved +pending	Up	other looks-resources(pointer theme: active, trusted) +unsaved +pending	
 other looks-resources(pointer theme: not active, trusted) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other looks-resources(pointer theme: not active, trusted) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks-resources(pointer theme: not active, trusted) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks-resources(pointer theme: not active, trusted) +unsaved +pending	s	other looks-resources(pointer theme: not active, trusted) +pending	save
 other looks.font-set	Ctrl-C	other left	exit 130
 other looks.font-set	Esc	other looks(refused)	
@@ -4623,7 +4599,7 @@ other looks.font-set	q	other left	exit 0
 other looks.font-set +pending	Ctrl-C	other left	exit 130
 other looks.font-set +pending	Esc	other looks(marked) +pending	
 other looks.font-set +pending	Shrink	other any.too-small +pending	
-other looks.font-set +pending	q	other any.question.leave +pending	
+other looks.font-set +pending	q	other left	exit 0
 other looks.font-set +unsaved	Ctrl-C	other left	save, exit 130
 other looks.font-set +unsaved	Esc	other looks(refused) +unsaved	
 other looks.font-set +unsaved	Shrink	other any.too-small +unsaved	
@@ -4631,7 +4607,7 @@ other looks.font-set +unsaved	q	other any.question.quit +unsaved
 other looks.font-set +unsaved +pending	Ctrl-C	other left	save, exit 130
 other looks.font-set +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
 other looks.font-set +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.font-set +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.font-set +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look(color scheme)	Ctrl-C	other left	exit 130
 other looks.look(color scheme)	Down	other looks.look(vtlook)	
 other looks.look(color scheme)	Enter	other looks.look.list	
@@ -4647,7 +4623,7 @@ other looks.look(color scheme) +pending	Esc	other looks(look) +pending
 other looks.look(color scheme) +pending	Right	other looks.look(color scheme) +unsaved +pending	check
 other looks.look(color scheme) +pending	Shrink	other any.too-small +pending	
 other looks.look(color scheme) +pending	Up	other looks.look(size) +pending	
-other looks.look(color scheme) +pending	q	other any.question.leave +pending	
+other looks.look(color scheme) +pending	q	other left	exit 0
 other looks.look(color scheme) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.look(color scheme) +unsaved	Down	other looks.look(vtlook) +unsaved	
 other looks.look(color scheme) +unsaved	Enter	other looks.look.list +unsaved	
@@ -4665,7 +4641,7 @@ other looks.look(color scheme) +unsaved +pending	Left	other looks.look(color sch
 other looks.look(color scheme) +unsaved +pending	Right	other looks.look(color scheme) +unsaved +pending	check
 other looks.look(color scheme) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.look(color scheme) +unsaved +pending	Up	other looks.look(size) +unsaved +pending	
-other looks.look(color scheme) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.look(color scheme) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look(font set)	Ctrl-C	other left	exit 130
 other looks.look(font set)	Down	other looks.look(size)	
 other looks.look(font set)	Enter	other looks.look.list	
@@ -4683,7 +4659,7 @@ other looks.look(font set) +pending	Left	other looks.look(font set) +unsaved +pe
 other looks.look(font set) +pending	Right	other looks.look(font set) +unsaved +pending	check
 other looks.look(font set) +pending	Shrink	other any.too-small +pending	
 other looks.look(font set) +pending	Up	other looks.look(name) +pending	
-other looks.look(font set) +pending	q	other any.question.leave +pending	
+other looks.look(font set) +pending	q	other left	exit 0
 other looks.look(font set) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.look(font set) +unsaved	Down	other looks.look(size) +unsaved	
 other looks.look(font set) +unsaved	Enter	other looks.look.list +unsaved	
@@ -4701,7 +4677,7 @@ other looks.look(font set) +unsaved +pending	Left	other looks.look(font set) +un
 other looks.look(font set) +unsaved +pending	Right	other looks.look(font set) +unsaved +pending	check
 other looks.look(font set) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.look(font set) +unsaved +pending	Up	other looks.look(name) +unsaved +pending	
-other looks.look(font set) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.look(font set) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look(name)	Ctrl-C	other left	exit 130
 other looks.look(name)	Down	other looks.look(font set)	
 other looks.look(name)	Enter	other looks.look.typing	
@@ -4713,7 +4689,7 @@ other looks.look(name) +pending	Down	other looks.look(font set) +pending
 other looks.look(name) +pending	Enter	other looks.look.typing +pending	
 other looks.look(name) +pending	Esc	other looks(look) +pending	
 other looks.look(name) +pending	Shrink	other any.too-small +pending	
-other looks.look(name) +pending	q	other any.question.leave +pending	
+other looks.look(name) +pending	q	other left	exit 0
 other looks.look(name) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.look(name) +unsaved	Down	other looks.look(font set) +unsaved	
 other looks.look(name) +unsaved	Enter	other looks.look.typing +unsaved	
@@ -4725,7 +4701,7 @@ other looks.look(name) +unsaved +pending	Down	other looks.look(font set) +unsave
 other looks.look(name) +unsaved +pending	Enter	other looks.look.typing +unsaved +pending	
 other looks.look(name) +unsaved +pending	Esc	other looks(look) +unsaved +pending	
 other looks.look(name) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.look(name) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.look(name) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look(pointer theme)	Ctrl-C	other left	exit 130
 other looks.look(pointer theme)	Enter	other looks.look.list	
 other looks.look(pointer theme)	Esc	other looks(look)	
@@ -4739,7 +4715,7 @@ other looks.look(pointer theme) +pending	Esc	other looks(look) +pending
 other looks.look(pointer theme) +pending	Right	other looks.look(pointer theme) +unsaved +pending	check
 other looks.look(pointer theme) +pending	Shrink	other any.too-small +pending	
 other looks.look(pointer theme) +pending	Up	other looks.look(vtlook) +pending	
-other looks.look(pointer theme) +pending	q	other any.question.leave +pending	
+other looks.look(pointer theme) +pending	q	other left	exit 0
 other looks.look(pointer theme) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.look(pointer theme) +unsaved	Enter	other looks.look.list +unsaved	
 other looks.look(pointer theme) +unsaved	Esc	other looks(look) +unsaved	
@@ -4753,7 +4729,7 @@ other looks.look(pointer theme) +unsaved +pending	Esc	other looks(look) +unsaved
 other looks.look(pointer theme) +unsaved +pending	Left	other looks.look(pointer theme) +unsaved +pending	check
 other looks.look(pointer theme) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.look(pointer theme) +unsaved +pending	Up	other looks.look(vtlook) +unsaved +pending	
-other looks.look(pointer theme) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.look(pointer theme) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look(size)	Ctrl-C	other left	exit 130
 other looks.look(size)	Down	other looks.look(color scheme)	
 other looks.look(size)	Enter	other looks.look.list	
@@ -4769,7 +4745,7 @@ other looks.look(size) +pending	Esc	other looks(look) +pending
 other looks.look(size) +pending	Right	other looks.look(size) +unsaved +pending	check
 other looks.look(size) +pending	Shrink	other any.too-small +pending	
 other looks.look(size) +pending	Up	other looks.look(font set) +pending	
-other looks.look(size) +pending	q	other any.question.leave +pending	
+other looks.look(size) +pending	q	other left	exit 0
 other looks.look(size) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.look(size) +unsaved	Down	other looks.look(color scheme) +unsaved	
 other looks.look(size) +unsaved	Enter	other looks.look.list +unsaved	
@@ -4787,7 +4763,7 @@ other looks.look(size) +unsaved +pending	Left	other looks.look(size) +unsaved +p
 other looks.look(size) +unsaved +pending	Right	other looks.look(size) +unsaved +pending	check
 other looks.look(size) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.look(size) +unsaved +pending	Up	other looks.look(font set) +unsaved +pending	
-other looks.look(size) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.look(size) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look(vtlook)	Ctrl-C	other left	exit 130
 other looks.look(vtlook)	Down	other looks.look(pointer theme)	
 other looks.look(vtlook)	Enter	other looks.look.list	
@@ -4803,7 +4779,7 @@ other looks.look(vtlook) +pending	Esc	other looks(look) +pending
 other looks.look(vtlook) +pending	Left	other looks.look(vtlook) +unsaved +pending	check
 other looks.look(vtlook) +pending	Shrink	other any.too-small +pending	
 other looks.look(vtlook) +pending	Up	other looks.look(color scheme) +pending	
-other looks.look(vtlook) +pending	q	other any.question.leave +pending	
+other looks.look(vtlook) +pending	q	other left	exit 0
 other looks.look(vtlook) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.look(vtlook) +unsaved	Down	other looks.look(pointer theme) +unsaved	
 other looks.look(vtlook) +unsaved	Enter	other looks.look.list +unsaved	
@@ -4821,7 +4797,7 @@ other looks.look(vtlook) +unsaved +pending	Left	other looks.look(vtlook) +unsave
 other looks.look(vtlook) +unsaved +pending	Right	other looks.look(vtlook) +unsaved +pending	check
 other looks.look(vtlook) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.look(vtlook) +unsaved +pending	Up	other looks.look(color scheme) +unsaved +pending	
-other looks.look(vtlook) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.look(vtlook) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look.list	Ctrl-C	other left	exit 130
 other looks.look.list	Enter	other looks.look(font set) +unsaved	check
 other looks.look.list	Esc	other looks.look(font set)	
@@ -4831,7 +4807,7 @@ other looks.look.list +pending	Ctrl-C	other left	exit 130
 other looks.look.list +pending	Enter	other looks.look(font set) +unsaved +pending	check
 other looks.look.list +pending	Esc	other looks.look(font set) +pending	
 other looks.look.list +pending	Shrink	other any.too-small +pending	
-other looks.look.list +pending	q	other any.question.leave +pending	
+other looks.look.list +pending	q	other left	exit 0
 other looks.look.list +unsaved	Ctrl-C	other left	save, exit 130
 other looks.look.list +unsaved	Enter	other looks.look(font set) +unsaved	check
 other looks.look.list +unsaved	Esc	other looks.look(font set) +unsaved	
@@ -4841,7 +4817,7 @@ other looks.look.list +unsaved +pending	Ctrl-C	other left	save, exit 130
 other looks.look.list +unsaved +pending	Enter	other looks.look(font set) +unsaved +pending	check
 other looks.look.list +unsaved +pending	Esc	other looks.look(font set) +unsaved +pending	
 other looks.look.list +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.look.list +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.look.list +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.look.typing	Ctrl-C	other left	exit 130
 other looks.look.typing	Enter	other looks.look(name)	
 other looks.look.typing	Esc	other looks.look(name)	
@@ -4873,7 +4849,7 @@ other looks.new-frit(row 0) +pending	Enter	other looks.new-frit.list(row 0) +pen
 other looks.new-frit(row 0) +pending	Esc	other looks(marked) +pending	
 other looks.new-frit(row 0) +pending	PgDn	other looks.new-frit(row 7) +pending	
 other looks.new-frit(row 0) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit(row 0) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 0) +pending	q	other left	exit 0
 other looks.new-frit(row 0) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit(row 0) +unsaved	Down	other looks.new-frit(row 1) +unsaved	
 other looks.new-frit(row 0) +unsaved	End	other looks.new-frit(row 7) +unsaved	
@@ -4889,7 +4865,7 @@ other looks.new-frit(row 0) +unsaved +pending	Enter	other looks.new-frit.list(ro
 other looks.new-frit(row 0) +unsaved +pending	Esc	other looks(marked) +unsaved +pending	
 other looks.new-frit(row 0) +unsaved +pending	PgDn	other looks.new-frit(row 7) +unsaved +pending	
 other looks.new-frit(row 0) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit(row 0) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 0) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit(row 1)	Ctrl-C	other left	exit 130
 other looks.new-frit(row 1)	Down	other looks.new-frit(row 2)	
 other looks.new-frit(row 1)	End	other looks.new-frit(row 7)	
@@ -4911,7 +4887,7 @@ other looks.new-frit(row 1) +pending	PgDn	other looks.new-frit(row 7) +pending
 other looks.new-frit(row 1) +pending	PgUp	other looks.new-frit(row 0) +pending	
 other looks.new-frit(row 1) +pending	Shrink	other any.too-small +pending	
 other looks.new-frit(row 1) +pending	Up	other looks.new-frit(row 0) +pending	
-other looks.new-frit(row 1) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 1) +pending	q	other left	exit 0
 other looks.new-frit(row 1) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit(row 1) +unsaved	Down	other looks.new-frit(row 2) +unsaved	
 other looks.new-frit(row 1) +unsaved	End	other looks.new-frit(row 7) +unsaved	
@@ -4933,7 +4909,7 @@ other looks.new-frit(row 1) +unsaved +pending	PgDn	other looks.new-frit(row 7) +
 other looks.new-frit(row 1) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit(row 1) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.new-frit(row 1) +unsaved +pending	Up	other looks.new-frit(row 0) +unsaved +pending	
-other looks.new-frit(row 1) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 1) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit(row 2)	Ctrl-C	other left	exit 130
 other looks.new-frit(row 2)	Down	other looks.new-frit(row 3)	
 other looks.new-frit(row 2)	End	other looks.new-frit(row 7)	
@@ -4955,7 +4931,7 @@ other looks.new-frit(row 2) +pending	PgDn	other looks.new-frit(row 7) +pending
 other looks.new-frit(row 2) +pending	PgUp	other looks.new-frit(row 0) +pending	
 other looks.new-frit(row 2) +pending	Shrink	other any.too-small +pending	
 other looks.new-frit(row 2) +pending	Up	other looks.new-frit(row 1) +pending	
-other looks.new-frit(row 2) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 2) +pending	q	other left	exit 0
 other looks.new-frit(row 2) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit(row 2) +unsaved	Down	other looks.new-frit(row 3) +unsaved	
 other looks.new-frit(row 2) +unsaved	End	other looks.new-frit(row 7) +unsaved	
@@ -4977,7 +4953,7 @@ other looks.new-frit(row 2) +unsaved +pending	PgDn	other looks.new-frit(row 7) +
 other looks.new-frit(row 2) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit(row 2) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.new-frit(row 2) +unsaved +pending	Up	other looks.new-frit(row 1) +unsaved +pending	
-other looks.new-frit(row 2) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 2) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit(row 3)	Ctrl-C	other left	exit 130
 other looks.new-frit(row 3)	Down	other looks.new-frit(row 4)	
 other looks.new-frit(row 3)	End	other looks.new-frit(row 7)	
@@ -4999,7 +4975,7 @@ other looks.new-frit(row 3) +pending	PgDn	other looks.new-frit(row 7) +pending
 other looks.new-frit(row 3) +pending	PgUp	other looks.new-frit(row 0) +pending	
 other looks.new-frit(row 3) +pending	Shrink	other any.too-small +pending	
 other looks.new-frit(row 3) +pending	Up	other looks.new-frit(row 2) +pending	
-other looks.new-frit(row 3) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 3) +pending	q	other left	exit 0
 other looks.new-frit(row 3) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit(row 3) +unsaved	Down	other looks.new-frit(row 4) +unsaved	
 other looks.new-frit(row 3) +unsaved	End	other looks.new-frit(row 7) +unsaved	
@@ -5021,7 +4997,7 @@ other looks.new-frit(row 3) +unsaved +pending	PgDn	other looks.new-frit(row 7) +
 other looks.new-frit(row 3) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit(row 3) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.new-frit(row 3) +unsaved +pending	Up	other looks.new-frit(row 2) +unsaved +pending	
-other looks.new-frit(row 3) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 3) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit(row 4)	Ctrl-C	other left	exit 130
 other looks.new-frit(row 4)	Down	other looks.new-frit(row 5)	
 other looks.new-frit(row 4)	End	other looks.new-frit(row 7)	
@@ -5043,7 +5019,7 @@ other looks.new-frit(row 4) +pending	PgDn	other looks.new-frit(row 7) +pending
 other looks.new-frit(row 4) +pending	PgUp	other looks.new-frit(row 0) +pending	
 other looks.new-frit(row 4) +pending	Shrink	other any.too-small +pending	
 other looks.new-frit(row 4) +pending	Up	other looks.new-frit(row 3) +pending	
-other looks.new-frit(row 4) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 4) +pending	q	other left	exit 0
 other looks.new-frit(row 4) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit(row 4) +unsaved	Down	other looks.new-frit(row 5) +unsaved	
 other looks.new-frit(row 4) +unsaved	End	other looks.new-frit(row 7) +unsaved	
@@ -5065,7 +5041,7 @@ other looks.new-frit(row 4) +unsaved +pending	PgDn	other looks.new-frit(row 7) +
 other looks.new-frit(row 4) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit(row 4) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.new-frit(row 4) +unsaved +pending	Up	other looks.new-frit(row 3) +unsaved +pending	
-other looks.new-frit(row 4) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 4) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit(row 5)	Ctrl-C	other left	exit 130
 other looks.new-frit(row 5)	Down	other looks.new-frit(row 6)	
 other looks.new-frit(row 5)	End	other looks.new-frit(row 7)	
@@ -5087,7 +5063,7 @@ other looks.new-frit(row 5) +pending	PgDn	other looks.new-frit(row 7) +pending
 other looks.new-frit(row 5) +pending	PgUp	other looks.new-frit(row 0) +pending	
 other looks.new-frit(row 5) +pending	Shrink	other any.too-small +pending	
 other looks.new-frit(row 5) +pending	Up	other looks.new-frit(row 4) +pending	
-other looks.new-frit(row 5) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 5) +pending	q	other left	exit 0
 other looks.new-frit(row 5) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit(row 5) +unsaved	Down	other looks.new-frit(row 6) +unsaved	
 other looks.new-frit(row 5) +unsaved	End	other looks.new-frit(row 7) +unsaved	
@@ -5109,7 +5085,7 @@ other looks.new-frit(row 5) +unsaved +pending	PgDn	other looks.new-frit(row 7) +
 other looks.new-frit(row 5) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit(row 5) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.new-frit(row 5) +unsaved +pending	Up	other looks.new-frit(row 4) +unsaved +pending	
-other looks.new-frit(row 5) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 5) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit(row 6)	Ctrl-C	other left	exit 130
 other looks.new-frit(row 6)	Down	other looks.new-frit(row 7)	
 other looks.new-frit(row 6)	End	other looks.new-frit(row 7)	
@@ -5131,7 +5107,7 @@ other looks.new-frit(row 6) +pending	PgDn	other looks.new-frit(row 7) +pending
 other looks.new-frit(row 6) +pending	PgUp	other looks.new-frit(row 0) +pending	
 other looks.new-frit(row 6) +pending	Shrink	other any.too-small +pending	
 other looks.new-frit(row 6) +pending	Up	other looks.new-frit(row 5) +pending	
-other looks.new-frit(row 6) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 6) +pending	q	other left	exit 0
 other looks.new-frit(row 6) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit(row 6) +unsaved	Down	other looks.new-frit(row 7) +unsaved	
 other looks.new-frit(row 6) +unsaved	End	other looks.new-frit(row 7) +unsaved	
@@ -5153,7 +5129,7 @@ other looks.new-frit(row 6) +unsaved +pending	PgDn	other looks.new-frit(row 7) +
 other looks.new-frit(row 6) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit(row 6) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.new-frit(row 6) +unsaved +pending	Up	other looks.new-frit(row 5) +unsaved +pending	
-other looks.new-frit(row 6) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 6) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit(row 7)	Ctrl-C	other left	exit 130
 other looks.new-frit(row 7)	Esc	other looks(refused)	
 other looks.new-frit(row 7)	Home	other looks.new-frit(row 0)	
@@ -5167,7 +5143,7 @@ other looks.new-frit(row 7) +pending	Home	other looks.new-frit(row 0) +pending
 other looks.new-frit(row 7) +pending	PgUp	other looks.new-frit(row 0) +pending	
 other looks.new-frit(row 7) +pending	Shrink	other any.too-small +pending	
 other looks.new-frit(row 7) +pending	Up	other looks.new-frit(row 6) +pending	
-other looks.new-frit(row 7) +pending	q	other any.question.leave +pending	
+other looks.new-frit(row 7) +pending	q	other left	exit 0
 other looks.new-frit(row 7) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit(row 7) +unsaved	Esc	other looks(refused) +unsaved	
 other looks.new-frit(row 7) +unsaved	Home	other looks.new-frit(row 0) +unsaved	
@@ -5181,7 +5157,7 @@ other looks.new-frit(row 7) +unsaved +pending	Home	other looks.new-frit(row 0) +
 other looks.new-frit(row 7) +unsaved +pending	PgUp	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit(row 7) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other looks.new-frit(row 7) +unsaved +pending	Up	other looks.new-frit(row 6) +unsaved +pending	
-other looks.new-frit(row 7) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit(row 7) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit.list(row 0)	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 0)	Enter	other looks.new-frit(row 0)	
 other looks.new-frit.list(row 0)	Esc	other looks.new-frit(row 0)	
@@ -5191,7 +5167,7 @@ other looks.new-frit.list(row 0) +pending	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 0) +pending	Enter	other looks.new-frit(row 0) +pending	
 other looks.new-frit.list(row 0) +pending	Esc	other looks.new-frit(row 0) +pending	
 other looks.new-frit.list(row 0) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.list(row 0) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 0) +pending	q	other left	exit 0
 other looks.new-frit.list(row 0) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit.list(row 0) +unsaved	Enter	other looks.new-frit(row 0) +unsaved	
 other looks.new-frit.list(row 0) +unsaved	Esc	other looks.new-frit(row 0) +unsaved	
@@ -5201,7 +5177,7 @@ other looks.new-frit.list(row 0) +unsaved +pending	Ctrl-C	other left	save, exit 
 other looks.new-frit.list(row 0) +unsaved +pending	Enter	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit.list(row 0) +unsaved +pending	Esc	other looks.new-frit(row 0) +unsaved +pending	
 other looks.new-frit.list(row 0) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.list(row 0) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 0) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit.list(row 1)	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 1)	Enter	other looks.new-frit(row 1)	
 other looks.new-frit.list(row 1)	Esc	other looks.new-frit(row 1)	
@@ -5211,7 +5187,7 @@ other looks.new-frit.list(row 1) +pending	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 1) +pending	Enter	other looks.new-frit(row 1) +pending	
 other looks.new-frit.list(row 1) +pending	Esc	other looks.new-frit(row 1) +pending	
 other looks.new-frit.list(row 1) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.list(row 1) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 1) +pending	q	other left	exit 0
 other looks.new-frit.list(row 1) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit.list(row 1) +unsaved	Enter	other looks.new-frit(row 1) +unsaved	
 other looks.new-frit.list(row 1) +unsaved	Esc	other looks.new-frit(row 1) +unsaved	
@@ -5221,7 +5197,7 @@ other looks.new-frit.list(row 1) +unsaved +pending	Ctrl-C	other left	save, exit 
 other looks.new-frit.list(row 1) +unsaved +pending	Enter	other looks.new-frit(row 1) +unsaved +pending	
 other looks.new-frit.list(row 1) +unsaved +pending	Esc	other looks.new-frit(row 1) +unsaved +pending	
 other looks.new-frit.list(row 1) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.list(row 1) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 1) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit.list(row 2)	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 2)	Enter	other looks.new-frit(row 2)	
 other looks.new-frit.list(row 2)	Esc	other looks.new-frit(row 2)	
@@ -5231,7 +5207,7 @@ other looks.new-frit.list(row 2) +pending	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 2) +pending	Enter	other looks.new-frit(row 2) +pending	
 other looks.new-frit.list(row 2) +pending	Esc	other looks.new-frit(row 2) +pending	
 other looks.new-frit.list(row 2) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.list(row 2) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 2) +pending	q	other left	exit 0
 other looks.new-frit.list(row 2) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit.list(row 2) +unsaved	Enter	other looks.new-frit(row 2) +unsaved	
 other looks.new-frit.list(row 2) +unsaved	Esc	other looks.new-frit(row 2) +unsaved	
@@ -5241,7 +5217,7 @@ other looks.new-frit.list(row 2) +unsaved +pending	Ctrl-C	other left	save, exit 
 other looks.new-frit.list(row 2) +unsaved +pending	Enter	other looks.new-frit(row 2) +unsaved +pending	
 other looks.new-frit.list(row 2) +unsaved +pending	Esc	other looks.new-frit(row 2) +unsaved +pending	
 other looks.new-frit.list(row 2) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.list(row 2) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 2) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit.list(row 3)	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 3)	Enter	other looks.new-frit(row 3)	
 other looks.new-frit.list(row 3)	Esc	other looks.new-frit(row 3)	
@@ -5251,7 +5227,7 @@ other looks.new-frit.list(row 3) +pending	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 3) +pending	Enter	other looks.new-frit(row 3) +pending	
 other looks.new-frit.list(row 3) +pending	Esc	other looks.new-frit(row 3) +pending	
 other looks.new-frit.list(row 3) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.list(row 3) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 3) +pending	q	other left	exit 0
 other looks.new-frit.list(row 3) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit.list(row 3) +unsaved	Enter	other looks.new-frit(row 3) +unsaved	
 other looks.new-frit.list(row 3) +unsaved	Esc	other looks.new-frit(row 3) +unsaved	
@@ -5261,7 +5237,7 @@ other looks.new-frit.list(row 3) +unsaved +pending	Ctrl-C	other left	save, exit 
 other looks.new-frit.list(row 3) +unsaved +pending	Enter	other looks.new-frit(row 3) +unsaved +pending	
 other looks.new-frit.list(row 3) +unsaved +pending	Esc	other looks.new-frit(row 3) +unsaved +pending	
 other looks.new-frit.list(row 3) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.list(row 3) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 3) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit.list(row 4)	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 4)	Enter	other looks.new-frit(row 4)	
 other looks.new-frit.list(row 4)	Esc	other looks.new-frit(row 4)	
@@ -5271,7 +5247,7 @@ other looks.new-frit.list(row 4) +pending	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 4) +pending	Enter	other looks.new-frit(row 4) +pending	
 other looks.new-frit.list(row 4) +pending	Esc	other looks.new-frit(row 4) +pending	
 other looks.new-frit.list(row 4) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.list(row 4) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 4) +pending	q	other left	exit 0
 other looks.new-frit.list(row 4) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit.list(row 4) +unsaved	Enter	other looks.new-frit(row 4) +unsaved	
 other looks.new-frit.list(row 4) +unsaved	Esc	other looks.new-frit(row 4) +unsaved	
@@ -5281,7 +5257,7 @@ other looks.new-frit.list(row 4) +unsaved +pending	Ctrl-C	other left	save, exit 
 other looks.new-frit.list(row 4) +unsaved +pending	Enter	other looks.new-frit(row 4) +unsaved +pending	
 other looks.new-frit.list(row 4) +unsaved +pending	Esc	other looks.new-frit(row 4) +unsaved +pending	
 other looks.new-frit.list(row 4) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.list(row 4) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 4) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit.list(row 5)	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 5)	Enter	other looks.new-frit(row 5)	
 other looks.new-frit.list(row 5)	Esc	other looks.new-frit(row 5)	
@@ -5291,7 +5267,7 @@ other looks.new-frit.list(row 5) +pending	Ctrl-C	other left	exit 130
 other looks.new-frit.list(row 5) +pending	Enter	other looks.new-frit(row 5) +pending	
 other looks.new-frit.list(row 5) +pending	Esc	other looks.new-frit(row 5) +pending	
 other looks.new-frit.list(row 5) +pending	Shrink	other any.too-small +pending	
-other looks.new-frit.list(row 5) +pending	q	other any.question.leave +pending	
+other looks.new-frit.list(row 5) +pending	q	other left	exit 0
 other looks.new-frit.list(row 5) +unsaved	Ctrl-C	other left	save, exit 130
 other looks.new-frit.list(row 5) +unsaved	Enter	other looks.new-frit(row 5) +unsaved	
 other looks.new-frit.list(row 5) +unsaved	Esc	other looks.new-frit(row 5) +unsaved	
@@ -5301,7 +5277,7 @@ other looks.new-frit.list(row 5) +unsaved +pending	Ctrl-C	other left	save, exit 
 other looks.new-frit.list(row 5) +unsaved +pending	Enter	other looks.new-frit(row 5) +unsaved +pending	
 other looks.new-frit.list(row 5) +unsaved +pending	Esc	other looks.new-frit(row 5) +unsaved +pending	
 other looks.new-frit.list(row 5) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.new-frit.list(row 5) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.new-frit.list(row 5) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.new-frit.typing(row 6)	Ctrl-C	other left	exit 130
 other looks.new-frit.typing(row 6)	Enter	other looks.new-frit(row 7)	
 other looks.new-frit.typing(row 6)	Esc	other looks.new-frit(row 6)	
@@ -5325,7 +5301,7 @@ other looks.palette	q	other left	exit 0
 other looks.palette +pending	Ctrl-C	other left	exit 130
 other looks.palette +pending	Esc	other looks-resources(built-in scheme) +pending	
 other looks.palette +pending	Shrink	other any.too-small +pending	
-other looks.palette +pending	q	other any.question.leave +pending	
+other looks.palette +pending	q	other left	exit 0
 other looks.palette +unsaved	Ctrl-C	other left	save, exit 130
 other looks.palette +unsaved	Esc	other looks-resources(built-in scheme) +unsaved	
 other looks.palette +unsaved	Shrink	other any.too-small +unsaved	
@@ -5333,7 +5309,7 @@ other looks.palette +unsaved	q	other any.question.quit +unsaved
 other looks.palette +unsaved +pending	Ctrl-C	other left	save, exit 130
 other looks.palette +unsaved +pending	Esc	other looks-resources(built-in scheme) +unsaved +pending	
 other looks.palette +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.palette +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.palette +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other looks.pointer	Ctrl-C	other left	exit 130
 other looks.pointer	Esc	other looks-resources(pointer theme: not active, fails the trust rule)	
 other looks.pointer	Shrink	other any.too-small	
@@ -5341,7 +5317,7 @@ other looks.pointer	q	other left	exit 0
 other looks.pointer +pending	Ctrl-C	other left	exit 130
 other looks.pointer +pending	Esc	other looks-resources(pointer theme: not active, fails the trust rule) +pending	
 other looks.pointer +pending	Shrink	other any.too-small +pending	
-other looks.pointer +pending	q	other any.question.leave +pending	
+other looks.pointer +pending	q	other left	exit 0
 other looks.pointer +unsaved	Ctrl-C	other left	save, exit 130
 other looks.pointer +unsaved	Esc	other looks-resources(pointer theme: not active, fails the trust rule) +unsaved	
 other looks.pointer +unsaved	Shrink	other any.too-small +unsaved	
@@ -5349,7 +5325,7 @@ other looks.pointer +unsaved	q	other any.question.quit +unsaved
 other looks.pointer +unsaved +pending	Ctrl-C	other left	save, exit 130
 other looks.pointer +unsaved +pending	Esc	other looks-resources(pointer theme: not active, fails the trust rule) +unsaved +pending	
 other looks.pointer +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other looks.pointer +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other looks.pointer +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other settings(first)	1	other fonts(filter)	
 other settings(first)	2	other effects(filter)	
 other settings(first)	3	other looks(look)	
@@ -5379,7 +5355,7 @@ other settings(first) +pending	Shift-Tab	other flow(doc display) +pending	mouse 
 other settings(first) +pending	Shrink	other any.too-small +pending	
 other settings(first) +pending	Tab	other help(help) +pending	
 other settings(first) +pending	i	other any.question.confirm +pending	prepare
-other settings(first) +pending	q	other any.question.leave +pending	
+other settings(first) +pending	q	other left	exit 0
 other settings(first) +unsaved	1	other fonts(filter) +unsaved	
 other settings(first) +unsaved	2	other effects(filter) +unsaved	
 other settings(first) +unsaved	3	other looks(no looks) +unsaved	
@@ -5410,7 +5386,7 @@ other settings(first) +unsaved +pending	Shift-Tab	other flow(doc display) +unsav
 other settings(first) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other settings(first) +unsaved +pending	Tab	other help(help) +unsaved +pending	
 other settings(first) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other settings(first) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other settings(first) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other settings(first) +unsaved +pending	s	other settings(first) +pending	save
 other settings(later)	1	other fonts(filter)	
 other settings(later)	2	other effects(filter)	
@@ -5441,7 +5417,7 @@ other settings(later) +pending	Shrink	other any.too-small +pending
 other settings(later) +pending	Tab	other help(help) +pending	
 other settings(later) +pending	Up	other settings(first) +pending	
 other settings(later) +pending	i	other any.question.confirm +pending	prepare
-other settings(later) +pending	q	other any.question.leave +pending	
+other settings(later) +pending	q	other left	exit 0
 other settings(later) +unsaved	1	other fonts(filter) +unsaved	
 other settings(later) +unsaved	2	other effects(filter) +unsaved	
 other settings(later) +unsaved	3	other looks(no looks) +unsaved	
@@ -5472,7 +5448,7 @@ other settings(later) +unsaved +pending	Shrink	other any.too-small +unsaved +pen
 other settings(later) +unsaved +pending	Tab	other help(help) +unsaved +pending	
 other settings(later) +unsaved +pending	Up	other settings(first) +unsaved +pending	
 other settings(later) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
-other settings(later) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other settings(later) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other settings(later) +unsaved +pending	s	other settings(later) +pending	save
 other settings.section(choice)	Ctrl-C	other left	exit 130
 other settings.section(choice)	Down	other settings.section(value)	
@@ -5489,7 +5465,7 @@ other settings.section(choice) +pending	Enter	other settings.section.list +pendi
 other settings.section(choice) +pending	Esc	other settings(later) +pending	
 other settings.section(choice) +pending	PgDn	other settings.section(value) +pending	
 other settings.section(choice) +pending	Shrink	other any.too-small +pending	
-other settings.section(choice) +pending	q	other any.question.leave +pending	
+other settings.section(choice) +pending	q	other left	exit 0
 other settings.section(choice) +unsaved	Ctrl-C	other left	save, exit 130
 other settings.section(choice) +unsaved	Down	other settings.section(value) +unsaved	
 other settings.section(choice) +unsaved	End	other settings.section(switch) +unsaved	
@@ -5505,7 +5481,7 @@ other settings.section(choice) +unsaved +pending	Enter	other settings.section.li
 other settings.section(choice) +unsaved +pending	Esc	other settings(later) +unsaved +pending	
 other settings.section(choice) +unsaved +pending	PgDn	other settings.section(value) +unsaved +pending	
 other settings.section(choice) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other settings.section(choice) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other settings.section(choice) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other settings.section(switch)	Ctrl-C	other left	exit 130
 other settings.section(switch)	Enter	other settings.section.list	
 other settings.section(switch)	Esc	other settings(later)	
@@ -5521,7 +5497,7 @@ other settings.section(switch) +pending	Home	other settings.section(choice) +pen
 other settings.section(switch) +pending	PgUp	other settings.section(value) +pending	
 other settings.section(switch) +pending	Shrink	other any.too-small +pending	
 other settings.section(switch) +pending	Up	other settings.section(value) +pending	
-other settings.section(switch) +pending	q	other any.question.leave +pending	
+other settings.section(switch) +pending	q	other left	exit 0
 other settings.section(switch) +unsaved	Ctrl-C	other left	save, exit 130
 other settings.section(switch) +unsaved	Enter	other settings.section.list +unsaved	
 other settings.section(switch) +unsaved	Esc	other settings(later) +unsaved	
@@ -5537,7 +5513,7 @@ other settings.section(switch) +unsaved +pending	Home	other settings.section(cho
 other settings.section(switch) +unsaved +pending	PgUp	other settings.section(value) +unsaved +pending	
 other settings.section(switch) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other settings.section(switch) +unsaved +pending	Up	other settings.section(value) +unsaved +pending	
-other settings.section(switch) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other settings.section(switch) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other settings.section(value)	Ctrl-C	other left	exit 130
 other settings.section(value)	End	other settings.section(choice)	
 other settings.section(value)	Enter	other settings.section.typing	
@@ -5551,7 +5527,7 @@ other settings.section(value) +pending	Enter	other settings.section.typing +pend
 other settings.section(value) +pending	Esc	other settings(first) +pending	
 other settings.section(value) +pending	PgDn	other settings.section(choice) +pending	
 other settings.section(value) +pending	Shrink	other any.too-small +pending	
-other settings.section(value) +pending	q	other any.question.leave +pending	
+other settings.section(value) +pending	q	other left	exit 0
 other settings.section(value) +unsaved	Ctrl-C	other left	save, exit 130
 other settings.section(value) +unsaved	End	other settings.section(choice) +unsaved	
 other settings.section(value) +unsaved	Enter	other settings.section.typing +unsaved	
@@ -5565,7 +5541,7 @@ other settings.section(value) +unsaved +pending	Enter	other settings.section.typ
 other settings.section(value) +unsaved +pending	Esc	other settings(first) +unsaved +pending	
 other settings.section(value) +unsaved +pending	PgDn	other settings.section(choice) +unsaved +pending	
 other settings.section(value) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other settings.section(value) +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other settings.section(value) +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other settings.section.list	Ctrl-C	other left	exit 130
 other settings.section.list	Enter	other settings.section(choice) +unsaved	check
 other settings.section.list	Esc	other settings.section(choice)	
@@ -5575,7 +5551,7 @@ other settings.section.list +pending	Ctrl-C	other left	exit 130
 other settings.section.list +pending	Enter	other settings.section(choice) +unsaved +pending	check
 other settings.section.list +pending	Esc	other settings.section(choice) +pending	
 other settings.section.list +pending	Shrink	other any.too-small +pending	
-other settings.section.list +pending	q	other any.question.leave +pending	
+other settings.section.list +pending	q	other left	exit 0
 other settings.section.list +unsaved	Ctrl-C	other left	save, exit 130
 other settings.section.list +unsaved	Enter	other settings.section(choice) +unsaved	check
 other settings.section.list +unsaved	Esc	other settings.section(choice) +unsaved	
@@ -5585,7 +5561,7 @@ other settings.section.list +unsaved +pending	Ctrl-C	other left	save, exit 130
 other settings.section.list +unsaved +pending	Enter	other settings.section(choice) +unsaved +pending	check
 other settings.section.list +unsaved +pending	Esc	other settings.section(choice) +unsaved +pending	
 other settings.section.list +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
-other settings.section.list +unsaved +pending	q	other any.question.leave +unsaved +pending	
+other settings.section.list +unsaved +pending	q	other any.question.quit +unsaved +pending	
 other settings.section.typing	Ctrl-C	other left	exit 130
 other settings.section.typing	Enter	other settings.section(value) +unsaved	check
 other settings.section.typing	Esc	other settings.section(value)	
