@@ -18,8 +18,17 @@
 //!   of symbols that draws apart.
 //! - `spaced`: every row `-> ` repeated, each arrow a ligature run of two
 //!   cells.
+//! - `underlined`: words with descenders, underlined in a color of their
+//!   own, each row in the next of the five underline styles. Rows repeat in
+//!   blocks of six: a line of normal size, a double-width line, a
+//!   double-height pair, and a row of sized runs at scale 2, two rows tall.
+//!   Each underline leaves out the pixels near its glyphs' ink, and on the
+//!   magnified lines near the ink of the whole magnified character.
 //!
-//! Each benchmark runs with `font-ligatures` off and on. The font is
+//! Each benchmark of text and ligatures runs with `font-ligatures` off and
+//! on. `underlined` runs with them off, on a display upright and on one
+//! turned a quarter to the right, where every underline runs down a
+//! column of the display instead of along a row. The font is
 //! Unifont at 16 pixels, wrapped so that it holds a glyph for each piece of
 //! a ligature run, as a programming font with ligatures does. Only a build
 //! with the bidi feature finds ligature runs, so without it both lines of
@@ -49,7 +58,7 @@ use std::time::Instant;
 
 use vtium_font::syllable::piece_of_chars;
 use vtium_font::{Cell, Face, Font, Format, Glyph, Style, Unifont, Variant, Width};
-use vtium_render::{Canvas, Config, DrawState, Renderer};
+use vtium_render::{Canvas, Config, DrawState, Orientation, Renderer};
 use vtium_term::{Age, Terminal};
 
 const COLS: usize = 240;
@@ -120,27 +129,87 @@ fn row(name: &str, y: usize) -> String {
     }
 }
 
+/// Words with descenders, `cols` cells of them, starting at word `y`.
+fn descenders(y: usize, cols: usize) -> String {
+    const WORDS: [&str; 8] = [
+        "jumpy", "glyphs", "quietly", "typing", "gaps", "a", "query", "pj",
+    ];
+    let mut s = String::new();
+    let mut i = y;
+    while s.len() < cols {
+        s.push_str(WORDS[i % WORDS.len()]);
+        s.push(' ');
+        i += 3;
+    }
+    s.truncate(cols);
+    s
+}
+
+/// The bytes that write row `y` of `underlined`, and how many rows they
+/// fill: 1, or 2 for a double-height pair or a row of sized runs.
+fn underlined_row(y: usize) -> (String, usize) {
+    // the five underline styles in turn, in a red of their own (SGR 58)
+    let sgr = format!("\x1b[4:{};58:2::255:32:64m", y % 5 + 1);
+    let at = format!("\x1b[{};1H", y + 1);
+    match y % 6 {
+        0 => (format!("{at}{sgr}{}\x1b[m", descenders(y, COLS)), 1),
+        1 => (
+            format!("{at}\x1b#6{sgr}{}\x1b[m", descenders(y, COLS / 2)),
+            1,
+        ),
+        2 => {
+            let text = descenders(y, COLS / 2);
+            let below = format!("\x1b[{};1H", y + 2);
+            (format!("{at}\x1b#3{sgr}{text}{below}\x1b#4{text}\x1b[m"), 2)
+        }
+        _ => {
+            // runs of 10 characters at scale 2, each 20 cells wide
+            let mut s = format!("{at}{sgr}");
+            for k in 0..COLS / 20 {
+                s.push_str(&format!("\x1b]66;s=2;{}\x07", descenders(y + k, 10)));
+            }
+            s.push_str("\x1b[m");
+            (s, 2)
+        }
+    }
+}
+
 /// A terminal whose every row holds `name`'s text.
 fn screen(name: &str) -> Terminal {
     let mut t = Terminal::new(COLS, ROWS, 0);
-    for y in 0..ROWS {
+    let mut y = 0;
+    while y < ROWS {
+        if name == "underlined" {
+            // 11 blocks of six rows, then a line of normal size
+            let (bytes, rows) = underlined_row(y);
+            assert!(y + rows <= ROWS, "row {y} fills {rows} rows");
+            t.input(bytes.as_bytes());
+            y += rows;
+            continue;
+        }
         t.input(format!("\x1b[{};1H{}", y + 1, row(name, y)).as_bytes());
+        y += 1;
     }
     t.input(b"\x1b[H");
     t
 }
 
-/// The milliseconds each of `reps` full redraws of `t` takes, sorted, and
-/// how many ligature pieces the renderer asked the font for.
-fn time(t: &Terminal, ligatures: bool, reps: usize) -> (Vec<f64>, usize) {
+/// The milliseconds each of `reps` full redraws of `t` takes, on a
+/// display turned by `orientation`, sorted, and how many ligature pieces
+/// the renderer asked the font for.
+fn time(t: &Terminal, ligatures: bool, orientation: Orientation, reps: usize) -> (Vec<f64>, usize) {
     let config = Config {
         ligatures,
+        orientation,
         ..Config::default()
     };
     let (w, h) = (COLS as u32 * CELL_W, ROWS as u32 * CELL_H);
+    let turned = matches!(orientation, Orientation::Right | Orientation::Left);
+    let (w, h) = if turned { (h, w) } else { (w, h) };
     let pieces = Rc::new(Count::new(0));
     let font = Font::new(Ligatures(Unifont::new(CELL_H), Rc::clone(&pieces)));
     let mut r = Renderer::new(font, w, h, config);
+    assert_eq!(r.grid_size(), (COLS, ROWS), "the display holds the grid");
     let mut canvas = Canvas::new(w, h, 0);
     let frame = t.screen().frame(t.palette(), Age::NEVER);
     let state = DrawState {
@@ -177,21 +246,29 @@ fn main() {
         "{COLS}×{ROWS} cells of {CELL_W}×{CELL_H}, bidi feature {}",
         if cfg!(feature = "bidi") { "on" } else { "off" }
     );
-    println!("benchmark  ligatures  reps  ms/frame (median, min-max)");
-    for name in ["text", "equals", "arrows", "spaced"] {
+    println!("benchmark   variant         reps  ms/frame (median, min-max)");
+    for name in ["text", "equals", "arrows", "spaced", "underlined"] {
         if !names.is_empty() && !names.iter().any(|n| n == name) {
             continue;
         }
         let t = screen(name);
-        for ligatures in [false, true] {
-            let (times, pieces) = time(&t, ligatures, reps);
+        let variants: &[(bool, Orientation, &str)] = if name == "underlined" {
+            &[
+                (false, Orientation::Normal, "upright"),
+                (false, Orientation::Right, "turned right"),
+            ]
+        } else {
+            &[
+                (false, Orientation::Normal, "ligatures off"),
+                (true, Orientation::Normal, "ligatures on"),
+            ]
+        };
+        for &(ligatures, orientation, label) in variants {
+            let (times, pieces) = time(&t, ligatures, orientation, reps);
             let joins = cfg!(feature = "bidi") && ligatures && name == "spaced";
             assert_eq!(pieces > 0, joins, "{name}: ligature pieces drawn");
             let (lo, mid, hi) = (times[0], times[times.len() / 2], times[times.len() - 1]);
-            println!(
-                "{name:<10} {:<9}  {reps:4}  {mid:7.3} ({lo:.3}-{hi:.3})",
-                if ligatures { "on" } else { "off" },
-            );
+            println!("{name:<11} {label:<14}  {reps:4}  {mid:7.3} ({lo:.3}-{hi:.3})");
         }
     }
 }

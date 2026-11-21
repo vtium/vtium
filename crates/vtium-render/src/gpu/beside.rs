@@ -31,6 +31,10 @@ use crate::target::Rect;
 /// The bits below hold the column of the quad's first cell.
 pub(crate) const SHIFT: u32 = 16;
 
+/// The most a quad's `src[2]` can hold from [`SHIFT`] up: the last entry
+/// a quad can name, plus one.
+const NAMED_MAX: u32 = u32::MAX >> SHIFT;
+
 /// The most entries that lie side by side in a row of texels.
 const ACROSS_MAX: u32 = 64;
 
@@ -101,6 +105,12 @@ impl Besides {
     /// for it yet, for a quad's `src[2]`; 0 when its piece has nothing
     /// beside it on a row of its cell where `underlines` says the quad's
     /// underline draws, since the shader then reads nothing here.
+    ///
+    /// A quad can name entries up to [`NAMED_MAX`] less one. Once a frame
+    /// has given that many, a slot with no entry yet gets 0, so its piece's
+    /// underline skips only the piece's own ink. A value clamped to the
+    /// field's width would name the last entry, whose rows belong to
+    /// another piece.
     pub(crate) fn entry(&mut self, key: Key, mut underlines: impl FnMut(usize) -> bool) -> u32 {
         let read = self.rows.get(&key).is_some_and(|rows| {
             rows.iter()
@@ -110,12 +120,16 @@ impl Besides {
         if !read {
             return 0;
         }
+        if let Some(&n) = self.index.get(&key) {
+            return n.saturating_add(1);
+        }
         let next = u32::try_from(self.entries.len()).unwrap_or(u32::MAX);
-        let n = *self.index.entry(key).or_insert_with(|| {
-            self.entries.push(key);
-            next
-        });
-        n.saturating_add(1)
+        if next >= NAMED_MAX {
+            return 0;
+        }
+        self.entries.push(key);
+        self.index.insert(key, next);
+        next.saturating_add(1)
     }
 
     /// The texture, once it holds an entry.
@@ -192,5 +206,45 @@ impl Besides {
             Some((t, _)) => gl.free_texture(t),
             None => Ok(()),
         }
+    }
+}
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "a test fails by panicking, on small known sizes"
+)]
+mod tests {
+    use vtium_font::{Format as GlyphFormat, Glyph};
+
+    use super::*;
+    use crate::beside::Ink;
+
+    // A quad holds its entry plus one in the 16 bits above the column, so
+    // the most it can name is 0xffff, the entry 0xfffe. A slot past that
+    // gets no entry, and its piece's underline skips only the piece's own
+    // ink, rather than reading the rows of a slot another piece owns. A
+    // slot that has an entry keeps it for the rest of the frame.
+    #[test]
+    fn a_slot_past_the_entries_a_quad_can_name_gets_none() {
+        let left = Glyph::from_pixels(1, 1, GlyphFormat::Mask, vec![255]).unwrap();
+        let ink = Some(Ink {
+            glyph: &left,
+            layer: None,
+            scale: 1,
+        });
+        let beside = Beside::of((1, 1), 1, &[ink], &[None]).unwrap();
+        let mut besides = Besides::new(1, 64);
+        let last = NAMED_MAX;
+        for i in 0..=last {
+            besides.set((0, i), Some(&beside));
+        }
+        besides.begin();
+        for i in 0..last {
+            assert_eq!(besides.entry((0, i), |_| true), i + 1);
+        }
+        assert_eq!(besides.entry((0, last), |_| true), 0);
+        assert_eq!(besides.entry((0, 7), |_| true), 8);
+        assert_eq!(besides.entries.len(), usize::try_from(last).unwrap());
     }
 }
