@@ -111,6 +111,12 @@ pub struct Opened {
     /// The font sets the draft's folder adds, replaces and removes, which
     /// the install writes and removes with the draft.
     pub frits: crate::store::FritChanges,
+    /// The font set changes the install makes, by name, in the order of
+    /// their names, as `flow --json` lists them under `"frits"`: the
+    /// folder's changes less a frit with the installed text and a removal
+    /// that removes nothing ([`crate::drafts::frit_changes`]). The status
+    /// line counts them.
+    pub frit_changes: Vec<(String, crate::drafts::FritEdit)>,
 }
 
 /// One file of the installed history.
@@ -369,6 +375,12 @@ impl Store {
             batch: self.store.batch_changes(name)?.len(),
             resources: crate::batch::Resources::open(&session)?.list(),
             frits: self.store.frit_changes(name)?,
+            frit_changes: session
+                .frit_changes(name)?
+                .0
+                .iter()
+                .map(|c| (c.name.clone(), c.edit()))
+                .collect(),
         })
     }
 

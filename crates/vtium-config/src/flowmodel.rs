@@ -688,15 +688,10 @@ pub fn json(
             .map(|(k, v)| format!("{{\"key\":{},\"value\":{}}}", quoted(k), quoted(v))),
     );
     let frits = frits.iter().map(|f| {
-        let change = match (&f.old, &f.new) {
-            (_, None) => "remove",
-            (None, Some(_)) => "add",
-            (Some(_), Some(_)) => "replace",
-        };
         format!(
             "{{\"name\":{},\"change\":{}}}",
             quoted(&f.name),
-            quoted(change)
+            quoted(f.edit().word())
         )
     });
     let (added, removed) = state.counts();
