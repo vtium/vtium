@@ -723,7 +723,7 @@ bench: ## Time vtium-term's write benchmarks: ms a frame and a MiB, median with 
 # repetitions.
 DRAW_BENCH ?=
 .PHONY: draw-bench
-draw-bench: ## Time a full CPU redraw of a 240×67 screen of text with font-ligatures off and on (DRAW_BENCH='text equals arrows spaced')
+draw-bench: ## Time a full CPU redraw of a 240×67 screen of text, with font-ligatures off and on, and of underlined text, upright and turned (DRAW_BENCH='text equals arrows spaced underlined')
 	cargo run --release -p vtium-render --features bidi --example draw_bench -- --reps $(BENCH_REPS) $(DRAW_BENCH)
 
 # Tier 1 and the capability probes, against the goldens and probes in
