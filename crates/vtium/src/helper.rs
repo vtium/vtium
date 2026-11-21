@@ -2089,8 +2089,13 @@ impl Helper {
     }
 
     /// Sends one request's `bytes`, starting the helper first when it is
-    /// not running, and sets when its answer is due.
+    /// not running, and sets when its answer is due. A helper given up
+    /// takes nothing, so a helper that cannot start while vtium sends its
+    /// waiting asks again is started once, not once for each ask.
     fn post(&mut self, bytes: Vec<u8>, now: Instant) {
+        if self.failed.is_some() {
+            return;
+        }
         if self.running.is_none() {
             match self.start() {
                 Ok(r) => self.running = Some(r),
