@@ -577,27 +577,28 @@ fn tab_leaves_a_question_open_on_any_view_and_esc_answers_no() {
         "{screen}"
     );
     assert!(d.plans.is_empty());
-    // the question before leaving with a frit waiting: Tab leaves it
-    // open, and Esc goes back
-    let mut c = console().keys(&on_tiny5(&[b"r", b"q"]));
+    // the quit question, with the size kept on the card not saved: Tab
+    // leaves it open, and Esc goes back
+    let quit: Vec<&[u8]> = [&ask[..6], &[b"q"]].concat();
+    let mut c = console().keys(&quit);
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert_eq!(
-        foot(&screen, keys_of("any.question.leave")),
-        keys_of("any.question.leave"),
+        foot(&screen, keys_of("any.question.quit")),
+        keys_of("any.question.quit"),
         "{screen}"
     );
-    let mut c = console().keys(&on_tiny5(&[b"r", b"q", TAB]));
+    let mut c = console().keys(&[&quit[..], &[TAB]].concat());
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
     assert_eq!(
-        foot(&screen, keys_of("any.question.leave")),
-        keys_of("any.question.leave"),
+        foot(&screen, keys_of("any.question.quit")),
+        keys_of("any.question.quit"),
         "{screen}"
     );
-    let mut c = console().keys(&on_tiny5(&[b"r", b"q", TAB, b"\x1b"]));
+    let mut c = console().keys(&[&quit[..], &[TAB, b"\x1b"]].concat());
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");

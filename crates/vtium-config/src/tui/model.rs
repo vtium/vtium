@@ -455,9 +455,6 @@ pub struct Shared {
     pub came: Option<String>,
     /// The notice that the live trial is off has been shown.
     live_said: bool,
-    /// The TUI leaves with this status once the install that `y` at the
-    /// leave question started ends well.
-    pub quit_after_install: Option<u8>,
     /// The changes made since the draft was last read or saved, which
     /// [`Shared::draft`]'s text holds and the store does not hold until
     /// Save writes them.
@@ -629,10 +626,6 @@ pub enum Then {
     Change(DraftChange),
     Desk(Op),
     Install(Plan),
-    /// Leaves with this status while new or removed frits wait for an
-    /// install: `y` installs them first, and `n` leaves them uninstalled.
-    /// Both save the unsaved changes.
-    Leave(u8),
     /// Leaves with this status: `y` saves the unsaved changes first, `n`
     /// leaves without them.
     Quit(u8),
@@ -716,7 +709,6 @@ impl App {
                 install_waits: None,
                 came: None,
                 live_said: false,
-                quit_after_install: None,
                 unsaved: 0,
                 start_grid: (size.cols, size.rows),
                 grid_moved: false,

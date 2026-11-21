@@ -80,7 +80,7 @@ impl Abs {
 
 impl Abs {
     /// The state as the key table writes it: `view`, `view:flow`,
-    /// `question:leave`.
+    /// `question:quit`.
     pub fn table_state(&self) -> String {
         if self.narrow.is_empty() {
             self.kind.name().to_owned()
@@ -192,7 +192,6 @@ fn open(app: &App, at: &str) -> (StateKind, &'static str) {
             kind,
             match &confirm.then {
                 Then::Quit(_) => "quit",
-                Then::Leave(_) => "leave",
                 Then::Change(vtium_config::tui::edit::Change::Top {
                     key: "allow-window-ops",
                     ..

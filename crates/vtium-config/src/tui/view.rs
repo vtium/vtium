@@ -214,12 +214,6 @@ fn small(app: &App) -> Vec<String> {
             ),
             cols,
         ),
-        // the leave question's keys fill a row, so what it says goes on
-        // the row above them
-        Some(Then::Leave(_)) => wrap(&words::small_leave(app.shared.unsaved), cols, usize::MAX)
-            .into_iter()
-            .chain(item_rows(key_line(app), cols))
-            .collect(),
         Some(_) => item_rows(key_line(app), cols),
     };
     // the keys that stay on the screen however few its rows: the

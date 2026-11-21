@@ -126,7 +126,6 @@ pub fn node(app: &App) -> &'static str {
     if let Some(confirm) = &app.nav.confirm {
         return match confirm.then {
             Then::Quit(_) => "any.question.quit",
-            Then::Leave(_) => "any.question.leave",
             Then::Desk(super::desk::Op::Resource { .. }) => "any.question.deactivate",
             Then::InstallFont => "any.question.system-font",
             Then::Change(super::edit::Change::Top {

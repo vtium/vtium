@@ -1,10 +1,12 @@
 //! A font set made in the TUI waits in the draft's folder, so leaving
-//! vtium-config before Install loses nothing: the TUI runs on the real
-//! desk, a store under a home of the test's own, and the stand-in console
-//! `vtium`, whose check passes every file.
+//! vtium-config before Install loses nothing, and `q` asks no question
+//! about it: the TUI runs on the real desk, a store under a home of the
+//! test's own, and the stand-in console `vtium`, whose check passes every
+//! file.
 //!
 //! References:
-//! - ADR-1403 D8, "A draft's font set changes": the folder, and that quitting loses nothing.
+//! - ADR-1403 D8, "A draft's font set changes": the folder, that quitting
+//!   loses nothing, and that the TUI asks nothing about the folder.
 
 mod tui_common;
 use tui_common::*;
@@ -23,6 +25,10 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 /// The keys of Enter, End and Down.
 const ENTER: &[u8] = b"\r";
 const END: &[u8] = b"\x1b[F";
+
+/// A change that waits for Save: `4` opens the Flow view, and the first
+/// path's terminal, desk, is renamed deskx on its card.
+const CHANGE: [&[u8]; 8] = [b"4", b"\x1b[H", b"\x1b[C", ENTER, ENTER, b"x", ENTER, b"\x1b"];
 
 /// A machine of the test's own: the installed vtium.conf under `etc`, an
 /// empty frits' directory, the stand-in console, and a home whose store
@@ -137,15 +143,17 @@ fn words(screen: &str) -> String {
 }
 
 /// A font set made with the new-frit form survives leaving vtium-config
-/// before Install: the draft's folder holds it, `vtium config diff` shows
-/// it, and the TUI started again finds it waiting for the install.
+/// before Install: `q` leaves at once, the draft's folder holds the font
+/// set, `vtium config diff` shows it, and the TUI started again finds it
+/// waiting for the install. With a change that waits for Save, `q` asks
+/// only the quit question, and its `n` leaves the folder as it was.
 #[test]
 fn a_font_set_made_in_the_tui_survives_leaving_before_install() {
     let m = machine("survives");
     // from the look big, Down to the first font set, n opens the form,
     // Other… on the text font types builtin:unscii-8, Down five times
     // reaches the name, which is typed and kept, Enter on the add row adds
-    // the font set, and q then n leaves without installing
+    // the font set, and q leaves
     let made: &[&[u8]] = &[
         DOWN,
         b"n",
@@ -164,27 +172,48 @@ fn a_font_set_made_in_the_tui_survives_leaving_before_install() {
         ENTER,
         ENTER,
         b"q",
-        b"n",
     ];
-    m.run(made);
+    // the TUI leaves before the keys run out, so it draws no last screen
+    // for the test to read; a question would have kept it open
+    let screen = m.run(made);
+    assert_eq!(screen, "", "q leaves at once");
     let text = "# quiet: made by vtium-config new-frit\nname=quiet\nsource=builtin:unscii-8\n";
-    let folder = m.store().frit_changes("mine").expect("the folder");
-    assert_eq!(
-        folder.kept.get("quiet").map(String::as_str),
-        Some(text),
-        "{folder:?}"
-    );
-    assert!(!m.root.join("etc/fonts/quiet.vtfrit").exists());
+    let kept = |m: &Machine| {
+        let folder = m.store().frit_changes("mine").expect("the folder");
+        assert_eq!(
+            folder.kept.get("quiet").map(String::as_str),
+            Some(text),
+            "{folder:?}"
+        );
+        assert!(folder.removed.is_empty(), "{folder:?}");
+        assert!(!m.root.join("etc/fonts/quiet.vtfrit").exists());
+    };
+    kept(&m);
     let diff = m.command(&["diff"]);
     assert!(diff.contains("quiet"), "{diff}");
-    // started again, the TUI counts the font set that waits, and the leave
-    // question names it
-    let screen = m.run(&[b"q"]);
-    let said = words(&screen);
-    assert!(
-        said.contains("The draft keeps the new font sets quiet until you install it."),
-        "{screen}"
-    );
+    // started again, the TUI counts the font set that waits, and q with
+    // nothing unsaved still leaves at once
+    let screen = m.run(&[]);
     let status = screen.lines().nth(1).unwrap_or_default();
     assert!(status.contains("1 font set to install"), "{screen}");
+    assert_eq!(m.run(&[b"q"]), "", "q leaves at once");
+    // with a change that waits for Save, q then n quits without the
+    // change, and the folder still holds the font set
+    m.run(&[&CHANGE[..], &[b"q", b"n"]].concat());
+    kept(&m);
+    let diff = m.command(&["diff"]);
+    assert!(diff.contains("quiet"), "{diff}");
+    assert!(!diff.contains("deskx"), "{diff}");
+    // and q asks the quit question alone; the keys then run out, and the
+    // signal that ends the test saves the change, so this runs last
+    let screen = m.run(&[&CHANGE[..], &[b"q"]].concat());
+    let said = words(&screen);
+    assert!(
+        said.contains(
+            "1 change is not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back."
+        ),
+        "{screen}"
+    );
+    assert!(!said.contains("Install before you quit?"), "{screen}");
+    assert!(!said.contains("The draft keeps"), "{screen}");
 }

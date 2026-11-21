@@ -33,9 +33,6 @@ impl App {
     fn cancel_question(&mut self, leaves: bool) -> Vec<Effect> {
         self.nav.confirm = None;
         self.shared.font_install = None;
-        // going back from the install the leave question started leaves
-        // no install waiting
-        self.shared.quit_after_install = None;
         self.say(if leaves {
             words::NOT_LEFT
         } else {
@@ -45,8 +42,7 @@ impl App {
 
     /// A key while a question is asked. `y` does what the question asks.
     /// The quit question also takes `n`, which quits without the unsaved
-    /// changes, and the leave question takes `n`, which quits without
-    /// installing. Esc and Ctrl-C cancel the question and change nothing.
+    /// changes. Esc and Ctrl-C cancel the question and change nothing.
     /// Every other key does nothing, and the question stays, so a stray
     /// key cannot answer it.
     ///
@@ -56,7 +52,7 @@ impl App {
     pub(crate) fn confirm_key(&mut self, key: Key) -> Vec<Effect> {
         let leaves = matches!(
             self.nav.confirm.as_ref().map(|c| &c.then),
-            Some(Then::Quit(_) | Then::Leave(_))
+            Some(Then::Quit(_))
         );
         // the question whether to let programs resize the grid takes `n`
         // as a no, as Esc is
@@ -75,15 +71,6 @@ impl App {
         match confirm.then {
             Then::Quit(status) if key == Key::Char('n') => self.leave(status),
             Then::Quit(status) => self.save_and_leave(status),
-            Then::Leave(status) if key == Key::Char('n') => self.save_and_leave(status),
-            // Install saves first, and the TUI leaves once it ends well;
-            // with no draft there is nothing to install, and nothing waits
-            Then::Leave(status) => {
-                if self.shared.draft.is_some() {
-                    self.shared.quit_after_install = Some(status);
-                }
-                self.action('i')
-            }
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
             Then::Install(plan) => {
@@ -100,34 +87,23 @@ impl App {
         }
     }
 
-    /// `q`: leaves, or asks first. While changes wait for Save, it asks
-    /// the quit question. While the draft's folder holds new frits or frit
-    /// removals that wait for an install, it asks the leave question
-    /// instead, which offers to install them first; the folder keeps them
-    /// either way. The leave question also names the changes that wait
-    /// for Save, and its `y` saves them before the TUI leaves, as the quit
-    /// question's does.
+    /// `q`: leaves, or asks the quit question first while changes wait
+    /// for Save. The new and removed font sets that wait for an install
+    /// stay in the draft's folder, so leaving loses none of them, and `q`
+    /// asks nothing about them.
     ///
     /// References:
-    /// - ADR-1403 D7, "The same keys in every view": what `q` asks, and
-    ///   that the leave question names and saves the unsaved changes.
+    /// - ADR-1403 D7, "The same keys in every view": what `q` asks.
+    /// - ADR-1403 D8, "A draft's font set changes": the folder keeps the
+    ///   font set changes, so quitting loses nothing.
     pub(crate) fn quit(&mut self, status: u8) -> Vec<Effect> {
-        let frits = self.shared.frits();
-        let waiting = frits.len();
-        if waiting == 0 && self.shared.unsaved > 0 {
-            self.ask(
-                words::quit_question(self.shared.unsaved),
-                Then::Quit(status),
-            );
-            return Vec::new();
-        }
-        if waiting == 0 {
+        if self.shared.unsaved == 0 {
             return self.leave(status);
         }
-        let added: Vec<String> = frits.kept.keys().cloned().collect();
-        let removed: Vec<String> = frits.removed.iter().cloned().collect();
-        let question = words::leave_question(&added, &removed, self.shared.unsaved);
-        self.ask(question, Then::Leave(status));
+        self.ask(
+            words::quit_question(self.shared.unsaved),
+            Then::Quit(status),
+        );
         Vec::new()
     }
 
@@ -249,7 +225,6 @@ impl App {
             Ok(done) => done,
             Err(why) => {
                 self.flow.select_after(None);
-                self.shared.quit_after_install = None;
                 return self.say(&why);
             }
         };
@@ -306,17 +281,7 @@ impl App {
                     .count()
                     .saturating_add(plan.removals.len());
                 if plan.is_empty() {
-                    return match self.shared.quit_after_install.take() {
-                        Some(status) => self.leave(status),
-                        None => self.say(words::NOTHING_TO_INSTALL),
-                    };
-                }
-                // `y` at the leave question already said to install; a draft
-                // with no complete route still asks its own question first
-                if self.shared.quit_after_install.is_some() && !plan.no_route {
-                    self.shared.installing = true;
-                    self.shared.message = Some(words::INSTALLING.to_owned());
-                    return vec![Effect::Install(plan)];
+                    return self.say(words::NOTHING_TO_INSTALL);
                 }
                 let (added, removed) = match plan.files.last() {
                     Some(f) if self.shared.draft.as_ref().is_some_and(|d| d.text == f.new) => self
@@ -340,7 +305,6 @@ impl App {
                 self.ask(question, Then::Install(plan));
             }
             Done::Refused(why, problems) => {
-                self.shared.quit_after_install = None;
                 let mut lines = vec![why];
                 lines.extend(problems);
                 self.shared.message = Some(lines.join("\n"));
@@ -411,7 +375,6 @@ impl App {
             }) => return self.font_installed(&target, &said, untrusted.as_deref(), found),
             Ok(_) => return Vec::new(),
             Err(why) => {
-                self.shared.quit_after_install = None;
                 return self.say(&words::install_failed(&why));
             }
         };
@@ -439,10 +402,6 @@ impl App {
         self.shared.draft = Some(opened);
         self.frits_installed(done);
         self.rebuild(None);
-        if let Some(status) = self.shared.quit_after_install.take() {
-            self.shared.message = Some(message);
-            return self.leave(status);
-        }
         self.say(&message)
     }
 

@@ -59,14 +59,12 @@ impl Seen<'_> {
             || (self.has("save") && self.after.desk.draft == Self::draft(self.before).unwrap_or(""))
     }
 
-    /// The key quits, or asks the question that fits first: the quit
-    /// question while changes wait for Save, the leave question while font
-    /// sets wait for an install.
+    /// The key quits, or asks the quit question first while changes wait
+    /// for Save. The font sets that wait for an install stay in the
+    /// draft's folder, so they ask nothing.
     fn quits_or_asks(&self) -> Result<(), String> {
         let app = &self.before.app;
-        let want = if !app.shared.frits().is_empty() {
-            "question:leave"
-        } else if app.shared.unsaved > 0 {
+        let want = if app.shared.unsaved > 0 {
             "question:quit"
         } else {
             return self.exits(0);
@@ -431,42 +429,6 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         }
     };
     m.insert("y.question.quit", (save_quit, no_today));
-    m.insert(
-        "y.question.leave",
-        (
-            |s| {
-                // an install refused or failed keeps the TUI, which says why
-                if !s.exited() {
-                    return if s.has("install") || s.after.app.shared.message.is_none() {
-                        Err("the TUI stays after an install, or says nothing".into())
-                    } else {
-                        Ok(())
-                    };
-                }
-                s.exits(0)?;
-                if s.has("install") && s.saved() {
-                    Ok(())
-                } else {
-                    Err("expected a save and an install before the TUI quits".into())
-                }
-            },
-            no_today,
-        ),
-    );
-    m.insert(
-        "n.question.leave",
-        (
-            |s| {
-                s.exits(0)?;
-                if s.saved() && !s.has("install") {
-                    Ok(())
-                } else {
-                    Err("expected a save and no install".into())
-                }
-            },
-            no_today,
-        ),
-    );
     m.insert("n.question", (no, no_today));
     m.insert(
         "n.question.quit",
@@ -482,8 +444,6 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             no_today,
         ),
     );
-    m.insert("i.question.leave", (nothing, no_today));
-    m.insert("l.question.leave", (nothing, no_today));
     m.insert("other.question", (nothing, no_today));
     m.insert("s.view", (saves, no_today));
     m.insert("s.view.fonts", (saves, no_today));

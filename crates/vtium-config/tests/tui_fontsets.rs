@@ -372,52 +372,33 @@ fn new_opens_the_tui_at_its_new_frit_view() {
 }
 
 /// Leaving while a frit's removal waits in the draft's folder for an
-/// install asks first and names it; `y` installs the removal and leaves,
-/// `n` leaves without installing and the folder keeps the removal, a stray
-/// key such as `l` leaves the question open, and the top row counts the
-/// font set waiting.
+/// install asks nothing, since the folder keeps the removal: `q` quits at
+/// once, installs nothing, and the folder still holds the removal. The top
+/// row counts the font set waiting.
 #[test]
-fn leaving_with_a_frit_waiting_asks_and_y_installs_it() {
-    let mut c = console().keys(&on_set(4, &[b"r", b"q"]));
+fn leaving_with_a_frit_waiting_quits_at_once_and_the_folder_keeps_it() {
+    let mut c = console().keys(&on_set(4, &[b"r"]));
     let mut d = desk();
     run_desk(&mut c, &mut d);
     let screen = c.seen.clone().expect("the screen");
-    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(
-        text.contains(
-            "Install before you quit? The draft keeps the removal of tiny5 until you install it."
-        ),
-        "{screen}"
-    );
     // the status line says the font set waiting; the next test checks
     // its words at each width
     let status = screen.lines().nth(1).unwrap_or_default();
     assert!(status.contains("· 1 to install"), "{screen}");
-    let mut c = console().keys(&on_set(4, &[b"r", b"q", b"y"]));
+    let mut c = console().keys(&on_set(4, &[b"r", b"q"]));
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
-    let plan = d.plans.first().expect("an install");
-    assert_eq!(plan.removals.len(), 1, "{plan:?}");
-    let mut c = console().keys(&on_set(4, &[b"r", b"q", b"n"]));
-    let mut d = desk();
-    assert_eq!(run_desk(&mut c, &mut d), 0);
-    assert!(d.plans.is_empty());
-    let mut c = console().keys(&on_set(4, &[b"r", b"q", b"l"]));
-    let mut d = desk();
-    run_desk(&mut c, &mut d);
-    let screen = c.seen.clone().expect("the screen");
-    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-    assert!(text.contains("Install before you quit?"), "{screen}");
+    // the TUI left before the keys ran out, so no question kept it open
+    assert_eq!(c.seen, None);
+    assert!(d.plans.is_empty(), "{:?}", d.plans);
+    assert!(d.frits.removed.iter().eq(["tiny5"]), "{:?}", d.frits);
 }
 
-/// Esc goes back with the frit still waiting, after a stray `x` and `i`
-/// left the question open, and `i` in the view then installs it.
+/// `i` installs the frit's removal that waits in the draft's folder, after
+/// its question, and `q` then quits.
 #[test]
-fn leaving_with_a_frit_waiting_goes_back_or_installs() {
-    let mut c = console().keys(&on_set(
-        4,
-        &[b"r", b"q", b"x", b"i", b"\x1b", b"i", b"y", b"q"],
-    ));
+fn i_installs_a_frit_waiting_and_q_then_quits() {
+    let mut c = console().keys(&on_set(4, &[b"r", b"i", b"y", b"q"]));
     let mut d = desk();
     assert_eq!(run_desk(&mut c, &mut d), 0);
     let plan = d.plans.first().expect("an install");
