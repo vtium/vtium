@@ -1342,7 +1342,7 @@ pub const FONT_NAME: Key = Key {
     levels: TOP_LOOK,
     what: "The console's font.\n\n\
            The value is the name of a font set (a frit file, `NAME.vtfrit` in `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with `font-engine = psf` the path of a PSF font; vtium then uses that one font.\n\n\
-           When unset, vtium uses the font from vconsole.conf. If there is none, or vtium cannot find the font, vtium uses its built-in font and logs why.",
+           When unset, vtium uses the font from vconsole.conf, and when vconsole.conf names none, the font set `terminus`. If vtium cannot find the font, it uses its built-in font and logs why.",
 };
 
 pub const FONT_FRITS: Key = Key {

@@ -121,7 +121,7 @@ pub(super) fn markdown() -> String {
          \n\
          vtium never reads `/etc/kmscon`, or a seat file such as `seat0.seat.conf`. To use a `kmscon.conf` from kmscon, you copy it to `/etc/vtium/vtium.conf` by hand. vtium reads the keys that `kmscon` takes, in the ways that the vtium crate's README sets out in \"Reading the configuration\". With no file, vtium runs its defaults and its compiled-in heads and rules.\n\
          \n\
-         vtium reads the file once, at start. A change applies when vtium starts again, for example when its service restarts.\n\
+         vtium reads the file when it starts. Most changes apply when vtium starts again, for example when its service restarts. The four font keys at the top level, `font-name`, `font-size`, `font-engine` and `font-line-spacing`, are read again at the end of each session.\n\
          \n\
          The file has two parts. Every line above the first section heading is the top level. The top level holds vtium's own keys, the defaults that every head inherits, and the two keys of the sections, `version` and `policy`. The sections start at the first section heading:\n\
          \n\
