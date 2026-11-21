@@ -13,15 +13,16 @@ the agent's request `apply-root` (guest/t3-agent) builds a bundle in a
 folder of root's own. Its MANIFEST writes the new font set
 fonts/t3-apply.vtfrit, the built-in Unscii-8 alone in its 8x8 cell, and a
 vtium.conf that names the set at its top level, with the installed
-vtium.conf's SHA-256. The agent runs /usr/bin/vtium-config apply on it, so
-the targets are the system's. Its one option, --vtium, names a small
-program of the agent's that apply runs as its check: the program writes down
-each copy of a font set the check is given, with the owner and mode of the
-folder that holds the copy, and then runs /usr/bin/vtium with the same
-arguments. Then it builds a second bundle
+vtium.conf's SHA-256. The agent runs /usr/bin/vtium-config apply on it with
+no options, so the targets are the system's. apply's check runs
+/usr/bin/vtium, and root may not name another console, so for this one
+install the agent moves the console aside and puts a small program in its
+place. The program writes down each copy of a font set the check is given,
+with the owner and mode of the folder that holds the copy, and then runs the
+console with the same arguments. The agent then puts the console back. Then
+it builds a second bundle
 for the set t3-open, opens the frits' directory to every user with chmod
-0777, runs apply again with no options, and gives the directory its mode
-back. Last it
+0777, runs apply again, and gives the directory its mode back. Last it
 stops vtium's unit on tty2 and starts it again, so the new vtium reads the
 new vtium.conf.
 
@@ -30,7 +31,8 @@ is root's with mode 644, and vtium.conf names it. Its check must have read
 one copy of the set, in a folder /run/vtium-config-apply-* that is root's
 with mode 700, and /run must hold none of apply's private folders
 afterwards. So the check tells a folder made under /run and removed apart
-from one never made there. The second apply must exit with a failure in
+from one never made there. The console must be back as it was. The second
+apply must exit with a failure in
 the walk's words, say that nothing was installed, write neither file and
 leave nothing in /run, and the directory must have its mode back.
 
@@ -90,12 +92,13 @@ def parse_apply(lines):
     """The agent's answer to `apply-root` as a dict: for each of the two
     runs, "apply" and "open", a dict of "said" (apply's output lines),
     "checked" (each copy apply's check read, as "PATH OWNER MODE"),
-    "status", "frit" ("OWNER MODE" or "none"), "left" and "conf" (counts),
+    "console" ("kept" when the console is back as it was), "status",
+    "frit" ("OWNER MODE" or "none"), "left" and "conf" (counts),
     each None when the answer lacks it; then "was" and "mode" (the frits'
     directory's mode before and once restored), "before", "started", "state" and
     "after", as t3_builtin.parse_bare reads them."""
-    runs = {k: {"said": [], "checked": [], "status": None, "frit": None, "left": None,
-                "conf": None}
+    runs = {k: {"said": [], "checked": [], "console": None, "status": None, "frit": None,
+                "left": None, "conf": None}
             for k in ("apply", "open")}
     out = {"apply": runs["apply"], "open": runs["open"], "was": None, "mode": None, "before": None,
            "started": False, "state": None, "after": None}
@@ -110,8 +113,8 @@ def parse_apply(lines):
                 run["checked"].append(rest)
             elif key in ("status", "left", "conf") and rest.isdigit():
                 run[key] = int(rest)
-            elif key == "frit":
-                run["frit"] = rest
+            elif key in ("frit", "console"):
+                run[key] = rest
             elif key in ("was", "mode") and words[0] == "open":
                 out[key] = rest
         elif len(words) == 2 and words[0] == "before" and words[1].isdigit():
@@ -146,6 +149,8 @@ def apply_verdict(answer):
                 "under /run with mode 700: it read %s" % ("; ".join(ok["checked"]) or "none"))
     if ok["left"] != 0:
         return "apply as root left %s private folders in /run" % ok["left"]
+    if ok["console"] != "kept":
+        return "the agent did not put the console back as it was after apply: %s" % ok["console"]
     said = "; ".join(bad["said"]) or "nothing"
     if bad["status"] in (None, 0):
         return ("apply wrote into a frits' directory at mode 0777 (exit %s): %s"

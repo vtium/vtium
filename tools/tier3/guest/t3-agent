@@ -98,16 +98,17 @@
 #                    in a folder of root's own, whose MANIFEST writes the new
 #                    font set fonts/t3-apply.vtfrit and a vtium.conf that
 #                    names it, and runs /usr/bin/vtium-config apply on it,
-#                    with --vtium naming a program that writes down each
-#                    copy of a font set apply's check reads and then runs
-#                    /usr/bin/vtium; answers apply's output, each copy the
-#                    check read with its folder's owner and mode, apply's
-#                    exit status, the installed set's owner and mode, the
-#                    count of /run/vtium-config-apply-* left and whether
-#                    vtium.conf names the set. Then the same with the
-#                    frits' directory at mode 0777 and no option, which
-#                    apply must refuse, and the directory's mode before and
-#                    once restored. Last it
+#                    while /usr/bin/vtium is a program that writes down
+#                    each copy of a font set apply's check reads and then
+#                    runs the console moved aside; answers apply's output,
+#                    each copy the check read with its folder's owner and
+#                    mode, apply's exit status, the installed set's owner
+#                    and mode, the count of /run/vtium-config-apply-* left,
+#                    whether vtium.conf names the set and whether the
+#                    console is back as it was. Then the same with the
+#                    frits' directory at mode 0777, which apply must
+#                    refuse, and the directory's mode before and once
+#                    restored. Last it
 #                    stops vtium's unit on tty2 and starts it again, as
 #                    `bare` does, and answers the unit's state and the new
 #                    vtium's PID and age
@@ -343,10 +344,10 @@ apply_bundle() {
 # A program at $1 that apply runs as its check in place of the console, for
 # the bundle $2: it writes to $2.checked the path of each font set copy the
 # check is given with --with-frit, with the owner and mode of the folder that
-# holds the copy, while the copy is there, and then runs the console with
+# holds the copy, while the copy is there, and then runs the console $3 with
 # the same arguments.
 apply_recorder() {
-    sed -e "s|@CHECKED@|$2.checked|" -e "s|@CONSOLE@|$apply_console|" > "$1" <<'EOF'
+    sed -e "s|@CHECKED@|$2.checked|" -e "s|@CONSOLE@|$3|" > "$1" <<'EOF'
 #!/bin/bash
 prev=
 for arg in "$@"; do
@@ -357,20 +358,18 @@ for arg in "$@"; do
 done
 exec '@CONSOLE@' "$@"
 EOF
-    chmod 0700 "$1"
+    chmod 0755 "$1"
 }
 
-# Runs apply on the bundle $1, which writes the font set $2, with the
-# options after $3 before `apply`, and answers with the prefix $3: apply's
-# output, each copy its check read (apply_recorder), its exit status, the
-# set's owner and mode or none, how many of apply's private folders /run
-# still holds, and how many lines of vtium.conf name the set.
+# Runs apply on the bundle $1, which writes the font set $2, and answers
+# with the prefix $3: apply's output, each copy its check read
+# (apply_recorder), its exit status, the set's owner and mode or none, how
+# many of apply's private folders /run still holds, and how many lines of
+# vtium.conf name the set.
 apply_report() {
-    local etc=$bare_root/etc/vtium status bundle=$1 frit=$2 prefix=$3
-    shift 3
-    "$apply_program" "$@" apply "$bundle" > "$bundle.out" 2>&1
+    local etc=$bare_root/etc/vtium status
+    "$apply_program" apply "$1" > "$1.out" 2>&1
     status=$?
-    set -- "$bundle" "$frit" "$prefix"
     sed "s/^/$3 said /" "$1.out"
     if [ -e "$1.checked" ]; then
         sed "s/^/$3 checked /" "$1.checked"
@@ -386,11 +385,23 @@ apply_report() {
 }
 
 apply_root() {
-    local fonts=$bare_root/etc/vtium/fonts d mode
+    local fonts=$bare_root/etc/vtium/fonts d mode sum
     d=$(mktemp -d "$apply_home/t3-apply.XXXXXX") || return
     apply_bundle "$d/ok" t3-apply
-    apply_recorder "$d/check" "$d/ok"
-    apply_report "$d/ok" t3-apply apply --vtium "$d/check"
+    # apply's check runs the console by the path it was built with, and
+    # root may not name another, so the console steps aside for the length
+    # of this one install, for a program that writes down the copies the
+    # check reads and then runs the console
+    sum=$(sha256sum < "$apply_console")
+    mv "$apply_console" "$d/console"
+    apply_recorder "$apply_console" "$d/ok" "$d/console"
+    apply_report "$d/ok" t3-apply apply
+    mv -f "$d/console" "$apply_console"
+    if [ "$(sha256sum < "$apply_console")" = "$sum" ]; then
+        echo "apply console kept"
+    else
+        echo "apply console changed"
+    fi
     # the frits' directory open to every user: apply must refuse it and
     # write nothing, and the directory gets its mode back afterwards
     mode=$(stat -c %a "$fonts")

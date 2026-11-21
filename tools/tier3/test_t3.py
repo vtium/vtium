@@ -7897,7 +7897,7 @@ class ApplyRootTest(unittest.TestCase):
             "apply said wrote\t/etc/vtium/vtium.conf",
             "apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700",
             "apply status 0", "apply frit root 644", "apply left 0", "apply conf 1",
-            "open was 755",
+            "apply console kept", "open was 755",
             "open said vtium-config: vtium reads no font set in /etc/vtium/fonts, so the "
             "install writes none there: other users can change \"/etc/vtium/fonts\" (mode "
             "777). Run `chmod go-w /etc/vtium/fonts` so that only its owner can change it.",
@@ -7917,6 +7917,10 @@ class ApplyRootTest(unittest.TestCase):
                 (("apply conf 1", "apply conf 0"),
                  "the installed vtium.conf names t3-apply on 0 lines, not 1"),
                 (("apply left 0", "apply left 1"), "apply as root left 1 private folders in /run"),
+                (("apply console kept", "apply console changed"),
+                 "the agent did not put the console back as it was after apply: changed"),
+                (("apply console kept", "none"),
+                 "the agent did not put the console back as it was after apply: None"),
                 # a check that read no copy, so "left 0" would hold of a
                 # folder never made under /run
                 (("apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700",
@@ -7969,14 +7973,13 @@ class ApplyRootTest(unittest.TestCase):
     # vtium-config's privileged step, as a fake below T3_AGENT_ROOT: it
     # refuses a bundle whose MANIFEST does not give the installed vtium.conf's
     # hash, or whose frits' directory others can write, in the walk's words;
-    # otherwise it runs the console's check, the one --vtium names or the
-    # fake console below T3_AGENT_ROOT, on a copy of the bundle's font set
-    # in a private folder in /run, and installs the font set and vtium.conf.
-    # The folder is there while the fake works, and it removes the folder.
+    # otherwise it runs the console below T3_AGENT_ROOT as the check, on a
+    # copy of the bundle's font set in a private folder in /run, and installs
+    # the font set and vtium.conf. The folder is there while the fake works,
+    # and it removes the folder.
     FAKE_APPLY = r"""#!/bin/bash
 r=$T3_AGENT_ROOT
 vtium=$r/usr/bin/vtium
-if [ "$1" = --vtium ]; then vtium=$2; shift 2; fi
 [ "$1" = apply ] || exit 2
 d=$2
 run=$r/run/vtium-config-apply-fake
@@ -8031,8 +8034,13 @@ printf 'wrote\t/etc/vtium/fonts/%s\nwrote\t/etc/vtium/vtium.conf\n' "$frit"
         self.assertEqual(got["apply"], {
             "said": ["wrote\t/etc/vtium/fonts/t3-apply.vtfrit", "wrote\t/etc/vtium/vtium.conf"],
             "checked": ["%s/run/vtium-config-apply-fake/t3-apply.vtfrit %s 700" % (root, user)],
-            "status": 0, "frit": "%s 644" % user, "left": 0, "conf": 1}, answer)
-        self.assertEqual(got["open"]["checked"], [], answer)
+            "console": "kept", "status": 0, "frit": "%s 644" % user, "left": 0, "conf": 1},
+            answer)
+        self.assertEqual((got["open"]["checked"], got["open"]["console"]), ([], None), answer)
+        # the console is back in its place, as it was, and the open run's
+        # check, had it run, would have run the console itself
+        with open(os.path.join(root, "usr/bin/vtium")) as f:
+            self.assertEqual(f.read(), fake_console)
         self.assertEqual(got["open"]["status"], 1, answer)
         self.assertEqual((got["open"]["frit"], got["open"]["left"], got["open"]["conf"]),
                          ("none", 0, 0), answer)
