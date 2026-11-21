@@ -701,6 +701,8 @@ The helper is `vtium-vitrify serve`, a separate process that the console starts.
 - Pixel fonts are read by `vtium-vitrify`'s own BDF reader, never through swash.
 - Shaping is HarfRust's (ADR-1301 D1), and it runs in the helper. A cluster that the console asks for is text that a program wrote, so the shaper, and the font parser behind it, face input that anyone with the terminal can choose. They therefore run only in the helper, and the shaping path has a fuzz target.
 
+> Note 2026-11-21: the helper draws a glyph as empty when the glyph's box, at the size it is drawn at, is wider or taller than 4,096 pixels. That is twice `CELL_SIDE_MAX`, the largest cell side of 2,048 pixels, so a glyph two cells wide in the largest cell still draws. A font that passes the helper's check of its structure can still scale a glyph far past that. Each font unit is drawn at the cell's height, less half a pixel, divided by the font's ascent plus its descent, so a font whose ascent and descent span one unit draws each unit almost a cell high. zeno, the rasteriser under swash, would then overflow the 32-bit size of its mask, or ask for more memory than the helper's memory limit allows, and the helper would end. The bound keeps every mask within 4,096 × 4,096 pixels. The helper checks it before each glyph it rasterises: an outline, the `W` that sets the cell's width (D17), a color glyph's layers, and a color bitmap scaled with no box to fit it.
+
 ### D6: decoders and rasterizers stay out of the console
 
 - `vtium-vitrify` holds every decoder and reader: gzip, bzip2, xz and zstd, PSF1, PSF2, CPI, raw fonts, BDF, unimaps, kbd lookup, vconsole.conf, the outline reader, swash and HarfRust, each in pure Rust with no C library.
