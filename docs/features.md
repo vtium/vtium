@@ -100,7 +100,7 @@ When an image changes, vtium redraws only the cells it covers. Tier 3's `img-tmu
 
 ## The terminal
 
-- vtium renders 24-bit color and the 256-color palette. It renders bold, italic, faint, strike, overline, blink, reverse and concealed text, and superscripts and subscripts. It renders underline in five styles (single, double, curly, dotted, dashed), each in a color of its own.
+- vtium renders 24-bit color and the 256-color palette. It renders bold, italic, faint, strike, overline, blink, reverse and concealed text, and superscripts and subscripts. It renders underline in five styles (single, double, curly, dotted, dashed), each in a color of its own. An underline leaves a small gap where a descender, such as the tail of g, crosses it.
 - Each look takes a color scheme: one of the nine built into vtium, one of the 13 that vtium installs, or a palette file of your own. A build with the `filters` feature also applies a look's vtlook, which changes the finished picture with filters such as gamma, a tint, a color-blind correction or a color map. See [Looks and effects](concepts/looks.md) for details.
 - It draws double-width and double-height lines (DECDWL and DECDHL). It draws box drawing, blocks, Braille, sextants and octants itself, so they fill each cell exactly. It supports the DEC character sets, DEC special graphics among them.
 - It interprets kitty's text sizing protocol (OSC 66), and draws each sized run from the font's glyphs scaled up. An outline font does not draw a run at its true size yet. See [the text sizing issue](https://github.com/vtium/vtium/issues/60).
