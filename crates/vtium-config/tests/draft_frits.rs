@@ -3,7 +3,9 @@
 //! fixture whose configuration directory stands in for `/etc/vtium`, so
 //! the install runs `apply` as the user and writes the fixture's frits.
 //! The stand-in `vtium` passes every vtium.conf. The tests put each change
-//! in the folder as the Fonts tab keeps it there.
+//! in the folder as the Fonts tab keeps it there. `XDG_RUNTIME_DIR` points
+//! at the fixture's own `run` folder, mode 0700, where the install makes
+//! the private folder for its check's copies of the draft's font sets.
 //!
 //! References:
 //! - ADR-1403 D8, "A draft's font set changes": the folder, what reads it, and what install does with it.
@@ -43,8 +45,13 @@ fn fixture(name: &str) -> Fixture {
     if root.exists() {
         std::fs::remove_dir_all(&root).expect("a fresh fixture");
     }
-    for dir in ["etc/fonts", "home", "sys", "udev/data", "res"] {
+    for dir in ["etc/fonts", "home", "sys", "udev/data", "res", "run"] {
         std::fs::create_dir_all(root.join(dir)).expect("the fixture");
+    }
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(root.join("run"), std::fs::Permissions::from_mode(0o700))
+            .expect("the runtime folder's mode");
     }
     std::fs::write(root.join("etc/vtium.conf"), INSTALLED).expect("vtium.conf");
     std::fs::write(root.join("etc/fonts/old.vtfrit"), OLD).expect("a frit");
@@ -59,6 +66,11 @@ impl Fixture {
     }
 
     fn run(&self, args: &[&str]) -> Ran {
+        self.run_in(self.command(args))
+    }
+
+    /// The binary with `args`, in the fixture's own directories.
+    fn command(&self, args: &[&str]) -> Command {
         let mut c: Command = home::command(BIN);
         c.arg("--configdir")
             .arg(self.path("etc"))
@@ -74,7 +86,13 @@ impl Fixture {
             .env("HOME", self.path("home"))
             .env("XDG_CONFIG_HOME", self.path("home/config"))
             .env("XDG_STATE_HOME", self.path("home/state"))
+            .env("XDG_RUNTIME_DIR", self.path("run"))
             .stdin(Stdio::null());
+        c
+    }
+
+    /// Runs `c`, with the fixture's root shown as `ROOT` in what it says.
+    fn run_in(&self, mut c: Command) -> Ran {
         let o = c.output().expect("the binary runs");
         let root = self.root.to_str().expect("a path");
         Ran {
@@ -574,10 +592,11 @@ fn a_look_that_names_a_font_set_only_the_draft_adds_installs() {
 
 /// The check that `apply DIR` runs gets one `--with-frit` for each frit
 /// the bundle writes and one `--without-frit` for each frit it removes.
-/// Each `--with-frit` names a copy that the install made in a directory
-/// of its own inside the frits' directory, with mode 0700, and the copy
-/// holds the text the install writes. The directory is gone after the
-/// install.
+/// Each `--with-frit` names a copy, mode 0600, that the install made in a
+/// private folder of its own under the user's runtime folder, with mode
+/// 0700, and the copy holds the text the install writes. The folder is
+/// gone after the install, and the install made nothing in the frits'
+/// directory but the frit itself.
 ///
 /// References:
 /// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets.
@@ -593,7 +612,7 @@ fn the_install_s_own_check_counts_the_bundle_s_font_sets() {
             concat!(
                 "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\n",
                 "{{ echo ---; prev=; for a in \"$@\"; do echo \"$a\"; ",
-                "if [ \"$prev\" = --with-frit ]; then stat -c 'mode %a' \"$(dirname \"$a\")\"; cat \"$a\"; fi; ",
+                "if [ \"$prev\" = --with-frit ]; then stat -c 'mode %a' \"$(dirname \"$a\")\" \"$a\"; cat \"$a\"; fi; ",
                 "prev=$a; done; }} >> '{}'\nexit 0\n",
             ),
             log.display()
@@ -617,13 +636,10 @@ fn the_install_s_own_check_counts_the_bundle_s_font_sets() {
     let dir = copy
         .strip_suffix("/new.vtfrit")
         .expect("the copy is named for its frit");
-    assert!(
-        dir.starts_with("ROOT/etc/fonts/vtium-config-apply-"),
-        "{words:?}"
-    );
-    assert_eq!(words[at + 2], "mode 700", "{words:?}");
+    assert!(dir.starts_with("ROOT/run/vtium-config-apply-"), "{words:?}");
+    assert_eq!(words[at + 2..at + 4], ["mode 700", "mode 600"], "{words:?}");
     assert_eq!(
-        words[at + 3..at + 5],
+        words[at + 4..at + 6],
         ["name=new", "source=builtin:unscii-8"],
         "{words:?}"
     );
@@ -636,17 +652,27 @@ fn the_install_s_own_check_counts_the_bundle_s_font_sets() {
         !Path::new(&dir.replace("ROOT", root)).exists(),
         "the copies go after the check"
     );
+    let mut fonts: Vec<String> = std::fs::read_dir(f.path("etc/fonts"))
+        .expect("the frits' directory")
+        .map(|e| {
+            e.expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    fonts.sort();
+    assert_eq!(fonts, ["kept.vtfrit", "new.vtfrit", "old.vtfrit.bak"]);
 }
 
 /// The install checks the frits' directory, and every folder above it,
-/// under the ownership check the console makes of every font set before
-/// it makes the folder for the check's copies there. A frits' directory
-/// that other users can write is refused before anything is created in
-/// it, and nothing is installed, since the console would refuse every
-/// font set in it.
+/// with the walk the console reads every font set through, before it
+/// writes anything there or runs its check. A frits' directory that other
+/// users can write is refused, and nothing is installed, since the console
+/// would refuse every font set in it.
 ///
 /// References:
-/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` reads root's copies of the bundle's font sets.
+/// - ADR-1403 D8, "What `install` does": apply checks the frits' directory with the console's own rule before it writes there.
 /// - ADR-1401 D10: the ownership check that every installed frit passes.
 #[test]
 fn the_install_refuses_a_frits_directory_others_can_write() {
@@ -689,56 +715,134 @@ fn the_install_refuses_a_frits_directory_others_can_write() {
     assert_eq!(f.held("desk"), ["new.vtfrit"]);
 }
 
-/// A folder for the check's copies that an install left in the frits'
-/// directory, because it was killed before it could remove the folder,
-/// goes at the next install that makes one. The install removes only a
-/// folder of its own name pattern that the user it runs as owns, with
-/// mode 0700. A symbolic link and a folder others can read stay, and so
-/// does what a link points to.
+/// A bundle that writes or removes a font set but holds no vtium.conf,
+/// because the draft's vtium.conf is the installed one, runs no check of
+/// vtium.conf. The install still checks the frits' directory with the
+/// console's walk, and refuses a directory other users can write: it
+/// writes no frit there and removes none.
 ///
 /// References:
-/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` reads root's copies of the bundle's font sets.
+/// - ADR-1403 D8, "What `install` does": apply checks the frits' directory with the console's own rule before it writes there.
 #[test]
-fn the_install_removes_the_check_s_folders_a_killed_install_left() {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    let f = fixture("apply-leftover");
+fn the_install_refuses_a_frits_directory_others_can_write_without_vtium_conf() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("apply-writable-frits-only");
+    f.desk();
+    f.keep("new.vtfrit", NEW);
+    f.keep("old.removed", "");
     let fonts = f.path("etc/fonts");
-    let left = fonts.join("vtium-config-apply-0123456789abcdef");
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(&left)
-        .expect("a leftover");
-    std::fs::write(left.join("new.vtfrit"), NEW).expect("a leftover copy");
-    std::fs::set_permissions(
-        left.join("new.vtfrit"),
-        std::fs::Permissions::from_mode(0o600),
-    )
-    .expect("the mode");
-    let open = fonts.join("vtium-config-apply-open");
-    std::fs::DirBuilder::new()
-        .mode(0o755)
-        .create(&open)
-        .expect("a folder others can read");
-    let elsewhere = f.path("elsewhere");
-    std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(&elsewhere)
-        .expect("a folder");
-    std::fs::write(elsewhere.join("keep"), "kept").expect("a file");
-    std::os::unix::fs::symlink(&elsewhere, fonts.join("vtium-config-apply-link")).expect("a link");
+    std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(0o777)).expect("the mode");
+    let ran = f.run(&["install"]);
+    std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(0o755)).expect("the mode");
+    assert_ne!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert!(
+        format!("{}{}", ran.out, ran.err).contains(
+            "vtium reads no font set in ROOT/etc/fonts, so the install writes none there: other users can change \"ROOT/etc/fonts\" (mode 777)."
+        ),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    assert!(!fonts.join("new.vtfrit").exists(), "nothing is installed");
+    assert_eq!(
+        std::fs::read_to_string(fonts.join("old.vtfrit"))
+            .ok()
+            .as_deref(),
+        Some(OLD),
+        "nothing is removed"
+    );
+    assert_eq!(f.held("desk"), ["new.vtfrit", "old.removed"]);
+}
+
+/// The install writes and removes each font set in the frits' directory
+/// it checked, through a descriptor it holds on that directory, never by
+/// the path again. Here the frits' directory is a symbolic link, and the
+/// stand-in console points the link at another folder while the install's
+/// own check runs, after the install checked the directory. The new frit
+/// still lands in the folder that was checked, the removal renames the
+/// frit there, and the other folder stays as it was.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": apply checks the frits' directory with the console's own rule before it writes there.
+#[test]
+fn a_link_swapped_after_the_check_does_not_move_the_install() {
+    let f = fixture("apply-swapped-link");
+    let (checked, other) = (f.path("etc/checked"), f.path("etc/other"));
+    std::fs::rename(f.path("etc/fonts"), &checked).expect("the checked folder");
+    std::fs::create_dir(&other).expect("the other folder");
+    std::fs::write(other.join("old.vtfrit"), OLD).expect("a frit");
+    std::os::unix::fs::symlink("checked", f.path("etc/fonts")).expect("the link");
+    // the stand-in console swaps the link only in the install's own check,
+    // whose --with-frit names a copy the install made, and not in the
+    // check vtium-config runs on the draft before the install
+    script::executable(
+        &f.path("vtium"),
+        &format!(
+            concat!(
+                "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\n",
+                "prev=; for a in \"$@\"; do ",
+                "case \"$prev $a\" in '--with-frit '*/vtium-config-apply-*) ",
+                "ln -s other '{etc}/swap' && mv -T '{etc}/swap' '{etc}/fonts' ;; esac; ",
+                "prev=$a; done\nexit 0\n",
+            ),
+            etc = f.path("etc").display(),
+        ),
+    );
     f.desk();
     f.ok(&["set", "font-size", "14"]);
     f.keep("new.vtfrit", NEW);
-    f.ok(&["install"]);
-    assert!(!left.exists(), "the leftover goes");
-    assert!(open.is_dir(), "a folder others can read stays");
-    assert!(
-        fonts.join("vtium-config-apply-link").is_symlink(),
-        "a link stays"
-    );
-    assert!(elsewhere.join("keep").is_file(), "what a link names stays");
+    f.keep("old.removed", "");
+    let ran = f.run(&["install"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
     assert_eq!(
-        std::fs::read_to_string(fonts.join("new.vtfrit")).expect("installed"),
-        NEW
+        std::fs::read_link(f.path("etc/fonts")).expect("the link"),
+        Path::new("other"),
+        "the stand-in console swapped the link"
+    );
+    let read = |p: &Path| std::fs::read_to_string(p).ok();
+    assert_eq!(read(&checked.join("new.vtfrit")).as_deref(), Some(NEW));
+    assert_eq!(read(&checked.join("old.vtfrit")), None);
+    assert_eq!(read(&checked.join("old.vtfrit.bak")).as_deref(), Some(OLD));
+    assert_eq!(
+        read(&other.join("new.vtfrit")),
+        None,
+        "nothing lands in the other folder"
+    );
+    assert_eq!(read(&other.join("old.vtfrit")).as_deref(), Some(OLD));
+}
+
+/// An install run as a user makes the private folder for its check's
+/// copies under `XDG_RUNTIME_DIR`. With that variable unset, an install
+/// that writes a font set and vtium.conf is refused with words that say
+/// why, and writes nothing.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` reads root's copies from a private folder under /run, or the user's runtime folder when apply runs unprivileged.
+#[test]
+fn an_install_with_no_runtime_folder_is_refused() {
+    let f = fixture("apply-no-runtime");
+    f.desk();
+    f.ok(&["set", "font-size", "14"]);
+    f.keep("new.vtfrit", NEW);
+    let mut c = f.command(&["install"]);
+    c.env_remove("XDG_RUNTIME_DIR");
+    let ran = f.run_in(c);
+    assert_ne!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert!(
+        format!("{}{}", ran.out, ran.err).contains(
+            "The install has no private folder for its check of the draft's font sets. As root it makes one under /run, and as a user under XDG_RUNTIME_DIR. XDG_RUNTIME_DIR is not set to an absolute path."
+        ),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    assert!(
+        !f.path("etc/fonts/new.vtfrit").exists(),
+        "nothing is installed"
+    );
+    assert!(
+        !std::fs::read_to_string(f.path("etc/vtium.conf"))
+            .unwrap_or_default()
+            .contains("font-size=14")
     );
 }
