@@ -62,7 +62,7 @@ pub const NODES: &[Node] = &[
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
-            ("q", "Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them."),
+            ("q", "Quits vtium-config. If changes are not saved, it asks first."),
         ],
         rows: &[
             ("q.view", true),
@@ -654,7 +654,7 @@ pub const NODES: &[Node] = &[
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
-            ("q", "Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them."),
+            ("q", "Quits vtium-config. If changes are not saved, it asks first."),
         ],
         rows: &[
             ("q.view", true),
@@ -716,7 +716,7 @@ pub const NODES: &[Node] = &[
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
-            ("q", "Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them."),
+            ("q", "Quits vtium-config. If changes are not saved, it asks first."),
         ],
         rows: &[
             ("q.view", true),
@@ -1075,7 +1075,7 @@ pub const NODES: &[Node] = &[
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
-            ("q", "Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them."),
+            ("q", "Quits vtium-config. If changes are not saved, it asks first."),
         ],
         rows: &[
             ("q.view", true),
@@ -1207,7 +1207,7 @@ pub const NODES: &[Node] = &[
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
-            ("q", "Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them."),
+            ("q", "Quits vtium-config. If changes are not saved, it asks first."),
         ],
         rows: &[
             ("q.view", true),
@@ -1330,7 +1330,7 @@ pub const NODES: &[Node] = &[
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
-            ("q", "Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them."),
+            ("q", "Quits vtium-config. If changes are not saved, it asks first."),
         ],
         rows: &[
             ("q.view", true),
@@ -1491,7 +1491,7 @@ pub const NODES: &[Node] = &[
             ("Tab", "Moves to the next view."),
             ("Shift-Tab", "Moves to the view before."),
             ("Ctrl-C", "Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking."),
-            ("q", "Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them."),
+            ("q", "Quits vtium-config. If changes are not saved, it asks first."),
         ],
         rows: &[
             ("q.view", true),
@@ -1546,35 +1546,6 @@ pub const NODES: &[Node] = &[
         rows: &[
             ("y.question.quit", true),
             ("n.question.quit", true),
-            ("esc.question", true),
-            ("ctrl-c.question", true),
-            ("q.question", true),
-            ("tab.question", true),
-            ("shift-tab.question", true),
-            ("other.question", true),
-            ("key-line.any", true),
-            ("click.question", true),
-            ("wheel.question", true),
-        ],
-    },
-    Node {
-        id: "any.question.leave",
-        what: "The leave question: new or removed font sets wait for an install",
-        supported: true,
-        key_pages: &[
-            "y install and quit  n quit without installing  Esc Ctrl-C cancel",
-        ],
-        help: &[
-            ("y", "Installs the draft, then quits. Install saves the changes that are not saved first."),
-            ("n", "Saves the changes that are not saved into the draft, then quits without installing. The new and removed font sets that wait for an install are lost."),
-            ("Esc", "Cancels the question. Nothing changes."),
-            ("Ctrl-C", "Cancels the question, as Esc does. Nothing changes."),
-        ],
-        rows: &[
-            ("y.question.leave", true),
-            ("n.question.leave", true),
-            ("i.question.leave", true),
-            ("l.question.leave", true),
             ("esc.question", true),
             ("ctrl-c.question", true),
             ("q.question", true),
