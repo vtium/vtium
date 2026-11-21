@@ -451,14 +451,8 @@ impl Session<'_> {
             .set_batch_changes(name, &crate::batch::Changes::default())
     }
 
-    /// The draft `name`'s font set changes against the installed frits, in
-    /// the order of their names: each frit its folder adds or replaces
-    /// whose text differs from the installed frit's, and each removal of
-    /// an installed frit. Also the notes on what the folder holds that is
-    /// no change: a removal of a frit that is not installed.
-    ///
-    /// References:
-    /// - ADR-1403 D8, "A draft's font set changes": a frit with the installed text is no change, and a removal of a frit the machine lacks removes nothing.
+    /// The draft `name`'s font set changes against the frits installed in
+    /// the frits' directory, as [`frit_changes`] counts them.
     pub fn frit_changes(&self, name: &str) -> Result<(Vec<FritChange>, Vec<String>), Fail> {
         let folder = self.store.frit_changes(name)?;
         if folder.kept.is_empty() && folder.removed.is_empty() {
@@ -469,40 +463,9 @@ impl Session<'_> {
             .frits
             .as_ref()
             .map_err(|e| Fail::File(e.clone()))?;
-        let installed = |frit: &str| {
-            let path = frits.join(format!("{frit}.vtfrit"));
-            let old = std::fs::read(&path).ok();
-            (path, old)
-        };
-        let mut changes = Vec::new();
-        let mut notes = Vec::new();
-        for (frit, text) in &folder.kept {
-            let (path, old) = installed(frit);
-            if old.as_deref() == Some(text.as_bytes()) {
-                continue;
-            }
-            changes.push(FritChange {
-                name: frit.clone(),
-                path,
-                old,
-                new: Some(text.clone()),
-            });
-        }
-        for frit in &folder.removed {
-            match installed(frit) {
-                (path, Some(old)) => changes.push(FritChange {
-                    name: frit.clone(),
-                    path,
-                    old: Some(old),
-                    new: None,
-                }),
-                (_, None) => notes.push(format!(
-                    "Draft {name} removes the font set {frit}, but no installed font set is named {frit}, so the removal removes nothing."
-                )),
-            }
-        }
-        changes.sort_by(|a, b| a.name.cmp(&b.name));
-        Ok((changes, notes))
+        Ok(frit_changes(name, &folder, frits, |path| {
+            std::fs::read(path).ok()
+        }))
     }
 
     /// The problems of the draft `name`'s font set folder: each entry that
@@ -903,6 +866,92 @@ pub struct FritChange {
     pub old: Option<Vec<u8>>,
     /// The frit's text after the install, `None` for a removal.
     pub new: Option<String>,
+}
+
+impl FritChange {
+    /// What the change does to the installed frits.
+    pub const fn edit(&self) -> FritEdit {
+        match (&self.old, &self.new) {
+            (_, None) => FritEdit::Remove,
+            (None, Some(_)) => FritEdit::Add,
+            (Some(_), Some(_)) => FritEdit::Replace,
+        }
+    }
+}
+
+/// What a font set change does to the installed frits: adds a frit,
+/// replaces one, or removes one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FritEdit {
+    Add,
+    Replace,
+    Remove,
+}
+
+impl FritEdit {
+    /// The change's word, as `flow --json` lists it under `"frits"`.
+    pub const fn word(self) -> &'static str {
+        match self {
+            FritEdit::Add => "add",
+            FritEdit::Replace => "replace",
+            FritEdit::Remove => "remove",
+        }
+    }
+}
+
+/// The font set changes that the folder `folder` of the draft `name` makes
+/// against the frits installed in the frits' directory `frits`, in the
+/// order of their names. This one function decides what counts as a
+/// change for the check's options, `flow`, `diff`, install and the TUI's
+/// status line. `read` gives the bytes of the installed file at a path,
+/// `None` when there is none. A frit the folder adds or replaces counts
+/// when its text differs from the installed frit's. A removal counts when
+/// the frits' directory itself holds the frit, since an install removes
+/// nothing from the catalog's category folders. Also the notes on what the
+/// folder holds that is no change: each removal that removes nothing.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": a frit with the installed text is no change, and a removal of a frit the machine lacks removes nothing.
+pub fn frit_changes(
+    name: &str,
+    folder: &crate::store::FritChanges,
+    frits: &Path,
+    read: impl Fn(&Path) -> Option<Vec<u8>>,
+) -> (Vec<FritChange>, Vec<String>) {
+    let installed = |frit: &str| {
+        let path = frits.join(format!("{frit}.vtfrit"));
+        let old = read(&path);
+        (path, old)
+    };
+    let mut changes = Vec::new();
+    let mut notes = Vec::new();
+    for (frit, text) in &folder.kept {
+        let (path, old) = installed(frit);
+        if old.as_deref() == Some(text.as_bytes()) {
+            continue;
+        }
+        changes.push(FritChange {
+            name: frit.clone(),
+            path,
+            old,
+            new: Some(text.clone()),
+        });
+    }
+    for frit in &folder.removed {
+        match installed(frit) {
+            (path, Some(old)) => changes.push(FritChange {
+                name: frit.clone(),
+                path,
+                old: Some(old),
+                new: None,
+            }),
+            (_, None) => notes.push(format!(
+                "Draft {name} removes the font set {frit}, but no installed font set is named {frit}, so the removal removes nothing."
+            )),
+        }
+    }
+    changes.sort_by(|a, b| a.name.cmp(&b.name));
+    (changes, notes)
 }
 
 /// `2 font set changes`, as the state line counts them.

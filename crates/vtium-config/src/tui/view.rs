@@ -111,7 +111,11 @@ fn status(app: &App) -> String {
             Some(d) => words::draft_state(&d.name, d.changes, app.shared.unsaved, d.problems),
             None => words::NO_DRAFT.to_owned(),
         };
-        let pending = app.shared.frits().len();
+        let pending = app
+            .shared
+            .draft
+            .as_ref()
+            .map_or(0, |d| d.frit_changes.len());
         if pending > 0 {
             left = format!("{left} · {}", waiting(pending));
         }
