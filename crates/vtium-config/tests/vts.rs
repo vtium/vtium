@@ -478,10 +478,6 @@ VT 1: the display manager sddm.service uses VT 1 at boot.
     assert_eq!(status.running, m.running);
 }
 
-/// The console the session checks a draft with: `check-config` passes
-/// every draft.
-const CHECKER: &str = "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\necho \"$4: checked\"\n";
-
 /// A store and paths of the test's own, with the system's configuration
 /// directory, so the install takes sudo's route and the step after it runs.
 struct Bench {
@@ -496,7 +492,7 @@ fn bench(name: &str) -> Bench {
         std::fs::remove_dir_all(&root).expect("a fresh bench");
     }
     std::fs::create_dir_all(root.join("home")).expect("the bench");
-    script::executable(&root.join("vtium"), CHECKER);
+    script::executable(&root.join("vtium"), vtium_config::tui::fixture::CHECKER);
     Bench { root }
 }
 

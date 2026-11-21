@@ -1835,20 +1835,34 @@ fn n_or_esc_at_the_resize_question_writes_nothing() {
 }
 
 /// In a vtium console that does not let programs resize its grid, a look
-/// card's size line says so and names `w`, and Enter on a size
-/// says why the console stays as it is and sends no grid request.
+/// card's size line says so and names `w`, and Enter on a size says why
+/// the console stays as it is and sends no grid request. With the live
+/// trial on, the preview is the console's own text at its current size,
+/// so Enter says that the size takes effect when vtium starts again. With
+/// `allow-font-ops` off, the preview is a picture or a description, so
+/// Enter says that the size shows only in the preview.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console", its note of 2026-11-21: with the live trial on and `allow-window-ops` off, the preview is the console's own text and shows no picture.
 #[test]
-fn without_window_ops_the_tab_says_why_a_size_only_shows_in_the_preview() {
-    let seen = reach(100, 30, &[TO_LOOKS, b"\r", DOWN, DOWN]);
-    assert!(
-        flat(&seen).contains("does not let programs resize its grid"),
-        "{seen}"
-    );
+fn without_window_ops_the_tab_says_when_a_size_takes_effect() {
+    let seen = flat(&reach(100, 30, &[TO_LOOKS, b"\r", DOWN, DOWN]));
+    assert!(seen.contains(words::WINDOW_OPS_NOTICE_NEXT_START), "{seen}");
     let conf = inputs().conf.expect("the conf");
     let (c, _) = run_on(&conf, PICK_SIX);
     assert_eq!(grid_requests(&c.written), Vec::<String>::new());
-    let seen = c.seen.expect("the screen");
-    assert!(flat(&seen).contains("shows only in the preview"), "{seen}");
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::SIZE_AT_NEXT_START), "{seen}");
+    assert!(!seen.contains("shows only in the preview"), "{seen}");
+    // with allow-font-ops off the console answers no font query, so the
+    // live trial is off and the preview is a picture or a description
+    let mut c = Console::vtium(80, 25, false, "unifont").keys(PICK_SIX);
+    let mut d = desk();
+    vtium_config::tui::port::drive_with(&mut c, with_conf(&conf), Some(&mut d)).expect("the loop");
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new());
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::SIZE_PICTURE_ONLY), "{seen}");
+    assert!(seen.contains(words::WINDOW_OPS_NOTICE), "{seen}");
 }
 
 /// Enter on a size in the look card's list tries it on the console: the
@@ -2093,4 +2107,166 @@ fn in_a_vtium_console_a_look_card_s_size_list_prints_the_sample_below_it() {
         }
         assert!(c.pictures.is_empty() && c.cells.is_empty());
     }
+}
+
+/// A long written description keeps its place under a look card's size
+/// list: the list's window gives up rows first, so the sentence that says
+/// why a size cannot be used still shows at 80x25 when the font helper's
+/// reason names a path of 300 characters.
+#[test]
+fn a_long_reason_under_the_size_list_shrinks_the_list_before_it_goes() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Effect, Event, Live, Size, View};
+    use vtium_config::tui::view;
+    let mut i = sized();
+    i.view = View::Looks;
+    let (mut app, _) = App::start(
+        i,
+        Size {
+            cols: 80,
+            rows: 25,
+            cell_px: Some((8, 16)),
+        },
+    );
+    app.shared.live = Live::OpsOff;
+    app.shared.graphics = false;
+    // the card of look seven, its size list, and Down to 8 pt
+    let mut asked = None;
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+    ] {
+        for effect in app.event(Event::Input(Input::Key(key))) {
+            if let Effect::Summary { font, height } = effect {
+                asked = Some((font, height));
+            }
+        }
+        app.shared.drawing = false;
+    }
+    let (font, height) = asked.expect("the description of a size asked for");
+    let why = format!(
+        "cannot read /usr/share/fonts/{}/x.otb: No such file or directory",
+        "d".repeat(300)
+    );
+    app.event(Event::Summarized {
+        font,
+        height,
+        summary: Err(why),
+    });
+    let screen = view::as_text(&view::screen(&app));
+    let said = flat(&screen);
+    assert!(
+        said.contains("This size cannot be used: cannot read"),
+        "{screen}"
+    );
+    assert!(said.contains("No such file or directory"), "{screen}");
+    // the list still shows the highlighted size, in a window of at least
+    // three rows
+    let rows = body(&screen);
+    let listed = rows
+        .iter()
+        .filter(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+        .count();
+    assert!(listed >= 3, "{screen}");
+}
+
+/// A written description too long to leave the size list three rows makes
+/// the card give up the preview under its size list: the card shows its
+/// list and the hint under it, as it does with no preview, rather than a
+/// window of the list over blank rows. The reason here names a path of 800
+/// characters, which leaves the list fewer than three rows at 80x25.
+#[test]
+fn a_reason_too_long_for_the_size_list_leaves_the_list_and_its_hint() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Effect, Event, Live, Size, View};
+    use vtium_config::tui::view;
+    let mut i = sized();
+    i.view = View::Looks;
+    let (mut app, _) = App::start(
+        i,
+        Size {
+            cols: 80,
+            rows: 25,
+            cell_px: Some((8, 16)),
+        },
+    );
+    app.shared.live = Live::OpsOff;
+    app.shared.graphics = false;
+    // the card of look seven, its size list, and Down to 8 pt
+    let mut asked = None;
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+    ] {
+        for effect in app.event(Event::Input(Input::Key(key))) {
+            if let Effect::Summary { font, height } = effect {
+                asked = Some((font, height));
+            }
+        }
+        app.shared.drawing = false;
+    }
+    let (font, height) = asked.expect("the description of a size asked for");
+    let why = format!(
+        "cannot read /usr/share/fonts/{}/x.otb: No such file or directory",
+        "d".repeat(800)
+    );
+    app.event(Event::Summarized {
+        font,
+        height,
+        summary: Err(why),
+    });
+    let screen = view::as_text(&view::screen(&app));
+    let said = flat(&screen);
+    assert!(
+        said.contains(
+            "Enter picks the highlighted choice, and Esc goes back to the card without a change."
+        ),
+        "{screen}"
+    );
+    assert!(!said.contains("dddd"), "{screen}");
+    assert!(body(&screen).iter().any(|r| r == "   ● 7 pt"), "{screen}");
+}
+
+/// In a vtium console, a look card's size list prints the sample screen
+/// as its preview only where the screen leaves the preview a row, as the
+/// layout of the list and its sentences decides. On a screen too short
+/// for that, the card shows its list alone, and no sample lines would
+/// print over the list.
+#[test]
+fn the_console_s_text_under_the_size_list_follows_the_layout() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Event, Live, Size, View};
+    let mut i = sized();
+    i.view = View::Looks;
+    let size = |rows| Size {
+        cols: 80,
+        rows,
+        cell_px: Some((8, 16)),
+    };
+    let (mut app, _) = App::start(i, size(25));
+    app.shared.live = Live::On;
+    // the card of look seven and its size list
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+    ] {
+        app.event(Event::Input(Input::Key(key)));
+    }
+    let sample = vtium_config::tui::shot::sample_rows();
+    assert_eq!(app.tab().console_lines(&app.shared, size(25)), sample);
+    assert!(app.tab().console_lines(&app.shared, size(12)).is_empty());
 }

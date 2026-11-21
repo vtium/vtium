@@ -178,6 +178,21 @@ pub struct Trial {
     pub grid: Option<GridTrial>,
 }
 
+/// The live trial's countdown for the font set `font` with `left` seconds
+/// to go. The console reads only installed font sets, so on a font set the
+/// draft replaces the countdown also says that the console shows the
+/// installed version.
+///
+/// References:
+/// - ADR-1403 D8, "The live trial": `t` tries an installed frit, since the console reads frits only from the frits' directory.
+fn countdown(shared: &Shared, font: &str, left: u32) -> String {
+    if super::tabs::looks::fontsets::replaced(shared, font) {
+        words::trial_countdown_installed(font, left)
+    } else {
+        words::trial_countdown(font, left)
+    }
+}
+
 /// A size tried on the console: the size in points, the grid it gives on
 /// the display, and the grid the console had before, which the trial puts
 /// back. Each grid is columns by rows.
@@ -426,6 +441,10 @@ pub struct Preview<'a> {
     pub shared: &'a Shared,
     pub size: Size,
     pub source: Source<'a>,
+    /// The font set the preview stands for, where only the draft adds it.
+    /// The console reads only installed font sets, so the caption of the
+    /// console's own preview says that `t` can try it after the install.
+    pub in_draft: Option<&'a str>,
 }
 
 impl<'a> Preview<'a> {
@@ -435,6 +454,16 @@ impl<'a> Preview<'a> {
             shared,
             size,
             source,
+            in_draft: None,
+        }
+    }
+
+    /// This preview, standing for `name`, a font set that only the draft
+    /// adds, where `name` is given.
+    pub fn in_draft(self, name: Option<&'a str>) -> Preview<'a> {
+        Preview {
+            in_draft: name,
+            ..self
         }
     }
 
@@ -599,12 +628,18 @@ impl<'a> Preview<'a> {
             && !self.pictured_in_console()
             && !super::layout::too_small(self.size)
         {
-            return match self.source {
-                Source::Font { .. } => Some(words::console_font_caption(
+            return match (self.source, self.in_draft) {
+                (Source::Font { .. }, Some(name)) => {
+                    Some(words::console_caption_in_draft(name, false))
+                }
+                (Source::Size { .. }, Some(name)) => {
+                    Some(words::console_caption_in_draft(name, true))
+                }
+                (Source::Font { .. }, None) => Some(words::console_font_caption(
                     self.shared.shown_font.as_deref(),
                 )),
-                Source::Size { .. } => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
-                Source::Effect { .. } | Source::Nothing => None,
+                (Source::Size { .. }, None) => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
+                (Source::Effect { .. } | Source::Nothing, _) => None,
             };
         }
         let wanted = self.wanted()?;
@@ -1037,7 +1072,7 @@ impl App {
             grid: None,
         });
         self.shared.want = Some(name.clone());
-        self.shared.message = Some(words::trial_countdown(&name, TRIAL_TICKS));
+        self.shared.message = Some(countdown(&self.shared, &name, TRIAL_TICKS));
         let mut out = self.follow();
         out.push(Effect::Wait(TICK));
         out
@@ -1085,19 +1120,30 @@ impl App {
     /// font set `font` at the size first, and [`App::size_measured`] sends
     /// the grid request once the cell comes. An automatic size has no grid
     /// of its own, so it is not tried. Outside a vtium console the size
-    /// shows only in the preview, and with `allow-window-ops` off the tab
-    /// says why.
+    /// shows only in the preview. With `allow-window-ops` off the tab says
+    /// why: with the live trial on, the preview is the console's own text
+    /// at its current size, so the size takes effect when vtium starts
+    /// again; with it off, the size shows only in the preview.
     ///
     /// References:
     /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
     ///   highlighted size as a timed trial, and the grid is the one the
     ///   size gives on the display.
+    /// - ADR-1201 D4, its note of 2026-11-21: with the live trial on and
+    ///   `allow-window-ops` off, the preview is the console's own text.
     pub(crate) fn try_size(&mut self, font: Option<String>, points: u32) -> Vec<Effect> {
         if !self.shared.in_vtium() || points == 0 {
             return Vec::new();
         }
         if !self.shared.window_ops() {
-            self.shared.message = Some(words::SIZE_PICTURE_ONLY.to_owned());
+            self.shared.message = Some(
+                if self.shared.text_preview() {
+                    words::SIZE_AT_NEXT_START
+                } else {
+                    words::SIZE_PICTURE_ONLY
+                }
+                .to_owned(),
+            );
             return Vec::new();
         }
         let Some(font) = font.or_else(|| self.shared.shown_font.clone()) else {
@@ -1175,7 +1221,7 @@ impl App {
         }
         self.shared.message = Some(match t.grid {
             Some(g) => words::size_countdown(g.points, t.left),
-            None => words::trial_countdown(&t.font, t.left),
+            None => countdown(&self.shared, &t.font, t.left),
         });
         vec![Effect::Wait(TICK)]
     }

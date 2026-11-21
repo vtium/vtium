@@ -632,6 +632,68 @@ fn set_font_name(sim: &mut Sim, font: &str) {
     press(sim, &["Enter", "Esc"]);
 }
 
+/// On the Look line of a terminal whose look the draft does not hold, the
+/// card offers that look as one more choice, after the draft's looks, and
+/// Right and Left step through all of them as the walk's check of Right
+/// expects. The walk's fixture names no missing look, so this test opens
+/// such a card: the fixture with the look proof taken out, which the head
+/// desk still names.
+///
+/// References:
+/// - ADR-1403 D7, "The same keys in every view": Left and Right step a card line's choice.
+#[test]
+fn right_on_a_missing_look_s_line_reaches_the_missing_look() {
+    use vtium_config::tui::flowlayout;
+    use vtium_config::tui::flowlayout::CardLine;
+    let start = (Term::Vtium, 100, 30);
+    let mut sim = Sim::start_on(start.0, start.1, start.2, |i| {
+        let conf = i.conf.as_mut().expect("the fixture's vtium.conf");
+        *conf = conf.replace("[look proof]\nfont-name = proof\nvtlook = sepia\n", "");
+        assert!(!conf.contains("[look"), "{conf}");
+    });
+    let mut keys = vec!["4", "Home", "Right", "Enter"];
+    press(&mut sim, &keys);
+    let (_, path, _) = checks::Seen::card(&sim).expect("desk's card");
+    assert_eq!(path.look.as_deref(), Some("proof"), "{path:?}");
+    let look = flowlayout::card_lines(&path, false)
+        .iter()
+        .position(|l| *l == CardLine::Look)
+        .expect("a Look line");
+    let downs = vec!["Down"; look];
+    press(&mut sim, &downs);
+    keys.extend(downs);
+    let choices = flowlayout::path_choices(&sim.app.shared, &path, &CardLine::Look);
+    assert_eq!(
+        choices.last().map(|(_, v)| v.as_str()),
+        Some("proof"),
+        "{choices:?}"
+    );
+    // the line starts on the missing look, the last choice
+    assert_eq!(sim.app.flow.state().pick, choices.len() - 1);
+    let mut checks = Checks::new();
+    for key in ["Left", "Right", "Right"] {
+        let mut after = sim.clone();
+        let did = after.press(press_of(key));
+        let step = explore::Step {
+            from: state::of(&sim),
+            key,
+            to: state::of(&after),
+            did,
+            path: keys.clone(),
+            start,
+        };
+        checks.see(&step, &sim, &after);
+        keys.push(key);
+        sim = after;
+    }
+    assert_eq!(sim.app.flow.state().pick, choices.len() - 1);
+    assert!(
+        checks.found.failures.is_empty(),
+        "{}",
+        checks.found.failures.join("\n")
+    );
+}
+
 /// With a font set marked for removal and a change not saved, `q` asks
 /// only the quit question, which names no font set, since the draft's
 /// folder keeps the removal whatever the answer. `y` saves the change and

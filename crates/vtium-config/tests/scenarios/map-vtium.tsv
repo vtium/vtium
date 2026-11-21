@@ -1813,7 +1813,7 @@ vtium flow(others)	2	vtium effects(filter)	mouse off
 vtium flow(others)	3	vtium looks(look)	mouse off
 vtium flow(others)	5	vtium settings(first)	mouse off
 vtium flow(others)	6	vtium help(help)	mouse off
-vtium flow(others)	Click box	vtium flow(parts special)	
+vtium flow(others)	Click box	vtium flow(parts input)	
 vtium flow(others)	Click tab	vtium effects(filter)	mouse off
 vtium flow(others)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(others)	Down	vtium flow(parts look)	
@@ -1821,7 +1821,7 @@ vtium flow(others)	End	vtium flow(parts look)
 vtium flow(others)	Enter	vtium flow.others	
 vtium flow(others)	Home	vtium flow(doc display)	
 vtium flow(others)	Left	vtium flow(parts pointer)	
-vtium flow(others)	PgUp	vtium flow(parts display)	
+vtium flow(others)	PgUp	vtium flow(parts special)	
 vtium flow(others)	Right	vtium flow(parts template)	
 vtium flow(others)	Shift-Tab	vtium looks(look)	mouse off
 vtium flow(others)	Shrink	vtium any.too-small	
@@ -1841,7 +1841,7 @@ vtium flow(others) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(others) +pending	3	vtium looks(marked) +pending	mouse off
 vtium flow(others) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(others) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(others) +pending	Click box	vtium flow(parts special) +pending	
+vtium flow(others) +pending	Click box	vtium flow(parts input) +pending	
 vtium flow(others) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(others) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(others) +pending	Down	vtium flow(parts look) +pending	
@@ -1849,7 +1849,7 @@ vtium flow(others) +pending	End	vtium flow(parts look) +pending
 vtium flow(others) +pending	Enter	vtium flow.others +pending	
 vtium flow(others) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(others) +pending	Left	vtium flow(parts pointer) +pending	
-vtium flow(others) +pending	PgUp	vtium flow(parts display) +pending	
+vtium flow(others) +pending	PgUp	vtium flow(parts special) +pending	
 vtium flow(others) +pending	Right	vtium flow(parts template) +pending	
 vtium flow(others) +pending	Shift-Tab	vtium looks(marked) +pending	mouse off
 vtium flow(others) +pending	Shrink	vtium any.too-small +pending	
@@ -1869,6 +1869,7 @@ vtium flow(others) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(others) +unsaved	3	vtium looks(look) +unsaved	mouse off
 vtium flow(others) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(others) +unsaved	6	vtium help(help) +unsaved	mouse off
+vtium flow(others) +unsaved	Click box	vtium flow(parts input) +unsaved	
 vtium flow(others) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(others) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(others) +unsaved	Down	vtium flow(parts look) +unsaved	
@@ -1897,6 +1898,7 @@ vtium flow(others) +unsaved +pending	2	vtium effects(filter) +unsaved +pending	m
 vtium flow(others) +unsaved +pending	3	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
+vtium flow(others) +unsaved +pending	Click box	vtium flow(parts input) +unsaved +pending	
 vtium flow(others) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(others) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(others) +unsaved +pending	Down	vtium flow(parts look) +unsaved +pending	
@@ -1925,7 +1927,7 @@ vtium flow(parts any input)	2	vtium effects(filter)	mouse off
 vtium flow(parts any input)	3	vtium looks(look)	mouse off
 vtium flow(parts any input)	5	vtium settings(first)	mouse off
 vtium flow(parts any input)	6	vtium help(help)	mouse off
-vtium flow(parts any input)	Click box	vtium flow(parts template)	
+vtium flow(parts any input)	Click box	vtium flow(parts input)	
 vtium flow(parts any input)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts any input)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts any input)	Down	vtium flow(parts pointer)	
@@ -1933,7 +1935,7 @@ vtium flow(parts any input)	End	vtium flow(parts look)
 vtium flow(parts any input)	Enter	vtium flow.detail	
 vtium flow(parts any input)	Home	vtium flow(doc display)	
 vtium flow(parts any input)	Left	vtium flow(parts keyboard)	
-vtium flow(parts any input)	PgUp	vtium flow(parts display)	
+vtium flow(parts any input)	PgUp	vtium flow(parts special)	
 vtium flow(parts any input)	Right	vtium flow(parts keyboard)	
 vtium flow(parts any input)	Shift-Tab	vtium looks(look)	mouse off
 vtium flow(parts any input)	Shrink	vtium any.too-small	
@@ -1953,7 +1955,7 @@ vtium flow(parts any input) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts any input) +pending	3	vtium looks(marked) +pending	mouse off
 vtium flow(parts any input) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts any input) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts any input) +pending	Click box	vtium flow(parts template) +pending	
+vtium flow(parts any input) +pending	Click box	vtium flow(parts input) +pending	
 vtium flow(parts any input) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts any input) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts any input) +pending	Down	vtium flow(parts pointer) +pending	
@@ -1961,7 +1963,7 @@ vtium flow(parts any input) +pending	End	vtium flow(parts look) +pending
 vtium flow(parts any input) +pending	Enter	vtium flow.detail +pending	
 vtium flow(parts any input) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts any input) +pending	Left	vtium flow(parts keyboard) +pending	
-vtium flow(parts any input) +pending	PgUp	vtium flow(parts display) +pending	
+vtium flow(parts any input) +pending	PgUp	vtium flow(parts special) +pending	
 vtium flow(parts any input) +pending	Right	vtium flow(parts keyboard) +pending	
 vtium flow(parts any input) +pending	Shift-Tab	vtium looks(marked) +pending	mouse off
 vtium flow(parts any input) +pending	Shrink	vtium any.too-small +pending	
@@ -1981,6 +1983,7 @@ vtium flow(parts any input) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	3	vtium looks(look) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	6	vtium help(help) +unsaved	mouse off
+vtium flow(parts any input) +unsaved	Click box	vtium flow(parts input) +unsaved	
 vtium flow(parts any input) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts any input) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts any input) +unsaved	Down	vtium flow(parts pointer) +unsaved	
@@ -2009,6 +2012,7 @@ vtium flow(parts any input) +unsaved +pending	2	vtium effects(filter) +unsaved +
 vtium flow(parts any input) +unsaved +pending	3	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts any input) +unsaved +pending	Click box	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts any input) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts any input) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts any input) +unsaved +pending	Down	vtium flow(parts pointer) +unsaved +pending	
@@ -2097,7 +2101,7 @@ vtium flow(parts display) +unsaved	Down	vtium flow(parts template) +unsaved
 vtium flow(parts display) +unsaved	End	vtium flow(parts look) +unsaved	
 vtium flow(parts display) +unsaved	Enter	vtium flow.detail +unsaved	
 vtium flow(parts display) +unsaved	Home	vtium flow(doc terminal) +unsaved	
-vtium flow(parts display) +unsaved	PgDn	vtium flow(parts keyboard) +unsaved	
+vtium flow(parts display) +unsaved	PgDn	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	Right	vtium flow(parts template) +unsaved	
 vtium flow(parts display) +unsaved	Shift-Tab	vtium looks(look) +unsaved	mouse off
 vtium flow(parts display) +unsaved	Shrink	vtium any.too-small +unsaved	
@@ -2124,7 +2128,7 @@ vtium flow(parts display) +unsaved +pending	Down	vtium flow(parts template) +uns
 vtium flow(parts display) +unsaved +pending	End	vtium flow(parts look) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	Home	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(parts display) +unsaved +pending	PgDn	vtium flow(parts keyboard) +unsaved +pending	
+vtium flow(parts display) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	Right	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts display) +unsaved +pending	Shift-Tab	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts display) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
@@ -2145,6 +2149,7 @@ vtium flow(parts input)	2	vtium effects(filter)	mouse off
 vtium flow(parts input)	3	vtium looks(look)	mouse off
 vtium flow(parts input)	5	vtium settings(first)	mouse off
 vtium flow(parts input)	6	vtium help(help)	mouse off
+vtium flow(parts input)	Click box	vtium flow.detail	
 vtium flow(parts input)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts input)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts input)	Down	vtium flow(parts any input)	
@@ -2152,8 +2157,7 @@ vtium flow(parts input)	End	vtium flow(parts look)
 vtium flow(parts input)	Enter	vtium flow.detail	
 vtium flow(parts input)	Home	vtium flow(doc display)	
 vtium flow(parts input)	Left	vtium flow(parts template)	
-vtium flow(parts input)	PgDn	vtium flow(parts keyboard)	
-vtium flow(parts input)	PgUp	vtium flow(new empty)	
+vtium flow(parts input)	PgUp	vtium flow(parts special)	
 vtium flow(parts input)	Shift-Tab	vtium looks(look)	mouse off
 vtium flow(parts input)	Shrink	vtium any.too-small	
 vtium flow(parts input)	Tab	vtium settings(first)	mouse off
@@ -2172,6 +2176,7 @@ vtium flow(parts input) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts input) +pending	3	vtium looks(marked) +pending	mouse off
 vtium flow(parts input) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts input) +pending	6	vtium help(help) +pending	mouse off
+vtium flow(parts input) +pending	Click box	vtium flow.detail +pending	
 vtium flow(parts input) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts input) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts input) +pending	Down	vtium flow(parts any input) +pending	
@@ -2179,8 +2184,7 @@ vtium flow(parts input) +pending	End	vtium flow(parts look) +pending
 vtium flow(parts input) +pending	Enter	vtium flow.detail +pending	
 vtium flow(parts input) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts input) +pending	Left	vtium flow(parts template) +pending	
-vtium flow(parts input) +pending	PgDn	vtium flow(parts keyboard) +pending	
-vtium flow(parts input) +pending	PgUp	vtium flow(new empty) +pending	
+vtium flow(parts input) +pending	PgUp	vtium flow(parts special) +pending	
 vtium flow(parts input) +pending	Shift-Tab	vtium looks(marked) +pending	mouse off
 vtium flow(parts input) +pending	Shrink	vtium any.too-small +pending	
 vtium flow(parts input) +pending	Tab	vtium settings(first) +pending	mouse off
@@ -2199,15 +2203,15 @@ vtium flow(parts input) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts input) +unsaved	3	vtium looks(look) +unsaved	mouse off
 vtium flow(parts input) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts input) +unsaved	6	vtium help(help) +unsaved	mouse off
+vtium flow(parts input) +unsaved	Click box	vtium flow.detail +unsaved	
 vtium flow(parts input) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts input) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts input) +unsaved	Down	vtium flow(parts any input) +unsaved	
 vtium flow(parts input) +unsaved	End	vtium flow(parts look) +unsaved	
 vtium flow(parts input) +unsaved	Enter	vtium flow.detail +unsaved	
 vtium flow(parts input) +unsaved	Home	vtium flow(doc terminal) +unsaved	
-vtium flow(parts input) +unsaved	PgDn	vtium flow(parts keyboard) +unsaved	
+vtium flow(parts input) +unsaved	Left	vtium flow(parts template) +unsaved	
 vtium flow(parts input) +unsaved	PgUp	vtium flow(parts special) +unsaved	
-vtium flow(parts input) +unsaved	Right	vtium flow(parts keyboard) +unsaved	
 vtium flow(parts input) +unsaved	Shift-Tab	vtium looks(look) +unsaved	mouse off
 vtium flow(parts input) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium flow(parts input) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
@@ -2227,15 +2231,15 @@ vtium flow(parts input) +unsaved +pending	2	vtium effects(filter) +unsaved +pend
 vtium flow(parts input) +unsaved +pending	3	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts input) +unsaved +pending	Click box	vtium flow.detail +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts input) +unsaved +pending	Down	vtium flow(parts any input) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	End	vtium flow(parts look) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Home	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(parts input) +unsaved +pending	PgDn	vtium flow(parts keyboard) +unsaved +pending	
+vtium flow(parts input) +unsaved +pending	Left	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	PgUp	vtium flow(parts special) +unsaved +pending	
-vtium flow(parts input) +unsaved +pending	Right	vtium flow(parts keyboard) +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Shift-Tab	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts input) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow(parts input) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
@@ -2255,6 +2259,7 @@ vtium flow(parts keyboard)	2	vtium effects(filter)	mouse off
 vtium flow(parts keyboard)	3	vtium looks(look)	mouse off
 vtium flow(parts keyboard)	5	vtium settings(first)	mouse off
 vtium flow(parts keyboard)	6	vtium help(help)	mouse off
+vtium flow(parts keyboard)	Click box	vtium flow(parts input)	
 vtium flow(parts keyboard)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts keyboard)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts keyboard)	End	vtium flow(parts look)	
@@ -2280,6 +2285,7 @@ vtium flow(parts keyboard) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts keyboard) +pending	3	vtium looks(marked) +pending	mouse off
 vtium flow(parts keyboard) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts keyboard) +pending	6	vtium help(help) +pending	mouse off
+vtium flow(parts keyboard) +pending	Click box	vtium flow(parts input) +pending	
 vtium flow(parts keyboard) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts keyboard) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts keyboard) +pending	End	vtium flow(parts look) +pending	
@@ -2305,19 +2311,20 @@ vtium flow(parts keyboard) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	3	vtium looks(look) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	6	vtium help(help) +unsaved	mouse off
+vtium flow(parts keyboard) +unsaved	Click box	vtium flow(parts input) +unsaved	
 vtium flow(parts keyboard) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
+vtium flow(parts keyboard) +unsaved	Down	vtium flow(parts template) +unsaved	
 vtium flow(parts keyboard) +unsaved	End	vtium flow(parts look) +unsaved	
 vtium flow(parts keyboard) +unsaved	Enter	vtium flow.detail +unsaved	
 vtium flow(parts keyboard) +unsaved	Home	vtium flow(doc terminal) +unsaved	
-vtium flow(parts keyboard) +unsaved	Left	vtium flow(parts input) +unsaved	
+vtium flow(parts keyboard) +unsaved	Left	vtium flow(parts any input) +unsaved	
 vtium flow(parts keyboard) +unsaved	PgUp	vtium flow(parts special) +unsaved	
-vtium flow(parts keyboard) +unsaved	Right	vtium flow(parts any input) +unsaved	
+vtium flow(parts keyboard) +unsaved	Right	vtium flow(parts pointer) +unsaved	
 vtium flow(parts keyboard) +unsaved	Shift-Tab	vtium looks(look) +unsaved	mouse off
 vtium flow(parts keyboard) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium flow(parts keyboard) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
-vtium flow(parts keyboard) +unsaved	Up	vtium flow(parts template) +unsaved	
-vtium flow(parts keyboard) +unsaved	Wheel up	vtium flow(parts template) +unsaved	
+vtium flow(parts keyboard) +unsaved	Wheel down	vtium flow(parts template) +unsaved	
 vtium flow(parts keyboard) +unsaved	d	vtium flow(parts keyboard) +unsaved	devices
 vtium flow(parts keyboard) +unsaved	i	vtium any.question.confirm	save, prepare
 vtium flow(parts keyboard) +unsaved	n	vtium any.question.confirm +unsaved	
@@ -2331,19 +2338,20 @@ vtium flow(parts keyboard) +unsaved +pending	2	vtium effects(filter) +unsaved +p
 vtium flow(parts keyboard) +unsaved +pending	3	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts keyboard) +unsaved +pending	Click box	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
+vtium flow(parts keyboard) +unsaved +pending	Down	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	End	vtium flow(parts look) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Enter	vtium flow.detail +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Home	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(parts keyboard) +unsaved +pending	Left	vtium flow(parts input) +unsaved +pending	
+vtium flow(parts keyboard) +unsaved +pending	Left	vtium flow(parts any input) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	PgUp	vtium flow(parts special) +unsaved +pending	
-vtium flow(parts keyboard) +unsaved +pending	Right	vtium flow(parts any input) +unsaved +pending	
+vtium flow(parts keyboard) +unsaved +pending	Right	vtium flow(parts pointer) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Shift-Tab	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts keyboard) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
-vtium flow(parts keyboard) +unsaved +pending	Up	vtium flow(parts template) +unsaved +pending	
-vtium flow(parts keyboard) +unsaved +pending	Wheel up	vtium flow(parts template) +unsaved +pending	
+vtium flow(parts keyboard) +unsaved +pending	Wheel down	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts keyboard) +unsaved +pending	d	vtium flow(parts keyboard) +unsaved +pending	devices
 vtium flow(parts keyboard) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium flow(parts keyboard) +unsaved +pending	n	vtium any.question.confirm +unsaved +pending	
@@ -2357,6 +2365,7 @@ vtium flow(parts look)	2	vtium effects(filter)	mouse off
 vtium flow(parts look)	3	vtium looks(look)	mouse off
 vtium flow(parts look)	5	vtium settings(first)	mouse off
 vtium flow(parts look)	6	vtium help(help)	mouse off
+vtium flow(parts look)	Click box	vtium flow(parts input)	
 vtium flow(parts look)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts look)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts look)	Home	vtium flow(doc display)	
@@ -2364,8 +2373,8 @@ vtium flow(parts look)	PgUp	vtium flow(parts special)
 vtium flow(parts look)	Shift-Tab	vtium looks(look)	mouse off
 vtium flow(parts look)	Shrink	vtium any.too-small	
 vtium flow(parts look)	Tab	vtium settings(first)	mouse off
-vtium flow(parts look)	Up	vtium flow(parts template)	
-vtium flow(parts look)	Wheel up	vtium flow(parts template)	
+vtium flow(parts look)	Up	vtium flow(others)	
+vtium flow(parts look)	Wheel up	vtium flow(others)	
 vtium flow(parts look)	d	vtium flow(parts look)	devices
 vtium flow(parts look)	i	vtium flow(parts look)	prepare
 vtium flow(parts look)	n	vtium any.question.confirm	
@@ -2378,6 +2387,7 @@ vtium flow(parts look) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts look) +pending	3	vtium looks(marked) +pending	mouse off
 vtium flow(parts look) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts look) +pending	6	vtium help(help) +pending	mouse off
+vtium flow(parts look) +pending	Click box	vtium flow(parts input) +pending	
 vtium flow(parts look) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts look) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts look) +pending	Home	vtium flow(doc display) +pending	
@@ -2385,8 +2395,8 @@ vtium flow(parts look) +pending	PgUp	vtium flow(parts special) +pending
 vtium flow(parts look) +pending	Shift-Tab	vtium looks(marked) +pending	mouse off
 vtium flow(parts look) +pending	Shrink	vtium any.too-small +pending	
 vtium flow(parts look) +pending	Tab	vtium settings(first) +pending	mouse off
-vtium flow(parts look) +pending	Up	vtium flow(parts template) +pending	
-vtium flow(parts look) +pending	Wheel up	vtium flow(parts template) +pending	
+vtium flow(parts look) +pending	Up	vtium flow(others) +pending	
+vtium flow(parts look) +pending	Wheel up	vtium flow(others) +pending	
 vtium flow(parts look) +pending	d	vtium flow(parts look) +pending	devices
 vtium flow(parts look) +pending	i	vtium any.question.confirm +pending	prepare
 vtium flow(parts look) +pending	n	vtium any.question.confirm +pending	
@@ -2399,6 +2409,7 @@ vtium flow(parts look) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts look) +unsaved	3	vtium looks(look) +unsaved	mouse off
 vtium flow(parts look) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts look) +unsaved	6	vtium help(help) +unsaved	mouse off
+vtium flow(parts look) +unsaved	Click box	vtium flow(parts input) +unsaved	
 vtium flow(parts look) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts look) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts look) +unsaved	Home	vtium flow(doc terminal) +unsaved	
@@ -2406,8 +2417,8 @@ vtium flow(parts look) +unsaved	PgUp	vtium flow(parts special) +unsaved
 vtium flow(parts look) +unsaved	Shift-Tab	vtium looks(look) +unsaved	mouse off
 vtium flow(parts look) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium flow(parts look) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
-vtium flow(parts look) +unsaved	Up	vtium flow(parts template) +unsaved	
-vtium flow(parts look) +unsaved	Wheel up	vtium flow(parts template) +unsaved	
+vtium flow(parts look) +unsaved	Up	vtium flow(parts pointer) +unsaved	
+vtium flow(parts look) +unsaved	Wheel up	vtium flow(parts pointer) +unsaved	
 vtium flow(parts look) +unsaved	d	vtium flow(parts look) +unsaved	devices
 vtium flow(parts look) +unsaved	i	vtium any.question.confirm	save, prepare
 vtium flow(parts look) +unsaved	n	vtium any.question.confirm +unsaved	
@@ -2421,6 +2432,7 @@ vtium flow(parts look) +unsaved +pending	2	vtium effects(filter) +unsaved +pendi
 vtium flow(parts look) +unsaved +pending	3	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts look) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts look) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts look) +unsaved +pending	Click box	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts look) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts look) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts look) +unsaved +pending	Home	vtium flow(doc terminal) +unsaved +pending	
@@ -2428,8 +2440,8 @@ vtium flow(parts look) +unsaved +pending	PgUp	vtium flow(parts special) +unsaved
 vtium flow(parts look) +unsaved +pending	Shift-Tab	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts look) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow(parts look) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
-vtium flow(parts look) +unsaved +pending	Up	vtium flow(parts template) +unsaved +pending	
-vtium flow(parts look) +unsaved +pending	Wheel up	vtium flow(parts template) +unsaved +pending	
+vtium flow(parts look) +unsaved +pending	Up	vtium flow(parts pointer) +unsaved +pending	
+vtium flow(parts look) +unsaved +pending	Wheel up	vtium flow(parts pointer) +unsaved +pending	
 vtium flow(parts look) +unsaved +pending	d	vtium flow(parts look) +unsaved +pending	devices
 vtium flow(parts look) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium flow(parts look) +unsaved +pending	n	vtium any.question.confirm +unsaved +pending	
@@ -2443,7 +2455,7 @@ vtium flow(parts pointer)	2	vtium effects(filter)	mouse off
 vtium flow(parts pointer)	3	vtium looks(look)	mouse off
 vtium flow(parts pointer)	5	vtium settings(first)	mouse off
 vtium flow(parts pointer)	6	vtium help(help)	mouse off
-vtium flow(parts pointer)	Click box	vtium flow(parts special)	
+vtium flow(parts pointer)	Click box	vtium flow(parts input)	
 vtium flow(parts pointer)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts pointer)	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts pointer)	Down	vtium flow(parts look)	
@@ -2451,7 +2463,7 @@ vtium flow(parts pointer)	End	vtium flow(parts look)
 vtium flow(parts pointer)	Enter	vtium flow.detail	
 vtium flow(parts pointer)	Home	vtium flow(doc display)	
 vtium flow(parts pointer)	Left	vtium flow(parts keyboard)	
-vtium flow(parts pointer)	PgUp	vtium flow(parts display)	
+vtium flow(parts pointer)	PgUp	vtium flow(parts special)	
 vtium flow(parts pointer)	Right	vtium flow(others)	
 vtium flow(parts pointer)	Shift-Tab	vtium looks(look)	mouse off
 vtium flow(parts pointer)	Shrink	vtium any.too-small	
@@ -2471,7 +2483,7 @@ vtium flow(parts pointer) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts pointer) +pending	3	vtium looks(marked) +pending	mouse off
 vtium flow(parts pointer) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts pointer) +pending	6	vtium help(help) +pending	mouse off
-vtium flow(parts pointer) +pending	Click box	vtium flow(parts special) +pending	
+vtium flow(parts pointer) +pending	Click box	vtium flow(parts input) +pending	
 vtium flow(parts pointer) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts pointer) +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow(parts pointer) +pending	Down	vtium flow(parts look) +pending	
@@ -2479,7 +2491,7 @@ vtium flow(parts pointer) +pending	End	vtium flow(parts look) +pending
 vtium flow(parts pointer) +pending	Enter	vtium flow.detail +pending	
 vtium flow(parts pointer) +pending	Home	vtium flow(doc display) +pending	
 vtium flow(parts pointer) +pending	Left	vtium flow(parts keyboard) +pending	
-vtium flow(parts pointer) +pending	PgUp	vtium flow(parts display) +pending	
+vtium flow(parts pointer) +pending	PgUp	vtium flow(parts special) +pending	
 vtium flow(parts pointer) +pending	Right	vtium flow(others) +pending	
 vtium flow(parts pointer) +pending	Shift-Tab	vtium looks(marked) +pending	mouse off
 vtium flow(parts pointer) +pending	Shrink	vtium any.too-small +pending	
@@ -2499,6 +2511,7 @@ vtium flow(parts pointer) +unsaved	2	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	3	vtium looks(look) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	5	vtium settings(first) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	6	vtium help(help) +unsaved	mouse off
+vtium flow(parts pointer) +unsaved	Click box	vtium flow(parts input) +unsaved	
 vtium flow(parts pointer) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts pointer) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts pointer) +unsaved	Down	vtium flow(parts look) +unsaved	
@@ -2527,6 +2540,7 @@ vtium flow(parts pointer) +unsaved +pending	2	vtium effects(filter) +unsaved +pe
 vtium flow(parts pointer) +unsaved +pending	3	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	5	vtium settings(first) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	6	vtium help(help) +unsaved +pending	mouse off
+vtium flow(parts pointer) +unsaved +pending	Click box	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts pointer) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts pointer) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow(parts pointer) +unsaved +pending	Down	vtium flow(parts look) +unsaved +pending	
@@ -2555,20 +2569,19 @@ vtium flow(parts special)	2	vtium effects(filter)	mouse off
 vtium flow(parts special)	3	vtium looks(look)	mouse off
 vtium flow(parts special)	5	vtium settings(first)	mouse off
 vtium flow(parts special)	6	vtium help(help)	mouse off
+vtium flow(parts special)	Click box	vtium flow(parts display)	
 vtium flow(parts special)	Click tab	vtium effects(filter)	mouse off
 vtium flow(parts special)	Ctrl-C	vtium left	mouse off, exit 130
-vtium flow(parts special)	Down	vtium flow(parts input)	
 vtium flow(parts special)	End	vtium flow(parts look)	
 vtium flow(parts special)	Home	vtium flow(doc display)	
-vtium flow(parts special)	PgDn	vtium flow(parts keyboard)	
+vtium flow(parts special)	Left	vtium flow(parts template)	
+vtium flow(parts special)	PgDn	vtium flow(parts template)	
 vtium flow(parts special)	PgUp	vtium flow(new empty)	
-vtium flow(parts special)	Right	vtium flow(parts template)	
 vtium flow(parts special)	Shift-Tab	vtium looks(look)	mouse off
 vtium flow(parts special)	Shrink	vtium any.too-small	
 vtium flow(parts special)	Tab	vtium settings(first)	mouse off
-vtium flow(parts special)	Up	vtium flow(parts template)	
-vtium flow(parts special)	Wheel down	vtium flow(parts input)	
-vtium flow(parts special)	Wheel up	vtium flow(parts template)	
+vtium flow(parts special)	Up	vtium flow(parts display)	
+vtium flow(parts special)	Wheel up	vtium flow(parts display)	
 vtium flow(parts special)	d	vtium flow(parts special)	devices
 vtium flow(parts special)	i	vtium flow(parts special)	prepare
 vtium flow(parts special)	n	vtium any.question.confirm	
@@ -2581,20 +2594,19 @@ vtium flow(parts special) +pending	2	vtium effects(filter) +pending	mouse off
 vtium flow(parts special) +pending	3	vtium looks(marked) +pending	mouse off
 vtium flow(parts special) +pending	5	vtium settings(first) +pending	mouse off
 vtium flow(parts special) +pending	6	vtium help(help) +pending	mouse off
+vtium flow(parts special) +pending	Click box	vtium flow(parts display) +pending	
 vtium flow(parts special) +pending	Click tab	vtium effects(filter) +pending	mouse off
 vtium flow(parts special) +pending	Ctrl-C	vtium left	mouse off, exit 130
-vtium flow(parts special) +pending	Down	vtium flow(parts input) +pending	
 vtium flow(parts special) +pending	End	vtium flow(parts look) +pending	
 vtium flow(parts special) +pending	Home	vtium flow(doc display) +pending	
-vtium flow(parts special) +pending	PgDn	vtium flow(parts keyboard) +pending	
+vtium flow(parts special) +pending	Left	vtium flow(parts template) +pending	
+vtium flow(parts special) +pending	PgDn	vtium flow(parts template) +pending	
 vtium flow(parts special) +pending	PgUp	vtium flow(new empty) +pending	
-vtium flow(parts special) +pending	Right	vtium flow(parts template) +pending	
 vtium flow(parts special) +pending	Shift-Tab	vtium looks(marked) +pending	mouse off
 vtium flow(parts special) +pending	Shrink	vtium any.too-small +pending	
 vtium flow(parts special) +pending	Tab	vtium settings(first) +pending	mouse off
-vtium flow(parts special) +pending	Up	vtium flow(parts template) +pending	
-vtium flow(parts special) +pending	Wheel down	vtium flow(parts input) +pending	
-vtium flow(parts special) +pending	Wheel up	vtium flow(parts template) +pending	
+vtium flow(parts special) +pending	Up	vtium flow(parts display) +pending	
+vtium flow(parts special) +pending	Wheel up	vtium flow(parts display) +pending	
 vtium flow(parts special) +pending	d	vtium flow(parts special) +pending	devices
 vtium flow(parts special) +pending	i	vtium any.question.confirm +pending	prepare
 vtium flow(parts special) +pending	n	vtium any.question.confirm +pending	
@@ -2610,18 +2622,16 @@ vtium flow(parts special) +unsaved	6	vtium help(help) +unsaved	mouse off
 vtium flow(parts special) +unsaved	Click box	vtium flow(parts display) +unsaved	
 vtium flow(parts special) +unsaved	Click tab	vtium effects(filter) +unsaved	mouse off
 vtium flow(parts special) +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
-vtium flow(parts special) +unsaved	Down	vtium flow(parts input) +unsaved	
 vtium flow(parts special) +unsaved	End	vtium flow(parts look) +unsaved	
 vtium flow(parts special) +unsaved	Home	vtium flow(doc terminal) +unsaved	
-vtium flow(parts special) +unsaved	PgDn	vtium flow(parts keyboard) +unsaved	
+vtium flow(parts special) +unsaved	Left	vtium flow(parts template) +unsaved	
+vtium flow(parts special) +unsaved	PgDn	vtium flow(parts template) +unsaved	
 vtium flow(parts special) +unsaved	PgUp	vtium flow(parts display) +unsaved	
-vtium flow(parts special) +unsaved	Right	vtium flow(parts template) +unsaved	
 vtium flow(parts special) +unsaved	Shift-Tab	vtium looks(look) +unsaved	mouse off
 vtium flow(parts special) +unsaved	Shrink	vtium any.too-small +unsaved	
 vtium flow(parts special) +unsaved	Tab	vtium settings(first) +unsaved	mouse off
-vtium flow(parts special) +unsaved	Up	vtium flow(parts template) +unsaved	
-vtium flow(parts special) +unsaved	Wheel down	vtium flow(parts input) +unsaved	
-vtium flow(parts special) +unsaved	Wheel up	vtium flow(parts template) +unsaved	
+vtium flow(parts special) +unsaved	Up	vtium flow(parts display) +unsaved	
+vtium flow(parts special) +unsaved	Wheel up	vtium flow(parts display) +unsaved	
 vtium flow(parts special) +unsaved	d	vtium flow(parts special) +unsaved	devices
 vtium flow(parts special) +unsaved	i	vtium any.question.confirm	save, prepare
 vtium flow(parts special) +unsaved	n	vtium any.question.confirm +unsaved	
@@ -2638,18 +2648,16 @@ vtium flow(parts special) +unsaved +pending	6	vtium help(help) +unsaved +pending
 vtium flow(parts special) +unsaved +pending	Click box	vtium flow(parts display) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	Click tab	vtium effects(filter) +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
-vtium flow(parts special) +unsaved +pending	Down	vtium flow(parts input) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	End	vtium flow(parts look) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	Home	vtium flow(doc terminal) +unsaved +pending	
-vtium flow(parts special) +unsaved +pending	PgDn	vtium flow(parts keyboard) +unsaved +pending	
+vtium flow(parts special) +unsaved +pending	Left	vtium flow(parts template) +unsaved +pending	
+vtium flow(parts special) +unsaved +pending	PgDn	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	PgUp	vtium flow(parts display) +unsaved +pending	
-vtium flow(parts special) +unsaved +pending	Right	vtium flow(parts template) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	Shift-Tab	vtium looks(marked) +unsaved +pending	mouse off
 vtium flow(parts special) +unsaved +pending	Shrink	vtium any.too-small +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	Tab	vtium settings(first) +unsaved +pending	mouse off
-vtium flow(parts special) +unsaved +pending	Up	vtium flow(parts template) +unsaved +pending	
-vtium flow(parts special) +unsaved +pending	Wheel down	vtium flow(parts input) +unsaved +pending	
-vtium flow(parts special) +unsaved +pending	Wheel up	vtium flow(parts template) +unsaved +pending	
+vtium flow(parts special) +unsaved +pending	Up	vtium flow(parts display) +unsaved +pending	
+vtium flow(parts special) +unsaved +pending	Wheel up	vtium flow(parts display) +unsaved +pending	
 vtium flow(parts special) +unsaved +pending	d	vtium flow(parts special) +unsaved +pending	devices
 vtium flow(parts special) +unsaved +pending	i	vtium any.question.confirm +pending	save, prepare
 vtium flow(parts special) +unsaved +pending	n	vtium any.question.confirm +unsaved +pending	

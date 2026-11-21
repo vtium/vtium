@@ -1397,7 +1397,7 @@ other flow(others)	2	other effects(filter)	mouse off
 other flow(others)	3	other looks(look)	mouse off
 other flow(others)	5	other settings(first)	mouse off
 other flow(others)	6	other help(help)	mouse off
-other flow(others)	Click box	other flow(parts special)	
+other flow(others)	Click box	other flow(parts input)	
 other flow(others)	Click tab	other effects(filter)	mouse off
 other flow(others)	Ctrl-C	other left	mouse off, exit 130
 other flow(others)	Down	other flow(parts look)	
@@ -1405,7 +1405,7 @@ other flow(others)	End	other flow(parts look)
 other flow(others)	Enter	other flow.others	
 other flow(others)	Home	other flow(doc display)	
 other flow(others)	Left	other flow(parts pointer)	
-other flow(others)	PgUp	other flow(parts display)	
+other flow(others)	PgUp	other flow(parts special)	
 other flow(others)	Right	other flow(parts template)	
 other flow(others)	Shift-Tab	other looks(look)	mouse off
 other flow(others)	Shrink	other any.too-small	
@@ -1425,7 +1425,7 @@ other flow(others) +pending	2	other effects(filter) +pending	mouse off
 other flow(others) +pending	3	other looks(marked) +pending	mouse off
 other flow(others) +pending	5	other settings(first) +pending	mouse off
 other flow(others) +pending	6	other help(help) +pending	mouse off
-other flow(others) +pending	Click box	other flow(parts special) +pending	
+other flow(others) +pending	Click box	other flow(parts input) +pending	
 other flow(others) +pending	Click tab	other effects(filter) +pending	mouse off
 other flow(others) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(others) +pending	Down	other flow(parts look) +pending	
@@ -1433,7 +1433,7 @@ other flow(others) +pending	End	other flow(parts look) +pending
 other flow(others) +pending	Enter	other flow.others +pending	
 other flow(others) +pending	Home	other flow(doc display) +pending	
 other flow(others) +pending	Left	other flow(parts pointer) +pending	
-other flow(others) +pending	PgUp	other flow(parts display) +pending	
+other flow(others) +pending	PgUp	other flow(parts special) +pending	
 other flow(others) +pending	Right	other flow(parts template) +pending	
 other flow(others) +pending	Shift-Tab	other looks(marked) +pending	mouse off
 other flow(others) +pending	Shrink	other any.too-small +pending	
@@ -1453,6 +1453,7 @@ other flow(others) +unsaved	2	other effects(filter) +unsaved	mouse off
 other flow(others) +unsaved	3	other looks(look) +unsaved	mouse off
 other flow(others) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(others) +unsaved	6	other help(help) +unsaved	mouse off
+other flow(others) +unsaved	Click box	other flow(parts input) +unsaved	
 other flow(others) +unsaved	Click tab	other effects(filter) +unsaved	mouse off
 other flow(others) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(others) +unsaved	Down	other flow(parts look) +unsaved	
@@ -1481,6 +1482,7 @@ other flow(others) +unsaved +pending	2	other effects(filter) +unsaved +pending	m
 other flow(others) +unsaved +pending	3	other looks(marked) +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
+other flow(others) +unsaved +pending	Click box	other flow(parts input) +unsaved +pending	
 other flow(others) +unsaved +pending	Click tab	other effects(filter) +unsaved +pending	mouse off
 other flow(others) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(others) +unsaved +pending	Down	other flow(parts look) +unsaved +pending	
@@ -1509,7 +1511,7 @@ other flow(parts any input)	2	other effects(filter)	mouse off
 other flow(parts any input)	3	other looks(look)	mouse off
 other flow(parts any input)	5	other settings(first)	mouse off
 other flow(parts any input)	6	other help(help)	mouse off
-other flow(parts any input)	Click box	other flow(parts template)	
+other flow(parts any input)	Click box	other flow(parts input)	
 other flow(parts any input)	Click tab	other effects(filter)	mouse off
 other flow(parts any input)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts any input)	Down	other flow(parts pointer)	
@@ -1517,7 +1519,7 @@ other flow(parts any input)	End	other flow(parts look)
 other flow(parts any input)	Enter	other flow.detail	
 other flow(parts any input)	Home	other flow(doc display)	
 other flow(parts any input)	Left	other flow(parts keyboard)	
-other flow(parts any input)	PgUp	other flow(parts display)	
+other flow(parts any input)	PgUp	other flow(parts special)	
 other flow(parts any input)	Right	other flow(parts keyboard)	
 other flow(parts any input)	Shift-Tab	other looks(look)	mouse off
 other flow(parts any input)	Shrink	other any.too-small	
@@ -1537,7 +1539,7 @@ other flow(parts any input) +pending	2	other effects(filter) +pending	mouse off
 other flow(parts any input) +pending	3	other looks(marked) +pending	mouse off
 other flow(parts any input) +pending	5	other settings(first) +pending	mouse off
 other flow(parts any input) +pending	6	other help(help) +pending	mouse off
-other flow(parts any input) +pending	Click box	other flow(parts template) +pending	
+other flow(parts any input) +pending	Click box	other flow(parts input) +pending	
 other flow(parts any input) +pending	Click tab	other effects(filter) +pending	mouse off
 other flow(parts any input) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts any input) +pending	Down	other flow(parts pointer) +pending	
@@ -1545,7 +1547,7 @@ other flow(parts any input) +pending	End	other flow(parts look) +pending
 other flow(parts any input) +pending	Enter	other flow.detail +pending	
 other flow(parts any input) +pending	Home	other flow(doc display) +pending	
 other flow(parts any input) +pending	Left	other flow(parts keyboard) +pending	
-other flow(parts any input) +pending	PgUp	other flow(parts display) +pending	
+other flow(parts any input) +pending	PgUp	other flow(parts special) +pending	
 other flow(parts any input) +pending	Right	other flow(parts keyboard) +pending	
 other flow(parts any input) +pending	Shift-Tab	other looks(marked) +pending	mouse off
 other flow(parts any input) +pending	Shrink	other any.too-small +pending	
@@ -1565,6 +1567,7 @@ other flow(parts any input) +unsaved	2	other effects(filter) +unsaved	mouse off
 other flow(parts any input) +unsaved	3	other looks(look) +unsaved	mouse off
 other flow(parts any input) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts any input) +unsaved	6	other help(help) +unsaved	mouse off
+other flow(parts any input) +unsaved	Click box	other flow(parts input) +unsaved	
 other flow(parts any input) +unsaved	Click tab	other effects(filter) +unsaved	mouse off
 other flow(parts any input) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts any input) +unsaved	Down	other flow(parts pointer) +unsaved	
@@ -1593,6 +1596,7 @@ other flow(parts any input) +unsaved +pending	2	other effects(filter) +unsaved +
 other flow(parts any input) +unsaved +pending	3	other looks(marked) +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
+other flow(parts any input) +unsaved +pending	Click box	other flow(parts input) +unsaved +pending	
 other flow(parts any input) +unsaved +pending	Click tab	other effects(filter) +unsaved +pending	mouse off
 other flow(parts any input) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts any input) +unsaved +pending	Down	other flow(parts pointer) +unsaved +pending	
@@ -1681,7 +1685,7 @@ other flow(parts display) +unsaved	Down	other flow(parts template) +unsaved
 other flow(parts display) +unsaved	End	other flow(parts look) +unsaved	
 other flow(parts display) +unsaved	Enter	other flow.detail +unsaved	
 other flow(parts display) +unsaved	Home	other flow(doc terminal) +unsaved	
-other flow(parts display) +unsaved	PgDn	other flow(parts keyboard) +unsaved	
+other flow(parts display) +unsaved	PgDn	other flow(parts template) +unsaved	
 other flow(parts display) +unsaved	Right	other flow(parts template) +unsaved	
 other flow(parts display) +unsaved	Shift-Tab	other looks(look) +unsaved	mouse off
 other flow(parts display) +unsaved	Shrink	other any.too-small +unsaved	
@@ -1708,7 +1712,7 @@ other flow(parts display) +unsaved +pending	Down	other flow(parts template) +uns
 other flow(parts display) +unsaved +pending	End	other flow(parts look) +unsaved +pending	
 other flow(parts display) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
 other flow(parts display) +unsaved +pending	Home	other flow(doc terminal) +unsaved +pending	
-other flow(parts display) +unsaved +pending	PgDn	other flow(parts keyboard) +unsaved +pending	
+other flow(parts display) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
 other flow(parts display) +unsaved +pending	Right	other flow(parts template) +unsaved +pending	
 other flow(parts display) +unsaved +pending	Shift-Tab	other looks(marked) +unsaved +pending	mouse off
 other flow(parts display) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
@@ -1729,6 +1733,7 @@ other flow(parts input)	2	other effects(filter)	mouse off
 other flow(parts input)	3	other looks(look)	mouse off
 other flow(parts input)	5	other settings(first)	mouse off
 other flow(parts input)	6	other help(help)	mouse off
+other flow(parts input)	Click box	other flow.detail	
 other flow(parts input)	Click tab	other effects(filter)	mouse off
 other flow(parts input)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts input)	Down	other flow(parts any input)	
@@ -1736,8 +1741,7 @@ other flow(parts input)	End	other flow(parts look)
 other flow(parts input)	Enter	other flow.detail	
 other flow(parts input)	Home	other flow(doc display)	
 other flow(parts input)	Left	other flow(parts template)	
-other flow(parts input)	PgDn	other flow(parts keyboard)	
-other flow(parts input)	PgUp	other flow(new empty)	
+other flow(parts input)	PgUp	other flow(parts special)	
 other flow(parts input)	Shift-Tab	other looks(look)	mouse off
 other flow(parts input)	Shrink	other any.too-small	
 other flow(parts input)	Tab	other settings(first)	mouse off
@@ -1756,6 +1760,7 @@ other flow(parts input) +pending	2	other effects(filter) +pending	mouse off
 other flow(parts input) +pending	3	other looks(marked) +pending	mouse off
 other flow(parts input) +pending	5	other settings(first) +pending	mouse off
 other flow(parts input) +pending	6	other help(help) +pending	mouse off
+other flow(parts input) +pending	Click box	other flow.detail +pending	
 other flow(parts input) +pending	Click tab	other effects(filter) +pending	mouse off
 other flow(parts input) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts input) +pending	Down	other flow(parts any input) +pending	
@@ -1763,8 +1768,7 @@ other flow(parts input) +pending	End	other flow(parts look) +pending
 other flow(parts input) +pending	Enter	other flow.detail +pending	
 other flow(parts input) +pending	Home	other flow(doc display) +pending	
 other flow(parts input) +pending	Left	other flow(parts template) +pending	
-other flow(parts input) +pending	PgDn	other flow(parts keyboard) +pending	
-other flow(parts input) +pending	PgUp	other flow(new empty) +pending	
+other flow(parts input) +pending	PgUp	other flow(parts special) +pending	
 other flow(parts input) +pending	Shift-Tab	other looks(marked) +pending	mouse off
 other flow(parts input) +pending	Shrink	other any.too-small +pending	
 other flow(parts input) +pending	Tab	other settings(first) +pending	mouse off
@@ -1783,15 +1787,15 @@ other flow(parts input) +unsaved	2	other effects(filter) +unsaved	mouse off
 other flow(parts input) +unsaved	3	other looks(look) +unsaved	mouse off
 other flow(parts input) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts input) +unsaved	6	other help(help) +unsaved	mouse off
+other flow(parts input) +unsaved	Click box	other flow.detail +unsaved	
 other flow(parts input) +unsaved	Click tab	other effects(filter) +unsaved	mouse off
 other flow(parts input) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts input) +unsaved	Down	other flow(parts any input) +unsaved	
 other flow(parts input) +unsaved	End	other flow(parts look) +unsaved	
 other flow(parts input) +unsaved	Enter	other flow.detail +unsaved	
 other flow(parts input) +unsaved	Home	other flow(doc terminal) +unsaved	
-other flow(parts input) +unsaved	PgDn	other flow(parts keyboard) +unsaved	
+other flow(parts input) +unsaved	Left	other flow(parts template) +unsaved	
 other flow(parts input) +unsaved	PgUp	other flow(parts special) +unsaved	
-other flow(parts input) +unsaved	Right	other flow(parts keyboard) +unsaved	
 other flow(parts input) +unsaved	Shift-Tab	other looks(look) +unsaved	mouse off
 other flow(parts input) +unsaved	Shrink	other any.too-small +unsaved	
 other flow(parts input) +unsaved	Tab	other settings(first) +unsaved	mouse off
@@ -1811,15 +1815,15 @@ other flow(parts input) +unsaved +pending	2	other effects(filter) +unsaved +pend
 other flow(parts input) +unsaved +pending	3	other looks(marked) +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
+other flow(parts input) +unsaved +pending	Click box	other flow.detail +unsaved +pending	
 other flow(parts input) +unsaved +pending	Click tab	other effects(filter) +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts input) +unsaved +pending	Down	other flow(parts any input) +unsaved +pending	
 other flow(parts input) +unsaved +pending	End	other flow(parts look) +unsaved +pending	
 other flow(parts input) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
 other flow(parts input) +unsaved +pending	Home	other flow(doc terminal) +unsaved +pending	
-other flow(parts input) +unsaved +pending	PgDn	other flow(parts keyboard) +unsaved +pending	
+other flow(parts input) +unsaved +pending	Left	other flow(parts template) +unsaved +pending	
 other flow(parts input) +unsaved +pending	PgUp	other flow(parts special) +unsaved +pending	
-other flow(parts input) +unsaved +pending	Right	other flow(parts keyboard) +unsaved +pending	
 other flow(parts input) +unsaved +pending	Shift-Tab	other looks(marked) +unsaved +pending	mouse off
 other flow(parts input) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow(parts input) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
@@ -1839,6 +1843,7 @@ other flow(parts keyboard)	2	other effects(filter)	mouse off
 other flow(parts keyboard)	3	other looks(look)	mouse off
 other flow(parts keyboard)	5	other settings(first)	mouse off
 other flow(parts keyboard)	6	other help(help)	mouse off
+other flow(parts keyboard)	Click box	other flow(parts input)	
 other flow(parts keyboard)	Click tab	other effects(filter)	mouse off
 other flow(parts keyboard)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts keyboard)	End	other flow(parts look)	
@@ -1864,6 +1869,7 @@ other flow(parts keyboard) +pending	2	other effects(filter) +pending	mouse off
 other flow(parts keyboard) +pending	3	other looks(marked) +pending	mouse off
 other flow(parts keyboard) +pending	5	other settings(first) +pending	mouse off
 other flow(parts keyboard) +pending	6	other help(help) +pending	mouse off
+other flow(parts keyboard) +pending	Click box	other flow(parts input) +pending	
 other flow(parts keyboard) +pending	Click tab	other effects(filter) +pending	mouse off
 other flow(parts keyboard) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts keyboard) +pending	End	other flow(parts look) +pending	
@@ -1889,19 +1895,20 @@ other flow(parts keyboard) +unsaved	2	other effects(filter) +unsaved	mouse off
 other flow(parts keyboard) +unsaved	3	other looks(look) +unsaved	mouse off
 other flow(parts keyboard) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts keyboard) +unsaved	6	other help(help) +unsaved	mouse off
+other flow(parts keyboard) +unsaved	Click box	other flow(parts input) +unsaved	
 other flow(parts keyboard) +unsaved	Click tab	other effects(filter) +unsaved	mouse off
 other flow(parts keyboard) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
+other flow(parts keyboard) +unsaved	Down	other flow(parts template) +unsaved	
 other flow(parts keyboard) +unsaved	End	other flow(parts look) +unsaved	
 other flow(parts keyboard) +unsaved	Enter	other flow.detail +unsaved	
 other flow(parts keyboard) +unsaved	Home	other flow(doc terminal) +unsaved	
-other flow(parts keyboard) +unsaved	Left	other flow(parts input) +unsaved	
+other flow(parts keyboard) +unsaved	Left	other flow(parts any input) +unsaved	
 other flow(parts keyboard) +unsaved	PgUp	other flow(parts special) +unsaved	
-other flow(parts keyboard) +unsaved	Right	other flow(parts any input) +unsaved	
+other flow(parts keyboard) +unsaved	Right	other flow(parts pointer) +unsaved	
 other flow(parts keyboard) +unsaved	Shift-Tab	other looks(look) +unsaved	mouse off
 other flow(parts keyboard) +unsaved	Shrink	other any.too-small +unsaved	
 other flow(parts keyboard) +unsaved	Tab	other settings(first) +unsaved	mouse off
-other flow(parts keyboard) +unsaved	Up	other flow(parts template) +unsaved	
-other flow(parts keyboard) +unsaved	Wheel up	other flow(parts template) +unsaved	
+other flow(parts keyboard) +unsaved	Wheel down	other flow(parts template) +unsaved	
 other flow(parts keyboard) +unsaved	d	other flow(parts keyboard) +unsaved	devices
 other flow(parts keyboard) +unsaved	i	other any.question.confirm	save, prepare
 other flow(parts keyboard) +unsaved	n	other any.question.confirm +unsaved	
@@ -1915,19 +1922,20 @@ other flow(parts keyboard) +unsaved +pending	2	other effects(filter) +unsaved +p
 other flow(parts keyboard) +unsaved +pending	3	other looks(marked) +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
+other flow(parts keyboard) +unsaved +pending	Click box	other flow(parts input) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Click tab	other effects(filter) +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
+other flow(parts keyboard) +unsaved +pending	Down	other flow(parts template) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	End	other flow(parts look) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Enter	other flow.detail +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Home	other flow(doc terminal) +unsaved +pending	
-other flow(parts keyboard) +unsaved +pending	Left	other flow(parts input) +unsaved +pending	
+other flow(parts keyboard) +unsaved +pending	Left	other flow(parts any input) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	PgUp	other flow(parts special) +unsaved +pending	
-other flow(parts keyboard) +unsaved +pending	Right	other flow(parts any input) +unsaved +pending	
+other flow(parts keyboard) +unsaved +pending	Right	other flow(parts pointer) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Shift-Tab	other looks(marked) +unsaved +pending	mouse off
 other flow(parts keyboard) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
-other flow(parts keyboard) +unsaved +pending	Up	other flow(parts template) +unsaved +pending	
-other flow(parts keyboard) +unsaved +pending	Wheel up	other flow(parts template) +unsaved +pending	
+other flow(parts keyboard) +unsaved +pending	Wheel down	other flow(parts template) +unsaved +pending	
 other flow(parts keyboard) +unsaved +pending	d	other flow(parts keyboard) +unsaved +pending	devices
 other flow(parts keyboard) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts keyboard) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
@@ -1941,6 +1949,7 @@ other flow(parts look)	2	other effects(filter)	mouse off
 other flow(parts look)	3	other looks(look)	mouse off
 other flow(parts look)	5	other settings(first)	mouse off
 other flow(parts look)	6	other help(help)	mouse off
+other flow(parts look)	Click box	other flow(parts input)	
 other flow(parts look)	Click tab	other effects(filter)	mouse off
 other flow(parts look)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts look)	Home	other flow(doc display)	
@@ -1948,8 +1957,8 @@ other flow(parts look)	PgUp	other flow(parts special)
 other flow(parts look)	Shift-Tab	other looks(look)	mouse off
 other flow(parts look)	Shrink	other any.too-small	
 other flow(parts look)	Tab	other settings(first)	mouse off
-other flow(parts look)	Up	other flow(parts template)	
-other flow(parts look)	Wheel up	other flow(parts template)	
+other flow(parts look)	Up	other flow(others)	
+other flow(parts look)	Wheel up	other flow(others)	
 other flow(parts look)	d	other flow(parts look)	devices
 other flow(parts look)	i	other flow(parts look)	prepare
 other flow(parts look)	n	other any.question.confirm	
@@ -1962,6 +1971,7 @@ other flow(parts look) +pending	2	other effects(filter) +pending	mouse off
 other flow(parts look) +pending	3	other looks(marked) +pending	mouse off
 other flow(parts look) +pending	5	other settings(first) +pending	mouse off
 other flow(parts look) +pending	6	other help(help) +pending	mouse off
+other flow(parts look) +pending	Click box	other flow(parts input) +pending	
 other flow(parts look) +pending	Click tab	other effects(filter) +pending	mouse off
 other flow(parts look) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts look) +pending	Home	other flow(doc display) +pending	
@@ -1969,8 +1979,8 @@ other flow(parts look) +pending	PgUp	other flow(parts special) +pending
 other flow(parts look) +pending	Shift-Tab	other looks(marked) +pending	mouse off
 other flow(parts look) +pending	Shrink	other any.too-small +pending	
 other flow(parts look) +pending	Tab	other settings(first) +pending	mouse off
-other flow(parts look) +pending	Up	other flow(parts template) +pending	
-other flow(parts look) +pending	Wheel up	other flow(parts template) +pending	
+other flow(parts look) +pending	Up	other flow(others) +pending	
+other flow(parts look) +pending	Wheel up	other flow(others) +pending	
 other flow(parts look) +pending	d	other flow(parts look) +pending	devices
 other flow(parts look) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts look) +pending	n	other any.question.confirm +pending	
@@ -1983,6 +1993,7 @@ other flow(parts look) +unsaved	2	other effects(filter) +unsaved	mouse off
 other flow(parts look) +unsaved	3	other looks(look) +unsaved	mouse off
 other flow(parts look) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts look) +unsaved	6	other help(help) +unsaved	mouse off
+other flow(parts look) +unsaved	Click box	other flow(parts input) +unsaved	
 other flow(parts look) +unsaved	Click tab	other effects(filter) +unsaved	mouse off
 other flow(parts look) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts look) +unsaved	Home	other flow(doc terminal) +unsaved	
@@ -1990,8 +2001,8 @@ other flow(parts look) +unsaved	PgUp	other flow(parts special) +unsaved
 other flow(parts look) +unsaved	Shift-Tab	other looks(look) +unsaved	mouse off
 other flow(parts look) +unsaved	Shrink	other any.too-small +unsaved	
 other flow(parts look) +unsaved	Tab	other settings(first) +unsaved	mouse off
-other flow(parts look) +unsaved	Up	other flow(parts template) +unsaved	
-other flow(parts look) +unsaved	Wheel up	other flow(parts template) +unsaved	
+other flow(parts look) +unsaved	Up	other flow(parts pointer) +unsaved	
+other flow(parts look) +unsaved	Wheel up	other flow(parts pointer) +unsaved	
 other flow(parts look) +unsaved	d	other flow(parts look) +unsaved	devices
 other flow(parts look) +unsaved	i	other any.question.confirm	save, prepare
 other flow(parts look) +unsaved	n	other any.question.confirm +unsaved	
@@ -2005,6 +2016,7 @@ other flow(parts look) +unsaved +pending	2	other effects(filter) +unsaved +pendi
 other flow(parts look) +unsaved +pending	3	other looks(marked) +unsaved +pending	mouse off
 other flow(parts look) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts look) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
+other flow(parts look) +unsaved +pending	Click box	other flow(parts input) +unsaved +pending	
 other flow(parts look) +unsaved +pending	Click tab	other effects(filter) +unsaved +pending	mouse off
 other flow(parts look) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts look) +unsaved +pending	Home	other flow(doc terminal) +unsaved +pending	
@@ -2012,8 +2024,8 @@ other flow(parts look) +unsaved +pending	PgUp	other flow(parts special) +unsaved
 other flow(parts look) +unsaved +pending	Shift-Tab	other looks(marked) +unsaved +pending	mouse off
 other flow(parts look) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow(parts look) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
-other flow(parts look) +unsaved +pending	Up	other flow(parts template) +unsaved +pending	
-other flow(parts look) +unsaved +pending	Wheel up	other flow(parts template) +unsaved +pending	
+other flow(parts look) +unsaved +pending	Up	other flow(parts pointer) +unsaved +pending	
+other flow(parts look) +unsaved +pending	Wheel up	other flow(parts pointer) +unsaved +pending	
 other flow(parts look) +unsaved +pending	d	other flow(parts look) +unsaved +pending	devices
 other flow(parts look) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts look) +unsaved +pending	n	other any.question.confirm +unsaved +pending	
@@ -2027,7 +2039,7 @@ other flow(parts pointer)	2	other effects(filter)	mouse off
 other flow(parts pointer)	3	other looks(look)	mouse off
 other flow(parts pointer)	5	other settings(first)	mouse off
 other flow(parts pointer)	6	other help(help)	mouse off
-other flow(parts pointer)	Click box	other flow(parts special)	
+other flow(parts pointer)	Click box	other flow(parts input)	
 other flow(parts pointer)	Click tab	other effects(filter)	mouse off
 other flow(parts pointer)	Ctrl-C	other left	mouse off, exit 130
 other flow(parts pointer)	Down	other flow(parts look)	
@@ -2035,7 +2047,7 @@ other flow(parts pointer)	End	other flow(parts look)
 other flow(parts pointer)	Enter	other flow.detail	
 other flow(parts pointer)	Home	other flow(doc display)	
 other flow(parts pointer)	Left	other flow(parts keyboard)	
-other flow(parts pointer)	PgUp	other flow(parts display)	
+other flow(parts pointer)	PgUp	other flow(parts special)	
 other flow(parts pointer)	Right	other flow(others)	
 other flow(parts pointer)	Shift-Tab	other looks(look)	mouse off
 other flow(parts pointer)	Shrink	other any.too-small	
@@ -2055,7 +2067,7 @@ other flow(parts pointer) +pending	2	other effects(filter) +pending	mouse off
 other flow(parts pointer) +pending	3	other looks(marked) +pending	mouse off
 other flow(parts pointer) +pending	5	other settings(first) +pending	mouse off
 other flow(parts pointer) +pending	6	other help(help) +pending	mouse off
-other flow(parts pointer) +pending	Click box	other flow(parts special) +pending	
+other flow(parts pointer) +pending	Click box	other flow(parts input) +pending	
 other flow(parts pointer) +pending	Click tab	other effects(filter) +pending	mouse off
 other flow(parts pointer) +pending	Ctrl-C	other left	mouse off, exit 130
 other flow(parts pointer) +pending	Down	other flow(parts look) +pending	
@@ -2063,7 +2075,7 @@ other flow(parts pointer) +pending	End	other flow(parts look) +pending
 other flow(parts pointer) +pending	Enter	other flow.detail +pending	
 other flow(parts pointer) +pending	Home	other flow(doc display) +pending	
 other flow(parts pointer) +pending	Left	other flow(parts keyboard) +pending	
-other flow(parts pointer) +pending	PgUp	other flow(parts display) +pending	
+other flow(parts pointer) +pending	PgUp	other flow(parts special) +pending	
 other flow(parts pointer) +pending	Right	other flow(others) +pending	
 other flow(parts pointer) +pending	Shift-Tab	other looks(marked) +pending	mouse off
 other flow(parts pointer) +pending	Shrink	other any.too-small +pending	
@@ -2083,6 +2095,7 @@ other flow(parts pointer) +unsaved	2	other effects(filter) +unsaved	mouse off
 other flow(parts pointer) +unsaved	3	other looks(look) +unsaved	mouse off
 other flow(parts pointer) +unsaved	5	other settings(first) +unsaved	mouse off
 other flow(parts pointer) +unsaved	6	other help(help) +unsaved	mouse off
+other flow(parts pointer) +unsaved	Click box	other flow(parts input) +unsaved	
 other flow(parts pointer) +unsaved	Click tab	other effects(filter) +unsaved	mouse off
 other flow(parts pointer) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts pointer) +unsaved	Down	other flow(parts look) +unsaved	
@@ -2111,6 +2124,7 @@ other flow(parts pointer) +unsaved +pending	2	other effects(filter) +unsaved +pe
 other flow(parts pointer) +unsaved +pending	3	other looks(marked) +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	5	other settings(first) +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	6	other help(help) +unsaved +pending	mouse off
+other flow(parts pointer) +unsaved +pending	Click box	other flow(parts input) +unsaved +pending	
 other flow(parts pointer) +unsaved +pending	Click tab	other effects(filter) +unsaved +pending	mouse off
 other flow(parts pointer) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow(parts pointer) +unsaved +pending	Down	other flow(parts look) +unsaved +pending	
@@ -2139,20 +2153,19 @@ other flow(parts special)	2	other effects(filter)	mouse off
 other flow(parts special)	3	other looks(look)	mouse off
 other flow(parts special)	5	other settings(first)	mouse off
 other flow(parts special)	6	other help(help)	mouse off
+other flow(parts special)	Click box	other flow(parts display)	
 other flow(parts special)	Click tab	other effects(filter)	mouse off
 other flow(parts special)	Ctrl-C	other left	mouse off, exit 130
-other flow(parts special)	Down	other flow(parts input)	
 other flow(parts special)	End	other flow(parts look)	
 other flow(parts special)	Home	other flow(doc display)	
-other flow(parts special)	PgDn	other flow(parts keyboard)	
+other flow(parts special)	Left	other flow(parts template)	
+other flow(parts special)	PgDn	other flow(parts template)	
 other flow(parts special)	PgUp	other flow(new empty)	
-other flow(parts special)	Right	other flow(parts template)	
 other flow(parts special)	Shift-Tab	other looks(look)	mouse off
 other flow(parts special)	Shrink	other any.too-small	
 other flow(parts special)	Tab	other settings(first)	mouse off
-other flow(parts special)	Up	other flow(parts template)	
-other flow(parts special)	Wheel down	other flow(parts input)	
-other flow(parts special)	Wheel up	other flow(parts template)	
+other flow(parts special)	Up	other flow(parts display)	
+other flow(parts special)	Wheel up	other flow(parts display)	
 other flow(parts special)	d	other flow(parts special)	devices
 other flow(parts special)	i	other flow(parts special)	prepare
 other flow(parts special)	n	other any.question.confirm	
@@ -2165,20 +2178,19 @@ other flow(parts special) +pending	2	other effects(filter) +pending	mouse off
 other flow(parts special) +pending	3	other looks(marked) +pending	mouse off
 other flow(parts special) +pending	5	other settings(first) +pending	mouse off
 other flow(parts special) +pending	6	other help(help) +pending	mouse off
+other flow(parts special) +pending	Click box	other flow(parts display) +pending	
 other flow(parts special) +pending	Click tab	other effects(filter) +pending	mouse off
 other flow(parts special) +pending	Ctrl-C	other left	mouse off, exit 130
-other flow(parts special) +pending	Down	other flow(parts input) +pending	
 other flow(parts special) +pending	End	other flow(parts look) +pending	
 other flow(parts special) +pending	Home	other flow(doc display) +pending	
-other flow(parts special) +pending	PgDn	other flow(parts keyboard) +pending	
+other flow(parts special) +pending	Left	other flow(parts template) +pending	
+other flow(parts special) +pending	PgDn	other flow(parts template) +pending	
 other flow(parts special) +pending	PgUp	other flow(new empty) +pending	
-other flow(parts special) +pending	Right	other flow(parts template) +pending	
 other flow(parts special) +pending	Shift-Tab	other looks(marked) +pending	mouse off
 other flow(parts special) +pending	Shrink	other any.too-small +pending	
 other flow(parts special) +pending	Tab	other settings(first) +pending	mouse off
-other flow(parts special) +pending	Up	other flow(parts template) +pending	
-other flow(parts special) +pending	Wheel down	other flow(parts input) +pending	
-other flow(parts special) +pending	Wheel up	other flow(parts template) +pending	
+other flow(parts special) +pending	Up	other flow(parts display) +pending	
+other flow(parts special) +pending	Wheel up	other flow(parts display) +pending	
 other flow(parts special) +pending	d	other flow(parts special) +pending	devices
 other flow(parts special) +pending	i	other any.question.confirm +pending	prepare
 other flow(parts special) +pending	n	other any.question.confirm +pending	
@@ -2194,18 +2206,16 @@ other flow(parts special) +unsaved	6	other help(help) +unsaved	mouse off
 other flow(parts special) +unsaved	Click box	other flow(parts display) +unsaved	
 other flow(parts special) +unsaved	Click tab	other effects(filter) +unsaved	mouse off
 other flow(parts special) +unsaved	Ctrl-C	other left	save, mouse off, exit 130
-other flow(parts special) +unsaved	Down	other flow(parts input) +unsaved	
 other flow(parts special) +unsaved	End	other flow(parts look) +unsaved	
 other flow(parts special) +unsaved	Home	other flow(doc terminal) +unsaved	
-other flow(parts special) +unsaved	PgDn	other flow(parts keyboard) +unsaved	
+other flow(parts special) +unsaved	Left	other flow(parts template) +unsaved	
+other flow(parts special) +unsaved	PgDn	other flow(parts template) +unsaved	
 other flow(parts special) +unsaved	PgUp	other flow(parts display) +unsaved	
-other flow(parts special) +unsaved	Right	other flow(parts template) +unsaved	
 other flow(parts special) +unsaved	Shift-Tab	other looks(look) +unsaved	mouse off
 other flow(parts special) +unsaved	Shrink	other any.too-small +unsaved	
 other flow(parts special) +unsaved	Tab	other settings(first) +unsaved	mouse off
-other flow(parts special) +unsaved	Up	other flow(parts template) +unsaved	
-other flow(parts special) +unsaved	Wheel down	other flow(parts input) +unsaved	
-other flow(parts special) +unsaved	Wheel up	other flow(parts template) +unsaved	
+other flow(parts special) +unsaved	Up	other flow(parts display) +unsaved	
+other flow(parts special) +unsaved	Wheel up	other flow(parts display) +unsaved	
 other flow(parts special) +unsaved	d	other flow(parts special) +unsaved	devices
 other flow(parts special) +unsaved	i	other any.question.confirm	save, prepare
 other flow(parts special) +unsaved	n	other any.question.confirm +unsaved	
@@ -2222,18 +2232,16 @@ other flow(parts special) +unsaved +pending	6	other help(help) +unsaved +pending
 other flow(parts special) +unsaved +pending	Click box	other flow(parts display) +unsaved +pending	
 other flow(parts special) +unsaved +pending	Click tab	other effects(filter) +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
-other flow(parts special) +unsaved +pending	Down	other flow(parts input) +unsaved +pending	
 other flow(parts special) +unsaved +pending	End	other flow(parts look) +unsaved +pending	
 other flow(parts special) +unsaved +pending	Home	other flow(doc terminal) +unsaved +pending	
-other flow(parts special) +unsaved +pending	PgDn	other flow(parts keyboard) +unsaved +pending	
+other flow(parts special) +unsaved +pending	Left	other flow(parts template) +unsaved +pending	
+other flow(parts special) +unsaved +pending	PgDn	other flow(parts template) +unsaved +pending	
 other flow(parts special) +unsaved +pending	PgUp	other flow(parts display) +unsaved +pending	
-other flow(parts special) +unsaved +pending	Right	other flow(parts template) +unsaved +pending	
 other flow(parts special) +unsaved +pending	Shift-Tab	other looks(marked) +unsaved +pending	mouse off
 other flow(parts special) +unsaved +pending	Shrink	other any.too-small +unsaved +pending	
 other flow(parts special) +unsaved +pending	Tab	other settings(first) +unsaved +pending	mouse off
-other flow(parts special) +unsaved +pending	Up	other flow(parts template) +unsaved +pending	
-other flow(parts special) +unsaved +pending	Wheel down	other flow(parts input) +unsaved +pending	
-other flow(parts special) +unsaved +pending	Wheel up	other flow(parts template) +unsaved +pending	
+other flow(parts special) +unsaved +pending	Up	other flow(parts display) +unsaved +pending	
+other flow(parts special) +unsaved +pending	Wheel up	other flow(parts display) +unsaved +pending	
 other flow(parts special) +unsaved +pending	d	other flow(parts special) +unsaved +pending	devices
 other flow(parts special) +unsaved +pending	i	other any.question.confirm +pending	save, prepare
 other flow(parts special) +unsaved +pending	n	other any.question.confirm +unsaved +pending	

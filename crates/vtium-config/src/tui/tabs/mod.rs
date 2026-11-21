@@ -103,10 +103,10 @@ pub trait Tab {
         Preview::nothing(shared, size)
     }
 
-    /// The lines a vtium console draws as the tab's preview, in its own
-    /// font, where a picture would go elsewhere: none for a tab with no
-    /// preview.
-    fn console_lines(&self, _shared: &Shared) -> Vec<Vec<(&'static str, Style)>> {
+    /// The lines a vtium console draws as the tab's preview on a screen
+    /// of `size`, in its own font, where a picture would go elsewhere:
+    /// none for a tab with no preview.
+    fn console_lines(&self, _shared: &Shared, _size: Size) -> Vec<Vec<(&'static str, Style)>> {
         Vec::new()
     }
 

@@ -221,7 +221,7 @@ impl Seen<'_> {
 
     /// The terminal card open in `sim`, with the line under its cursor:
     /// its object, its path and the line. `None` outside a card.
-    fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
+    pub fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
         let fv = sim.app.flow.state();
         let obj = fv.layer.clone()?;
         let path = flowlayout::card_path(sim.app.flow.state(), &sim.app.shared, &obj)?;
@@ -614,8 +614,12 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
                 if s.exited() || !s.kept() || a.line != b.line {
                     return Err("Right left the card, changed a line or changed the draft".into());
                 }
+                // a terminal whose look is missing offers that look as one
+                // more choice on its Look line
                 let last = Seen::card(s.before)
-                    .map(|(_, _, line)| flowlayout::card_choices(&s.before.app.shared, &line).len())
+                    .map(|(_, path, line)| {
+                        flowlayout::path_choices(&s.before.app.shared, &path, &line).len()
+                    })
                     .unwrap_or(0)
                     .saturating_sub(1);
                 if b.pick == a.pick.saturating_add(1).min(last) {

@@ -578,13 +578,17 @@ fn path_row(
     } else if p.active {
         (name.to_owned(), words::ACTIVE_DETAIL.to_owned())
     } else {
+        // a look line that names a look the draft does not hold is marked
+        // missing, as the terminal's card and its subflow mark it
+        let look = match p.look.as_deref() {
+            Some(l) if super::flowlayout::look_section(ctx.flow, Some(l)).is_none() => {
+                words::look_words(&words::missing_look(l))
+            }
+            l => look_words(l),
+        };
         (
             name.to_owned(),
-            format!(
-                "{} · {}",
-                look_words(p.look.as_deref()),
-                words::vt_words(&p.vts())
-            ),
+            format!("{look} · {}", words::vt_words(&p.vts())),
         )
     };
     let mood = if p.none { Mood::Aside } else { Mood::Placed };
@@ -1462,6 +1466,24 @@ pub(crate) mod tests {
                 roam.w
             );
         }
+    }
+
+    /// A terminal whose look line names a look the draft does not hold
+    /// marks the look "(missing)" on its box, as its card and its subflow
+    /// do, and a look the draft holds has no mark.
+    #[test]
+    fn a_terminal_s_box_marks_a_missing_look() {
+        let text = "version = 1\n[look big]\nfont-name = unifont\n[head desk]\nlook = big\n[head panel]\nlook = gone\n[rules]\ndisplay edid:AAA:0x0001:LARGE00001 -> desk\ndisplay edid:BBB:0x0002:SMALL00001 -> panel\n";
+        let f = crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None);
+        let l = lay(&f, &Path::default(), 120);
+        assert_eq!(
+            at(&l, &doc("panel", Slot::Terminal)).detail,
+            "look gone (missing) · every VT"
+        );
+        assert_eq!(
+            at(&l, &doc("desk", Slot::Terminal)).detail,
+            "look big · every VT"
+        );
     }
 
     /// The heads the dotted `roaming inputs` stub reaches in `text`'s

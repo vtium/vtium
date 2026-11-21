@@ -50,6 +50,10 @@ pub const PREVIEW_TEXT_SHORT: &str = "text";
 
 pub const TRIAL_KEY: &str = "t: try live";
 
+/// The status line's word for `t` on a font set that only the draft adds,
+/// which the console can try once the draft is installed.
+pub const TRIAL_AFTER_INSTALL: &str = "t: after install";
+
 pub const TRIAL_NONE: &str = "no live trial";
 
 /// The status line's trial words on a tab other than the Looks tab, which
@@ -71,6 +75,15 @@ pub const TRIAL_OFF: &str = "The live trial works only in a vtium console with a
 pub fn trial_countdown(font: impl Display, left: u32) -> String {
     format!(
         "Trying {font} on the console for {left} s. Press k to keep it, or any other key to put the font back."
+    )
+}
+
+/// The live trial's countdown for the font set `font`, which the draft
+/// replaces. The console reads only installed font sets, so the trial
+/// shows the installed version, and the countdown says so.
+pub fn trial_countdown_installed(font: impl Display, left: u32) -> String {
+    format!(
+        "Trying {font} on the console for {left} s. The console reads the installed {font}, so the draft's changes to it show once you install the draft. Press k to keep it, or any other key to put the font back."
     )
 }
 

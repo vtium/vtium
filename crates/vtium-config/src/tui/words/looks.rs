@@ -11,6 +11,21 @@ pub const LOOKS: &str = "Looks";
 /// the font and size it uses now.
 pub const CONSOLE_SIZE_CAPTION: &str = "The console draws this in its current font. Press t to try the font set. A size takes effect when vtium starts again.";
 
+/// The caption of the console's own preview of the font set `name`, which
+/// only the draft adds. The console reads only installed font sets, so the
+/// caption says when `t` can try the font set instead of offering `t`.
+/// Under a list of sizes, `sized`, it also says when a size takes effect.
+pub fn console_caption_in_draft(name: impl Display, sized: bool) -> String {
+    let size = if sized {
+        " A size takes effect when vtium starts again."
+    } else {
+        ""
+    };
+    format!(
+        "The console draws this in its current font. The font set {name} is in the draft, so t can try it once you install the draft with i.{size}"
+    )
+}
+
 /// The size that lets vtium choose.
 pub const AUTOMATIC: &str = "automatic";
 
@@ -128,6 +143,14 @@ pub fn try_absent(name: impl Display) -> String {
     format!("This machine has no font set named {name}, so t cannot try it.")
 }
 
+/// What the message line says when `t` cannot try a font set that only
+/// the draft adds, since the console reads only installed font sets.
+pub fn try_in_draft(name: impl Display) -> String {
+    format!(
+        "The font set {name} is in the draft and not yet installed, so t cannot try it. The console can try it once you install the draft with i."
+    )
+}
+
 /// What the sentence under the list says of the highlighted item.
 pub fn item_about(name: impl Display, detail: impl Display) -> String {
     format!("{name}: {detail}.")
@@ -199,6 +222,10 @@ pub const CHOICE_ABSENT: &str =
 pub fn choice_refused(why: impl Display) -> String {
     format!("what this look sets now, and the console does not read it: {why}")
 }
+
+/// The note of a font set that the look names and the draft removes.
+pub const CHOICE_REMOVED: &str =
+    "what this look sets now, and installing the draft removes that font set";
 
 /// The mark of a vtlook that does not read, with why, in the card's list
 /// and on its line.
@@ -344,6 +371,9 @@ pub fn font_set_title(name: impl Display) -> String {
 }
 
 pub const READS_WHOLE: &str = "The console reads it without errors.";
+
+/// The line of a font set's detail that says only the draft adds it.
+pub const IN_DRAFT_WHOLE: &str = "The draft adds this font set, and this machine does not have it yet. Install writes it to this machine.";
 pub const BUILT_IN_WHOLE: &str = "It is built into vtium, so it needs no file.";
 
 pub fn does_not_read_whole(why: impl Display) -> String {
@@ -396,7 +426,13 @@ pub fn size_unmeasured(why: impl Display) -> String {
 }
 
 /// Enter on a size in a vtium console that does not let programs resize
-/// its grid.
+/// its grid, where the live trial is on, so the preview is the console's
+/// own text at its current size.
+pub const SIZE_AT_NEXT_START: &str = "The console does not let programs resize its grid, so the size takes effect once you install the draft and vtium starts again. Press w in the Looks tab to let programs resize the grid.";
+
+/// Enter on a size in a vtium console that does not let programs resize
+/// its grid, where the live trial is off, so the preview is a picture or
+/// a description of the size.
 pub const SIZE_PICTURE_ONLY: &str = "The console does not let programs resize its grid, so the size shows only in the preview until you install it. Press w in the Looks tab to let programs resize the grid.";
 
 /// The question `w` asks in the Looks tab.
@@ -407,7 +443,13 @@ pub const WINDOW_OPS_QUESTION: &str = "Let programs resize the grid? vtium-confi
 pub const WINDOW_OPS_ON: &str = "The draft already lets programs resize the grid. The console does so once you install the draft and vtium starts again.";
 
 /// The notice on a look card's size line, in a vtium console that does
-/// not let programs resize its grid.
+/// not let programs resize its grid, where the live trial is on, so the
+/// preview is the console's own text at its current size.
+pub const WINDOW_OPS_NOTICE_NEXT_START: &str = "The console does not let programs resize its grid, so a size takes effect when vtium starts again. Press w in the list of looks to let them.";
+
+/// The notice on a look card's size line, in a vtium console that does
+/// not let programs resize its grid, where the live trial is off, so the
+/// preview is a picture or a description of the size.
 pub const WINDOW_OPS_NOTICE: &str = "The console does not let programs resize its grid, so a size shows only in the preview. Press w in the list of looks to let them.";
 
 /// The heading of the Looks tab's group of pointer themes.
