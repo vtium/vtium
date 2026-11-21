@@ -1305,6 +1305,7 @@ name = "vtium-config-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
+ "swash",
  "vtium-config",
  "vtium-font",
  "vtium-testfont",

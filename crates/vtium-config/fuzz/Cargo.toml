@@ -29,6 +29,9 @@ vtium-testfont = { path = "../../../tools/testfont" }
 vtium-config = { path = ".." }
 # The style the shaping target synthesises over the glyphs.
 vtium-font = { path = "../../vtium-font" }
+# The swash that vtium-config builds, which the names target calls on each
+# face the font check passes.
+swash = "=0.2.10"
 
 [[bin]]
 name = "shape"
