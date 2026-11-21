@@ -1283,6 +1283,7 @@ dependencies = [
  "lzma-rust2",
  "miniz_oxide 0.8.9",
  "nix",
+ "png",
  "ratatui-core",
  "ratatui-widgets",
  "resvg",
