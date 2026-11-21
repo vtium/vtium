@@ -342,3 +342,118 @@ fn install_refuses_a_draft_that_moves_the_frits_and_changes_a_frit() {
     std::fs::remove_dir_all(f.folder("desk")).expect("the folder");
     f.ok(&["install"]);
 }
+
+/// The console this workspace builds, which judges a draft the way the
+/// install's own check judges it.
+#[path = "common/console.rs"]
+mod console;
+
+/// A draft whose look names a font set that only the draft adds installs:
+/// both vtium-config's check of the draft and the check that `apply DIR`
+/// runs count the folder's font set as installed. The console here is the
+/// one this workspace builds, not a stand-in, so the check reads the font
+/// set the way the console does.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets.
+#[test]
+fn a_look_that_names_a_font_set_only_the_draft_adds_installs() {
+    let f = fixture("look-new-frit");
+    script::executable(
+        &f.path("vtium"),
+        &format!("#!/bin/sh\nexec '{}' \"$@\"\n", console::vtium().display()),
+    );
+    f.desk();
+    f.keep("new.vtfrit", NEW);
+    f.keep("old.removed", "");
+    let draft = f.path("home/config/vtium/drafts/desk.conf");
+    std::fs::write(
+        &draft,
+        "font-size=12\nversion = 1\n[look big]\nfont-name = new\n[head desk]\nlook = big\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n",
+    )
+    .expect("the draft");
+    let checked = f.run(&["flow"]);
+    assert!(
+        !checked.out.contains("not installed") && !checked.err.contains("not installed"),
+        "{}{}",
+        checked.out,
+        checked.err
+    );
+    let install = f.run(&["install", "--force"]);
+    assert_eq!(install.status, 0, "{}{}", install.out, install.err);
+    assert!(!install.out.contains("not installed"), "{}", install.out);
+    let read = |p: &str| std::fs::read_to_string(f.path(p)).ok();
+    assert_eq!(read("etc/fonts/new.vtfrit").as_deref(), Some(NEW));
+    assert_eq!(read("etc/fonts/old.vtfrit"), None);
+    assert!(
+        read("etc/vtium.conf")
+            .unwrap_or_default()
+            .contains("font-name = new")
+    );
+}
+
+/// The check that `apply DIR` runs gets one `--with-frit` for each frit
+/// the bundle writes and one `--without-frit` for each frit it removes.
+/// Each `--with-frit` names a copy that the install made in a directory
+/// of its own inside the frits' directory, with mode 0700, and the copy
+/// holds the text the install writes. The directory is gone after the
+/// install.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets.
+#[test]
+fn the_install_s_own_check_counts_the_bundle_s_font_sets() {
+    let f = fixture("apply-args");
+    // the stand-in console appends each run's words, and for each
+    // --with-frit the mode of the copy's directory and the copy's text
+    let log = f.path("log");
+    script::executable(
+        &f.path("vtium"),
+        &format!(
+            concat!(
+                "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\n",
+                "{{ echo ---; prev=; for a in \"$@\"; do echo \"$a\"; ",
+                "if [ \"$prev\" = --with-frit ]; then stat -c 'mode %a' \"$(dirname \"$a\")\"; cat \"$a\"; fi; ",
+                "prev=$a; done; }} >> '{}'\nexit 0\n",
+            ),
+            log.display()
+        ),
+    );
+    f.desk();
+    f.ok(&["set", "font-size", "14"]);
+    f.keep("new.vtfrit", NEW);
+    f.keep("old.removed", "");
+    std::fs::write(&log, "").expect("the log");
+    f.ok(&["install"]);
+    let said = std::fs::read_to_string(&log).expect("the log");
+    let root = f.root.to_str().expect("a path");
+    let last = said.rsplit("---\n").next().unwrap_or_default();
+    let words: Vec<String> = last.lines().map(|w| w.replace(root, "ROOT")).collect();
+    let at = words
+        .iter()
+        .position(|w| w == "--with-frit")
+        .expect("a --with-frit");
+    let copy = &words[at + 1];
+    let dir = copy
+        .strip_suffix("/new.vtfrit")
+        .expect("the copy is named for its frit");
+    assert!(
+        dir.starts_with("ROOT/etc/fonts/vtium-config-apply-"),
+        "{words:?}"
+    );
+    assert_eq!(words[at + 2], "mode 700", "{words:?}");
+    assert_eq!(
+        words[at + 3..at + 5],
+        ["name=new", "source=builtin:unscii-8"],
+        "{words:?}"
+    );
+    let gone = words
+        .iter()
+        .position(|w| w == "--without-frit")
+        .expect("a --without-frit");
+    assert_eq!(words[gone + 1], "old", "{words:?}");
+    assert!(
+        !Path::new(&dir.replace("ROOT", root)).exists(),
+        "the copies go after the check"
+    );
+}
