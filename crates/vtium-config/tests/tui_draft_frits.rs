@@ -1,8 +1,8 @@
 //! A font set made in the TUI waits in the draft's folder, so leaving
 //! vtium-config before Install loses nothing, and `q` asks no question
 //! about it: the TUI runs on the real desk, a store under a home of the
-//! test's own, and the stand-in console `vtium`, whose check passes every
-//! file.
+//! test's own, and the stand-in console `vtium`, whose check refuses each
+//! line that holds `BAD`.
 //!
 //! References:
 //! - ADR-1403 D8, "A draft's font set changes": the folder, that quitting
@@ -255,6 +255,9 @@ fn a_font_set_only_the_draft_adds_shows_in_the_list_and_the_card() {
         ENTER,
     ];
     let screen = m.run(made);
+    // the check judges the draft with quiet in it, and finds nothing
+    let status = screen.lines().nth(1).unwrap_or_default();
+    assert!(status.contains("no problems"), "{screen}");
     // a font set's row in the list, indented under its group's heading
     let row = |screen: &str| screen.lines().any(|l| l.starts_with("   quiet "));
     assert!(row(&screen), "{screen}");
@@ -341,4 +344,94 @@ fn the_status_line_counts_only_the_changes_an_install_makes() {
     store.keep_frit("mine", "new", text).expect("a new frit");
     let shown = status(&m);
     assert!(shown.contains("1 font set to install"), "{shown}");
+}
+
+/// The check judges a draft that brings a font set change the way the
+/// console's `vtium check-config` does: a line it refuses, in the draft's
+/// vtium.conf or in the font set's file the draft adds, is one problem
+/// on the status line, and the options that pass the font set change
+/// count as none.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": the check passes one `--with-frit` for each frit the folder adds, so it reads the draft's file.
+#[test]
+fn the_check_reports_a_bad_line_in_a_draft_that_adds_a_font_set() {
+    let m = machine("bad-with-frit");
+    m.run(&[]);
+    let store = m.store();
+    store
+        .keep_frit("mine", "quiet", "source=builtin:unscii-8\n")
+        .expect("a new frit");
+    let status = |m: &Machine| m.run(&[]).lines().nth(1).unwrap_or_default().to_owned();
+    let shown = status(&m);
+    assert!(shown.contains("no problems"), "{shown}");
+    // a line the check refuses in the draft's vtium.conf
+    let path = store.draft_path("mine").expect("the draft's path");
+    let draft = std::fs::read_to_string(&path).expect("the draft");
+    std::fs::write(&path, format!("{draft}BAD = 1\n")).expect("a bad line");
+    let shown = status(&m);
+    assert!(shown.contains(" 1 problem "), "{shown}");
+    // and one in the font set's file the draft adds
+    std::fs::write(&path, &draft).expect("the draft as it was");
+    store
+        .keep_frit("mine", "quiet", "source=builtin:unscii-8\nBAD\n")
+        .expect("a bad frit");
+    let shown = status(&m);
+    assert!(shown.contains(" 1 problem "), "{shown}");
+}
+
+/// The stand-in console reads its arguments as `vtium check-config` does:
+/// options in any order and in either form, the file to check as the one
+/// word that is no option, and a `--with-frit` that names no regular file
+/// called `NAME.vtfrit` refused, as the real check refuses it.
+#[test]
+fn the_stand_in_console_reads_its_arguments_as_the_console_does() {
+    let m = machine("stand-in");
+    let etc = m.root.join("etc");
+    let conf = etc.join("vtium.conf");
+    std::fs::write(etc.join("fonts/quiet.vtfrit"), "source=builtin:unscii-8\n").expect("a frit");
+    let check = |args: &[&std::ffi::OsStr]| {
+        let out = Command::new(m.root.join("vtium"))
+            .arg("check-config")
+            .args(args)
+            .output()
+            .expect("the stand-in runs");
+        (
+            out.status.code(),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+            String::from_utf8_lossy(&out.stderr).into_owned(),
+        )
+    };
+    let frit = etc.join("fonts/quiet.vtfrit");
+    let (status, out, err) = check(&[
+        "--without-frit".as_ref(),
+        "gone".as_ref(),
+        "--configdir".as_ref(),
+        etc.as_os_str(),
+        "--with-frit".as_ref(),
+        frit.as_os_str(),
+        "--no-devices".as_ref(),
+        conf.as_os_str(),
+        "--without-frit=old".as_ref(),
+    ]);
+    assert_eq!(status, Some(0), "{err}");
+    assert_eq!(out, format!("{}: checked\n", conf.display()));
+    // without a file, the configuration directory's vtium.conf
+    let (status, out, _) = check(&["--configdir".as_ref(), etc.as_os_str()]);
+    assert_eq!(
+        (status, out),
+        (Some(0), format!("{}: checked\n", conf.display()))
+    );
+    // a missing font set file, and one not named NAME.vtfrit
+    let missing = etc.join("fonts/missing.vtfrit");
+    let (status, _, err) = check(&[
+        "--configdir".as_ref(),
+        etc.as_os_str(),
+        "--with-frit".as_ref(),
+        missing.as_os_str(),
+        format!("--with-frit={}", conf.display()).as_ref(),
+        conf.as_os_str(),
+    ]);
+    assert_eq!(status, Some(1), "{err}");
+    assert_eq!(err.matches("is not a font set file").count(), 2, "{err}");
 }

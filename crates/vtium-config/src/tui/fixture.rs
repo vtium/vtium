@@ -697,12 +697,57 @@ pub fn resource_op(
 /// a look, and three rules, the second naming the keyboard at `pci-0:3.3`.
 pub const DRAFT: &str = "font-size=12\nversion = 1\n[look big]\nfont-name = proof\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\ninput path:pci-0:3.3 -> panel\ninput class:keyboard -> roaming\n";
 
-/// The stand-in console those goldens check a draft with: `check-config
-/// --configdir DIR FILE` names each line of FILE that holds `BAD` and
-/// fails, and passes any other file.
+/// The stand-in console those goldens check a draft with. It reads its
+/// arguments the way `vtium check-config` does: `--configdir DIR`, any
+/// number of `--with-frit FILE` and `--without-frit NAME`, and
+/// `--no-devices`, in any order, and the vtium.conf it checks as the one
+/// word that is no option, or `DIR/vtium.conf` without one. It names each
+/// line that holds `BAD`, in that file and in each `--with-frit` file, as
+/// an error, and refuses a `--with-frit` that is not a regular file named
+/// `NAME.vtfrit`. It exits 1 when it found an error, and notes `FILE:
+/// checked` and exits 0 when it found none.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": the check reads the font set files a draft adds or replaces through `--with-frit`.
 pub const CHECKER: &str = r#"#!/bin/sh
 [ "$1" = check-config ] || exit 9
-file="$4"
+shift
+configdir=/etc/vtium
+file=
+failed=
+frit() {
+  case "${1##*/}" in
+    ?*.vtfrit) [ -f "$1" ] ;;
+    *) false ;;
+  esac || {
+    echo "--with-frit \"$1\" is not a font set file." >&2
+    failed=1
+    return
+  }
+  for n in $(grep -n BAD "$1" | cut -d: -f1); do
+    echo "$1:$n: BAD is not a key vtium reads" >&2
+    failed=1
+  done
+}
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --configdir|--with-frit|--without-frit)
+      [ $# -ge 2 ] || { echo "$1 needs a value" >&2; exit 1; }
+      case "$1" in
+        --configdir) configdir="$2" ;;
+        --with-frit) frit "$2" ;;
+      esac
+      shift 2 ;;
+    --configdir=*) configdir="${1#*=}"; shift ;;
+    --with-frit=*) frit "${1#*=}"; shift ;;
+    --without-frit=*|--no-devices) shift ;;
+    -*) echo "unknown option $1" >&2; exit 1 ;;
+    *)
+      [ -z "$file" ] || { echo "a second file $1" >&2; exit 1; }
+      file="$1"; shift ;;
+  esac
+done
+[ -n "$file" ] || file="$configdir/vtium.conf"
 bad=$(grep -n BAD "$file" | cut -d: -f1)
 if [ -n "$bad" ]; then
   for n in $bad; do
@@ -710,6 +755,7 @@ if [ -n "$bad" ]; then
   done
   exit 1
 fi
+[ -z "$failed" ] || exit 1
 echo "$file: checked"
 "#;
 
