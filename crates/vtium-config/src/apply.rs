@@ -38,7 +38,7 @@
 //!    the verdict at the next start, with the frits the draft writes and
 //!    removes counted as installed and removed, each frit read from a copy
 //!    in a private folder under `/run`, or under the user's runtime folder
-//!    when `apply` runs as a user ([`frit_copies`]); and a system font with
+//!    when `apply` runs as a user (`frit_copies`); and a system font with
 //!    the font helper, which must describe a copy root made of the font's bytes
 //!    ([`SystemFont`]). A system font's draft that holds any other file
 //!    is refused, so that draft runs no `check-config`;
@@ -49,7 +49,7 @@
 //!    old one kept as `NAME.bak`. A frit goes in the same way, but through
 //!    a descriptor held on the frits' directory, which `apply` checks
 //!    before step 3 with the walk the console reads a frit through
-//!    ([`FritsDir`]). A system font is written the same way,
+//!    (`FritsDir`). A system font is written the same way,
 //!    but the file it replaces is not kept, because fontconfig would read
 //!    the copy as one more font;
 //! 5. prints one line a file, `wrote PATH`, `removed PATH`, `failed PATH`
