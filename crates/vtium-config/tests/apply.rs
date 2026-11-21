@@ -38,6 +38,11 @@ fn fixture(name: &str, conf: Option<&str>) -> Fixture {
     let fonts = etc.join("fonts");
     std::fs::create_dir_all(&fonts).expect("the fixture");
     std::fs::write(fonts.join("tiny.vtfrit"), "source=builtin:unscii-8\n").expect("a frit");
+    // the runtime folder where apply, run as the user, makes the private
+    // folder for its check's copies of the draft's frits
+    std::fs::create_dir(root.join("run")).expect("the runtime folder");
+    std::fs::set_permissions(root.join("run"), std::fs::Permissions::from_mode(0o700))
+        .expect("the runtime folder's mode");
     if let Some(conf) = conf {
         std::fs::write(etc.join("vtium.conf"), conf).expect("vtium.conf");
     }
@@ -81,6 +86,7 @@ impl Fixture {
             .args(self.targets.options())
             .arg("apply")
             .arg(draft)
+            .env("XDG_RUNTIME_DIR", self.root.join("run"))
             .envs(env.iter().copied())
             .output()
             .expect("the binary runs");

@@ -32,6 +32,14 @@ fn fixture(name: &str, conf: Option<&str>) -> Fixture {
     let fonts = root.join("etc/fonts");
     std::fs::create_dir_all(&fonts).expect("the fixture");
     std::fs::create_dir_all(root.join("state")).expect("the state");
+    // the runtime folder where install, run as the user, makes the private
+    // folder for its check's copies of the draft's frits
+    std::fs::create_dir_all(root.join("run")).expect("the runtime folder");
+    std::fs::set_permissions(
+        root.join("run"),
+        std::os::unix::fs::PermissionsExt::from_mode(0o700),
+    )
+    .expect("the runtime folder's mode");
     std::fs::write(fonts.join("tiny.vtfrit"), "source=builtin:unscii-8\n").expect("a frit");
     std::fs::write(fonts.join("spare.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     if let Some(conf) = conf {
@@ -73,6 +81,7 @@ impl Fixture {
             .args(args)
             .env("XDG_STATE_HOME", self.root.join("state"))
             .env("XDG_CONFIG_HOME", self.root.join("config"))
+            .env("XDG_RUNTIME_DIR", self.root.join("run"))
             .output()
             .expect("the binary runs");
         Ran {
