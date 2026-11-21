@@ -2412,6 +2412,87 @@ mod tests {
         assert!(entries_of(&run).is_empty(), "{:?}", entries_of(&run));
     }
 
+    /// The review's case: the frits' directory `open/l/fonts` is reached
+    /// through a link `l` in a folder `open` that others can write, so
+    /// whoever can write `open` can point `l` elsewhere. The console refuses
+    /// every font set there, and apply refuses the directory the same way,
+    /// naming `open`. Once `open` is closed to others, apply holds the
+    /// directory, and a frit it installs and one it removes after `l` moves
+    /// still act in the folder it checked.
+    #[test]
+    fn a_frits_directory_reached_through_a_link_in_an_open_folder_is_refused() {
+        use std::os::unix::fs::PermissionsExt;
+        let trust = vtium_settings::Trust::running_as(euid());
+        let base = trusted_base("link-in-open");
+        let open = base.join("open");
+        std::fs::create_dir(&open).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+        for d in ["real/fonts", "evil/fonts"] {
+            std::fs::create_dir_all(base.join(d)).unwrap();
+        }
+        std::os::unix::fs::symlink(base.join("real"), open.join("l")).unwrap();
+        let path = open.join("l/fonts");
+        std::fs::write(
+            base.join("real/fonts/old.vtfrit"),
+            "source=builtin:unifont\n",
+        )
+        .unwrap();
+        std::fs::write(
+            base.join("evil/fonts/old.vtfrit"),
+            "source=builtin:unifont\n",
+        )
+        .unwrap();
+        let console = vtium_settings::inspect(&path.join("old.vtfrit"), &trust)
+            .unwrap()
+            .unwrap();
+        assert!(console.trusted.is_err(), "the console refuses the frit");
+        let why = FritsDir::open(&path)
+            .err()
+            .expect("apply refuses the directory");
+        assert!(
+            why.contains("so the install writes none there: other users can change")
+                && why.contains(&format!("{:?}", open.display().to_string())),
+            "{why}"
+        );
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let held = FritsDir::open(&path).unwrap();
+        // the link moves after the check
+        std::fs::remove_file(open.join("l")).unwrap();
+        std::os::unix::fs::symlink(base.join("evil"), open.join("l")).unwrap();
+        held.install(&path.join("new.vtfrit"), b"source=builtin:unscii-8\n")
+            .unwrap();
+        held.remove(&path.join("old.vtfrit")).unwrap();
+        assert_eq!(
+            entries_of(&base.join("real/fonts")),
+            ["new.vtfrit", "old.vtfrit.bak"]
+        );
+        assert_eq!(entries_of(&base.join("evil/fonts")), ["old.vtfrit"]);
+        // a frit replaced keeps the one it replaces as NAME.bak
+        held.install(&path.join("new.vtfrit"), b"source=builtin:unifont\n")
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(base.join("real/fonts/new.vtfrit.bak")).unwrap(),
+            "source=builtin:unscii-8\n"
+        );
+        let mode = std::fs::metadata(base.join("real/fonts/new.vtfrit"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o7777, 0o644);
+        // anything at the name but a regular file is refused and left
+        std::os::unix::fs::symlink(
+            base.join("evil/fonts/old.vtfrit"),
+            base.join("real/fonts/link.vtfrit"),
+        )
+        .unwrap();
+        assert!(held.install(&path.join("link.vtfrit"), b"x\n").is_err());
+        assert!(base.join("real/fonts/link.vtfrit").is_symlink());
+        assert_eq!(
+            std::fs::read_to_string(base.join("evil/fonts/old.vtfrit")).unwrap(),
+            "source=builtin:unifont\n"
+        );
+    }
+
     /// The system's names cannot be told in advance from the process's id
     /// or a count, so a local user cannot make them all first.
     #[test]
