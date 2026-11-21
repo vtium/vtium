@@ -1,29 +1,39 @@
 # The pointer's pictures from a pointer file (ADR-1309): the ten shapes a
 # program sets with OSC 22, drawn first with vtium's own pictures, then from
-# vtium's own pointer file, then from Adwaita's cursor theme, and last with
-# a pointer-theme line that names a path where nothing is.
+# vtium's own pointer file, then from Adwaita's cursor theme, then with a
+# pointer-theme line that names a path where nothing is, and last from
+# Adwaita's cursor theme named by a look, not by the top level.
 #
 # vtium reads its pointer file once, when it starts, so each configuration
 # needs a run of its own, and each run walks only its own steps. The
-# steering session starts the four runs one after another, each with its
+# steering session starts the five runs one after another, each with its
 # own vtium.conf beside this guide:
 #
 #   make vt-check GUIDE=pointer-file GUIDE_STEPS='1 2'
 #   make vt-check GUIDE=pointer-file GUIDE_STEPS='3 4' CONF=tools/vt/checks/pointer-file-svg.conf
 #   make vt-check GUIDE=pointer-file GUIDE_STEPS='5 6' CONF=tools/vt/checks/pointer-file-adwaita.conf
 #   make vt-check GUIDE=pointer-file GUIDE_STEPS='7' CONF=tools/vt/checks/pointer-file-missing.conf
+#   make vt-check GUIDE=pointer-file GUIDE_STEPS='8 9' CONF=tools/vt/checks/pointer-file-look.conf
 #
-# The second run reads /usr/share/vtium/pointers.svg, the copy a package
-# installs, because vtium reads a pointer file only when root owns it and
+# The second and fifth runs read /usr/share/vtium/pointers.svg, the copy a
+# package installs, because vtium reads a pointer file only when root owns it and
 # every folder above it. On a machine without the package, install the
-# checkout's copy before that run, and remove it afterwards so that a
-# package can install it later:
+# checkout's copy before the second run, and remove it after the fifth so
+# that a package can install it later:
 #
 #   sudo install -Dm644 -o root -g root crates/vtium/install/pointers.svg /usr/share/vtium/pointers.svg
 #   sudo rm -r /usr/share/vtium
 #
-# The third run reads the cursors that the adwaita-cursors package installs
-# in /usr/share/icons/Adwaita.
+# The third and fifth runs read the cursors that the adwaita-cursors
+# package installs in /usr/share/icons/Adwaita. vtium uses a cursor theme
+# only while it is active, which means /etc/vtium/batch.conf lists it, and
+# a fresh install does not activate Adwaita. Where `vtium-config active`
+# does not list it, activate it before the third run and deactivate it
+# after the fifth. Each command installs the whole draft, so run them while
+# the draft holds no other change:
+#
+#   vtium-config activate /usr/share/icons/Adwaita --install
+#   vtium-config deactivate /usr/share/icons/Adwaita --install
 #
 # Each run's first step prints the pointer lines of the vtium.conf the run
 # copied into /run/vtium-vt/config and the pointer file lines of vtium's
@@ -32,11 +42,12 @@
 
 title: the pointer's pictures from a pointer file
 
-intro: vtium reads its pointer file when it starts, so this guide runs four
+intro: vtium reads its pointer file when it starts, so this guide runs five
 intro: times, each with its own vtium.conf, and each run shows only its own
 intro: steps. Steps 1 and 2 use vtium's own pictures, steps 3 and 4 vtium's
-intro: pointer file, steps 5 and 6 Adwaita's cursor theme, and step 7 a path
-intro: where nothing is.
+intro: pointer file, steps 5 and 6 Adwaita's cursor theme, step 7 a path
+intro: where nothing is, and steps 8 and 9 Adwaita's cursor theme named by
+intro: the head's look.
 
 step: This run has no pointer file
 run: clear; echo "pointer lines in vtium.conf:"; grep '^pointer' /run/vtium-vt/config/vtium.conf || echo "  none"; echo "pointer file lines in vtium's log:"; grep -i 'pointer file\|cannot draw the' "$(ls -t /tmp/vtium-vt/vt-*.log | head -n 1)" || echo "  none"; guide-wait
@@ -98,3 +109,21 @@ expect: line that says the pointer file /usr/share/vtium/no-such-pointers.svg
 expect: is *neither an SVG file nor a folder* that holds a cursors folder, so
 expect: vtium draws its own pointer pictures. The pointer is *the white arrow*
 expect: of vtium's own pictures.
+
+step: This run's look names its own pointer theme
+run: clear; echo "pointer lines and sections in vtium.conf:"; grep '^pointer\|^\[\|^look' /run/vtium-vt/config/vtium.conf || echo "  none"; echo "Adwaita in /etc/vtium/batch.conf:"; grep -qx /usr/share/icons/Adwaita /etc/vtium/batch.conf 2>/dev/null && echo "  active" || echo "  not listed"; echo "pointer file lines in vtium's log:"; grep -i 'pointer file\|pointer theme\|cannot draw the' "$(ls -t /tmp/vtium-vt/vt-*.log | head -n 1)" || echo "  none"; guide-wait
+expect: *pointer-theme=/usr/share/vtium/pointers.svg* at the top, then
+expect: *[look adwaita]* with *pointer-theme = /usr/share/icons/Adwaita*,
+expect: and *look = adwaita* under *[head console]*. Then *active*, and
+expect: *none* under the last heading.
+
+step: Each shape, from the look's Adwaita
+run: for s in default text pointer crosshair wait progress not-allowed move ew-resize ns-resize; do clear; printf '\033]22;%s\033\\' "$s"; printf '\033[7m%*s\033[0m\n' "$(tput cols)" ""; printf '\nThe pointer shows the shape: %s\n\n          +\n\n' "$s"; guide-wait --keys "Aim the shape's point at the +, double-click, then press a key for the next shape."; done; printf '\033]22;\033\\'; clear
+do: for each shape, move the pointer over the black screen and the white
+do: bar, then put the shape's point on the + and double-click. Then press a
+do: key for the next shape.
+expect: *Adwaita's pictures*, as in step 6: a black arrow with a white
+expect: outline and a soft shadow, and the other nine shapes in Adwaita's
+expect: drawing. vtium's own white arrows with a dark outline here mean the
+expect: console took the top level's pointer file, *not the look's*. After
+expect: each double-click, *the + shows selected*.
