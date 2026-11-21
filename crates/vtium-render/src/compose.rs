@@ -188,6 +188,9 @@ struct Lines {
     /// underline skips ([`near_ink`]).
     ink: Vec<u8>,
     near: Vec<u8>,
+    /// On a display turned a quarter, the pixels near the ink of one cell,
+    /// for the display columns its underline covers ([`Columns`]).
+    columns: Columns,
 }
 
 /// What composes cells: the glyph cache, the decoration sprites, the row's
@@ -317,6 +320,8 @@ impl Composer {
             meeting,
         } = self;
         let run = jobs.get(start..end).unwrap_or_default();
+        // the glyphs may differ from the last run's in the same places
+        lines.columns.forget();
         let mut top = area.y;
         while top < area.bottom() {
             let lines_here = int(band).min(area.bottom().saturating_sub(top));
@@ -572,6 +577,7 @@ fn cell_line(
         src,
         ink: glyph_ink,
         near,
+        columns,
     } = Scratch::of(lines, w);
     let (gx, gy) = (x0.saturating_sub(job.g.x), y.saturating_sub(job.g.y));
     if !job.layered() && ink.is_none() && glyph.is_none_or(|g| g.layer().is_none()) {
@@ -602,6 +608,7 @@ fn cell_line(
             glyph,
             ink: glyph_ink,
             near,
+            columns,
         });
         deco_over(job, sprites, u, y, skip, prem, cov);
     }
@@ -639,14 +646,18 @@ struct Scratch<'a> {
     /// The glyph's ink along the line, and the pixels near it.
     ink: &'a mut [u8],
     near: &'a mut [u8],
+    columns: &'a mut Columns,
 }
 
-/// What an underline that skips ink reads: the job's glyph, and scratch
-/// for the glyph's ink along a line and for the pixels near it.
+/// What an underline that skips ink reads: the job's glyph, scratch for
+/// the glyph's ink along a line and for the pixels near it, and the
+/// pixels near the ink of the cell's columns on a display turned a
+/// quarter.
 struct Skip<'a> {
     glyph: &'a Stored,
     ink: &'a mut [u8],
     near: &'a mut [u8],
+    columns: &'a mut Columns,
 }
 
 impl Scratch<'_> {
@@ -657,6 +668,7 @@ impl Scratch<'_> {
             src,
             ink,
             near,
+            columns,
             ..
         } = lines;
         cov.resize(w, 0);
@@ -670,15 +682,20 @@ impl Scratch<'_> {
             src: src.get_mut(..w).unwrap_or_default(),
             ink: ink.get_mut(..w).unwrap_or_default(),
             near: near.get_mut(..w).unwrap_or_default(),
+            columns,
         }
     }
 }
 
 /// `line` tinted `c` over the premultiplied line `prem`, across the job's
-/// cells, at display line `y`. With `skip`, the job's glyph and two lines
-/// of scratch, a line that skips ink leaves out the pixels near the
-/// glyph's ink ([`near_ink`]), which it finds only on a display line the
-/// line's sprite covers.
+/// cells, at display line `y`. With `skip`, the job's glyph and its
+/// scratch, a line that skips ink leaves out the pixels near the glyph's
+/// ink, which it looks for only where the line's sprite has a coverage
+/// above 0. Upright, or turned half round, [`near_ink`] finds them along
+/// the whole display line, once on each display line the sprite covers.
+/// On a display turned a quarter, the cell's row runs down a display
+/// column, so [`Columns`] finds them once for each display column the
+/// sprite covers, down the whole cell.
 fn deco_over(
     job: &Job,
     sprites: &Sprites,
@@ -691,20 +708,36 @@ fn deco_over(
     let Some(s) = sprites.piece(line, job.piece) else {
         return;
     };
+    let o = sprites.orientation();
     let mut skip = skip.filter(|_| line.skips_ink);
     let mut near_found = false;
     for t in job.tiles.get(..job.ncells).unwrap_or_default() {
         s.mask_line(job.r.x.saturating_sub(t.x), y.saturating_sub(t.y), cov);
-        if let Some(Skip { glyph, ink, near }) = skip.as_mut()
+        if let Some(Skip {
+            glyph,
+            ink,
+            near,
+            columns,
+        }) = skip.as_mut()
             && cov.iter().any(|&a| a != 0)
         {
-            if !near_found {
-                near_ink(job, glyph, sprites.orientation(), y, (ink, near));
-                near_found = true;
-            }
-            for (a, &n) in cov.iter_mut().zip(near.iter()) {
-                if n != 0 {
-                    *a = 0;
+            if o.turned() {
+                if let Some(i) = columns.line(job, y) {
+                    for (x, a) in cov.iter_mut().enumerate().filter(|(_, a)| **a != 0) {
+                        if columns.near(job, glyph, o, (x, i)) {
+                            *a = 0;
+                        }
+                    }
+                }
+            } else {
+                if !near_found {
+                    near_ink(job, glyph, o, y, (ink, near));
+                    near_found = true;
+                }
+                for (a, &n) in cov.iter_mut().zip(near.iter()) {
+                    if n != 0 {
+                        *a = 0;
+                    }
                 }
             }
         }
@@ -716,15 +749,14 @@ fn deco_over(
 
 /// Marks in `near`, one byte for each pixel of display line `y` across
 /// `job`'s area, each pixel within one pixel of `glyph`'s ink along the
-/// cell's row, the ink's own pixels among them. A pixel here is one of
-/// the normal cell's, so in a magnified cell it spans [`magnification`]
-/// display pixels. Ink is any pixel of the glyph, or of its color layer,
-/// with a coverage above 0. Only the ink inside the job's area counts,
-/// and in a piece of a magnified character the ink of the character's
-/// pieces beside it, which the glyph carries ([`Stored::beside`]). The
-/// cell's row runs along the display line, or down a display column on a
-/// display turned a quarter by `o`, where the lines before and after `y`
-/// hold the pixels beside it. `ink` is scratch for the glyph's lines.
+/// cell's row, the ink's own pixels among them, on a display upright or
+/// turned half round by `o`, where the cell's row runs along the display
+/// line. A pixel here is one of the normal cell's, so in a magnified cell
+/// it spans [`magnification`] display pixels. Ink is any pixel of the
+/// glyph, or of its color layer, with a coverage above 0. Only the ink
+/// inside the job's area counts, and in a piece of a magnified character
+/// the ink of the character's pieces beside it, which the glyph carries
+/// ([`Stored::beside`]). `ink` is scratch for the glyph's line.
 fn near_ink(
     job: &Job,
     glyph: &Stored,
@@ -741,33 +773,122 @@ fn near_ink(
             }
         }
     }
-    let turned = o.turned();
-    let gap = magnification(job.piece);
+    let gap = usize::try_from(magnification(job.piece)).unwrap_or(1);
     let gx = job.r.x.saturating_sub(job.g.x);
-    let lines = if turned {
-        let gap = i64::from(gap);
-        let last = job.r.bottom().saturating_sub(1);
-        y.saturating_sub(gap).max(job.r.y)..=y.saturating_add(gap).min(last)
-    } else {
-        y..=y
-    };
-    let gap = usize::try_from(gap).unwrap_or(1);
-    for line in lines {
-        for g in core::iter::once(glyph).chain(glyph.layer()) {
-            g.mask_line(gx, line.saturating_sub(job.g.y), ink);
-            for (x, _) in ink.iter().enumerate().filter(|&(_, &a)| a != 0) {
-                // the pixel and, along a display line, the pixels before
-                // and after it that lie in the job
-                let beside = if turned {
-                    x..x.saturating_add(1)
-                } else {
-                    let end = x.saturating_add(gap).saturating_add(1);
-                    x.saturating_sub(gap)..end.min(near.len())
-                };
-                for n in near.get_mut(beside).into_iter().flatten() {
-                    *n = 1;
-                }
+    for g in core::iter::once(glyph).chain(glyph.layer()) {
+        g.mask_line(gx, y.saturating_sub(job.g.y), ink);
+        for (x, _) in ink.iter().enumerate().filter(|&(_, &a)| a != 0) {
+            // the pixel, and the pixels before and after it that lie in
+            // the job
+            let end = x.saturating_add(gap).saturating_add(1);
+            let beside = x.saturating_sub(gap)..end.min(near.len());
+            for n in near.get_mut(beside).into_iter().flatten() {
+                *n = 1;
             }
+        }
+    }
+}
+
+/// On a display turned a quarter, the pixels near the ink of one cell
+/// that its underline skips, the ones [`near_ink`] marks upright. The
+/// cell's row then runs down a display column, so the pixels beside a
+/// pixel along the row are the ones above and below it. An underline
+/// covers only the few display columns that hold the upright rows it lies
+/// on, and it covers them down the whole cell. So vtium works the pixels
+/// out once for each display column the underline covers, the first time
+/// the underline needs that column, for every display line of the cell.
+/// Worked out on each display line instead, they would read the lines
+/// before and after it too, across the whole width of the cell.
+#[derive(Debug, Default)]
+struct Columns {
+    /// The cell they are for: its first column in the row, the area it
+    /// draws, and where its glyph lies. `None` when they are for no cell.
+    key: Option<(usize, Area, Area)>,
+    /// For each display column of the cell, where its lines start in
+    /// `near`, plus 1; 0 for a column not yet worked out.
+    at: Vec<usize>,
+    /// For each column worked out, one byte for each display line of the
+    /// cell, from its top: 1 where the pixel lies near the ink.
+    near: Vec<u8>,
+    /// Scratch for one column: where the glyph has ink, line by line.
+    ink: Vec<u8>,
+}
+
+impl Columns {
+    /// Forgets the cell they are for, whose glyph a later cell in the same
+    /// place need not share.
+    fn forget(&mut self) {
+        self.key = None;
+    }
+
+    /// Makes the columns `job`'s, and gives display line `y` counted from
+    /// the top of `job`'s area; `None` for a line outside the area.
+    fn line(&mut self, job: &Job, y: i64) -> Option<usize> {
+        let key = (job.posx, job.r, job.g);
+        if self.key != Some(key) {
+            self.key = Some(key);
+            self.at.clear();
+            self.at.resize(usize::try_from(job.r.w).unwrap_or(0), 0);
+            self.near.clear();
+        }
+        let h = usize::try_from(job.r.h).unwrap_or(0);
+        usize::try_from(y.saturating_sub(job.r.y))
+            .ok()
+            .filter(|&i| i < h)
+    }
+
+    /// Whether display pixel `x`, `i` of `job`'s area, counted from its top
+    /// left, lies near `glyph`'s ink on a display turned a quarter by `o`,
+    /// as [`near_ink`] decides it along an upright row: within the gap of
+    /// ink in the lines above and below it inside the area, or near the ink
+    /// beside a piece. They must be `job`'s ([`Columns::line`]). `false`
+    /// for a pixel outside the area.
+    fn near(&mut self, job: &Job, glyph: &Stored, o: Orientation, (x, i): (usize, usize)) -> bool {
+        let Some(at) = self.at.get(x).copied() else {
+            return false;
+        };
+        let start = match at.checked_sub(1) {
+            Some(start) => start,
+            None => {
+                let start = self.near.len();
+                self.column(job, glyph, o, x);
+                if let Some(a) = self.at.get_mut(x) {
+                    *a = start.saturating_add(1);
+                }
+                start
+            }
+        };
+        self.near
+            .get(start.saturating_add(i))
+            .is_some_and(|&n| n != 0)
+    }
+
+    /// Appends to `near` display column `x` of `job`'s area, down its
+    /// whole height: each pixel within the gap of `glyph`'s ink, or of its
+    /// color layer's, in the lines above and below it inside the area, the
+    /// ink's own pixels among them, and each pixel near the ink beside a
+    /// piece.
+    fn column(&mut self, job: &Job, glyph: &Stored, o: Orientation, x: usize) {
+        let h = usize::try_from(job.r.h).unwrap_or(0);
+        let gx = job.r.x.saturating_sub(job.g.x).saturating_add(int(x));
+        let dy = job.r.y.saturating_sub(job.g.y);
+        self.ink.clear();
+        for line in (dy..).take(h) {
+            let ink = core::iter::once(glyph)
+                .chain(glyph.layer())
+                .any(|g| g.coverage(gx, line) != 0);
+            self.ink.push(u8::from(ink));
+        }
+        let gap = usize::try_from(magnification(job.piece)).unwrap_or(1);
+        let beside = glyph.beside();
+        for (i, line) in (dy..).take(h).enumerate() {
+            let end = i.saturating_add(gap).saturating_add(1).min(h);
+            let inked = self
+                .ink
+                .get(i.saturating_sub(gap)..end)
+                .is_some_and(|w| w.contains(&1));
+            let near = inked || beside.is_some_and(|b| b.skips(o, (gx, line)));
+            self.near.push(u8::from(near));
         }
     }
 }
@@ -999,6 +1120,7 @@ fn text_over(
         src,
         ink: glyph_ink,
         near,
+        columns,
     } = Scratch::of(lines, out.len());
     prem.fill(0);
     let mark = job.under.mark;
@@ -1007,6 +1129,7 @@ fn text_over(
             glyph,
             ink: glyph_ink,
             near,
+            columns,
         });
         deco_over(job, sprites, u, y, skip, prem, cov);
     }
