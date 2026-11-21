@@ -829,6 +829,8 @@ pub fn family_key(name: &str) -> String {
 
 pub use raster::{baseline, cell_width, decorations, own_box, rasterise, size};
 
+mod strike;
+
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 pub(crate) mod raster {
@@ -844,9 +846,77 @@ pub(crate) mod raster {
     use skrifa::{GlyphId, MetadataProvider};
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
-    use swash::zeno::{Command, Mask, Origin, Placement, Point, Transform};
+    use swash::zeno::{Bounds, Command, Fill, Mask, Origin, Placement, Point, Transform};
 
     use crate::resample::{self, METHOD};
+
+    /// The most pixels across or down that vtium-config rasterises one
+    /// glyph at: twice the largest cell side, so a glyph two cells wide in
+    /// the largest cell still draws.
+    pub(crate) const GLYPH_SIDE_MAX: u32 = 2 * vtium_font::CELL_SIDE_MAX;
+
+    /// [`GLYPH_SIDE_MAX`] as an error message writes it.
+    const GLYPH_SIDE_TEXT: &str = "4,096";
+    const _: () = assert!(GLYPH_SIDE_MAX == 4096);
+
+    /// The whole pixels that a glyph whose points lie within `b` covers, as
+    /// zeno sizes the mask it fills: its left edge, its top edge above the
+    /// baseline, and its width and height. `None` when either side is
+    /// longer than [`GLYPH_SIDE_MAX`], or when an edge is not a number or
+    /// does not fit an `i32`, and the caller then draws the glyph as empty.
+    ///
+    /// A font can pass the font check and still scale a glyph to tens of
+    /// thousands of pixels. One font unit becomes the cell's height less
+    /// half a pixel, divided by the font's ascent plus its descent in font
+    /// units, so a font whose ascent and descent span one unit draws each
+    /// unit almost a cell high. zeno computes a mask's size as a `u32`
+    /// product that overflows past 4 GB, and turns each point into 24.8
+    /// fixed point with a conversion that is undefined behavior past
+    /// 8,388,608 pixels. Every call that rasterises in vtium-config passes
+    /// the glyph's box through this first, so no glyph mask is larger than
+    /// 4,096 × 4,096 pixels and every point zeno converts stays in range.
+    pub(crate) fn glyph_box(b: Bounds) -> Option<Placement> {
+        let edge = |v: f32| -> Option<i64> {
+            let v = f64::from(v);
+            (v.is_finite() && v >= f64::from(i32::MIN) && v <= f64::from(i32::MAX))
+                .then_some(v as i64)
+        };
+        let side = |lo: f32, hi: f32| -> Option<(i32, i32, u32)> {
+            let (lo, hi) = (edge(lo.floor())?, edge(hi.ceil())?);
+            let length = u32::try_from(hi.checked_sub(lo)?).ok()?;
+            (length <= GLYPH_SIDE_MAX).then_some((
+                i32::try_from(lo).ok()?,
+                i32::try_from(hi).ok()?,
+                length,
+            ))
+        };
+        let (left, _, width) = side(b.min.x, b.max.x)?;
+        let (_, top, height) = side(b.min.y, b.max.y)?;
+        Some(Placement {
+            left,
+            top,
+            width,
+            height,
+        })
+    }
+
+    /// Whether zeno may fill `path`: the box [`glyph_box`] gives for the
+    /// pixels zeno would size its mask from, with the nonzero fill that
+    /// [`Mask`] and swash's `Render` use when no style is set.
+    fn fits(path: impl swash::zeno::PathData) -> bool {
+        glyph_box(swash::zeno::bounds(path, Fill::NonZero, None)).is_some()
+    }
+
+    /// A glyph drawn as nothing: no pixels and a box of no size, as a
+    /// space draws. A glyph past [`GLYPH_SIDE_MAX`] draws as this.
+    fn nothing(source: Source, content: Content) -> Image {
+        Image {
+            source,
+            content,
+            placement: Placement::default(),
+            data: Vec::new(),
+        }
+    }
 
     #[cfg(test)]
     thread_local! {
@@ -955,6 +1025,8 @@ pub(crate) mod raster {
         hinter: Option<(f32, HintingInstance)>,
         /// The automatic hinter's classes of the face's glyphs, found once.
         styles: Option<GlyphStyles>,
+        /// The face's color bitmap strikes, which vtium-config reads itself.
+        strikes: super::strike::Strikes<'a>,
         /// The style drawn over each outline ([`OutlineRequest::synth`]).
         synth: Style,
         /// How many times wider than the font draws it each outline is
@@ -1170,15 +1242,23 @@ pub(crate) mod raster {
         /// A drawer of the glyphs of `font`, face `index` of its file,
         /// hinting its outlines as `hinting` says.
         pub(crate) fn new(font: FontRef<'a>, index: u32, hinting: Hinting) -> Self {
+            let raw = skrifa::FontRef::from_index(font.data, index).ok();
+            // swash's test for Apple Color Emoji, on the family name
+            let apple = || {
+                font.localized_strings()
+                    .find_by_id(StringId::Family, None)
+                    .is_some_and(|name| name.chars().eq("Apple Color Emoji".chars()))
+            };
             Self {
                 font,
                 context: ScaleContext::new(),
-                outlines: skrifa::FontRef::from_index(font.data, index)
-                    .ok()
-                    .map(|f| f.outline_glyphs()),
+                outlines: raw.as_ref().map(|f| f.outline_glyphs()),
                 hinting,
                 hinter: None,
                 styles: None,
+                strikes: raw.map_or(super::strike::Strikes::None, |f| {
+                    super::strike::Strikes::new(&f, apple)
+                }),
                 synth: Style::default(),
                 widen: 1.0,
             }
@@ -1231,12 +1311,7 @@ pub(crate) mod raster {
         pub(crate) fn is_color(&mut self, g: u16, ppem: f32) -> bool {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
             (scaler.has_color_outlines() && scaler.scale_color_outline(g).is_some())
-                || (scaler.has_color_bitmaps()
-                    && self
-                        .font
-                        .color_strikes()
-                        .find_by_largest_ppem(g)
-                        .is_some_and(|strike| strike.ppem() != 0))
+                || self.strikes.holds(g)
         }
 
         /// Glyph `g` drawn as [`Drawer::draw`] draws it, its outline moved
@@ -1256,9 +1331,7 @@ pub(crate) mod raster {
                 drew_color();
                 return Some(self.compose(&layers));
             }
-            if scaler.has_color_bitmaps()
-                && let Some(image) = self.bitmap(g, ppem, fit)
-            {
+            if let Some(image) = self.bitmap(g, ppem, fit) {
                 drew_color();
                 return Some(image);
             }
@@ -1355,6 +1428,9 @@ pub(crate) mod raster {
             if self.widen != 1.0 {
                 widen(&mut pen.path, self.widen);
             }
+            if !fits(&pen.path[..]) {
+                return Some(nothing(Source::Outline, Content::Mask));
+            }
             let mut mask = Mask::new(&pen.path[..]);
             // the placement's top is right only once the mask knows its size
             mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
@@ -1372,19 +1448,18 @@ pub(crate) mod raster {
 
         /// A color bitmap from the font's largest strike holding `g`, its
         /// colors premultiplied, scaled to `ppem` or as far under as fits
-        /// `fit`, by [`METHOD`] (ADR-1200 D13; the operator's choice on
-        /// vtium/vtium#23).
+        /// `fit`, by [`METHOD`]. vtium-config reads the strike itself
+        /// (`strike.rs`), which refuses an image larger than the glyph
+        /// bound before decoding it.
+        ///
+        /// References:
+        /// - ADR-1200 D13 and the operator's choice on vtium/vtium#23: the
+        ///   resampling method.
         fn bitmap(&mut self, g: u16, ppem: f32, fit: (u32, u32)) -> Option<Image> {
-            let strike = self.font.color_strikes().find_by_largest_ppem(g)?.ppem();
-            // a scaler of no size draws the strike as it is stored
-            let mut native = self.context.builder(self.font).build();
-            let image = native.scale_color_bitmap(g, StrikeWith::LargestSize)?;
-            let (w, h) = (image.placement.width, image.placement.height);
-            if strike == 0 || w == 0 || h == 0 {
-                return None;
-            }
+            let image = self.strikes.bitmap(g)?;
+            let (strike, w, h) = (image.ppem, image.width, image.height);
             let premultiplied = image
-                .data
+                .rgba
                 .as_chunks::<4>()
                 .0
                 .iter()
@@ -1401,14 +1476,21 @@ pub(crate) mod raster {
             let s = (f64::from(ppem) / f64::from(strike))
                 .min(f64::from(fit.0) / f64::from(w))
                 .min(f64::from(fit.1) / f64::from(h));
+            // `fit` is unbounded where the baseline and the W rule measure
+            // a glyph, so only the glyph bound keeps the scaled bitmap small
+            let scaled = Point::new((f64::from(w) * s) as f32, (f64::from(h) * s) as f32);
+            if glyph_box(Bounds::new(Point::ZERO, scaled)).is_none() {
+                let source = Source::ColorBitmap(StrikeWith::LargestSize);
+                return Some(nothing(source, Content::Color));
+            }
             let size = |n: u32| ((f64::from(n) * s).round() as u32).max(1);
             let out = resample::resize(&src, size(w), size(h), METHOD);
             Some(Image {
                 source: Source::ColorBitmap(StrikeWith::LargestSize),
                 content: Content::Color,
                 placement: Placement {
-                    left: (f64::from(image.placement.left) * s).round() as i32,
-                    top: (f64::from(image.placement.top) * s).round() as i32,
+                    left: (f64::from(image.left) * s).round() as i32,
+                    top: (f64::from(image.top) * s).round() as i32,
                     width: out.width,
                     height: out.height,
                 },
@@ -1420,12 +1502,25 @@ pub(crate) mod raster {
         /// laid over those below it, premultiplied, with exact rounding.
         fn compose(&self, layers: &swash::scale::outline::Outline) -> Image {
             let palette = self.font.color_palettes().next();
-            let b = layers.bounds();
-            let (x0, y1) = (b.min.x.floor() as i32, b.max.y.ceil() as i32);
-            let w = (b.max.x.ceil() as i32 - x0).max(0) as u32;
-            let h = (y1 - b.min.y.floor() as i32).max(0) as u32;
-            let mut data = vec![0u8; (w * h * 4) as usize];
+            let Some(Placement {
+                left: x0,
+                top: y1,
+                width: w,
+                height: h,
+            }) = glyph_box(layers.bounds())
+            else {
+                return nothing(Source::ColorOutline(0), Content::Color);
+            };
+            let Some(size) = (w as usize)
+                .checked_mul(h as usize)
+                .and_then(|n| n.checked_mul(4))
+            else {
+                return nothing(Source::ColorOutline(0), Content::Color);
+            };
+            let mut data = vec![0u8; size];
             for i in 0..layers.len() {
+                // each layer's points lie within the glyph's box, so zeno's
+                // mask for a layer is no larger than the box checked above
                 let Some(layer) = layers.get(i) else { continue };
                 let [r, g, b, a] = layer
                     .color_index()
@@ -1524,30 +1619,44 @@ pub(crate) mod raster {
     /// Sans Mono's `W` at 16 pixels spans 8.02 pixels, 9 columns, where
     /// full hinting snaps it to 8. A glyph with no outline, a color or bitmap
     /// one, is measured as it is drawn.
-    fn w_width(drawer: &mut Drawer<'_>, ppem: f32, h: u32) -> u32 {
+    ///
+    /// An outline past the glyph bound draws as nothing, so a cell measured
+    /// without it would hold only empty glyphs, each as large as the cell.
+    /// The face then gives no width, and the source fails as a whole.
+    fn w_width(drawer: &mut Drawer<'_>, ppem: f32, h: u32) -> Result<u32, String> {
         let font = drawer.font;
         let (charmap, advances) = (font.charmap(), font.glyph_metrics(&[]).scale(ppem));
-        ['W', 'M', '0']
+        let Some((c, g)) = ['W', 'M', '0']
             .into_iter()
-            .map(|c| charmap.map(c))
-            .find(|&g| g != 0)
-            .map(|g| {
-                let mut scaler = drawer.context.builder(font).size(ppem).build();
-                let ink = Render::new(&[Source::Outline])
-                    .render(&mut scaler, g)
-                    .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
-                    .map_or(0, |i| i.placement.width);
-                // vtium rounds the advance once, from a float, where
-                // FreeType's advance is already rounded in 26.6 fixed point.
-                // They can differ when the fraction is near a half, as
-                // DejaVu Sans Mono's W at 15 pixels advances 7.4995, which
-                // vtium rounds to 7 and FreeType to 8. That changes the cell
-                // only for a font whose W ink is narrower than its advance;
-                // DejaVu's covers 8 columns either way
-                (advances.advance_width(g).round() as u32).max(ink)
-            })
-            .unwrap_or(h.div_ceil(2))
-            .clamp(1, vtium_font::CELL_SIDE_MAX)
+            .map(|c| (c, charmap.map(c)))
+            .find(|&(_, g)| g != 0)
+        else {
+            return Ok(h.div_ceil(2).clamp(1, vtium_font::CELL_SIDE_MAX));
+        };
+        let mut scaler = drawer.context.builder(font).size(ppem).build();
+        // swash's Render rasterises with zeno inside swash, so the glyph
+        // bound is checked on the same outline first
+        if scaler
+            .scale_outline(g)
+            .is_some_and(|outline| !fits(outline.path()))
+        {
+            return Err(format!(
+                "its {c} draws wider or taller than {GLYPH_SIDE_TEXT} pixels in a cell {h} pixels high, so the font gives no cell width"
+            ));
+        }
+        let ink = Render::new(&[Source::Outline])
+            .render(&mut scaler, g)
+            .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
+            .map_or(0, |i| i.placement.width);
+        // vtium rounds the advance once, from a float, where FreeType's
+        // advance is already rounded in 26.6 fixed point. They can differ
+        // when the fraction is near a half, as DejaVu Sans Mono's W at 15
+        // pixels advances 7.4995, which vtium rounds to 7 and FreeType to 8.
+        // That changes the cell only for a font whose W ink is narrower
+        // than its advance;
+        // DejaVu's covers 8 columns either way
+        let width = (advances.advance_width(g).round() as u32).max(ink);
+        Ok(width.clamp(1, vtium_font::CELL_SIDE_MAX))
     }
 
     /// The width of an outline font's own cell `height` pixels high
@@ -1570,7 +1679,7 @@ pub(crate) mod raster {
             // the W rule measures the unhinted outline whatever `hinting=`
             // says (ADR-1200 D1, D17); only a color W is drawn, unhinted
             let mut drawer = Drawer::new(font, index, Hinting::default());
-            let width = w_width(&mut drawer, ppem, height);
+            let width = w_width(&mut drawer, ppem, height)?;
             widest = Some(widest.map_or(width, |w: u32| w.max(width)));
         }
         widest.ok_or_else(|| "no face to take the cell from".to_owned())
@@ -1799,7 +1908,7 @@ pub(crate) mod raster {
             let width = if want_w != 0 {
                 want_w
             } else {
-                w_width(&mut plain, ppem, h)
+                w_width(&mut plain, ppem, h)?
             };
             let cell = Cell {
                 width,

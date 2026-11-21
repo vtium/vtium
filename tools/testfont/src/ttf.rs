@@ -113,6 +113,21 @@ pub fn png(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
         raw.push(0);
         raw.extend_from_slice(row);
     }
+    png_of(
+        w,
+        h,
+        8,
+        6,
+        &miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6),
+    )
+}
+
+/// A PNG whose header says `w` by `h` pixels of `depth` bits a sample and
+/// color type `color`, with `idat` as the zlib stream of its one IDAT
+/// chunk. Nothing checks the stream against the header, so a test can
+/// write a header that asks for more than its data holds, or data that
+/// inflates to far more than the header needs.
+pub fn png_of(w: u32, h: u32, depth: u8, color: u8, idat: &[u8]) -> Vec<u8> {
     let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
     let chunk = |out: &mut Vec<u8>, tag: &[u8; 4], data: &[u8]| {
         out.extend((data.len() as u32).to_be_bytes());
@@ -124,14 +139,88 @@ pub fn png(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
     let mut ihdr = Vec::new();
     ihdr.extend(w.to_be_bytes());
     ihdr.extend(h.to_be_bytes());
-    ihdr.extend([8, 6, 0, 0, 0]);
+    ihdr.extend([depth, color, 0, 0, 0]);
     chunk(&mut out, b"IHDR", &ihdr);
-    chunk(
-        &mut out,
-        b"IDAT",
-        &miniz_oxide::deflate::compress_to_vec_zlib(&raw, 6),
-    );
+    chunk(&mut out, b"IDAT", idat);
     chunk(&mut out, b"IEND", &[]);
+    out
+}
+
+/// A zlib stream that inflates to `start` followed by copies of its last
+/// byte, `len` bytes in all, written as one block of deflate's fixed codes:
+/// after the literals, each 258-byte copy of the byte before it takes 13
+/// bits, so 600 MB inflate from under 4 MB. `start` must not be empty.
+pub fn zlib_run(start: &[u8], len: usize) -> Vec<u8> {
+    struct Bits {
+        out: Vec<u8>,
+        acc: u64,
+        n: u32,
+    }
+    impl Bits {
+        // deflate packs values from the least significant bit up
+        fn put(&mut self, v: u32, n: u32) {
+            self.acc |= u64::from(v) << self.n;
+            self.n += n;
+            while self.n >= 8 {
+                self.out.push(self.acc as u8);
+                self.acc >>= 8;
+                self.n -= 8;
+            }
+        }
+        // and each Huffman code from its most significant bit down
+        fn code(&mut self, v: u32, n: u32) {
+            self.put(v.reverse_bits() >> (32 - n), n);
+        }
+        fn literal(&mut self, b: u8) {
+            match b {
+                0..=143 => self.code(0x30 + u32::from(b), 8),
+                _ => self.code(0x190 + u32::from(b) - 144, 9),
+            }
+        }
+    }
+    let mut bits = Bits {
+        out: vec![0x78, 0x01],
+        acc: 0,
+        n: 0,
+    };
+    // the final block, of fixed codes
+    bits.put(1, 1);
+    bits.put(1, 2);
+    let start = &start[..start.len().min(len)];
+    for &b in start {
+        bits.literal(b);
+    }
+    let rest = len - start.len();
+    for _ in 0..rest / 258 {
+        // length 258 is code 285, 11000101 with no extra bits, and
+        // distance 1 is code 0, five zero bits
+        bits.code(0xc5, 8);
+        bits.code(0, 5);
+    }
+    let last = start.last().copied().unwrap_or(0);
+    for _ in 0..rest % 258 {
+        bits.literal(last);
+    }
+    // the end of the block, then whole bytes
+    bits.code(0, 7);
+    if bits.n > 0 {
+        bits.put(0, 8 - bits.n);
+    }
+    // Adler-32 of what the stream inflates to
+    let (mut a, mut b) = (1u64, 0u64);
+    for &x in start {
+        a = (a + u64::from(x)) % 65521;
+        b = (b + a) % 65521;
+    }
+    // then `rest` copies of `last`: after k of them `a` has grown by k
+    // times `last` and `b` by k times the old `a` plus `last` times the
+    // sum of 1 to k
+    let (k, v) = (rest as u128, u128::from(last));
+    let (a0, b0) = (u128::from(a), u128::from(b));
+    let a = ((a0 + k * v) % 65521) as u64;
+    let b = ((b0 + k * a0 + v * (k * (k + 1) / 2)) % 65521) as u64;
+    let mut out = bits.out;
+    out.extend(((b << 16 | a) as u32).to_be_bytes());
     out
 }
 

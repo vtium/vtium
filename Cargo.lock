@@ -1701,6 +1701,7 @@ dependencies = [
  "lzma-rust2",
  "miniz_oxide",
  "nix",
+ "png",
  "proptest",
  "proptest-state-machine",
  "ratatui-core",

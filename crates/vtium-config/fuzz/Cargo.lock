@@ -1283,6 +1283,7 @@ dependencies = [
  "lzma-rust2",
  "miniz_oxide 0.8.9",
  "nix",
+ "png",
  "ratatui-core",
  "ratatui-widgets",
  "resvg",
@@ -1305,6 +1306,7 @@ name = "vtium-config-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
+ "swash",
  "vtium-config",
  "vtium-font",
  "vtium-testfont",
