@@ -16,10 +16,14 @@
 //! reads a few mapped glyphs and glyph 0 through a scaler, as color layers
 //! and as outlines. A panic there is a structure the check misses.
 //!
-//! The target reads each outline but does not rasterise it, because the
-//! rasteriser, zeno, overflows on a glyph scaled to tens of thousands of
-//! pixels. That is a matter of the glyph's size, which no check of the
-//! file's structure decides. The target also leaves out swash's reader of
+//! A font the check passes then goes through vtium-config's own drawing
+//! code: the W rule's cell width at cell heights from 8 to the largest,
+//! 2,048 pixels, and the rasteriser at cell heights of 16 and 440 pixels.
+//! A font can pass the check and still scale a glyph to tens of thousands
+//! of pixels, so these calls reach the bound that draws a glyph larger
+//! than 4,096 pixels as empty before zeno, the rasteriser, sizes its mask.
+//! A panic or an allocation past the memory limit there is a glyph the
+//! bound misses. The target's own calls into swash leave out its reader of
 //! color bitmap strikes, which the check does not cover, as the crate's
 //! README says.
 //!
@@ -32,6 +36,7 @@ use libfuzzer_sys::fuzz_target;
 use swash::scale::ScaleContext;
 use swash::{FontRef, StringId};
 use vtium_config::names::{FACES_MAX, faces, swash_fonts};
+use vtium_config::outline::{OutlineRequest, cell_width, rasterise};
 use vtium_config::serve::outline_version;
 
 /// How many mapped glyphs the scaler reads on each face.
@@ -46,7 +51,26 @@ fuzz_target!(|bytes: &[u8]| {
     for font in fonts.fonts().take(FACES_MAX as usize) {
         through_swash(font, &mut context);
     }
+    draw(bytes);
 });
+
+/// vtium-config's drawing code on the face of `bytes` that a source with
+/// no family takes, its Regular face or else its first: the cell
+/// width the W rule gives, as the font helper asks for a frit's first
+/// outline source, and the rasteriser's glyphs for a few characters,
+/// together with the printable ASCII that its baseline measure draws.
+fn draw(bytes: &[u8]) {
+    for height in [8, 16, 64, 440, 2048] {
+        let _ = cell_width(&[(bytes, "")], height);
+    }
+    let request = OutlineRequest {
+        font: bytes.to_vec().into(),
+        cells: vec![(0, 16), (0, 440)],
+        cover: vec![(0x41, 0x41), (0x57, 0x57), (0x67, 0x67), (0x1f600, 0x1f600)],
+        ..Default::default()
+    };
+    let _ = rasterise(&request);
+}
 
 /// The name-table reader and the version reader on `bytes`.
 fn names(bytes: &[u8]) {
