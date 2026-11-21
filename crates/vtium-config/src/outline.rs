@@ -844,9 +844,73 @@ pub(crate) mod raster {
     use skrifa::{GlyphId, MetadataProvider};
     use swash::scale::image::{Content, Image};
     use swash::scale::{Render, ScaleContext, Source, StrikeWith};
-    use swash::zeno::{Command, Mask, Origin, Placement, Point, Transform};
+    use swash::zeno::{Bounds, Command, Fill, Mask, Origin, Placement, Point, Transform};
 
     use crate::resample::{self, METHOD};
+
+    /// The most pixels across or down that vtium-config rasterises one
+    /// glyph at: twice the largest cell side, so a glyph two cells wide in
+    /// the largest cell still draws.
+    const GLYPH_SIDE_MAX: u32 = 2 * vtium_font::CELL_SIDE_MAX;
+
+    /// The whole pixels that a glyph whose points lie within `b` covers, as
+    /// zeno sizes the mask it fills: its left edge, its top edge above the
+    /// baseline, and its width and height. `None` when either side is
+    /// longer than [`GLYPH_SIDE_MAX`], or when an edge is not a number or
+    /// does not fit an `i32`, and the caller then draws the glyph as empty.
+    ///
+    /// A font can pass the font check and still scale a glyph to tens of
+    /// thousands of pixels. One font unit becomes the cell's height less
+    /// half a pixel, divided by the font's ascent plus its descent in font
+    /// units, so a font whose ascent and descent span one unit draws each
+    /// unit almost a cell high. zeno computes a mask's size as a `u32`
+    /// product that overflows past 4 GB, and turns each point into 24.8
+    /// fixed point with a conversion that is undefined behavior past
+    /// 8,388,608 pixels. Every call that rasterises in vtium-config passes
+    /// the glyph's box through this first, so no glyph mask is larger than
+    /// 4,096 × 4,096 pixels and every point zeno converts stays in range.
+    pub(crate) fn glyph_box(b: Bounds) -> Option<Placement> {
+        let edge = |v: f32| -> Option<i64> {
+            let v = f64::from(v);
+            (v.is_finite() && v >= f64::from(i32::MIN) && v <= f64::from(i32::MAX))
+                .then_some(v as i64)
+        };
+        let side = |lo: f32, hi: f32| -> Option<(i32, i32, u32)> {
+            let (lo, hi) = (edge(lo.floor())?, edge(hi.ceil())?);
+            let length = u32::try_from(hi.checked_sub(lo)?).ok()?;
+            (length <= GLYPH_SIDE_MAX).then_some((
+                i32::try_from(lo).ok()?,
+                i32::try_from(hi).ok()?,
+                length,
+            ))
+        };
+        let (left, _, width) = side(b.min.x, b.max.x)?;
+        let (_, top, height) = side(b.min.y, b.max.y)?;
+        Some(Placement {
+            left,
+            top,
+            width,
+            height,
+        })
+    }
+
+    /// Whether zeno may fill `path`: the box [`glyph_box`] gives for the
+    /// pixels zeno would size its mask from, with the nonzero fill that
+    /// [`Mask`] and swash's `Render` use when no style is set.
+    fn fits(path: impl swash::zeno::PathData) -> bool {
+        glyph_box(swash::zeno::bounds(path, Fill::NonZero, None)).is_some()
+    }
+
+    /// A glyph drawn as nothing: no pixels and a box of no size, as a
+    /// space draws. A glyph past [`GLYPH_SIDE_MAX`] draws as this.
+    fn nothing(source: Source, content: Content) -> Image {
+        Image {
+            source,
+            content,
+            placement: Placement::default(),
+            data: Vec::new(),
+        }
+    }
 
     #[cfg(test)]
     thread_local! {
@@ -1355,6 +1419,9 @@ pub(crate) mod raster {
             if self.widen != 1.0 {
                 widen(&mut pen.path, self.widen);
             }
+            if !fits(&pen.path[..]) {
+                return Some(nothing(Source::Outline, Content::Mask));
+            }
             let mut mask = Mask::new(&pen.path[..]);
             // the placement's top is right only once the mask knows its size
             mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
@@ -1401,6 +1468,13 @@ pub(crate) mod raster {
             let s = (f64::from(ppem) / f64::from(strike))
                 .min(f64::from(fit.0) / f64::from(w))
                 .min(f64::from(fit.1) / f64::from(h));
+            // `fit` is unbounded where the baseline and the W rule measure
+            // a glyph, so only the glyph bound keeps the scaled bitmap small
+            let scaled = Point::new((f64::from(w) * s) as f32, (f64::from(h) * s) as f32);
+            if glyph_box(Bounds::new(Point::ZERO, scaled)).is_none() {
+                let source = Source::ColorBitmap(StrikeWith::LargestSize);
+                return Some(nothing(source, Content::Color));
+            }
             let size = |n: u32| ((f64::from(n) * s).round() as u32).max(1);
             let out = resample::resize(&src, size(w), size(h), METHOD);
             Some(Image {
@@ -1420,12 +1494,25 @@ pub(crate) mod raster {
         /// laid over those below it, premultiplied, with exact rounding.
         fn compose(&self, layers: &swash::scale::outline::Outline) -> Image {
             let palette = self.font.color_palettes().next();
-            let b = layers.bounds();
-            let (x0, y1) = (b.min.x.floor() as i32, b.max.y.ceil() as i32);
-            let w = (b.max.x.ceil() as i32 - x0).max(0) as u32;
-            let h = (y1 - b.min.y.floor() as i32).max(0) as u32;
-            let mut data = vec![0u8; (w * h * 4) as usize];
+            let Some(Placement {
+                left: x0,
+                top: y1,
+                width: w,
+                height: h,
+            }) = glyph_box(layers.bounds())
+            else {
+                return nothing(Source::ColorOutline(0), Content::Color);
+            };
+            let Some(size) = (w as usize)
+                .checked_mul(h as usize)
+                .and_then(|n| n.checked_mul(4))
+            else {
+                return nothing(Source::ColorOutline(0), Content::Color);
+            };
+            let mut data = vec![0u8; size];
             for i in 0..layers.len() {
+                // each layer's points lie within the glyph's box, so zeno's
+                // mask for a layer is no larger than the box checked above
                 let Some(layer) = layers.get(i) else { continue };
                 let [r, g, b, a] = layer
                     .color_index()
@@ -1533,10 +1620,20 @@ pub(crate) mod raster {
             .find(|&g| g != 0)
             .map(|g| {
                 let mut scaler = drawer.context.builder(font).size(ppem).build();
-                let ink = Render::new(&[Source::Outline])
-                    .render(&mut scaler, g)
-                    .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
-                    .map_or(0, |i| i.placement.width);
+                // swash's Render rasterises with zeno inside swash, so the
+                // glyph bound is checked on the same outline first; a W past
+                // it has no ink to measure, and its advance sets the width
+                let in_bound = scaler
+                    .scale_outline(g)
+                    .is_none_or(|outline| fits(outline.path()));
+                let ink = if in_bound {
+                    Render::new(&[Source::Outline])
+                        .render(&mut scaler, g)
+                        .or_else(|| drawer.draw(g, ppem, (u32::MAX, u32::MAX)))
+                        .map_or(0, |i| i.placement.width)
+                } else {
+                    0
+                };
                 // vtium rounds the advance once, from a float, where
                 // FreeType's advance is already rounded in 26.6 fixed point.
                 // They can differ when the fraction is near a half, as
