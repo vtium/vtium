@@ -62,12 +62,14 @@ pub fn remove_dropped(name: impl Display) -> String {
     format!("{name} will be kept.")
 }
 
-pub fn remove_refused(name: impl Display, why: impl Display) -> String {
-    format!("{name} cannot be removed: {why}")
+/// The remove key on a font set that only the draft adds: the draft no
+/// longer adds it.
+pub fn remove_forgotten(name: impl Display) -> String {
+    format!("The draft no longer adds the font set {name}.")
 }
 
-pub fn remove_replaced(name: impl Display) -> String {
-    format!("this install replaces {name} with a new font set")
+pub fn remove_refused(name: impl Display, why: impl Display) -> String {
+    format!("{name} cannot be removed: {why}")
 }
 
 /// The new-frit form: its fields, and what it says.

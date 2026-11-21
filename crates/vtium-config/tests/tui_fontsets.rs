@@ -297,41 +297,40 @@ fn r_removes_the_highlighted_frit_at_the_next_install() {
     assert!(d.plans.is_empty());
 }
 
-/// The remove key refuses what `remove-frit` refuses, saying why, and
-/// adds nothing to the save: a built-in font, the frit vtium.conf's
-/// `font-name` names, as it is or as the save leaves it, and the frit a
-/// look's `font-name` names.
+/// The remove key does what `remove-frit` does. It keeps the removal of
+/// a font set that the draft's vtium.conf names, in a look or at its top
+/// level, in the draft's folder, so the check can list each line that
+/// names it. It refuses a built-in font, saying why, and keeps nothing.
+///
+/// References:
+/// - ADR-1403 D8, "Every font set change is kept at once": a removal is written even when the draft's looks name the frit.
 #[test]
-fn r_refuses_what_remove_frit_refuses() {
+fn r_keeps_a_removal_the_draft_names_and_refuses_a_built_in_font() {
     let conf = inputs().conf.expect("the fixture");
     let names_minspec = conf.replace("font-name=unifont", "font-name=minspec-16");
-    for (keys, draft, says) in [
-        (on_set(5, &[b"r"]), conf.clone(), "built-in font"),
+    for (keys, draft, name) in [
         // proof is the frit look proof draws
-        (on_set(3, &[b"r"]), conf.clone(), "`[look proof]`"),
+        (on_set(3, &[b"r"]), conf.clone(), "proof"),
         // the draft names minspec-16 as vtium.conf's font-name
-        (on_set(2, &[b"r"]), names_minspec.clone(), "font-name"),
+        (on_set(2, &[b"r"]), names_minspec, "minspec-16"),
     ] {
-        let mut all = keys.clone();
-        all.extend([b"i".as_slice(), b"y", b"q"]);
         let mut c = console().keys(&keys);
-        let mut d = desk();
-        d.draft.clone_from(&draft);
-        run_desk(&mut c, &mut d);
-        let screen = c.seen.clone().expect("the screen");
-        let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
-        assert!(text.contains("cannot be removed:"), "{says}: {screen}");
-        assert!(text.contains(says), "{says}: {screen}");
-        let mut c = console().keys(&all);
         let mut d = desk();
         d.draft = draft;
         run_desk(&mut c, &mut d);
-        assert!(
-            d.plans.iter().all(|p| p.removals.is_empty()),
-            "{says}: {:?}",
-            d.plans
-        );
+        assert!(d.frits.removed.iter().eq([name]), "{name}: {:?}", d.frits);
+        let screen = c.seen.clone().expect("the screen");
+        let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(!text.contains("cannot be removed:"), "{name}: {screen}");
     }
+    let mut c = console().keys(&on_set(5, &[b"r"]));
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(text.contains("cannot be removed:"), "{screen}");
+    assert!(text.contains("built-in font"), "{screen}");
+    assert!(d.frits.is_empty(), "{:?}", d.frits);
 }
 
 #[test]
