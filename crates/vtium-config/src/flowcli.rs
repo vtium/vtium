@@ -126,12 +126,10 @@ pub enum FontSetChange {
 
 /// Runs `new-frit` or `remove-frit` once the command has checked its
 /// words: keeps `change` to the frit `frit` in the current draft's font
-/// set folder, and with `install` installs the draft; returns the exit
-/// status.
+/// set folder; returns the exit status.
 pub fn font_set(
     frit: &str,
     change: FontSetChange,
-    install: bool,
     paths: &Paths,
     devices: &Devices,
     out: &mut dyn Write,
@@ -147,7 +145,7 @@ pub fn font_set(
         devices,
         out,
     };
-    match cmd.font_set(frit, change, install) {
+    match cmd.font_set(frit, change) {
         Ok(()) => 0,
         Err(fail) => report(&fail, err),
     }
@@ -453,15 +451,15 @@ impl Command<'_, '_> {
 
     /// `new-frit` and `remove-frit`: keeps `change` to the frit `frit` in
     /// the current draft's font set folder, then prints what the check of
-    /// the draft finds and the state line, and with `install` installs the
-    /// draft. A removal of an installed frit writes `FRIT.removed`, and a
-    /// removal of a frit that only the draft adds takes the addition back.
+    /// the draft finds and the state line. A removal of an installed frit
+    /// writes `FRIT.removed`, and a removal of a frit that only the draft
+    /// adds takes the addition back.
     /// A removal of a frit that is neither installed nor in the folder is
     /// refused, exit 1.
     ///
     /// References:
-    /// - ADR-1403 D8, "Every font set change is kept at once": `new-frit` and `remove-frit` write the current draft's folder and install nothing, and with `--install` they then install the draft.
-    fn font_set(&mut self, frit: &str, change: FontSetChange, install: bool) -> Result<(), Fail> {
+    /// - ADR-1403 D8, "Every font set change is kept at once": `new-frit` and `remove-frit` write the current draft's folder and install nothing.
+    fn font_set(&mut self, frit: &str, change: FontSetChange) -> Result<(), Fail> {
         let (name, text) = self.session.current()?;
         let store = &self.session.store;
         let dir = store.frits_path(&name)?;
@@ -491,7 +489,7 @@ impl Command<'_, '_> {
                 }
             }
         }
-        self.after_write(&name, &text, install)
+        self.after_write(&name, &text, false)
     }
 
     fn print_check(&mut self, checked: &Checked) {
