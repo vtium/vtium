@@ -257,15 +257,15 @@ vtium\-config check /etc/vtium/vtium.conf
 .fi
 .RE
 .SS new\-frit
-\fBvtium\-config\fR \fBnew\-frit\fR \fIFONT\fR... [\fB\-\-name\fR \fINAME\fR] [\fB\-\-cell\fR \fIWxH\fR] [\fB\-\-size\fR \fIPOINTS\fR] [\fB\-\-layer\fR \fINAME\fR]... [\fB\-\-install\fR]
+\fBvtium\-config\fR \fBnew\-frit\fR \fIFONT\fR... [\fB\-\-name\fR \fINAME\fR] [\fB\-\-cell\fR \fIWxH\fR] [\fB\-\-size\fR \fIPOINTS\fR] [\fB\-\-layer\fR \fINAME\fR]...
 .br
-\fBvtium\-config\fR \fBnew\-frit\fR \fB\-\-from\fR \fIFILE\fR [\fB\-\-name\fR \fINAME\fR] [\fB\-\-install\fR]
+\fBvtium\-config\fR \fBnew\-frit\fR \fB\-\-from\fR \fIFILE\fR [\fB\-\-name\fR \fINAME\fR]
 .br
 \fBvtium\-config\fR \fBnew\-frit\fR \fB\-\-template\fR
 .br
 \fBvtium\-config\fR \fBnew\-frit\fR
 .PP
-Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). \-\-name names the font set; without it, the name comes from the first font. \-\-cell and \-\-size set the character size. Each \-\-layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. \-\-from takes a frit file you wrote, and \-\-template prints one to start from. vtium-config checks the font set before it saves anything. The font set then waits in your draft, in ~/.config/vtium/drafts/DRAFT.frits/, and install installs it with the draft. new-frit prints what the check of the draft finds and how the draft stands. \-\-install installs the draft afterwards.
+Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). \-\-name names the font set; without it, the name comes from the first font. \-\-cell and \-\-size set the character size. Each \-\-layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. \-\-from takes a frit file you wrote, and \-\-template prints one to start from. vtium-config checks the font set before it saves anything. The font set then waits in your draft, in ~/.config/vtium/drafts/DRAFT.frits/, and install installs it with the draft. new-frit prints what the check of the draft finds and how the draft stands.
 .PP
 For example:
 .PP
@@ -287,9 +287,9 @@ vtium\-config tui
 .fi
 .RE
 .SS remove\-frit
-\fBvtium\-config\fR \fBremove\-frit\fR \fINAME\fR [\fB\-\-install\fR]
+\fBvtium\-config\fR \fBremove\-frit\fR \fINAME\fR
 .PP
-Removes the font set NAME.vtfrit in your draft. The removal waits in ~/.config/vtium/drafts/DRAFT.frits/ until you install the draft, and install then keeps the file as NAME.vtfrit.bak. For a font set that only your draft adds, remove-frit takes the new font set back out of the draft. It does not remove a built-in font, a name with no font set, or a set of vtium's catalog. When font-name names the font set, at the top of vtium.conf or in a look, the removal still waits in the draft. The check then lists each line that names it, and install refuses the draft until those lines name another font. \-\-install installs the draft afterwards.
+Removes the font set NAME.vtfrit in your draft. The removal waits in ~/.config/vtium/drafts/DRAFT.frits/ until you install the draft, and install then keeps the file as NAME.vtfrit.bak. For a font set that only your draft adds, remove-frit takes the new font set back out of the draft. It does not remove a built-in font, a name with no font set, or a set of vtium's catalog. When font-name names the font set, at the top of vtium.conf or in a look, the removal still waits in the draft. The check then lists each line that names it, and install refuses the draft until those lines name another font.
 .PP
 For example:
 .PP

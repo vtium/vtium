@@ -7,12 +7,13 @@
 //! [`crate::flowcli`]'s.
 //!
 //! `new-frit` and `remove-frit` keep their change in the current draft's
-//! font set folder, as the TUI does, and install nothing; with `--install`
-//! they then install the draft as `install` does
-//! ([`crate::flowcli::font_set`]), so a script never needs the TUI.
+//! font set folder, as the TUI does, and install nothing
+//! ([`crate::flowcli::font_set`]). `install` installs the draft, so a
+//! script never needs the TUI.
 //!
 //! References:
-//! - ADR-1403 D8, "Every font set change is kept at once": the two commands write the current draft's folder.
+//! - ADR-1403 D8, "Every font set change is kept at once": the two commands write the current draft's folder and install nothing.
+//! - ADR-1201 D2: a command that writes installs nothing, and `install` installs.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -528,7 +529,7 @@ pub fn removal_refusal(frits: &Path, name: &str) -> Option<String> {
     })
 }
 
-/// `remove-frit NAME [--install]`: keeps the removal of the installed frit
+/// `remove-frit NAME`: keeps the removal of the installed frit
 /// `NAME.vtfrit` in the current draft's font set folder, or takes back the
 /// frit NAME that only the draft adds. It refuses a built-in font's name, a
 /// name a frit cannot have, and a set of vtium's catalog, which lives in a
@@ -546,10 +547,8 @@ pub fn remove_frit(
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let install = words.iter().any(|w| w == "--install");
-    let rest: Vec<&String> = words.iter().filter(|w| *w != "--install").collect();
-    let [name] = rest.as_slice() else {
-        return usage(err, "remove-frit takes one font set's name, and --install");
+    let [name] = words else {
+        return usage(err, "remove-frit takes one font set's name");
     };
     if name.starts_with("--") {
         return usage(err, &format!("remove-frit has no option {name}"));
@@ -564,7 +563,7 @@ pub fn remove_frit(
     crate::flowcli::font_set(
         name,
         crate::flowcli::FontSetChange::Remove,
-        install,
+        false,
         paths,
         devices,
         out,
@@ -594,12 +593,12 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>, String> {
 }
 
 /// What `new-frit --template` prints: a frit with each key it takes
-/// explained, to edit and install with `new-frit --from FILE`.
+/// explained, to edit and add to the draft with `new-frit --from FILE`.
 pub const TEMPLATE: &str = "\
 # A font set (frit): a file named NAME.vtfrit in /etc/vtium/fonts, from which
 # the console's font helper draws the characters. Write one key=value per
 # line; # starts a comment. vtium-config new-frit --from FILE checks this file
-# and installs it.
+# and adds it to your draft, and vtium-config install installs it.
 #
 # The font set's name, as font-name and OSC 50 name it: letters, digits, '.',
 # '_', '+' and '-'. When left out, the name is the file's name without
@@ -697,8 +696,6 @@ struct NewArgs {
     size: Option<String>,
     from: Option<String>,
     template: bool,
-    /// `--install`: the draft is installed once the frit is kept in it.
-    install: bool,
 }
 
 fn new_args(words: &[String]) -> Result<NewArgs, String> {
@@ -710,7 +707,6 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
         size: None,
         from: None,
         template: false,
-        install: false,
     };
     let mut it = words.iter();
     while let Some(word) = it.next() {
@@ -726,7 +722,6 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
             "--cell" => a.cell = Some(value("--cell")?),
             "--size" => a.size = Some(value("--size")?),
             "--layer" => a.layers.push(value("--layer")?),
-            "--install" => a.install = true,
             w if w.starts_with("--") => return Err(format!("new-frit has no option {w}")),
             w => a.fonts.push(w.to_owned()),
         }
@@ -874,7 +869,7 @@ pub fn frit_checked(paths: &Paths, name: &str, text: &str) -> Result<(), String>
 /// [--size POINTS] [--layer NAME]...` makes a frit of the fonts, in
 /// order, each a family or a source as a frit spells it, and the layers
 /// in the order of their roles ([`layer_order`]), and keeps it in the
-/// current draft. With `--install`, the draft is then installed.
+/// current draft. `install` installs the draft.
 ///
 /// References:
 /// - ADR-1200 D4 and ADR-1201 D9: the three forms.
@@ -891,12 +886,7 @@ pub fn new(
         Err(why) => return usage(err, &why),
     };
     if a.template {
-        if !a.fonts.is_empty()
-            || a.from.is_some()
-            || a.name.is_some()
-            || !a.layers.is_empty()
-            || a.install
-        {
+        if !a.fonts.is_empty() || a.from.is_some() || a.name.is_some() || !a.layers.is_empty() {
             return usage(err, "new-frit --template takes no other argument");
         }
         let _ = write!(out, "{TEMPLATE}");
@@ -957,7 +947,7 @@ pub fn new(
     crate::flowcli::font_set(
         &name,
         crate::flowcli::FontSetChange::Keep(text),
-        a.install,
+        false,
         paths,
         devices,
         out,
