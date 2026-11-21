@@ -1092,9 +1092,12 @@ fn apply(
         }
         let bytes = match name.strip_prefix("fonts/") {
             Some(file) => {
-                // a set of the catalog's name is never installed beside it
-                if let (Ok(frits), Some(stem)) = (&targets.frits, file.strip_suffix(".vtfrit")) {
-                    crate::switch::unheld(frits, stem)?;
+                // a set of the catalog's name is never installed beside it,
+                // and the name is looked up through the checked directory,
+                // never by its path, which a link in a category folder
+                // could lead elsewhere
+                if let (Some(held), Some(stem)) = (&frits_dir, file.strip_suffix(".vtfrit")) {
+                    crate::switch::unheld_at(&held.dir, &held.path, stem)?;
                 }
                 let fonts = rustix::fs::openat(
                     &draft,
@@ -1467,6 +1470,16 @@ impl FritsDir {
     /// and a FIFO or a device in its place cannot stall or fill the
     /// install.
     fn installed(&self, target: &Path) -> Result<Option<String>, String> {
+        self.installed_after(target, || {})
+    }
+
+    /// [`FritsDir::installed`], with `between` run after the look at the
+    /// name and before its open, where a test changes what is there.
+    fn installed_after(
+        &self,
+        target: &Path,
+        between: impl FnOnce(),
+    ) -> Result<Option<String>, String> {
         let name = Self::name(target).map_err(|e| format!("{}: {e}", target.display()))?;
         let shown = self.path.join(name);
         let not_regular = || {
@@ -1481,6 +1494,7 @@ impl FritsDir {
             Err(rustix::io::Errno::NOENT) => return Ok(None),
             Err(e) => return Err(format!("{}: {e}", shown.display())),
         }
+        between();
         let fd = rustix::fs::openat(
             &self.dir,
             name,
@@ -1515,9 +1529,11 @@ impl FritsDir {
     /// rename relative to the held folder, and keeps the frit it replaces
     /// as `NAME.bak`. [`vtium_settings::install_file_at`] takes the steps:
     /// anything at `NAME` but a regular file is refused and left, and a
-    /// failure before the rename leaves the old frit as it was.
+    /// failure before the rename leaves the old frit as it was. A refusal
+    /// names the frit's full path in the frits' directory.
     fn install(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
-        vtium_settings::install_file_at(&self.dir, Self::name(target)?, bytes, 0o644)
+        let name = Self::name(target)?;
+        vtium_settings::install_file_at(&self.dir, name, &self.path.join(name), bytes, 0o644)
     }
 
     /// Removes the frit at `target` by renaming it to `NAME.bak` in the
@@ -2493,7 +2509,17 @@ mod tests {
             base.join("real/fonts/link.vtfrit"),
         )
         .unwrap();
-        assert!(held.install(&path.join("link.vtfrit"), b"x\n").is_err());
+        let why = held
+            .install(&path.join("link.vtfrit"), b"x\n")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            why,
+            format!(
+                "{} is not a regular file, so it cannot be replaced",
+                path.join("link.vtfrit").display()
+            )
+        );
         assert!(base.join("real/fonts/link.vtfrit").is_symlink());
         assert_eq!(
             std::fs::read_to_string(base.join("evil/fonts/old.vtfrit")).unwrap(),
@@ -2596,6 +2622,119 @@ mod tests {
         let why = run(&hash(&big)).unwrap_err();
         assert!(why.contains("is larger than a font set may be"), "{why}");
         assert_eq!(entries_of(&fonts), ["old.vtfrit"]);
+    }
+
+    /// A frit that becomes a FIFO between apply's look at the name and its
+    /// open is refused once it is open, so apply never hashes what the
+    /// FIFO gives as if it were the frit.
+    #[test]
+    fn a_frit_replaced_between_the_look_and_the_open_is_refused() {
+        let base = trusted_base("look-then-open");
+        let fonts = base.join("fonts");
+        std::fs::create_dir(&fonts).unwrap();
+        let old = fonts.join("old.vtfrit");
+        std::fs::write(&old, "source=builtin:unifont\n").unwrap();
+        let held = FritsDir::open(&fonts).unwrap();
+        let swapped = held.installed_after(&old, || {
+            std::fs::remove_file(&old).unwrap();
+            rustix::fs::mknodat(
+                rustix::fs::CWD,
+                &old,
+                FileType::Fifo,
+                Mode::from_raw_mode(0o644),
+                0,
+            )
+            .unwrap();
+        });
+        assert_eq!(
+            swapped,
+            Err(format!(
+                "{} is not a regular file, so the install does not read or replace it",
+                old.display()
+            ))
+        );
+    }
+
+    /// The re-review's probe of a new frit's name: apply looks the name up
+    /// in the catalog's folders through the frits' directory it holds
+    /// open, without following a link. A link at `console/probe.vtfrit`
+    /// gives the same refusal whether the file it points to exists or not,
+    /// and so does a category folder that is itself a link, whether or not
+    /// the folder behind it holds the name. Nothing is installed.
+    #[test]
+    fn a_new_frit_s_name_is_looked_up_in_the_catalog_without_following_a_link() {
+        use std::os::unix::fs::symlink;
+        let base = trusted_base("unheld");
+        let fonts = base.join("fonts");
+        std::fs::create_dir_all(fonts.join("console")).unwrap();
+        std::fs::create_dir(base.join("etc")).unwrap();
+        let secret = base.join("secret");
+        std::fs::write(&secret, "the secret\n").unwrap();
+        let elsewhere = base.join("elsewhere");
+        std::fs::create_dir(&elsewhere).unwrap();
+        let targets = Targets {
+            configdir: base.join("etc"),
+            frits: Ok(fonts.clone()),
+            vtium: "/bin/true".into(),
+        };
+        let draft = base.join("draft");
+        std::fs::create_dir_all(draft.join("fonts")).unwrap();
+        std::fs::write(
+            draft.join("fonts/probe.vtfrit"),
+            "source=builtin:unscii-8\n",
+        )
+        .unwrap();
+        std::fs::write(draft.join(MANIFEST), "write\tfonts/probe.vtfrit\tnew\n").unwrap();
+        let run = || {
+            let got = apply(
+                &draft,
+                &targets,
+                &no_helper(),
+                &Ok(base.to_path_buf()),
+                &mut Vec::new(),
+            );
+            let installed = fonts.join("probe.vtfrit").exists();
+            let _ = std::fs::remove_file(fonts.join("probe.vtfrit"));
+            (got, installed)
+        };
+        let link = fonts.join("console/probe.vtfrit");
+        symlink(&secret, &link).unwrap();
+        let to_a_file = run();
+        std::fs::remove_file(&link).unwrap();
+        symlink(base.join("missing"), &link).unwrap();
+        let to_nothing = run();
+        assert_eq!(to_a_file, to_nothing, "a link's target changes nothing");
+        let why = to_a_file.0.unwrap_err();
+        assert_eq!(
+            why,
+            format!(
+                "The font set probe is already installed as {}, a set of vtium's catalog. Give your font set another name.",
+                link.display()
+            )
+        );
+        assert!(!to_a_file.1);
+        std::fs::remove_file(&link).unwrap();
+        // a category folder that is a link, to a folder that holds the
+        // name and to one that does not
+        let code = fonts.join("code");
+        symlink(&elsewhere, &code).unwrap();
+        std::fs::write(elsewhere.join("probe.vtfrit"), "source=builtin:unifont\n").unwrap();
+        let holding = run();
+        std::fs::remove_file(elsewhere.join("probe.vtfrit")).unwrap();
+        let empty = run();
+        assert_eq!(
+            holding, empty,
+            "what the linked folder holds changes nothing"
+        );
+        let why = holding.0.unwrap_err();
+        assert!(
+            why.starts_with(&format!(
+                "The catalog folder {} is a symbolic link.",
+                code.display()
+            )),
+            "{why}"
+        );
+        assert!(!holding.1);
     }
 
     /// The system's names cannot be told in advance from the process's id

@@ -7,7 +7,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use vtium_settings::{Of, SectionEdit, install_file, parse, set_key};
+use vtium_settings::{Of, SectionEdit, install_file, install_file_at, parse, set_key};
 
 /// Sets the look of the head `head` in `text` to `look`, with the section
 /// writer.
@@ -325,4 +325,43 @@ fn the_backup_keeps_the_old_file_s_mode() {
     install_file(&file, b"new\n", 0o644).expect("the install");
     let bak = fs::metadata(dir.join("vtium.conf.bak")).expect("the backup");
     assert_eq!(bak.permissions().mode() & 0o7777, 0o600);
+}
+
+/// `install_file_at` writes only one name in the folder it is given: a
+/// name that is empty, `.`, `..` or holds a `/` is refused before anything
+/// is written, even where a folder below would take the file. Its refusal
+/// of a link names the full path the caller gives, as `install_file`'s
+/// refusal names the path it was given.
+#[test]
+fn install_file_at_takes_one_name_and_names_the_full_path_in_a_refusal() {
+    let dir = fixture("at");
+    fs::create_dir(dir.join("sub")).expect("a folder below");
+    let held = fs::File::open(&dir).expect("the folder");
+    for name in ["", ".", "..", "sub/x.vtfrit"] {
+        let shown = dir.join(name);
+        let why = install_file_at(&held, name.as_ref(), &shown, b"new\n", 0o644)
+            .expect_err("one name only");
+        assert_eq!(why.kind(), std::io::ErrorKind::InvalidInput, "{name:?}");
+        assert!(
+            why.to_string()
+                .starts_with(&format!("{} cannot be replaced: ", shown.display())),
+            "{why}"
+        );
+    }
+    let left: Vec<_> = fs::read_dir(dir.join("sub")).expect("the folder").collect();
+    assert!(left.is_empty(), "nothing is written below: {left:?}");
+    let target = dir.join("elsewhere");
+    fs::write(&target, "theirs\n").expect("the link's target");
+    let file = dir.join("link.vtfrit");
+    std::os::unix::fs::symlink(&target, &file).expect("the link");
+    let why = install_file_at(&held, "link.vtfrit".as_ref(), &file, b"new\n", 0o644)
+        .expect_err("a link is refused");
+    let words = format!(
+        "{} is not a regular file, so it cannot be replaced",
+        file.display()
+    );
+    assert_eq!(why.to_string(), words);
+    let why = install_file(&file, b"new\n", 0o644).expect_err("a link is refused");
+    assert_eq!(why.to_string(), words);
+    assert_eq!(fs::read(&target).expect("the target"), b"theirs\n");
 }

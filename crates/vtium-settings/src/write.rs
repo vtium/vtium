@@ -129,8 +129,39 @@ fn keep_backup(dir: &impl AsFd, name: &OsStr, staging: &OsStr) -> io::Result<()>
     renamed.map_err(io::Error::from)
 }
 
-/// [`install_file_at`]'s steps, with `shown` naming the file in a refusal.
-fn install(dir: &impl AsFd, name: &OsStr, shown: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
+/// Replaces the file `name` in the open folder `dir` with `bytes`, mode
+/// `mode`, in one rename, keeping the file it replaces as `NAME.bak`.
+/// `shown` is the file's full path, as a refusal names it.
+///
+/// Every step works relative to `dir`, so a caller that has checked the
+/// folder and holds it open writes into that folder even when a link on
+/// the folder's path changes afterwards. The new bytes go to a new file
+/// `.NAME.PID.new` in the folder, created without following a link and
+/// flushed to disk, and that file is renamed over `NAME`, so `NAME` is the
+/// old file or the new one and never half of each. The folder is flushed
+/// to disk after the rename. Anything at `NAME` but a regular file, a
+/// symbolic link among them, is refused and left, so nothing is read or
+/// replaced through a link. A failure before the rename leaves the old
+/// file as it was and removes the new one. Run as root, the new file is
+/// root's. `name` must be one name in `dir`: a name that is empty, `.`,
+/// `..` or holds a `/` is refused before anything is written.
+pub fn install_file_at(
+    dir: &impl AsFd,
+    name: &OsStr,
+    shown: &Path,
+    bytes: &[u8],
+    mode: u32,
+) -> io::Result<()> {
+    let raw = name.as_encoded_bytes();
+    if raw.is_empty() || raw == b"." || raw == b".." || raw.contains(&b'/') {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} cannot be replaced: {name:?} is not the name of a file in its folder",
+                shown.display()
+            ),
+        ));
+    }
     let pid = std::process::id();
     let existing = regular(dir, name, shown)?;
     let staging = dotted(name, &format!(".{pid}.new"));
@@ -147,24 +178,6 @@ fn install(dir: &impl AsFd, name: &OsStr, shown: &Path, bytes: &[u8], mode: u32)
         return result;
     }
     rustix::fs::fsync(dir).map_err(io::Error::from)
-}
-
-/// Replaces the file `name` in the open folder `dir` with `bytes`, mode
-/// `mode`, in one rename, keeping the file it replaces as `NAME.bak`.
-///
-/// Every step works relative to `dir`, so a caller that has checked the
-/// folder and holds it open writes into that folder even when a link on
-/// the folder's path changes afterwards. The new bytes go to a new file
-/// `.NAME.PID.new` in the folder, created without following a link and
-/// flushed to disk, and that file is renamed over `NAME`, so `NAME` is the
-/// old file or the new one and never half of each. The folder is flushed
-/// to disk after the rename. Anything at `NAME` but a regular file, a
-/// symbolic link among them, is refused and left, so nothing is read or
-/// replaced through a link. A failure before the rename leaves the old
-/// file as it was and removes the new one. Run as root, the new file is
-/// root's. `name` is one name in `dir`, with no `/` in it.
-pub fn install_file_at(dir: &impl AsFd, name: &OsStr, bytes: &[u8], mode: u32) -> io::Result<()> {
-    install(dir, name, Path::new(name), bytes, mode)
 }
 
 /// Replaces the file at `path` with `bytes`, mode `mode`, in one rename,
@@ -191,7 +204,7 @@ pub fn install_file(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
         OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
         Mode::empty(),
     )?;
-    install(&dir, name, path, bytes, mode)
+    install_file_at(&dir, name, path, bytes, mode)
 }
 
 #[cfg(test)]

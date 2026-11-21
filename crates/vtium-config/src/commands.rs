@@ -1279,6 +1279,15 @@ mod tests {
             "{why}"
         );
         assert_eq!(crate::switch::unheld(&dir, "mine"), Ok(()));
+        // a link at the name holds it, wherever the link points
+        std::os::unix::fs::symlink(dir.join("missing"), dir.join("console/dangling.vtfrit"))
+            .expect("the link");
+        let why = crate::switch::unheld(&dir, "dangling").expect_err("held");
+        assert!(
+            why.starts_with("The font set dangling is already installed as "),
+            "{why}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1005 D10: a key binding set by its old name shows the value vtium

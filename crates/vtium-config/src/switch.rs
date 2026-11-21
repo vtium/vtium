@@ -248,18 +248,85 @@ pub fn category_file(frits: &Path, name: &str) -> Option<PathBuf> {
 
 /// Ok when vtium-config may install a set named `name` in the frits'
 /// directory `frits`; else why not: a category folder of the catalog holds
-/// a set of that name already.
+/// a set of that name already. vtium-config opens the directory and asks
+/// [`unheld_at`]. A directory it cannot open holds nothing to compare.
 ///
 /// References:
 /// - ADR-1204 D9: vtium-config refuses a name that another folder holds.
 pub fn unheld(frits: &Path, name: &str) -> Result<(), String> {
-    match category_file(frits, name) {
-        Some(held) => Err(format!(
-            "The font set {name} is already installed as {}, a set of vtium's catalog. Give your font set another name.",
-            held.display()
-        )),
-        None => Ok(()),
+    use rustix::fs::{Mode, OFlags};
+    match rustix::fs::open(
+        frits,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(dir) => unheld_at(&dir, frits, name),
+        Err(_) => Ok(()),
     }
+}
+
+/// Ok when vtium-config may install a set named `name` in the frits'
+/// directory that `dir` holds open, which the messages name as `frits`;
+/// else why not. Each category folder is opened relative to `dir`, and the
+/// name is looked up in it without following a symbolic link, so the
+/// answer never depends on what a link points to. Anything at
+/// `CATEGORY/NAME.vtfrit` counts as a set of that name: a link or a folder
+/// as much as a regular file. vtium-config does not look into a category
+/// folder that is itself a link, and adds no font set while one is a link,
+/// because the console follows the link and could find a set of the same
+/// name behind it. A name a frit cannot have is never looked up.
+///
+/// References:
+/// - ADR-1204 D9: vtium-config refuses a name that another folder holds.
+pub fn unheld_at(dir: &impl AsFd, frits: &Path, name: &str) -> Result<(), String> {
+    use rustix::fs::{AtFlags, FileType, Mode, OFlags};
+    use rustix::io::Errno;
+    if !valid_name(name) {
+        return Ok(());
+    }
+    let file = format!("{name}.vtfrit");
+    let linked = |folder: &Path| {
+        format!(
+            "The catalog folder {} is a symbolic link. vtium-config does not follow the link, so it cannot tell whether vtium's catalog already holds a font set named {name}. Replace the link with the folder it points to.",
+            folder.display()
+        )
+    };
+    for category in CATEGORIES {
+        let folder = frits.join(category);
+        match rustix::fs::statat(dir, category, AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(st) => match FileType::from_raw_mode(st.st_mode) {
+                FileType::Directory => {}
+                FileType::Symlink => return Err(linked(&folder)),
+                // the console finds no set below a file that is not a folder
+                _ => continue,
+            },
+            Err(Errno::NOENT) => continue,
+            Err(e) => return Err(format!("{}: {e}", folder.display())),
+        }
+        let held = rustix::fs::openat(
+            dir,
+            category,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|e| match e {
+            // the folder became a link or a file after the look above
+            Errno::LOOP | Errno::NOTDIR => linked(&folder),
+            e => format!("{}: {e}", folder.display()),
+        })?;
+        let path = folder.join(&file);
+        match rustix::fs::statat(&held, file.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(_) => {
+                return Err(format!(
+                    "The font set {name} is already installed as {}, a set of vtium's catalog. Give your font set another name.",
+                    path.display()
+                ));
+            }
+            Err(Errno::NOENT) => {}
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        }
+    }
+    Ok(())
 }
 
 /// Every set in `frits` by its name, sorted by name, each with the file
