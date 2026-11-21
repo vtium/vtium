@@ -444,6 +444,45 @@ fn install_refuses_a_draft_that_moves_the_frits_and_changes_a_frit() {
     f.ok(&["install"]);
 }
 
+/// A draft that removes a font set its top-level `font-name` names is
+/// refused before the privileged step, with the words of `apply`'s own
+/// refusal, and nothing is installed. The console's check does not flag
+/// that line, because it reads a name that no font set has as a font
+/// family, so the stand-in console here passes the draft as the real one
+/// would.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the privileged step refuses to remove a font set that the installed vtium.conf names.
+#[test]
+fn install_refuses_a_removal_that_the_top_level_font_name_names() {
+    let f = fixture("top-names");
+    f.desk();
+    f.ok(&["set", "font-name", "old"]);
+    f.keep("old.removed", "");
+    let before = std::fs::read_to_string(f.path("etc/vtium.conf")).expect("vtium.conf");
+    let ran = f.run(&["install", "--force"]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.err.contains(
+            "nothing installed: ROOT/etc/fonts/old.vtfrit is not removed: font-name in vtium.conf uses it."
+        ),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    assert!(!ran.out.contains("apply"), "{}", ran.out);
+    assert!(f.path("etc/fonts/old.vtfrit").exists());
+    assert_eq!(
+        std::fs::read_to_string(f.path("etc/vtium.conf")).expect("vtium.conf"),
+        before
+    );
+    assert_eq!(f.held("desk"), ["old.removed"]);
+    // once the top level names another font, the removal installs
+    f.ok(&["set", "font-name", "kept"]);
+    f.ok(&["install", "--force"]);
+    assert!(!f.path("etc/fonts/old.vtfrit").exists());
+}
+
 /// The console this workspace builds, which judges a draft the way the
 /// install's own check judges it.
 #[path = "common/console.rs"]

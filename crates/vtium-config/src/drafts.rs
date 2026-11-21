@@ -676,6 +676,20 @@ impl Session<'_> {
                 crate::apply::FRITS_MOVE_FIRST
             )));
         }
+        // the privileged step refuses to remove a frit that the vtium.conf
+        // it installs still names. The check above catches a look's
+        // font-name, but not the top level's, which the console reads as a
+        // font family once no frit has that name, so the install refuses
+        // that removal here, in the privileged step's own words, before
+        // anything runs as root
+        for removal in frits.iter().filter(|c| c.new.is_none()) {
+            if let Some(by) = crate::apply::naming(&removal.name, Some(text)) {
+                return Err(Fail::Check(format!(
+                    "nothing installed: {} is not removed: {by} uses it. The draft keeps your changes.",
+                    removal.path.display()
+                )));
+            }
+        }
         let same = installed.as_deref() == Some(text);
         if same && batch.is_none() && frits.is_empty() {
             let _ = writeln!(
