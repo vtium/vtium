@@ -44,7 +44,7 @@ The unit restarts vtium after each failure, up to systemd's default limit of 5 s
 
 **With systemd:** Exit status 1 and a panic fail the unit. vtium exits with status 1 in these cases:
 
-- when no display comes within `display-wait`;
+- when no display comes within `display-wait` under an open policy, since a closed policy waits for a display however long it takes;
 - at the respawn limit under an open policy;
 - when the VT hangs up;
 - when a session cannot spawn.
@@ -192,7 +192,7 @@ When systemd cannot make the scope, vtium logs one line that says why. `login` t
 
 **Without systemd:** No logind session exists. The variables are only information for the session's programs. `login` logs in without a logind session. Tier 3's `sysvinit-640x480` tests this.
 
-**Under elogind:** `pam_elogind` registers the session with elogind from the same variables. vtium sets `XDG_SEAT` and `XDG_VTNR` for `login` in direct mode. It also sets them in seat mode when libseat opens the seat through seatd. In seat mode, libseat's logind backend may open the seat through elogind instead. Then vtium drops those variables, as it does in seat mode under systemd, and asks systemd for a scope for each login. systemd is not PID 1 there, so that request fails. vtium logs one line, and the login runs inside vtium's own session. This is untested. See [the elogind issue](https://github.com/vtium/vtium/issues/100).
+**Under elogind:** `pam_elogind` registers the session with elogind from the same variables. vtium sets `XDG_SEAT` and `XDG_VTNR` for `login` in direct mode. It also sets them in seat mode when libseat opens the seat through seatd. In seat mode, libseat's logind backend may open the seat through elogind instead. Then vtium drops those variables, as it does in seat mode under systemd, and asks systemd for a scope for each login. systemd is not PID 1 there, so that request fails. vtium logs one line, and the login runs inside vtium's own session. This is untested. See [the issue about distributions without systemd](https://github.com/vtium/vtium/issues/377).
 
 **Build feature:** none. The scope needs `libseat` and `logind`.
 
@@ -284,6 +284,20 @@ vtium lets libseat reach logind only when vtium is in a logind session of its ow
 
 **Build feature:** `libseat`, which is off by default and in minspec.
 
+### The keyboard layout
+
+**Where:** `crates/vtium-platform/src/input/system.rs` reads the layout. In a build with `logind`, `crates/vtium-platform/src/logind/localed.rs` asks localed for it, and `crates/vtium-platform/src/logind/follow.rs` follows its changes.
+
+**With systemd:** Where vtium.conf sets no `xkb-*` key, vtium takes the system's keyboard layout when it starts. It reads `KEYMAP=` in `/etc/vconsole.conf` first, and translates that console keymap through systemd's table `/usr/share/systemd/kbd-model-map`. When that gives no layout, vtium reads Debian's `/etc/default/keyboard`. Last, a build with `logind` asks localed, `org.freedesktop.locale1` on the system bus, for its X11 layout.
+
+A build with `logind` also follows localed while vtium runs. When localed announces a new layout, for example after `localectl set-keymap`, vtium works out the layout again in the same order. It then gives every keyboard the new keymap and logs one line.
+
+**Without systemd:** vtium reads `/etc/vconsole.conf` and `/etc/default/keyboard` the same way. Where `kbd-model-map` is missing, vtium cannot translate the console keymap, and it logs one line that names the keymap. With no localed, a layout that neither file gives falls back to xkb's default, and vtium follows no change.
+
+**Under elogind:** As without systemd. elogind provides no localed.
+
+**Build feature:** none for the files. Asking and following localed needs `logind`.
+
 ### vtium's own logind session, in seat mode
 
 **Where:** `vtium-seat@.service`, which `tools/vt/units.sh --seat` generates from `vtium@.service` and the lines of `crates/vtium/install/vtium-libseat.conf`. The PAM file `crates/vtium/install/vtium.pam`, staged as `/etc/pam.d/vtium`. `make install` and `make install-tree` stage both files when `FEATURES` names both `libseat` and `logind`. `vtium console enable --seat` gives a VT to that unit (ADR-1500 D7).
@@ -298,7 +312,7 @@ A build with `libseat` alone is for seatd. It stages neither file, and opens no 
 
 **Without systemd:** The unit is unused, so no session is opened. libseat talks to seatd.
 
-**Under elogind:** An init system may run vtium through a PAM session of the stack `vtium`. Then the stack's `-session optional pam_elogind.so class=greeter` line registers the session with elogind, as a greeter's. The `-` keeps PAM quiet where `pam_elogind` is not installed, as `pam_systemd`'s line does under elogind. This is untested, because no tier runs seat mode under elogind. See [the elogind issue](https://github.com/vtium/vtium/issues/100).
+**Under elogind:** An init system may run vtium through a PAM session of the stack `vtium`. Then the stack's `-session optional pam_elogind.so class=greeter` line registers the session with elogind, as a greeter's. The `-` keeps PAM quiet where `pam_elogind` is not installed, as `pam_systemd`'s line does under elogind. This is untested, because no tier runs seat mode under elogind. See [the issue about distributions without systemd](https://github.com/vtium/vtium/issues/377).
 
 **Build feature:** `libseat` and `logind`.
 
@@ -392,7 +406,7 @@ A build with `libseat` alone is for seatd. It stages neither file, and opens no 
 
 Without systemd, `vtium console` changes nothing, and says so. The VTs that are not vtium's are the ones that your init system's configuration gives to a getty, another console, or a display manager. You give vtium a VT in the way your init system already runs a getty there. Replace the getty's entry for that VT with one that runs `vtium --vt=ttyN --no-switchvt`. Let the init system restart vtium when it exits.
 
-vtium adds no fallback of its own there. When vtium keeps failing, the init system's own respawn limit applies, and you log in on another VT. In the usual layout, VTs 1 to 6 hold consoles, and a display manager runs on a VT of its own, usually 7. Keep a getty on VT 1, so that a login is there if vtium cannot start. Give vtium VTs from 2 to 6. Each entry starts vtium at boot. Two entries that start at once race for DRM master, and one of them loses. See [the DRM master race issue](https://github.com/vtium/vtium/issues/139).
+vtium adds no fallback of its own there. When vtium keeps failing, the init system's own respawn limit applies, and you log in on another VT. In the usual layout, VTs 1 to 6 hold consoles, and a display manager runs on a VT of its own, usually 7. Keep a getty on VT 1, so that a login is there if vtium cannot start. Give vtium VTs from 2 to 6. Each entry starts vtium at boot. Two entries that start at once each draw their own login, as [The VT unit](#the-vt-unit) describes.
 
 With sysvinit, change the VT's line in `/etc/inittab`. Then run `telinit q`, so that init reads the file again. Debian's line for VT 2 becomes:
 
@@ -464,7 +478,7 @@ The tests in `crates/vtium/src/getty.rs` test the closed marker against a stand-
 - `heads-closed-broken` runs under a closed policy. Its `getty-fallback` check fails vtium by a kill, a crash, and a hangup. After each, the fallback unit skips itself, no getty runs on the VT, and the unit's `Restart=` line starts vtium again. Its `start-limit` check kills each vtium that the unit starts, until the unit stops restarting. Past the limit, the unit stays failed with `start-limit-hit`, and no getty runs.
 - Under an open policy, the getty starts, and its start stops vtium's unit. `heads-partly-open` runs both checks as the open control. `heads-open-nodisplay` checks this after no display came within `display-wait`.
 
-These are still untested: runit and s6, and elogind. See [the elogind issue](https://github.com/vtium/vtium/issues/100).
+These are still untested: runit and s6, and elogind. See [the issue about distributions without systemd](https://github.com/vtium/vtium/issues/377).
 
 Tier 3's `heads-survive` restarts vtium's unit, and then kills vtium, under a closed policy. After each, the same logged-in shell leads its session on the same pty, at the same size. The shell answers a line typed on the console's keyboard.
 

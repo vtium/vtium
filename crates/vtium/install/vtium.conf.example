@@ -21,8 +21,9 @@
 ## `/etc/vtium/fonts`). It can also be the name of a kbd console font, or with
 ## `font-engine = psf` the path of a PSF font; vtium then uses that one font.
 ##
-## When unset, vtium uses the font from vconsole.conf. If there is none, or
-## vtium cannot find the font, vtium uses its built-in font and logs why.
+## When unset, vtium uses the font from vconsole.conf, and when vconsole.conf
+## names none, the font set `terminus`. If vtium cannot find the font, it uses
+## its built-in font and logs why.
 #
 ## font-frits: The directory that holds the font sets (the `NAME.vtfrit` files
 ## that `font-name` names).

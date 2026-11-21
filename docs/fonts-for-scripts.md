@@ -49,7 +49,7 @@ $ cd vtium-fonts
 $ makepkg -si
 ```
 
-On Arch Linux, those fonts come from the `noto-fonts` package, and Noto Sans CJK comes from `noto-fonts-cjk`. On another distribution, install Noto Sans Mono and the Noto font for your script from its packages.
+On Arch Linux, those fonts come from the `noto-fonts` package, and Noto Sans CJK comes from `noto-fonts-cjk`. `noto-fonts-cjk` is only an optional dependency of `vtium-fonts`, so install it yourself for the four CJK sets. On another distribution, install Noto Sans Mono and the Noto font for your script from its packages.
 
 No vtium package carries a Nerd Fonts file. Every Nerd Fonts build includes the Font Logos icons, which Nerd Fonts lists with no license grant. To get the logos and every other Nerd Fonts icon, install your distribution's Nerd Fonts package. For example, Arch's `ttf-nerd-fonts-symbols-mono` installs Symbols Nerd Font Mono, and every set in this guide draws its icons from it. Until then, each icon draws as a hollow box.
 
@@ -70,7 +70,7 @@ $ vtium config fonts
 The command lists each font set, whether vtium can read it, and the fonts it needs that this machine lacks. It names the web page where you can get each font. To check a set the way vtium reads it, run:
 
 ```
-$ vtium config check /etc/vtium/fonts/noto-arabic.vtfrit
+$ vtium config check /etc/vtium/fonts/scripts/noto-arabic.vtfrit
 ```
 
 A good font set prints `ok` and the file's name.

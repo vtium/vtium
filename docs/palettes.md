@@ -87,7 +87,7 @@ Each `edid:` value names one monitor by the identity it reports, and `vtium conf
 
 ## Programs that change the colors
 
-A program can change the colors in its own console with escape sequences. OSC 4 changes one of the 256 colors, and OSC 10 to 19 change the default colors, the cursor's color and the selection's colors. OSC 104 to 119 reset them to the color scheme's colors. RIS, the full reset, and DECSTR, the soft reset, return the colors to the color scheme's too. See [Escape sequences](sequences/index.md) for each sequence.
+A program can change the colors in its own console with escape sequences. OSC 4 changes one of the 256 colors. OSC 10, 11 and 12 change the default foreground, the default background and the cursor's color. OSC 13 and 14 change the mouse pointer's colors, and OSC 17 and 19 the selection's colors. OSC 104, 110 to 114, 117 and 119 reset them to the color scheme's colors. vtium ignores OSC 15, 16 and 18, xterm's Tektronix colors. A program can also use kitty's color protocol, OSC 21, and save and restore all the colors with xterm's and kitty's color stacks. RIS, the full reset, and DECSTR, the soft reset, return the colors to the color scheme's too. See [Escape sequences](sequences/index.md) for each sequence.
 
 ## The file format
 

@@ -30,6 +30,6 @@ When vtium fails under systemd, a getty takes the VT back. [Security and the sys
 
 ## Small machines
 
-The smallest build, minspec, targets a board with 512 MB of memory and a 320×240 display. In vtium's virtual machine tests, minspec runs with one CPU and 512 MB of memory. There its binary is about 3.1 MiB, and the running console uses at most 5.81 MiB of memory at 320×240. The full measurement and its source are under [Small machines](../features.md#small-machines).
+The smallest build, minspec, targets a board with 512 MB of memory and a 320×240 display. In vtium's virtual machine tests, minspec runs with one CPU and 512 MB of memory. There its binary is about 4.1 MiB, and the running console uses at most 5.81 MiB of memory at 320×240. The full measurement and its source are under [Small machines](../features.md#small-machines).
 
-The `vtium` and `vtium-git` packages build vtium with more features, which adds images, the GPU path, right-to-left text, seat mode, and logind support.
+The `vtium` and `vtium-git` packages build vtium with more features, which adds images, the GPU path, right-to-left text, effects, seat mode, and logind support.

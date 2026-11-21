@@ -76,7 +76,7 @@ This starts vtium on VT 3, in place of the login prompt that was there. Nothing 
 
 Press Ctrl+Alt+F3.
 
-The desktop disappears, and you see a `login:` prompt, drawn by vtium. It is drawn in the machine's console font. Where the machine names no console font, it is drawn in vtium's own built-in font. Log in with your user name and password, as you would on any text console.
+The desktop disappears, and you see a `login:` prompt, drawn by vtium. It is drawn in the machine's console font. Where the machine names no console font, it is drawn in Terminus, vtium's default font set. Log in with your user name and password, as you would on any text console.
 
 You are now in a shell that vtium renders. Try a few things:
 

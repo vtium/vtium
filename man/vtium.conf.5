@@ -34,7 +34,7 @@ The console's font.
 .IP
 The value is the name of a font set (a frit file, \fBNAME.vtfrit\fR in \fB/etc/vtium/fonts\fR). It can also be the name of a kbd console font, or with \fBfont\-engine = psf\fR the path of a PSF font; vtium then uses that one font.
 .IP
-When unset, vtium uses the font from vconsole.conf. If there is none, or vtium cannot find the font, vtium uses its built-in font and logs why.
+When unset, vtium uses the font from vconsole.conf, and when vconsole.conf names none, the font set \fBterminus\fR. If vtium cannot find the font, it uses its built-in font and logs why.
 .IP
 It takes text: at most 4095 bytes, with no control character. Default: unset.
 .IP
