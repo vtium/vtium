@@ -777,6 +777,38 @@ pub fn frit_plan(
     (files, removals)
 }
 
+/// The font set changes a stand-in desk's install makes from `frits`,
+/// the draft's folder, against `installed`, the installed frits by name,
+/// as the real desk lists them in [`super::desk::Opened::installs`]: each
+/// font set whose text differs from the installed one, added or replaced,
+/// and each removal of an installed font set, in the order of the names.
+pub fn installs(
+    frits: &crate::store::FritChanges,
+    installed: &std::collections::BTreeMap<String, Vec<u8>>,
+) -> Vec<(String, super::desk::FontSetChange)> {
+    use super::desk::FontSetChange;
+    let mut out: Vec<(String, FontSetChange)> = frits
+        .kept
+        .iter()
+        .filter_map(|(name, text)| match installed.get(name) {
+            None => Some((name.clone(), FontSetChange::Add)),
+            Some(old) if old.as_slice() != text.as_bytes() => {
+                Some((name.clone(), FontSetChange::Replace))
+            }
+            Some(_) => None,
+        })
+        .chain(
+            frits
+                .removed
+                .iter()
+                .filter(|name| installed.contains_key(*name))
+                .map(|name| (name.clone(), FontSetChange::Remove)),
+        )
+        .collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
 /// What a stand-in desk's install does to `frits`, the draft's folder,
 /// and `installed`, the installed frits: the install writes and removes
 /// them, and the folder keeps no change the system now matches.

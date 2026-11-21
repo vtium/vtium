@@ -111,6 +111,38 @@ pub struct Opened {
     /// The font sets the draft's folder adds, replaces and removes, which
     /// the install writes and removes with the draft.
     pub frits: crate::store::FritChanges,
+    /// The font set changes the install makes, by name, in the order of
+    /// the names. A font set in the folder whose text is the installed
+    /// one's is no change, and a removal of a font set that is not
+    /// installed removes nothing, so neither is here. The status line
+    /// counts these, as `flow` counts them.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "A draft's font set changes": a file whose text is the installed frit's is no change, and `flow --json` lists the changes under `"frits"`.
+    pub installs: Vec<(String, FontSetChange)>,
+}
+
+/// What an install does to one font set of the draft, as `flow --json`
+/// names it under `"frits"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FontSetChange {
+    /// The install writes a font set this machine does not have.
+    Add,
+    /// The install writes the draft's text over the installed font set.
+    Replace,
+    /// The install removes the installed font set.
+    Remove,
+}
+
+impl FontSetChange {
+    /// The change `flow --json` lists for `change`.
+    pub fn of(change: &crate::drafts::FritChange) -> FontSetChange {
+        match (&change.old, &change.new) {
+            (_, None) => FontSetChange::Remove,
+            (None, Some(_)) => FontSetChange::Add,
+            (Some(_), Some(_)) => FontSetChange::Replace,
+        }
+    }
 }
 
 /// One file of the installed history.
@@ -369,6 +401,12 @@ impl Store {
             batch: self.store.batch_changes(name)?.len(),
             resources: crate::batch::Resources::open(&session)?.list(),
             frits: self.store.frit_changes(name)?,
+            installs: session
+                .frit_changes(name)?
+                .0
+                .iter()
+                .map(|c| (c.name.clone(), FontSetChange::of(c)))
+                .collect(),
         })
     }
 

@@ -219,3 +219,36 @@ fn a_font_set_made_in_the_tui_survives_leaving_before_install() {
     assert!(!said.contains("Install before you quit?"), "{screen}");
     assert!(!said.contains("The draft keeps"), "{screen}");
 }
+
+/// The status line counts the font set changes the install makes, as
+/// `flow` counts them: a font set in the draft's folder whose text is the
+/// installed one's is no change, so it shows no "font set to install",
+/// while a font set with a text of its own does.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": a file whose text is the installed frit's is no change.
+#[test]
+fn the_status_line_counts_no_font_set_whose_text_is_the_installed_one() {
+    let m = machine("same-text");
+    let text = "name=same\nsource=builtin:unscii-8\n";
+    std::fs::write(m.root.join("etc/fonts/same.vtfrit"), text).expect("an installed font set");
+    m.run(&[]);
+    let folder = m.root.join("home/config/vtium/drafts/mine.frits");
+    std::fs::create_dir_all(&folder).expect("the draft's folder");
+    std::fs::write(folder.join("same.vtfrit"), text).expect("the same text in the draft");
+    let flow = m.command(&["flow", "--json"]);
+    assert!(flow.contains("\"frits\":[]"), "{flow}");
+    let screen = m.run(&[]);
+    let status = screen.lines().nth(1).unwrap_or_default();
+    assert!(status.contains("draft mine"), "{screen}");
+    assert!(!status.contains("to install"), "{status}");
+    // a text of its own is a change, which the status line counts
+    std::fs::write(
+        folder.join("same.vtfrit"),
+        "name=same\nsource=builtin:unifont\n",
+    )
+    .expect("a text of its own");
+    let screen = m.run(&[]);
+    let status = screen.lines().nth(1).unwrap_or_default();
+    assert!(status.contains("1 font set to install"), "{status}");
+}

@@ -602,6 +602,7 @@ impl Desk {
                 .count(),
             resources: self.resources.clone(),
             frits: self.frits.clone(),
+            installs: vtium_config::tui::fixture::installs(&self.frits, &self.installed_frits),
             ..Default::default()
         }
     }

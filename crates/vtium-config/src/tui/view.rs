@@ -111,7 +111,9 @@ fn status(app: &App) -> String {
             Some(d) => words::draft_state(&d.name, d.changes, app.shared.unsaved, d.problems),
             None => words::NO_DRAFT.to_owned(),
         };
-        let pending = app.shared.frits().len();
+        // the changes the install makes, as `flow` counts them, so a font
+        // set whose text is the installed one's is no change
+        let pending = app.shared.draft.as_ref().map_or(0, |d| d.installs.len());
         if pending > 0 {
             left = format!("{left} · {}", waiting(pending));
         }
