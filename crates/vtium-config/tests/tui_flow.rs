@@ -712,7 +712,7 @@ mod draft_flow {
         assert!(status.contains("· no changes · no problems"), "{status}");
         assert!(!status.contains(words::NO_HOTPLUG), "{status}");
         let screen = ran.screen();
-        for want in ["desk", "panel", "proof", "kbd"] {
+        for want in ["desk", "panel", "look big", "kbd"] {
             assert!(screen.contains(want), "{want}: {screen}");
         }
     }
@@ -778,6 +778,46 @@ mod draft_flow {
             "{screen}"
         );
         assert!(flat(screen).contains(words::SUBFLOW_REQUIRES), "{screen}");
+    }
+
+    /// A terminal's card picks one of the draft's looks, and Save writes
+    /// only the head's `look =` line. Desk's card steps its look from big
+    /// to the default look and back: the first writes desk's head with no
+    /// look line and keeps the look big, which panel can still take; the
+    /// second puts the installed file back. Panel's card then takes big.
+    ///
+    /// References:
+    /// - ADR-1205 D1: a terminal takes a look from the Looks tab, and the
+    ///   Flow view makes no look itself.
+    /// - ADR-1403 D8: the head's `look =` line is the one line a path's
+    ///   look writes, and a path with no look leaves it out.
+    #[test]
+    fn a_terminal_s_card_picks_a_look_and_writes_only_its_look_line() {
+        const DOWN: &[u8] = b"\x1b[B";
+        // desk's card, its Look line, one choice to the left
+        let desk = [b"\x1b[H", RIGHT, b"\r", DOWN, LEFT, b"\r", ESC];
+        let b = bench("card-look");
+        run(&b, &[&desk[..], &[b"s"]].concat());
+        let want = INSTALLED.replace("[head desk]\nlook = big\n", "[head desk]\n");
+        assert_ne!(want, INSTALLED, "the fixture's desk names big");
+        assert_eq!(b.draft(), want);
+        // and back to big, which leaves the installed file as it was
+        let b = bench("card-look-back");
+        let back = [
+            b"\x1b[H", RIGHT, b"\r", DOWN, LEFT, b"\r", RIGHT, b"\r", ESC,
+        ];
+        let ran = run(&b, &[&back[..], &[b"s"]].concat());
+        assert_eq!(b.draft(), INSTALLED, "{}", ran.screen());
+        // panel's card, one terminal down, takes big
+        let panel = [b"\x1b[H", RIGHT, DOWN, b"\r", DOWN, RIGHT, b"\r", ESC];
+        let b = bench("card-look-panel");
+        let ran = run(&b, &[&panel[..], &[b"s"]].concat());
+        assert_eq!(
+            b.draft(),
+            INSTALLED.replace("[head panel]\n", "[head panel]\nlook = big\n"),
+            "{}",
+            ran.screen()
+        );
     }
 
     #[test]

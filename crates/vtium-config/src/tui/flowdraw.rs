@@ -29,7 +29,7 @@ use super::flow::{Flow, Kind};
 use super::flowcolor::{Palette, Role};
 use super::flowlayout::{
     CardLine, card_about, card_choices, card_chosen, card_lines, card_path, card_value,
-    choices_for, font_names, label_target, layout_of, message_rows, window,
+    choices_for, label_target, layout_of, look_names, message_rows, window,
 };
 use super::flowview::{self, BOX_ROWS, Boxed, Layout, Mood, NoteKind, Obj, Slot, Wire};
 use super::model::{App, Shared};
@@ -88,7 +88,7 @@ pub const fn kind_role(obj: &Obj) -> Role {
             let stage = match s {
                 Slot::Display(_) => Stage::Display,
                 Slot::Terminal => Stage::Terminal,
-                Slot::Font(_) => Stage::Font,
+                Slot::Look(_) => Stage::Look,
                 Slot::Input(_) => Stage::Input,
                 Slot::Special(p) => Stage::of(p),
                 Slot::Template(st) | Slot::Empty(st) => *st,
@@ -96,7 +96,7 @@ pub const fn kind_role(obj: &Obj) -> Role {
             match stage {
                 Stage::Display => Role::Display,
                 Stage::Terminal => Role::Terminal,
-                Stage::Font => Role::FontSet,
+                Stage::Look => Role::FontSet,
                 Stage::Input => Role::Input,
             }
         }
@@ -444,7 +444,7 @@ fn document(layout: &Layout, cols: usize, at: Option<&Obj>, pal: &Palette) -> Gr
             NoteKind::Grey => Style::text(Color::Grey),
             NoteKind::Displays => emph(pal.style(Role::Display)),
             NoteKind::Inputs => emph(pal.style(Role::Input)),
-            NoteKind::Fonts => emph(pal.style(Role::FontSet)),
+            NoteKind::Looks => emph(pal.style(Role::FontSet)),
             NoteKind::Terminals => emph(pal.style(Role::Terminal)),
             NoteKind::Stub => Style {
                 italic: true,
@@ -498,7 +498,7 @@ fn obj_name(flow: &Flow, o: &Obj) -> String {
         Obj::Doc(_, s) | Obj::New(s) | Obj::Pal(s) | Obj::Nothing(s) => match s {
             Slot::Display(sel) => paths::title(flow, Kind::Display, sel).0,
             Slot::Input(sel) => paths::title(flow, Kind::Input, sel).0,
-            Slot::Font(f) => flowview::font_words(f.as_deref()),
+            Slot::Look(l) => flowview::look_words(l.as_deref()),
             Slot::Special(p) => parts::special_title(p),
             Slot::Template(st) | Slot::Empty(st) => st.name().to_owned(),
             Slot::Terminal => String::new(),
@@ -881,8 +881,7 @@ fn info_layer(rows: &mut [Row], app: &App, obj: &Obj) {
 fn card_label(flow: &Flow, line: &CardLine) -> String {
     match line {
         CardLine::Name => "Name".to_owned(),
-        CardLine::Font => "Font set".to_owned(),
-        CardLine::Size => "Size".to_owned(),
+        CardLine::Look => "Look".to_owned(),
         CardLine::Setting("consoles") => "Consoles".to_owned(),
         CardLine::Setting("vt") => words::VTS_LABEL.to_owned(),
         CardLine::Setting("login") => "Login".to_owned(),
@@ -896,7 +895,7 @@ fn card_label(flow: &Flow, line: &CardLine) -> String {
             format!("Input {}", paths::title(flow, Kind::Input, i).0)
         }
         CardLine::Part(Piece::NoInput) => format!("Input {}", words::NO_INPUT),
-        CardLine::Part(Piece::Font(_) | Piece::Active | Piece::NoTerminal | Piece::Terminal(_)) => {
+        CardLine::Part(Piece::Look(_) | Piece::Active | Piece::NoTerminal | Piece::Terminal(_)) => {
             String::new()
         }
     }
@@ -1069,8 +1068,8 @@ fn card_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj) {
     subflow(rows, app, &path, y.saturating_add(1), bottom);
 }
 
-/// The terminal's subflow on its card: its font set, then what its look
-/// draws, then its displays, left to right, and a grey line under them
+/// The terminal's subflow on its card: its look's font set, then the
+/// look, then its displays, left to right, and a grey line under them
 /// about the look's filters and requirements. vtium-config reads no vtlook
 /// file yet, so the look shows by its name, or as the built-in look, and
 /// the grey line says so.
@@ -1086,18 +1085,15 @@ fn subflow(rows: &mut [Row], app: &App, path: &Path, y: usize, bottom: usize) {
     let flow = &app.shared.inputs.flow;
     at(rows, 1, y, words::SUBFLOW_TITLE, bold(Color::BrightWhite));
     let font = path
-        .font
-        .clone()
-        .unwrap_or_else(|| words::DEFAULT_FONT_SET.to_owned());
-    let look = flow
-        .heads
-        .iter()
-        .find(|h| path.name.as_deref() == Some(h.name.as_str()))
-        .map(|h| h.look.clone())
-        .filter(|l| l != "default");
-    let look = look.map_or_else(
+        .look
+        .as_ref()
+        .and_then(|l| flow.looks.iter().find(|x| x.name == *l))
+        .map(|l| l.frit.clone())
+        .filter(|f| !f.is_empty())
+        .unwrap_or_else(|| words::FONT_SET_FROM_CONF.to_owned());
+    let look = path.look.as_ref().map_or_else(
         || words::DEFAULT_LOOK_BOX.to_owned(),
-        |l| words::look_box(&l),
+        |l| words::look_box(l),
     );
     let displays: Vec<String> = path
         .displays
@@ -1254,8 +1250,8 @@ fn choices_layer(rows: &mut [Row], app: &App, state: &flowview::State, obj: &Obj
 /// A template's layer: the ways to make a part of `stage`, one a row,
 /// each with what it covers.
 fn make_layer(rows: &mut [Row], app: &App, state: &flowview::State, stage: Stage) {
-    let fonts = font_names(&app.shared);
-    let makes = parts::makes(stage, &fonts);
+    let looks = look_names(&app.shared);
+    let makes = parts::makes(stage, &looks);
     // the whole-kind choices first, then under MATCH BY the choices that
     // match by one key, and a sentence about them
     let filters = makes
@@ -1551,10 +1547,10 @@ mod tests {
             .find(&Obj::Doc("desk".into(), Slot::Display(EDID_A.into())))
             .expect("DP-8");
         assert_eq!(title(dp), Some(Color::Cyan));
-        let font = l
-            .find(&Obj::Pal(Slot::Font(Some("monoid".into()))))
-            .expect("a font set");
-        assert_eq!(title(font), Some(Color::Magenta));
+        let look = l
+            .find(&Obj::Pal(Slot::Look(Some("big".into()))))
+            .expect("a look");
+        assert_eq!(title(look), Some(Color::Magenta));
         let roams = l
             .find(&Obj::Roam(Slot::Input("id:046d:c31c".into())))
             .expect("the roaming receiver");

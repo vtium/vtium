@@ -116,7 +116,8 @@ pub enum Slot {
     Input(String),
     /// A path's terminal box.
     Terminal,
-    Font(Option<String>),
+    /// A look in PARTS, by its name; `None` for the default look.
+    Look(Option<String>),
     /// A part that matches no device: "no input", "the active terminal",
     /// "no terminal", or a new terminal by its name.
     Special(Piece),
@@ -132,7 +133,7 @@ impl Slot {
         match piece {
             Piece::Display(s) => Slot::Display(s.clone()),
             Piece::Input(s) => Slot::Input(s.clone()),
-            Piece::Font(f) => Slot::Font(f.clone()),
+            Piece::Look(f) => Slot::Look(f.clone()),
             p => Slot::Special(p.clone()),
         }
     }
@@ -143,7 +144,7 @@ impl Slot {
         match self {
             Slot::Display(s) => Some(Piece::Display(s.clone())),
             Slot::Input(s) => Some(Piece::Input(s.clone())),
-            Slot::Font(f) => Some(Piece::Font(f.clone())),
+            Slot::Look(f) => Some(Piece::Look(f.clone())),
             Slot::Special(p) => Some(p.clone()),
             Slot::Terminal | Slot::Template(_) | Slot::Empty(_) => None,
         }
@@ -260,7 +261,7 @@ pub enum NoteKind {
     /// A group of pieces' title.
     Displays,
     Inputs,
-    Fonts,
+    Looks,
     Terminals,
     /// The words at the start of a roaming stub, grey and italic.
     Stub,
@@ -434,11 +435,12 @@ fn labelled(ctx: &Ctx<'_>, kind: Kind, sel: &str, words: (String, String)) -> (S
     }
 }
 
-/// A font set's words on a terminal's second line.
-pub fn font_words(font: Option<&str>) -> String {
-    match font {
-        Some(f) => format!("font set {f}"),
-        None => words::DEFAULT_FONT_SET.to_owned(),
+/// A look's words on a terminal's second line, and on a look's box in
+/// PARTS.
+pub fn look_words(look: Option<&str>) -> String {
+    match look {
+        Some(l) => words::look_words(l),
+        None => words::DEFAULT_LOOK_PART.to_owned(),
     }
 }
 
@@ -580,7 +582,7 @@ fn path_row(
             name.to_owned(),
             format!(
                 "{} · {}",
-                font_words(p.font.as_deref()),
+                look_words(p.look.as_deref()),
                 words::vt_words(&p.vts())
             ),
         )
@@ -941,17 +943,17 @@ fn part_state(ctx: &Ctx<'_>, part: &Part, waiting: &mut Vec<Sort>) -> (String, M
                 ),
             }
         }
-        Piece::Font(f) => {
+        Piece::Look(l) => {
             let users: Vec<String> = doc
                 .paths
                 .iter()
-                .filter(|p| p.font == *f)
+                .filter(|p| p.look == *l)
                 .filter_map(|p| p.name.clone())
                 .collect();
-            let detail = match (users.first(), f) {
+            let detail = match (users.first(), l) {
                 (Some(u), _) => words::in_terminal(u),
-                (None, None) => words::DEFAULT_FONT_SET_DETAIL.to_owned(),
-                (None, Some(_)) => words::FONT_SET.to_owned(),
+                (None, None) => words::DEFAULT_LOOK_DETAIL.to_owned(),
+                (None, Some(_)) => words::LOOK.to_owned(),
             };
             (detail, Mood::Placed)
         }
@@ -965,10 +967,10 @@ fn part_state(ctx: &Ctx<'_>, part: &Part, waiting: &mut Vec<Sort>) -> (String, M
 /// The palette's four groups, one per stage: its template first, then
 /// each part of that stage, with its words and its state.
 fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static str, Vec<PalPiece>)> {
-    // the default font set is the absence of one, so it shows picked in a
-    // path that has parts and no font set
+    // the default look is the absence of one, so it shows picked in a
+    // path that has parts and no look
     let picked = |piece: &Piece| match piece {
-        Piece::Font(None) => ctx.new.font.is_none() && !ctx.new.is_empty(),
+        Piece::Look(None) => ctx.new.look.is_none() && !ctx.new.is_empty(),
         p => ctx.new.has(p),
     };
     Stage::ALL
@@ -1004,7 +1006,7 @@ fn palette(ctx: &Ctx<'_>, waiting: &mut Vec<Sort>) -> Vec<(NoteKind, &'static st
                 Stage::Display => (NoteKind::Displays, words::FLOW_DISPLAYS),
                 Stage::Terminal => (NoteKind::Terminals, words::FLOW_TERMINALS),
                 Stage::Input => (NoteKind::Inputs, words::FLOW_INPUTS),
-                Stage::Font => (NoteKind::Fonts, words::FLOW_FONT_SETS),
+                Stage::Look => (NoteKind::Looks, words::FLOW_LOOKS),
             };
             (kind, heading, pieces)
         })
@@ -1510,8 +1512,8 @@ pub(crate) mod tests {
             let desk = at(&l, &doc("desk", Slot::Terminal));
             let panel = at(&l, &doc("panel", Slot::Terminal));
             assert_eq!((desk.x, panel.x), (g.term_x, g.term_x));
-            assert_eq!(desk.detail, "font set monoid · every VT");
-            assert_eq!(panel.detail, "default font set · every VT");
+            assert_eq!(desk.detail, "look big · every VT");
+            assert_eq!(panel.detail, "default look · every VT");
             let dp = at(&l, &doc("desk", Slot::Display(EDID_A.into())));
             assert_eq!(
                 (dp.x, dp.y, dp.title.as_str()),
@@ -1613,8 +1615,8 @@ pub(crate) mod tests {
                 Obj::Pal(Slot::Input("*".into())),
                 Obj::Pal(Slot::Special(Piece::Active)),
                 Obj::Pal(Slot::Special(Piece::NoTerminal)),
-                Obj::Pal(Slot::Font(None)),
-                Obj::Pal(Slot::Font(Some("monoid".into()))),
+                Obj::Pal(Slot::Look(None)),
+                Obj::Pal(Slot::Look(Some("big".into()))),
                 Obj::Others,
             ] {
                 at(&l, &o);
@@ -1657,7 +1659,7 @@ pub(crate) mod tests {
         let f = flow();
         let mut new = Path::default();
         new.pick(Piece::Input("id:2dc8:5200".into()));
-        new.pick(Piece::Font(Some("dejavu".into())));
+        new.pick(Piece::Look(Some("big".into())));
         let l = lay(&f, &new, 100);
         let p = at(&l, &Obj::Pal(Slot::Input("id:2dc8:5200".into())));
         assert_eq!(p.mood, Mood::Picked);
@@ -1669,7 +1671,7 @@ pub(crate) mod tests {
             at(&l, &Obj::New(Slot::Empty(Stage::Terminal))).detail,
             "new: terminal-1"
         );
-        assert_eq!(at(&l, &Obj::Pal(Slot::Font(None))).mood, Mood::Placed);
+        assert_eq!(at(&l, &Obj::Pal(Slot::Look(None))).mood, Mood::Placed);
         let status = l
             .notes
             .iter()
@@ -1917,7 +1919,7 @@ pub(crate) mod tests {
             let of = match &b.obj {
                 Obj::Pal(Slot::Display(_)) => Stage::Display,
                 Obj::Pal(Slot::Input(_)) | Obj::Others => Stage::Input,
-                Obj::Pal(Slot::Font(_)) => Stage::Font,
+                Obj::Pal(Slot::Look(_)) => Stage::Look,
                 Obj::Pal(Slot::Template(s)) => *s,
                 Obj::Pal(Slot::Special(p)) => Stage::of(p),
                 _ => continue,

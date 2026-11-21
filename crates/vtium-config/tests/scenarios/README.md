@@ -35,7 +35,7 @@ After every key, `checks.rs` checks the rules the records set:
 - After the walk, the test also presses every key from the second page of each paged key line. A key that moves to another node must show that node's first page.
 - From every state, some key sequence leaves the TUI.
 
-After the walk, the test checks ADR-1201's views table, `docs/architecture/font/ADR-1201-views.tsv`. The table gives the tabs and their order, the view each one shows under, the actions each tab bar shows, and what each view writes into vtium.conf. A planned row is checked against its `now` column, which says what the TUI does today.
+After the walk, the test checks ADR-1201's views table, `docs/architecture/font/ADR-1201-views.tsv`. The table gives the tabs and their order, the view each one shows under, the actions each tab bar shows, and what each view writes. A view writes parts of vtium.conf, the font sets that wait for an install, and the draft's changes to the active resources, which the table calls `batch`. A planned row is checked against its `now` column, which says what the TUI does today.
 
 A failure names the scenario that shows it: the kind of terminal, the grid and the keys from the start, such as `vtium 80×25: Up Up Enter Down r q l`.
 
