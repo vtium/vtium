@@ -101,6 +101,21 @@ impl Fixture {
         self.path(&format!("home/config/vtium/drafts/{draft}.frits"))
     }
 
+    /// What the draft `draft`'s font set folder holds, by name, sorted;
+    /// nothing when there is no folder.
+    fn held(&self, draft: &str) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(self.folder(draft))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
     /// Puts `file` with `text` in the draft desk's font set folder, as the
     /// Fonts tab keeps a change there.
     fn keep(&self, file: &str, text: &str) {
@@ -123,8 +138,9 @@ const NEW: &str = "name=new\nsource=builtin:unscii-8\n";
 /// A draft keeps the frits it adds, replaces and removes in a folder
 /// beside it, so they wait there between runs of vtium-config. `flow`
 /// counts them, `diff` prints each under its path in the frits' directory,
-/// and `install` writes the new frits, then vtium.conf, then removes the
-/// removed frit, and leaves the draft with no folder.
+/// and `install` writes the new and replaced frits, then vtium.conf, then
+/// removes the removed frit, in that order, and leaves the draft's folder
+/// holding nothing.
 ///
 /// References:
 /// - ADR-1403 D8, "A draft's font set changes": the folder, diff and install.
@@ -165,8 +181,27 @@ fn a_draft_keeps_its_font_set_changes_until_install() {
         f.first_line()
     );
     let install = f.ok(&["install"]);
+    // the order of the install's lines is the order of its writes
+    let at = |line: &str| {
+        install
+            .out
+            .lines()
+            .position(|l| l == line)
+            .unwrap_or_else(|| panic!("no line {line:?} in\n{}", install.out))
+    };
+    let conf = at("wrote\tROOT/etc/vtium.conf");
     assert!(
-        install.out.contains("wrote\tROOT/etc/fonts/new.vtfrit"),
+        at("wrote\tROOT/etc/fonts/kept.vtfrit") < conf,
+        "{}",
+        install.out
+    );
+    assert!(
+        at("wrote\tROOT/etc/fonts/new.vtfrit") < conf,
+        "{}",
+        install.out
+    );
+    assert!(
+        conf < at("removed\tROOT/etc/fonts/old.vtfrit"),
         "{}",
         install.out
     );
@@ -183,7 +218,11 @@ fn a_draft_keeps_its_font_set_changes_until_install() {
             .unwrap_or_default()
             .contains("font-size=14")
     );
-    assert!(!f.folder("desk").exists(), "the install leaves no folder");
+    assert_eq!(
+        f.held("desk"),
+        Vec::<String>::new(),
+        "the install leaves no change"
+    );
     assert!(
         f.first_line()
             .starts_with("draft desk: same as installed · "),
@@ -258,7 +297,60 @@ fn install_refuses_a_folder_that_holds_anything_else() {
         "{}",
         ran.out
     );
-    assert!(!f.folder("desk").exists());
+    assert_eq!(f.held("desk"), Vec::<String>::new());
+}
+
+/// A temporary file that vtium-config's write of a change leaves in the
+/// folder, when the write is cut short before its rename or is still under
+/// way in another vtium-config, is no font set change: the draft counts
+/// only its real changes and installs.
+#[test]
+fn a_write_s_temporary_file_in_the_folder_blocks_nothing() {
+    let f = fixture("leftover");
+    f.desk();
+    f.keep("new.vtfrit", NEW);
+    f.keep(".new.vtfrit.new-4242", "name=new\n");
+    f.keep(".old.removed.new-17", "");
+    assert!(
+        f.first_line()
+            .starts_with("draft desk: 1 font set change · "),
+        "{}",
+        f.first_line()
+    );
+    let install = f.ok(&["install"]);
+    assert!(
+        install.out.contains("wrote\tROOT/etc/fonts/new.vtfrit"),
+        "{}",
+        install.out
+    );
+    assert!(f.path("etc/fonts/old.vtfrit").exists());
+}
+
+/// Taking the last change back, as an install does once the system matches
+/// the folder, leaves the folder in place and empty, so another
+/// vtium-config that has just made the folder for a change of its own can
+/// still write into it. An empty folder is no change: the draft is the
+/// same as installed and installs nothing.
+#[test]
+fn the_last_change_taken_back_leaves_an_empty_folder_that_holds_no_change() {
+    let f = fixture("empty");
+    f.desk();
+    f.keep("new.vtfrit", NEW);
+    f.ok(&["install"]);
+    assert!(f.folder("desk").is_dir(), "the folder stays");
+    // the other vtium-config writes its change into the folder it made
+    std::fs::write(f.folder("desk").join("late.removed"), "").expect("a write into the folder");
+    std::fs::remove_file(f.folder("desk").join("late.removed")).expect("the file");
+    assert!(
+        f.first_line()
+            .starts_with("draft desk: same as installed · "),
+        "{}",
+        f.first_line()
+    );
+    let diff = f.ok(&["diff"]).out;
+    assert!(!diff.contains("@@") && !diff.contains("fonts/"), "{diff}");
+    let again = f.ok(&["install"]);
+    assert!(!again.out.contains("wrote"), "{}", again.out);
 }
 
 /// vtium-config's check of a draft passes the console's check one
