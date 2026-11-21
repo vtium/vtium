@@ -522,3 +522,30 @@ fn a_font_set_installed_joins_the_font_sets_at_once() {
         .expect("the new font set among the font sets");
     assert_eq!(fresh.state, vtium_config::tui::model::FontState::Reads);
 }
+
+/// A font set that only the draft adds keeps the highlight through the
+/// install that puts it in place: the Looks tab lists it after the
+/// installed font sets until then, and the install moves it among them.
+#[test]
+fn the_highlight_stays_on_a_font_set_the_install_puts_in_place() {
+    use vtium_config::tui::desk::{Done, Opened};
+    use vtium_config::tui::model::{App, Event};
+    use vtium_config::tui::tabs::looks::{Entry, fontsets};
+    let (mut app, _) = App::new(inputs(), 100, 30);
+    app.shared.draft = Some(Opened {
+        frits: vtium_config::store::FritChanges {
+            // a name that sorts among the installed font sets
+            kept: [("pale".to_owned(), "source=builtin:unifont\n".to_owned())].into(),
+            ..Default::default()
+        },
+        ..Opened::default()
+    });
+    app.looks.show_font_set(&app.shared, "pale");
+    let name = |app: &App| match app.looks.highlighted(&app.shared) {
+        Some(Entry::FontSet(at)) => fontsets::font(&app.shared, at).map(|f| f.name),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(name(&app).as_deref(), Some("pale"));
+    app.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
+    assert_eq!(name(&app).as_deref(), Some("pale"));
+}
