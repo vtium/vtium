@@ -65,7 +65,7 @@ pub fn remove_dropped(name: impl Display) -> String {
 /// The remove key on a font set that only the draft adds: the draft no
 /// longer adds it.
 pub fn remove_forgotten(name: impl Display) -> String {
-    format!("The draft no longer adds the font set {name}.")
+    format!("The draft no longer adds {name}.")
 }
 
 pub fn remove_refused(name: impl Display, why: impl Display) -> String {
