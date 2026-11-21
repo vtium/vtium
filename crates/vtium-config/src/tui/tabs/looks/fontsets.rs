@@ -351,6 +351,7 @@ pub fn detail(shared: &Shared, at: usize) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[expect(clippy::panic, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
     use crate::tui::desk::Opened;
@@ -361,7 +362,8 @@ mod tests {
     /// whose folder holds `kept` and `removed`.
     fn shared(kept: &[&str], removed: &[&str]) -> Shared {
         let inputs = fixture::inputs();
-        let text = inputs.conf.clone().expect("the fixture's vtium.conf");
+        let text = inputs.conf.clone().unwrap_or_default();
+        assert!(text.contains("font-name = proof"), "{text}");
         let (app, _) = App::new(inputs, 80, 25);
         let mut shared = app.shared;
         let mut frits = crate::store::FritChanges::default();
