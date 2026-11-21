@@ -115,6 +115,44 @@ pub fn run(
     }
 }
 
+/// A change to one font set that `new-frit` and `remove-frit` keep in the
+/// current draft's font set folder ([`font_set`]).
+pub enum FontSetChange {
+    /// The draft adds or replaces the frit, whose whole text this is.
+    Keep(String),
+    /// The draft removes the installed frit, or no longer adds the frit.
+    Remove,
+}
+
+/// Runs `new-frit` or `remove-frit` once the command has checked its
+/// words: keeps `change` to the frit `frit` in the current draft's font
+/// set folder, and with `install` installs the draft; returns the exit
+/// status.
+pub fn font_set(
+    frit: &str,
+    change: FontSetChange,
+    install: bool,
+    paths: &Paths,
+    devices: &Devices,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let store = match Store::system() {
+        Ok(store) => store,
+        Err(fail) => return report(&fail, err),
+    };
+    let session = Session { store, paths };
+    let mut cmd = Command {
+        session: &session,
+        devices,
+        out,
+    };
+    match cmd.font_set(frit, change, install) {
+        Ok(()) => 0,
+        Err(fail) => report(&fail, err),
+    }
+}
+
 /// Prints `fail` and gives its exit code.
 fn report(fail: &Fail, err: &mut dyn Write) -> u8 {
     let _ = writeln!(err, "vtium-config: {}", fail.text());
@@ -193,7 +231,8 @@ impl Command<'_, '_> {
         let (flow, state, checked) = self.judged(&name, &text)?;
         let missing = missing(&checked);
         let printed = if args.has("--json") {
-            flowmodel::json(&flow, &name, &state, &checked, &missing)
+            let (frits, _) = self.session.frit_changes(&name)?;
+            flowmodel::json(&flow, &name, &state, &checked, &missing, &frits)
         } else {
             flowmodel::text(
                 &flow,
@@ -376,6 +415,16 @@ impl Command<'_, '_> {
             self.session.store.write_draft(name, new)?;
             self.say(&format!("wrote {}", path.display()));
         }
+        self.after_write(name, new, install)
+    }
+
+    /// After a change to the draft `name`, whose text is now `new`, was
+    /// written: prints what the check finds and the state line, and with
+    /// `install` installs the draft. A check that cannot run is printed
+    /// and fails nothing, since the change is written whatever the check
+    /// says, unless the draft is to be installed.
+    fn after_write(&mut self, name: &str, new: &str, install: bool) -> Result<(), Fail> {
+        let path = self.session.store.draft_path(name)?;
         let state = self.session.state(name, new)?;
         let checked = match self.session.check(name, new, &path) {
             Ok(checked) => checked,
@@ -400,6 +449,49 @@ impl Command<'_, '_> {
                 .install(name, new, Unrouted::Refuse, &mut run_child, None, self.out)?;
         }
         Ok(())
+    }
+
+    /// `new-frit` and `remove-frit`: keeps `change` to the frit `frit` in
+    /// the current draft's font set folder, then prints what the check of
+    /// the draft finds and the state line, and with `install` installs the
+    /// draft. A removal of an installed frit writes `FRIT.removed`, and a
+    /// removal of a frit that only the draft adds takes the addition back.
+    /// A removal of a frit that is neither installed nor in the folder is
+    /// refused, exit 1.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "Every font set change is kept at once": `new-frit` and `remove-frit` write the current draft's folder and install nothing, and with `--install` they then install the draft.
+    fn font_set(&mut self, frit: &str, change: FontSetChange, install: bool) -> Result<(), Fail> {
+        let (name, text) = self.session.current()?;
+        let store = &self.session.store;
+        let dir = store.frits_path(&name)?;
+        let file = |ending: &str| dir.join(format!("{frit}{ending}")).display().to_string();
+        match change {
+            FontSetChange::Keep(frit_text) => {
+                store.keep_frit(&name, frit, &frit_text)?;
+                self.say(&format!("wrote {}", file(".vtfrit")));
+            }
+            FontSetChange::Remove => {
+                let frits = self
+                    .session
+                    .paths
+                    .frits
+                    .as_ref()
+                    .map_err(|e| Fail::File(e.clone()))?;
+                if frits.join(format!("{frit}.vtfrit")).is_file() {
+                    store.keep_removal(&name, frit)?;
+                    self.say(&format!("wrote {}", file(".removed")));
+                } else if store.frit_changes(&name)?.kept.contains_key(frit) {
+                    store.forget_frit(&name, frit)?;
+                    self.say(&format!("removed {}", file(".vtfrit")));
+                } else {
+                    return Err(Fail::Check(format!(
+                        "There is no font set named {frit} to remove: no installed font set has that name, and draft {name} does not add one."
+                    )));
+                }
+            }
+        }
+        self.after_write(&name, &text, install)
     }
 
     fn print_check(&mut self, checked: &Checked) {

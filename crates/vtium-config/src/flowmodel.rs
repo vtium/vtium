@@ -614,14 +614,20 @@ fn state_kind(state: &RuleState) -> &'static str {
 /// The flow as `vtium config flow --json` prints it: one object whose
 /// `version` is 1, with the draft's state, so a script can rely on its
 /// fields. `problems` in the draft is the count the state line gives, and
-/// the top-level `problems` lists every line the check printed. Rules and the devices' `rule` are numbered from 1, as the
-/// commands take them.
+/// the top-level `problems` lists every line the check printed. Rules and
+/// the devices' `rule` are numbered from 1, as the commands take them.
+/// `frits` lists the draft's font set changes, `frits` here, each by its
+/// name with `add`, `replace` or `remove`.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": `flow --json` lists the changes under `"frits"`.
 pub fn json(
     flow: &Flow,
     name: &str,
     state: &crate::drafts::State,
     checked: &crate::drafts::Checked,
     missing: &[String],
+    frits: &[crate::drafts::FritChange],
 ) -> String {
     let problems = &checked.problems;
     let device = |d: &Device| {
@@ -681,9 +687,21 @@ pub fn json(
             .iter()
             .map(|(k, v)| format!("{{\"key\":{},\"value\":{}}}", quoted(k), quoted(v))),
     );
+    let frits = frits.iter().map(|f| {
+        let change = match (&f.old, &f.new) {
+            (_, None) => "remove",
+            (None, Some(_)) => "add",
+            (Some(_), Some(_)) => "replace",
+        };
+        format!(
+            "{{\"name\":{},\"change\":{}}}",
+            quoted(&f.name),
+            quoted(change)
+        )
+    });
     let (added, removed) = state.counts();
     format!(
-        "{{\"version\":1,\"draft\":{{\"name\":{},\"state\":{},\"added\":{added},\"removed\":{removed},\"problems\":{}}},\"policy\":{},\"base\":{{\"set\":{base},\"defaults\":{}}},\"displays\":{},\"rules\":{},\"heads\":{},\"looks\":{},\"inputs\":{},\"problems\":{},\"missing\":{}}}\n",
+        "{{\"version\":1,\"draft\":{{\"name\":{},\"state\":{},\"added\":{added},\"removed\":{removed},\"problems\":{}}},\"policy\":{},\"base\":{{\"set\":{base},\"defaults\":{}}},\"displays\":{},\"rules\":{},\"heads\":{},\"looks\":{},\"frits\":{},\"inputs\":{},\"problems\":{},\"missing\":{}}}\n",
         quoted(name),
         quoted(state.kind()),
         checked.count(),
@@ -693,6 +711,7 @@ pub fn json(
         list(rules),
         list(heads),
         list(looks),
+        list(frits),
         list(flow.inputs.iter().map(device)),
         list(problems.iter().map(|p| quoted(p))),
         list(missing.iter().map(|m| quoted(m))),

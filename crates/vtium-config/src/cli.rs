@@ -376,7 +376,7 @@ impl Cli<'_> {
             Command::Fonts => crate::commands::fonts(rest, &o.paths(), self.out, self.err),
             Command::Check => crate::commands::check(rest, &o.paths(), self.out, self.err),
             Command::RemoveFrit => {
-                crate::commands::remove_frit(rest, &o.paths(), self.out, self.err)
+                crate::commands::remove_frit(rest, &o.paths(), &o.devices(), self.out, self.err)
             }
             Command::Activate | Command::Deactivate | Command::Active => {
                 crate::batch::command(command, rest, &o.paths(), self.out, self.err)
@@ -398,7 +398,9 @@ impl Cli<'_> {
                     )
                 }
             }
-            Command::NewFrit => crate::commands::new(rest, &o.paths(), self.out, self.err),
+            Command::NewFrit => {
+                crate::commands::new(rest, &o.paths(), &o.devices(), self.out, self.err)
+            }
             Command::Preview => crate::preview::command(rest, &o.paths(), self.out, self.err),
             Command::UseFrit => match o.paths().frits {
                 Ok(frits) => crate::switch::command(rest, &frits, self.out, self.err),

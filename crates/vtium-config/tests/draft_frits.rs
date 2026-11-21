@@ -137,10 +137,10 @@ const NEW: &str = "name=new\nsource=builtin:unscii-8\n";
 
 /// A draft keeps the frits it adds, replaces and removes in a folder
 /// beside it, so they wait there between runs of vtium-config. `flow`
-/// counts them, `diff` prints each under its path in the frits' directory,
-/// and `install` writes the new and replaced frits, then vtium.conf, then
-/// removes the removed frit, in that order, and leaves the draft's folder
-/// holding nothing.
+/// counts them, `flow --json` lists them, `diff` prints each under its
+/// path in the frits' directory, and `install` writes the new and
+/// replaced frits, then vtium.conf, then removes the removed frit, in
+/// that order, and leaves the draft's folder holding nothing.
 ///
 /// References:
 /// - ADR-1403 D8, "A draft's font set changes": the folder, diff and install.
@@ -171,6 +171,15 @@ fn a_draft_keeps_its_font_set_changes_until_install() {
             "@@ line 1\n-source=builtin:unifont\n",
         )),
         "{diff}"
+    );
+    // flow --json lists each change by its name, in the order of the names
+    let json = f.ok(&["flow", "--json"]).out;
+    assert!(
+        json.contains(concat!(
+            r#""frits":[{"name":"kept","change":"replace"},"#,
+            r#"{"name":"new","change":"add"},{"name":"old","change":"remove"}],"#
+        )),
+        "{json}"
     );
     // a change to vtium.conf and the font set changes count together
     f.ok(&["set", "font-size", "14"]);

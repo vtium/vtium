@@ -76,7 +76,7 @@ use crate::draft::Plan;
 use crate::drafts::Verdict;
 use crate::frit::{FRIT_BYTES_MAX, Frit, valid_name};
 use crate::specimen::Helper;
-use crate::tui::{CONF_MAX, Paths};
+use crate::tui::CONF_MAX;
 
 /// What `apply` says of a file that changed after the draft was made.
 /// `install` finds these words in `apply`'s output to choose its exit code.
@@ -883,56 +883,6 @@ pub fn command(
             1
         }
     }
-}
-
-/// Makes `plan`, the change a command computed (ADR-1201 D2), writing to
-/// `out` and `err`; returns the exit status. Run as root, it installs the
-/// change at once through the steps `apply` takes, from a draft root makes
-/// in a directory of its own. Run as a user, it writes the change as a
-/// draft under `paths.drafts` and prints each file the draft writes or
-/// removes, the draft's directory, and the command that installs it.
-pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    if plan.is_empty() {
-        let _ = writeln!(out, "unchanged");
-        return 0;
-    }
-    let targets = paths.targets();
-    if rustix::process::geteuid().is_root() {
-        return match install_now(plan, &targets, &paths.helper, out) {
-            Ok(true) => 0,
-            Ok(false) => 1,
-            Err(why) => {
-                let _ = writeln!(err, "vtium-config: {why}\nNothing was installed.");
-                1
-            }
-        };
-    }
-    let draft = match write_draft(&paths.drafts, plan, &targets) {
-        Ok(draft) => draft,
-        Err(e) => {
-            let _ = writeln!(
-                err,
-                "vtium-config: the draft under {}: {e}",
-                paths.drafts.display()
-            );
-            return 1;
-        }
-    };
-    for file in &plan.files {
-        let _ = writeln!(out, "write\t{}", file.path.display());
-    }
-    for removal in &plan.removals {
-        let _ = writeln!(out, "remove\t{}", removal.path.display());
-    }
-    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
-    let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
-    let shown: Vec<String> = argv
-        .iter()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
-    let _ = writeln!(out, "draft\t{}", draft.display());
-    let _ = writeln!(out, "run\t{}", shown.join(" "));
-    0
 }
 
 /// Installs `plan` at once, as root: the draft written into a directory of

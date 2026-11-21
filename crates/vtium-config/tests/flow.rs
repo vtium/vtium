@@ -335,7 +335,7 @@ fn flow_json_carries_its_version_and_the_draft_s_state() {
             r#""rules":[{"number":1,"line":5,"kind":"display","selector":"*","target":"desk","state":"matches-nothing","words":"matches no connected display"},"#,
             r#"{"number":2,"line":6,"kind":"input","selector":"serial:046d:c31c:X","target":"desk","state":"needs-udev","words":"needs udev"},"#,
             r#"{"number":3,"line":7,"kind":"input","selector":"class:keyboard","target":"roaming","state":"matches-nothing","words":"matches no connected device"}],"#,
-            r#""heads":[{"name":"desk","consoles":1,"look":"default","keys":[]}],"looks":[],"#,
+            r#""heads":[{"name":"desk","consoles":1,"look":"default","keys":[]}],"looks":[],"frits":[],"#,
             r#""inputs":[{"name":"046d:c31c:X","detail":"","keys":["serial:046d:c31c:X"],"found":false,"rule":2}],"problems":[],"missing":[]}"#,
             "\n"
         )
