@@ -158,7 +158,7 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 | a | add path | Adds the path in NEW PATH to the configuration. |
 | e | revise | Takes the highlighted path out of the configuration into NEW PATH, to change it. On a box that is not a path, it says how to choose one. |
 | d | read devices | Reads the connected displays and input devices again. |
-| p | preview | Shows a preview of the highlighted complete path. Today it only says that the preview is not available yet, or not in this terminal. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| p | preview | Shows a preview of the highlighted complete path. Today it only says that the preview is not available yet, or not in this terminal. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | t | trial | Says where a font set can be tried on this console: in the Looks tab. Where this terminal is not a vtium console, or allow-font-ops is off, it says why the trial is off. |
 | Click on a view's name | - | Switches to that view. |
 | Click on a box | - | Highlights the box. A second click on the highlighted box opens it. |
@@ -283,7 +283,7 @@ An added path's terminal card, in CONFIGURATION.
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | t | try live | Tries the card's look on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
 | Enter | choose | On the card's look, shows the looks to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the field above. |
@@ -300,7 +300,7 @@ An added path's terminal card, in CONFIGURATION.
 
 The shared list, as a list box inside the card: its displays, devices, VTs, font set files or terminals.
 
-This screen is not built as described yet. See [#412](https://github.com/vtium/vtium/issues/412). Today: the card shows a set as items joined in a line, and Left and Right step a field through its choices.
+This screen is not built as described yet. See [#453](https://github.com/vtium/vtium/issues/453). Today: the card shows a set as items joined in a line, and Left and Right step a field through its choices.
 
 **Open it:** Enter on a field of the card that holds a set of items.
 
@@ -364,9 +364,9 @@ NEW PATH's terminal card: the new terminal's name, its settings, and the display
 | Ctrl-C | save and quit | Saves the changes that are not saved into the draft, puts back the console's font, and quits without asking. |
 | s i r n v o | - | Do nothing until you close what is open with Esc. |
 | t | try live | Tries the card's look on this console for 10 seconds. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | Shows the card's displays, devices or VTs as a list inside the card. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | choose | Shows the card's displays, devices or VTs as a list inside the card. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | Enter | choose | On the card's look, shows the looks to choose from as a list. Not built yet: see [#379](https://github.com/vtium/vtium/issues/379). |
-| Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | choose | Shows the terminals this configuration defines as a list. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
 | . | more | Shows the key line's next page, and the first page again after the last. Does nothing where the keys fit on one row. |
 | Up | move | Moves to the field above. |
@@ -425,7 +425,7 @@ The filter picker: each value of a match with the devices it matches now, and Ot
 | PgDn | page down | Moves down by a page. |
 | Enter | pick | Picks the highlighted item and closes the list. In a list that ends with Other…, picking Other… lets you type a value instead. |
 | Esc | back | Closes the list without picking. |
-| Enter | choose | Shows the devices that each value matches as a list. Not built yet: see [#412](https://github.com/vtium/vtium/issues/412). |
+| Enter | choose | Shows the devices that each value matches as a list. Not built yet: see [#453](https://github.com/vtium/vtium/issues/453). |
 | q | quit | Quits vtium-config, and asks first if changes are not saved. |
 | Tab | - | Does nothing until you close what is open with Esc. |
 | Shift-Tab | - | Does nothing until you close what is open with Esc. |
@@ -862,7 +862,7 @@ The Fonts tab: a line of filters, then the fonts found on this system, each with
 | PgDn | page down | Moves down by a page. |
 | Space | activate | On a font, a color map, a shader, a color scheme file or a pointer theme, activates it, or deactivates it when it is active. A pointer theme is activated by its folder, with every file in it. Deactivating asks first when a look uses it. On the built-in font or a built-in color scheme, does nothing. On a vtlook or a filter line, says why it does nothing there. |
 | Enter | open | On the filter line, shows the filters as a list. On a font, opens its detail: its files, what it covers, its sizes, its trust mark and the looks that use it. |
-| t | try live | Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why. Not built yet: see [#375](https://github.com/vtium/vtium/issues/375). |
+| t | try live | Tries the highlighted font on this console for 10 seconds. A font that is not an active system font cannot be tried, and t says why. Not built yet: see [#452](https://github.com/vtium/vtium/issues/452). |
 | p | preview | Switches the preview between the sample characters and the picture of the console. In a terminal that does not support images, says that it cannot show the picture. |
 | n | - | Does nothing here. New font sets are made in the Looks tab. |
 | r | - | Does nothing here. Font sets are removed in the Looks tab. |
