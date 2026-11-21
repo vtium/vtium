@@ -7895,6 +7895,7 @@ class ApplyRootTest(unittest.TestCase):
 
     GOOD = ["apply said wrote\t/etc/vtium/fonts/t3-apply.vtfrit",
             "apply said wrote\t/etc/vtium/vtium.conf",
+            "apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700",
             "apply status 0", "apply frit root 644", "apply left 0", "apply conf 1",
             "open was 755",
             "open said vtium-config: vtium reads no font set in /etc/vtium/fonts, so the "
@@ -7916,10 +7917,28 @@ class ApplyRootTest(unittest.TestCase):
                 (("apply conf 1", "apply conf 0"),
                  "the installed vtium.conf names t3-apply on 0 lines, not 1"),
                 (("apply left 0", "apply left 1"), "apply as root left 1 private folders in /run"),
+                # a check that read no copy, so "left 0" would hold of a
+                # folder never made under /run
+                (("apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700",
+                  "none"),
+                 "apply's check did not read one copy of t3-apply in a folder of root's "
+                 "under /run with mode 700: it read none"),
+                (("apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700",
+                  "apply checked /tmp/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700"),
+                 "apply's check did not read one copy"),
+                (("apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700",
+                  "apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 755"),
+                 "apply's check did not read one copy"),
+                (("apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700",
+                  "apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit aaron 700"),
+                 "apply's check did not read one copy"),
+                (("apply checked /run/vtium-config-apply-0123abcd/t3-apply.vtfrit root 700",
+                  "apply checked /run/vtium-config-apply-0123abcd/other.vtfrit root 700"),
+                 "apply's check did not read one copy"),
                 (("open status 1", "open status 0"),
                  "apply wrote into a frits' directory at mode 0777 (exit 0): "),
-                (("open said Nothing was installed.", "open said Nothing was installed."),
-                 None),
+                (("open said Nothing was installed.", "open said Something was installed."),
+                 "the refused install does not say that nothing was installed: "),
                 (("open frit none", "open frit root 644"),
                  "the refused install left the font set t3-open, root 644"),
                 (("open conf 0", "open conf 1"),
@@ -7935,11 +7954,13 @@ class ApplyRootTest(unittest.TestCase):
             with self.subTest(change):
                 lines = [change[1] if line == change[0] else line for line in self.GOOD]
                 got = t3_apply.apply_verdict(t3_apply.parse_apply(lines))
-                if why is None:
-                    self.assertIsNone(got)
-                else:
-                    self.assertIsNotNone(got)
-                    self.assertTrue(got.startswith(why), got)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+        # two copies read are one too many
+        lines = self.GOOD + [
+            "apply checked /run/vtium-config-apply-4567cdef/t3-apply.vtfrit root 700"]
+        self.assertIn("apply's check did not read one copy",
+                      t3_apply.apply_verdict(t3_apply.parse_apply(lines)))
         # a refusal in other words than the walk's is not the refusal sought
         lines = [l for l in self.GOOD if "other users can change" not in l]
         self.assertIn("is not the walk's",
@@ -7948,14 +7969,19 @@ class ApplyRootTest(unittest.TestCase):
     # vtium-config's privileged step, as a fake below T3_AGENT_ROOT: it
     # refuses a bundle whose MANIFEST does not give the installed vtium.conf's
     # hash, or whose frits' directory others can write, in the walk's words;
-    # otherwise it installs the bundle's font set and vtium.conf. Each run
-    # leaves a private folder in /run while it works, and removes it.
+    # otherwise it runs the console's check, the one --vtium names or the
+    # fake console below T3_AGENT_ROOT, on a copy of the bundle's font set
+    # in a private folder in /run, and installs the font set and vtium.conf.
+    # The folder is there while the fake works, and it removes the folder.
     FAKE_APPLY = r"""#!/bin/bash
 r=$T3_AGENT_ROOT
+vtium=$r/usr/bin/vtium
+if [ "$1" = --vtium ]; then vtium=$2; shift 2; fi
 [ "$1" = apply ] || exit 2
 d=$2
-mkdir "$r/run/vtium-config-apply-fake"
-trap 'rmdir "$r/run/vtium-config-apply-fake"' EXIT
+run=$r/run/vtium-config-apply-fake
+mkdir -m 700 "$run"
+trap 'rm -r "$run"' EXIT
 want=$(printf 'write\tvtium.conf\t%s' "$(sha256sum < "$r/etc/vtium/vtium.conf" | cut -d' ' -f1)")
 frit=$(sed -n 's|^write\tfonts/\(.*\)\tnew$|\1|p' "$d/MANIFEST")
 grep -qxF "$want" "$d/MANIFEST" || { echo "vtium-config: changed"; exit 1; }
@@ -7964,6 +7990,9 @@ if [ "$(stat -c %a "$r/etc/vtium/fonts")" = 777 ]; then
     echo "Nothing was installed."
     exit 1
 fi
+cp "$d/fonts/$frit" "$run/$frit"
+"$vtium" check-config --configdir "$r/etc/vtium" --with-frit "$run/$frit" "$d/vtium.conf" \
+    || exit 1
 install -m644 "$d/fonts/$frit" "$r/etc/vtium/fonts/$frit"
 install -m644 "$d/vtium.conf" "$r/etc/vtium/vtium.conf"
 printf 'wrote\t/etc/vtium/fonts/%s\nwrote\t/etc/vtium/vtium.conf\n' "$frit"
@@ -7980,8 +8009,11 @@ printf 'wrote\t/etc/vtium/fonts/%s\nwrote\t/etc/vtium/vtium.conf\n' "$frit"
         os.chmod(os.path.join(root, "etc/vtium/fonts"), 0o755)
         with open(os.path.join(root, "etc/vtium/vtium.conf"), "w") as f:
             f.write("no-blink\n")
+        # the console's check passes when it reads the copy it is given
+        fake_console = "#!/bin/bash\n[ \"$1\" = check-config ] && [ -f \"$5\" ]\n"
         for path, text in ((os.path.join(bin_dir, "systemctl"), BuiltinFontTest.FAKE_SYSTEMCTL),
-                           (os.path.join(root, "usr/bin/vtium-config"), self.FAKE_APPLY)):
+                           (os.path.join(root, "usr/bin/vtium-config"), self.FAKE_APPLY),
+                           (os.path.join(root, "usr/bin/vtium"), fake_console)):
             with open(path, "w") as f:
                 f.write(text)
             os.chmod(path, 0o755)
@@ -7994,9 +8026,13 @@ printf 'wrote\t/etc/vtium/fonts/%s\nwrote\t/etc/vtium/vtium.conf\n' "$frit"
         answer = ask(1, "apply-root")
         got = t3_apply.parse_apply(answer)
         user = pwd.getpwuid(os.getuid()).pw_name
+        # the check read the copy in the private folder, which the agent's
+        # program saw there with its owner and mode 700
         self.assertEqual(got["apply"], {
             "said": ["wrote\t/etc/vtium/fonts/t3-apply.vtfrit", "wrote\t/etc/vtium/vtium.conf"],
+            "checked": ["%s/run/vtium-config-apply-fake/t3-apply.vtfrit %s 700" % (root, user)],
             "status": 0, "frit": "%s 644" % user, "left": 0, "conf": 1}, answer)
+        self.assertEqual(got["open"]["checked"], [], answer)
         self.assertEqual(got["open"]["status"], 1, answer)
         self.assertEqual((got["open"]["frit"], got["open"]["left"], got["open"]["conf"]),
                          ("none", 0, 0), answer)
@@ -8019,20 +8055,38 @@ printf 'wrote\t/etc/vtium/fonts/%s\nwrote\t/etc/vtium/vtium.conf\n' "$frit"
         self.assertEqual(calls, ["stop vtium@tty2.service", "start vtium@tty2.service"])
 
     class FakeVm:
-        """A guest whose agent answers `apply-root` with `answer`."""
+        """A guest whose agent answers `apply-root` with `answer`, and whose
+        console logs `logged` while the agent works."""
 
-        def __init__(self, serial, answer):
-            self.serial, self.answer, self.asked, self.waited = serial, answer, [], []
+        def __init__(self, serial, answer, logged):
+            self.serial, self.answer, self.logged = serial, answer, logged
+            self.asked, self.waited = [], []
 
         def ask(self, request, timeout=30):
             self.asked.append(request)
+            with open(self.serial, "ab") as f:
+                f.write(self.logged)
             return self.answer
 
-        def wait_serial(self, marker, timeout, since=0):
-            self.waited.append((marker, since))
+        def wait_serial(self, marker, timeout, since=0, fail=None):
+            self.waited.append((marker, since, fail))
             return marker
 
-    def drive(self, answer):
+    # What the console logs while the agent works: the old vtium, PID 765,
+    # and the new one, PID 832, which draws the set in its 8x8 cell.
+    LOGGED = ("[    7.4] vtium[765]: the font is the frit terminus, drawn in the built-in "
+              "font until its glyphs are generated\n"
+              "[   11.9] vtium[832]: \x1b[0mvtium Revision v0.1.0\n"
+              "[   11.9] vtium[832]: The font helper runs without its socket filter, because "
+              "vtium has no seccomp filter for this machine's architecture.\n"
+              "[   11.9] vtium[832]: the font is the frit t3-apply, drawn in the built-in "
+              "font until its glyphs are generated\n"
+              "[   12.0] vtium[832]: Display Virtual-1 with backend [drm2d] text renderer "
+              "[cpu], cell size 8x8\n"
+              "[   12.0] vtium[832]: the font's glyphs at 8x8 are generated: asked 39 ms "
+              "after vtium started, the first in 30 ms, the last in 39 ms\n")
+
+    def drive(self, answer, logged=LOGGED):
         """check_apply_root on a FakeVm answering `answer` and a screen that
         settles at once: (caps, errors, the vm, the wait_stable mock)."""
         d = tempfile.TemporaryDirectory()
@@ -8040,7 +8094,7 @@ printf 'wrote\t/etc/vtium/fonts/%s\nwrote\t/etc/vtium/vtium.conf\n' "$frit"
         serial = os.path.join(d.name, "serial.log")
         with open(serial, "wb") as f:
             f.write(b"0123456789")
-        vm = self.FakeVm(serial, answer)
+        vm = self.FakeVm(serial, answer, logged.encode())
         caps, errors = {}, {}
         with mock.patch.object(t3_apply, "wait_stable") as stable:
             t3_apply.check_apply_root({}, vm, d.name, caps, errors, LOG)
@@ -8050,9 +8104,40 @@ printf 'wrote\t/etc/vtium/fonts/%s\nwrote\t/etc/vtium/vtium.conf\n' "$frit"
         caps, errors, vm, stable, work = self.drive(self.GOOD)
         self.assertEqual(errors, {})
         self.assertEqual(vm.asked, [t3_apply.CASE])
-        self.assertEqual(vm.waited, [(t3_apply.FONT_LINE, 10)])
+        self.assertEqual(vm.waited, [(t3_apply.FONT_LINE, 10, None),
+                                     (t3_apply.GLYPHS_LINE, 10, t3_apply.HELPER_FAILED)])
         self.assertEqual(caps, {t3_apply.CASE: os.path.join(work, "apply-root.ppm")})
         self.assertEqual(stable.call_args.args[1], os.path.join(work, "apply-root.ppm"))
+
+    def test_a_new_vtium_that_does_not_draw_the_set_fails_the_check(self):
+        # the old vtium's lines and the sandbox notice count for nothing;
+        # each of these lines of the new vtium fails the check
+        new = "[   12.1] vtium[832]: %s\n"
+        for line, why in (
+                ("the frit t3-apply: line 2: the key cel is not a frit key",
+                 "the new vtium does not draw with the set t3-apply: the frit t3-apply: "),
+                ("the font helper could not draw the font (it exited), so vtium uses its "
+                 "built-in font, one character at a time with no combined characters",
+                 "the new vtium does not draw with the set t3-apply: the font helper "),
+                ("the font helper exited with status 1; restarting it (1 of 3 this boot)",
+                 "the new vtium does not draw with the set t3-apply: the font helper "),
+                ("the font t3-apply is not drawn (no cell): vtium draws its built-in font",
+                 "the new vtium does not draw with the set t3-apply: the font t3-apply ")):
+            with self.subTest(line):
+                caps, errors, _, _, _ = self.drive(self.GOOD, self.LOGGED + new % line)
+                self.assertEqual(caps, {})
+                self.assertTrue(errors[t3_apply.CASE].startswith(why), errors)
+        for gone, what in (("cell size 8x8", "a cell of 8x8"),
+                           ("the font's glyphs at 8x8", "that the font helper generated")):
+            with self.subTest(gone):
+                logged = self.LOGGED.replace(gone, gone.replace("8x8", "8x16"))
+                caps, errors, _, _, _ = self.drive(self.GOOD, logged)
+                self.assertEqual(caps, {})
+                self.assertIn(what, errors[t3_apply.CASE])
+        # the same lines from the old vtium do not count
+        caps, errors, _, _, _ = self.drive(
+            self.GOOD, self.LOGGED + "[    9.0] vtium[765]: the frit terminus: a warning\n")
+        self.assertEqual(errors, {})
 
     def test_an_answer_that_fails_fails_the_check_with_no_capture(self):
         lines = ["open status 0" if l == "open status 1" else l for l in self.GOOD]

@@ -13,20 +13,32 @@ the agent's request `apply-root` (guest/t3-agent) builds a bundle in a
 folder of root's own. Its MANIFEST writes the new font set
 fonts/t3-apply.vtfrit, the built-in Unscii-8 alone in its 8x8 cell, and a
 vtium.conf that names the set at its top level, with the installed
-vtium.conf's SHA-256. The agent runs /usr/bin/vtium-config apply on it with
-no options, so the targets are the system's. Then it builds a second bundle
+vtium.conf's SHA-256. The agent runs /usr/bin/vtium-config apply on it, so
+the targets are the system's. Its one option, --vtium, names a small
+program of the agent's that apply runs as its check: the program writes down
+each copy of a font set the check is given, with the owner and mode of the
+folder that holds the copy, and then runs /usr/bin/vtium with the same
+arguments. Then it builds a second bundle
 for the set t3-open, opens the frits' directory to every user with chmod
-0777, runs apply again, and gives the directory its mode back. Last it
+0777, runs apply again with no options, and gives the directory its mode
+back. Last it
 stops vtium's unit on tty2 and starts it again, so the new vtium reads the
 new vtium.conf.
 
 The check passes when the first apply exits 0 and wrote both files, the set
-is root's with mode 644, vtium.conf names it, and /run holds none of
-apply's private folders afterwards. The second apply must exit with a
-failure in the walk's words, write neither file and leave nothing in /run,
-and the directory must have its mode back. The new vtium must log that its
-font is the frit t3-apply and draw a screen that is not blank. The capture
-is that screen, judged by no golden.
+is root's with mode 644, and vtium.conf names it. Its check must have read
+one copy of the set, in a folder /run/vtium-config-apply-* that is root's
+with mode 700, and /run must hold none of apply's private folders
+afterwards. So the check tells a folder made under /run and removed apart
+from one never made there. The second apply must exit with a failure in
+the walk's words, say that nothing was installed, write neither file and
+leave nothing in /run, and the directory must have its mode back.
+
+The new vtium must log that its font is the frit t3-apply, that its cell
+is 8x8, and that the font helper generated the set's glyphs at 8x8. It must
+log no warning about the frit and no failure of the font helper, which
+would leave it drawing its built-in font. Last it must draw a screen that
+is not blank. The capture is that screen, judged by no golden.
 
 References:
 - ADR-1403 D8, "What `install` does": apply's check reads root's copies of the bundle's font sets from a private folder under /run, and apply checks the frits' directory with the console's walk before it writes there.
@@ -34,6 +46,7 @@ References:
 """
 
 import os
+import re
 
 from t3_qemu import not_blank, wait_stable
 
@@ -53,6 +66,19 @@ APPLY_TIMEOUT = 180
 # The line the new vtium logs once it has chosen the installed set
 # (crates/vtium/src/app.rs).
 FONT_LINE = "the font is the frit t3-apply"
+# The line the new vtium logs once the font helper has generated the set's
+# glyphs in the set's own 8x8 cell (crates/vtium/src/helper.rs), and the
+# cell its display line names (crates/vtium/src/app.rs).
+GLYPHS_LINE = "the font's glyphs at 8x8 are generated"
+CELL = "cell size 8x8"
+# The start of the line vtium logs when the font helper cannot draw the set
+# and vtium falls back to its built-in font (crates/vtium/src/helper.rs).
+HELPER_FAILED = "the font helper could not draw the font"
+# A copy of the set that apply's check reads: its path, and the owner and
+# mode of the folder that holds it, as the agent's program writes them down.
+CHECKED_COPY = re.compile(r"/run/vtium-config-apply-[^/ ]+/t3-apply\.vtfrit root 700")
+# Terminal escape sequences, left out of the console log before it is read.
+ESCAPES = re.compile(r"\x1b\[[0-9;?!]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
 # The start of apply's refusal of a frits' directory the console would
 # refuse, after the directory's path.
 OPEN_REFUSAL = "so the install writes none there: other users can change"
@@ -63,11 +89,13 @@ FRITS = "/etc/vtium/fonts"
 def parse_apply(lines):
     """The agent's answer to `apply-root` as a dict: for each of the two
     runs, "apply" and "open", a dict of "said" (apply's output lines),
+    "checked" (each copy apply's check read, as "PATH OWNER MODE"),
     "status", "frit" ("OWNER MODE" or "none"), "left" and "conf" (counts),
     each None when the answer lacks it; then "was" and "mode" (the frits'
     directory's mode before and once restored), "before", "started", "state" and
     "after", as t3_builtin.parse_bare reads them."""
-    runs = {k: {"said": [], "status": None, "frit": None, "left": None, "conf": None}
+    runs = {k: {"said": [], "checked": [], "status": None, "frit": None, "left": None,
+                "conf": None}
             for k in ("apply", "open")}
     out = {"apply": runs["apply"], "open": runs["open"], "was": None, "mode": None, "before": None,
            "started": False, "state": None, "after": None}
@@ -78,6 +106,8 @@ def parse_apply(lines):
             rest = rest[0] if rest else ""
             if key == "said":
                 run["said"].append(rest)
+            elif key == "checked":
+                run["checked"].append(rest)
             elif key in ("status", "left", "conf") and rest.isdigit():
                 run[key] = int(rest)
             elif key == "frit":
@@ -111,6 +141,9 @@ def apply_verdict(answer):
         return "the installed font set is %s, not root's with mode 644" % ok["frit"]
     if ok["conf"] != 1:
         return "the installed vtium.conf names t3-apply on %s lines, not 1" % ok["conf"]
+    if len(ok["checked"]) != 1 or not CHECKED_COPY.fullmatch(ok["checked"][0]):
+        return ("apply's check did not read one copy of t3-apply in a folder of root's "
+                "under /run with mode 700: it read %s" % ("; ".join(ok["checked"]) or "none"))
     if ok["left"] != 0:
         return "apply as root left %s private folders in /run" % ok["left"]
     said = "; ".join(bad["said"]) or "nothing"
@@ -119,6 +152,8 @@ def apply_verdict(answer):
                 % (bad["status"], said))
     if not any(OPEN_REFUSAL in line for line in bad["said"]):
         return "apply's refusal of a frits' directory at mode 0777 is not the walk's: %s" % said
+    if "Nothing was installed." not in bad["said"]:
+        return "the refused install does not say that nothing was installed: %s" % said
     if bad["frit"] != "none":
         return "the refused install left the font set t3-open, %s" % bad["frit"]
     if bad["conf"] != 0:
@@ -138,10 +173,33 @@ def apply_verdict(answer):
     return None
 
 
+def font_verdict(text, pid):
+    """Why the console log `text`, from the agent's request on, shows that
+    the new vtium, PID `pid`, does not draw with the set t3-apply in its
+    8x8 cell, or None. Only that vtium's lines count. A line about the
+    frit's text that the font helper sent, or one that says the font helper
+    failed or restarts, fails the check, as does a line that says vtium
+    draws its built-in font."""
+    prefix = "vtium[%d]: " % pid
+    said = [line.split(prefix, 1)[1].strip()
+            for line in ESCAPES.sub("", text).splitlines() if prefix in line]
+    for line in said:
+        if (line.startswith("the frit ") or line.startswith("the font helper ")
+                or "vtium draws its built-in font" in line
+                or "vtium uses its built-in font" in line):
+            return "the new vtium does not draw with the set t3-apply: %s" % line
+    for want, what in ((FONT_LINE, "that its font is the frit t3-apply"),
+                       (CELL, "a cell of 8x8"),
+                       (GLYPHS_LINE, "that the font helper generated the set's glyphs at 8x8")):
+        if not any(want in line for line in said):
+            return "the new vtium, PID %d, logged no line saying %s" % (pid, what)
+    return None
+
+
 def check_apply_root(v, vm, work, caps, errors, log):
     """The apply-root check (CHECKS): the agent's `apply-root`, judged by
-    apply_verdict, then the new vtium's line that it draws with the set,
-    and its screen once settled."""
+    apply_verdict, then the new vtium's lines that it draws with the set,
+    judged by font_verdict, and its screen once settled."""
     path = os.path.join(work, CASE + ".ppm")
     try:
         with open(vm.serial, "rb") as f:
@@ -149,12 +207,20 @@ def check_apply_root(v, vm, work, caps, errors, log):
         answer = vm.ask(CASE, timeout=APPLY_TIMEOUT)
         for line in answer:
             log("%s: %s" % (CASE, line))
-        why = apply_verdict(parse_apply(answer))
+        parsed = parse_apply(answer)
+        why = apply_verdict(parsed)
         if why:
             errors[CASE] = why
             return
         vm.wait_serial(FONT_LINE, timeout=60, since=since)
+        vm.wait_serial(GLYPHS_LINE, timeout=60, since=since, fail=HELPER_FAILED)
         wait_stable(vm, path, settle=2.0, timeout=90, want=not_blank)
+        with open(vm.serial, "rb") as f:
+            f.seek(since)
+            why = font_verdict(f.read().decode(errors="replace"), parsed["after"])
+        if why:
+            errors[CASE] = why
+            return
     except (RuntimeError, OSError) as e:
         errors[CASE] = str(e)
         return
