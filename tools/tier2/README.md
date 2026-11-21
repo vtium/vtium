@@ -87,7 +87,7 @@ The `frit-` screens draw the font sets vtium ships for scripts that need room ab
 |---|---|
 | `frit-arabic` | `arabic`, with 30 per cent of line spacing: Arabic with every vowel mark, Persian and Urdu, each mark inside its own row |
 | `frit-hebrew` | `hebrew`, with 10 per cent: a verse with vowel points and cantillation marks, and a line with vowel points |
-| `frit-indic` | `indic`, with 40 per cent: a line in each of the set's ten scripts, from Devanagari to Sinhala, with vowel signs above and below, reph and conjuncts, each cluster at full height and squeezed sideways where it is wider than its cells (ADR-1307 D1) |
+| `frit-indic` | `indic`, with 40 per cent: a line in each of its ten scripts, with vowel signs, reph and conjuncts. Each cluster draws at full height, squeezed sideways where it is wider than its cells (ADR-1307 D1) |
 | `frit-kannada-syllables` | `indic`, with 40 per cent: Kannada conjuncts that Unicode's grapheme rules cut into several clusters, each syllable shaped once and drawn across its clusters' cells, and the same syllables drawn split where a change of color or style runs through them (ADR-1203) |
 | `frit-thai-lao` | `thai-lao`, with 25 per cent: Thai and Lao with marks stacked above and below |
 | `frit-vietnamese` | `vietnamese`, with 25 per cent: capitals whose two stacked marks fill the rows added above, under a row of descenders, and letters precomposed and decomposed drawn alike |
