@@ -28,7 +28,11 @@
 //!    with names it knows, and bounds each file's size, since root is
 //!    reading a directory the user owns;
 //! 2. refuses the draft, writing nothing, when a file it replaces has
-//!    changed since the draft was made, naming the file;
+//!    changed since the draft was made, naming the file. When the draft
+//!    writes or removes a frit, `apply` first checks the frits' directory
+//!    with the walk the console reads a frit through, and holds it open
+//!    (`FritsDir`). It then reads each installed frit through that
+//!    descriptor, only as a regular file and never through a link;
 //! 3. checks every file before it writes any: each frit with the helper's
 //!    frit reader, strictly; the batch file with vtium's own reader, every
 //!    line that the installed batch file does not already hold, and each
@@ -47,9 +51,8 @@
 //!    and removes frits last. Each file goes in through
 //!    [`vtium_settings::install_file`], in one rename, mode 0644, with the
 //!    old one kept as `NAME.bak`. A frit goes in the same way, but through
-//!    a descriptor held on the frits' directory, which `apply` checks
-//!    before step 3 with the walk the console reads a frit through
-//!    (`FritsDir`). A system font is written the same way,
+//!    the descriptor step 2 holds on the frits' directory, with
+//!    [`vtium_settings::install_file_at`]. A system font is written the same way,
 //!    but the file it replaces is not kept, because fontconfig would read
 //!    the copy as one more font;
 //! 5. prints one line a file, `wrote PATH`, `removed PATH`, `failed PATH`
@@ -1033,6 +1036,19 @@ fn apply(
             "{MANIFEST}: a draft that installs a system font holds that one font and nothing else"
         ));
     }
+    // the frits' directory passes the console's own walk before apply
+    // reads anything in it, step 2's look at an installed frit included,
+    // and whether or not the bundle holds vtium.conf
+    let frits_dir = if entries.iter().any(|e| match e {
+        Entry::Write { name, .. } | Entry::Remove { name, .. } => name.starts_with("fonts/"),
+        Entry::AcceptNoRoute => false,
+    }) {
+        Some(FritsDir::open(
+            targets.frits.as_ref().map_err(Clone::clone)?,
+        )?)
+    } else {
+        None
+    };
     for entry in &entries {
         let (name, was) = match entry {
             Entry::Write { name, was } => (name, was.clone()),
@@ -1041,7 +1057,11 @@ fn apply(
         };
         let path = target(targets, name)?;
         // step 2: a file changed since the draft was made is never lost
-        if installed(&path)? != was {
+        let now = match (&frits_dir, name.starts_with("fonts/")) {
+            (Some(held), true) => held.installed(&path)?,
+            _ => installed(&path)?,
+        };
+        if now != was {
             return Err(format!(
                 "{} {CHANGED}, so installing the draft would undo that change. Make your change again in a new draft.",
                 path.display()
@@ -1141,15 +1161,6 @@ fn apply(
             return Err(FRITS_MOVE_FIRST.to_owned());
         }
     }
-    // the frits' directory passes the console's own walk before anything
-    // is made or written there, whether or not the bundle holds vtium.conf
-    let frits_dir = if frits.is_empty() && removals.is_empty() {
-        None
-    } else {
-        Some(FritsDir::open(
-            targets.frits.as_ref().map_err(Clone::clone)?,
-        )?)
-    };
     // step 3: the console's own check, on a copy root made, so what is
     // checked is what is written
     if let Some(c) = &conf {
@@ -1325,6 +1336,32 @@ fn frit_copies(
     }
     let base = runtime.as_ref().map_err(Clone::clone)?;
     let euid = rustix::process::geteuid().as_raw();
+    // the console refuses a copy in a folder that it would refuse a font
+    // set in, so apply checks the folder the same way first, and says so
+    // in its own words instead of leaving the console to refuse the line
+    // of vtium.conf that names the set
+    match vtium_settings::folder(base, &vtium_settings::Trust::running_as(euid)) {
+        Ok(Some(walked)) => walked.trusted.map_err(|why| {
+            format!(
+                "{NO_PRIVATE_FOLDER} vtium reads no font set in {}, so the install makes no copies there: {}",
+                base.display(),
+                why.reason()
+            )
+        })?,
+        Ok(None) => {
+            return Err(format!(
+                "{NO_PRIVATE_FOLDER} The folder {} does not exist.",
+                base.display()
+            ));
+        }
+        Err(rejected) => {
+            return Err(format!(
+                "{NO_PRIVATE_FOLDER} The install cannot use {}: {}",
+                base.display(),
+                walk_problem(&rejected)
+            ));
+        }
+    }
     let scratch = Scratch::new(base, &mut scratch_name, euid)
         .map_err(|why| format!("{NO_PRIVATE_FOLDER} {why}"))?;
     for frit in frits {
@@ -1333,11 +1370,29 @@ fn frit_copies(
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or_default();
-        check
-            .with
-            .push(scratch.write(name, frit.bytes.as_deref().unwrap_or_default())?);
+        let copy = scratch
+            .copy(name, frit.bytes.as_deref().unwrap_or_default())
+            .map_err(|e| {
+                format!(
+                    "The install could not write its copy of {name} for the check into {}: {e}",
+                    scratch.path.display()
+                )
+            })?;
+        check.with.push(copy);
     }
     Ok((Some(scratch), check))
+}
+
+/// Why [`vtium_settings::folder`] could not walk to a folder, as the end
+/// of a refusal: the folder is not a folder, or reading it failed.
+fn walk_problem(rejected: &vtium_settings::Rejected) -> String {
+    match rejected.errors.first().map(|e| &e.problem) {
+        Some(vtium_settings::Problem::NotAFile) => "it is not a folder.".to_owned(),
+        Some(vtium_settings::Problem::Unreadable(kind)) => {
+            format!("reading it failed ({}).", io::Error::from(*kind))
+        }
+        _ => "it cannot be read.".to_owned(),
+    }
 }
 
 /// The frits' directory, checked and held open, so that step 4 writes and
@@ -1380,16 +1435,7 @@ impl FritsDir {
                     path.display()
                 ));
             }
-            Err(rejected) => {
-                let why = match rejected.errors.first().map(|e| &e.problem) {
-                    Some(vtium_settings::Problem::NotAFile) => "it is not a folder.".to_owned(),
-                    Some(vtium_settings::Problem::Unreadable(kind)) => {
-                        format!("reading it failed ({}).", io::Error::from(*kind))
-                    }
-                    _ => "it cannot be read.".to_owned(),
-                };
-                return Err(refused(&why));
-            }
+            Err(rejected) => return Err(refused(&walk_problem(&rejected))),
         };
         walked.trusted.map_err(|why| refused(&why.reason()))?;
         let dir = rustix::fs::openat(
@@ -1413,46 +1459,65 @@ impl FritsDir {
             .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "no file name"))
     }
 
-    /// Replaces the frit at `target` with `bytes`, mode 0644, in one
-    /// rename, and keeps the frit it replaces as `NAME.bak`, as
-    /// [`vtium_settings::install_file`] replaces a file. Each step works
-    /// relative to the held folder: the new bytes go to a new file
-    /// `.NAME.PID.new`, made without following a link and flushed to disk,
-    /// and that file is renamed over `NAME`. Anything at `NAME` but a
-    /// regular file is refused and left. A failure before the rename leaves
-    /// the old frit as it was and removes the new file.
-    fn install(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
-        let name = Self::name(target)?;
-        let existing =
-            match rustix::fs::statat(&self.dir, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
-                Ok(st) if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile => true,
-                Ok(_) => {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!(
-                            "{} is not a regular file, so it cannot be replaced",
-                            self.path.join(name).display()
-                        ),
-                    ));
-                }
-                Err(rustix::io::Errno::NOENT) => false,
-                Err(e) => return Err(e.into()),
-            };
-        let pid = std::process::id();
-        let staging = dotted(name, &format!(".{pid}.new"));
-        let _ = rustix::fs::unlinkat(&self.dir, &staging, rustix::fs::AtFlags::empty());
-        self.write_new(&staging, bytes, 0o644)?;
-        let result = (|| {
-            if existing {
-                self.keep_backup(name, &dotted(name, &format!(".{pid}.bak")))?;
-            }
-            rustix::fs::renameat(&self.dir, &staging, &self.dir, name).map_err(io::Error::from)
-        })();
-        if result.is_err() {
-            let _ = rustix::fs::unlinkat(&self.dir, &staging, rustix::fs::AtFlags::empty());
-            return result;
+    /// The hash of the frit at `target` as it is now, read through the
+    /// held folder, or `None` when there is none. apply reads it only as a
+    /// regular file of at most [`FRIT_BYTES_MAX`] bytes, never through a
+    /// symbolic link and without waiting on a FIFO, so a frit that someone
+    /// replaced with a link to another file tells nothing about that file,
+    /// and a FIFO or a device in its place cannot stall or fill the
+    /// install.
+    fn installed(&self, target: &Path) -> Result<Option<String>, String> {
+        let name = Self::name(target).map_err(|e| format!("{}: {e}", target.display()))?;
+        let shown = self.path.join(name);
+        let not_regular = || {
+            format!(
+                "{} is not a regular file, so the install does not read or replace it",
+                shown.display()
+            )
+        };
+        match rustix::fs::statat(&self.dir, name, rustix::fs::AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(st) if FileType::from_raw_mode(st.st_mode) == FileType::RegularFile => {}
+            Ok(_) => return Err(not_regular()),
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(e) => return Err(format!("{}: {e}", shown.display())),
         }
-        rustix::fs::fsync(&self.dir).map_err(io::Error::from)
+        let fd = rustix::fs::openat(
+            &self.dir,
+            name,
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|e| match e {
+            rustix::io::Errno::LOOP => not_regular(),
+            e => format!("{}: {e}", shown.display()),
+        })?;
+        // the name may have changed between the look and the open
+        let st = rustix::fs::fstat(&fd).map_err(|e| format!("{}: {e}", shown.display()))?;
+        if FileType::from_raw_mode(st.st_mode) != FileType::RegularFile {
+            return Err(not_regular());
+        }
+        let max = u64::try_from(FRIT_BYTES_MAX).unwrap_or(0);
+        let mut bytes = Vec::new();
+        File::from(fd)
+            .take(max.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(|e| format!("{}: {e}", shown.display()))?;
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max {
+            return Err(format!(
+                "{} is larger than a font set may be, {max} bytes, so the install does not replace it",
+                shown.display()
+            ));
+        }
+        Ok(Some(hash(&bytes)))
+    }
+
+    /// Replaces the frit at `target` with `bytes`, mode 0644, in one
+    /// rename relative to the held folder, and keeps the frit it replaces
+    /// as `NAME.bak`. [`vtium_settings::install_file_at`] takes the steps:
+    /// anything at `NAME` but a regular file is refused and left, and a
+    /// failure before the rename leaves the old frit as it was.
+    fn install(&self, target: &Path, bytes: &[u8]) -> io::Result<()> {
+        vtium_settings::install_file_at(&self.dir, Self::name(target)?, bytes, 0o644)
     }
 
     /// Removes the frit at `target` by renaming it to `NAME.bak` in the
@@ -1463,65 +1528,6 @@ impl FritsDir {
         bak.push(".bak");
         rustix::fs::renameat(&self.dir, name, &self.dir, &bak).map_err(io::Error::from)
     }
-
-    /// `bytes` written whole to the new file `name` in the folder, with
-    /// `mode`, flushed to disk; on a failure the new file is removed.
-    fn write_new(&self, name: &std::ffi::OsStr, bytes: &[u8], mode: u32) -> io::Result<()> {
-        let written = rustix::fs::openat(
-            &self.dir,
-            name,
-            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-            Mode::from_raw_mode(mode),
-        )
-        .map_err(io::Error::from)
-        .and_then(|fd| {
-            let mut file = File::from(fd);
-            file.write_all(bytes)?;
-            // the process's umask narrowed the mode it was created with
-            rustix::fs::fchmod(&file, Mode::from_raw_mode(mode))?;
-            file.sync_all()
-        });
-        if written.is_err() {
-            let _ = rustix::fs::unlinkat(&self.dir, name, rustix::fs::AtFlags::empty());
-        }
-        written
-    }
-
-    /// Keeps the regular file `name` as `NAME.bak`, replacing an older one
-    /// in one rename: a second name for the same file, `staging`, where the
-    /// filesystem allows it, else a copy with the same mode.
-    fn keep_backup(&self, name: &std::ffi::OsStr, staging: &std::ffi::OsStr) -> io::Result<()> {
-        use rustix::fs::AtFlags;
-        let _ = rustix::fs::unlinkat(&self.dir, staging, AtFlags::empty());
-        if rustix::fs::linkat(&self.dir, name, &self.dir, staging, AtFlags::empty()).is_err() {
-            let fd = rustix::fs::openat(
-                &self.dir,
-                name,
-                OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
-                Mode::empty(),
-            )?;
-            let mode = rustix::fs::fstat(&fd)?.st_mode & 0o7777;
-            let mut bytes = Vec::new();
-            File::from(fd).read_to_end(&mut bytes)?;
-            self.write_new(staging, &bytes, mode)?;
-        }
-        let mut bak = name.to_owned();
-        bak.push(".bak");
-        let renamed = rustix::fs::renameat(&self.dir, staging, &self.dir, &bak);
-        if renamed.is_err() {
-            let _ = rustix::fs::unlinkat(&self.dir, staging, AtFlags::empty());
-        }
-        renamed.map_err(io::Error::from)
-    }
-}
-
-/// `.NAME` with `suffix` after it, the name of a file apply stages beside
-/// `NAME`.
-fn dotted(name: &std::ffi::OsStr, suffix: &str) -> OsString {
-    let mut out = OsString::from(".");
-    out.push(name);
-    out.push(suffix);
-    out
 }
 
 /// Writes a font that a draft installs as a system font: the system fonts
@@ -1823,19 +1829,21 @@ impl Scratch {
             .map_err(|e| format!("{}: {e}", self.path.display()))
     }
 
-    /// Writes `bytes` as the new file `name` in the directory.
-    fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+    /// Writes `bytes` as the new file `name` in the directory, mode 0600.
+    fn copy(&self, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
         let fd = rustix::fs::openat(
             &self.dir,
             name,
             OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC,
             Mode::from_raw_mode(0o600),
-        )
-        .map_err(|e| format!("{name}: {e}"))?;
-        File::from(fd)
-            .write_all(bytes)
-            .map_err(|e| format!("{name}: {e}"))?;
+        )?;
+        File::from(fd).write_all(bytes)?;
         Ok(self.path.join(name))
+    }
+
+    /// [`Scratch::copy`], with a failure named by the file `name`.
+    fn write(&self, name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
+        self.copy(name, bytes).map_err(|e| format!("{name}: {e}"))
     }
 }
 
@@ -2491,6 +2499,103 @@ mod tests {
             std::fs::read_to_string(base.join("evil/fonts/old.vtfrit")).unwrap(),
             "source=builtin:unifont\n"
         );
+    }
+
+    /// The security review's probe of step 2: apply checks the frits'
+    /// directory before it reads an installed frit there. With the
+    /// directory open to others, a link at `old.vtfrit` to a file outside
+    /// is refused in the walk's words whether the manifest's hash of that
+    /// file is right or wrong, so the refusal tells nothing about the
+    /// file, and a FIFO at the name is refused at once. In a directory the
+    /// walk approves, a link, a FIFO and a file larger than a font set may
+    /// be are each refused as they are found, the same way for a right
+    /// and a wrong hash, and apply never waits on the FIFO.
+    #[test]
+    fn step_two_reads_an_installed_frit_only_through_the_checked_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = trusted_base("step-two");
+        let fonts = base.join("fonts");
+        std::fs::create_dir(&fonts).unwrap();
+        std::fs::create_dir(base.join("etc")).unwrap();
+        let secret = base.join("secret");
+        std::fs::write(&secret, "the secret\n").unwrap();
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let targets = Targets {
+            configdir: base.join("etc"),
+            frits: Ok(fonts.clone()),
+            vtium: "/bin/true".into(),
+        };
+        let draft = base.join("draft");
+        std::fs::create_dir(&draft).unwrap();
+        let runtime = Ok(base.to_path_buf());
+        // apply in a thread of its own, so a read that blocks fails the
+        // test instead of hanging it
+        let run = |was: &str| {
+            std::fs::write(
+                draft.join(MANIFEST),
+                format!("remove\tfonts/old.vtfrit\t{was}\n"),
+            )
+            .unwrap();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let (d, t, r) = (draft.clone(), targets.clone(), runtime.clone());
+            std::thread::spawn(move || {
+                let _ = tx.send(apply(&d, &t, &no_helper(), &r, &mut Vec::new()));
+            });
+            rx.recv_timeout(std::time::Duration::from_secs(10))
+                .expect("apply returns without waiting on the frit")
+        };
+        let right = hash(b"the secret\n");
+        let wrong = hash(b"a guess\n");
+        let open_to_others = format!(
+            "vtium reads no font set in {}, so the install writes none there: other users can change",
+            fonts.display()
+        );
+        let not_regular = format!(
+            "{} is not a regular file, so the install does not read or replace it",
+            fonts.join("old.vtfrit").display()
+        );
+        let release = |fifo: &Path| {
+            // a reader stuck on the FIFO returns once a writer opens it
+            drop(rustix::fs::open(
+                fifo,
+                OFlags::WRONLY | OFlags::NONBLOCK,
+                Mode::empty(),
+            ));
+        };
+        for mode in [0o777, 0o755] {
+            std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(mode)).unwrap();
+            let expected = if mode == 0o777 {
+                &open_to_others
+            } else {
+                &not_regular
+            };
+            std::os::unix::fs::symlink(&secret, fonts.join("old.vtfrit")).unwrap();
+            let (a, b) = (run(&right), run(&wrong));
+            assert_eq!(a, b, "a right and a wrong hash read alike");
+            let why = a.unwrap_err();
+            assert!(why.starts_with(expected.as_str()), "{why}");
+            std::fs::remove_file(fonts.join("old.vtfrit")).unwrap();
+            let fifo = fonts.join("old.vtfrit");
+            rustix::fs::mknodat(
+                rustix::fs::CWD,
+                &fifo,
+                FileType::Fifo,
+                Mode::from_raw_mode(0o644),
+                0,
+            )
+            .unwrap();
+            let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(&right)));
+            release(&fifo);
+            let why = got.unwrap().unwrap_err();
+            assert!(why.starts_with(expected.as_str()), "{why}");
+            std::fs::remove_file(&fifo).unwrap();
+        }
+        // a file larger than a font set may be is not read whole
+        let big = vec![b'#'; FRIT_BYTES_MAX + 1];
+        std::fs::write(fonts.join("old.vtfrit"), &big).unwrap();
+        let why = run(&hash(&big)).unwrap_err();
+        assert!(why.contains("is larger than a font set may be"), "{why}");
+        assert_eq!(entries_of(&fonts), ["old.vtfrit"]);
     }
 
     /// The system's names cannot be told in advance from the process's id

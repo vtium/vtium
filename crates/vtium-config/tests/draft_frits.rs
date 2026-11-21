@@ -846,3 +846,49 @@ fn an_install_with_no_runtime_folder_is_refused() {
             .contains("font-size=14")
     );
 }
+
+/// An install run as a user whose `XDG_RUNTIME_DIR` is a folder other users
+/// can write is refused before apply makes anything there. The refusal
+/// says that the install has no private folder and why, instead of
+/// leaving the console's check to refuse the line of vtium.conf that names
+/// the new font set. Nothing is installed, and the folder stays empty.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` reads its copies from a private folder under /run, or the user's runtime folder when apply runs unprivileged.
+#[test]
+fn an_install_whose_runtime_folder_others_can_write_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("apply-open-runtime");
+    f.desk();
+    f.ok(&["set", "font-size", "14"]);
+    f.keep("new.vtfrit", NEW);
+    let open = f.path("open-run");
+    std::fs::create_dir(&open).unwrap();
+    std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o777)).unwrap();
+    let mut c = f.command(&["install"]);
+    c.env("XDG_RUNTIME_DIR", &open);
+    let ran = f.run_in(c);
+    let said = format!("{}{}", ran.out, ran.err);
+    assert_ne!(ran.status, 0, "{said}");
+    // the fixture's output names its root folder ROOT
+    assert!(
+        said.contains(
+            "The install has no private folder for its check of the draft's font sets. As root it makes one under /run, and as a user under XDG_RUNTIME_DIR. vtium reads no font set in ROOT/open-run, so the install makes no copies there: other users can change \"ROOT/open-run\" (mode 777)."
+        ),
+        "{said}"
+    );
+    assert_eq!(
+        std::fs::read_dir(&open).unwrap().count(),
+        0,
+        "nothing is made in the open folder"
+    );
+    assert!(
+        !f.path("etc/fonts/new.vtfrit").exists(),
+        "nothing is installed"
+    );
+    assert!(
+        !std::fs::read_to_string(f.path("etc/vtium.conf"))
+            .unwrap_or_default()
+            .contains("font-size=14")
+    );
+}
