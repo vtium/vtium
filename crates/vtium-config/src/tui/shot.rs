@@ -1085,19 +1085,30 @@ impl App {
     /// font set `font` at the size first, and [`App::size_measured`] sends
     /// the grid request once the cell comes. An automatic size has no grid
     /// of its own, so it is not tried. Outside a vtium console the size
-    /// shows only in the preview, and with `allow-window-ops` off the tab
-    /// says why.
+    /// shows only in the preview. With `allow-window-ops` off the tab says
+    /// why: with the live trial on, the preview is the console's own text
+    /// at its current size, so the size takes effect when vtium starts
+    /// again; with it off, the size shows only in the preview.
     ///
     /// References:
     /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
     ///   highlighted size as a timed trial, and the grid is the one the
     ///   size gives on the display.
+    /// - ADR-1201 D4, its note of 2026-11-21: with the live trial on and
+    ///   `allow-window-ops` off, the preview is the console's own text.
     pub(crate) fn try_size(&mut self, font: Option<String>, points: u32) -> Vec<Effect> {
         if !self.shared.in_vtium() || points == 0 {
             return Vec::new();
         }
         if !self.shared.window_ops() {
-            self.shared.message = Some(words::SIZE_PICTURE_ONLY.to_owned());
+            self.shared.message = Some(
+                if self.shared.text_preview() {
+                    words::SIZE_AT_NEXT_START
+                } else {
+                    words::SIZE_PICTURE_ONLY
+                }
+                .to_owned(),
+            );
             return Vec::new();
         }
         let Some(font) = font.or_else(|| self.shared.shown_font.clone()) else {

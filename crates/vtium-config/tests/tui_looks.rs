@@ -1835,20 +1835,34 @@ fn n_or_esc_at_the_resize_question_writes_nothing() {
 }
 
 /// In a vtium console that does not let programs resize its grid, a look
-/// card's size line says so and names `w`, and Enter on a size
-/// says why the console stays as it is and sends no grid request.
+/// card's size line says so and names `w`, and Enter on a size says why
+/// the console stays as it is and sends no grid request. With the live
+/// trial on, the preview is the console's own text at its current size,
+/// so Enter says that the size takes effect when vtium starts again. With
+/// `allow-font-ops` off, the preview is a picture or a description, so
+/// Enter says that the size shows only in the preview.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console", its note of 2026-11-21: with the live trial on and `allow-window-ops` off, the preview is the console's own text and shows no picture.
 #[test]
-fn without_window_ops_the_tab_says_why_a_size_only_shows_in_the_preview() {
-    let seen = reach(100, 30, &[TO_LOOKS, b"\r", DOWN, DOWN]);
-    assert!(
-        flat(&seen).contains("does not let programs resize its grid"),
-        "{seen}"
-    );
+fn without_window_ops_the_tab_says_when_a_size_takes_effect() {
+    let seen = flat(&reach(100, 30, &[TO_LOOKS, b"\r", DOWN, DOWN]));
+    assert!(seen.contains(words::WINDOW_OPS_NOTICE_NEXT_START), "{seen}");
     let conf = inputs().conf.expect("the conf");
     let (c, _) = run_on(&conf, PICK_SIX);
     assert_eq!(grid_requests(&c.written), Vec::<String>::new());
-    let seen = c.seen.expect("the screen");
-    assert!(flat(&seen).contains("shows only in the preview"), "{seen}");
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::SIZE_AT_NEXT_START), "{seen}");
+    assert!(!seen.contains("shows only in the preview"), "{seen}");
+    // with allow-font-ops off the console answers no font query, so the
+    // live trial is off and the preview is a picture or a description
+    let mut c = Console::vtium(80, 25, false, "unifont").keys(PICK_SIX);
+    let mut d = desk();
+    vtium_config::tui::port::drive_with(&mut c, with_conf(&conf), Some(&mut d)).expect("the loop");
+    assert_eq!(grid_requests(&c.written), Vec::<String>::new());
+    let seen = flat(&c.seen.expect("the screen"));
+    assert!(seen.contains(words::SIZE_PICTURE_ONLY), "{seen}");
+    assert!(seen.contains(words::WINDOW_OPS_NOTICE), "{seen}");
 }
 
 /// Enter on a size in the look card's list tries it on the console: the

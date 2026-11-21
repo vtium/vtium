@@ -411,7 +411,13 @@ pub fn size_unmeasured(why: impl Display) -> String {
 }
 
 /// Enter on a size in a vtium console that does not let programs resize
-/// its grid.
+/// its grid, where the live trial is on, so the preview is the console's
+/// own text at its current size.
+pub const SIZE_AT_NEXT_START: &str = "The console does not let programs resize its grid, so the size takes effect once you install the draft and vtium starts again. Press w in the Looks tab to let programs resize the grid.";
+
+/// Enter on a size in a vtium console that does not let programs resize
+/// its grid, where the live trial is off, so the preview is a picture or
+/// a description of the size.
 pub const SIZE_PICTURE_ONLY: &str = "The console does not let programs resize its grid, so the size shows only in the preview until you install it. Press w in the Looks tab to let programs resize the grid.";
 
 /// The question `w` asks in the Looks tab.
@@ -422,7 +428,13 @@ pub const WINDOW_OPS_QUESTION: &str = "Let programs resize the grid? vtium-confi
 pub const WINDOW_OPS_ON: &str = "The draft already lets programs resize the grid. The console does so once you install the draft and vtium starts again.";
 
 /// The notice on a look card's size line, in a vtium console that does
-/// not let programs resize its grid.
+/// not let programs resize its grid, where the live trial is on, so the
+/// preview is the console's own text at its current size.
+pub const WINDOW_OPS_NOTICE_NEXT_START: &str = "The console does not let programs resize its grid, so a size takes effect when vtium starts again. Press w in the list of looks to let them.";
+
+/// The notice on a look card's size line, in a vtium console that does
+/// not let programs resize its grid, where the live trial is off, so the
+/// preview is a picture or a description of the size.
 pub const WINDOW_OPS_NOTICE: &str = "The console does not let programs resize its grid, so a size shows only in the preview. Press w in the list of looks to let them.";
 
 /// The heading of the Looks tab's group of pointer themes.

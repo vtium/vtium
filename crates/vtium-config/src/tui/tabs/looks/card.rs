@@ -589,13 +589,25 @@ impl Card {
             words::CARD_HINT.to_owned()
         }];
         // on the size line, a vtium console that does not let programs
-        // resize its grid takes no size live, and the card says why
+        // resize its grid takes no size live, and the card says why; with
+        // the live trial on, the preview is the console's own text at its
+        // current size, so a size waits for vtium's next start
+        //
+        // References:
+        // - ADR-1201 D4, "Sizes, live on a vtium console", its note of 2026-11-21: the console's own text decides over the picture.
         if self.line() == Line::Size
             && shared.in_vtium()
             && !shared.window_ops()
             && !shared.window_ops_drafted()
         {
-            sentences.push(words::WINDOW_OPS_NOTICE.to_owned());
+            sentences.push(
+                if shared.text_preview() {
+                    words::WINDOW_OPS_NOTICE_NEXT_START
+                } else {
+                    words::WINDOW_OPS_NOTICE
+                }
+                .to_owned(),
+            );
         }
         sentences.push(words::ROLES_HEADING.to_owned());
         match look.frit.clone().or_else(|| shared.drafted("font-name")) {
