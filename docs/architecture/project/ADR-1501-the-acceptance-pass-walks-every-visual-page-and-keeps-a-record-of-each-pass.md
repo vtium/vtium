@@ -127,7 +127,9 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 12-colors-256 | the 6x6x6 color cube, the grey ramp and a 24-bit ramp | `sgr.extended-color` |
 | 15-color-forms | SGR 38 and 48 in the semicolon and colon forms, side by side | `sgr.extended-color` |
 | 20-underline-styles | SGR 4:1 to 4:5 and 21, ended by 4:0 and 24, over color, bold, reverse and CJK | `sgr.underline-style`, `sgr.double-underline` |
+| 21-skip-ink | each underline style, in color, on color, bold and italic, and on a double-width line, broken around the descenders of g, j, p, q and y, beside a strike and an overline that skip nothing, walked in both font sets (D6) | `sgr.underline-style`, `sgr.double-underline`, `sgr.underline-color` |
 | 25-underline-color | SGR 58 in both forms, with styles, and 59 | `sgr.underline-color` |
+| 26-ink-scheme | the shipped color scheme Ink, set with OSC 4: the 16 colors as text and backgrounds on its white paper, an error line, a diff and reverse video | `sgr.palette`, `color.palette.set` |
 | 30-strike | SGR 9 and 29 with color, underline, reverse and CJK | `sgr.strike` |
 | 35-blink | SGR 5 beside steady text, and SGR 25 halfway along a line | `sgr.blink`, `sgr.blink.style`, `sgr.blink.decorations` |
 | 37-sync | twelve frames of mode 2026, one left open past `sync-timeout`, and what DECRQM answered | `DEC-2026`, `query.decrqm` |
@@ -145,6 +147,7 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 36-rapid-blink | SGR 6 beside SGR 5, and SGR 25 halfway along a line | `sgr.rapid-blink`, `sgr.blink.style` |
 | 60-combining | letters built from a base and combining marks beside the precomposed ones | `text.grapheme` |
 | 62-ink | glyph ink past its cell: accents over the row above, descenders meeting accents, leaning italics, Arabic marks and a parked cursor, in both font sets (D6) | `text.outline` |
+| 64-look-pointer | vtium-config's Looks tab on a vtium.conf of the page's own: one look's card with the pointer theme vtium.conf sets, another's with its own, and the card's list of pointer themes | none: a screen of vtium-config |
 | 65-charsets | DEC special graphics through G0 and G1, and REP, each beside what it must look like | `text.charsets`, `text.rep` |
 | 66-rectangles | DECCRA copying a box with its colors, DECFRA filling one, DECERA emptying one | `ctl.rect` |
 | 67-scroll-region | twelve lines printed into a scroll region of six rows | `ctl.decstbm` |
@@ -154,6 +157,8 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 71-kitty-animation | two kitty animations of three frames, one looping for ever and one that plays twice and stops | `image.kitty-animation` |
 | 72-kitty-placeholders | one kitty picture placed virtually and shown three times by its placeholder characters, the third copy with its rows swapped | `image.kitty-placeholders` |
 | 73-kitty-relative | a kitty picture placed relative to another, which follows it when the other moves | `image.kitty-relative` |
+| 74-looks-sizes | vtium-config's Looks tab on a vtium.conf of the page's own: a look card's size list with the preview of the highlighted size below it | none: a screen of vtium-config |
+| 76-looks-font-set | vtium-config's Looks tab on a vtium.conf of the page's own: the form for a new font set by role, and the new font set in the list of font sets and in a look card's list | none: a screen of vtium-config |
 | 75-cursor-shape | DECSCUSR 4, a steady underline cursor | `cursor.style` |
 | 77-reverse-screen | DECSCNM, the whole screen in reverse video | `DEC-5` |
 | 78-palette-change | OSC 4 changing color 1 after the text in it was written | `color.palette.set`, `sgr.draw-time-color` |
@@ -177,6 +182,8 @@ These rows have a visible effect and no page yet. Each page comes with the chang
 - The C reference's pages that need programs on the host (photos, photo-scroll, mpv-sixel and the tmux grids need chafa, mpv and tmux and the C reference's photograph), its sixel ramps, article and eviction pages, its kitty-files page, which needs a logind session of the program's own that a review run's session lacks, and its glyph cache pages, which judged the C reference's GPU renderer.
 
 > Edited 2026-11-12: a records check found that the table lacked 62-ink and 94-ink-move, and that the list of rows with no page named rows ADR-1000 calls supported. The table gains both pages and nine new ones: 31-conceal, 32-overline, 33-script, 36-rapid-blink, 68-bidi, 71-kitty-animation, 72-kitty-placeholders, 73-kitty-relative and 79-reflow. The list keeps only the rows still planned or partial, and the paragraph on picture pages says what the bidirectional and reflow pages need. `tools/vt/tests/test_accept.py` checks that the table names every page in `tools/vt/sections/`. The earlier text is in git at 7ad138f0.
+
+> Edited 2026-11-21: the maintainer's look at the wave that builds skip-ink underlines, the color scheme Ink, a pointer theme for each look, and the Looks tab's size preview and new-font-set form. D2's table gains the pages 21-skip-ink, 26-ink-scheme, 64-look-pointer, 74-looks-sizes and 76-looks-font-set. The last three run the review run's own vtium-config, which a review run stages beside its copy of vtium.conf, on a vtium.conf and a home of the page's own (`common.inc`'s `looks_tui`). Each prints its steps and waits for a key before the TUI starts, so these three pages take keys, and away from a review run each is a skip that says why.
 
 ### D3: the pass record
 

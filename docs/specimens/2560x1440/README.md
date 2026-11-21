@@ -1,6 +1,6 @@
 # 2560x1440
 
-A QHD monitor: 2560×1440, 24-bit color, drawn in `desktop` at 14×32, 182×45 cells, the card on 2 screens and vtium's message bars on one more, shown together in the collage.
+A QHD monitor: 2560×1440, 24-bit color, drawn in `jetbrains-mono` at 14×32, 182×45 cells, the card on 2 screens and vtium's message bars on one more, shown together in the collage.
 
 ![2560x1440](collage.png)
 
