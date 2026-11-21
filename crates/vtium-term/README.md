@@ -690,7 +690,7 @@ Past `sb-memory`, the lines dropped follow what the rows cost as held, waiting o
 | Wrapped pairs, the view at the top | 55-85 ms | none | 3.4-5.0 ns | 136 MB, 68 MB |
 | A style a cell, 10,000 rows | 0.2-0.7 ms | 4.7-6.0 ms | 2.9-5.2 ns | 14.5 MB, 7.8 MB |
 
-The resize's own time is mostly the count, except with the view scrolled back. Then every row below the view rewraps at once. Keeping that to the rows the view shows needs a second stretch of waiting rows. The operator decides on that (ADR-1003's note on Cost). The rest is paid only when something reaches it. The minspec board's figures are the gate that vtium/vtium#41 names, and they are not measured yet. No board is at hand. Tier 3's VM runs on a host core, so it measures memory, not a board's speed. ADR-1003 takes the board as ten times slower.
+The resize's own time is mostly the count, except with the view scrolled back. Then every row below the view rewraps at once. vtium keeps that cost, and builds no second stretch of waiting rows that would keep it to the rows the view shows. At the default `sb-size` of 1,000 lines, it costs about 0.7 ms on the development machine. ADR-1003 takes a minspec board as ten times slower, so a board takes about 7 ms. The rest is paid only when something reaches it. No minspec board has measured these figures. Tier 3's VM runs on a host core, so it measures memory, not a board's speed. ADR-1003's note of 2026-11-20 records the maintainer's decision to keep the cost, which holds until a resize is slow at the default scrollback size.
 
 ## Selection
 
