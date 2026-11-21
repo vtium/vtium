@@ -161,3 +161,40 @@ blink_line() {
 		printf 'On a 1-bit display vtium draws partial as full: blinking text hides.\n'
 	printf 'The blink style is %s.\n' "$blink_source" | fold -s -w 80
 }
+
+# For a page that walks vtium-config's TUI: runs the review run's own
+# vtium-config on a vtium.conf of the page's own, then removes it. A review
+# run stages its vtium-config and vtium beside the copy of vtium.conf that
+# ACCEPT_VTIUM_CONF names, and its frits in the folder frits there. The page
+# copies those frits into a folder of its own and gives vtium-config a home
+# of its own, so the TUI reads and writes none of your drafts, settings or
+# installed files, and nothing it does reaches the console's own vtium.conf.
+# The vtium.conf has two looks: big, in the outline font set at 20 points,
+# which the head desk uses, and small, in the bitmap font set, with vtium's
+# own pointer pictures. The page prints its steps and waits for a key before
+# the TUI starts, so the steps can be read first. The TUI draws on the
+# alternate screen, so the steps show again when it quits. Away from a
+# review run, or off a terminal, the page cannot show.
+looks_tui() {
+	local stage=${ACCEPT_VTIUM_CONF:-} dir status
+	stage=${stage%/config/vtium.conf}
+	[ -n "$stage" ] && [ -x "$stage/vtium-config" ] && [ -x "$stage/vtium" ] && [ -d "$stage/frits" ] ||
+		cannot_show "No review run staged vtium-config, which make vt-accept does."
+	[ -t 0 ] || cannot_show "vtium-config's TUI needs a terminal."
+	printf '%s\n' "$@"
+	printf '\n  Press a key to open vtium-config. Quit it with q, then n if it asks.\n'
+	read -rsn1 </dev/tty
+	dir=$(mktemp -d) || cannot_show "The page could not make a folder for its vtium.conf."
+	mkdir -p "$dir/etc" "$dir/home"
+	cp -R "$stage/frits" "$dir/frits"
+	printf '%s\n' 'version = 1' "font-frits = $dir/frits" '[look big]' 'font-name = acceptance-outline' \
+		'font-size = 20' '[look small]' 'font-name = acceptance-bitmap' \
+		'pointer-theme = /usr/share/vtium/pointers.svg' '[head desk]' 'look = big' '[rules]' \
+		'display * -> desk' >"$dir/etc/vtium.conf"
+	HOME="$dir/home" XDG_CONFIG_HOME="$dir/home/.config" XDG_DATA_HOME="$dir/home/.local/share" \
+		XDG_STATE_HOME="$dir/home/.local/state" XDG_CACHE_HOME="$dir/home/.cache" \
+		"$stage/vtium-config" --configdir "$dir/etc" --frits "$dir/frits" --vtium "$stage/vtium" tui
+	status=$?
+	rm -rf -- "$dir"
+	printf '  vtium-config ended with status %s. Answer for what it showed.\n' "$status"
+}
