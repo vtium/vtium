@@ -910,8 +910,9 @@ fn i_asks_before_it_installs_a_draft_with_no_complete_route() {
 }
 
 /// With no draft, no folder can keep a font set's removal, so `r` keeps
-/// none and says why; once a draft opens, `i` asks before it installs, as
-/// it always does.
+/// none and says why. Once a draft opens, nothing waits for an install:
+/// the draft is the installed file and its folder is empty, so `i` says
+/// there is nothing to install and asks nothing.
 ///
 /// References:
 /// - ADR-1403 D8, "A draft's font set changes": the TUI keeps no font set change in memory.
@@ -926,11 +927,19 @@ fn without_a_draft_r_keeps_no_removal_and_no_install_waits() {
         Some(vtium_config::tui::words::NO_DESK)
     );
     assert!(sim.app.shared.frits().is_empty());
+    assert!(sim.desk.frits.is_empty(), "{:?}", sim.desk.frits);
     sim.app.shared.draft = draft;
     let did = sim.press(press_of("i"));
     assert!(!did.effects.iter().any(|e| e == "install"), "{did:?}");
     assert_eq!(sim.exited, None);
-    assert!(sim.app.nav.confirm.is_some(), "i installed without asking");
+    assert!(
+        sim.app.nav.confirm.is_none(),
+        "i asked with nothing to install"
+    );
+    assert_eq!(
+        sim.app.shared.message.as_deref(),
+        Some(vtium_config::tui::words::NOTHING_TO_INSTALL)
+    );
 }
 
 /// The screen's rows joined with single spaces, so a line that wraps
