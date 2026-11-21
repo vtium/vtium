@@ -427,8 +427,9 @@ fn sprites(b: &mut Block<'_>) {
 }
 
 /// Emoji, then UTF-8 samples of 2, 3 and 4 bytes a character, each
-/// labelled with its bytes and script and drawn as vtium draws it today,
-/// unshaped (#144), then a wide character at the grid's right margin.
+/// labelled with its bytes and script and drawn as vtium draws it: shaped
+/// where the font set's fonts shape the script, and from each character's
+/// glyph elsewhere. Last comes a wide character at the grid's right margin.
 fn emoji(b: &mut Block<'_>, l: &Layout) {
     b.put(1, 0, "\x1b[2mEmoji: skin tones, ZWJ, flags, keycaps");
     b.put(2, 0, "😀 😂 🥲 🤖 👻 🦀 🌍 🍕 ⚡ 🎉");
@@ -452,7 +453,7 @@ fn emoji(b: &mut Block<'_>, l: &Layout) {
         0,
         "1\u{fe0f}\u{20e3} #\u{fe0f}\u{20e3} *\u{fe0f}\u{20e3} \x1b[2mVS15|16\x1b[22m ☺\u{fe0e}|☺\u{fe0f}| ✈\u{fe0e}|✈\u{fe0f}| ♥\u{fe0e}|♥\u{fe0f}|",
     );
-    b.put(7, 0, "\x1b[2mUTF-8: bytes, script; unshaped (#144)");
+    b.put(7, 0, "\x1b[2mUTF-8: bytes, script; font shaping");
     let samples: [(&str, &str); 15] = [
         (
             "2 Latin",

@@ -27,7 +27,7 @@ impl Glyphs {
     pub fn set(self) -> &'static str {
         match self {
             Glyphs::Builtin { set, .. } => set,
-            Glyphs::Desktop { .. } => "desktop",
+            Glyphs::Desktop { .. } => "jetbrains-mono",
             Glyphs::Tiny5 { .. } => "tiny5",
         }
     }
