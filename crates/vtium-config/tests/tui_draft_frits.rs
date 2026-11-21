@@ -252,3 +252,93 @@ fn the_status_line_counts_no_font_set_whose_text_is_the_installed_one() {
     let status = screen.lines().nth(1).unwrap_or_default();
     assert!(status.contains("1 font set to install"), "{status}");
 }
+
+/// A font set that only the draft adds shows in the TUI before Install:
+/// the Looks list lists it, marked as in the draft and not yet installed,
+/// with its detail, and `t` says it can be tried once installed. A look's
+/// card offers it among the font sets, so the person can pick it, and the
+/// card then shows it without the note that this machine has no font set
+/// of that name. `r` on it takes it back out of the draft, and the list
+/// no longer holds it.
+///
+/// References:
+/// - ADR-1403 D8, "The frits a draft sees": the views list the folder's frits, marked, and a look card offers them.
+/// - ADR-1403 D8, "Every font set change is kept at once": `r` on a frit only the draft adds deletes its file.
+/// - ADR-1403 D8, "The live trial": `t` on a frit only the draft holds.
+#[test]
+fn a_font_set_only_the_draft_adds_shows_in_the_list_and_the_card() {
+    let m = machine("only-drafted");
+    // the new-frit form makes quiet, as in the test above
+    let made: &[&[u8]] = &[
+        DOWN,
+        b"n",
+        ENTER,
+        END,
+        ENTER,
+        b"builtin:unscii-8",
+        ENTER,
+        DOWN,
+        DOWN,
+        DOWN,
+        DOWN,
+        DOWN,
+        ENTER,
+        b"quiet",
+        ENTER,
+        ENTER,
+    ];
+    let screen = m.run(made);
+    // a font set's row in the list, indented under its group's heading
+    let row = |screen: &str| screen.lines().any(|l| l.starts_with("   quiet "));
+    assert!(row(&screen), "{screen}");
+    // the look big, the six font sets the machine has, then quiet
+    let to_quiet: Vec<&[u8]> = std::iter::repeat_n(DOWN, 7).collect();
+    // the sentence under the list wraps beside the preview's text
+    let said = words(&m.run(&to_quiet));
+    assert!(
+        said.contains("quiet: reads, in the") && said.contains("draft, not yet installed."),
+        "{said}"
+    );
+    let said = words(&m.run(&[&to_quiet[..], &[ENTER]].concat()));
+    assert!(said.contains("Font set quiet"), "{said}");
+    assert!(
+        said.contains("The draft adds this font set, and this machine does not have it yet."),
+        "{said}"
+    );
+    let said = words(&m.run(&[&to_quiet[..], &[b"t".as_slice()]].concat()));
+    assert!(
+        said.contains(
+            "The font set quiet is in the draft and not yet installed, so t cannot try it."
+        ),
+        "{said}"
+    );
+    // the card of big offers quiet on its font set line, and Enter picks
+    // it; the signal that ends the run saves the change
+    let card: &[&[u8]] = &[ENTER, DOWN, ENTER];
+    let said = words(&m.run(card));
+    assert!(
+        said.contains("○ quiet in the draft, not yet installed"),
+        "{said}"
+    );
+    m.run(&[card, &[END, ENTER]].concat());
+    let draft = std::fs::read_to_string(m.root.join("home/config/vtium/drafts/mine.conf"))
+        .expect("the draft");
+    assert!(draft.contains("font-name = quiet"), "{draft}");
+    let said = words(&m.run(card));
+    assert!(
+        said.contains("● quiet in the draft, not yet installed"),
+        "{said}"
+    );
+    assert!(!said.contains("no font set of that name"), "{said}");
+    // r takes it back out of the draft, and the list no longer holds it
+    // Up draws the screen once more after the desk's answer
+    let screen = m.run(&[&to_quiet[..], &[b"r".as_slice(), UP]].concat());
+    assert!(
+        words(&screen).contains("The draft no longer adds quiet."),
+        "{screen}"
+    );
+    let folder = m.store().frit_changes("mine").expect("the folder");
+    assert!(folder.kept.is_empty(), "{folder:?}");
+    let screen = m.run(&[]);
+    assert!(!row(&screen), "{screen}");
+}

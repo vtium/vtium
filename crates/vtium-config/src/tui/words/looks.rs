@@ -128,6 +128,14 @@ pub fn try_absent(name: impl Display) -> String {
     format!("This machine has no font set named {name}, so t cannot try it.")
 }
 
+/// What the message line says when `t` cannot try a font set that only
+/// the draft adds, since the console reads only installed font sets.
+pub fn try_in_draft(name: impl Display) -> String {
+    format!(
+        "The font set {name} is in the draft and not yet installed, so t cannot try it. The console can try it once you install the draft with i."
+    )
+}
+
 /// What the sentence under the list says of the highlighted item.
 pub fn item_about(name: impl Display, detail: impl Display) -> String {
     format!("{name}: {detail}.")
@@ -199,6 +207,10 @@ pub const CHOICE_ABSENT: &str =
 pub fn choice_refused(why: impl Display) -> String {
     format!("what this look sets now, and the console does not read it: {why}")
 }
+
+/// The note of a font set that the look names and the draft removes.
+pub const CHOICE_REMOVED: &str =
+    "what this look sets now, and installing the draft removes that font set";
 
 /// The mark of a vtlook that does not read, with why, in the card's list
 /// and on its line.
@@ -344,6 +356,9 @@ pub fn font_set_title(name: impl Display) -> String {
 }
 
 pub const READS_WHOLE: &str = "The console reads it without errors.";
+
+/// The line of a font set's detail that says only the draft adds it.
+pub const IN_DRAFT_WHOLE: &str = "The draft adds this font set, and this machine does not have it yet. Install writes it to this machine.";
 pub const BUILT_IN_WHOLE: &str = "It is built into vtium, so it needs no file.";
 
 pub fn does_not_read_whole(why: impl Display) -> String {

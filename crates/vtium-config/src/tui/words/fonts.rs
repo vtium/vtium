@@ -53,6 +53,12 @@ pub const SOURCES_UNKNOWN: &str = "font files not checked";
 /// Marks a frit an install removes.
 pub const TO_REMOVE: &str = "to remove";
 
+/// Marks a font set that only the draft adds.
+pub const IN_DRAFT: &str = "in the draft, not yet installed";
+
+/// Marks an installed font set that the draft gives a text of its own.
+pub const REPLACED_IN_DRAFT: &str = "changed in the draft, not yet installed";
+
 /// The fonts view's remove key, `r`.
 pub fn remove_pending(name: impl Display) -> String {
     format!("{name} will be removed when you install. Press r again to keep it.")

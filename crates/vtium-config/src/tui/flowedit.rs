@@ -399,8 +399,11 @@ impl App {
                 done.removed.insert(name);
             }
         }
+        // the Looks tab's place, read while the list still holds the font
+        // sets only the old draft added
+        let spot = self.looks.spot(&self.shared);
         self.shared.draft = Some(opened);
-        self.frits_installed(done);
+        self.frits_installed(done, spot);
         self.rebuild(None);
         self.say(&message)
     }

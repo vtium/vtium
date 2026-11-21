@@ -179,7 +179,12 @@ fn size_name(value: &str) -> String {
 
 /// The choices of `line` for the look `look`, in the list's order. The
 /// look's own value is always among them: where the usual choices lack
-/// it, it joins them with a note that says so.
+/// it, it joins them with a note that says so. The font set line offers
+/// the font sets the draft sees, so a font set the draft adds can be
+/// picked before the install, and one it removes cannot.
+///
+/// References:
+/// - ADR-1403 D8, "The frits a draft sees": a look card offers them for `font-name`.
 pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
     let mut out = match line {
         Line::FontSet => {
@@ -191,14 +196,22 @@ pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
                     words::FRIT_NONE_NOTE,
                 ),
             };
+            // the font sets the draft sees: the installed ones less those
+            // the draft removes, then those only the draft adds, marked so
+            let removed = &shared.frits().removed;
             let mut out = vec![first];
             out.extend(
-                shared
-                    .inputs
-                    .fonts
-                    .iter()
-                    .filter(|f| super::fontsets::usable(shared, f))
-                    .map(|f| Choice::new(f.name.clone(), Some(f.name.clone()), "")),
+                super::fontsets::all(shared)
+                    .into_iter()
+                    .filter(|f| super::fontsets::usable(shared, f) && !removed.contains(&f.name))
+                    .map(|f| {
+                        let note = if super::fontsets::only_drafted(shared, &f.name) {
+                            words::IN_DRAFT
+                        } else {
+                            ""
+                        };
+                        Choice::new(f.name.clone(), Some(f.name), note)
+                    }),
             );
             out
         }
@@ -363,12 +376,19 @@ pub fn choices(shared: &Shared, look: &Look, line: Line) -> Vec<Choice> {
 }
 
 /// The note of a font set that the look names and the usual choices lack:
-/// one the console does not read, or one this machine does not have.
+/// one the console does not read, one the draft removes, or one that
+/// neither this machine nor the draft has.
 fn own_font_set_note(shared: &Shared, name: &str) -> String {
     if shared.refused.iter().any(|n| n == name) {
         return words::choice_refused(words::KEPT);
     }
-    match shared.inputs.fonts.iter().find(|f| f.name == name) {
+    if shared.frits().removed.contains(name) {
+        return words::CHOICE_REMOVED.to_owned();
+    }
+    match super::fontsets::all(shared)
+        .into_iter()
+        .find(|f| f.name == name)
+    {
         Some(Font {
             state: FontState::Refused(why),
             ..

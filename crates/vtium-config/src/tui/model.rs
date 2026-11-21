@@ -17,7 +17,7 @@
 //! - ADR-1403 D7: the Flow view draws the configuration as paths.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use vtium_settings::keys;
@@ -29,7 +29,6 @@ use super::flow::Flow;
 use super::input::{Button, Input, Key, Mouse, Reply};
 use super::replies::{Answer, Asker, Batch, Query, Queue};
 use crate::draft::Plan;
-use crate::frit::Frit;
 
 /// How long the TUI waits for the terminal's answers at start, and for
 /// the console's font to come back when it leaves: `set`'s wait.
@@ -1428,12 +1427,15 @@ impl App {
     /// After an install of `done`, the font set changes the install made:
     /// the frits it removed leave the list, the frits it wrote join it,
     /// and on a live console the font the draft gives the console's head
-    /// is the one leaving gives back (ADR-1201 D4).
-    pub(crate) fn frits_installed(&mut self, done: crate::store::FritChanges) {
-        // the Looks tab holds each font set by its place in the list,
-        // which the changes below move, so its highlight and an open
-        // detail are kept by the font set's name
-        let spot = self.looks.spot(&self.shared);
+    /// is the one leaving gives back (ADR-1201 D4). The Looks tab holds
+    /// each font set by its place in the list, which the install moves,
+    /// so `spot`, taken before the installed draft replaced the old one,
+    /// keeps its highlight and an open detail by the font set's name.
+    pub(crate) fn frits_installed(
+        &mut self,
+        done: crate::store::FritChanges,
+        spot: super::tabs::looks::Spot,
+    ) {
         let crate::store::FritChanges { kept, removed, .. } = done;
         self.shared
             .inputs
@@ -1447,11 +1449,7 @@ impl App {
         // as the next start would list it, in place of an installed set of
         // its name
         for (name, text) in kept {
-            let state = match Frit::parse(text.as_bytes(), Path::new(&name), &name) {
-                Ok(_) => FontState::Reads,
-                Err(e) if e.line == 0 => FontState::Refused(e.why.clone()),
-                Err(e) => FontState::Refused(format!("line {}: {}", e.line, e.why)),
-            };
+            let state = super::tabs::looks::fontsets::state_of(&name, &text);
             let fonts = &mut self.shared.inputs.fonts;
             fonts.retain(|f| f.name != name);
             fonts.push(Font {
