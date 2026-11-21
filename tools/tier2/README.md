@@ -110,6 +110,13 @@ The ink screens judge where glyph ink that passes its cell draws (ADR-1302, ADR-
 | `overhang-underscore` | The underscore and `gjpqy` at every cell height from 12 to 32 pixels, each whole in its own cell (ADR-1302 D3) |
 | `overhang-wide` | A wide glyph whose bar reaches both neighbours, beside narrow text, at the grid's last two columns and wrapped from the last column (ADR-1302 D5) |
 
+The glyph-fit screens judge how vtium fits the glyphs of a symbol font merged behind the main font to the cell. Each draws DejaVu Sans Mono with the merged symbol test font that `src/fitfont.rs` builds in memory, which `cover=` merges behind it for the Private Use Area. The screens are 24 by 5 cells, drawn at 16 and 32 pixels. The symbol font is short: its ascent and descent span 0.8 em, where DejaVu Sans Mono's span about 1.16 em. A separator that runs from the cell's top row to its bottom row shows that the font helper scales each merged symbol to the cell.
+
+| Screen | What it covers |
+|---|---|
+| `glyph-fit` | A prompt of Powerline segments, a house icon and a folder icon, Latin letters with combining marks, and box drawing and blocks that vtium draws itself: each separator fills its cell's height, so the colored segments join it, each icon stands in the middle of its cell, and the box lines and blocks join from row to row (ADR-1302 D5) |
+| `glyph-fit-spaced` | The same rows with 30 per cent of line spacing, beside two Legacy Computing bars that no font of the set holds, which the font set's `fit=` draws as `natural`: the separators, box lines and blocks stretch to the whole taller cell, the icons and letters keep their size on the baseline, and the two bars keep the text band's height, with a gap between the rows (ADR-1302 D13) |
+
 vtium's own screens are drawn in unifont:
 
 | Screen | What it covers |

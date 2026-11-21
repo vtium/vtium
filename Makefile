@@ -1189,7 +1189,7 @@ tier3-image: ## Fetch, verify and provision tier 3's guest image, unless the cac
 # under the run lock, so a second run cannot rebuild the tree under a running
 # one. The recipes hold no $(MAKE), so `make -n` runs nothing.
 .PHONY: tier3
-tier3: tier3-image ## Tier 3: build the install tree, then run every variant, or VARIANTS="..." (JOBS=N, FEATURES='...')
+tier3: tier3-image ## Tier 3: build the install tree, then run the five default variants (2d-1280x800, 2d-7680x2160, 2d-1366x768-potato, 2d-7680x2160-font32, gl-1280x800), or VARIANTS="..." (JOBS=N, FEATURES='...')
 	$(T3_RUN) --tree-target install-tree $(VARIANTS)
 
 .PHONY: tier3-minimal

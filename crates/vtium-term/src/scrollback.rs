@@ -149,14 +149,18 @@ pub const SB_MEMORY_DEFAULT: usize = if cfg!(feature = "images") {
     SB_MEMORY_DEFAULT_MINSPEC
 };
 
-/// [`SB_MEMORY_DEFAULT`] in a build without images, 5,242,880 bytes on
+/// [`SB_MEMORY_DEFAULT`] in a build without images, 5,373,952 bytes on
 /// 64-bit targets.
 pub const SB_MEMORY_DEFAULT_MINSPEC: usize =
     sb_memory_left(screens_bytes_max_in(MINSPEC_GRID.0, MINSPEC_GRID.1, false));
 
-/// [`SB_MEMORY_DEFAULT`] in a build with images, whose screen rows may
-/// hold kitty placeholder clusters outside their budget (ADR-1001,
-/// "Placeholder cells"): 4,653,056 bytes on 64-bit targets.
+/// [`SB_MEMORY_DEFAULT`] in a build with images, 4,915,200 bytes on 64-bit
+/// targets. It is smaller than the minspec figure because a screen row may
+/// hold kitty placeholder clusters outside the row's budget.
+///
+/// References:
+/// - ADR-1001, "Placeholder cells": why placeholder clusters sit outside a
+///   row's budget.
 pub const SB_MEMORY_DEFAULT_IMAGES: usize =
     sb_memory_left(screens_bytes_max_in(MINSPEC_GRID.0, MINSPEC_GRID.1, true));
 
