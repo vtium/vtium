@@ -35,8 +35,9 @@
 //!    resource it activates against the trust rule, as the user `apply`
 //!    runs as; the edited vtium.conf, both its parts in one run, with the
 //!    console's own `vtium check-config`, so the verdict before writing is
-//!    the verdict at the next start; and a system font with the font
-//!    helper, which must describe a copy root made of the font's bytes
+//!    the verdict at the next start, with the frits the draft writes and
+//!    removes counted as installed and removed; and a system font with the
+//!    font helper, which must describe a copy root made of the font's bytes
 //!    ([`SystemFont`]). A system font's draft that holds any other file
 //!    is refused, so that draft runs no `check-config`;
 //! 4. writes the frits, then the batch file, then vtium.conf, so
@@ -74,7 +75,7 @@ use crate::draft::Plan;
 use crate::drafts::Verdict;
 use crate::frit::{FRIT_BYTES_MAX, Frit, valid_name};
 use crate::specimen::Helper;
-use crate::tui::{CONF_MAX, Paths};
+use crate::tui::CONF_MAX;
 
 /// What `apply` says of a file that changed after the draft was made.
 /// `install` finds these words in `apply`'s output to choose its exit code.
@@ -807,15 +808,30 @@ fn summarize(stderr: &str, copies: &[(PathBuf, &str)]) -> String {
     out.join("\n")
 }
 
+/// The font sets a bundle adds, replaces and removes, as `apply` hands
+/// them to the console's check: each copy root wrote of a frit the bundle
+/// writes, and each frit's name that the bundle removes.
+#[derive(Default)]
+struct CheckFrits {
+    with: Vec<PathBuf>,
+    without: Vec<String>,
+}
+
 /// Runs the console's `vtium check-config` on the draft's vtium.conf,
 /// `file`, both its parts in one run, against the installed configuration
 /// directory `configdir`, or on the installed vtium.conf where the draft
 /// holds none: what its exit status says of the draft, and what it wrote
-/// to standard error. When the check fails, [`summarize`] says that as
-/// root may say it.
+/// to standard error. The check counts the bundle's font sets `frits` as
+/// installed or removed, with one `--with-frit` or `--without-frit` each,
+/// so a look that names a font set the bundle adds passes. When the check
+/// fails, [`summarize`] says that as root may say it.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets, so its verdict is the draft's.
 fn check_config(
     vtium: &OsString,
     configdir: &Path,
+    frits: &CheckFrits,
     file: Option<&Path>,
 ) -> Result<(Verdict, String), String> {
     let mut command = std::process::Command::new(vtium);
@@ -823,6 +839,12 @@ fn check_config(
         .arg("check-config")
         .arg("--configdir")
         .arg(configdir);
+    for copy in &frits.with {
+        command.arg("--with-frit").arg(copy);
+    }
+    for name in &frits.without {
+        command.arg("--without-frit").arg(name);
+    }
     if let Some(file) = file {
         command.arg(file);
     }
@@ -860,56 +882,6 @@ pub fn command(
             1
         }
     }
-}
-
-/// Makes `plan`, the change a command computed (ADR-1201 D2), writing to
-/// `out` and `err`; returns the exit status. Run as root, it installs the
-/// change at once through the steps `apply` takes, from a draft root makes
-/// in a directory of its own. Run as a user, it writes the change as a
-/// draft under `paths.drafts` and prints each file the draft writes or
-/// removes, the draft's directory, and the command that installs it.
-pub fn make(plan: &Plan, paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
-    if plan.is_empty() {
-        let _ = writeln!(out, "unchanged");
-        return 0;
-    }
-    let targets = paths.targets();
-    if rustix::process::geteuid().is_root() {
-        return match install_now(plan, &targets, &paths.helper, out) {
-            Ok(true) => 0,
-            Ok(false) => 1,
-            Err(why) => {
-                let _ = writeln!(err, "vtium-config: {why}\nNothing was installed.");
-                1
-            }
-        };
-    }
-    let draft = match write_draft(&paths.drafts, plan, &targets) {
-        Ok(draft) => draft,
-        Err(e) => {
-            let _ = writeln!(
-                err,
-                "vtium-config: the draft under {}: {e}",
-                paths.drafts.display()
-            );
-            return 1;
-        }
-    };
-    for file in &plan.files {
-        let _ = writeln!(out, "write\t{}", file.path.display());
-    }
-    for removal in &plan.removals {
-        let _ = writeln!(out, "remove\t{}", removal.path.display());
-    }
-    let program = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("vtium-config"));
-    let argv = save_argv(&route(&targets, &paths.sudo), &program, &targets, &draft);
-    let shown: Vec<String> = argv
-        .iter()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
-    let _ = writeln!(out, "draft\t{}", draft.display());
-    let _ = writeln!(out, "run\t{}", shown.join(" "));
-    0
 }
 
 /// Installs `plan` at once, as root: the draft written into a directory of
@@ -1159,7 +1131,14 @@ fn apply(
                 "the installed vtium.conf",
             ),
         ];
-        let checked = check_config(&targets.vtium, &targets.configdir, Some(&file));
+        let (held, check_frits) = frit_copies(targets, &frits, &removals)?;
+        let checked = check_config(
+            &targets.vtium,
+            &targets.configdir,
+            &check_frits,
+            Some(&file),
+        );
+        drop(held);
         drop(scratch);
         match checked {
             Ok((Verdict::Passed, _)) => {}
@@ -1243,6 +1222,58 @@ fn apply(
         }
     }
     Ok(!failed)
+}
+
+/// The copies of the bundle's frits `frits` that the console's check reads,
+/// and the names of the frits `removals` removes. Root writes each copy
+/// from the bytes it already read and checked, the bytes step 4 writes,
+/// into a new directory of its own inside the frits' directory: mode 0700,
+/// held open, each copy made with O_CREAT, O_EXCL and O_NOFOLLOW. No other
+/// user can write that directory or the folders above it, since the frits'
+/// directory passes the ownership check that the console makes of every
+/// installed frit. So the check judges the file the install writes, in the
+/// folders the installed frit will sit in, and the user who made the draft
+/// cannot change the copy after the check reads it. A copy under `/tmp`
+/// would fail that check, because others can write `/tmp`. The console
+/// looks a frit up only by its name, in the frits' directory and its
+/// category folders, so it never finds a copy in this directory. The
+/// directory goes when the returned [`Scratch`] is dropped; `None` when
+/// the bundle writes no frit.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets.
+/// - ADR-1401 D10: the ownership check that every installed frit passes.
+fn frit_copies(
+    targets: &Targets,
+    frits: &[Staged],
+    removals: &[PathBuf],
+) -> Result<(Option<Scratch>, CheckFrits), String> {
+    let stem = |path: &Path| {
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let mut check = CheckFrits {
+        with: Vec::new(),
+        without: removals.iter().map(|p| stem(p)).collect(),
+    };
+    if frits.is_empty() {
+        return Ok((None, check));
+    }
+    let dir = targets.frits.as_ref().map_err(Clone::clone)?;
+    let scratch = Scratch::new(dir, &mut scratch_name, rustix::process::geteuid().as_raw())?;
+    for frit in frits {
+        let name = frit
+            .target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
+        check
+            .with
+            .push(scratch.write(name, frit.bytes.as_deref().unwrap_or_default())?);
+    }
+    Ok((Some(scratch), check))
 }
 
 /// Writes a font that a draft installs as a system font: the system fonts

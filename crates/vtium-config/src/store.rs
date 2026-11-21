@@ -159,6 +159,24 @@ fn read(path: &Path) -> Result<Option<String>, Fail> {
     crate::tui::read_conf(path).map_err(Fail::File)
 }
 
+/// The temporary file [`write()`] writes before it renames the file over
+/// `name`: `.NAME.new-PID`, with this process's id.
+fn temporary(name: &str) -> String {
+    format!(".{name}.new-{}", std::process::id())
+}
+
+/// Whether `file` is a name that [`write()`] gives its temporary file, of
+/// this process or of any other: `.NAME.new-PID`. A process killed between
+/// the write and the rename leaves one behind, and another process sees
+/// one while its write is under way, so a reader of the folder skips it.
+fn is_temporary(file: &str) -> bool {
+    file.strip_prefix('.')
+        .and_then(|rest| rest.rsplit_once(".new-"))
+        .is_some_and(|(name, pid)| {
+            !name.is_empty() && !pid.is_empty() && pid.bytes().all(|b| b.is_ascii_digit())
+        })
+}
+
 /// Writes `text` to `path` through a new file renamed over it, making the
 /// directory first, so a draft is never left half written.
 pub fn write(path: &Path, text: &str) -> Result<(), Fail> {
@@ -168,7 +186,7 @@ pub fn write(path: &Path, text: &str) -> Result<(), Fail> {
     let name = path
         .file_name()
         .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-    let new = dir.join(format!(".{name}.new-{}", std::process::id()));
+    let new = dir.join(temporary(&name));
     std::fs::write(&new, text).map_err(fail)?;
     std::fs::rename(&new, path).map_err(|e| {
         let _ = std::fs::remove_file(&new);
@@ -360,7 +378,9 @@ impl Store {
     }
 
     /// The folder beside the draft `name` that keeps its font set changes,
-    /// `NAME.frits/`. A draft with no font set change has no folder.
+    /// `NAME.frits/`. A draft that never held a font set change has no
+    /// folder, and one whose changes were all taken back or installed may
+    /// keep an empty folder, which holds no change.
     pub fn frits_path(&self, name: &str) -> Result<PathBuf, Fail> {
         Ok(self.drafts_dir().join(format!("{}.frits", named(name)?)))
     }
@@ -370,7 +390,10 @@ impl Store {
     /// `FRIT.removed`, an installed frit it removes. vtium-config reads only
     /// regular files whose names are a frit's name with one of those two
     /// endings, each at most the largest frit the glyph helper reads, and
-    /// lists every other entry of the folder as a problem.
+    /// lists every other entry of the folder as a problem. It skips the
+    /// temporary files that [`write()`] makes on the way to one of those
+    /// files, so a write cut short or under way in another process blocks
+    /// no install. A missing folder and an empty one both hold no change.
     ///
     /// References:
     /// - ADR-1403 D8, "A draft's font set changes": the folder and what it may hold.
@@ -386,6 +409,9 @@ impl Store {
             let entry = entry.map_err(|e| Fail::File(format!("{}: {e}", dir.display())))?;
             let path = entry.path();
             let file = entry.file_name().to_string_lossy().into_owned();
+            if is_temporary(&file) {
+                continue;
+            }
             let problem = |why: &str| format!("{}: {why}", path.display());
             let regular = entry.file_type().is_ok_and(|t| t.is_file());
             let frit = |ending: &str| {
@@ -443,15 +469,17 @@ impl Store {
     }
 
     /// Takes the draft `name`'s change to the frit `frit` back, whichever
-    /// it is, and deletes the folder once it is empty.
+    /// it is. The folder stays, even when it is left empty: another
+    /// vtium-config may have just made the folder to keep a change of its
+    /// own and not yet written it, and removing the folder then would make
+    /// that write fail. An empty folder holds no change wherever
+    /// vtium-config reads it ([`Store::frit_changes`]), and `revert`, `new`
+    /// and `draft rm` remove the folder with every change in it.
     pub fn forget_frit(&self, name: &str, frit: &str) -> Result<(), Fail> {
         let dir = self.frits_path(name)?;
         let frit = frit_name(frit)?;
         remove(&dir.join(format!("{frit}.vtfrit")))?;
-        remove(&dir.join(format!("{frit}.removed")))?;
-        // a folder that still holds anything stays
-        let _ = std::fs::remove_dir(&dir);
-        Ok(())
+        remove(&dir.join(format!("{frit}.removed")))
     }
 
     /// Drops every font set change of the draft `name`, as `revert`, `new`

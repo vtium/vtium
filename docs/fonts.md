@@ -264,7 +264,7 @@ A font set that a look names takes effect when vtium next starts on the VT, like
 
 You can also run the tool in a terminal that is not vtium, such as a desktop terminal. There it shows the same lists and installs the same way. It does not send that terminal a font, and it tells you so. When the `allow-font-ops` key is off, the tool tells you that too, and says how to turn the key on in the Settings tab.
 
-`vtium config new-frit` makes a frit, and `vtium config remove-frit` removes one, without the full-screen tool. When you run either as your own user, it writes an install bundle and prints the `sudo` command that installs it. When you run either as root, it installs the change at once.
+`vtium config new-frit` makes a frit, and `vtium config remove-frit` removes one, without the full-screen tool. Like the tool, each command keeps its change in your draft and installs nothing. `vtium config install` then installs the draft with its font sets, or you can add `--install` to either command. When `remove-frit` names a font set that only your draft adds, it takes that font set back out of the draft. A removal waits in the draft even while a look uses the font set. The check then names the look, and `install` refuses the draft until the look uses another font.
 
 ## Switching and zooming
 
