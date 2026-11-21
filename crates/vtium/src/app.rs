@@ -2177,11 +2177,15 @@ impl App {
             }
         }
         let mut late = Vec::new();
+        let mut blamed = Vec::new();
         for (name, frit) in &mut self.frits {
             let Some(helper) = &mut frit.helper else {
                 continue;
             };
             let answers = helper.poll(now);
+            if helper.take_blamed() {
+                blamed.push(name.clone());
+            }
             late.extend(
                 helper
                     .late_cells()
@@ -2231,8 +2235,32 @@ impl App {
                 }
             }
         }
+        for name in blamed {
+            self.ask_cells_again(&name, now);
+        }
         for (name, height, answer) in late {
             self.late_cell(&name, height, answer);
+        }
+    }
+
+    /// Frit `name` left out a source that made its helper fail. That source
+    /// may be the one that gave the frit's cell, so the console forgets
+    /// every cell the helper answered and asks for each again without
+    /// waiting. The late answers decide the cell ([`App::late_cell`]).
+    ///
+    /// References:
+    /// - ADR-1200 D14: a font that makes the helper fail is left out, and
+    ///   the font set's other fonts go on drawing.
+    /// - ADR-1200 D17: an answer that comes after the wait takes the place
+    ///   of the missing one.
+    fn ask_cells_again(&mut self, name: &str, now: Instant) {
+        let Some(frit) = self.frits.get_mut(name) else {
+            return;
+        };
+        let heights: Vec<u32> = frit.own.keys().copied().collect();
+        frit.own.clear();
+        if let Some(helper) = &mut frit.helper {
+            helper.ask_cells_again(&heights, now);
         }
     }
 
@@ -2287,11 +2315,13 @@ impl App {
                 cell.width,
                 cell.height
             ),
-            Err(why) => log::info!(
-                "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
-            ),
+            Err(_) => {}
         }
+        let refused = answer.as_ref().err().map(ToString::to_string);
         frit.own.insert(height, answer);
+        if let Some(why) = refused {
+            return self.late_refusal(name, height, &why);
+        }
         let Some(outline) = outline else {
             return;
         };
@@ -2314,6 +2344,70 @@ impl App {
                 }
                 self.relayout(h);
             }
+        }
+    }
+
+    /// The helper refused frit `name`'s cell at `height` after the wait,
+    /// for `why`. A head that draws in a cell the frit gave it earlier at
+    /// that height stops drawing in it: the frit is chosen afresh for the
+    /// head and laid out again, so the head draws in the display's cell, or
+    /// as wide as the built-in font, as after a refusal in time. This
+    /// happens when vtium left out the font that gave the cell, after the
+    /// font made the font helper fail, and asked for the cell again. A
+    /// head that drew in no such cell keeps the cell it draws in.
+    ///
+    /// References:
+    /// - ADR-1200 D14: a font that makes the helper fail is left out, and
+    ///   the font set's other fonts go on drawing.
+    /// - ADR-1204 D5: a missing text font leaves the cell to the
+    ///   configuration.
+    fn late_refusal(&mut self, name: &str, height: u32, why: &str) {
+        let mut drawing = Vec::new();
+        for h in 0..self.heads.len() {
+            let dpi = self.dpi(h);
+            let Some(head) = self.heads.get(h) else {
+                continue;
+            };
+            let at = draw_height(head, dpi, &self.locale);
+            let took = match &head.font {
+                Some(Chosen::Frit {
+                    name: drawn,
+                    own,
+                    heights,
+                    ..
+                }) if drawn == name => own.is_some() || (at == height && heights.contains_key(&at)),
+                _ => false,
+            };
+            if took {
+                drawing.push(h);
+            }
+        }
+        if drawing.is_empty() {
+            log::info!(
+                "the helper refused the frit {name}'s own cell after the wait ({why}): it keeps the cell it draws in"
+            );
+            return;
+        }
+        log::info!(
+            "the helper refused the frit {name}'s own cell after the wait ({why}): it no longer draws in the cell the frit gave earlier, from the next frame"
+        );
+        for h in drawing {
+            let Some(head) = self.heads.get_mut(h) else {
+                continue;
+            };
+            let fresh = match &head.font {
+                Some(Chosen::Frit { frit, .. }) => {
+                    Chosen::frit(frit.clone(), head.sized(), head.look_cell()).ok()
+                }
+                _ => None,
+            };
+            let Some(fresh) = fresh else {
+                continue;
+            };
+            head.font = Some(fresh);
+            head.refont = true;
+            self.share(h);
+            self.relayout(h);
         }
     }
 
@@ -7554,6 +7648,41 @@ mod tests {
         assert_eq!(app.heads.first().unwrap().font_size, size, "no step");
         let now: Vec<u32> = app.frits.get("t").unwrap().own.keys().copied().collect();
         assert_eq!(now, asked, "no other height asked");
+    }
+
+    // ADR-1200 D14: once vtium leaves out a font of a frit, here its text
+    // font, after the font made the helper fail, the console forgets the
+    // cells the helper answered and asks for each again. The helper now
+    // refuses the cell, so the head that drew in the text font's cell goes
+    // back to the cell it drew in before the frit gave it one.
+    #[test]
+    fn a_font_left_out_asks_for_the_cells_again_and_a_refusal_drops_the_cell() {
+        let (_lp, mut app, _dir) = late_seat("late-left-out");
+        let at = app.heads.first().map(|h| h.font_size).unwrap();
+        let drawn = |app: &App| {
+            let head = app.heads.first().unwrap();
+            (head.cell, head.cells(), head.grid())
+        };
+        let before = drawn(&app);
+        let (width, height) = before.0;
+        let own = vtium_font::Cell {
+            width: width + 2,
+            height,
+        };
+        app.late_cell("t", at, Ok(helper::OwnCell::Bitmap(own)));
+        assert_eq!(drawn(&app).0, (own.width, own.height), "the frit's cell");
+        app.ask_cells_again("t", (app.clock)());
+        assert!(
+            app.frits.get("t").unwrap().own.is_empty(),
+            "the cells are forgotten"
+        );
+        let refusal = Err(helper::NoCell {
+            why: "vtium left out the text font source=kbd:x after it made the font helper fail, so the built-in font draws the text in its place".to_owned(),
+            late: false,
+            from_frit: true,
+        });
+        app.late_cell("t", at, refusal);
+        assert_eq!(drawn(&app), before, "the head draws in its earlier cell");
     }
 
     fn late_seat(test: &str) -> (Loop<App>, App, Scratch) {
