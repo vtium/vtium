@@ -347,7 +347,7 @@ pub static NOTES: [Note; KEYS.len()] = [
     note(
         FONT_HINTING,
         "vtium-font",
-        "[the configuration flow issue](https://github.com/vtium/vtium/issues/299)",
+        "[the configuration flow issue](https://github.com/vtium/vtium/issues/299); [the issue that puts font-hinting to use](https://github.com/vtium/vtium/issues/459)",
     ),
     note(
         FONT_LINE_SPACING,
