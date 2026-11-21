@@ -93,6 +93,21 @@
 #                    waits until it is active; answers the PID of vtium
 #                    before, "gone PATH" or "kept PATH" for each path, the
 #                    unit's state, and the new vtium's PID and age
+#   apply-root       installs a font set as root through vtium-config's
+#                    privileged step (t3_apply.py): builds an install bundle
+#                    in a folder of root's own, whose MANIFEST writes the new
+#                    font set fonts/t3-apply.vtfrit and a vtium.conf that
+#                    names it, and runs /usr/bin/vtium-config apply on it;
+#                    answers apply's output, its exit status, the installed
+#                    set's owner and mode, the count of
+#                    /run/vtium-config-apply-* left and whether vtium.conf
+#                    names the set. Then the same with the frits' directory
+#                    at mode 0777, which apply must refuse, answering the
+#                    same, and the directory's mode before and once
+#                    restored. Last it
+#                    stops vtium's unit on tty2 and starts it again, as
+#                    `bare` does, and answers the unit's state and the new
+#                    vtium's PID and age
 #   planes           prints the display's DRM atomic state, which the
 #                    kernel keeps in debugfs (/sys/kernel/debug/dri/N/state),
 #                    one line of it a line of the answer, so the showcase
@@ -132,6 +147,11 @@ bare_root=${T3_AGENT_ROOT:-}
 debugfs=${T3_AGENT_ROOT:-}/sys/kernel/debug
 bare_paths=(/etc/vtium /usr/local/share/tier3-fonts /usr/local/share/fonts/vtium-tier3
             /usr/local/share/fonts/vtium-showcase /usr/bin/vtium-config)
+
+# The privileged step that apply-root runs, and the folder for its bundles,
+# below T3_AGENT_ROOT too.
+apply_program=$bare_root/usr/bin/vtium-config
+apply_home=$bare_root/root
 
 # The PID of vtium on tty2, its unit's main process, and its age in seconds,
 # from its start time in clock ticks against the guest's uptime; none when
@@ -302,6 +322,61 @@ bare() {
     vtium_age
 }
 
+# An install bundle in the new folder $1 that writes the font set $2 and a
+# vtium.conf that names it at its top level: the installed vtium.conf with
+# the line font-name=$2 after it. MANIFEST gives the installed vtium.conf's
+# SHA-256, as a draft made from it does, and `new` for the font set.
+apply_bundle() {
+    local etc=$bare_root/etc/vtium
+    mkdir -m 700 "$1" "$1/fonts"
+    printf '# tier 3 apply-root: the built-in Unscii-8 alone, in its 8x8 cell\nsource=builtin:unscii-8\ncell=8x8\n' \
+        > "$1/fonts/$2.vtfrit"
+    { cat "$etc/vtium.conf"; printf 'font-name=%s\n' "$2"; } > "$1/vtium.conf"
+    printf 'write\tfonts/%s.vtfrit\tnew\nwrite\tvtium.conf\t%s\n' "$2" \
+        "$(sha256sum < "$etc/vtium.conf" | cut -d' ' -f1)" > "$1/MANIFEST"
+}
+
+# Runs apply on the bundle $1, which writes the font set $2, and answers
+# with the prefix $3: apply's output, its exit status, the set's owner and
+# mode or none, how many of apply's private folders /run still holds, and
+# how many lines of vtium.conf name the set.
+apply_report() {
+    local etc=$bare_root/etc/vtium status
+    "$apply_program" apply "$1" > "$1.out" 2>&1
+    status=$?
+    sed "s/^/$3 said /" "$1.out"
+    echo "$3 status $status"
+    if [ -e "$etc/fonts/$2.vtfrit" ]; then
+        echo "$3 frit $(stat -c '%U %a' "$etc/fonts/$2.vtfrit")"
+    else
+        echo "$3 frit none"
+    fi
+    echo "$3 left $(find "$bare_root/run" -maxdepth 1 -name 'vtium-config-apply-*' | wc -l)"
+    echo "$3 conf $(grep -cx "font-name=$2" "$etc/vtium.conf")"
+}
+
+apply_root() {
+    local fonts=$bare_root/etc/vtium/fonts d mode
+    d=$(mktemp -d "$apply_home/t3-apply.XXXXXX") || return
+    apply_bundle "$d/ok" t3-apply
+    apply_report "$d/ok" t3-apply apply
+    # the frits' directory open to every user: apply must refuse it and
+    # write nothing, and the directory gets its mode back afterwards
+    mode=$(stat -c %a "$fonts")
+    echo "open was $mode"
+    chmod 0777 "$fonts"
+    apply_bundle "$d/open" t3-open
+    apply_report "$d/open" t3-open open
+    chmod "$mode" "$fonts"
+    echo "open mode $(stat -c %a "$fonts")"
+    rm -rf -- "$d"
+    echo "before $(systemctl show -P MainPID "${units[0]}")"
+    systemctl stop "${units[0]}" && echo "stopped ${units[0]}"
+    systemctl start "${units[0]}" && echo "started ${units[0]}"
+    echo "unit ${units[0]} $(systemctl show -P ActiveState "${units[0]}")"
+    vtium_age
+}
+
 # The images variants' pictures before login (ADR-1101 D2, D10): the
 # quarters PNG read from a file (t=f) at row 12, column 5, which vtium must
 # refuse while the pty's owner is root, and the same PNG sent inline at
@@ -383,6 +458,7 @@ answer() {
         limit) limit ;;
         prelogin) prelogin ;;
         bare) bare ;;
+        apply-root) apply_root ;;
         panic) echo "crashing the kernel" ;;
         logins)
             echo "vtium $(systemctl show -P MainPID "${units[0]}")"

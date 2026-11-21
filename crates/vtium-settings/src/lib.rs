@@ -104,7 +104,9 @@ pub use error::{
     At, AtStart, Drops, Error, Fate, Mend, Note, PolicyFault, Problem, Quoted, Reason, Refusal,
     Rejected, Remark, Renamed, Shown, Stating, Syntax, Warning, at,
 };
-pub use file::{CONF_FILE, Inspected, Trust, Untrusted, inspect, read, read_limited, text};
+pub use file::{
+    CONF_FILE, Folder, Inspected, Trust, Untrusted, folder, inspect, read, read_limited, text,
+};
 pub use findings::{Against, remarks, warnings};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};
@@ -119,8 +121,8 @@ pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};
 pub use route::{Judged, Missing, Route, complete_route};
 pub use split::{Split, split};
 pub use write::{
-    Of, SectionEdit, add_rule, add_section, install_file, move_rule, placement, remove_rule,
-    remove_section, rename_section, rule_lines, set_key, set_rule,
+    Of, SectionEdit, add_rule, add_section, install_file, install_file_at, move_rule, placement,
+    remove_rule, remove_section, rename_section, rule_lines, set_key, set_rule,
 };
 
 /// The exit status of `vtium check-config` when the only problems it
