@@ -127,14 +127,26 @@ fn cblc(
 }
 
 /// A CBDT holding each of `pngs` in image format 17, small metrics then
-/// the PNG, each 36 pixels wide and high and standing 30 above the
-/// baseline; with each image's offset from the table's start and the end.
+/// the PNG, each image standing 30 above the baseline; with each image's
+/// offset from the table's start and the end. The metrics give the width
+/// and height the PNG's header gives, or 255 where it gives more, the most
+/// one byte holds.
 fn cbdt17(pngs: &[&[u8]]) -> (Vec<u8>, Vec<u32>) {
+    let side = |png: &[u8], at: usize| u32_at(png, at).min(255) as u8;
+    let sized: Vec<_> = pngs
+        .iter()
+        .map(|png| (*png, side(png, 20), side(png, 16)))
+        .collect();
+    cbdt17_under(&sized)
+}
+
+/// [`cbdt17`] with each image's metrics given as its height and width.
+fn cbdt17_under(pngs: &[(&[u8], u8, u8)]) -> (Vec<u8>, Vec<u32>) {
     let mut d = vec![0, 3, 0, 0];
     let mut offsets = Vec::new();
-    for png in pngs {
+    for (png, height, width) in pngs {
         offsets.push(d.len() as u32);
-        d.extend([36, 36, 0, 30, 48]);
+        d.extend([*height, *width, 0, 30, 48]);
         p32(&mut d, png.len() as u32);
         d.extend(*png);
     }
@@ -145,7 +157,12 @@ fn cbdt17(pngs: &[&[u8]]) -> (Vec<u8>, Vec<u32>) {
 /// The font of glyph 1's PNG in index format 1, as Noto Color Emoji
 /// stores its strikes.
 fn format1(png: &[u8]) -> Vec<u8> {
-    let (d, o) = cbdt17(&[png]);
+    format1_in(cbdt17(&[png]))
+}
+
+/// The font of a CBDT of one image, `(cbdt, offsets)` as [`cbdt17`] gives
+/// them, located in index format 1.
+fn format1_in((d, o): (Vec<u8>, Vec<u32>)) -> Vec<u8> {
     let mut rest = Vec::new();
     for x in &o {
         p32(&mut rest, *x);
@@ -156,7 +173,48 @@ fn format1(png: &[u8]) -> Vec<u8> {
 /// A 36 by 36 PNG of opaque blue, 8 bits a sample, the size of Test
 /// Emoji's own bitmap.
 fn blue() -> Vec<u8> {
-    ttf::png(36, 36, &[0, 0, 255, 255].repeat(36 * 36))
+    blue_of(36)
+}
+
+/// A `side` by `side` PNG of opaque blue, 8 bits a sample.
+fn blue_of(side: u32) -> Vec<u8> {
+    ttf::png(side, side, &[0, 0, 255, 255].repeat((side * side) as usize))
+}
+
+/// CRC-32 as PNG computes it over a chunk's name and data, by table, so a
+/// chunk of many megabytes takes little time in a test build.
+fn crc32(bytes: &[u8]) -> u32 {
+    let table: Vec<u32> = (0..256u32)
+        .map(|n| {
+            (0..8).fold(n, |c, _| {
+                if c & 1 != 0 {
+                    0xedb8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                }
+            })
+        })
+        .collect();
+    !bytes.iter().fold(!0u32, |c, &b| {
+        table[((c ^ u32::from(b)) & 0xff) as usize] ^ (c >> 8)
+    })
+}
+
+/// Test Emoji's 36 by 36 blue PNG with the chunks `extra` between its
+/// header and its image data.
+fn blue_with_chunks(extra: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
+    let png = blue();
+    // the signature and IHDR, 8 + 25 bytes, then the rest of the PNG
+    let (head, rest) = png.split_at(33);
+    let mut out = head.to_vec();
+    for (tag, data) in extra {
+        p32(&mut out, data.len() as u32);
+        let body = [&tag[..], data].concat();
+        out.extend(&body);
+        p32(&mut out, crc32(&body));
+    }
+    out.extend(rest);
+    out
 }
 
 /// A 36 by 36 PNG of 16 bits a sample: color type 6 (RGBA) of opaque red,
@@ -248,25 +306,90 @@ fn case_font(case: &str) -> Vec<u8> {
             rest.extend([36, 36, 0, 30, 48, 0, 0, 0]); // bigMetrics
             emoji_with(vec![(*b"CBDT", d), (*b"CBLC", cblc(1, 3, 2, 17, 4, &rest))])
         }
-        // an sbix strike of 40 pixels to the em holding glyph 1's PNG,
-        // its origin offset 0, and no CBLC or CBDT
-        "sbix" => {
-            let png = blue();
-            let mut s = vec![0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 12];
-            let start = 4 + 4 * 5;
-            let end = start + 8 + png.len() as u32;
-            let mut strike = vec![0, 40, 0, 72];
-            for o in [start, start, end, end, end] {
-                p32(&mut strike, o);
-            }
-            strike.extend([0, 0, 0, 0]);
-            strike.extend(b"png ");
-            strike.extend(&png);
-            s.extend(strike);
-            emoji_with(vec![(*b"sbix", s)])
+        "sbix" => sbix(&blue()),
+        // sbix gives no metrics, so an image may be up to twice the
+        // strike's 40 pixels to the em on a side, and no more
+        "sbix80" => sbix(&blue_of(80)),
+        "sbix81" => sbix(&blue_of(81)),
+        // glyph 1's metrics say 36 by 36, and its PNG header 40 by 40
+        "metrics" => format1_in(cbdt17_under(&[(&blue_of(40), 36, 36)])),
+        "many4096" => many_4096(),
+        // 65 text chunks of 1 MiB each before the image data, more than
+        // the 64 MiB the png crate may keep
+        "text" => {
+            let text = [&b"Comment\0"[..], &vec![b'a'; 1 << 20]].concat();
+            format1(&blue_with_chunks(&vec![(b"tEXt", text); 65]))
         }
         other => panic!("no case {other}"),
     }
+}
+
+/// An sbix strike of 40 pixels to the em holding glyph 1's `png`, its
+/// origin offset 0, and no CBLC or CBDT.
+fn sbix(png: &[u8]) -> Vec<u8> {
+    let mut s = vec![0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 12];
+    let start = 4 + 4 * 5;
+    let end = start + 8 + png.len() as u32;
+    let mut strike = vec![0, 40, 0, 72];
+    for o in [start, start, end, end, end] {
+        p32(&mut strike, o);
+    }
+    strike.extend([0, 0, 0, 0]);
+    strike.extend(b"png ");
+    strike.extend(png);
+    s.extend(strike);
+    emoji_with(vec![(*b"sbix", s)])
+}
+
+/// A font of 64 glyphs, mapped from U+4E01 to U+4E40, each in its own
+/// index record of format 1 and all naming one PNG of 4,096 by 4,096
+/// pixels under metrics of 255 by 255. Glyph 1 is also mapped from U+1F525,
+/// A and W, and glyphs 2 and 3 from B and C. Decoding the image once for
+/// each glyph takes minutes in a test build.
+fn many_4096() -> Vec<u8> {
+    let glyphs = 64u16;
+    let row = 1 + 4096 * 4;
+    let png = ttf::png_of(4096, 4096, 8, 6, &ttf::zlib_run(&[0], row * 4096));
+    let (d, o) = cbdt17(&[&png]);
+    let mut f = ttf::test_emoji();
+    f.glyphs = vec![Glyph::empty(1200); usize::from(glyphs) + 1];
+    f.cmap = vec![(0x41, 1), (0x42, 2), (0x43, 3), (0x57, 1)];
+    f.cmap
+        .extend((1..=glyphs).map(|g| (0x4e00 + u32::from(g), g)));
+    f.cmap.push((0x1f525, 1));
+    let m = u32::from(glyphs);
+    let mut v = Vec::new();
+    p16(&mut v, 3);
+    p16(&mut v, 0);
+    p32(&mut v, 1); // numSizes
+    p32(&mut v, 56); // indexSubTableArrayOffset
+    p32(&mut v, 8 * m + 16 * m); // indexTablesSize
+    p32(&mut v, m); // numberOfIndexSubTables
+    p32(&mut v, 0); // colorRef
+    for _ in 0..2 {
+        v.extend([40, 0, 40, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+    }
+    p16(&mut v, 1);
+    p16(&mut v, glyphs);
+    v.extend([40, 40, 32, 1]); // ppemX, ppemY, bitDepth, flags
+    for g in 1..=glyphs {
+        p16(&mut v, g);
+        p16(&mut v, g);
+        p32(&mut v, 8 * m + 16 * (u32::from(g) - 1));
+    }
+    for _ in 1..=glyphs {
+        p16(&mut v, 1);
+        p16(&mut v, 17);
+        p32(&mut v, o[0]);
+        p32(&mut v, 0);
+        p32(&mut v, o[1] - o[0]);
+    }
+    let t = tables(&f.build())
+        .into_iter()
+        .filter(|(tag, _)| tag != b"CBDT" && tag != b"CBLC")
+        .chain([(*b"CBDT", d), (*b"CBLC", v)])
+        .collect();
+    sfnt(t)
 }
 
 /// The glyph mapped from `c` in strike 0: whether it is drawn in color,
@@ -345,15 +468,17 @@ fn case_in_a_child() {
         current: Some(PARSER_MEMORY),
         maximum: Some(PARSER_MEMORY),
     };
-    rustix::process::setrlimit(rustix::process::Resource::As, limit).expect("the limit");
+    // the font is built first, so the copies the test makes as it builds
+    // the font do not count against the limit
     let font = case_font(&case);
+    rustix::process::setrlimit(rustix::process::Resource::As, limit).expect("the limit");
     assert_eq!(sound(&font), Ok(()));
     let width = cell_width(&[(&font, "")], 16).expect("a cell width");
     assert!(width > 0);
     let request = OutlineRequest {
         font: font.into(),
         cells: vec![(0, 16)],
-        cover: vec![(0x1f525, 0x1f525), (0x41, 0x43)],
+        cover: vec![(0x1f525, 0x1f525), (0x41, 0x43), (0x4e01, 0x4e40)],
         hinting: Hinting::Light,
         ..Default::default()
     };
@@ -361,7 +486,7 @@ fn case_in_a_child() {
     let fire = glyph(&o, 0x1f525);
     let c = glyph(&o, 0x43);
     match case.as_str() {
-        "control" | "format4" | "many" | "bomb" | "sbix" => {
+        "control" | "format4" | "many" | "bomb" | "sbix" | "sbix80" | "text" => {
             assert!(
                 fire.0 && fire.1 && near(fire.2, [0, 0, 255, 255]),
                 "glyph 1 draws its blue bitmap: {fire:?}"
@@ -375,7 +500,15 @@ fn case_in_a_child() {
             fire.0 && fire.1 && near(fire.2, [128, 128, 128, 255]),
             "glyph 1 draws its grey bitmap: {fire:?}"
         ),
-        "big16k" | "wrap32k" => assert!(!fire.0 && !fire.1, "glyph 1 draws nothing: {fire:?}"),
+        "big16k" | "wrap32k" | "sbix81" | "metrics" => {
+            assert!(!fire.0 && !fire.1, "glyph 1 draws nothing: {fire:?}");
+        }
+        "many4096" => {
+            for c in 0x4e01..=0x4e40 {
+                let g = glyph(&o, c);
+                assert!(!g.0 && !g.1, "U+{c:04X} draws nothing: {g:?}");
+            }
+        }
         "format2" => {
             assert!(
                 !c.0 && !c.1,
@@ -435,6 +568,37 @@ fn a_png_whose_data_inflates_far_past_its_image_draws_its_image_alone() {
 #[test]
 fn an_image_offset_past_4_gib_draws_nothing_rather_than_another_glyph() {
     run("format2");
+}
+
+// A CBDT image's glyph metrics give its width and height in one byte each.
+// A PNG whose header gives another size is refused before it is decoded,
+// so no CBDT image is larger than 255 × 255
+#[test]
+fn a_png_whose_size_differs_from_its_metrics_draws_nothing() {
+    run("metrics");
+}
+
+// 64 glyphs that all name one PNG of 4,096 × 4,096 under metrics of
+// 255 × 255 are refused before the image is decoded, instead of decoding it
+// 64 times
+#[test]
+fn glyphs_sharing_one_oversized_png_are_refused_without_decoding_it() {
+    run("many4096");
+}
+
+// sbix gives no glyph metrics, so its images are bounded by twice the
+// strike's pixels to the em: 80 × 80 draws at 40, and 81 × 81 does not
+#[test]
+fn an_sbix_png_past_twice_its_strike_draws_nothing() {
+    run("sbix80");
+    run("sbix81");
+}
+
+// vtium-config reads no text from a PNG, so the decoder passes over text
+// chunks instead of keeping them under its 64 MiB limit
+#[test]
+fn a_png_with_more_than_64_mib_of_text_draws() {
+    run("text");
 }
 
 // The two controls: the strike as Noto Color Emoji stores it, and an
