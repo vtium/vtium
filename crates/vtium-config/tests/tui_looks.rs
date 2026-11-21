@@ -1948,3 +1948,138 @@ fn picking_a_pointer_theme_writes_the_look_s_own_pointer_theme() {
     let draft = draft_after(&conf, &keys);
     assert!(!draft.contains("pointer-theme"), "{draft}");
 }
+
+/// The keys that open the card of the look seven, which draws unifont at
+/// 7 pt, and its size line's list, highlighted on 7 pt; then Down
+/// highlights 8 pt.
+const SEVEN_SIZES: &[&[u8]] = &[TO_LOOKS, DOWN, DOWN, b"\r", DOWN, DOWN, b"\r", DOWN];
+
+/// The pixel height of `points` at the fixture's 96 dpi.
+fn height(points: u32) -> u32 {
+    vtium_config::specimen::pixel_height(points, 96)
+}
+
+/// In a terminal that shows images, a look card's size list shows the
+/// picture of the highlighted size below the list, and moving the
+/// highlight draws the next size. Esc back to the card deletes the
+/// picture, since the card's other lines have no preview.
+///
+/// References:
+/// - ADR-1201 D4, "Sizes, live on a vtium console": the preview follows the
+///   highlight over the sizes, and its note of 2026-11-21 puts it below the
+///   card's size list.
+#[test]
+fn a_look_card_s_size_list_shows_the_picture_of_the_highlighted_size_below_it() {
+    let mut keys = SEVEN_SIZES.to_vec();
+    keys.push(ESC);
+    let mut c = outside().keys(&keys);
+    c.graphics = true;
+    drive(&mut c, sized()).expect("the loop");
+    // below the list of 8 rows and its 5 rows of sentences, from the left
+    // edge: 79 columns by the 3 rows above the longest message, in the
+    // fixture's 8x16 cells
+    let area = (79 * 8, 3 * 16);
+    let below: Vec<(u32, (u32, u32))> = c
+        .pictures
+        .iter()
+        .filter(|(f, _, a)| f == "unifont" && *a == area)
+        .map(|(_, h, a)| (*h, *a))
+        .collect();
+    assert_eq!(
+        below,
+        [(height(7), area), (height(8), area)],
+        "{:?}",
+        c.pictures
+    );
+    let last_show = c
+        .written
+        .windows(shown().len())
+        .rposition(|w| w == shown())
+        .expect("shown");
+    let last_delete = c
+        .written
+        .windows(kitty::delete(kitty::IMAGE_ID).len())
+        .rposition(|w| w == kitty::delete(kitty::IMAGE_ID))
+        .expect("deleted");
+    assert!(last_delete > last_show, "Esc deletes the picture");
+}
+
+/// The screen a look card's size list shows at 80x25 in a terminal that
+/// shows images: the list, then what the keys do and the line beside the
+/// picture, which names the highlighted size.
+#[test]
+fn the_line_under_a_look_card_s_size_list_names_the_highlighted_size() {
+    let mut c = outside().keys(SEVEN_SIZES);
+    c.graphics = true;
+    drive(&mut c, sized()).expect("the loop");
+    let screen = c.seen.clone().expect("the screen");
+    let rows = body(&screen);
+    let last = rows
+        .iter()
+        .rposition(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+        .expect("the list's rows");
+    let under = flat(&rows[last + 1..].join(" "));
+    assert!(under.starts_with(words::CARD_LIST_HINT), "{screen}");
+    assert!(under.contains("unifont at 8 pt"), "{screen}");
+}
+
+/// Where the terminal shows no images, a look card's size list describes
+/// the highlighted size under the list, and moving the highlight
+/// describes the next size.
+#[test]
+fn without_pictures_a_look_card_s_size_list_describes_the_highlighted_size() {
+    let mut c = outside().keys(SEVEN_SIZES);
+    drive(&mut c, sized()).expect("the loop");
+    let heights: Vec<u32> = c.summaries.iter().map(|(_, h)| *h).collect();
+    assert_eq!(heights.last(), Some(&height(8)), "{heights:?}");
+    assert!(heights.contains(&height(7)), "{heights:?}");
+    let screen = c.seen.clone().expect("the screen");
+    let rows = body(&screen);
+    let last = rows
+        .iter()
+        .rposition(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+        .expect("the list's rows");
+    let under = flat(&rows[last + 1..].join(" "));
+    assert!(under.contains("With this font and size"), "{screen}");
+    assert!(c.pictures.is_empty(), "{:?}", c.pictures);
+}
+
+/// In a vtium console a look card's size list shows the console's own
+/// text below the list, at the console's current size, and the caption
+/// says what Enter does to the size: it tries the size where the console
+/// lets programs resize its grid, and otherwise the size waits for vtium's
+/// next start.
+///
+/// References:
+/// - ADR-1201 D4, "In a vtium console, the preview is the console's own
+///   text": no picture, and a chosen size changes the console's grid.
+#[test]
+fn in_a_vtium_console_a_look_card_s_size_list_prints_the_sample_below_it() {
+    let keys: &[&[u8]] = &[TO_LOOKS, b"\r", DOWN, DOWN, b"\r"];
+    let conf = inputs().conf.expect("the conf");
+    for (conf, caption) in [
+        (conf, words::CARD_CONSOLE_SIZE_FIXED),
+        (window_ops_on(), words::CARD_CONSOLE_SIZE_TRY),
+    ] {
+        let (c, _) = run_on(&conf, keys);
+        let screen = c.seen.clone().expect("the screen");
+        let rows = body(&screen);
+        let last = rows
+            .iter()
+            .rposition(|r| r.starts_with("   ○ ") || r.starts_with("   ● "))
+            .expect("the list's rows");
+        let under = rows[last + 1..].join("\n");
+        assert!(flat(&under).contains(caption), "{screen}");
+        let sample: Vec<String> = vtium_config::tui::shot::sample_rows()
+            .iter()
+            .map(|line| line.iter().map(|(t, _)| *t).collect::<String>())
+            .collect();
+        let first = sample.first().expect("a sample row");
+        let printed = preview_rows(&under, first.trim());
+        assert!(printed.len() >= 3, "{screen}");
+        for (row, line) in printed.iter().take(3).zip(&sample) {
+            assert_eq!(row, line.trim(), "{screen}");
+        }
+        assert!(c.pictures.is_empty() && c.cells.is_empty());
+    }
+}

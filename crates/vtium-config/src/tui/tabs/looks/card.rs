@@ -43,6 +43,7 @@
 //!   none.
 //! - ADR-1403 D10: the card, its shared list and Esc keeping its changes.
 
+use super::super::super::canvas::Row;
 use super::super::super::edit::Change as DraftChange;
 use super::super::super::effects_found::From;
 use super::super::super::fonts_found::{Supplied, sizes_density, strike_points, supplied_by};
@@ -395,6 +396,20 @@ fn value(shared: &Shared, look: &Look, line: Line) -> Option<String> {
     }
 }
 
+/// The size of the size line's choice `pick` in points, 0 for automatic.
+/// The first choice leaves the look's size to vtium.conf, so it stands for
+/// vtium.conf's size.
+fn size_points(shared: &Shared, look: &Look, pick: usize) -> Option<u32> {
+    let choice = choices(shared, look, Line::Size).into_iter().nth(pick)?;
+    Some(
+        choice
+            .value
+            .or_else(|| top(shared, "font-size"))
+            .and_then(|v| v.parse::<u32>().ok())
+            .unwrap_or(0),
+    )
+}
+
 /// The place of the look's value among `line`'s choices, where they have
 /// it.
 fn chosen(shared: &Shared, look: &Look, line: Line) -> Option<usize> {
@@ -529,15 +544,7 @@ impl Card {
             };
         };
         if let Some(Open::List(lb)) = &self.open {
-            let now = value(shared, &look, self.line());
-            let items: Vec<Item> = choices(shared, &look, self.line())
-                .into_iter()
-                .map(|c| Item {
-                    on: c.value == now,
-                    ..Item::new(c.name, c.note)
-                })
-                .collect();
-            let (list, keep) = rows(&items, lb.at, Marks::Choice, cols);
+            let (list, keep) = self.choice_rows(shared, &look, lb, cols);
             return Body {
                 list,
                 keep,
@@ -596,6 +603,42 @@ impl Card {
         }
     }
 
+    /// The rows of the open list of the highlighted line's choices, the
+    /// look's value ticked, and the last row of the highlighted choice.
+    fn choice_rows(
+        &self,
+        shared: &Shared,
+        look: &Look,
+        lb: &ListBox,
+        cols: usize,
+    ) -> (Vec<Row>, usize) {
+        let now = value(shared, look, self.line());
+        let items: Vec<Item> = choices(shared, look, self.line())
+            .into_iter()
+            .map(|c| Item {
+                on: c.value == now,
+                ..Item::new(c.name, c.note)
+            })
+            .collect();
+        rows(&items, lb.at, Marks::Choice, cols)
+    }
+
+    /// While the size line's list is open: its rows on a screen `cols`
+    /// wide, the last row of the highlighted size, and that size in
+    /// points, 0 for automatic.
+    pub fn size_list(&self, shared: &Shared, cols: usize) -> Option<(Vec<Row>, usize, u32)> {
+        let Some(Open::List(lb)) = &self.open else {
+            return None;
+        };
+        if self.line() != Line::Size {
+            return None;
+        }
+        let look = list::look(shared, &self.name)?;
+        let points = size_points(shared, &look, lb.at)?;
+        let (list, keep) = self.choice_rows(shared, &look, lb, cols);
+        Some((list, keep, points))
+    }
+
     /// The change that sets `line`'s key of the look to the choice `pick`.
     fn pick(&self, shared: &Shared, look: &Look, line: Line, pick: usize) -> Vec<Command> {
         let (Some(key), Some(choice)) = (
@@ -623,14 +666,9 @@ impl Card {
     /// - ADR-1201 D4, "Sizes, live on a vtium console": Enter applies the
     ///   highlighted size to the console as a timed trial.
     fn try_size(&self, shared: &Shared, look: &Look, pick: usize) -> Vec<Command> {
-        let Some(choice) = choices(shared, look, Line::Size).into_iter().nth(pick) else {
+        let Some(points) = size_points(shared, look, pick) else {
             return Vec::new();
         };
-        let points = choice
-            .value
-            .or_else(|| top(shared, "font-size"))
-            .and_then(|v| v.parse::<u32>().ok())
-            .unwrap_or(0);
         vec![Command::Change(Change::TrySize {
             font: self.font_set(shared),
             points,

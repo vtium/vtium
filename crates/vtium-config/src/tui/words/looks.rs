@@ -238,6 +238,14 @@ pub const CARD_HINT: &str = "Enter on a line shows its choices or lets you type 
 pub const CARD_LIST_HINT: &str =
     "Enter picks the highlighted choice, and Esc goes back to the card without a change.";
 
+/// The caption of the console's own preview under a look card's size list,
+/// where the console lets programs resize its grid.
+pub const CARD_CONSOLE_SIZE_TRY: &str = "The console draws this at its current size. Enter also tries the highlighted size on the console.";
+
+/// The caption of the console's own preview under a look card's size list,
+/// where the console does not let programs resize its grid.
+pub const CARD_CONSOLE_SIZE_FIXED: &str = "The console draws this at its current size. A size takes effect when vtium starts again, because the console does not let programs resize its grid. Press w in the list of looks to let them.";
+
 /// The sentence under a card while its name is typed.
 pub const CARD_TYPING_HINT: &str =
     "Type the look's name, then press Enter. Esc keeps the name it had.";
