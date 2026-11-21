@@ -8,8 +8,10 @@
 //! `StrictModes` refuses a writable file. The path is walked one component
 //! at a time on descriptors, each folder checked as it is crossed, and the
 //! file is opened in the last folder checked, so a link swapped during the
-//! walk cannot lead the read elsewhere ([`walk`]). A file that fails the ownership
-//! check is never read (D7). [`text`] checks a trusted file's bytes whole:
+//! walk cannot lead the read elsewhere ([`walk`]). [`folder`] walks to a
+//! folder the same way, for a program that writes files there for the
+//! console to read. A file that fails the ownership check is never read
+//! (D7). [`text`] checks a trusted file's bytes whole:
 //! bounded, UTF-8, and free of control characters but tab, newline and a
 //! carriage return ending a line, so nothing the parser quotes can carry
 //! one; [`reading`](crate::reading) checks them line by line instead, so a
@@ -138,6 +140,13 @@ struct Found {
     folders: Result<(), Untrusted>,
 }
 
+/// Where [`walk`] ends: at a regular file, or at a folder, with the
+/// verdict on the folders crossed to reach it, that folder included.
+enum Walked {
+    File(Found),
+    Folder(Crossed, Result<(), Untrusted>),
+}
+
 /// Walks `path` one component at a time from `/`, on descriptors, and
 /// checks each folder it crosses under `trust` as it crosses it. A folder
 /// is opened with `O_PATH | O_NOFOLLOW` relative to the folder before it,
@@ -149,8 +158,10 @@ struct Found {
 /// relative one, at most [`LINKS_MAX`] links in all. `..` goes back to
 /// the folder crossed before. The walk reads on past a folder the check
 /// refuses, and keeps the first refusal, since `vtium check-config` reads
-/// a file it does not trust. `None` when a component does not exist.
-fn walk(path: &Path, trust: &Trust) -> Result<Option<Found>, Rejected> {
+/// a file it does not trust. `None` when a component does not exist. A
+/// path that ends at a folder ends the walk there, and the reader of a
+/// file refuses it; [`folder`] takes it.
+fn walk(path: &Path, trust: &Trust) -> Result<Option<Walked>, Rejected> {
     use rustix::fs::{AtFlags, FileType, Mode, OFlags};
     use std::os::unix::ffi::OsStrExt;
     let io = |e: rustix::io::Errno| unreadable(&e.into());
@@ -229,18 +240,21 @@ fn walk(path: &Path, trust: &Trust) -> Result<Option<Found>, Rejected> {
                 let Some(holder) = crossed.pop() else {
                     return Err(unreadable(&rustix::io::Errno::NOENT.into()));
                 };
-                return Ok(Some(Found {
+                return Ok(Some(Walked::File(Found {
                     holder,
                     name,
                     stat,
                     folders,
-                }));
+                })));
             }
             _ => return Err(Rejected::one(None, Problem::NotAFile)),
         }
     }
     // the path ends at a folder
-    Err(Rejected::one(None, Problem::NotAFile))
+    let Some(end) = crossed.pop() else {
+        return Err(unreadable(&rustix::io::Errno::NOENT.into()));
+    };
+    Ok(Some(Walked::Folder(end, folders)))
 }
 
 /// Opens the file [`walk`] found, in the folder the walk checked and never
@@ -303,8 +317,10 @@ type Taken = (Vec<u8>, Result<(), Untrusted>);
 /// most `limit` bytes and one, with the ownership check's verdict beside
 /// them: `None` when the file does not exist.
 fn read_up_to(path: &Path, trust: &Trust, limit: usize) -> Result<Option<Taken>, Rejected> {
-    let Some(found) = walk(path, trust)? else {
-        return Ok(None);
+    let found = match walk(path, trust)? {
+        None => return Ok(None),
+        Some(Walked::File(found)) => found,
+        Some(Walked::Folder(..)) => return Err(Rejected::one(None, Problem::NotAFile)),
     };
     let (file, meta) = open_found(&found)?;
     // the file's own verdict first, then the first folder's refusal
@@ -317,6 +333,39 @@ fn read_up_to(path: &Path, trust: &Trust, limit: usize) -> Result<Option<Taken>,
         .read_to_end(&mut bytes)
         .map_err(|e| unreadable(&e))?;
     Ok(Some((bytes, trusted)))
+}
+
+/// A folder that [`folder`] walked to: a descriptor on it, and the
+/// ownership check's verdict on it and on every folder crossed to reach
+/// it.
+#[derive(Debug)]
+pub struct Folder {
+    /// The folder, opened with `O_PATH`. It serves as the directory of
+    /// the `*at` calls that create, rename and remove entries in it, so
+    /// they act in the folder the walk checked, whatever happens to the
+    /// path afterwards.
+    pub fd: rustix::fd::OwnedFd,
+    /// The verdict on the folder and on every folder the walk crossed to
+    /// reach it: the first one that fails, or `Ok`.
+    pub trusted: Result<(), Untrusted>,
+}
+
+/// Walks to the folder at `path` as the console walks to a file it reads,
+/// and checks every folder on the way under `trust`, the folder itself
+/// and each folder that holds a symbolic link included. A program that
+/// writes files for the console to read checks the folder this way, so
+/// it approves exactly the folders the console reads from. `None` when a
+/// component does not exist; [`Problem::NotAFile`] when the path ends at
+/// anything but a folder.
+pub fn folder(path: &Path, trust: &Trust) -> Result<Option<Folder>, Rejected> {
+    match walk(path, trust)? {
+        None => Ok(None),
+        Some(Walked::Folder(end, trusted)) => Ok(Some(Folder {
+            fd: end.fd,
+            trusted,
+        })),
+        Some(Walked::File(_)) => Err(Rejected::one(None, Problem::NotAFile)),
+    }
 }
 
 /// Reads the bytes of the file at `path` under the same checks as
@@ -459,7 +508,13 @@ mod tests {
         std::os::unix::fs::symlink(&checked, dir.join("link")).unwrap();
         let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&dir).unwrap());
         let trust = Trust::owner(uid).below(&dir);
-        let found = walk(&dir.join("link/vtium.conf"), &trust).unwrap().unwrap();
+        let found = walk(&dir.join("link/vtium.conf"), &trust)
+            .unwrap()
+            .and_then(|walked| match walked {
+                Walked::File(found) => Some(found),
+                Walked::Folder(..) => None,
+            })
+            .unwrap();
         // the swaps, as whoever could write these folders would make them:
         // the link now names `other`, and `other` now sits where the
         // folder the walk crossed was, so neither the path given nor the
