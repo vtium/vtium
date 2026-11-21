@@ -165,7 +165,7 @@ Sometimes you switch from the desktop back to a VT where vtium runs, and the scr
 
 ## Images that do not show
 
-A program that draws sixel or kitty graphics images shows nothing, or shows text where the image should be. Check these in turn:
+A program that draws sixel, kitty graphics or iTerm2 images shows nothing, or shows text where the image should be. Check these in turn:
 
 - vtium renders images only in a build with the `images` feature. In such a build, `vtium --version` names `images` on its `features` line. So does the vtium part of `vtium-config report`, which [Collecting a report and filing an issue](#collecting-a-report-and-filing-an-issue) describes. The `vtium` and `vtium-git` packages are built with this feature, and the minspec packages are not. See [Arch Linux](install.md#arch-linux) for details.
 - `image-storage-limit` must be above 0, because `0` turns images off. Neither `sixel` nor `kitty-graphics` may be turned off. See [config.md](config.md) for these keys.
