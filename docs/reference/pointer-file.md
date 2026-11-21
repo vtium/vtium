@@ -98,6 +98,6 @@ vtium logs one line for each problem and then draws its own picture for the shap
 - A font helper that fails or stops answering while it draws the file. vtium keeps the pictures it has, asks for no more, and logs the reason in the line.
 - Shapes the file lacks, at info level: "The pointer file /usr/share/icons/Oxygen_White has no picture for the ew-resize and ns-resize shapes, so vtium draws its own pictures for them."
 
-`vtium check-config` checks that `pointer-theme` is an absolute path. It does not open the file, because the console reads the file where it runs.
+`vtium check-config` checks the `pointer-theme` of the top level and of each look. It reports a path that names neither an SVG file nor a folder that holds a `cursors` folder, on that path's own line. It also says when the list of active resources does not list the theme, because vtium then draws its own pictures. It does not check the pictures in the file, because the console reads them through the font helper where it runs.
 
 See [Configuration keys](../config.md) for `pointer-theme`, `pointer-size` and `pointer-char`.
