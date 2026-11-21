@@ -32,10 +32,11 @@
 //! - ADR-1204 D5: the layers' folder, and `new-frit --layer`.
 //! - ADR-1206 D2: a tab's state and its update live in the tab's module.
 
+use super::super::super::desk::{FontSetEdit, Op};
 use super::super::super::fonts_found::{source_of, squashed};
 use super::super::super::input::Key;
 use super::super::super::listbox::{Act, Body, Item, ListBox, Marks, columns, rows, step, tail};
-use super::super::super::model::{FontState, Shared, Size, View};
+use super::super::super::model::{Effect, FontState, Shared, Size, View};
 use super::super::super::words;
 use super::super::{Change, Command, Request, Room, Tab};
 use crate::describe::{Face, Group};
@@ -648,15 +649,24 @@ impl Form {
                 .map_err(|e| e.why)
         };
         match read {
+            // the draft's folder keeps the new font set at once, in place of
+            // a removal of the installed one of its name, so leaving the
+            // TUI before Install loses nothing
+            //
+            // References:
+            // - ADR-1403 D8, "A draft's font set changes": the folder, and that quitting loses nothing.
             Ok(()) => {
-                let mut pending = shared.pending.clone();
-                pending.frits.retain(|(n, _)| *n != name);
-                pending.removals.retain(|n| *n != name);
-                pending.frits.push((name.clone(), text));
+                let Some(draft) = &shared.draft else {
+                    return vec![Command::Change(Change::Say(words::NO_DESK.to_owned()))];
+                };
                 self.frit = NewFrit::default();
                 self.offset = 0;
                 vec![
-                    Command::Change(Change::Pending(pending)),
+                    Command::Effect(Effect::Desk(Op::FontSet {
+                        frit: name.clone(),
+                        edit: FontSetEdit::Keep(text),
+                        text: draft.text.clone(),
+                    })),
                     Command::Change(Change::Say(words::new_added(&name))),
                     Command::Request(Request::Go(View::Looks)),
                 ]

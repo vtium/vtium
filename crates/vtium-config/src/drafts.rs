@@ -553,15 +553,37 @@ impl Session<'_> {
         Ok(())
     }
 
-    /// Runs `vtium check-config` on `text`, a copy of the draft at `shown`,
-    /// against the configuration directory; each line it prints names
-    /// `shown`. A console that cannot be started is exit 5's failure.
-    pub fn check(&self, text: &str, shown: &Path) -> Result<Checked, Fail> {
+    /// Runs `vtium check-config` on `text`, a copy of the draft `name` at
+    /// `shown`, against the configuration directory, with the font set
+    /// changes the install makes ([`Session::frit_changes`]); each line it
+    /// prints names `shown`. A frit the folder adds or replaces is passed
+    /// as its file in the folder, so the check reads the draft's text. A
+    /// removal that removes nothing, and a frit whose text is the installed
+    /// one's, are no change and pass nothing, so the check's verdict on
+    /// them is the verdict on the installed frits. A console that cannot be
+    /// started is exit 5's failure.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "A draft's font set changes": one `--with-frit` for each frit the folder adds or replaces, and one `--without-frit` for each frit it removes.
+    pub fn check(&self, name: &str, text: &str, shown: &Path) -> Result<Checked, Fail> {
         let copy = crate::apply::Copy::new("vtium.conf", text.as_bytes()).map_err(Fail::File)?;
-        let ran = std::process::Command::new(&self.paths.vtium)
+        let (changes, _) = self.frit_changes(name)?;
+        let dir = self.store.frits_path(name)?;
+        let mut command = std::process::Command::new(&self.paths.vtium);
+        command
             .arg("check-config")
             .arg("--configdir")
-            .arg(&self.paths.configdir)
+            .arg(&self.paths.configdir);
+        for change in &changes {
+            if change.new.is_some() {
+                command
+                    .arg("--with-frit")
+                    .arg(dir.join(format!("{}.vtfrit", change.name)));
+            } else {
+                command.arg("--without-frit").arg(&change.name);
+            }
+        }
+        let ran = command
             .arg(&copy.path)
             .stdin(std::process::Stdio::null())
             .output()
@@ -613,7 +635,7 @@ impl Session<'_> {
             )));
         }
         let shown = self.store.draft_path(name)?;
-        let checked = self.check(text, &shown)?;
+        let checked = self.check(name, text, &shown)?;
         for line in checked.problems.iter().chain(&checked.notes) {
             let _ = writeln!(out, "{line}");
         }
@@ -644,6 +666,34 @@ impl Session<'_> {
         let (frits, notes) = self.frit_changes(name)?;
         for line in &notes {
             let _ = writeln!(out, "{line}");
+        }
+        // the frits' paths come from the installed frits' directory, so a
+        // draft that also moves that directory installs the move first
+        let key = vtium_settings::keys::FONT_FRITS.name;
+        if !frits.is_empty()
+            && vtium_settings::setting(text, key)
+                != installed
+                    .as_deref()
+                    .and_then(|i| vtium_settings::setting(i, key))
+        {
+            return Err(Fail::Check(format!(
+                "nothing installed: {} The draft keeps your changes.",
+                crate::apply::FRITS_MOVE_FIRST
+            )));
+        }
+        // the privileged step refuses to remove a frit that the vtium.conf
+        // it installs still names. The check above catches a look's
+        // font-name, but not the top level's, which the console reads as a
+        // font family once no frit has that name, so the install refuses
+        // that removal here, in the privileged step's own words, before
+        // anything runs as root
+        for removal in frits.iter().filter(|c| c.new.is_none()) {
+            if let Some(by) = crate::apply::naming(&removal.name, Some(text)) {
+                return Err(Fail::Check(format!(
+                    "nothing installed: {} is not removed: {by} uses it. The draft keeps your changes.",
+                    removal.path.display()
+                )));
+            }
         }
         let same = installed.as_deref() == Some(text);
         if same && batch.is_none() && frits.is_empty() {

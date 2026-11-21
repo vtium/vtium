@@ -384,9 +384,7 @@ pub fn agrees(want: &Expect, to: &str, exit: Option<u8>) -> Result<(), String> {
         Expect::At(id) => exit.is_none() && to == id,
         Expect::InTab(tab) => exit.is_none() && kind(to) == "view" && tab_of(to) == *tab,
         Expect::Exits(status) => exit == Some(*status),
-        Expect::QuitsOrAsks => {
-            exit == Some(0) || matches!(to, "any.question.quit" | "any.question.leave")
-        }
+        Expect::QuitsOrAsks => exit == Some(0) || to == "any.question.quit",
         Expect::LeavesQuestion => exit.is_none() && kind(to) != "question",
         Expect::LeavesTrial => exit.is_none() && to != "any.trial",
     };

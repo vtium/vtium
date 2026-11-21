@@ -111,12 +111,7 @@ fn status(app: &App) -> String {
             Some(d) => words::draft_state(&d.name, d.changes, app.shared.unsaved, d.problems),
             None => words::NO_DRAFT.to_owned(),
         };
-        let pending = app
-            .shared
-            .pending
-            .frits
-            .len()
-            .saturating_add(app.shared.pending.removals.len());
+        let pending = app.shared.frits().len();
         if pending > 0 {
             left = format!("{left} · {}", waiting(pending));
         }
@@ -219,12 +214,6 @@ fn small(app: &App) -> Vec<String> {
             ),
             cols,
         ),
-        // the leave question's keys fill a row, so what it says goes on
-        // the row above them
-        Some(Then::Leave(_)) => wrap(&words::small_leave(app.shared.unsaved), cols, usize::MAX)
-            .into_iter()
-            .chain(item_rows(key_line(app), cols))
-            .collect(),
         Some(_) => item_rows(key_line(app), cols),
     };
     // the keys that stay on the screen however few its rows: the

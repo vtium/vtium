@@ -722,7 +722,6 @@ mod tests {
     fn every_node_the_tui_names_is_in_the_tree() {
         for id in [
             "any.question.quit",
-            "any.question.leave",
             "any.question.confirm",
             "any.trial",
             "any.too-small",

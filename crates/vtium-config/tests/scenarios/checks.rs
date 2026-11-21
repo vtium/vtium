@@ -50,7 +50,7 @@ impl Seen<'_> {
     fn kept(&self) -> bool {
         Self::draft(self.before) == Self::draft(self.after)
             && self.before.app.shared.unsaved == self.after.app.shared.unsaved
-            && self.before.app.shared.pending == self.after.app.shared.pending
+            && self.before.app.shared.frits() == self.after.app.shared.frits()
     }
 
     /// The changes that waited for Save are in the draft the desk keeps.
@@ -59,14 +59,12 @@ impl Seen<'_> {
             || (self.has("save") && self.after.desk.draft == Self::draft(self.before).unwrap_or(""))
     }
 
-    /// The key quits, or asks the question that fits first: the quit
-    /// question while changes wait for Save, the leave question while font
-    /// sets wait for an install.
+    /// The key quits, or asks the quit question first while changes wait
+    /// for Save. The font sets that wait for an install stay in the
+    /// draft's folder, so they ask nothing.
     fn quits_or_asks(&self) -> Result<(), String> {
         let app = &self.before.app;
-        let want = if !app.shared.pending.is_empty() {
-            "question:leave"
-        } else if app.shared.unsaved > 0 {
+        let want = if app.shared.unsaved > 0 {
             "question:quit"
         } else {
             return self.exits(0);
@@ -431,42 +429,6 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         }
     };
     m.insert("y.question.quit", (save_quit, no_today));
-    m.insert(
-        "y.question.leave",
-        (
-            |s| {
-                // an install refused or failed keeps the TUI, which says why
-                if !s.exited() {
-                    return if s.has("install") || s.after.app.shared.message.is_none() {
-                        Err("the TUI stays after an install, or says nothing".into())
-                    } else {
-                        Ok(())
-                    };
-                }
-                s.exits(0)?;
-                if s.has("install") && s.saved() {
-                    Ok(())
-                } else {
-                    Err("expected a save and an install before the TUI quits".into())
-                }
-            },
-            no_today,
-        ),
-    );
-    m.insert(
-        "n.question.leave",
-        (
-            |s| {
-                s.exits(0)?;
-                if s.saved() && !s.has("install") {
-                    Ok(())
-                } else {
-                    Err("expected a save and no install".into())
-                }
-            },
-            no_today,
-        ),
-    );
     m.insert("n.question", (no, no_today));
     m.insert(
         "n.question.quit",
@@ -482,8 +444,6 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             no_today,
         ),
     );
-    m.insert("i.question.leave", (nothing, no_today));
-    m.insert("l.question.leave", (nothing, no_today));
     m.insert("other.question", (nothing, no_today));
     m.insert("s.view", (saves, no_today));
     m.insert("s.view.fonts", (saves, no_today));
@@ -1173,7 +1133,7 @@ fn looks_checks(m: &mut BTreeMap<&'static str, (Check, Option<Check>)>) {
                 _ => {
                     if s.exited() || s.step.to.node() != "looks" {
                         Err("r left the list".into())
-                    } else if s.before.app.shared.pending != s.after.app.shared.pending
+                    } else if s.before.app.shared.frits() != s.after.app.shared.frits()
                         || s.after.app.shared.message.is_some()
                     {
                         Ok(())
@@ -1641,7 +1601,13 @@ impl Checks {
             let parts = written(before, after);
             self.found.writes.entry(view).or_default().extend(parts);
         }
-        if s.before.app.shared.pending != s.after.app.shared.pending && !s.has("install") {
+        // the font sets the draft's folder keeps: an install settles them,
+        // and Revert and New start the draft over without them, as they
+        // replace the draft
+        let replaces = ["install", "revert", "new", "delete"]
+            .iter()
+            .any(|op| s.has(op));
+        if s.before.app.shared.frits() != s.after.app.shared.frits() && !replaces {
             self.found
                 .writes
                 .entry(view)

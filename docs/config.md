@@ -18,7 +18,7 @@ A file with a section needs `version = 1`. A head's section wins over its look's
 
 vtium reads vtium.conf only when root owns it. For a vtium that runs as another user, that user may own it instead. Neither the file's group nor other users may be able to write to the file, or to a directory above it. vtium reads none of a file that fails this check, and runs its compiled-in configuration instead. It says which path fails, and gives the command that fixes it, `chown root:root PATH` or `chmod go-w PATH`.
 
-`vtium check-config [--no-devices] [FILE]` checks vtium.conf. Given FILE, it checks that file in place of vtium.conf, so that you can check a file before it is installed. It checks both parts of the file in one run. It reads them the way vtium does at start, through the same parser and evaluator. It applies nothing.
+`vtium check-config [--no-devices] [--with-frit FILE]... [--without-frit NAME]... [FILE]` checks vtium.conf. Given FILE, it checks that file in place of vtium.conf, so that you can check a file before it is installed. It checks both parts of the file in one run. It reads them the way vtium does at start, through the same parser and evaluator. It applies nothing.
 
 `vtium check-config` exits 1 in three cases, and names each problem with its line:
 
@@ -29,6 +29,8 @@ vtium reads vtium.conf only when root owns it. For a vtium that runs as another 
 It exits 6 instead when its only warnings are about missing fonts. A font is missing when a font set that vtium.conf names needs it and it is not installed. It is missing too when the installed font lacks a character that the font set checks for. vtium draws the font set without that font, so vtium-config installs such a file anyway. A script that accepts only 0 still sees a failure.
 
 A complete route is a connected display that its first matching rule sends to a head, together with a connected keyboard that reaches that head. When no display or no keyboard is connected, or with `--no-devices`, `vtium check-config` judges the rules alone, and says so.
+
+`--with-frit FILE` counts the font set file FILE, named `NAME.vtfrit`, as the installed font set NAME. `--without-frit NAME` counts the font set NAME as not installed. vtium-config passes one of them for each font set that a draft adds, replaces or removes, so that the check judges the draft with the font sets it brings. A look that names a font set the draft adds then gets no warning, and a look that names a font set the draft removes gets one.
 
 `vtium check-config` also prints notes on standard output. A note does not count toward the exit status. One note gives the density at which vtium converts font points to pixels. For the sections, it notes each of these:
 

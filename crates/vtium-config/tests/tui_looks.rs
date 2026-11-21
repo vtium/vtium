@@ -456,10 +456,15 @@ fn a_font_set_s_detail_shows_its_fonts_by_role_and_the_looks_that_use_it() {
     }
 }
 
-/// `r` on a font set marks it for removal at the next install.
+/// `r` on a font set marks it for removal at the next install, which the
+/// draft's folder keeps.
 #[test]
 fn r_on_a_font_set_marks_it_for_removal() {
-    let screen = reach(100, 30, &[TO_LOOKS, DOWN, DOWN, b"r"]);
+    let mut c = console().keys(&[TO_LOOKS, DOWN, DOWN, b"r"]);
+    let mut d = desk();
+    run_desk(&mut c, &mut d);
+    assert!(d.frits.removed.contains("minspec-16"), "{:?}", d.frits);
+    let screen = c.seen.clone().expect("the screen");
     assert!(
         column(&screen).contains("minspec-16: reads, to remove."),
         "{screen}"
@@ -1735,18 +1740,24 @@ fn an_install_that_adds_a_font_set_keeps_the_highlight_on_its_font_set() {
         .position(|f| f.name == "tiny5")
         .expect("tiny5");
     to_entry(&mut a, &Entry::FontSet(at));
-    a.shared
-        .pending
-        .frits
-        .push(("aaa".to_owned(), "source=builtin:unifont\n".to_owned()));
+    a.shared.draft = Some(Opened {
+        frits: vtium_config::store::FritChanges {
+            kept: [("aaa".to_owned(), "source=builtin:unifont\n".to_owned())].into(),
+            ..Default::default()
+        },
+        ..Opened::default()
+    });
     a.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
     assert_eq!(name_of(&a), "tiny5");
     // the detail open over the list stays on its font set too
     press(&mut a, Key::Enter);
-    a.shared
-        .pending
-        .frits
-        .push(("aab".to_owned(), "source=builtin:unifont\n".to_owned()));
+    a.shared.draft = Some(Opened {
+        frits: vtium_config::store::FritChanges {
+            kept: [("aab".to_owned(), "source=builtin:unifont\n".to_owned())].into(),
+            ..Default::default()
+        },
+        ..Opened::default()
+    });
     a.event(Event::Installed(Ok(Done::Draft(Opened::default(), None))));
     assert!(text(&a).contains("tiny5"), "{}", text(&a));
     press(&mut a, Key::Escape);

@@ -101,6 +101,21 @@ impl Fixture {
         self.path(&format!("home/config/vtium/drafts/{draft}.frits"))
     }
 
+    /// What the draft `draft`'s font set folder holds, by name, sorted;
+    /// nothing when there is no folder.
+    fn held(&self, draft: &str) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(self.folder(draft))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        names.sort();
+        names
+    }
+
     /// Puts `file` with `text` in the draft desk's font set folder, as the
     /// Fonts tab keeps a change there.
     fn keep(&self, file: &str, text: &str) {
@@ -122,9 +137,10 @@ const NEW: &str = "name=new\nsource=builtin:unscii-8\n";
 
 /// A draft keeps the frits it adds, replaces and removes in a folder
 /// beside it, so they wait there between runs of vtium-config. `flow`
-/// counts them, `diff` prints each under its path in the frits' directory,
-/// and `install` writes the new frits, then vtium.conf, then removes the
-/// removed frit, and leaves the draft with no folder.
+/// counts them, `flow --json` lists them, `diff` prints each under its
+/// path in the frits' directory, and `install` writes the new and
+/// replaced frits, then vtium.conf, then removes the removed frit, in
+/// that order, and leaves the draft's folder holding nothing.
 ///
 /// References:
 /// - ADR-1403 D8, "A draft's font set changes": the folder, diff and install.
@@ -156,6 +172,15 @@ fn a_draft_keeps_its_font_set_changes_until_install() {
         )),
         "{diff}"
     );
+    // flow --json lists each change by its name, in the order of the names
+    let json = f.ok(&["flow", "--json"]).out;
+    assert!(
+        json.contains(concat!(
+            r#""frits":[{"name":"kept","change":"replace"},"#,
+            r#"{"name":"new","change":"add"},{"name":"old","change":"remove"}],"#
+        )),
+        "{json}"
+    );
     // a change to vtium.conf and the font set changes count together
     f.ok(&["set", "font-size", "14"]);
     assert!(
@@ -165,8 +190,27 @@ fn a_draft_keeps_its_font_set_changes_until_install() {
         f.first_line()
     );
     let install = f.ok(&["install"]);
+    // the order of the install's lines is the order of its writes
+    let at = |line: &str| {
+        install
+            .out
+            .lines()
+            .position(|l| l == line)
+            .unwrap_or_else(|| panic!("no line {line:?} in\n{}", install.out))
+    };
+    let conf = at("wrote\tROOT/etc/vtium.conf");
     assert!(
-        install.out.contains("wrote\tROOT/etc/fonts/new.vtfrit"),
+        at("wrote\tROOT/etc/fonts/kept.vtfrit") < conf,
+        "{}",
+        install.out
+    );
+    assert!(
+        at("wrote\tROOT/etc/fonts/new.vtfrit") < conf,
+        "{}",
+        install.out
+    );
+    assert!(
+        conf < at("removed\tROOT/etc/fonts/old.vtfrit"),
         "{}",
         install.out
     );
@@ -183,7 +227,11 @@ fn a_draft_keeps_its_font_set_changes_until_install() {
             .unwrap_or_default()
             .contains("font-size=14")
     );
-    assert!(!f.folder("desk").exists(), "the install leaves no folder");
+    assert_eq!(
+        f.held("desk"),
+        Vec::<String>::new(),
+        "the install leaves no change"
+    );
     assert!(
         f.first_line()
             .starts_with("draft desk: same as installed · "),
@@ -258,5 +306,439 @@ fn install_refuses_a_folder_that_holds_anything_else() {
         "{}",
         ran.out
     );
-    assert!(!f.folder("desk").exists());
+    assert_eq!(f.held("desk"), Vec::<String>::new());
+}
+
+/// A temporary file that vtium-config's write of a change leaves in the
+/// folder, when the write is cut short before its rename or is still under
+/// way in another vtium-config, is no font set change: the draft counts
+/// only its real changes and installs.
+#[test]
+fn a_write_s_temporary_file_in_the_folder_blocks_nothing() {
+    let f = fixture("leftover");
+    f.desk();
+    f.keep("new.vtfrit", NEW);
+    f.keep(".new.vtfrit.new-4242", "name=new\n");
+    f.keep(".old.removed.new-17", "");
+    assert!(
+        f.first_line()
+            .starts_with("draft desk: 1 font set change · "),
+        "{}",
+        f.first_line()
+    );
+    let install = f.ok(&["install"]);
+    assert!(
+        install.out.contains("wrote\tROOT/etc/fonts/new.vtfrit"),
+        "{}",
+        install.out
+    );
+    assert!(f.path("etc/fonts/old.vtfrit").exists());
+}
+
+/// Taking the last change back, as an install does once the system matches
+/// the folder, leaves the folder in place and empty, so another
+/// vtium-config that has just made the folder for a change of its own can
+/// still write into it. An empty folder is no change: the draft is the
+/// same as installed and installs nothing.
+#[test]
+fn the_last_change_taken_back_leaves_an_empty_folder_that_holds_no_change() {
+    let f = fixture("empty");
+    f.desk();
+    f.keep("new.vtfrit", NEW);
+    f.ok(&["install"]);
+    assert!(f.folder("desk").is_dir(), "the folder stays");
+    // the other vtium-config writes its change into the folder it made
+    std::fs::write(f.folder("desk").join("late.removed"), "").expect("a write into the folder");
+    std::fs::remove_file(f.folder("desk").join("late.removed")).expect("the file");
+    assert!(
+        f.first_line()
+            .starts_with("draft desk: same as installed · "),
+        "{}",
+        f.first_line()
+    );
+    let diff = f.ok(&["diff"]).out;
+    assert!(!diff.contains("@@") && !diff.contains("fonts/"), "{diff}");
+    let again = f.ok(&["install"]);
+    assert!(!again.out.contains("wrote"), "{}", again.out);
+}
+
+/// vtium-config's check of a draft passes the console's check one
+/// `--with-frit` for each frit the folder adds or replaces, naming its
+/// file in the folder, and one `--without-frit` for each frit it removes,
+/// so the check counts the frits the install leaves.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": the check sees the same frits.
+#[test]
+fn the_check_of_a_draft_counts_the_folder_s_font_sets() {
+    let f = fixture("check-args");
+    // the stand-in console keeps each word it is given, one to a line
+    let args = f.path("args");
+    script::executable(
+        &f.path("vtium"),
+        &format!(
+            "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\nprintf '%s\\n' \"$@\" > '{}'\nexit 0\n",
+            args.display()
+        ),
+    );
+    f.desk();
+    f.keep("new.vtfrit", NEW);
+    f.keep("old.removed", "");
+    f.ok(&["flow"]);
+    let words = std::fs::read_to_string(&args).expect("the words the check took");
+    let root = f.root.to_str().expect("a path");
+    let words: Vec<String> = words.lines().map(|w| w.replace(root, "ROOT")).collect();
+    let frits: Vec<&str> = words
+        .windows(2)
+        .filter(|w| w[0].ends_with("-frit"))
+        .flat_map(|w| [w[0].as_str(), w[1].as_str()])
+        .collect();
+    assert_eq!(
+        frits,
+        [
+            "--with-frit",
+            "ROOT/home/config/vtium/drafts/desk.frits/new.vtfrit",
+            "--without-frit",
+            "old",
+        ]
+    );
+    // a draft with no font set change passes neither
+    std::fs::remove_dir_all(f.folder("desk")).expect("the folder");
+    f.ok(&["flow"]);
+    let words = std::fs::read_to_string(&args).expect("the words the check took");
+    assert!(
+        !words
+            .lines()
+            .any(|w| w.starts_with("--with") && w.ends_with("-frit")),
+        "{words}"
+    );
+}
+
+/// The check of a draft passes the console's check only the font set
+/// changes that `flow`, `diff` and install count. A removal that removes
+/// nothing, such as the removal of a set that only a category folder of
+/// the catalog holds or of a frit this machine lacks, and a frit whose
+/// text is the installed one's, pass nothing. So a look that names the
+/// catalog's set is not warned about, and the install does not refuse a
+/// draft for a removal that would do nothing.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": a frit with the installed text is no change, and a removal of a frit the machine lacks removes nothing.
+#[test]
+fn the_check_passes_only_the_font_set_changes_install_makes() {
+    let f = fixture("check-changes");
+    let args = f.path("args");
+    script::executable(
+        &f.path("vtium"),
+        &format!(
+            "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\nprintf '%s\\n' \"$@\" > '{}'\nexit 0\n",
+            args.display()
+        ),
+    );
+    std::fs::create_dir_all(f.path("etc/fonts/console")).expect("a category folder");
+    std::fs::write(f.path("etc/fonts/console/cat.vtfrit"), OLD).expect("a set of the catalog");
+    f.desk();
+    f.keep("cat.removed", "");
+    f.keep("gone.removed", "");
+    f.keep("kept.vtfrit", KEPT);
+    f.keep("old.removed", "");
+    let first = f.first_line();
+    let words = std::fs::read_to_string(&args).expect("the words the check took");
+    let frits: Vec<&str> = words
+        .lines()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .filter(|w| w[0].ends_with("-frit"))
+        .flat_map(|w| [w[0], w[1]])
+        .collect();
+    assert_eq!(frits, ["--without-frit", "old"], "{first}");
+}
+
+/// The frits' paths come from the installed frits' directory, so a draft
+/// that moves that directory with `font-frits` and also holds a font set
+/// change is refused at install, and nothing is installed; the move
+/// installs on its own first.
+#[test]
+fn install_refuses_a_draft_that_moves_the_frits_and_changes_a_frit() {
+    let f = fixture("moves");
+    f.desk();
+    f.ok(&["set", "font-frits", "/srv/frits"]);
+    f.keep("new.vtfrit", NEW);
+    let before = std::fs::read_to_string(f.path("etc/vtium.conf")).expect("vtium.conf");
+    let ran = f.run(&["install"]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.err
+            .contains("changes font-frits and also adds or removes font sets"),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    assert!(!f.path("etc/fonts/new.vtfrit").exists());
+    assert_eq!(
+        std::fs::read_to_string(f.path("etc/vtium.conf")).expect("vtium.conf"),
+        before
+    );
+    // without the font set change, the move installs
+    std::fs::remove_dir_all(f.folder("desk")).expect("the folder");
+    f.ok(&["install"]);
+}
+
+/// A draft that removes a font set its top-level `font-name` names is
+/// refused before the privileged step, with the words of `apply`'s own
+/// refusal, and nothing is installed. The console's check does not flag
+/// that line, because it reads a name that no font set has as a font
+/// family, so the stand-in console here passes the draft as the real one
+/// would.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the privileged step refuses to remove a font set that the installed vtium.conf names.
+#[test]
+fn install_refuses_a_removal_that_the_top_level_font_name_names() {
+    let f = fixture("top-names");
+    f.desk();
+    f.ok(&["set", "font-name", "old"]);
+    f.keep("old.removed", "");
+    let before = std::fs::read_to_string(f.path("etc/vtium.conf")).expect("vtium.conf");
+    let ran = f.run(&["install", "--force"]);
+    assert_eq!(ran.status, 1, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.err.contains(
+            "nothing installed: ROOT/etc/fonts/old.vtfrit is not removed: font-name in vtium.conf uses it."
+        ),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    assert!(!ran.out.contains("apply"), "{}", ran.out);
+    assert!(f.path("etc/fonts/old.vtfrit").exists());
+    assert_eq!(
+        std::fs::read_to_string(f.path("etc/vtium.conf")).expect("vtium.conf"),
+        before
+    );
+    assert_eq!(f.held("desk"), ["old.removed"]);
+    // once the top level names another font, the removal installs
+    f.ok(&["set", "font-name", "kept"]);
+    f.ok(&["install", "--force"]);
+    assert!(!f.path("etc/fonts/old.vtfrit").exists());
+}
+
+/// The console this workspace builds, which judges a draft the way the
+/// install's own check judges it.
+#[path = "common/console.rs"]
+mod console;
+
+/// A draft whose look names a font set that only the draft adds installs:
+/// both vtium-config's check of the draft and the check that `apply DIR`
+/// runs count the folder's font set as installed. The console here is the
+/// one this workspace builds, not a stand-in, so the check reads the font
+/// set the way the console does.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets.
+#[test]
+fn a_look_that_names_a_font_set_only_the_draft_adds_installs() {
+    let f = fixture("look-new-frit");
+    script::executable(
+        &f.path("vtium"),
+        &format!("#!/bin/sh\nexec '{}' \"$@\"\n", console::vtium().display()),
+    );
+    f.desk();
+    f.keep("new.vtfrit", NEW);
+    f.keep("old.removed", "");
+    let draft = f.path("home/config/vtium/drafts/desk.conf");
+    std::fs::write(
+        &draft,
+        "font-size=12\nversion = 1\n[look big]\nfont-name = new\n[head desk]\nlook = big\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n",
+    )
+    .expect("the draft");
+    let checked = f.run(&["flow"]);
+    assert!(
+        !checked.out.contains("not installed") && !checked.err.contains("not installed"),
+        "{}{}",
+        checked.out,
+        checked.err
+    );
+    let install = f.run(&["install", "--force"]);
+    assert_eq!(install.status, 0, "{}{}", install.out, install.err);
+    assert!(!install.out.contains("not installed"), "{}", install.out);
+    let read = |p: &str| std::fs::read_to_string(f.path(p)).ok();
+    assert_eq!(read("etc/fonts/new.vtfrit").as_deref(), Some(NEW));
+    assert_eq!(read("etc/fonts/old.vtfrit"), None);
+    assert!(
+        read("etc/vtium.conf")
+            .unwrap_or_default()
+            .contains("font-name = new")
+    );
+}
+
+/// The check that `apply DIR` runs gets one `--with-frit` for each frit
+/// the bundle writes and one `--without-frit` for each frit it removes.
+/// Each `--with-frit` names a copy that the install made in a directory
+/// of its own inside the frits' directory, with mode 0700, and the copy
+/// holds the text the install writes. The directory is gone after the
+/// install.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` passes `--with-frit` and `--without-frit` for the bundle's font sets.
+#[test]
+fn the_install_s_own_check_counts_the_bundle_s_font_sets() {
+    let f = fixture("apply-args");
+    // the stand-in console appends each run's words, and for each
+    // --with-frit the mode of the copy's directory and the copy's text
+    let log = f.path("log");
+    script::executable(
+        &f.path("vtium"),
+        &format!(
+            concat!(
+                "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\n",
+                "{{ echo ---; prev=; for a in \"$@\"; do echo \"$a\"; ",
+                "if [ \"$prev\" = --with-frit ]; then stat -c 'mode %a' \"$(dirname \"$a\")\"; cat \"$a\"; fi; ",
+                "prev=$a; done; }} >> '{}'\nexit 0\n",
+            ),
+            log.display()
+        ),
+    );
+    f.desk();
+    f.ok(&["set", "font-size", "14"]);
+    f.keep("new.vtfrit", NEW);
+    f.keep("old.removed", "");
+    std::fs::write(&log, "").expect("the log");
+    f.ok(&["install"]);
+    let said = std::fs::read_to_string(&log).expect("the log");
+    let root = f.root.to_str().expect("a path");
+    let last = said.rsplit("---\n").next().unwrap_or_default();
+    let words: Vec<String> = last.lines().map(|w| w.replace(root, "ROOT")).collect();
+    let at = words
+        .iter()
+        .position(|w| w == "--with-frit")
+        .expect("a --with-frit");
+    let copy = &words[at + 1];
+    let dir = copy
+        .strip_suffix("/new.vtfrit")
+        .expect("the copy is named for its frit");
+    assert!(
+        dir.starts_with("ROOT/etc/fonts/vtium-config-apply-"),
+        "{words:?}"
+    );
+    assert_eq!(words[at + 2], "mode 700", "{words:?}");
+    assert_eq!(
+        words[at + 3..at + 5],
+        ["name=new", "source=builtin:unscii-8"],
+        "{words:?}"
+    );
+    let gone = words
+        .iter()
+        .position(|w| w == "--without-frit")
+        .expect("a --without-frit");
+    assert_eq!(words[gone + 1], "old", "{words:?}");
+    assert!(
+        !Path::new(&dir.replace("ROOT", root)).exists(),
+        "the copies go after the check"
+    );
+}
+
+/// The install checks the frits' directory, and every folder above it,
+/// under the ownership check the console makes of every font set before
+/// it makes the folder for the check's copies there. A frits' directory
+/// that other users can write is refused before anything is created in
+/// it, and nothing is installed, since the console would refuse every
+/// font set in it.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` reads root's copies of the bundle's font sets.
+/// - ADR-1401 D10: the ownership check that every installed frit passes.
+#[test]
+fn the_install_refuses_a_frits_directory_others_can_write() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture("apply-writable");
+    // the stand-in console lists the frits' directory each time it runs
+    let log = f.path("log");
+    script::executable(
+        &f.path("vtium"),
+        &format!(
+            "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\nls -a '{}' >> '{}'\nexit 0\n",
+            f.path("etc/fonts").display(),
+            log.display()
+        ),
+    );
+    f.desk();
+    f.ok(&["set", "font-size", "14"]);
+    f.keep("new.vtfrit", NEW);
+    let fonts = f.path("etc/fonts");
+    std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(0o777)).expect("the mode");
+    std::fs::write(&log, "").expect("the log");
+    let ran = f.run(&["install"]);
+    std::fs::set_permissions(&fonts, std::fs::Permissions::from_mode(0o755)).expect("the mode");
+    assert_ne!(ran.status, 0, "{}{}", ran.out, ran.err);
+    // the install passes on what apply says
+    assert!(
+        format!("{}{}", ran.out, ran.err).contains(
+            "vtium reads no font set in ROOT/etc/fonts, so the install writes none there: other users can change \"ROOT/etc/fonts\" (mode 777)."
+        ),
+        "{}{}",
+        ran.out,
+        ran.err
+    );
+    let listed = std::fs::read_to_string(&log).expect("the log");
+    assert!(
+        !listed.contains("vtium-config-apply-"),
+        "the check's folder was made: {listed}"
+    );
+    assert!(!fonts.join("new.vtfrit").exists(), "nothing is installed");
+    assert_eq!(f.held("desk"), ["new.vtfrit"]);
+}
+
+/// A folder for the check's copies that an install left in the frits'
+/// directory, because it was killed before it could remove the folder,
+/// goes at the next install that makes one. The install removes only a
+/// folder of its own name pattern that the user it runs as owns, with
+/// mode 0700. A symbolic link and a folder others can read stay, and so
+/// does what a link points to.
+///
+/// References:
+/// - ADR-1403 D8, "What `install` does": the check of `apply DIR` reads root's copies of the bundle's font sets.
+#[test]
+fn the_install_removes_the_check_s_folders_a_killed_install_left() {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    let f = fixture("apply-leftover");
+    let fonts = f.path("etc/fonts");
+    let left = fonts.join("vtium-config-apply-0123456789abcdef");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&left)
+        .expect("a leftover");
+    std::fs::write(left.join("new.vtfrit"), NEW).expect("a leftover copy");
+    std::fs::set_permissions(
+        left.join("new.vtfrit"),
+        std::fs::Permissions::from_mode(0o600),
+    )
+    .expect("the mode");
+    let open = fonts.join("vtium-config-apply-open");
+    std::fs::DirBuilder::new()
+        .mode(0o755)
+        .create(&open)
+        .expect("a folder others can read");
+    let elsewhere = f.path("elsewhere");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&elsewhere)
+        .expect("a folder");
+    std::fs::write(elsewhere.join("keep"), "kept").expect("a file");
+    std::os::unix::fs::symlink(&elsewhere, fonts.join("vtium-config-apply-link")).expect("a link");
+    f.desk();
+    f.ok(&["set", "font-size", "14"]);
+    f.keep("new.vtfrit", NEW);
+    f.ok(&["install"]);
+    assert!(!left.exists(), "the leftover goes");
+    assert!(open.is_dir(), "a folder others can read stays");
+    assert!(
+        fonts.join("vtium-config-apply-link").is_symlink(),
+        "a link stays"
+    );
+    assert!(elsewhere.join("keep").is_file(), "what a link names stays");
+    assert_eq!(
+        std::fs::read_to_string(fonts.join("new.vtfrit")).expect("installed"),
+        NEW
+    );
 }

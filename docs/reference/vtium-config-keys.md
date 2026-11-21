@@ -48,7 +48,6 @@ flowchart LR
     help["help"]
     any["any"]
     any_question_quit["any.question.quit"]
-    any_question_leave["any.question.leave"]
     any_question_confirm["any.question.confirm"]
     any_question_deactivate["any.question.deactivate"]
     any_question_system_font["any.question.system-font"]
@@ -94,7 +93,6 @@ flowchart LR
     tui --> help
     tui --> any
     any --> any_question_quit
-    any --> any_question_leave
     any --> any_question_confirm
     any --> any_question_deactivate
     any --> any_question_system_font
@@ -129,7 +127,7 @@ The Flow view: CONFIGURATION, NEW PATH and PARTS.
 
 | Key | Shown as | What it does |
 |---|---|---|
-| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. |
 | Esc | clear | Clears NEW PATH. If you were revising a path, the path leaves the configuration. While NEW PATH is empty, says that there is nothing to clear. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
@@ -559,7 +557,7 @@ The Looks tab: the looks, the font sets, the color schemes and the installed poi
 
 | Key | Shown as | What it does |
 |---|---|---|
-| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. |
 | Esc | - | Does nothing here. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
@@ -597,7 +595,7 @@ The Looks tab's list while a color scheme or a pointer theme is highlighted. Spa
 
 | Key | Shown as | What it does |
 |---|---|---|
-| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. |
 | Esc | - | Does nothing here. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
@@ -841,7 +839,7 @@ The Fonts tab: a line of filters, then the fonts found on this system, each with
 
 | Key | Shown as | What it does |
 |---|---|---|
-| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. |
 | Esc | - | Does nothing here. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
@@ -926,7 +924,7 @@ The Effects tab: a line of filters, then one list in three groups, with a previe
 
 | Key | Shown as | What it does |
 |---|---|---|
-| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. |
 | Esc | - | Does nothing here. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
@@ -1006,7 +1004,7 @@ The Settings view: the sections of vtium.conf's keys, as the shared list.
 
 | Key | Shown as | What it does |
 |---|---|---|
-| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. |
 | Esc | - | Does nothing here. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
@@ -1111,7 +1109,7 @@ The Help view: the Help and About pages.
 
 | Key | Shown as | What it does |
 |---|---|---|
-| q | quit | Quits vtium-config. If changes are not saved, it asks first. If new or removed font sets wait for an install, it asks whether to install them. |
+| q | quit | Quits vtium-config. If changes are not saved, it asks first. |
 | Esc | - | Does nothing here. |
 | Tab | next view | Moves to the next view. |
 | Shift-Tab | view before | Moves to the view before. |
@@ -1152,30 +1150,6 @@ The quit question: changes are not saved.
 |---|---|---|
 | y | save and quit | Saves the changes that are not saved into the draft, then quits. |
 | n | quit without saving | Quits without saving the changes that are not saved. |
-| Esc | cancel | Cancels the question. Nothing changes. |
-| Ctrl-C | cancel | Cancels the question, as Esc does. Nothing changes. |
-| q | - | Does nothing. The question stays until you answer it or cancel it. |
-| Tab | - | Does nothing. The question stays until you answer it or cancel it. |
-| Shift-Tab | - | Does nothing. The question stays until you answer it or cancel it. |
-| any other key | - | Does nothing. The question stays until you answer it or cancel it. |
-| key line | - | Shows one row. Where the keys do not fit on one row, it shows them in pages, and ends with `. more` and the page number. |
-| Click | - | Does nothing. The question stays until you answer it or cancel it. |
-| Wheel up, Wheel down | - | Do nothing. The question stays until you answer it or cancel it. |
-
-## `any.question.leave`
-
-The leave question: new or removed font sets wait for an install.
-
-**Open it:** Q while font set changes wait in memory.
-
-**Leave it:** Y installs and quits; n saves the changes that are not saved and quits without installing; Esc and Ctrl-C go back.
-
-| Key | Shown as | What it does |
-|---|---|---|
-| y | install and quit | Installs the draft, then quits. Install saves the changes that are not saved first. |
-| n | quit without installing | Saves the changes that are not saved into the draft, then quits without installing. The new and removed font sets that wait for an install are lost. |
-| i | - | Does nothing. The question stays until you answer it or cancel it. |
-| l | - | Does nothing. The question stays until you answer it or cancel it. |
 | Esc | cancel | Cancels the question. Nothing changes. |
 | Ctrl-C | cancel | Cancels the question, as Esc does. Nothing changes. |
 | q | - | Does nothing. The question stays until you answer it or cancel it. |

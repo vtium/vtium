@@ -130,49 +130,105 @@ impl Fixture {
         );
         self.run(&["apply", draft])
     }
+
+    /// The file in the current draft's font set folder that a change
+    /// printed it wrote, named `file`, after checking that the change
+    /// succeeded and that the folder is the draft's, beside the drafts
+    /// under the fixture's own XDG config directory.
+    fn kept(&self, ran: &Ran, file: &str) -> PathBuf {
+        assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+        let wrote = ran
+            .out
+            .lines()
+            .next()
+            .and_then(|l| l.strip_prefix("wrote "))
+            .unwrap_or_else(|| panic!("no wrote line in\n{}", ran.out));
+        let path = PathBuf::from(wrote);
+        let drafts = self.root.join("config/vtium/drafts");
+        assert!(path.starts_with(&drafts), "{wrote}");
+        assert!(
+            path.parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(".frits")),
+            "{wrote}"
+        );
+        assert!(path.ends_with(file), "{wrote}");
+        path
+    }
+
+    /// `install --force`, which installs the current draft and its font set
+    /// folder through `apply` as the user, the fixture's directories
+    /// standing in for the system's. `--force` lets a draft whose only
+    /// problem is that it wires no complete route install, since the
+    /// fixture has no devices of its own.
+    fn install(&self) -> Ran {
+        let ran = self.run(&["install", "--force"]);
+        assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+        ran
+    }
 }
 
+/// `remove-frit` keeps the removal of an installed frit in the current
+/// draft's font set folder and installs nothing, and `install` then
+/// removes the frit and keeps it as `.bak`. A removal is kept even when
+/// vtium.conf's `font-name` names the frit: the check lists the line, and
+/// the install refuses the draft. A built-in font, a set of the catalog, a
+/// name a frit cannot have and a frit that is neither installed nor in the
+/// draft are refused.
+///
+/// References:
+/// - ADR-1403 D8, "Every font set change is kept at once": `remove-frit` writes the current draft's folder, also when a look names the frit.
 #[test]
-fn remove_frit_removes_a_frit_but_not_the_one_font_name_names() {
-    let f = fixture("remove", Some("font-name=tiny\n"));
+fn remove_frit_keeps_the_removal_in_the_draft_until_install() {
+    let f = fixture("remove", None);
     let fonts = f.etc().join("fonts");
+    // the console finds the fixture's frits where font-frits points
+    std::fs::write(
+        f.etc().join("vtium.conf"),
+        format!(
+            "font-frits={}\nversion = 1\n[look big]\nfont-name = tiny\n[head a]\nlook = big\n",
+            fonts.display()
+        ),
+    )
+    .expect("vtium.conf");
+    std::fs::create_dir_all(fonts.join("console")).expect("a category folder");
+    std::fs::write(fonts.join("console/cat.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     for (name, says) in [
-        ("tiny", "font-name in vtium.conf uses it"),
         ("unifont", "built-in font"),
-        ("nosuch", "nosuch.vtfrit"),
+        ("cat", "a font set of vtium's catalog"),
+        ("nosuch", "no installed font set has that name"),
         ("../x", "there is no font set named"),
     ] {
         let ran = f.run(&["remove-frit", name]);
         assert_eq!(ran.status, 1, "{name}: {}", ran.out);
         assert!(ran.err.contains(says), "{name}: {}", ran.err);
     }
-    // a look's font-name keeps its frit, named with its line
-    let conf = f.etc().join("vtium.conf");
-    let kept = std::fs::read_to_string(&conf).expect("vtium.conf");
-    std::fs::write(
-        &conf,
-        format!("{kept}version = 1\n[look spare]\nfont-name = spare\n[head a]\nlook = spare\n"),
-    )
-    .expect("vtium.conf");
-    let ran = f.run(&["remove-frit", "spare"]);
-    assert_eq!(ran.status, 1, "{}", ran.out);
-    assert!(ran.err.contains("`[look spare]`"), "{}", ran.err);
-    std::fs::write(&conf, kept).expect("vtium.conf");
-    let ran = f.run(&["remove-frit", "spare"]);
+    // the TUI's r refuses the catalog's set in the same words
+    let why = vtium_config::commands::removal_refusal(&fonts, "cat").expect("the catalog's set");
+    assert_eq!(
+        f.run(&["remove-frit", "cat"]).err,
+        format!("vtium-config: {why}\n")
+    );
+    let ran = f.run(&["remove-frit", "tiny"]);
+    let removal = f.kept(&ran, "tiny.removed");
+    assert!(removal.is_file());
     assert!(
-        ran.out.starts_with(&format!(
-            "remove\t{}\n",
-            fonts.join("spare.vtfrit").display()
-        )),
-        "{}",
+        ran.out.contains(".conf:4: ") && ran.out.contains("tiny"),
+        "the check names the look's line that uses tiny: {}",
         ran.out
     );
+    let refused = f.run(&["install", "--force"]);
+    assert_eq!(refused.status, 1, "{}{}", refused.out, refused.err);
+    assert!(fonts.join("tiny.vtfrit").exists());
+    f.run(&["revert"]);
+    let ran = f.run(&["remove-frit", "spare"]);
+    f.kept(&ran, "spare.removed");
     assert!(
         fonts.join("spare.vtfrit").exists(),
-        "a user's removal only drafts"
+        "a removal waits in the draft"
     );
-    let applied = f.apply_printed(&ran);
-    assert_eq!(applied.status, 0, "{}{}", applied.out, applied.err);
+    f.install();
     assert!(!fonts.join("spare.vtfrit").exists());
     assert_eq!(
         std::fs::read_to_string(fonts.join("spare.vtfrit.bak")).expect("kept as .bak"),
@@ -181,8 +237,16 @@ fn remove_frit_removes_a_frit_but_not_the_one_font_name_names() {
     assert!(fonts.join("tiny.vtfrit").exists());
 }
 
+/// `new-frit` keeps the frit it makes, from fonts or from a file, in the
+/// current draft's font set folder and installs nothing, and `install`
+/// then writes it into the frits' directory; `--install` installs the
+/// draft at once. `remove-frit` on a frit that only the draft adds takes
+/// it back out of the draft.
+///
+/// References:
+/// - ADR-1403 D8, "Every font set change is kept at once": `new-frit` writes the current draft's folder, and `--install` installs the draft.
 #[test]
-fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
+fn new_frit_keeps_the_frit_in_the_draft_until_install() {
     let f = fixture("new", None);
     let fonts = f.etc().join("fonts");
     let ran = f.run(&[
@@ -194,25 +258,53 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
         "--cell",
         "8x16",
     ]);
-    let applied = f.apply_printed(&ran);
-    assert_eq!(applied.status, 0, "{}{}", applied.out, applied.err);
+    let kept = f.kept(&ran, "mine.vtfrit");
+    assert!(
+        !fonts.join("mine.vtfrit").exists(),
+        "the frit waits in the draft"
+    );
+    f.install();
     let made = std::fs::read_to_string(fonts.join("mine.vtfrit")).expect("the new frit");
+    assert_eq!(
+        std::fs::read_to_string(&kept).ok(),
+        None,
+        "the install settles the folder"
+    );
     assert!(made.contains("\nname=mine\n"), "{made}");
     assert!(
         made.contains("\nsource=builtin:unscii-8\nsource=font:Some Family\ncell=8x16\n"),
         "{made}"
     );
-    // the template prints a frit that --from installs, named by its file
+    // remove-frit takes back a frit that only the draft adds
+    let ran = f.run(&["new-frit", "builtin:unifont", "--name", "later"]);
+    let later = f.kept(&ran, "later.vtfrit");
+    let ran = f.run(&["remove-frit", "later"]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert!(
+        ran.out
+            .starts_with(&format!("removed {}\n", later.display())),
+        "{}",
+        ran.out
+    );
+    assert!(!later.exists());
+    // the template prints a frit that --from takes, named by its file, and
+    // --install installs it at once
     let template = f.run(&["new-frit", "--template"]);
     assert_eq!(template.status, 0, "{}", template.err);
     let file = f.root.join("edited.vtfrit");
     std::fs::write(&file, &template.out).expect("the template");
-    let from = f.run(&["new-frit", "--from", file.to_str().expect("a path")]);
-    assert_eq!(f.apply_printed(&from).status, 0);
+    let from = f.run(&[
+        "new-frit",
+        "--from",
+        file.to_str().expect("a path"),
+        "--install",
+    ]);
+    f.kept(&from, "edited.vtfrit");
     assert_eq!(
         std::fs::read_to_string(fonts.join("edited.vtfrit")).expect("installed"),
         template.out
     );
+    assert!(!fonts.join("later.vtfrit").exists());
     // a name the console keeps for a built-in font, a frit the reader
     // refuses and words new does not take are refused, and draft nothing
     for (args, status, says) in [
@@ -229,6 +321,7 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
         ),
         (&["new-frit", "--frobnicate"], 2, "--frobnicate"),
         (&["new-frit", "x", "--from", "y"], 2, "takes"),
+        (&["new-frit", "--template", "--install"], 2, "--template"),
     ] {
         let ran = f.run(args);
         assert_eq!(ran.status, status, "{args:?}: {}", ran.out);
@@ -283,8 +376,8 @@ fn new_frit_writes_its_layers_in_the_order_of_their_roles() {
         "--name",
         "mine",
     ]);
-    let applied = f.apply_printed(&ran);
-    assert_eq!(applied.status, 0, "{}{}", applied.out, applied.err);
+    f.kept(&ran, "mine.vtfrit");
+    f.install();
     let made = std::fs::read_to_string(fonts.join("mine.vtfrit")).expect("the new frit");
     assert!(
         made.ends_with(
@@ -434,6 +527,7 @@ fn every_command_acts_in(f: &Fixture, elsewhere: &Path) {
             .arg(vtium())
             .args(args)
             .env("XDG_STATE_HOME", f.root.join("state"))
+            .env("XDG_CONFIG_HOME", f.root.join("config"))
             .output()
             .expect("the binary runs");
         Ran {
@@ -442,23 +536,10 @@ fn every_command_acts_in(f: &Fixture, elsewhere: &Path) {
             err: String::from_utf8_lossy(&o.stderr).into_owned(),
         }
     };
-    // apply, run as the drafting command printed it would be run, with no
-    // --frits either
-    let apply = |ran: &Ran| {
+    // the draft installed with no --frits either
+    let install = || {
+        let ran = run(&["install", "--force"]);
         assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
-        let line = |tag: &str| {
-            ran.out
-                .lines()
-                .find_map(|l| l.strip_prefix(tag))
-                .expect("the line")
-                .to_owned()
-        };
-        assert!(
-            line("run\t").contains(&format!("--frits {} ", elsewhere.display())),
-            "{}",
-            ran.out
-        );
-        run(&["apply", &line("draft\t")])
     };
     let listed = run(&["fonts"]);
     assert_eq!(listed.status, 0, "{}", listed.err);
@@ -468,29 +549,14 @@ fn every_command_acts_in(f: &Fixture, elsewhere: &Path) {
         .filter_map(|l| l.split('\t').next())
         .collect();
     assert_eq!(names, ["gone", "unifont", "unscii-8"], "{}", listed.out);
-    let made = run(&["new-frit", "builtin:unscii-8", "--name", "made"]);
-    assert!(
-        made.out.starts_with(&format!(
-            "write\t{}\n",
-            elsewhere.join("made.vtfrit").display()
-        )),
-        "{}{}",
-        made.out,
-        made.err
+    f.kept(
+        &run(&["new-frit", "builtin:unscii-8", "--name", "made"]),
+        "made.vtfrit",
     );
-    assert_eq!(apply(&made).status, 0);
+    install();
     assert!(elsewhere.join("made.vtfrit").is_file());
-    let removed = run(&["remove-frit", "gone"]);
-    assert!(
-        removed.out.starts_with(&format!(
-            "remove\t{}\n",
-            elsewhere.join("gone.vtfrit").display()
-        )),
-        "{}{}",
-        removed.out,
-        removed.err
-    );
-    assert_eq!(apply(&removed).status, 0);
+    f.kept(&run(&["remove-frit", "gone"]), "gone.removed");
+    install();
     assert!(!elsewhere.join("gone.vtfrit").exists());
     // the fixture's own frits, in the directory --frits would name, are
     // untouched

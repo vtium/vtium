@@ -36,7 +36,7 @@ use super::edit::Change as DraftChange;
 use super::flow::Item;
 use super::input::Key;
 use super::listbox::Body;
-use super::model::{Effect, Pending, Shared, Size, TYPED_MAX, Then, View};
+use super::model::{Effect, Shared, Size, TYPED_MAX, Then, View};
 use super::shot::Preview;
 use super::words;
 
@@ -171,8 +171,6 @@ pub enum Change {
     },
     /// Puts this line on the message line.
     Say(String),
-    /// Replaces the frits that wait for the install with these.
-    Pending(Pending),
     /// Tries this font on the live console.
     Try(String),
     /// Tries the size `points` on the live console's grid, measured in the

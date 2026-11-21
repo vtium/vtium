@@ -61,7 +61,7 @@ fn focus(app: &App) -> String {
         Some(Entry::NoLooks) => "no looks".to_owned(),
         Some(Entry::FontSet(at)) => match shared.inputs.fonts.get(at) {
             None => "none".to_owned(),
-            Some(font) if shared.pending.removals.contains(&font.name) => "marked".to_owned(),
+            Some(font) if shared.frits().removed.contains(&font.name) => "marked".to_owned(),
             Some(font) => match font.state {
                 FontState::Reads => "frit",
                 FontState::BuiltIn => "builtin",

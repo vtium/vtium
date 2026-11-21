@@ -34,7 +34,7 @@ There are three ways to write a frit, and all three give the same file:
 
 - You can write it by hand.
 - `vtium config new-frit FONT...` makes a frit of the fonts you name, in the order you name them. `vtium config new-frit` with no fonts, run at a terminal, opens vtium config's full-screen tool at its new-frit view.
-- `vtium config new-frit --template` prints a frit with each key explained. `vtium config new-frit --from FILE` installs the frit you wrote from that template. This way, a script or a package can make a frit without answering questions.
+- `vtium config new-frit --template` prints a frit with each key explained. `vtium config new-frit --from FILE` adds the frit you wrote from that template to your draft, and `vtium config install` installs it. This way, a script or a package can make a frit without answering questions.
 
 Installing a frit asks for sudo once. The tool shows you the command before it runs it.
 
