@@ -554,29 +554,34 @@ impl Session<'_> {
     }
 
     /// Runs `vtium check-config` on `text`, a copy of the draft `name` at
-    /// `shown`, against the configuration directory, with the font sets
-    /// the draft's folder adds, replaces and removes; each line it prints
-    /// names `shown`. A console that cannot be started is exit 5's
-    /// failure.
+    /// `shown`, against the configuration directory, with the font set
+    /// changes the install makes ([`Session::frit_changes`]); each line it
+    /// prints names `shown`. A frit the folder adds or replaces is passed
+    /// as its file in the folder, so the check reads the draft's text. A
+    /// removal that removes nothing, and a frit whose text is the installed
+    /// one's, are no change and pass nothing, so the check's verdict on
+    /// them is the verdict on the installed frits. A console that cannot be
+    /// started is exit 5's failure.
     ///
     /// References:
     /// - ADR-1403 D8, "A draft's font set changes": one `--with-frit` for each frit the folder adds or replaces, and one `--without-frit` for each frit it removes.
     pub fn check(&self, name: &str, text: &str, shown: &Path) -> Result<Checked, Fail> {
         let copy = crate::apply::Copy::new("vtium.conf", text.as_bytes()).map_err(Fail::File)?;
-        let folder = self.store.frit_changes(name)?;
+        let (changes, _) = self.frit_changes(name)?;
         let dir = self.store.frits_path(name)?;
         let mut command = std::process::Command::new(&self.paths.vtium);
         command
             .arg("check-config")
             .arg("--configdir")
             .arg(&self.paths.configdir);
-        for frit in folder.kept.keys() {
-            command
-                .arg("--with-frit")
-                .arg(dir.join(format!("{frit}.vtfrit")));
-        }
-        for frit in &folder.removed {
-            command.arg("--without-frit").arg(frit);
+        for change in &changes {
+            if change.new.is_some() {
+                command
+                    .arg("--with-frit")
+                    .arg(dir.join(format!("{}.vtfrit", change.name)));
+            } else {
+                command.arg("--without-frit").arg(&change.name);
+            }
         }
         let ran = command
             .arg(&copy.path)

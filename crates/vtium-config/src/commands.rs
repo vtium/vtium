@@ -499,20 +499,33 @@ pub fn set_edit<'a>(key: &'static keys::Key, value: &'a str) -> Result<Edit<'a>,
     }
 }
 
-/// Why the frit `name` is not removed, as `remove-frit` and the TUI's
-/// remove key both refuse it: a built-in font's name, a name that is no
-/// frit's, and a frit that `conf`, vtium.conf, names in `font-name`, at
-/// its top level or in a look's section; `None` when none of these
-/// refuses it.
-pub fn removal_refusal(name: &str, conf: Option<&str>) -> Option<String> {
+/// Why neither `remove-frit` nor the TUI's `r` keeps a removal of the frit
+/// `name`, with `frits` the frits' directory; `None` when a removal may be
+/// kept. The two refuse a built-in font's name and a name that no frit can
+/// have. They also refuse a set of vtium's catalog, which only a category
+/// folder of the frits' directory holds: an install removes a frit only
+/// from the frits' directory itself, so that removal would remove nothing.
+/// A frit that vtium.conf names is not refused: the removal is kept, and
+/// the check lists each line that names the frit.
+///
+/// References:
+/// - ADR-1403 D8, "Every font set change is kept at once": the changes vtium-config refuses, and a removal kept although vtium.conf names the frit.
+pub fn removal_refusal(frits: &Path, name: &str) -> Option<String> {
     if RESERVED.contains(&name) {
         return Some(format!("{name} is a built-in font, not a font set"));
     }
     if !valid_name(name) {
         return Some(format!("there is no font set named {name:?}"));
     }
-    crate::apply::naming(name, conf)
-        .map(|by| format!("{name} is not removed: {by} uses it. Choose another font there first."))
+    if frits.join(format!("{name}.vtfrit")).is_file() {
+        return None;
+    }
+    crate::switch::category_file(frits, name).map(|held| {
+        format!(
+            "{name} is a font set of vtium's catalog, {}, and vtium-config does not remove a font set of the catalog",
+            held.display()
+        )
+    })
 }
 
 /// `remove-frit NAME [--install]`: keeps the removal of the installed frit
@@ -541,24 +554,12 @@ pub fn remove_frit(
     if name.starts_with("--") {
         return usage(err, &format!("remove-frit has no option {name}"));
     }
-    // the name is judged before it names a file
-    if let Some(why) = removal_refusal(name, None) {
-        return failed(err, &why);
-    }
     let frits = match &paths.frits {
         Ok(frits) => frits,
         Err(why) => return failed(err, why),
     };
-    if !frits.join(format!("{name}.vtfrit")).is_file()
-        && let Some(held) = crate::switch::category_file(frits, name)
-    {
-        return failed(
-            err,
-            &format!(
-                "The font set {name} is a set of vtium's catalog, {}. vtium-config does not remove a set of the catalog.",
-                held.display()
-            ),
-        );
+    if let Some(why) = removal_refusal(frits, name) {
+        return failed(err, &why);
     }
     crate::flowcli::font_set(
         name,

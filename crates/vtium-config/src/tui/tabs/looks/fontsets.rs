@@ -71,11 +71,12 @@ pub fn usable(shared: &Shared, font: &Font) -> bool {
 /// the font set, at its top level or in a look, and the check then lists
 /// each line that names it. On a font set that only the draft adds, `r`
 /// takes it back out of the folder, and on a removed one it takes the
-/// removal back. The tab refuses only a change it cannot make: a built-in
-/// font, and a font set that is neither installed nor in the folder.
+/// removal back. The tab refuses what `remove-frit` refuses, by the same
+/// check: a built-in font, a set of vtium's catalog, and a font set that is
+/// neither installed nor in the folder.
 ///
 /// References:
-/// - ADR-1403 D8, "Every font set change is kept at once": what `r` keeps, and the one removal vtium-config refuses.
+/// - ADR-1403 D8, "Every font set change is kept at once": what `r` keeps, and the removals vtium-config refuses.
 pub fn remove(shared: &Shared, name: &str) -> Vec<Command> {
     let say = |line: String| Command::Change(Change::Say(line));
     let Some(draft) = &shared.draft else {
@@ -91,11 +92,13 @@ pub fn remove(shared: &Shared, name: &str) -> Vec<Command> {
             say(line),
         ]
     };
-    if let Some(why) = crate::commands::removal_refusal(name, None) {
-        return vec![say(words::remove_refused(name, why))];
-    }
+    // a removal already kept is taken back first, so `r` toggles it even
+    // where it would now refuse to keep one
     if shared.frits().removed.contains(name) {
         return keep(FontSetEdit::Forget, words::remove_dropped(name));
+    }
+    if let Some(why) = crate::commands::removal_refusal(&shared.inputs.frits, name) {
+        return vec![say(words::remove_refused(name, why))];
     }
     if shared.inputs.installed.contains_key(name) {
         return keep(FontSetEdit::Remove, words::remove_pending(name));
@@ -456,5 +459,34 @@ mod tests {
             said,
             words::remove_refused("quiet", words::remove_unread("quiet"))
         );
+    }
+
+    /// `r` keeps no removal of a font set that only a category folder of
+    /// vtium's catalog holds, since the install removes only from the
+    /// frits' directory itself, and it says why in `remove-frit`'s words.
+    /// A font set of the same name in the frits' directory itself is
+    /// removed as any other.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "Every font set change is kept at once": `r` and `remove-frit` refuse the same changes.
+    #[test]
+    #[expect(clippy::expect_used, reason = "a test fails by panicking")]
+    fn r_refuses_a_set_of_the_catalog_as_remove_frit_does() {
+        let dir = crate::scratch::Scratch::new("fontsets-catalog");
+        std::fs::create_dir_all(dir.join("console")).expect("a category folder");
+        std::fs::write(dir.join("console/cat.vtfrit"), "source=builtin:unifont\n")
+            .expect("a set of the catalog");
+        let mut held = shared(&[], &[]);
+        held.inputs.frits = dir.to_path_buf();
+        // the TUI lists the catalog's sets among the installed ones
+        held.inputs
+            .installed
+            .insert("cat".to_owned(), b"source=builtin:unifont\n".to_vec());
+        let why = crate::commands::removal_refusal(&dir, "cat").expect("the catalog's set");
+        let (edit, said) = r(&held, "cat");
+        assert_eq!(edit, None, "{said}");
+        assert_eq!(said, words::remove_refused("cat", &why));
+        std::fs::write(dir.join("cat.vtfrit"), "source=builtin:unifont\n").expect("a set");
+        assert_eq!(r(&held, "cat").0, Some(FontSetEdit::Remove));
     }
 }

@@ -414,6 +414,46 @@ fn the_check_of_a_draft_counts_the_folder_s_font_sets() {
     );
 }
 
+/// The check of a draft passes the console's check only the font set
+/// changes that `flow`, `diff` and install count. A removal that removes
+/// nothing, such as the removal of a set that only a category folder of
+/// the catalog holds or of a frit this machine lacks, and a frit whose
+/// text is the installed one's, pass nothing. So a look that names the
+/// catalog's set is not warned about, and the install does not refuse a
+/// draft for a removal that would do nothing.
+///
+/// References:
+/// - ADR-1403 D8, "A draft's font set changes": a frit with the installed text is no change, and a removal of a frit the machine lacks removes nothing.
+#[test]
+fn the_check_passes_only_the_font_set_changes_install_makes() {
+    let f = fixture("check-changes");
+    let args = f.path("args");
+    script::executable(
+        &f.path("vtium"),
+        &format!(
+            "#!/bin/sh\n[ \"$1\" = check-config ] || exit 9\nprintf '%s\\n' \"$@\" > '{}'\nexit 0\n",
+            args.display()
+        ),
+    );
+    std::fs::create_dir_all(f.path("etc/fonts/console")).expect("a category folder");
+    std::fs::write(f.path("etc/fonts/console/cat.vtfrit"), OLD).expect("a set of the catalog");
+    f.desk();
+    f.keep("cat.removed", "");
+    f.keep("gone.removed", "");
+    f.keep("kept.vtfrit", KEPT);
+    f.keep("old.removed", "");
+    let first = f.first_line();
+    let words = std::fs::read_to_string(&args).expect("the words the check took");
+    let frits: Vec<&str> = words
+        .lines()
+        .collect::<Vec<_>>()
+        .windows(2)
+        .filter(|w| w[0].ends_with("-frit"))
+        .flat_map(|w| [w[0], w[1]])
+        .collect();
+    assert_eq!(frits, ["--without-frit", "old"], "{first}");
+}
+
 /// The frits' paths come from the installed frits' directory, so a draft
 /// that moves that directory with `font-frits` and also holds a font set
 /// change is refused at install, and nothing is installed; the move

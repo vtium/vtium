@@ -196,7 +196,7 @@ fn remove_frit_keeps_the_removal_in_the_draft_until_install() {
     std::fs::write(fonts.join("console/cat.vtfrit"), "source=builtin:unifont\n").expect("a frit");
     for (name, says) in [
         ("unifont", "built-in font"),
-        ("cat", "a set of vtium's catalog"),
+        ("cat", "a font set of vtium's catalog"),
         ("nosuch", "no installed font set has that name"),
         ("../x", "there is no font set named"),
     ] {
@@ -204,6 +204,12 @@ fn remove_frit_keeps_the_removal_in_the_draft_until_install() {
         assert_eq!(ran.status, 1, "{name}: {}", ran.out);
         assert!(ran.err.contains(says), "{name}: {}", ran.err);
     }
+    // the TUI's r refuses the catalog's set in the same words
+    let why = vtium_config::commands::removal_refusal(&fonts, "cat").expect("the catalog's set");
+    assert_eq!(
+        f.run(&["remove-frit", "cat"]).err,
+        format!("vtium-config: {why}\n")
+    );
     let ran = f.run(&["remove-frit", "tiny"]);
     let removal = f.kept(&ran, "tiny.removed");
     assert!(removal.is_file());
