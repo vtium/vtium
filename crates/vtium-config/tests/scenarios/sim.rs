@@ -254,8 +254,19 @@ impl Sim {
     /// The TUI at its start in `term`, at `cols` by `rows`, on the
     /// fixture, with a desk whose draft is the fixture's vtium.conf.
     pub fn start(term: Term, cols: usize, rows: usize) -> Sim {
+        Sim::start_on(term, cols, rows, |_| {})
+    }
+
+    /// [`Sim::start`] on the fixture's inputs as `edit` changes them.
+    pub fn start_on(
+        term: Term,
+        cols: usize,
+        rows: usize,
+        edit: impl Fn(&mut vtium_config::tui::model::Inputs),
+    ) -> Sim {
         let mut inputs = vtium_config::tui::fixture::inputs();
         inputs.desk = true;
+        edit(&mut inputs);
         // comments after the fixture's settings make the file longer than
         // the file view's window, so its scrolling keys have lines to move
         let mut conf = inputs.conf.clone().unwrap_or_default();

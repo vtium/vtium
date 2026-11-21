@@ -221,7 +221,7 @@ impl Seen<'_> {
 
     /// The terminal card open in `sim`, with the line under its cursor:
     /// its object, its path and the line. `None` outside a card.
-    fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
+    pub fn card(sim: &Sim) -> Option<(Obj, vtium_config::tui::paths::Path, CardLine)> {
         let fv = sim.app.flow.state();
         let obj = fv.layer.clone()?;
         let path = flowlayout::card_path(sim.app.flow.state(), &sim.app.shared, &obj)?;
