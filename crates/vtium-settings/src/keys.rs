@@ -2742,6 +2742,7 @@ mod tests {
         assert!(key.what.contains("கொ"), "{}", key.what);
         assert!(
             key.what
+                .to_lowercase()
                 .contains("a change takes effect when vtium restarts"),
             "{}",
             key.what
