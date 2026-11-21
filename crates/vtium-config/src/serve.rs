@@ -259,7 +259,7 @@ use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, Un
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
-use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
+use crate::frit::{Cover, FRIT_BYTES_MAX, FRIT_SOURCES_MAX, Frit, Hinting, Source, valid_name};
 use crate::frit::{Render, RenderLine};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
@@ -365,6 +365,10 @@ pub const ACTIVE: u32 = 10;
 /// A description of one font file ([`DescribeAsk`]), which only
 /// vtium-config sends.
 pub const DESCRIBE: u32 = 11;
+/// The sources of a frit that the helper leaves out, as one `u32` with a
+/// bit for each `source=` line, the first line the lowest bit
+/// ([`Request::LeaveOut`]).
+pub const LEAVE_OUT: u32 = 12;
 /// The answer to a [`DescribeAsk`]: the font file's
 /// [`crate::describe::Description`].
 pub const FRAME_DESCRIPTION: u32 = 18;
@@ -805,13 +809,36 @@ fn read_magic(r: &mut impl Read) -> Result<bool, String> {
 }
 
 /// Any request the helper reads: one of the glyph requests, a pointer
-/// ask, or the active fonts.
+/// ask, the active fonts, a font file's description, or the sources left
+/// out.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Request {
     Serve(ServeRequest),
     Pointer(PointerAsk),
     Active(ActiveAsk),
     Describe(DescribeAsk),
+    /// The sources of each frit that the helper reads from now on leaves
+    /// out, a bit for each `source=` line in the order the frit's text
+    /// gives them, the first line the lowest bit. A frit read already is
+    /// read again at its next request. The console sends it first to a
+    /// helper it starts after a source made an earlier helper crash, hang
+    /// or reach its CPU limit, and with a source left out on purpose while
+    /// it looks for the source that did. A helper serves one frit for the
+    /// console, so the bits name that frit's sources.
+    ///
+    /// References:
+    /// - ADR-1200 D14: a crash, a fault or a timeout fails one source and
+    ///   nothing else.
+    LeaveOut(u32),
+}
+
+/// The bytes of a [`Request::LeaveOut`] that leaves out the sources whose
+/// bits `mask` sets.
+pub fn leave_out_request(mask: u32) -> Vec<u8> {
+    let mut out = REQUEST_MAGIC.to_vec();
+    put32(&mut out, LEAVE_OUT);
+    put32(&mut out, mask);
+    out
 }
 
 /// A description of one font file, for vtium-config's Fonts tab and its
@@ -968,6 +995,19 @@ pub fn read_request(r: &mut impl Read) -> Result<Option<Request>, String> {
         ActiveAsk::read_body(&mut f).map(|a| Some(Request::Active(a)))
     } else if kind == DESCRIBE {
         DescribeAsk::read_body(&mut f).map(|a| Some(Request::Describe(a)))
+    } else if kind == LEAVE_OUT {
+        // a bit past the most sources a frit holds names no source
+        let mask = f.u32()?;
+        if u32::try_from(FRIT_SOURCES_MAX)
+            .ok()
+            .and_then(|n| mask.checked_shr(n))
+            .is_none_or(|past| past != 0)
+        {
+            return Err(format!(
+                "sources left out past the {FRIT_SOURCES_MAX} a frit holds"
+            ));
+        }
+        Ok(Some(Request::LeaveOut(mask)))
     } else {
         ServeRequest::read_body(kind, &mut f).map(|r| Some(Request::Serve(r)))
     }
@@ -1042,9 +1082,12 @@ impl PointerAsk {
         match read_request(r)? {
             None => Ok(None),
             Some(Request::Pointer(a)) => Ok(Some(a)),
-            Some(Request::Serve(_) | Request::Active(_) | Request::Describe(_)) => {
-                Err("a glyph request where a pointer ask was expected".to_owned())
-            }
+            Some(
+                Request::Serve(_)
+                | Request::Active(_)
+                | Request::Describe(_)
+                | Request::LeaveOut(_),
+            ) => Err("a glyph request where a pointer ask was expected".to_owned()),
         }
     }
 
@@ -2160,7 +2203,7 @@ impl Engine {
         console: Option<ConsoleFont>,
         gate: &Gate,
     ) -> Result<Engine, String> {
-        Engine::read(frit, paths, console, gate).map_err(|nothing| nothing.why)
+        Engine::read(frit, paths, console, (gate, 0)).map_err(|nothing| nothing.why)
     }
 
     /// [`Engine::load`], which for a frit it draws nothing from keeps what
@@ -2168,14 +2211,23 @@ impl Engine {
     /// missing font, and the sources left out and the fonts that differ,
     /// so a sources query still names them.
     ///
+    /// It leaves out each source whose bit `leave` sets, a bit for each
+    /// `source=` line in the order of the frit's text, the first line the
+    /// lowest bit, as if the frit had no such line. The console names
+    /// those sources when one of them made an earlier helper crash, hang or
+    /// reach its CPU limit, and logs that itself, so the read adds no
+    /// warning for them.
+    ///
     /// References:
     /// - ADR-1204 D7: the console logs each missing font, and vtium-config
     ///   names each one, whether or not the set has a font left.
+    /// - ADR-1200 D14: a crash, a fault or a timeout fails one source and
+    ///   nothing else.
     fn read(
         frit: &FritText,
         paths: &Paths,
         console: Option<ConsoleFont>,
-        gate: &Gate,
+        (gate, leave): (&Gate, u32),
     ) -> Result<Engine, DrawsNothing> {
         let file = Path::new(&frit.name);
         // the console hands the frit with its layers in place, so each
@@ -2206,7 +2258,14 @@ impl Engine {
         let mut why = Vec::new();
         let mut left_out = Vec::new();
         let mut differs = Vec::new();
-        for source in &frit.sources {
+        for (i, source) in frit.sources.iter().enumerate() {
+            if u32::try_from(i)
+                .ok()
+                .and_then(|i| 1u32.checked_shl(i))
+                .is_some_and(|bit| leave & bit != 0)
+            {
+                continue;
+            }
             let own_line = frit.place(source.line).own;
             // the version the font states, read only where the set asks
             // for one
@@ -4567,6 +4626,9 @@ struct Work<'p> {
     /// Each frit's engine, by its name and text, so a frit whose text
     /// changes is read again.
     engines: BTreeMap<FritText, Result<Engine, DrawsNothing>>,
+    /// The sources each frit leaves out, from the console's last
+    /// [`Request::LeaveOut`]: none until one comes.
+    left_out: u32,
     console: Option<ConsoleFont>,
     asks: VecDeque<Queued>,
     fills: VecDeque<Fill>,
@@ -4591,9 +4653,17 @@ impl Work<'_> {
     /// it draws nothing and what its read found.
     fn read(&mut self, frit: &FritText) -> &Result<Engine, DrawsNothing> {
         let (paths, console, gate) = (self.paths, self.console.clone(), &self.gate);
+        let left_out = self.left_out;
         self.engines
             .entry(frit.clone())
-            .or_insert_with(|| Engine::read(frit, paths, console, gate))
+            .or_insert_with(|| Engine::read(frit, paths, console, (gate, left_out)))
+    }
+
+    /// Takes the sources the console names to leave out: each frit read
+    /// already is read again at its next request, without them.
+    fn leave_out(&mut self, mask: u32) {
+        self.left_out = mask;
+        self.engines.clear();
     }
 
     /// Takes the active fonts the console names, the gate every frit is
@@ -4832,6 +4902,7 @@ fn answer_requests(
         paths,
         gate,
         engines: BTreeMap::new(),
+        left_out: 0,
         console: None,
         asks: VecDeque::new(),
         fills: VecDeque::new(),
@@ -4870,6 +4941,10 @@ fn answer_requests(
                             Ok(())
                         }
                         Request::Describe(a) => a.answer(&work.gate, out),
+                        Request::LeaveOut(mask) => {
+                            work.leave_out(mask);
+                            Ok(())
+                        }
                         Request::Active(a) => match work.activate(&a) {
                             Ok(()) => Ok(()),
                             Err(why) => {
@@ -5231,6 +5306,72 @@ mod tests {
                 (f.0, SetFace::new(set, 16).unwrap())
             })
             .collect()
+    }
+
+    // ADR-1200 D14: the console names the sources the helper leaves out,
+    // after one of them made a helper crash; the helper reads the frit
+    // without them, and a frit with none left draws nothing
+    #[test]
+    fn the_sources_the_console_names_are_left_out() {
+        let text = "source=builtin:unifont\ncover=U+0041\nsource=builtin:unifont\ncover=U+0042\nsource=builtin:unifont\ncover=U+0043\n";
+        let ask = request(ASK, frit(text), &['A', 'B', 'C']).encode();
+        let answer = |mask: Option<u32>| {
+            let mut bytes = mask.map(leave_out_request).unwrap_or_default();
+            bytes.extend_from_slice(&ask);
+            let mut out = Vec::new();
+            let status = serve(
+                std::io::Cursor::new(bytes),
+                &mut out,
+                &Paths::default(),
+                Duration::from_secs(5),
+            );
+            (status, frames(&out))
+        };
+        let drawn = |frames: &[(u32, Vec<u8>)]| -> Vec<char> {
+            let faces = faces(frames);
+            ['A', 'B', 'C']
+                .into_iter()
+                .filter(|&c| faces.iter().any(|(_, f)| f.has_glyph(c)))
+                .collect()
+        };
+        let (status, all) = answer(None);
+        assert_eq!(status, 0);
+        assert_eq!(drawn(&all), ['A', 'B', 'C']);
+        // the second source left out: its B is not drawn, the others are,
+        // and no warning names it
+        let (status, two) = answer(Some(0b010));
+        assert_eq!(status, 0);
+        assert_eq!(drawn(&two), ['A', 'C']);
+        assert!(two.iter().all(|f| f.0 != FRAME_WARNING), "{two:?}");
+        assert_eq!(two.last().map(|f| f.0), Some(FRAME_DONE));
+        let (status, first) = answer(Some(0b110));
+        assert_eq!(status, 0);
+        assert_eq!(drawn(&first), ['A']);
+        // every source left out: the ask fails, and the helper goes on
+        let (status, none) = answer(Some(0b111));
+        assert_eq!(status, 0);
+        assert_eq!(none.iter().map(|f| f.0).collect::<Vec<_>>(), [FRAME_FAILED]);
+    }
+
+    // a leave-out request reads back, and one with a bit past the sixteen
+    // sources a frit holds is refused before anything else is read
+    #[test]
+    fn a_leave_out_request_reads_back_and_names_no_source_past_sixteen() {
+        for mask in [0, 1, 0b1010, 0xffff] {
+            assert_eq!(
+                read_request(&mut &leave_out_request(mask)[..]),
+                Ok(Some(Request::LeaveOut(mask)))
+            );
+        }
+        for mask in [0x1_0000, 0x8000_0000] {
+            assert_eq!(
+                read_request(&mut &leave_out_request(mask)[..]),
+                Err("sources left out past the 16 a frit holds".to_owned())
+            );
+        }
+        let mut cut = leave_out_request(1);
+        cut.pop();
+        assert!(read_request(&mut &cut[..]).is_err());
     }
 
     #[test]
@@ -8355,6 +8496,7 @@ mod tests {
             paths: &paths,
             gate: Gate::Open,
             engines: BTreeMap::new(),
+            left_out: 0,
             console: None,
             asks: VecDeque::new(),
             fills: VecDeque::new(),
