@@ -426,6 +426,10 @@ pub struct Preview<'a> {
     pub shared: &'a Shared,
     pub size: Size,
     pub source: Source<'a>,
+    /// The font set the preview stands for, where only the draft adds it.
+    /// The console reads only installed font sets, so the caption of the
+    /// console's own preview says that `t` can try it after the install.
+    pub in_draft: Option<&'a str>,
 }
 
 impl<'a> Preview<'a> {
@@ -435,6 +439,16 @@ impl<'a> Preview<'a> {
             shared,
             size,
             source,
+            in_draft: None,
+        }
+    }
+
+    /// This preview, standing for `name`, a font set that only the draft
+    /// adds, where `name` is given.
+    pub fn in_draft(self, name: Option<&'a str>) -> Preview<'a> {
+        Preview {
+            in_draft: name,
+            ..self
         }
     }
 
@@ -599,12 +613,18 @@ impl<'a> Preview<'a> {
             && !self.pictured_in_console()
             && !super::layout::too_small(self.size)
         {
-            return match self.source {
-                Source::Font { .. } => Some(words::console_font_caption(
+            return match (self.source, self.in_draft) {
+                (Source::Font { .. }, Some(name)) => {
+                    Some(words::console_caption_in_draft(name, false))
+                }
+                (Source::Size { .. }, Some(name)) => {
+                    Some(words::console_caption_in_draft(name, true))
+                }
+                (Source::Font { .. }, None) => Some(words::console_font_caption(
                     self.shared.shown_font.as_deref(),
                 )),
-                Source::Size { .. } => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
-                Source::Effect { .. } | Source::Nothing => None,
+                (Source::Size { .. }, None) => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
+                (Source::Effect { .. } | Source::Nothing, _) => None,
             };
         }
         let wanted = self.wanted()?;

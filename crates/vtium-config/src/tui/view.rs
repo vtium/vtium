@@ -146,11 +146,17 @@ fn status(app: &App) -> String {
                 (false, true) => words::PREVIEW_TEXT_SHORT,
             },
             // t tries a font set on a look or a font set of the Looks tab
-            // and in a look's card; elsewhere in the Looks tab t does
-            // nothing, and the other tabs say where the trial is
+            // and in a look's card, and on a font set only the draft adds
+            // the line says t can try it after the install; elsewhere in
+            // the Looks tab t does nothing, and the other tabs say where
+            // the trial is
             match (*live == Live::On, app.nav.view) {
                 (true, View::Looks) if matches!(trial_node, "looks" | "looks.look") => {
-                    words::TRIAL_KEY
+                    if app.looks.in_draft(&app.shared).is_some() {
+                        words::TRIAL_AFTER_INSTALL
+                    } else {
+                        words::TRIAL_KEY
+                    }
                 }
                 (true, View::Looks) => words::TRIAL_ON_FONT_SETS,
                 (true, _) => words::TRIAL_IN_LOOKS,

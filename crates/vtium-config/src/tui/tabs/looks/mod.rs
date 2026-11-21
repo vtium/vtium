@@ -468,6 +468,24 @@ impl Looks {
         Preview::of(shared, size, Source::Size { font, points })
     }
 
+    /// The font set `t` would try, where only the draft adds it: the
+    /// console reads font sets only from the frits' directory, so `t` can
+    /// try it once the draft is installed.
+    ///
+    /// References:
+    /// - ADR-1403 D8, "The live trial": on a frit only the draft holds, the TUI says that the font set can be tried once it is installed.
+    pub fn in_draft<'a>(&self, shared: &'a Shared) -> Option<&'a str> {
+        let name = self.font_set(shared)?;
+        if !fontsets::only_drafted(shared, &name) {
+            return None;
+        }
+        shared
+            .frits()
+            .kept
+            .get_key_value(&name)
+            .map(|(k, _)| k.as_str())
+    }
+
     /// `n` among the looks: a new look, with No filter and every other key
     /// left to vtium.conf, goes into the draft, and its card opens with its
     /// name being typed. A look with no `vtlook` line draws the vtlook of
@@ -739,7 +757,7 @@ impl Tab for Looks {
                 points: self.points(shared),
             }
         };
-        Preview::of(shared, size, source)
+        Preview::of(shared, size, source).in_draft(self.in_draft(shared))
     }
 
     /// In a vtium console, the sample screen's lines, or with `p` the

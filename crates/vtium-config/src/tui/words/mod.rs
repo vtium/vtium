@@ -50,6 +50,10 @@ pub const PREVIEW_TEXT_SHORT: &str = "text";
 
 pub const TRIAL_KEY: &str = "t: try live";
 
+/// The status line's word for `t` on a font set that only the draft adds,
+/// which the console can try once the draft is installed.
+pub const TRIAL_AFTER_INSTALL: &str = "t: after install";
+
 pub const TRIAL_NONE: &str = "no live trial";
 
 /// The status line's trial words on a tab other than the Looks tab, which

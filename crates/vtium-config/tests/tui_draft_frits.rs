@@ -144,6 +144,17 @@ fn words(screen: &str) -> String {
     screen.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// The words of the columns left of the preview, so the sentences under
+/// the list read whole where their rows run beside the preview's text.
+fn left_words(screen: &str) -> String {
+    let cols = vtium_config::tui::layout::PICTURE_COL - 2;
+    let left: Vec<String> = screen
+        .lines()
+        .map(|l| l.chars().take(cols).collect())
+        .collect();
+    words(&left.join("\n"))
+}
+
 /// A font set made with the new-frit form survives leaving vtium-config
 /// before Install: `q` leaves at once, the draft's folder holds the font
 /// set, `vtium config diff` shows it, and the TUI started again finds it
@@ -264,11 +275,35 @@ fn a_font_set_only_the_draft_adds_shows_in_the_list_and_the_card() {
     // the look big, the six font sets the machine has, then quiet
     let to_quiet: Vec<&[u8]> = std::iter::repeat_n(DOWN, 7).collect();
     // the sentence under the list wraps beside the preview's text
-    let said = words(&m.run(&to_quiet));
+    let screen = m.run(&to_quiet);
+    let said = left_words(&screen);
     assert!(
         said.contains("quiet: reads, in the") && said.contains("draft, not yet installed."),
         "{said}"
     );
+    // the caption and the status line say that t can try quiet once the
+    // draft is installed, and do not offer t now
+    assert!(
+        said.contains(
+            "The console draws this in its current font. The font set quiet is in the draft, so t can try it once you install the draft with i. A size takes effect when vtium starts again."
+        ),
+        "{said}"
+    );
+    assert!(!said.contains("Press t"), "{said}");
+    let status = screen.lines().nth(1).unwrap_or_default();
+    assert!(
+        status.contains("t: after install") && !status.contains("try live"),
+        "{screen}"
+    );
+    // and so does p's picture of the console
+    let said = words(&m.run(&[&to_quiet[..], &[b"p".as_slice()]].concat()));
+    assert!(
+        said.contains(
+            "The font set quiet is in the draft, so t can try it once you install the draft with i."
+        ),
+        "{said}"
+    );
+    assert!(!said.contains("Press t"), "{said}");
     let said = words(&m.run(&[&to_quiet[..], &[ENTER]].concat()));
     assert!(said.contains("Font set quiet"), "{said}");
     assert!(

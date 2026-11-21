@@ -11,6 +11,21 @@ pub const LOOKS: &str = "Looks";
 /// the font and size it uses now.
 pub const CONSOLE_SIZE_CAPTION: &str = "The console draws this in its current font. Press t to try the font set. A size takes effect when vtium starts again.";
 
+/// The caption of the console's own preview of the font set `name`, which
+/// only the draft adds. The console reads only installed font sets, so the
+/// caption says when `t` can try the font set instead of offering `t`.
+/// Under a list of sizes, `sized`, it also says when a size takes effect.
+pub fn console_caption_in_draft(name: impl Display, sized: bool) -> String {
+    let size = if sized {
+        " A size takes effect when vtium starts again."
+    } else {
+        ""
+    };
+    format!(
+        "The console draws this in its current font. The font set {name} is in the draft, so t can try it once you install the draft with i.{size}"
+    )
+}
+
 /// The size that lets vtium choose.
 pub const AUTOMATIC: &str = "automatic";
 
