@@ -442,6 +442,10 @@ impl Looks {
         let drawn = shared.text_preview() || shared.graphics;
         let below = tail.len().saturating_add(usize::from(drawn));
         let fits = room.saturating_sub(below).saturating_sub(1);
+        // the window keeps to the rows the sentences leave, so where they
+        // leave fewer than SIZE_LIST_MIN the card gives up the preview and
+        // shows its list and hint; a larger window would push the hint and
+        // the sentences off the screen
         let window = list.len().min(room / 2).min(fits);
         if window < list.len().min(SIZE_LIST_MIN) {
             return None;

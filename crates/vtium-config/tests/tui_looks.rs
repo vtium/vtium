@@ -2175,6 +2175,68 @@ fn a_long_reason_under_the_size_list_shrinks_the_list_before_it_goes() {
     assert!(listed >= 3, "{screen}");
 }
 
+/// A written description too long to leave the size list three rows makes
+/// the card give up the preview under its size list: the card shows its
+/// list and the hint under it, as it does with no preview, rather than a
+/// window of the list over blank rows. The reason here names a path of 800
+/// characters, which leaves the list fewer than three rows at 80x25.
+#[test]
+fn a_reason_too_long_for_the_size_list_leaves_the_list_and_its_hint() {
+    use vtium_config::tui::input::{Input, Key};
+    use vtium_config::tui::model::{App, Effect, Event, Live, Size, View};
+    use vtium_config::tui::view;
+    let mut i = sized();
+    i.view = View::Looks;
+    let (mut app, _) = App::start(
+        i,
+        Size {
+            cols: 80,
+            rows: 25,
+            cell_px: Some((8, 16)),
+        },
+    );
+    app.shared.live = Live::OpsOff;
+    app.shared.graphics = false;
+    // the card of look seven, its size list, and Down to 8 pt
+    let mut asked = None;
+    for key in [
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+        Key::Down,
+        Key::Enter,
+        Key::Down,
+    ] {
+        for effect in app.event(Event::Input(Input::Key(key))) {
+            if let Effect::Summary { font, height } = effect {
+                asked = Some((font, height));
+            }
+        }
+        app.shared.drawing = false;
+    }
+    let (font, height) = asked.expect("the description of a size asked for");
+    let why = format!(
+        "cannot read /usr/share/fonts/{}/x.otb: No such file or directory",
+        "d".repeat(800)
+    );
+    app.event(Event::Summarized {
+        font,
+        height,
+        summary: Err(why),
+    });
+    let screen = view::as_text(&view::screen(&app));
+    let said = flat(&screen);
+    assert!(
+        said.contains(
+            "Enter picks the highlighted choice, and Esc goes back to the card without a change."
+        ),
+        "{screen}"
+    );
+    assert!(!said.contains("dddd"), "{screen}");
+    assert!(body(&screen).iter().any(|r| r == "   ● 7 pt"), "{screen}");
+}
+
 /// In a vtium console, a look card's size list prints the sample screen
 /// as its preview only where the screen leaves the preview a row, as the
 /// layout of the list and its sentences decides. On a screen too short
