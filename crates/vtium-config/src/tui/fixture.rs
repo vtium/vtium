@@ -741,72 +741,62 @@ pub fn font_set_op(
     Ok(())
 }
 
+/// The font set changes a stand-in desk's draft makes, from `frits`, the
+/// draft's folder, against `installed`, the installed frits by name, in
+/// the frits' directory `dir`: what the real desk counts, through the same
+/// function ([`crate::drafts::frit_changes`]).
+pub fn frit_changes(
+    frits: &crate::store::FritChanges,
+    installed: &std::collections::BTreeMap<String, Vec<u8>>,
+    dir: &std::path::Path,
+) -> Vec<crate::drafts::FritChange> {
+    crate::drafts::frit_changes("mine", frits, dir, |path| {
+        let name = path.file_stem()?.to_str()?;
+        installed.get(name).cloned()
+    })
+    .0
+}
+
+/// [`frit_changes`] by name with what each does, as the real desk gives
+/// them in [`super::desk::Opened::frit_changes`].
+pub fn frit_edits(
+    frits: &crate::store::FritChanges,
+    installed: &std::collections::BTreeMap<String, Vec<u8>>,
+    dir: &std::path::Path,
+) -> Vec<(String, crate::drafts::FritEdit)> {
+    frit_changes(frits, installed, dir)
+        .iter()
+        .map(|c| (c.name.clone(), c.edit()))
+        .collect()
+}
+
 /// The font set part of the plan a stand-in desk readies from `frits`,
 /// the draft's folder, against `installed`, the installed frits by name,
-/// in the frits' directory `dir`, as the real desk's prepare builds it:
-/// each new or replaced frit whose text differs from the installed one,
-/// and a removal for each removed frit that is installed.
+/// in the frits' directory `dir`, as the real desk's prepare builds it
+/// from [`frit_changes`]: each new or replaced frit whose text differs
+/// from the installed one, and a removal for each removed frit that is
+/// installed.
 pub fn frit_plan(
     frits: &crate::store::FritChanges,
     installed: &std::collections::BTreeMap<String, Vec<u8>>,
     dir: &std::path::Path,
 ) -> (Vec<crate::draft::FileEdit>, Vec<crate::draft::Removal>) {
-    let path = |name: &str| dir.join(format!("{name}.vtfrit"));
-    let files = frits
-        .kept
-        .iter()
-        .filter(|(name, text)| installed.get(*name).map(Vec::as_slice) != Some(text.as_bytes()))
-        .map(|(name, text)| crate::draft::FileEdit {
-            path: path(name),
-            old: installed
-                .get(name)
-                .map(|b| String::from_utf8_lossy(b).into_owned()),
-            new: text.clone(),
-        })
-        .collect();
-    let removals = frits
-        .removed
-        .iter()
-        .filter_map(|name| {
-            Some(crate::draft::Removal {
-                path: path(name),
-                old: installed.get(name)?.clone(),
-            })
-        })
-        .collect();
+    let mut files = Vec::new();
+    let mut removals = Vec::new();
+    for change in frit_changes(frits, installed, dir) {
+        match change.new {
+            Some(new) => files.push(crate::draft::FileEdit {
+                path: change.path,
+                old: change.old.map(|b| String::from_utf8_lossy(&b).into_owned()),
+                new,
+            }),
+            None => removals.push(crate::draft::Removal {
+                path: change.path,
+                old: change.old.unwrap_or_default(),
+            }),
+        }
+    }
     (files, removals)
-}
-
-/// The font set changes a stand-in desk's install makes from `frits`,
-/// the draft's folder, against `installed`, the installed frits by name,
-/// as the real desk lists them in [`super::desk::Opened::installs`]: each
-/// font set whose text differs from the installed one, added or replaced,
-/// and each removal of an installed font set, in the order of the names.
-pub fn installs(
-    frits: &crate::store::FritChanges,
-    installed: &std::collections::BTreeMap<String, Vec<u8>>,
-) -> Vec<(String, super::desk::FontSetChange)> {
-    use super::desk::FontSetChange;
-    let mut out: Vec<(String, FontSetChange)> = frits
-        .kept
-        .iter()
-        .filter_map(|(name, text)| match installed.get(name) {
-            None => Some((name.clone(), FontSetChange::Add)),
-            Some(old) if old.as_slice() != text.as_bytes() => {
-                Some((name.clone(), FontSetChange::Replace))
-            }
-            Some(_) => None,
-        })
-        .chain(
-            frits
-                .removed
-                .iter()
-                .filter(|name| installed.contains_key(*name))
-                .map(|name| (name.clone(), FontSetChange::Remove)),
-        )
-        .collect();
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out
 }
 
 /// What a stand-in desk's install does to `frits`, the draft's folder,

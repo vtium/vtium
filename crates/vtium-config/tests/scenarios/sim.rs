@@ -75,7 +75,11 @@ impl Desk {
             removed,
             resources: self.resources.clone(),
             frits: self.frits.clone(),
-            installs: vtium_config::tui::fixture::installs(&self.frits, &self.installed_frits),
+            frit_changes: vtium_config::tui::fixture::frit_edits(
+                &self.frits,
+                &self.installed_frits,
+                &vtium_config::tui::fixture::inputs().frits,
+            ),
             ..Default::default()
         }
     }

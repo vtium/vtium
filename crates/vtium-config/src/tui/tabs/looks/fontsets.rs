@@ -14,11 +14,12 @@
 //! - ADR-1205 D8: a resource's view shows what works, and within a look
 //!   what it still misses, by role.
 
-use super::super::super::desk::{FontSetChange, FontSetEdit, Op};
+use super::super::super::desk::{FontSetEdit, Op};
 use super::super::super::listbox::Item;
 use super::super::super::model::{Effect, Font, FontState, Shared};
 use super::super::super::words;
 use super::super::{Change, Command};
+use crate::drafts::FritEdit;
 use crate::frit::{Frit, Source};
 use crate::serve::LeftOut;
 use crate::specimen::Sources;
@@ -81,11 +82,11 @@ pub fn state_of(name: &str, text: &str) -> FontState {
 }
 
 /// What the install does to the font set `name`, where it changes it.
-fn install_of(shared: &Shared, name: &str) -> Option<FontSetChange> {
+fn install_of(shared: &Shared, name: &str) -> Option<FritEdit> {
     shared
         .draft
         .as_ref()?
-        .installs
+        .frit_changes
         .iter()
         .find(|(n, _)| n == name)
         .map(|(_, c)| *c)
@@ -118,7 +119,7 @@ pub fn item(shared: &Shared, at: usize) -> Item {
         note = format!("{note}, {}", words::TO_REMOVE);
     } else if only_drafted(shared, &f.name) {
         note = format!("{note}, {}", words::IN_DRAFT);
-    } else if install_of(shared, &f.name) == Some(FontSetChange::Replace) {
+    } else if install_of(shared, &f.name) == Some(FritEdit::Replace) {
         note = format!("{note}, {}", words::REPLACED_IN_DRAFT);
     }
     if shared.changed("font-name") && shared.drafted("font-name").as_deref() == Some(&f.name) {
@@ -545,9 +546,9 @@ mod tests {
     fn the_list_marks_what_the_draft_adds_and_changes() {
         let mut held = shared(&["quiet", "tiny5", "proof"], &[]);
         if let Some(d) = held.draft.as_mut() {
-            d.installs = vec![
-                ("quiet".to_owned(), FontSetChange::Add),
-                ("tiny5".to_owned(), FontSetChange::Replace),
+            d.frit_changes = vec![
+                ("quiet".to_owned(), FritEdit::Add),
+                ("tiny5".to_owned(), FritEdit::Replace),
             ];
         }
         let note = |name: &str| {
