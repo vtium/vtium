@@ -1,6 +1,6 @@
 # 1920x1080
 
-A full HD monitor: 1920×1080, 24-bit color, drawn in `desktop` at 11×24, 174×45 cells, the card on 2 screens and vtium's message bars on one more, shown together in the collage.
+A full HD monitor: 1920×1080, 24-bit color, drawn in `jetbrains-mono` at 11×24, 174×45 cells, the card on 2 screens and vtium's message bars on one more, shown together in the collage.
 
 ![1920x1080](collage.png)
 
