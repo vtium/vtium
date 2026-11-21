@@ -438,7 +438,7 @@ pub fn look_box(name: &str) -> String {
 }
 
 /// A look that a head's look line names and the draft does not hold, as
-/// the terminal's card shows it.
+/// the terminal's card, its subflow and its box in a path show it.
 pub fn missing_look(name: &str) -> String {
     format!("{name} (missing)")
 }
