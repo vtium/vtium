@@ -159,13 +159,13 @@ fn read(path: &Path) -> Result<Option<String>, Fail> {
     crate::tui::read_conf(path).map_err(Fail::File)
 }
 
-/// The temporary file [`write`] writes before it renames the file over
+/// The temporary file [`write()`] writes before it renames the file over
 /// `name`: `.NAME.new-PID`, with this process's id.
 fn temporary(name: &str) -> String {
     format!(".{name}.new-{}", std::process::id())
 }
 
-/// Whether `file` is a name that [`write`] gives its temporary file, of
+/// Whether `file` is a name that [`write()`] gives its temporary file, of
 /// this process or of any other: `.NAME.new-PID`. A process killed between
 /// the write and the rename leaves one behind, and another process sees
 /// one while its write is under way, so a reader of the folder skips it.
@@ -391,7 +391,7 @@ impl Store {
     /// regular files whose names are a frit's name with one of those two
     /// endings, each at most the largest frit the glyph helper reads, and
     /// lists every other entry of the folder as a problem. It skips the
-    /// temporary files that [`write`] makes on the way to one of those
+    /// temporary files that [`write()`] makes on the way to one of those
     /// files, so a write cut short or under way in another process blocks
     /// no install. A missing folder and an empty one both hold no change.
     ///

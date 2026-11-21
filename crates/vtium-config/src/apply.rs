@@ -36,9 +36,8 @@
 //!    runs as; the edited vtium.conf, both its parts in one run, with the
 //!    console's own `vtium check-config`, so the verdict before writing is
 //!    the verdict at the next start, with the frits the draft writes and
-//!    removes counted as installed and removed ([`frit_copies`]); and a
-//!    system font with the font
-//!    helper, which must describe a copy root made of the font's bytes
+//!    removes counted as installed and removed; and a system font with the
+//!    font helper, which must describe a copy root made of the font's bytes
 //!    ([`SystemFont`]). A system font's draft that holds any other file
 //!    is refused, so that draft runs no `check-config`;
 //! 4. writes the frits, then the batch file, then vtium.conf, so
