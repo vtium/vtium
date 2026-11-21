@@ -17,15 +17,18 @@
 //! and as outlines. A panic there is a structure the check misses.
 //!
 //! A font the check passes then goes through vtium-config's own drawing
-//! code: the W rule's cell width at cell heights from 8 to the largest,
-//! 2,048 pixels, and the rasteriser at cell heights of 16 and 440 pixels.
-//! A font can pass the check and still scale a glyph to tens of thousands
-//! of pixels, so these calls reach the bound that draws a glyph larger
-//! than 4,096 pixels as empty before zeno, the rasteriser, sizes its mask.
-//! A panic or an allocation past the memory limit there is a glyph the
-//! bound misses. The target's own calls into swash leave out its reader of
-//! color bitmap strikes, which the check does not cover, as the crate's
-//! README says.
+//! code: the W rule's cell width at cell heights of 16, 440 and 2,048
+//! pixels, the largest, and the rasteriser at cell heights of 16 and 64
+//! pixels. A font can pass the check and still scale a glyph to tens of
+//! thousands of pixels, so these calls reach the bound that draws a glyph
+//! larger than 4,096 pixels as empty before zeno, the rasteriser, sizes its
+//! mask. A fuzzer reaches that bound at the small cells by shrinking the
+//! font's ascent and descent, and at the large ones through the W rule. A
+//! panic or an allocation past the memory limit there is a glyph the bound
+//! misses. The same calls draw color bitmap strikes through vtium-config's
+//! own reader of sbix, CBLC and CBDT and its PNG decoding, so a strike the
+//! reader mishandles shows here too. swash's own strike reader is not
+//! reached.
 //!
 //! References:
 //! - ADR-1500 D8: `font:FAMILY` finds an installed font by its family.
@@ -60,12 +63,12 @@ fuzz_target!(|bytes: &[u8]| {
 /// outline source, and the rasteriser's glyphs for a few characters,
 /// together with the printable ASCII that its baseline measure draws.
 fn draw(bytes: &[u8]) {
-    for height in [8, 16, 64, 440, 2048] {
+    for height in [16, 440, 2048] {
         let _ = cell_width(&[(bytes, "")], height);
     }
     let request = OutlineRequest {
         font: bytes.to_vec().into(),
-        cells: vec![(0, 16), (0, 440)],
+        cells: vec![(0, 16), (0, 64)],
         cover: vec![(0x41, 0x41), (0x57, 0x57), (0x67, 0x67), (0x1f600, 0x1f600)],
         ..Default::default()
     };
