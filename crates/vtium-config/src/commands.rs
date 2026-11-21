@@ -563,7 +563,6 @@ pub fn remove_frit(
     crate::flowcli::font_set(
         name,
         crate::flowcli::FontSetChange::Remove,
-        false,
         paths,
         devices,
         out,
@@ -947,7 +946,6 @@ pub fn new(
     crate::flowcli::font_set(
         &name,
         crate::flowcli::FontSetChange::Keep(text),
-        false,
         paths,
         devices,
         out,
