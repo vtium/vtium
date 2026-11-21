@@ -24,6 +24,7 @@ make tier3 VARIANTS="seat-seatd seat-logind seat-logind-survive seat-logind-two 
 make tier3 VARIANTS="seat-seatd-wait"   # the libseat tree on seatd: a vtium that waits for its VT to be shown, and one that waits while another client holds the seat (The seat and a kernel panic)
 make tier3 VARIANTS="boot-claim"     # vtium holds each VT that vtium console claims open from boot, with nobody switching VTs (The seat and a kernel panic)
 make tier3 VARIANTS="panic-sysrq kmsg-notice"   # a kernel panic and a kernel message (The seat and a kernel panic)
+make tier3 VARIANTS=apply-root   # vtium-config apply run as root: a font set installed, and a frits' directory others can write refused (Installing as root)
 make tier3-rootchecks        # measure ADR-1400 D4's checks in the guest, SEATD_SRC=DIR for the builtin backend (The checks of the privilege split)
 make test-tools              # the harness's self-tests, with no guest
 tools/tier3/showcase.sh      # the showcase: fetch its fonts, run showcase-1920x1080 and write docs/showcase/ (The showcase)
@@ -165,6 +166,14 @@ On the Arch guest, every variant that switches to tty2 waits after the switch fo
 `builtin-font` checks that vtium starts and draws with nothing installed (ADR-1204 D1), and `make tier3-minimal` runs it. It runs the minspec tree on the minspec machine, 1 vCPU and 512 MB at 1366×768, with the agent (`t3_builtin.py`). vtium first starts with `vtium-minimal.conf` and draws its login prompt, as in `2d-potato-min`. Then the agent's request `bare` stops vtium's unit and removes `/etc/vtium`, which holds vtium.conf, the font sets and their built glyphs. It also removes the folders where `guest/setup` installs font files for vtium, and the font helper `/usr/bin/vtium-config`. The agent then starts the unit again, and answers whether each path is gone and which vtium now runs. The agent stops the unit rather than restarting it. A restart keeps the login session's pty in systemd's file-descriptor store, so the login prompt would never be drawn again (ADR-1401 D13). A stop closes the store, so the new vtium starts a new login.
 
 The case `builtin-login` waits for the new vtium's `Display` line and captures its login prompt once the screen settles. The case `builtin-notice` then makes the kernel log an error through the agent's request `kmsg`, as `kmsg-notice` does, and captures vtium's notice box at its first count. No key is pressed for either case. vtium draws its notices in its built-in font, vtium built-in, whose 8×16 strike comes from Terminus. With nothing installed, vtium draws the terminal's text in the compiled-in GNU Unifont, so the login prompt shows Unifont until card 5b of ADR-1204 moves the terminal to vtium built-in. With no vtium.conf the cursor blinks, so the golden's sidecar masks the cursor's cell. Either step that fails fails both cases. Their goldens are `goldens/builtin-font/builtin-login.png` and `builtin-notice.png`, both provisional.
+
+## Installing as root
+
+`apply-root` checks `vtium-config apply`, the privileged step that installs a bundle into the system's directories, as root (ADR-1403 D8, `t3_apply.py`). The unit tests run apply only as an ordinary user, so this variant is where the root path runs. It runs on the minspec machine with `vtium-minimal.conf`, as `2d-potato-min` does, and only when named, as in `make tier3 VARIANTS=apply-root`.
+
+Once vtium shows its login prompt, the agent's request `apply-root` builds a bundle in a folder of root's own. Its MANIFEST writes the new font set `fonts/t3-apply.vtfrit`, the built-in Unscii-8 in its 8×8 cell, and a vtium.conf that names the set, with the installed vtium.conf's SHA-256. The agent runs `/usr/bin/vtium-config apply DIR` with no options, so the targets are the system's. It then opens `/etc/vtium/fonts` to every user with `chmod 0777` and runs apply on a second bundle, for the set `t3-open`. Afterwards it gives the folder its mode back, then stops vtium's unit on tty2 and starts it again.
+
+The check `apply-root` passes when the first apply exits 0 and writes both files. The set must be root's with mode 644, vtium.conf must name it, and `/run` must hold no `vtium-config-apply-*` folder afterwards. The second apply must fail with the console walk's refusal, write neither file and leave nothing in `/run`. The new vtium must then log that its font is the frit `t3-apply` and draw a screen that is not blank. The check keeps that screen as evidence, and no golden judges it.
 
 ## The default font sets
 

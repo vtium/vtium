@@ -24,6 +24,7 @@ import json
 import multiprocessing
 import os
 import pickle
+import pwd
 import re
 import shlex
 import shutil
@@ -44,6 +45,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import t3  # noqa: E402
 import t3_batch  # noqa: E402
 import t3_bench  # noqa: E402
+import t3_apply  # noqa: E402
 import t3_builtin  # noqa: E402
 import t3_devices  # noqa: E402
 import t3_fonts  # noqa: E402
@@ -4332,7 +4334,9 @@ class HeadsTest(unittest.TestCase):
                     "chvt", "chvt 3", "chvt 12", "Chvt 1", "chvt 1;id", "chvt 2 now",
                     "chvt 1 && touch pwned-chvt", "chvt $(touch %s/pwned-chvt)" % d.name,
                     "bare now", "Bare", "bare;id", "bare && touch pwned-bare",
-                    "planes now", "Planes", "planes;id", "planes && touch pwned-planes"]
+                    "planes now", "Planes", "planes;id", "planes && touch pwned-planes",
+                    "apply-root now", "Apply-root", "apply-root;id", "apply-root /tmp/x",
+                    "apply-root && touch pwned-apply"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 self.assertEqual(ask(n, request), ["refused %s" % request.strip()])
@@ -7869,6 +7873,193 @@ esac
         self.assertEqual(errors, {case: "the agent did not remove /etc/vtium: kept"
                                   for case in t3_builtin.CASES})
         self.assertEqual((vm.waited, phases, stable.called), ([], [], False))
+
+
+class ApplyRootTest(unittest.TestCase):
+    """The check of vtium-config's privileged step as root (t3_apply,
+    ADR-1403 D8): its variant, the agent's `apply-root` and the verdict on
+    its answer, and the driver's path through the check."""
+
+    def test_the_variant(self):
+        # The minspec machine of 2d-potato-min with the agent; its one case
+        # is a check without a golden.
+        v = t3_scenario.VARIANTS["apply-root"]
+        potato = t3_scenario.VARIANTS["2d-potato-min"]
+        for key in ("device", "cpus", "memory_mb", "renderer", "images", "conf"):
+            self.assertEqual(v[key], potato[key], key)
+        self.assertTrue(v["agent"])
+        self.assertEqual(t3_scenario.variant_cases("apply-root"), [t3_apply.CASE])
+        self.assertIn(t3_apply.CASE, t3_evaluate.NO_GOLDEN)
+        self.assertEqual(t3_evaluate.golden_for("apply-root", t3_apply.CASE), (None, None))
+        self.assertIs(t3_scenario.CHECK_RUNS[t3_apply.CASE], t3_apply.check_apply_root)
+
+    GOOD = ["apply said wrote\t/etc/vtium/fonts/t3-apply.vtfrit",
+            "apply said wrote\t/etc/vtium/vtium.conf",
+            "apply status 0", "apply frit root 644", "apply left 0", "apply conf 1",
+            "open was 755",
+            "open said vtium-config: vtium reads no font set in /etc/vtium/fonts, so the "
+            "install writes none there: other users can change \"/etc/vtium/fonts\" (mode "
+            "777). Run `chmod go-w /etc/vtium/fonts` so that only its owner can change it.",
+            "open said Nothing was installed.",
+            "open status 1", "open frit none", "open left 0", "open conf 0", "open mode 755",
+            "before 765", "stopped vtium@tty2.service", "started vtium@tty2.service",
+            "unit vtium@tty2.service active", "vtium 832 0.0"]
+
+    def test_the_answer_is_judged_both_ways(self):
+        self.assertIsNone(t3_apply.apply_verdict(t3_apply.parse_apply(self.GOOD)))
+        for change, why in (
+                (("apply status 0", "apply status 1"), "apply as root exited 1: "),
+                (("apply said wrote\t/etc/vtium/vtium.conf", "apply said failed"),
+                 "apply as root did not write /etc/vtium/vtium.conf: "),
+                (("apply frit root 644", "apply frit root 600"),
+                 "the installed font set is root 600, not root's with mode 644"),
+                (("apply conf 1", "apply conf 0"),
+                 "the installed vtium.conf names t3-apply on 0 lines, not 1"),
+                (("apply left 0", "apply left 1"), "apply as root left 1 private folders in /run"),
+                (("open status 1", "open status 0"),
+                 "apply wrote into a frits' directory at mode 0777 (exit 0): "),
+                (("open said Nothing was installed.", "open said Nothing was installed."),
+                 None),
+                (("open frit none", "open frit root 644"),
+                 "the refused install left the font set t3-open, root 644"),
+                (("open conf 0", "open conf 1"),
+                 "the refused install changed vtium.conf to name t3-open"),
+                (("open left 0", "open left 2"), "the refused install left 2 private folders in /run"),
+                (("open mode 755", "open mode 777"),
+                 "the frits' directory has mode 777 afterwards, not its mode before, 755"),
+                (("unit vtium@tty2.service active", "unit vtium@tty2.service failed"),
+                 "vtium's unit did not start again: its state is failed"),
+                (("vtium 832 0.0", "none"), "vtium's unit runs no process after its start"),
+                (("vtium 832 0.0", "vtium 765 9.0"),
+                 "vtium's PID is 765 before and after, so the agent started no new vtium")):
+            with self.subTest(change):
+                lines = [change[1] if line == change[0] else line for line in self.GOOD]
+                got = t3_apply.apply_verdict(t3_apply.parse_apply(lines))
+                if why is None:
+                    self.assertIsNone(got)
+                else:
+                    self.assertIsNotNone(got)
+                    self.assertTrue(got.startswith(why), got)
+        # a refusal in other words than the walk's is not the refusal sought
+        lines = [l for l in self.GOOD if "other users can change" not in l]
+        self.assertIn("is not the walk's",
+                      t3_apply.apply_verdict(t3_apply.parse_apply(lines)))
+
+    # vtium-config's privileged step, as a fake below T3_AGENT_ROOT: it
+    # refuses a bundle whose MANIFEST does not give the installed vtium.conf's
+    # hash, or whose frits' directory others can write, in the walk's words;
+    # otherwise it installs the bundle's font set and vtium.conf. Each run
+    # leaves a private folder in /run while it works, and removes it.
+    FAKE_APPLY = r"""#!/bin/bash
+r=$T3_AGENT_ROOT
+[ "$1" = apply ] || exit 2
+d=$2
+mkdir "$r/run/vtium-config-apply-fake"
+trap 'rmdir "$r/run/vtium-config-apply-fake"' EXIT
+want=$(printf 'write\tvtium.conf\t%s' "$(sha256sum < "$r/etc/vtium/vtium.conf" | cut -d' ' -f1)")
+frit=$(sed -n 's|^write\tfonts/\(.*\)\tnew$|\1|p' "$d/MANIFEST")
+grep -qxF "$want" "$d/MANIFEST" || { echo "vtium-config: changed"; exit 1; }
+if [ "$(stat -c %a "$r/etc/vtium/fonts")" = 777 ]; then
+    echo "vtium-config: vtium reads no font set in /etc/vtium/fonts, so the install writes none there: other users can change it"
+    echo "Nothing was installed."
+    exit 1
+fi
+install -m644 "$d/fonts/$frit" "$r/etc/vtium/fonts/$frit"
+install -m644 "$d/vtium.conf" "$r/etc/vtium/vtium.conf"
+printf 'wrote\t/etc/vtium/fonts/%s\nwrote\t/etc/vtium/vtium.conf\n' "$frit"
+"""
+
+    def test_the_agent_installs_one_bundle_and_has_the_other_refused(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        bin_dir, unit, root = (os.path.join(d.name, n) for n in ("bin", "unit", "root"))
+        for path in (bin_dir, unit, os.path.join(root, "etc/vtium/fonts"),
+                     os.path.join(root, "usr/bin"), os.path.join(root, "run"),
+                     os.path.join(root, "root")):
+            os.makedirs(path)
+        os.chmod(os.path.join(root, "etc/vtium/fonts"), 0o755)
+        with open(os.path.join(root, "etc/vtium/vtium.conf"), "w") as f:
+            f.write("no-blink\n")
+        for path, text in ((os.path.join(bin_dir, "systemctl"), BuiltinFontTest.FAKE_SYSTEMCTL),
+                           (os.path.join(root, "usr/bin/vtium-config"), self.FAKE_APPLY)):
+            with open(path, "w") as f:
+                f.write(text)
+            os.chmod(path, 0o755)
+        with open(os.path.join(unit, "pid"), "w") as f:
+            f.write("765\n")
+        ask = HeadsTest.start_agent(self, d.name, {
+            "PATH": bin_dir + os.pathsep + os.environ["PATH"], "T3_FAKE_UNIT": unit,
+            "T3_AGENT_ROOT": root, "T3_AGENT_TEMPLATE": os.path.join(d.name, "none"),
+            "T3_FAKE_PID": str(os.getpid())})
+        answer = ask(1, "apply-root")
+        got = t3_apply.parse_apply(answer)
+        user = pwd.getpwuid(os.getuid()).pw_name
+        self.assertEqual(got["apply"], {
+            "said": ["wrote\t/etc/vtium/fonts/t3-apply.vtfrit", "wrote\t/etc/vtium/vtium.conf"],
+            "status": 0, "frit": "%s 644" % user, "left": 0, "conf": 1}, answer)
+        self.assertEqual(got["open"]["status"], 1, answer)
+        self.assertEqual((got["open"]["frit"], got["open"]["left"], got["open"]["conf"]),
+                         ("none", 0, 0), answer)
+        self.assertEqual((got["was"], got["mode"]), ("755", "755"))
+        self.assertEqual((got["before"], got["started"], got["state"], got["after"]),
+                         (765, True, "active", os.getpid()))
+        # the set installed is the built-in Unscii-8 in its 8x8 cell, and
+        # vtium.conf names it at its top level after what it held
+        with open(os.path.join(root, "etc/vtium/fonts/t3-apply.vtfrit")) as f:
+            self.assertEqual([l for l in f.read().splitlines() if not l.startswith("#")],
+                             ["source=builtin:unscii-8", "cell=8x8"])
+        with open(os.path.join(root, "etc/vtium/vtium.conf")) as f:
+            self.assertEqual(f.read(), "no-blink\nfont-name=t3-apply\n")
+        # the bundles are gone, and the agent stopped vtium before it
+        # started it again
+        self.assertEqual(os.listdir(os.path.join(root, "root")), [])
+        with open(os.path.join(unit, "calls")) as f:
+            calls = [c.split(" etc-vtium")[0] for c in f.read().splitlines()
+                     if not c.startswith("show")]
+        self.assertEqual(calls, ["stop vtium@tty2.service", "start vtium@tty2.service"])
+
+    class FakeVm:
+        """A guest whose agent answers `apply-root` with `answer`."""
+
+        def __init__(self, serial, answer):
+            self.serial, self.answer, self.asked, self.waited = serial, answer, [], []
+
+        def ask(self, request, timeout=30):
+            self.asked.append(request)
+            return self.answer
+
+        def wait_serial(self, marker, timeout, since=0):
+            self.waited.append((marker, since))
+            return marker
+
+    def drive(self, answer):
+        """check_apply_root on a FakeVm answering `answer` and a screen that
+        settles at once: (caps, errors, the vm, the wait_stable mock)."""
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        serial = os.path.join(d.name, "serial.log")
+        with open(serial, "wb") as f:
+            f.write(b"0123456789")
+        vm = self.FakeVm(serial, answer)
+        caps, errors = {}, {}
+        with mock.patch.object(t3_apply, "wait_stable") as stable:
+            t3_apply.check_apply_root({}, vm, d.name, caps, errors, LOG)
+        return caps, errors, vm, stable, d.name
+
+    def test_the_driver_waits_for_the_new_vtium_s_font(self):
+        caps, errors, vm, stable, work = self.drive(self.GOOD)
+        self.assertEqual(errors, {})
+        self.assertEqual(vm.asked, [t3_apply.CASE])
+        self.assertEqual(vm.waited, [(t3_apply.FONT_LINE, 10)])
+        self.assertEqual(caps, {t3_apply.CASE: os.path.join(work, "apply-root.ppm")})
+        self.assertEqual(stable.call_args.args[1], os.path.join(work, "apply-root.ppm"))
+
+    def test_an_answer_that_fails_fails_the_check_with_no_capture(self):
+        lines = ["open status 0" if l == "open status 1" else l for l in self.GOOD]
+        caps, errors, vm, stable, _ = self.drive(lines)
+        self.assertEqual(caps, {})
+        self.assertIn("apply wrote into a frits' directory at mode 0777", errors[t3_apply.CASE])
+        self.assertEqual((vm.waited, stable.called), ([], False))
 
 
 class HandOverTest(unittest.TestCase):
